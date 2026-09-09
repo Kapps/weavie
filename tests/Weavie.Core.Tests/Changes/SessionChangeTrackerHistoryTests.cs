@@ -27,6 +27,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	public void UndoLastKeep_RestoresPendingHunk() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, fileSystem, "/w/pending.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept → review baseline == current (no pending hunk)
 		Assert.True(tracker.CanUndoKeep);
@@ -39,7 +40,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 		Assert.NotNull(change);
 		Assert.Equal("a\nb\n", change!.BaselineText); // baseline rolled back, hunk pending again
 		Assert.Equal("a\nB\n", change.CurrentText);
-		Assert.Single(tracker.TurnChanges());
+		Assert.Equal(2, tracker.TurnChanges().Count);
 		Assert.False(tracker.CanUndoKeep);
 		Assert.True(tracker.CanRedo);
 	}
@@ -48,6 +49,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	public void Redo_AfterUndoKeep_ReappliesIt() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, fileSystem, "/w/pending.txt");
 		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
 		tracker.UndoLastKeep();
 
@@ -100,6 +102,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	public void UndoRedo_OfHunkAction_CarriesTheActedLine() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nb\nc\nD\n");
+		ReviewTestChanges.AddPendingFile(tracker, fileSystem, "/w/pending.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
 
 		// The undo/redo name the hunk's current-side line, so the host lands on it — not the file's first hunk.
@@ -115,6 +118,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	public void UndoRedo_OfFileScopeAction_CarriesNoLine() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, fileSystem, "/w/pending.txt");
 		tracker.KeepFile("/w/a.txt");
 
 		Assert.Null(tracker.UndoLastKeep().Line);
@@ -153,6 +157,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	public void UndoKeep_PreservesNewerUnrelatedEditToSamePath() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, fileSystem, "/w/pending.txt");
 		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
 
 		// A newer edit lands on the same file after the keep.
@@ -168,32 +173,16 @@ public sealed class SessionChangeTrackerHistoryTests {
 	}
 
 	[Fact]
-	public void AcceptTurn_PreservesAlreadyKeptDecisionsAndHistory() {
-		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\n", "A\n");
-		tracker.KeepHunk("/w/a.txt", new LineRange(1, 2), new LineRange(1, 2), "A");
+	public void CloseReview_ClearsPartialKeepHistory() {
+		var files = new InMemoryFileSystem();
+		var tracker = Changed(files, "/w/a.txt", "a\nb\n", "A\nB\n");
+		Assert.True(tracker.KeepHunk("/w/a.txt", new(1, 2), new(1, 2), "A"));
 		Assert.True(tracker.CanUndoKeep);
-
-		tracker.AcceptTurn();
-
-		Assert.True(tracker.CanUndoKeep);
-		Assert.False(tracker.CanRedo);
-		Assert.True(tracker.UndoLastKeep().Acted);
-		Assert.Equal("a\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
-	}
-
-	[Fact]
-	public void AcceptTurn_IsOneReversibleKeepOfPendingChanges() {
-		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "A\nB\n");
-		tracker.AcceptTurn();
-
-		Assert.Equal("A\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
-		Assert.Equal("a\nb\n", tracker.GetTurn("/w/a.txt")!.AcceptedBaselineText);
-		Assert.True(tracker.UndoLastKeep().Acted);
-		Assert.Equal("a\nb\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+		tracker.CloseReview();
+		Assert.Empty(tracker.TurnChanges());
 		Assert.False(tracker.CanUndoKeep);
-		Assert.Equal("A\nB\n", fileSystem.ReadAllText("/w/a.txt"));
+		Assert.False(tracker.CanRedo);
+		Assert.Equal("A\nB\n", files.ReadAllText("/w/a.txt"));
 	}
 
 	[Fact]

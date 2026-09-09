@@ -63,6 +63,7 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
     [CommandIds.undoChange, forSession((session) => editor.review.revert(session))],
     [CommandIds.keepFile, forSession((session, path) => editor.review.keepFile(session, path))],
     [CommandIds.revertFile, forSession((session, path) => editor.review.revertFile(session, path))],
+    [CommandIds.reviewClose, forSession((session) => editor.review.close(session))],
     [CommandIds.keepAll, forSession((session) => editor.review.keepAll(session))],
     [
       CommandIds.reviewToggleFile,

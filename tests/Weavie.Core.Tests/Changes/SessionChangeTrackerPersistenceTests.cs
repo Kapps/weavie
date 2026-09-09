@@ -95,10 +95,10 @@ public sealed class SessionChangeTrackerPersistenceTests {
 
 		var resumed = Tracker(files, persistence);
 		var change = Assert.Single(resumed.TurnChanges());
-		Assert.Equal("original\n", change.AcceptedBaselineText);
+		Assert.Equal("kept proposal\n", change.AcceptedBaselineText);
 		Assert.Equal("kept proposal\n", change.BaselineText);
 		Assert.Equal("new proposal\n", change.CurrentText);
-		Assert.True(resumed.UndoLastKeep().WasBlocked);
+		Assert.False(resumed.CanUndoKeep);
 		Assert.Equal("new proposal\n", files.ReadAllText(File));
 	}
 
@@ -111,6 +111,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		files.WriteAllText(File, "top\nold\nbottom\n");
 		var tracker = Tracker(files, persistence);
 		Edit(tracker, files, "top\nproposal\nbottom\n");
+		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
 		if (keep) Assert.True(tracker.KeepHunk(File, new(2, 3), new(2, 3), "proposal"));
 		else Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertHunk(File, new(2, 3), new(2, 3), "proposal"));
 		files.WriteAllText(File, "top\nuser replacement\nbottom\n");
@@ -233,14 +234,14 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public void RetryingKeepAfterSaveFailure_CheckpointsTheDecision(bool all) {
+	public void RetryingFinalAcceptanceAfterSaveFailure_CheckpointsClosure(bool all) {
 		var files = new InMemoryFileSystem();
 		var persistence = new FailingPersistence();
 		files.WriteAllText(File, "old\n");
 		var tracker = Tracker(files, persistence);
 		Edit(tracker, files, "proposal\n");
 		persistence.Fail = true;
-		void Keep() { if (all) tracker.AcceptTurn(); else tracker.KeepFile(File); }
+		void Keep() { if (all) tracker.CloseReview(); else tracker.KeepFile(File); }
 		Assert.Throws<IOException>(Keep);
 		Assert.Equal("old\n", Tracker(files, persistence).GetTurn(File)!.BaselineText);
 		persistence.Fail = false;
@@ -248,8 +249,8 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		Keep();
 		var resumed = Tracker(files, persistence);
 		Assert.Equal("proposal\n", resumed.GetTurn(File)!.BaselineText);
-		Assert.True(resumed.UndoLastKeep().Acted);
-		Assert.Equal("old\n", resumed.GetTurn(File)!.BaselineText);
+		Assert.Empty(resumed.TurnChanges());
+		Assert.False(resumed.CanUndoKeep);
 	}
 
 	private sealed class FailingPersistence : IReviewPersistence {

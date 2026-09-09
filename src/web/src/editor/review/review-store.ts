@@ -103,6 +103,10 @@ interface MutableReviewBoard extends SessionReviewBoard {
   touch(): void;
 }
 
+export function canCloseReview(state: Pick<SessionReviewBoard, "files" | "label">): boolean {
+  return state.files.length > 0 || state.label.length > 0;
+}
+
 export interface ReviewStore {
   overview: Accessor<ReviewOverview>;
   overviewFor(session: ClientSession): ReviewOverview;
@@ -175,6 +179,7 @@ export function createReviewStore(
     if (selected !== session) return;
     setCount(state.files.length);
     setOverview(overviewFor(session));
+    setContext("reviewClosable", canCloseReview(state));
     setContext("reviewSetActive", state.files.length > 0);
   };
 
@@ -275,6 +280,7 @@ export function createReviewStore(
     state.label = label;
     state.added = files.reduce((total, file) => total + file.added, 0);
     state.removed = files.reduce((total, file) => total + file.removed, 0);
+    if (files.length === 0) save(session, state);
     publish(session, state);
     return state;
   };
@@ -357,6 +363,7 @@ export function createReviewStore(
     if (session === null) {
       setOverview(emptyOverview());
       setCount(0);
+      setContext("reviewClosable", false);
       setContext("reviewSetActive", false);
     } else {
       publish(session, board(session));

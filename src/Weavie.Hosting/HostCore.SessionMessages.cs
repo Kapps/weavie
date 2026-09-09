@@ -54,8 +54,12 @@ public sealed partial class HostCore {
 		});
 
 		var review = session.Bus.Feature("review");
+		review.Handle<EmptySessionMessage>("close", (_, _) => {
+			RunReviewAction(session, () => CloseReview(session));
+			return Task.CompletedTask;
+		});
 		review.Handle<EmptySessionMessage>("accept", (_, _) => {
-			RunReviewAction(session, () => AcceptTurn(session));
+			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
 		review.Handle<EmptySessionMessage>("revertAll", (_, _) => {

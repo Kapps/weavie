@@ -35,6 +35,7 @@ const review = {
   revert: vi.fn(() => true),
   keepFile: vi.fn(() => true),
   revertFile: vi.fn(() => true),
+  close: vi.fn(() => true),
   keepAll: vi.fn(() => true),
   undoKeep: vi.fn(() => true),
   undoRevert: vi.fn(() => true),
@@ -66,6 +67,7 @@ describe("review command bindings", () => {
     await run(CommandIds.undoChange, undefined, right);
     await run(CommandIds.keepFile, { path: "/right/one.ts" }, right);
     await run(CommandIds.revertFile, { path: "/right/two.ts" }, right);
+    await run(CommandIds.reviewClose, undefined, right);
     await run(CommandIds.keepAll, undefined, right);
     await run(CommandIds.undoKeep, undefined, right);
     await run(CommandIds.undoRevert, undefined, right);
@@ -74,6 +76,7 @@ describe("review command bindings", () => {
     expect(review.revert).toHaveBeenCalledWith(right);
     expect(review.keepFile).toHaveBeenCalledWith(right, "/right/one.ts");
     expect(review.revertFile).toHaveBeenCalledWith(right, "/right/two.ts");
+    expect(review.close).toHaveBeenCalledWith(right);
     expect(review.keepAll).toHaveBeenCalledWith(right);
     expect(review.undoKeep).toHaveBeenCalledWith(right);
     expect(review.undoRevert).toHaveBeenCalledWith(right);

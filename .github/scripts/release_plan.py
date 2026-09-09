@@ -108,7 +108,8 @@ def main():
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
         summary.write(f"## {plan['channel']} {plan['version']}.{plan['build']}\n\n"
                       f"Source commit: `{plan['commit']}`\n\n"
-                      "Stable publishes only after every platform check and package succeeds.\n")
+                      "Publication requires complete packages. Release check failures remain visible "
+                      "but do not block publication.\n")
 
 
 if __name__ == "__main__":

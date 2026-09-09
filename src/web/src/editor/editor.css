@@ -278,7 +278,7 @@
 
 /* Entry point to unified review. Reads as a live, pressable control at rest — a dimmed one is indistinguishable
    from a disabled one, and this is the affordance that teaches the mode exists. */
-.editor-review-open {
+.editor-review-action {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -293,12 +293,12 @@
   cursor: pointer;
 }
 
-.editor-review-open:not(:disabled):hover {
+.editor-review-action:not(:disabled):hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.editor-review-open:focus-visible {
+.editor-review-action:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }

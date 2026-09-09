@@ -44,6 +44,7 @@ export type { TabActions } from "./tab-actions";
 import { setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
+  canCloseReview,
   createReviewStore,
   type ReviewComments,
   type ReviewFile,
@@ -180,6 +181,7 @@ export interface EditorController {
   captureTab(tab: TabOwner): void;
   readonly review: {
     scope: ReviewScopeState;
+    canClose(): boolean;
     overview(): ReviewOverview;
     overviewFor(session: ClientSession): ReviewOverview;
     configureDiff(
@@ -194,6 +196,7 @@ export interface EditorController {
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
+    close(session: ClientSession): boolean;
     keepAll(session: ClientSession): boolean;
     revertAll(session: ClientSession): boolean;
     undoKeep(session: ClientSession): boolean;
@@ -1096,7 +1099,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
+    const wasOpen = canCloseReview(reviews.board(session));
     reviews.setFiles(session, files, label);
+    if (wasOpen && !canCloseReview(reviews.board(session)))
+      void tabs.capture(session, REVIEW_TAB_KEY).close();
     renderReviewState(session);
   };
 
@@ -1482,6 +1488,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     parkedReviewCount: reviews.count,
     review: {
       scope: reviewScope,
+      canClose: () => canCloseReview(reviews.overview()),
       overview: reviews.overview,
       overviewFor: reviews.overviewFor,
       configureDiff: (tab, inline, uri, message, reveal) => {
@@ -1536,6 +1543,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           return false;
         }
         revertFile(session, file.path);
+        return true;
+      },
+      close: (session) => {
+        if (!canCloseReview(reviews.board(session))) return false;
+        session.feature("review").publish("close", {});
         return true;
       },
       keepAll: (session) => {

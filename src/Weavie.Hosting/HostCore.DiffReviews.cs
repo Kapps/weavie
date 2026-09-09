@@ -29,6 +29,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		ReviewContext review;
@@ -61,7 +62,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			await SeedAndArmReviewAsync(review, session, changes, ct).ConfigureAwait(false);
+			await SeedAndArmReviewAsync(review, session, changes, request, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
 		}
@@ -79,9 +80,8 @@ public sealed partial class HostCore {
 		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
+		object request,
 		CancellationToken ct) {
-		object arm = new();
-		session.ReviewArm = arm;
 		bool resuming = session.Changes.Review is not null;
 
 		var git = new GitService();
@@ -102,13 +102,10 @@ public sealed partial class HostCore {
 
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
 		await _ui.InvokeAsync(() => {
-			if (!ReferenceEquals(session.ReviewArm, arm)) {
-				return Task.CompletedTask;
-			}
-
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
-			session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
-				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray());
+			if (!session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
+				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray(), request))
+				return Task.CompletedTask;
 
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);

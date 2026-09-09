@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
+import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 const lineCount = 4_000;
@@ -104,6 +105,7 @@ test.describe("unified review mode — large replacement", () => {
       steps: [
         { op: "edit", path: "{{WORKSPACE}}/replacement.txt", content: lines("old") },
         ...appliedEdit("replacement.txt", lines("new")),
+        ...appliedEdit("z-pending.txt", "a pending change\n"),
       ],
     },
   });
@@ -111,8 +113,11 @@ test.describe("unified review mode — large replacement", () => {
   test("bounds pending and accepted ghosts through wheel scrolling and reopening a kept file", async ({
     page,
   }) => {
+    await awaitReviewSet(page, ["replacement.txt", "z-pending.txt"]);
     await page.locator(".editor-empty-review").click();
-    const section = page.locator(".unified-review-file");
+    const section = page.locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: "replacement.txt" }),
+    });
     const scroller = page.locator(".unified-review-diffs");
     const ghost = section.locator(".weavie-inline-removed-content");
     const toolbar = page.locator(".weavie-inline-toolbar");

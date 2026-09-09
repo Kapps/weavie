@@ -232,7 +232,7 @@ public static class CoreCommands {
 	/// <summary>Rejects the current change: a proposed edit (default-mode openDiff) or, in post-turn review, the current hunk (revert it on disk + advance).</summary>
 	public const string RejectChange = "weavie.diff.reject";
 
-	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode); Keep-all is the cosmetic counterpart.</summary>
+	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode).</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
 	/// <summary>Reviews the working tree's diff against a ref (arg <c>ref</c>, or a prompt); bound to <c>$mod+Shift+d</c>.</summary>
@@ -274,7 +274,7 @@ public static class CoreCommands {
 	/// <summary>Reverts every change in the active review file on disk (confirms first); palette/Claude only, scope also reachable via the toolbar picker.</summary>
 	public const string RevertFile = "weavie.review.revertFile";
 
-	/// <summary>Keeps the whole accumulated review set (the cosmetic counterpart to Undo All Changes); palette/Claude only.</summary>
+	/// <summary>Accepts the whole accumulated review set and closes it; palette/Claude only.</summary>
 	public const string KeepAll = "weavie.review.keepAll";
 
 	/// <summary>Undoes the most recent keep — re-pending its change(s); bound to <c>$mod+Shift+Enter</c>.</summary>
@@ -1548,7 +1548,7 @@ public static class CoreCommands {
 			Title = "Keep All Changes (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Keep all pending changes as one reversible decision. Kept changes and review history remain available.",
+			Description = "Accept all remaining changes and close the diff review.",
 			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
 		});
 

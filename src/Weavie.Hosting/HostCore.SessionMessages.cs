@@ -59,7 +59,7 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		review.Handle<EmptySessionMessage>("accept", (_, _) => {
-			RunReviewAction(session, () => AcceptTurn(session));
+			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
 		review.Handle<EmptySessionMessage>("revertAll", (_, _) => {

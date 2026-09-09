@@ -27,7 +27,7 @@ export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): 
           type="button"
           class="unified-review-action keep"
           disabled={!props.overview().fullyLoaded()}
-          title={`Keep all changes${keyHint(CommandIds.keepAll)}`}
+          title={`Keep all changes and close diff${keyHint(CommandIds.keepAll)}`}
           onClick={() => void runCommandWithFeedback(CommandIds.keepAll)}
         >
           <Check size="1em" /> Keep all

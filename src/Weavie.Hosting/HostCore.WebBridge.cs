@@ -310,17 +310,7 @@ public sealed partial class HostCore {
 
 	private void CloseReview(HostSession session) {
 		session.Changes.CloseReview();
-		session.ReviewArm = new object();
-		PushReviewHistoryToWeb(session);
-		PushTurnChangesToWeb(session);
-	}
-
-	/// <summary>Keeps every pending change, retaining faded proof and undo history.</summary>
-	private void AcceptTurn(HostSession session) {
-		session.Changes.AcceptTurn();
-		PushTurnChangesToWeb(session);
-		foreach (var file in session.Changes.TurnChangeSummaries()) PushTurnDiffToWeb(session, file.Change.Path);
-		PushReviewHistoryToWeb(session);
+		PushReviewActionToWeb(session, []);
 	}
 
 	/// <summary>
@@ -371,6 +361,7 @@ public sealed partial class HostCore {
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is { } turn
 				&& turn.CurrentExists
+				&& (turn.BaselineText != turn.CurrentText || turn.BaselineExists != turn.CurrentExists)
 				&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
 				session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
 				return;
@@ -407,13 +398,16 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		PushReviewActionToWeb(session, result.Paths);
+	}
+
+	private void PushReviewActionToWeb(HostSession session, IReadOnlyList<string> paths) {
 		PushReviewHistoryToWeb(session);
-		foreach (string path in result.Paths) {
-			if (session.Changes.GetTurn(path) is not null) {
-				PushTurnDiffToWeb(session, path);
+		if (session.Changes.TurnChanges().Count > 0) {
+			foreach (string path in paths) {
+				if (session.Changes.GetTurn(path) is not null) PushTurnDiffToWeb(session, path);
 			}
 		}
-
 		PushTurnChangesToWeb(session);
 	}
 
@@ -495,10 +489,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
-		PushReviewHistoryToWeb(session);
-		PushTurnDiffToWeb(session, path);
-		PushTurnChangesToWeb(session);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>
@@ -512,10 +503,7 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
-		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
-		PushReviewHistoryToWeb(session);
-		PushTurnDiffToWeb(session, path);
-		PushTurnChangesToWeb(session);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>

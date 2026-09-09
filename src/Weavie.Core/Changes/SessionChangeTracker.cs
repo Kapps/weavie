@@ -26,7 +26,7 @@ public sealed partial class SessionChangeTracker {
 	private readonly TrackedMap<string> _current;
 	// Absence is review data, including rejected creations and observed deletions.
 	private readonly TrackedSet _missingCurrent;
-	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
+	// Each file's last-reviewed content; advanced only on acceptance or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly TrackedMap<string> _reviewBaseline;
 	private readonly TrackedSet _missingReviewBaseline;
@@ -137,22 +137,6 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>Keeps all pending changes as one reversible decision; the review remains available.</summary>
-	public void AcceptTurn() {
-		lock (_gate) {
-			ReconcileReviewDisk();
-			var paths = _current.Keys.Where(path => !_nonText.ContainsKey(path) && (_reviewBaseline.GetValueOrDefault(path) != _current[path]
-				|| _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path))).ToList();
-			if (paths.Count == 0) { Checkpoint(); return; }
-			var before = paths.ConvertAll(path => Capture(path, withDisk: true));
-			foreach (string path in paths) {
-				_reviewBaseline[path] = _current[path];
-				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
-				SetAllPending(path, false);
-			}
-			Record(ReviewActionKind.Keep, touchesDisk: false, line: null, before);
-		}
-	}
 
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
 	/// <param name="path">Absolute file path.</param>
@@ -533,7 +517,10 @@ public sealed partial class SessionChangeTracker {
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
 			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal) || existenceChanged) {
 				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before]);
-			} else Checkpoint();
+			} else {
+				CompleteAcceptanceLocked();
+				Checkpoint();
+			}
 		}
 	}
 
@@ -561,6 +548,8 @@ public sealed partial class SessionChangeTracker {
 
 		lock (_gate) {
 			string reviewRaw = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+			if (reviewRaw == _acceptedAnchor.GetValueOrDefault(path, string.Empty)
+				&& _missingReviewBaseline.Contains(path) == _missingAcceptedAnchor.Contains(path)) return false;
 			var reviewLines = SplitLines(reviewRaw);
 			if (!TryGetSlice(reviewLines, reviewRange, out var reviewSlice)
 				|| !string.Equals(string.Join("\n", reviewSlice), guardText, StringComparison.Ordinal)) {

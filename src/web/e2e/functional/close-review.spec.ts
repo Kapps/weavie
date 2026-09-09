@@ -21,42 +21,48 @@ async function expectClosed(page: Page): Promise<void> {
 test.describe("close diff", () => {
   test.use({ fakeScript: { steps: appliedEdit("notes.txt", CHANGED) } });
 
-  test("closing pending unified review keeps changes and stays closed after unload and restart", async ({
-    page,
-    weavie,
-  }) => {
-    test.slow();
-    await openFile(page, "notes.txt");
-    await expect(page.locator(".weavie-inline-added")).toBeVisible();
-    await page.locator(".editor-review-toggle").click();
-    await expect(page.locator(".unified-review")).toBeVisible();
-    const close = page.locator(".editor-review-close");
-    await expect(close).toHaveAttribute("title", /Accept remaining changes and close diff.*\(/);
-    await close.click();
-    await expectClosed(page);
-    expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
+  for (const action of ["Close Diff", "Keep Change"]) {
+    test(`${action} closes unified review and stays closed after unload and restart`, async ({
+      page,
+      weavie,
+    }) => {
+      test.slow();
+      await openFile(page, "notes.txt");
+      await expect(page.locator(".weavie-inline-added")).toBeVisible();
+      await page.locator(".editor-review-toggle").click();
+      await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
+      const close = page.locator(".editor-review-close");
+      await expect(close).toHaveAttribute("title", /Accept remaining changes and close diff.*\(/);
+      if (action === "Close Diff") {
+        await close.click();
+      } else {
+        await page.locator(".unified-review .weavie-inline-pending-keep").click();
+      }
+      await expectClosed(page);
+      expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
 
-    await writeFakeScript(weavie.home, []);
-    await runCommand(page, "Unload Session");
-    await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
-    await page.locator(".session-chip.unloaded").click();
-    await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
-    await openFile(page, "notes.txt");
-    await expectClosed(page);
+      await writeFakeScript(weavie.home, []);
+      await runCommand(page, "Unload Session");
+      await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
+      await page.locator(".session-chip.unloaded").click();
+      await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
+      await openFile(page, "notes.txt");
+      await expectClosed(page);
 
-    await page.goto("about:blank");
-    await (weavie as HeadlessHost).restart();
-    const connect = await page.request.post(weavie.url, {
-      form: { token: weavie.token },
-      maxRedirects: 0,
+      await page.goto("about:blank");
+      await (weavie as HeadlessHost).restart();
+      const connect = await page.request.post(weavie.url, {
+        form: { token: weavie.token },
+        maxRedirects: 0,
+      });
+      expect(connect.status()).toBe(302);
+      await page.goto(weavie.url);
+      await expect(page.locator("#splash")).toHaveCount(0);
+      await openFile(page, "notes.txt");
+      await expectClosed(page);
+      expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
     });
-    expect(connect.status()).toBe(302);
-    await page.goto(weavie.url);
-    await expect(page.locator("#splash")).toHaveCount(0);
-    await openFile(page, "notes.txt");
-    await expectClosed(page);
-    expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
-  });
+  }
 
   for (const decision of ["Keep All Changes", "Undo All Changes"]) {
     test(`the fully reviewed state closes after ${decision}`, async ({ page, weavie }) => {
@@ -69,14 +75,55 @@ test.describe("close diff", () => {
         await page.getByRole("button", { name: "Revert all", exact: true }).click();
       }
       await expect(page.locator(".weavie-inline-added")).toHaveCount(0);
-      await expect(page.locator(".unified-review")).toBeVisible();
-      await page.locator(".editor-review-close").click();
+      if (decision === "Undo All Changes") {
+        await expect(page.locator(".unified-review")).toBeVisible();
+        await expect(page.locator(".weavie-inline-hist").first()).toBeEnabled();
+        await runCommand(page, "Undo Revert (Review)");
+        await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
+        await page.locator(".unified-review .weavie-inline-pending-revert").click();
+        await expect
+          .poll(() => readFile(join(weavie.workspace, "notes.txt"), "utf8"))
+          .toBe(ORIGINAL);
+        await expect(page.locator(".unified-review")).toBeVisible();
+        await page.locator(".editor-review-close").click();
+      }
       await expectClosed(page);
       expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(
         decision === "Keep All Changes" ? CHANGED : ORIGINAL,
       );
     });
   }
+});
+
+test.describe("last file acceptance", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("notes.txt", CHANGED),
+        ...appliedEdit("README.md", "# A changed readme\n"),
+      ],
+    },
+  });
+
+  test("keeping a file stays undoable while another is pending and the last file closes", async ({
+    page,
+  }) => {
+    await openFile(page, "notes.txt");
+    await expect(page.locator(".weavie-inline-added")).toBeVisible();
+    await page.locator(".editor-review-toggle").click();
+    const notes = page.locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
+    });
+    const readme = page.locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: "README.md" }),
+    });
+    await expect(readme.locator(".unified-review-file-action.keep")).toBeVisible();
+    await notes.locator(".unified-review-file-action.keep").click();
+    await expect(notes.locator(".unified-review-status")).toHaveText("Reviewed");
+    await expect(page.locator(".weavie-inline-hist").first()).toBeEnabled();
+    await readme.locator(".unified-review-file-action.keep").click();
+    await expectClosed(page);
+  });
 });
 
 test("file review closes from the keyboard and the same comparison opens fresh", async ({

@@ -62,6 +62,20 @@ for (const trigger of ["context menu", "shortcut"]) {
       );
       await revise.click();
     } else {
+      await section
+        .locator(".view-line")
+        .first()
+        .click({ button: "right", position: { x: 45, y: 4 } });
+      await expect(page.locator(".context-menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".context-menu")).toHaveCount(0);
+      await expect
+        .poll(() =>
+          section
+            .locator(".monaco-editor")
+            .evaluate((editor) => editor.contains(document.activeElement)),
+        )
+        .toBe(true);
       await page.keyboard.press("ControlOrMeta+Shift+e");
     }
     const prompt = page.locator(".session-prompt-input");

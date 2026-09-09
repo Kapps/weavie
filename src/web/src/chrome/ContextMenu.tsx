@@ -308,6 +308,7 @@ export function ContextMenu(props: {
   onClose: (reason: "dismiss" | "close") => void;
   dismissInside?: string;
 }): JSX.Element {
+  const returnFocus = document.activeElement;
   const [entries, setEntries] = createSignal<ContextMenuEntry[]>([]);
   createEffect(() => {
     const menu = props.menu;
@@ -344,7 +345,15 @@ export function ContextMenu(props: {
       props.onClose("close"),
     );
     onCleanup(
-      registerFloatingPanel("context-menu", () => props.onClose("dismiss"), "popover").dispose,
+      registerFloatingPanel(
+        "context-menu",
+        () => {
+          if (returnFocus instanceof HTMLElement && returnFocus.isConnected)
+            returnFocus.focus({ preventScroll: true });
+          props.onClose("dismiss");
+        },
+        "popover",
+      ).dispose,
     );
   });
   onCleanup(() => {

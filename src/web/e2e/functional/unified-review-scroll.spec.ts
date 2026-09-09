@@ -151,10 +151,7 @@ test.describe("unified review mode — large replacement", () => {
       await expect(ghost).toContainText("old line 3999");
       await expect.poll(renderedGhostLines).toBeLessThan(100);
       await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-      await expectUnobscuredLine(
-        section,
-        section.locator(".view-line", { hasText: "new line 3999" }),
-      );
+      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
       await expectBoundedEditor(section, scroller);
       if (reviewed) {
         await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();

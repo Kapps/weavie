@@ -174,6 +174,7 @@ export function UnifiedReview(props: {
     props.changed();
   };
   const surface = createReviewSurface({
+    signal: props.tab.signal,
     clear: props.clear,
     scroller: () => scroller!,
     focus: () => scroller?.focus(),

@@ -1099,10 +1099,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
-    const wasOpen = canCloseReview(reviews.board(session));
-    reviews.setFiles(session, files, label);
-    if (wasOpen && !canCloseReview(reviews.board(session)))
+    if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
       void tabs.capture(session, REVIEW_TAB_KEY).close();
+    reviews.setFiles(session, files, label);
     renderReviewState(session);
   };
 
@@ -1355,50 +1354,31 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session.feature("editor").publish("newScratch", {});
   };
 
-  // Save the active editor. A scratch buffer is sent to the host for a save-as dialog (autosave cancelled first
-  // so nothing re-creates the temp); a real file is already autosaved. Returns true either way.
+  const saveScratch = async (tab: TabOwner): Promise<void> => {
+    const { session, entry } = tab;
+    const native = !isBrowserHostedShell() && session.connection.isLocal;
+    const name = native ? basename(entry.path) : await deps.promptScratchName(basename(entry.path));
+    if (name === null) return;
+    tab.assertLive();
+    host?.cancelSave(session, entry.path);
+    const payload = {
+      path: entry.path,
+      content: host?.contentOf(session, entry.path) ?? "",
+      ...(native ? { suggestedName: name } : { name }),
+    };
+    const result = await session
+      .feature("editor")
+      .request<ScratchSaveResult, typeof payload>(
+        native ? "saveScratchAs" : "saveScratchNamed",
+        payload,
+      );
+    if (!tab.signal.aborted) applyScratchSave(session, result);
+  };
+
   const save = (tab: TabOwner): boolean => {
     tab.assertLive();
-    const { session, entry } = tab;
-    const path = entry.path;
-    if (entry?.scratch === true) {
-      // Only the native shell bound to its own local backend has a native Save-As dialog (save-scratch-as);
-      // otherwise prompt in-app for a name and send it for the host to resolve under the workspace.
-      if (isBrowserHostedShell() || !session.connection.isLocal) {
-        void deps.promptScratchName(basename(path)).then((name) => {
-          if (name === null) {
-            return;
-          }
-          host?.cancelSave(session, path);
-          void session
-            .feature("editor")
-            .request<ScratchSaveResult, { path: string; content: string; name: string }>(
-              "saveScratchNamed",
-              {
-                path,
-                content: host?.contentOf(session, path) ?? "",
-                name,
-              },
-            )
-            .then((result) => applyScratchSave(session, result))
-            .catch((error: unknown) => session.connection.reportError(error));
-        });
-      } else {
-        host?.cancelSave(session, path);
-        void session
-          .feature("editor")
-          .request<ScratchSaveResult, { path: string; content: string; suggestedName: string }>(
-            "saveScratchAs",
-            {
-              path,
-              content: host?.contentOf(session, path) ?? "",
-              suggestedName: basename(path),
-            },
-          )
-          .then((result) => applyScratchSave(session, result))
-          .catch((error: unknown) => session.connection.reportError(error));
-      }
-    }
+    if (tab.entry.scratch)
+      void saveScratch(tab).catch((error: unknown) => tab.session.connection.reportError(error));
     return true;
   };
 

@@ -1,6 +1,9 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   clickIntoEditor,
   openFile,
+  pressDocumentEnd,
   pressDocumentStart,
   runCommand,
   typeInEditor,
@@ -66,4 +69,36 @@ test("closing an unsaved scratch buffer prompts before discarding", async ({ pag
   await expect(dialog).toBeVisible();
   await dialog.locator(".confirm-btn-primary").click();
   await expect(page.locator(".editor-tab")).toHaveCount(0);
+});
+
+test("saving a scratch file replaces its tab and subsequent edits save to the named file", async ({
+  page,
+  weavie,
+}) => {
+  await runCommand(page, "New File");
+  const scratchPath = await page.locator(".editor-tab.active").getAttribute("title");
+  if (scratchPath === null) throw new Error("Scratch tab has no path");
+  await clickIntoEditor(page);
+  await typeInEditor(page, "scratch content");
+  await page.keyboard.press("ControlOrMeta+s");
+  const prompt = page.locator(".session-prompt-input");
+  await expect(prompt).toBeFocused();
+  await prompt.fill("saved-scratch.txt");
+  await prompt.press("Enter");
+  await expect(prompt).toHaveCount(0);
+  await expect(page.locator(".editor-tab")).toHaveCount(1);
+  await expect(page.locator(".editor-tab.active")).toHaveAttribute(
+    "title",
+    join(weavie.workspace, "saved-scratch.txt"),
+  );
+  await expect
+    .poll(() => readFile(join(weavie.workspace, "saved-scratch.txt"), "utf8"))
+    .toBe("scratch content");
+  await clickIntoEditor(page);
+  await pressDocumentEnd(page);
+  await typeInEditor(page, " plus a later edit");
+  await expect
+    .poll(() => readFile(join(weavie.workspace, "saved-scratch.txt"), "utf8"))
+    .toBe("scratch content plus a later edit");
+  await expect(readFile(scratchPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 });

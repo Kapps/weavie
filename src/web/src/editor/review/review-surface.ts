@@ -26,6 +26,7 @@ export interface ReviewSectionRegistry {
 /** Resolves exact file destinations through the virtualizer; hunk navigation belongs to InlineDiff. */
 export function createReviewSurface(surface: {
   changed(): void;
+  signal: AbortSignal;
   clear(): void;
   scroller(): HTMLElement;
   files(): ReviewFileView[];
@@ -42,8 +43,8 @@ export function createReviewSurface(surface: {
     location: TextLocation;
     ready: boolean;
     finish(): void;
-    cancel(): void;
     fail(error: unknown): void;
+    cancel(): void;
   } | null = null;
   const settle = (): void => {
     if (pending === null || !pending.ready) return;
@@ -85,27 +86,17 @@ export function createReviewSurface(surface: {
       return Promise.reject(new Error("This file is no longer in the review."));
     const key = normalizePath(location.path);
     if (failures.has(key)) return Promise.reject(failures.get(key));
-    const validity = AbortSignal.any([signal, lifetime.signal]);
+    const validity = AbortSignal.any([signal, surface.signal, lifetime.signal]);
     return new Promise((resolve, reject) => {
-      const cancel = (): void => {
+      const complete = (settle: () => void): void => {
         if (pending === operation) pending = null;
         validity.removeEventListener("abort", cancel);
-        reject(new DOMException("Review navigation cancelled", "AbortError"));
+        settle();
       };
-      const operation = {
-        location,
-        ready: false,
-        cancel,
-        fail: (error: unknown) => {
-          if (pending === operation) pending = null;
-          validity.removeEventListener("abort", cancel);
-          reject(error);
-        },
-        finish: () => {
-          validity.removeEventListener("abort", cancel);
-          resolve();
-        },
-      };
+      const fail = (error: unknown): void => complete(() => reject(error));
+      const cancel = (): void =>
+        fail(new DOMException("Review navigation cancelled", "AbortError"));
+      const operation = { location, ready: false, cancel, fail, finish: () => complete(resolve) };
       pending = operation;
       if (validity.aborted) {
         cancel();

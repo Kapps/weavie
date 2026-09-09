@@ -103,7 +103,7 @@ interface MutableReviewBoard extends SessionReviewBoard {
   touch(): void;
 }
 
-export function canCloseReview(state: Pick<SessionReviewBoard, "files" | "label">): boolean {
+export function canCloseReview(state: { files: readonly unknown[]; label: string }): boolean {
   return state.files.length > 0 || state.label.length > 0;
 }
 

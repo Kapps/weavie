@@ -197,14 +197,13 @@ export function registerCapturedCommand(id: string, capture: CommandCapture): ()
   };
 }
 
-function prepareCommand(
+function captureHandler(
   capture: CommandCapture,
   args: unknown,
   context: CommandContext,
-): () => ReturnType<CommandHandler> {
+): CommandHandler {
   try {
-    const handler = capture(context, args);
-    return () => handler(args, context);
+    return capture(context, args);
   } catch (error) {
     return () => {
       throw error;
@@ -214,7 +213,7 @@ function prepareCommand(
 
 interface CommandScope {
   session: ClientSession | null;
-  handlers: Map<string, CommandCapture>;
+  handlers: Map<string, CommandHandler>;
 }
 
 function captureScope(
@@ -223,17 +222,9 @@ function captureScope(
   args: unknown,
 ): CommandScope {
   const context = { session };
-  const bound = new Map<string, CommandCapture>();
-  for (const [id, capture] of handlers) {
-    try {
-      const handler = overrides.get(id) ?? capture(context, args);
-      bound.set(id, () => handler);
-    } catch (error) {
-      bound.set(id, () => () => {
-        throw error;
-      });
-    }
-  }
+  const bound = new Map<string, CommandHandler>();
+  for (const [id, capture] of handlers)
+    bound.set(id, overrides.get(id) ?? captureHandler(capture, args, context));
   return { session, handlers: bound };
 }
 
@@ -453,7 +444,8 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
     return false;
   }
   const session = selectedSession();
-  const invoke = prepareCommand(handler, args, { session });
+  const captured = captureHandler(handler, args, { session });
+  const invoke = () => captured(args, { session });
   const lane = executionLaneKey(command, backendId, session);
   if (executionLanes.has(lane)) {
     void runInExecutionLane(lane, async () => invoke()).catch((error: unknown) =>
@@ -513,14 +505,21 @@ function dispatchFromCatalog(
     log("warn", `no web handler registered for command '${id}'`);
     return Promise.resolve({ ok: false, error: `No web handler for '${id}'.` });
   }
-  const session = scope.session;
-  const invoke = prepareCommand(handler, args, { session });
+  return executeWebCommand(command, backendId, scope.session, handler, args);
+}
+
+function executeWebCommand(
+  command: CommandInfo,
+  backendId: string,
+  session: ClientSession | null,
+  handler: CommandHandler,
+  args: unknown,
+): Promise<CommandResult> {
   return runInExecutionLane(executionLaneKey(command, backendId, session), async () => {
     try {
-      const value = await invoke();
-      return { ok: value !== false };
+      return { ok: (await handler(args, { session })) !== false };
     } catch (error) {
-      log("error", `command '${id}' failed: ${String(error)}`);
+      log("error", `command '${command.id}' failed: ${String(error)}`);
       return { ok: false, error: String(error) };
     }
   });
@@ -614,17 +613,16 @@ async function runBoundWebCommand(
   if (handler === undefined) {
     return { ok: false, error: `No web handler for '${id}'.` };
   }
-  const invoke = prepareCommand(handler, args, { session });
-  return runInExecutionLane(executionLaneKey(command, session.connection.id, session), async () => {
-    try {
-      const outcome = await invoke();
-      return outcome === false
-        ? { ok: false, error: `Command '${id}' declined the request.` }
-        : { ok: true };
-    } catch (error) {
-      return { ok: false, error: String(error) };
-    }
-  });
+  const result = await executeWebCommand(
+    command,
+    session.connection.id,
+    session,
+    captureHandler(handler, args, { session }),
+    args,
+  );
+  return !result.ok && result.error === undefined
+    ? { ok: false, error: `Command '${id}' declined the request.` }
+    : result;
 }
 
 registerViewFeature((session) =>

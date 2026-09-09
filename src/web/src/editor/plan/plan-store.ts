@@ -38,3 +38,11 @@ export function agentPlan(
 ): AgentPlanDocument | undefined {
   return plans.get(session)?.read()[path];
 }
+
+export function removeAgentPlan(session: ClientSession, path: string): void {
+  plans.get(session)?.write((current) => {
+    const next = { ...current };
+    delete next[path];
+    return next;
+  });
+}

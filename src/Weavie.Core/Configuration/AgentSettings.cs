@@ -11,7 +11,7 @@ public static class AgentSettings {
 	/// <summary>How long (ms) to batch a structured pane's live messages into one bridge frame; 0 sends each inline.</summary>
 	public const string PaneCoalesceMs = "agent.paneCoalesceMs";
 
-	/// <summary>Automatically selects an advertised allow option for ACP permission requests.</summary>
+	/// <summary>Automatically allows ACP tool permissions, excluding mode changes such as plan approval.</summary>
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>

@@ -11,24 +11,26 @@ import {
 } from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { ClientSession } from "../messaging/host-connection";
 import { isDirtyPath } from "./dirty-store";
-import type { TabActions } from "./editor-controller";
+import type { EditorController } from "./editor-controller";
 import { basename } from "./fs-path";
 import { agentPlan } from "./plan/plan-store";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
 import { sourceTabIcon } from "./source/source-icons";
 import { sourceDoc } from "./source/source-store";
+import { captureTabCommands } from "./tab-command-bindings";
+import { isFileTab } from "./tab-entry";
 import { isPreviewMode } from "./view-mode-store";
 
 // The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
 interface TabView {
   path: string;
   // "web" for an iframe web tab (globe icon + host label); a file tab otherwise.
-  kind?: string;
+  kind?: NonNullable<EditorSessionEntry["kind"]>;
   preview: boolean;
   pinned: boolean;
   // Unsaved changes: shows a `*` until autosave reaches disk.
@@ -37,6 +39,7 @@ interface TabView {
 
 // A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
 function tabLabel(view: TabView, session: ClientSession | null): string {
+  if (view.kind === "review") return "Review Changes";
   if (view.kind === "web") {
     try {
       return new URL(view.path).host || view.path;
@@ -61,10 +64,14 @@ export function TabStrip(props: {
   session: () => ClientSession | null;
   tabs: () => EditorSessionEntry[];
   activePath: () => string | null;
-  actions: TabActions;
+  controller: EditorController;
   // Persistent right-edge content (the pane-switch shortcut badge), placed past the scroll controls.
   trailing: JSX.Element;
 }): JSX.Element {
+  const actions = (path: string) => {
+    const session = props.session();
+    return session === null ? undefined : props.controller.tabs.capture(session, path);
+  };
   const sameTabs = (a: TabView[], b: TabView[]): boolean =>
     a.length === b.length &&
     a.every((tab, i) => {
@@ -86,11 +93,7 @@ export function TabStrip(props: {
         preview: tab.preview === true,
         pinned: tab.pinned === true,
         // Overlay tabs are never dirty: they have no local working copy.
-        dirty:
-          tab.kind !== "web" &&
-          tab.kind !== "source" &&
-          tab.kind !== "plan" &&
-          isDirtyPath(tab.path),
+        dirty: isFileTab(tab) && isDirtyPath(tab.path),
       }));
     },
     [],
@@ -100,11 +103,13 @@ export function TabStrip(props: {
   // The active file's path when it's previewable (drives the Source/Preview toggle's visibility), else null.
   const activePreviewable = createMemo(() => {
     const path = props.activePath();
-    return path !== null && canPreview(path) ? path : null;
+    const tab = props.tabs().find((tab) => tab.path === path);
+    return tab !== undefined && isFileTab(tab) && canPreview(tab.path) ? tab.path : null;
   });
   const previewing = createMemo(() => {
     const path = activePreviewable();
-    return path !== null && isPreviewMode(path);
+    const session = props.session();
+    return path !== null && session !== null && isPreviewMode(session, path);
   });
   // Tooltip: the verb + the live shortcut from the command catalog (never hardcoded).
   const toggleTitle = (): string => {
@@ -162,7 +167,7 @@ export function TabStrip(props: {
       { commandId: CommandIds.togglePinTab, args, label: view.pinned ? "Unpin" : "Pin" },
       // Copy fans out to the file's name / repo-relative / absolute path. File tabs only — overlay tabs don't
       // name a workspace path.
-      ...(view.kind === "web" || view.kind === "plan"
+      ...(!isFileTab(view)
         ? []
         : [
             {
@@ -183,7 +188,17 @@ export function TabStrip(props: {
   };
   const openMenu = (event: MouseEvent, view: TabView): void => {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, entries: menuEntries(view) });
+    const session = props.session();
+    if (session === null) return;
+    setMenu({
+      runCommand: captureCommandRunnerFor(
+        session,
+        captureTabCommands(props.controller, session, view.path),
+      ),
+      x: event.clientX,
+      y: event.clientY,
+      entries: menuEntries(view),
+    });
   };
 
   return (
@@ -220,12 +235,12 @@ export function TabStrip(props: {
                   type="button"
                   class="editor-tab-main pane-tab-main"
                   data-middle-click="close"
-                  onClick={() => props.actions.activate(view.path)}
-                  onDblClick={() => props.actions.promote(view.path)}
+                  onClick={() => actions(view.path)?.activate()}
+                  onDblClick={() => actions(view.path)?.promote()}
                   onMouseDown={(event) => {
                     if (event.button === 1) {
                       event.preventDefault();
-                      props.actions.close(view.path);
+                      actions(view.path)?.close();
                     }
                   }}
                   onContextMenu={(event) => openMenu(event, view)}
@@ -254,9 +269,9 @@ export function TabStrip(props: {
                   title={view.pinned ? "Unpin" : "Close"}
                   onClick={() => {
                     if (view.pinned) {
-                      props.actions.togglePin(view.path);
+                      actions(view.path)?.togglePin();
                     } else {
-                      props.actions.close(view.path);
+                      actions(view.path)?.close();
                     }
                   }}
                 >

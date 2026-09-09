@@ -3,6 +3,7 @@ import type { ClientSession, HostConnection } from "../bridge";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 const env = vi.hoisted(() => ({
+  invokedSessions: [] as ClientSession[],
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
   notified: [] as Array<{ level: string; message: unknown }>,
   coreResult: { ok: true, data: "core-ran" } as CommandResult,
@@ -44,12 +45,13 @@ vi.mock("../bridge", () => ({
   },
   hostInjected: <T>(_name: string, value: T | undefined, fallback: T): T => value ?? fallback,
   LOCAL_BACKEND_ID: "local",
-  invokeCommandOnBackend: (
-    backendId: string,
+  invokeCommandInSession: (
+    session: ClientSession,
     id: string,
     args: unknown,
   ): Promise<CommandResult> => {
-    env.invokeCalls.push({ backendId, id, args });
+    env.invokedSessions.push(session);
+    env.invokeCalls.push({ backendId: session.connection.id, id, args });
     return Promise.resolve(env.coreResult);
   },
   invokeClientCommandOnHost: (id: string, args: unknown): Promise<CommandResult> => {
@@ -183,6 +185,7 @@ const setCatalogData = (
 
 beforeEach(() => {
   env.invokeCalls.length = 0;
+  env.invokedSessions.length = 0;
   env.notified.length = 0;
   env.selectedAddresses.length = 0;
   env.selectionCandidates.length = 0;
@@ -267,7 +270,7 @@ describe("dispatchCommand — core commands", () => {
   });
 
   it("honours an explicit backendId arg over the active backend", async () => {
-    setCatalog("local", [cmd("core.y", "core")]);
+    setCatalog("local", [{ ...cmd("core.y", "core"), scope: "host" }]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
   });
@@ -324,7 +327,7 @@ describe("dispatchCommand — core commands", () => {
   });
 
   it("activates the exact session requested by a successful command result", async () => {
-    setCatalog("local", [cmd("core.create", "core")]);
+    setCatalog("local", [{ ...cmd("core.create", "core"), scope: "host" }]);
     env.coreResult = {
       ok: true,
       data: {
@@ -363,7 +366,7 @@ describe("dispatchCommand — core commands", () => {
   });
 
   it("does not report a stale created-session result that loses the selection race", async () => {
-    setCatalog("local", [cmd("core.create", "core")]);
+    setCatalog("local", [{ ...cmd("core.create", "core"), scope: "host" }]);
     env.acceptSelection = false;
     env.coreResult = {
       ok: true,
@@ -394,7 +397,8 @@ describe("dispatchCommand — core commands", () => {
   });
 
   it("activates the exact terminal requested by a successful command result", async () => {
-    setCatalog("local", [cmd("core.new-terminal", "core")]);
+    env.selected = { ...env.selected, connection: { id: "remote:r" } } as ClientSession;
+    setCatalog("remote:r", [cmd("core.new-terminal", "core")]);
     env.coreResult = {
       ok: true,
       data: {
@@ -587,4 +591,86 @@ describe("session-bound client command requests", () => {
     });
     expect(env.invokeCalls).toEqual([]);
   });
+});
+
+describe("captured editor command connections", () => {
+  it("captures before queue admission and retains the owner after selection changes", async () => {
+    const command = { ...cmd("web.capture", "web"), executionLane: "editor" };
+    setCatalog("local", [command]);
+    const owner = env.selected;
+    let target = "review-a";
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ran: unknown[] = [];
+    reg.registerCapturedCommand(command.id, ({ session }, capturedArgs) => {
+      const connection = target;
+      return async (args) => {
+        if (args === "block") await blocked;
+        ran.push({ session, connection, capturedArgs });
+      };
+    });
+    const first = reg.dispatchCommand(command.id, "block");
+    const second = reg.dispatchCommand(command.id, "queued");
+    target = "file-b";
+    env.selected = fakeSession("b", "b-instance");
+    release();
+    await Promise.all([first, second]);
+    expect(ran).toEqual([
+      { session: owner, connection: "review-a", capturedArgs: "block" },
+      { session: owner, connection: "review-a", capturedArgs: "queued" },
+    ]);
+  });
+
+  it("chrome preserves its opening connection and command arguments after focus changes", async () => {
+    setCatalog("local", [cmd("web.menu-editor", "web")]);
+    let target = "review-a";
+    const ran: unknown[] = [];
+    const owner = env.selected;
+    reg.registerCapturedCommand("web.menu-editor", ({ session }) => {
+      const connection = target;
+      return (args) => {
+        ran.push({ session, connection, args });
+      };
+    });
+    const menu = reg.captureCommandRunner();
+    target = "file-b";
+    env.selected = fakeSession("b", "b-instance");
+    await menu("web.menu-editor", { replacement: "word" });
+    expect(ran).toEqual([
+      { session: owner, connection: "review-a", args: { replacement: "word" } },
+    ]);
+  });
+});
+
+it("a captured palette Core command invokes its original session even after selection changes", async () => {
+  setCatalog("local", [cmd("core.owned", "core")]);
+  const owner = env.selected;
+  const run = reg.captureCommandRunner();
+  env.selected = fakeSession("other", "other-incarnation");
+  await run("core.owned", {});
+  expect(env.invokedSessions).toEqual([owner]);
+});
+
+it("an explicit surface runner never recaptures an overridden command from the current target", async () => {
+  setCatalog("local", [cmd("web.owned-menu", "web")]);
+  const owner = env.selected!;
+  const recapture = vi.fn(() => {
+    throw new Error("must not resolve current editor");
+  });
+  reg.registerCapturedCommand("web.owned-menu", recapture);
+  const captured = vi.fn(async () => {});
+  const run = reg.captureCommandRunnerFor(owner, new Map([["web.owned-menu", captured]]));
+  env.selected = fakeSession("other", "other-incarnation");
+  expect(await run("web.owned-menu", { replacement: "word" })).toEqual({ ok: true });
+  expect(recapture).not.toHaveBeenCalled();
+  expect(captured).toHaveBeenCalledWith({ replacement: "word" }, { session: owner });
+});
+
+it("does not infer a different session from an explicit backend on a session command", async () => {
+  setCatalog("local", [cmd("core.owned", "core")]);
+  const result = await reg.dispatchCommand("core.owned", { backendId: "remote:r" });
+  expect(result.ok).toBe(false);
+  expect(env.invokedSessions).toEqual([]);
 });

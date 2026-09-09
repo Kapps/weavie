@@ -2,7 +2,6 @@ import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { installContentNavigation } from "../../content-navigation";
 import { onPreviewThemeChanged } from "../../theme/controller";
-import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { basename } from "../fs-path";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import { renderMarkdown } from "./preview-markdown";
@@ -15,7 +14,7 @@ export default function PreviewPane(props: {
   session: () => ClientSession;
   path: () => string;
   content: () => string;
-  focusOnMount: boolean;
+  bind(element: HTMLElement): () => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
   let body!: HTMLDivElement;
@@ -63,10 +62,7 @@ export default function PreviewPane(props: {
 
   createEffect(render);
   onMount(() => onCleanup(installContentNavigation(body, props.session, props.path)));
-  preserveEditorFocusOnMount(
-    () => host,
-    () => props.focusOnMount,
-  );
+  onMount(() => onCleanup(props.bind(host)));
   // Mermaid bakes the theme into its SVG, so re-render diagrams when the active theme switches.
   const unsubscribeTheme = onPreviewThemeChanged(() => {
     if (previewKindOf(props.path()) === "markdown") {

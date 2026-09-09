@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { openFile, runCommand } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
+import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 
@@ -12,8 +13,9 @@ const CHANGED = `${ORIGINAL}keep this addition\n`;
 
 async function expectClosed(page: Page): Promise<void> {
   await expect(page.locator(".editor-review-close")).toHaveCount(0);
-  await expect(page.locator(".editor-review-toggle")).toHaveCount(0);
+  await expect(page.locator(".editor-review-open")).toHaveCount(0);
   await expect(page.locator(".unified-review")).toHaveCount(0);
+  await expect(page.locator(".editor-tab", { hasText: "Review Changes" })).toHaveCount(0);
   await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
   await expect(page.locator(".weavie-inline-added, .weavie-inline-accepted")).toHaveCount(0);
 }
@@ -29,7 +31,7 @@ test.describe("close diff", () => {
       test.slow();
       await openFile(page, "notes.txt");
       await expect(page.locator(".weavie-inline-added")).toBeVisible();
-      await page.locator(".editor-review-toggle").click();
+      await page.locator(".editor-review-open").click();
       await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
       const close = page.locator(".editor-review-close");
       await expect(close).toHaveAttribute("title", /Accept remaining changes and close diff.*\(/);
@@ -68,7 +70,7 @@ test.describe("close diff", () => {
     test(`the fully reviewed state closes after ${decision}`, async ({ page, weavie }) => {
       await openFile(page, "notes.txt");
       await expect(page.locator(".weavie-inline-added")).toBeVisible();
-      await page.locator(".editor-review-toggle").click();
+      await page.locator(".editor-review-open").click();
       await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
       await runCommand(page, decision);
       if (decision === "Undo All Changes") {
@@ -110,7 +112,7 @@ test.describe("last file acceptance", () => {
   }) => {
     await openFile(page, "notes.txt");
     await expect(page.locator(".weavie-inline-added")).toBeVisible();
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-review-open").click();
     const notes = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
     });
@@ -153,7 +155,7 @@ test("a comparison with no remaining changed files still offers Close Diff", asy
   await writeFile(join(weavie.workspace, "notes.txt"), ORIGINAL);
   await runCommand(page, "Diff Against HEAD");
   await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible();
-  await expect(page.locator(".editor-review-toggle")).toHaveCount(0);
+  await expect(page.locator(".editor-review-open")).toHaveCount(0);
   await expect(page.locator(".editor-review-close")).toBeVisible();
   await runCommand(page, "Close Diff");
   await expectClosed(page);
@@ -183,5 +185,66 @@ test.describe("agent edits after closing", () => {
     await runCommand(page, "Undo All Changes");
     await page.getByRole("button", { name: "Revert all", exact: true }).click();
     await expect.poll(() => readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
+  });
+});
+
+test.describe("three-file completion", () => {
+  const changes = [
+    ["a-review.ts", 'export const first = "accepted";\n'],
+    ["b-review.ts", 'export const second = "accepted";\n'],
+    ["c-review.ts", 'export const third = "accepted";\n'],
+  ] as const;
+  test.use({
+    fakeScript: { steps: changes.flatMap(([path, content]) => appliedEdit(path, content)) },
+  });
+
+  test("accepting three files in turn closes Review Changes and restores the underlying file", async ({
+    page,
+    weavie,
+  }) => {
+    await awaitReviewSet(
+      page,
+      changes.map(([path]) => path),
+    );
+    const original = await readFile(join(weavie.workspace, "notes.txt"), "utf8");
+    await openFile(page, "notes.txt");
+    await page.locator(".editor-review-open").click();
+    const reviewTab = page.locator(".editor-tab", { hasText: "Review Changes" });
+    const overview = page.locator(".unified-review");
+    await expect(reviewTab).toHaveClass(/\bactive\b/);
+    await expect(overview.locator(".unified-review-files-header")).toContainText("3 changed files");
+    await overview.locator(".unified-review-tree-row.file", { hasText: changes[0][0] }).click();
+    const toolbar = overview.locator(".weavie-inline-toolbar");
+
+    for (const [index, [path]] of changes.entries()) {
+      await expect(toolbar.locator(".weavie-inline-stack-name")).toHaveText(path);
+      await expect(toolbar.locator(".weavie-inline-stack-sub")).toContainText("change 1/1");
+      await toolbar.locator(".weavie-inline-accept").click();
+      if (index < changes.length - 1) {
+        await expect(reviewTab).toHaveClass(/\bactive\b/);
+        await expect(
+          overview
+            .locator(".unified-review-file", { hasText: path })
+            .locator(".unified-review-status"),
+        ).toHaveText("Reviewed");
+      }
+    }
+
+    await expectClosed(page);
+    await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
+    await expect(page.locator(".editor")).toHaveAttribute(
+      "data-active-file",
+      join(weavie.workspace, "notes.txt"),
+    );
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getValue()))
+      .toBe(original);
+    for (const [path, content] of changes) {
+      expect(await readFile(join(weavie.workspace, path), "utf8")).toBe(content);
+    }
+    expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(original);
+    await expect(
+      page.locator(".toast", { hasText: "This file is no longer in the review" }),
+    ).toHaveCount(0);
   });
 });

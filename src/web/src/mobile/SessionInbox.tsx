@@ -13,7 +13,7 @@ import type { RailSession } from "../chrome/session-store";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { registerCommand } from "../commands/registry";
+import { captureCommandRunner, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
@@ -73,7 +73,7 @@ export function SessionInbox(props: {
   // a row: rows are rebuilt on every catalog tick, which would drop a hold in progress. Desktop opts out — the
   // inbox is a modal there, which can host neither this menu nor the confirm a delete raises.
   const openSessionMenu = (session: RailSession, x: number, y: number): void => {
-    setSessionMenu(sessionMenuAt(session, x, y, false));
+    setSessionMenu(sessionMenuAt(session, x, y, false, captureCommandRunner()));
   };
   const holdRow = holdToOpen((x, y, pressed) => {
     const row = pressed instanceof Element ? pressed.closest("[data-session-id]") : null;

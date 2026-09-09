@@ -5,15 +5,15 @@
 
 import * as monaco from "monaco-editor";
 import { formatKey } from "../commands/keybindings";
-import { findCommand, runCommandWithFeedback } from "../commands/registry";
-import { CommandIds } from "../commands/types";
-import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../editor/session-uri";
-import { activeCodeEditor } from "../editor/vscode-services";
-import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
+import { findCommand } from "../commands/registry";
+import { CommandIds, type CommandResult } from "../commands/types";
+import type { TextEditorConnection } from "../editor/editor-context";
+import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "../editor/session-uri";
+import { onLanguageClientStarted } from "../lsp/lsp-client";
 import { notify } from "../notify/notify";
 import { globMatches } from "./glob";
 import { testRunTargetAt } from "./test-match";
-import { onTestProfileChanged, type TestRule, testRules } from "./test-profile";
+import { onTestProfileChanged, type TestRule, testRulesFor } from "./test-profile";
 import { documentTestHits } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.
@@ -30,7 +30,7 @@ export function installTestLenses(): void {
   const emitter = new monaco.Emitter<void>();
 
   const lensCommand = monaco.editor.registerCommand(LENS_COMMAND, (_accessor, arg) => {
-    void runCommandWithFeedback(CommandIds.runTests, arg);
+    void runOwnedTest(monaco.Uri.parse(arg.uri), arg);
   });
 
   const provider = monaco.languages.registerCodeLensProvider(
@@ -54,7 +54,7 @@ export function installTestLenses(): void {
             command: {
               id: LENS_COMMAND,
               title: `▷ Run file${shortcut(CommandIds.runTestsInFile)}`,
-              arguments: [{ file }],
+              arguments: [{ uri: model.uri.toString(), file }],
             },
           });
         }
@@ -64,7 +64,7 @@ export function installTestLenses(): void {
             command: {
               id: LENS_COMMAND,
               title: `▷ Run${shortcut(CommandIds.runTestAtCursor)}`,
-              arguments: [{ file, name: hit.name }],
+              arguments: [{ uri: model.uri.toString(), file, name: hit.name }],
             },
           });
         }
@@ -83,15 +83,13 @@ export function installTestLenses(): void {
 }
 
 /** weavie.tests.runAtCursor: run the innermost test, or the file when its rule supports exact-file runs. */
-export async function runTestAtCursor(): Promise<boolean> {
-  // Prefer the focused editor, but fall back to the active one so this runs from the palette too (there the
-  // omnibar input holds focus, not the editor) — acting on the editor's last cursor position.
-  const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus()) ?? activeCodeEditor();
-  const model = editor?.getModel();
-  const position = editor?.getPosition();
-  if (model == null || position == null) {
-    return false;
-  }
+export async function runTestAtCursor(
+  connection: TextEditorConnection,
+  selection: monaco.ISelection,
+): Promise<boolean> {
+  connection.signal.throwIfAborted();
+  const { model } = connection;
+  const position = { lineNumber: selection.positionLineNumber, column: selection.positionColumn };
   const rule = ruleForModel(model);
   if (rule === undefined) {
     return false;
@@ -105,17 +103,30 @@ export async function runTestAtCursor(): Promise<boolean> {
     );
     return true;
   }
-  if (target === "file") {
-    void runCommandWithFeedback(CommandIds.runTests, {
-      file: sessionUriHostPath(model.uri),
-    });
-    return true;
-  }
-  void runCommandWithFeedback(CommandIds.runTests, {
+  await runOwnedTest(model.uri, {
     file: sessionUriHostPath(model.uri),
-    name: target.name,
+    ...(target === "file" ? {} : { name: target.name }),
   });
   return true;
+}
+
+async function runOwnedTest(uri: monaco.Uri, args: { file: string; name?: string }): Promise<void> {
+  const session = sessionForUri(uri);
+  if (session === undefined) {
+    notify("warn", "The test's owning session is no longer available.");
+    return;
+  }
+  try {
+    const result = await session
+      .feature("commands")
+      .request<CommandResult, { id: string; args: { file: string; name?: string } }>("invoke", {
+        id: CommandIds.runTests,
+        args,
+      });
+    if (!result.ok && result.error != null) notify("warn", result.error);
+  } catch (error) {
+    notify("warn", `Could not run test: ${String(error)}`);
+  }
 }
 
 function ruleForModel(model: monaco.editor.ITextModel): TestRule | undefined {
@@ -123,13 +134,16 @@ function ruleForModel(model: monaco.editor.ITextModel): TestRule | undefined {
   if (relative === undefined) {
     return undefined;
   }
-  return testRules().find((rule) => globMatches(rule.glob, relative));
+  const session = sessionForUri(model.uri);
+  return session === undefined
+    ? undefined
+    : testRulesFor(session.connection).find((rule) => globMatches(rule.glob, relative));
 }
 
 // The model's path relative to the workspace root (forward-slashed), or undefined when the file is outside the
 // workspace — so lenses never render on files the profile's workspace-relative globs aren't meant to match.
 function relativePath(uri: monaco.Uri): string | undefined {
-  const root = currentWorkspaceRoot();
+  const root = sessionForUri(uri)?.state.lsp.current?.workspace;
   if (root === undefined) {
     return undefined;
   }

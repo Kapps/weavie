@@ -27,8 +27,9 @@ test("the existing toolbar and keyboard review the active unified section withou
 }) => {
   await awaitReviewSet(page, ["notes.txt", "review.txt"]);
   await openFile(page, "notes.txt");
-  await page.locator(".editor-review-toggle").click();
+  await page.locator(".editor-review-open").click();
   const overview = page.locator(".unified-review");
+  await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
   const toolbar = overview.locator(".weavie-inline-toolbar");
   const name = toolbar.locator(".weavie-inline-stack-name");
   const counter = toolbar.locator(".weavie-inline-stack-sub");
@@ -46,7 +47,7 @@ test("the existing toolbar and keyboard review the active unified section withou
   await page.keyboard.press(navChord("ArrowUp"));
   await expect(counter).toContainText("change 1/2");
   await expect(overview).toBeVisible();
-  await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
+  await expect(page.locator(".editor-tab.active")).toContainText("Review Changes");
 
   await toolbar.locator(".weavie-inline-accept").click();
   await expect(counter).toContainText("change 1/1");
@@ -65,7 +66,7 @@ test("the existing toolbar and keyboard review the active unified section withou
   await expect
     .poll(() => readFile(join(weavie.workspace, "notes.txt"), "utf8"))
     .toBe("a changed note\n");
-  await page.locator(".editor-review-toggle").click();
+  await page.locator(".editor-tab", { hasText: "notes.txt" }).click();
   await expect(overview).toHaveCount(0);
   await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
 });
@@ -73,8 +74,9 @@ test("the existing toolbar and keyboard review the active unified section withou
 test("file navigation wraps and file-scope Keep uses the unified selection", async ({ page }) => {
   await awaitReviewSet(page, ["notes.txt", "review.txt"]);
   await openFile(page, "notes.txt");
-  await page.locator(".editor-review-toggle").click();
+  await page.locator(".editor-review-open").click();
   const overview = page.locator(".unified-review");
+  await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
   const toolbar = overview.locator(".weavie-inline-toolbar");
   const name = toolbar.locator(".weavie-inline-stack-name");
   await expect(name).toHaveText("notes.txt");
@@ -127,7 +129,7 @@ test("collapsing the selected file keeps navigation available and reopens it on 
   await expect(overview).toBeVisible();
 });
 
-test("mode toggles restore the exact hunk and history actions update the shared toolbar", async ({
+test("tab switches restore the exact hunk and history actions update the shared toolbar", async ({
   page,
 }) => {
   await awaitReviewSet(page, ["notes.txt", "review.txt"]);
@@ -138,9 +140,9 @@ test("mode toggles restore the exact hunk and history actions update the shared 
   const counter = toolbar.locator(".weavie-inline-stack-sub");
   await toolbar.locator("button[title^='Next change']").click();
   await expect(counter).toContainText("change 2/2");
-  await page.locator(".editor-review-toggle").click();
-  await expect(page.locator(".weavie-inline-stack-sub")).toContainText("change 2/2");
-  await page.locator(".editor-review-toggle").click();
+  await openFile(page, "notes.txt");
+  await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
+  await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
   await expect(counter).toContainText("change 2/2");
   await toolbar.locator(".weavie-inline-accept").click();
   await expect(counter).toContainText("change 1/1");

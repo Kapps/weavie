@@ -1,4 +1,4 @@
-import type { ContextMenuState } from "../chrome/ContextMenu";
+import type { ContextMenuContent } from "../chrome/ContextMenu";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { monaco } from "./monaco-setup";
@@ -6,8 +6,8 @@ import { sessionForUri } from "./session-uri-owner";
 import type { Misspelling } from "./spell-prose";
 
 export interface SpellingActions {
-  menuAt(x: number, y: number): ContextMenuState;
-  correct(args: unknown): ContextMenuState | null;
+  menuAt(x: number, y: number): ContextMenuContent;
+  correct(args: unknown): ContextMenuContent | null;
   add(scope: "user" | "project", args: unknown): Promise<void>;
 }
 
@@ -21,7 +21,7 @@ export function createSpellingActions(
     | { id: number; valid: () => boolean; range: monaco.Range; suggestions: string[] }
     | undefined;
 
-  const menu = (hit: Misspelling | undefined, x: number, y: number): ContextMenuState => {
+  const menu = (hit: Misspelling | undefined, x: number, y: number): ContextMenuContent => {
     const model = editor.getModel();
     const session = model === null ? undefined : sessionForUri(model.uri);
     if (hit === undefined || model === null || session === undefined) return { x, y, entries: [] };

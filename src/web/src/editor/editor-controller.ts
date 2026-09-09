@@ -11,68 +11,67 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
-import type { ContextMenuState } from "../chrome/ContextMenu";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
 // stays in the lazily loaded editor chunk rather than the first-paint entry chunk.
-import type {
-  FlatSymbol,
-  SymbolActions,
-  SymbolQueryResult,
-  SymbolQuerySource,
-} from "../symbols/symbol-match";
+import type { SymbolActions } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
-import type { EditorHost, ReviewCopyScope } from "./editor-host";
+import {
+  editorContexts,
+  type TextEditorConnection,
+  type TextEditorMenuHandler,
+} from "./editor-context";
+import type { EditorHost } from "./editor-host";
+import { createEditorNavigation } from "./editor-navigation";
+import { createEditorSymbols, noEditorSymbols } from "./editor-symbols";
 import { samePath } from "./fs-path";
-import type { GitBlameController } from "./git-blame";
 import type {
   HunkRevert,
   HunkUnkeep,
   InlineDiff,
-  InlineDiffActions,
   InlineDiffOptions,
   ReviewScopeState,
 } from "./inline-diff";
-import { mediaTypeOf } from "./media/media-types";
-import { createNavHistory, type NavHistory } from "./nav-history";
+import type { NavLocation, TextLocation } from "./nav-history";
+import { reviewHistoryHandlers } from "./review/review-history-handlers";
+import { createTabActions, type TabActions } from "./tab-actions";
+import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
+import { focusTabContent, type TabOwner, type TabPresenter } from "./tab-owner";
+
+export type { TabActions } from "./tab-actions";
+
 import { removeAgentPlan, setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
   createReviewStore,
   type ReviewComments,
-  type ReviewCursor,
   type ReviewFile,
   type ReviewFileDiff,
   type ReviewHistory,
   type ReviewOverview,
-  type ReviewPresentationMode,
 } from "./review/review-store";
-import type { UnifiedReviewSurface } from "./review/review-surface";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
   activateTabFor,
-  activePath,
   activePathFor,
+  activeTabFor,
   captureReviewFor,
-  closeManyFor,
+  captureViewStateFor,
   closeTabFor,
   convertScratchFor,
   dropReviewTabFor,
   editorSessionFor,
   flushEditorSessionFor,
-  isFileTab,
   onEditorSessionChanged,
   openTabFor,
   openTabsFor,
-  promoteFor,
-  togglePinFor,
+  tabOwnerFor,
 } from "./session-store";
-import type { EditorSession, EditorSessionEntry } from "./session-types";
-import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
-import type { SpellCheck } from "./spell-check";
+import type { EditorSession } from "./session-types";
+import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -89,8 +88,8 @@ export interface EditorControllerDeps {
   onCurrentFileChanged: (path: string | null) => void;
   /** Reveal an accepted foreground editor destination in the app's active presentation. */
   onDestinationActivated: () => void;
-  /** Activate the editor pane and focus its visible overlay; false when Monaco is the visible surface. */
-  focusVisibleOverlay: () => boolean;
+  /** Present a menu for the exact editor connection that received the context-menu event. */
+  onEditorContextMenu: TextEditorMenuHandler;
   /** Confirm discarding unsaved scratch buffers about to be closed (`names`); the single close-path guard. */
   confirmDiscard: (names: string[]) => Promise<boolean>;
   /** Confirm a destructive review action (Revert file / Revert all). Resolves true to proceed. */
@@ -104,9 +103,9 @@ export interface EditorControllerDeps {
 
 /**
  * Why the editor pane is being given a destination — the wire value the host stamps on every open it pushes.
- * "navigation" is the user going somewhere and takes the pane; "reveal" lands behind a review they are in.
+ * Navigation focuses the editor pane; passive reveal and restoration preserve the current pane.
  */
-type EditorOpenIntent = "navigation" | "reveal";
+type EditorOpenIntent = "navigation" | "reveal" | "restore";
 
 interface DiffProposal {
   id: string;
@@ -119,44 +118,14 @@ interface DiffProposal {
 interface SessionProposal extends DiffProposal {
   addedTab: boolean;
   priorActive: string | null;
-  /** The session was in unified review when this gate took the pane, so resolving it returns there. */
-  priorUnified: boolean;
-}
-
-/**
- * Tab operations exposed to commands and the tab strip. Targeted ops default to the active tab when `path` is
- * omitted; the context menu passes the right-clicked tab.
- */
-export interface TabActions {
-  /** Switch to an already-open tab, restoring its saved view state. */
-  activate(path: string): void;
-  /** Close a tab (any state — may close a pinned tab when invoked on it explicitly). Default active. */
-  close(path?: string): void;
-  /** Close all non-pinned tabs. */
-  closeAll(): void;
-  /** Close every non-pinned tab except `path` (default active). */
-  closeOthers(path?: string): void;
-  /** Close non-pinned tabs to the left of `path` (default active). */
-  closeToLeft(path?: string): void;
-  /** Close non-pinned tabs to the right of `path` (default active). */
-  closeToRight(path?: string): void;
-  /** Pin or unpin a tab (default active); pinning promotes a preview tab and floats it furthest-left. */
-  togglePin(path?: string): void;
-  /** Promote a preview tab to persistent (default active). */
-  promote(path?: string): void;
-  /** Activate the next / previous tab in visual order, wrapping. False if there's nothing to step to. */
-  next(): boolean;
-  prev(): boolean;
-  /** Reopen the most recently closed file/web tab. False when there's nothing to reopen. */
-  reopenClosed(): boolean;
 }
 
 /** Back/forward navigation through visited editor locations, exposed to the Go Back / Go Forward commands. */
 export interface NavActions {
   /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
-  back(): boolean;
+  back(session: ClientSession): boolean;
   /** Go to the next location; false when there's nothing ahead. */
-  forward(): boolean;
+  forward(session: ClientSession): boolean;
   /** Whether a previous location is available (reactive). */
   canBack(): boolean;
   /** Whether a next location is available (reactive). */
@@ -165,7 +134,7 @@ export interface NavActions {
 
 export interface EditorController {
   /** Revise the selected lines: prompt for an instruction, then hand the region to the host. */
-  reviseSelection(): void;
+  reviseSelection(connection: TextEditorConnection, selection: monaco.Selection): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
   /**
@@ -184,13 +153,10 @@ export interface EditorController {
    * without stealing focus — the panel's live preview while arrowing through results.
    */
   openMatch(path: string, line: number, column: number, focus: boolean): void;
-  /** Focuses the editor and triggers a Monaco action by id (e.g. the editor right-click Copy/Cut/Paste);
-   * false when no editor is mounted. */
-  triggerAction(actionId: string): boolean;
   /** New File: asks the host to create a scratch buffer, which comes back as an open-file with `scratch`. */
-  newFile(): void;
+  newFile(session: ClientSession): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
-  save(): boolean;
+  save(tab: TabOwner): boolean;
   /**
    * Flushes every dirty working copy to the active backend and resolves once they land — called before a
    * cross-backend session switch so edits persist on their own host. Resolves immediately when unmounted.
@@ -200,14 +166,6 @@ export interface EditorController {
   flushSession(session: ClientSession): Promise<void>;
   /** Open the review overview, or a specific file when a path is supplied. */
   openReview(session: ClientSession, path: string | undefined, line: number | undefined): boolean;
-  /**
-   * Opens the blame popover for the cursor's line, or reports why that line has no commit behind it. False
-   * only when no editor is mounted, so the command declines rather than appearing to do nothing.
-   */
-  showBlameAtCursor(): boolean;
-  spellingMenuAt(x: number, y: number): ContextMenuState;
-  correctSpelling(args: unknown): ContextMenuState | null;
-  addSpellingWord(scope: "user" | "project", args: unknown): Promise<void>;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
   activeContent(): string;
   /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
@@ -215,25 +173,25 @@ export interface EditorController {
   /** How many files are pending post-turn review (reactive), so the empty-state pane can surface a review cue
    * when no file is open. */
   parkedReviewCount(): number;
+  readonly hostReady: Promise<EditorHost>;
+  filePresenter(
+    tab: TabOwner,
+    content: () => HTMLElement | undefined,
+  ): Omit<TabPresenter, "signal">;
+  captureTab(tab: TabOwner): void;
   readonly review: {
     scope: ReviewScopeState;
     canClose(): boolean;
-    mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
-    /** Creates the model-reference scope owned by one mounted unified-review surface. */
-    createCopyScope(): ReviewCopyScope;
-    /** Binds the mounted surface for exact destinations and its active shared review controls. */
-    bindSurface(session: ClientSession, surface: UnifiedReviewSurface): () => void;
-    refreshControls(): void;
+    overviewFor(session: ClientSession): ReviewOverview;
     configureDiff(
-      session: ClientSession,
+      tab: TabOwner,
       inline: InlineDiff,
       uri: string,
       diff: ReviewFileDiff,
+      reveal: (file: ReviewFile, line: number) => void,
     ): void;
-    toggleMode(session: ClientSession): boolean;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
-    setCursor(session: ClientSession, path: string, line: number): void;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
@@ -245,37 +203,11 @@ export interface EditorController {
     undoRevert(session: ClientSession): boolean;
     redo(session: ClientSession): boolean;
   };
-  /** Shared review actions targeting the active review presentation. */
-  readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   readonly nav: NavActions;
   /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
-  readonly symbols: SymbolActions;
+  readonly symbols: () => SymbolActions;
   dispose(): void;
-}
-
-export function createDeferredReviewCopyScope(
-  hostReady: Promise<Pick<EditorHost, "createReviewCopyScope">>,
-): ReviewCopyScope {
-  let scope: ReviewCopyScope | undefined;
-  let disposed = false;
-  return {
-    open: async (session, path, current, currentExists) => {
-      if (disposed) {
-        throw new Error("the review closed while this file was loading");
-      }
-      const host = await hostReady;
-      if (disposed) {
-        throw new Error("the review closed while this file was loading");
-      }
-      scope ??= host.createReviewCopyScope();
-      return scope.open(session, path, current, currentExists);
-    },
-    dispose: () => {
-      disposed = true;
-      scope?.dispose();
-    },
-  };
 }
 
 export function createEditorController(deps: EditorControllerDeps): EditorController {
@@ -284,8 +216,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   const reviewScope: ReviewScopeState = { current: "change" };
   let commentProse: CommentProse | undefined;
-  let gitBlame: GitBlameController | undefined;
-  let spelling: SpellCheck | undefined;
   let reviseMarks: ReviseMarks | undefined;
   let initTimer: number | undefined;
   let disposing = false;
@@ -298,15 +228,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   void editorHostReady.catch(() => undefined);
   const editorSessions = new Set<ClientSession>();
   const pendingReconciliations = new Set<ClientSession>();
-  const pendingActivations = new WeakMap<ClientSession, Promise<void>>();
+  const pendingActivations = new WeakMap<ClientSession, Promise<unknown>>();
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
   const reviews = createReviewStore(captureReviewFor);
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
-  const publishSelected = (feature: string, name: string, payload: unknown): void => {
-    selectedSession()?.feature(feature).publish(name, payload);
-  };
   const reconcileOpenFiles = (session: ClientSession): void => {
     host?.reconcileSession(
       session,
@@ -331,7 +258,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
     });
   };
-  const trackActivation = (session: ClientSession, activation: Promise<void>): Promise<void> => {
+  const trackActivation = <T>(session: ClientSession, activation: Promise<T>): Promise<T> => {
     pendingActivations.set(session, activation);
     const settled = (): void => {
       if (pendingActivations.get(session) === activation) {
@@ -342,23 +269,19 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void activation.then(settled, settled);
     return activation;
   };
-  const rebindSession = (session: ClientSession): Promise<void> => {
-    const editorHost = host;
-    if (editorHost === undefined || selectedSession() !== session) {
-      return Promise.resolve();
-    }
+  const rebindSession = async (session: ClientSession): Promise<void> => {
+    if (host === undefined || selectedSession() !== session) return;
     clearPresentedProposal();
-    // rebindSession parks the outgoing model synchronously before its first await. Concurrent rebinds are
-    // latest-wins inside EditorHost, so selection can never leave an old session editable while a read settles.
-    return trackActivation(
-      session,
-      editorHost.rebindSession(session).then(() => {
-        if (selectedSession() === session) {
-          deps.onCurrentFileChanged(activePath());
-          renderReviewState(session);
-        }
-      }),
-    );
+    host.clear();
+    const path = activePathFor(session);
+    if (path !== null) {
+      const result = activateTabFor(session, path);
+      if (result !== null) {
+        result.placement = { ...result.placement, focus: false };
+        await applyActive(session, result);
+      }
+    }
+    if (selectedSession() === session) renderReviewState(session);
   };
   // The active file's working-copy text, kept live off the editor model so Preview renders edits/reloads.
   const [activeContent, setActiveContent] = createSignal("");
@@ -380,47 +303,78 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
     | undefined;
 
-  // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
-  // Resolves once the (async) model swap has settled — nav history awaits this to know when a back/forward step
-  // has landed, so don't drop the return value: mid-swap the editor still reports the old file (see nav-history).
-  const applyActive = (session: ClientSession, result: ActivateResult): Promise<void> => {
-    if (selectedSession() !== session) {
-      return Promise.resolve();
-    }
-    const editorHost = host;
-    if (editorHost === undefined) {
-      // The store already owns this activation; start() rebinds it once the lazy editor host is ready.
-      return Promise.resolve();
-    }
-    // An overlay tab has no Monaco model: leave the editor host untouched (App overlays it) and never read the
-    // path as a file. Same for a media (image/video) file tab —
-    // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
-    const activeKind = openTabsFor(session).find((tab) => tab.path === result.path)?.kind;
-    deps.onCurrentFileChanged(activeKind === "plan" ? null : result.path);
-    if (
-      activeKind === "web" ||
-      activeKind === "source" ||
-      activeKind === "plan" ||
-      mediaTypeOf(result.path) !== null
-    ) {
-      host?.clear();
-      return Promise.resolve();
-    }
-    // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
-    // review model; re-showing the working copy would drop the diff. resolveReview → endReview restores it.
-    if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
-      return Promise.resolve();
-    }
-    // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
-    // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
+  const captureLocation = (tab: TabOwner): NavLocation | undefined => {
+    const presenter = tab.presentation;
+    if (presenter === undefined) return undefined;
+    const view = presenter.capture();
+    captureViewStateFor(tab.session, tab.entry.path, view.state);
+    return { tab: { path: tab.entry.path, kind: tabKind(tab.entry) }, view };
+  };
+  const filePresenter = (
+    tab: TabOwner,
+    content: () => HTMLElement | undefined,
+  ): Omit<TabPresenter, "signal"> => ({
+    text: content() === undefined,
+    capture: () => {
+      const connection = editorContexts.forTab(tab);
+      const text = connection?.capture() ?? null;
+      return {
+        state: text?.viewState ?? tab.entry.viewState,
+        text: content() === undefined ? text : null,
+      };
+    },
+    restore: async (placement, signal) => {
+      const editorHost = await editorHostReady;
+      signal.throwIfAborted();
+      if (activeReview?.session === tab.session && samePath(activeReview.path, tab.entry.path))
+        return;
+      const shown = await editorHost.show(tab.session, tab.entry.path, placement, signal);
+      if (shown.kind === "failed") {
+        rollbackFailedOpen(tab.session, tab.entry.path);
+        throw new Error("The file could not be opened.");
+      }
+      if (shown.kind === "superseded")
+        throw new DOMException("Tab activation cancelled", "AbortError");
+    },
+    focus: () => {
+      const element = content();
+      if (element === undefined) {
+        inlineDiff?.refreshPresentation();
+        editorContexts.forTab(tab)?.editor.focus();
+      } else focusTabContent(element);
+    },
+    actions: () => (content() === undefined ? inlineDiff?.captureActions() : undefined),
+  });
+  const applyActive = (
+    session: ClientSession,
+    result: ActivateResult,
+  ): Promise<TextEditorConnection | undefined> => {
+    if (selectedSession() !== session || host === undefined) return Promise.resolve(undefined);
+    const tab = tabOwnerFor(session, result.path);
+    if (tab === undefined) return Promise.resolve(undefined);
+    deps.onCurrentFileChanged(isFileTab(tab.entry) ? tab.entry.path : null);
+    const signal = navigation.signal(session);
     return trackActivation(
       session,
-      editorHost.show(session, result.path, result.placement).then((ok) => {
-        if (!ok) {
-          rollbackFailedOpen(session, result.path);
-        }
-      }),
+      (async () => {
+        const presenter = await tab.wait(signal);
+        const validity = AbortSignal.any([signal, presenter.signal]);
+        validity.throwIfAborted();
+        await presenter.restore(result.placement, validity);
+        validity.throwIfAborted();
+        const location = captureLocation(tab);
+        if (location !== undefined) navigation.record(session, location);
+        if (!("focus" in result.placement) || result.placement.focus !== false) presenter.focus();
+        return editorContexts.forTab(tab);
+      })(),
     );
+  };
+
+  const presentTab = (session: ClientSession, result: ActivateResult): void => {
+    void applyActive(session, result).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        deps.onOpenError(`Couldn't open the tab: ${String(error)}`);
+    });
   };
 
   // Drop a tab whose open failed (no working copy to release) and, if it was active, switch to its neighbor. A
@@ -437,20 +391,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const focusEditorSurface = (): void => {
-    if (!deps.focusVisibleOverlay()) {
-      host?.editor.focus();
-    }
+    const session = selectedSession();
+    const tab = session === null ? undefined : activeTabFor(session);
+    if (tab !== undefined) tab.presentation?.focus();
   };
 
-  // Unified review is a mode the user is in, not an overlay: only a destination they navigated to leaves it.
-  // Reveals into the review set land in its section; unrelated destinations can open behind it.
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
-    if (selectedSession() !== session) {
-      return false;
-    }
-    if (intent === "navigation") {
-      reviews.leaveUnified(session);
-    }
+    if (selectedSession() !== session) return false;
+    if (intent !== "restore") navigation.depart(session);
     deps.onDestinationActivated();
     return true;
   };
@@ -463,23 +411,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     scratch: boolean,
     intent: EditorOpenIntent,
   ): void => {
-    const state = reviews.board(session);
-    if (intent === "reveal" && state.mode === "unified") {
-      const file = state.files.find((candidate) => samePath(candidate.summary().path, path));
-      if (file !== undefined) {
-        const targetLine = line ?? file.summary().line;
-        reviews.setCursor(session, { path, line: targetLine });
-        unifiedSurfaces.get(session)?.reveal(path, targetLine);
-        return;
-      }
-    }
+    const foreground = activateDestinationFor(session, intent);
     const result = openTabFor(session, path, {
       ...(line === undefined ? {} : { line }),
       preview,
       scratch,
     });
-    if (activateDestinationFor(session, intent) && host !== undefined) {
-      void applyActive(session, result).then(focusEditorSurface);
+    if (foreground && host !== undefined) {
+      presentTab(session, result);
     }
   };
 
@@ -496,115 +435,77 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // The document/workspace symbol query surface (monaco glue), captured once the editor chunk loads in start().
-  let symbolSource: SymbolQuerySource | undefined;
-  // The active editor's scroll/cursor captured before the first preview reveal, restored if the user dismisses
-  // Go-to-Symbol without committing. Undefined when no preview is in flight.
-  let previewReturn: monaco.editor.ICodeEditorViewState | null | undefined;
-
-  const isActiveFile = (path: string): boolean => samePath(path, activePath() ?? "");
-
-  // Reveal + select a symbol in place in the REAL editor as the omnibar selection moves, but only when it lives in
-  // the file already showing — document-symbol (@) rows, and the occasional workspace (#) hit in the current file.
-  // A symbol in another file reveals only on commit: opening files just to skim whole-repo results would churn the
-  // editor more than it helps. The first reveal snapshots the view so cancelPreview can restore it.
-  const previewSymbol = (sym: FlatSymbol): void => {
-    if (host === undefined || !isActiveFile(sym.path)) {
-      return;
-    }
-    if (previewReturn === undefined) {
-      previewReturn = host.editor.saveViewState();
-    }
-    host.editor.setSelection(sym.range);
-    host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
-  };
-
-  // Dismissed without choosing: restore the pre-preview scroll/cursor.
-  const cancelPreview = (): void => {
-    const viewState = previewReturn;
-    previewReturn = undefined;
-    if (viewState != null && host !== undefined) {
-      host.editor.restoreViewState(viewState);
-    }
-  };
-
-  // Committed: keep the jump. Re-reveal in place, or open the file as a real (non-preview) tab so it sticks. Self
-  // sufficient — works whether or not a preview fired (Enter on an unarrowed selection still lands).
-  const commitPreview = (sym: FlatSymbol): void => {
-    previewReturn = undefined;
+  const displayedText = (): TextEditorConnection | undefined => {
     const session = selectedSession();
-    if (host === undefined || session === null) {
-      return;
-    }
-    if (isActiveFile(sym.path)) {
-      activateDestinationFor(session, "navigation");
-      host.editor.setSelection(sym.range);
-      host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
-      host.editor.focus();
-    } else {
-      openFile(sym.path, sym.range.startLineNumber);
-    }
+    return session === null ? undefined : editorContexts.get(session);
   };
-
-  const noSymbols = (): Promise<SymbolQueryResult> =>
-    Promise.resolve({ providerAvailable: false, items: [] });
-  const symbols: SymbolActions = {
-    documentSymbols: () => symbolSource?.documentSymbols() ?? noSymbols(),
-    workspaceSymbols: (query, signal) =>
-      symbolSource?.workspaceSymbols(query, signal) ?? noSymbols(),
-    preview: previewSymbol,
-    cancelPreview,
-    commitPreview,
-  };
-
-  // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
-  // (openTab activates an already-open tab or opens it, then applyActive reveals the line) and returns its
-  // settle promise, so nav history can suppress records until the swap lands.
-  const navHistories = new WeakMap<ClientSession, NavHistory>();
-  const [navRevision, setNavRevision] = createSignal(0);
-  const navHistoryFor = (session: ClientSession): NavHistory => {
-    const existing = navHistories.get(session);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const created = createNavHistory((loc) => {
-      if (selectedSession() !== session || host === undefined) {
-        return Promise.resolve();
+  const navigateFrom = async (
+    source: TextEditorConnection,
+    path: string,
+    selection: monaco.IRange | undefined,
+    preview: boolean,
+    origin: TextLocation | undefined,
+  ): Promise<TextEditorConnection | undefined> => {
+    if (!editorContexts.displayed(source) || selectedSession() !== source.session) return undefined;
+    const { session } = source;
+    if (origin !== undefined) source.restore(origin);
+    navigation.depart(session);
+    if (origin !== undefined && samePath(origin.path, path)) {
+      if (selection !== undefined) {
+        source.editor.setSelection(selection);
+        source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
       }
-      activateDestinationFor(session, "navigation");
-      return applyActive(session, openTabFor(session, loc.path, { line: loc.line }));
+      source.editor.focus();
+      const location = captureLocation(source.tab);
+      if (location !== undefined) navigation.push(session, location);
+      return source;
+    }
+    deps.onDestinationActivated();
+    const result = openTabFor(session, path, { preview });
+    result.placement = selection === undefined ? { line: 1 } : { selection };
+    const destination = await applyActive(session, result);
+    return destination;
+  };
+  const symbols = (): SymbolActions => {
+    const connection = displayedText();
+    const origin = connection?.capture();
+    if (connection === undefined || origin === undefined) return noEditorSymbols;
+    return createEditorSymbols({
+      connection,
+      origin,
+      suspendHistory: () => navHistoryFor(connection.session).suspend(),
+      commit: (origin, symbol) => {
+        void navigateFrom(connection, symbol.path, symbol.range, false, origin);
+      },
     });
-    navHistories.set(session, created);
-    return created;
   };
 
-  // Record where the editor settles (active file + cursor line) as a navigation point, debounced like the
-  // view-state snapshot so only the resting position is logged — not the brief top-of-file the editor sits at
-  // mid-swap before a reveal. Only real file models: overlay (web/source) tabs and the transient review model
-  // aren't navigable locations.
-  let navTimer: ReturnType<typeof setTimeout> | undefined;
-  const recordNavLocation = (): void => {
-    const model = host?.editor.getModel();
-    const position = host?.editor.getPosition();
-    if (model == null || position == null || model.uri.scheme !== SESSION_FILE_SCHEME) {
-      return;
-    }
-    const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      return;
-    }
-    // uriHostPath, not fsPath: a back-navigation re-opens this path as a tab, which must stay host-native.
-    navHistoryFor(session).record({
-      path: sessionUriHostPath(model.uri),
-      line: position.lineNumber,
-    });
-    setNavRevision((revision) => revision + 1);
-  };
-  const scheduleRecordNav = (): void => {
-    if (navTimer !== undefined) {
-      clearTimeout(navTimer);
-    }
-    navTimer = setTimeout(recordNavLocation, 150);
-  };
+  const [navRevision, setNavRevision] = createSignal(0);
+  const navigation = createEditorNavigation({
+    capture: (session) => {
+      const tab = activeTabFor(session);
+      return selectedSession() !== session || tab === undefined ? undefined : captureLocation(tab);
+    },
+    restore: async (session, location, signal) => {
+      signal.throwIfAborted();
+      if (selectedSession() !== session)
+        throw new DOMException("Editor view detached", "AbortError");
+      activateDestinationFor(session, "restore");
+      const result = openTabFor(session, location.tab.path, { kind: tabKind(location.tab) });
+      result.placement = { viewState: location.view.state };
+      await applyActive(session, result);
+      signal.throwIfAborted();
+    },
+    changed: () => setNavRevision((revision) => revision + 1),
+    failed: (_session, error) =>
+      deps.onOpenError(`Couldn't restore editor location: ${String(error)}`),
+  });
+  const navHistoryFor = navigation.history;
+  const offEditorLocations = editorContexts.onChange((connection) => {
+    const location = captureLocation(connection.tab);
+    if (location !== undefined)
+      navigation.schedule(connection.session, location, connection.signal);
+  });
 
   // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
@@ -612,7 +513,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const session = selectedSession();
     if (session !== null) {
       activateDestinationFor(session, "navigation");
-      void applyActive(session, openTabFor(session, url, { kind: "web" }));
+      presentTab(session, openTabFor(session, url, { kind: "web" }));
     }
   };
 
@@ -622,7 +523,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const session = selectedSession();
     if (session !== null) {
       activateDestinationFor(session, "navigation");
-      void applyActive(session, openTabFor(session, target, { kind: "source" }));
+      presentTab(session, openTabFor(session, target, { kind: "source" }));
     }
   };
 
@@ -632,7 +533,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     if (next !== null) {
-      void applyActive(session, next);
+      presentTab(session, next);
     } else {
       host?.clear();
       deps.onCurrentFileChanged(null);
@@ -641,257 +542,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
-  // True if `path` is a scratch (untitled) buffer holding real content — the only tab whose close can lose
-  // unsaved work, since real files autosave.
-  const isDirtyScratch = (session: ClientSession, path: string): boolean => {
-    const entry = openTabsFor(session).find((tab) => tab.path === path);
-    if (entry?.scratch !== true) {
-      return false;
-    }
-    return (host?.contentOf(session, path) ?? "").trim().length > 0;
-  };
-
-  // The one guard every close path runs through: if any doomed tab is an unsaved scratch, confirm once before
-  // closing. Resolves true to proceed, false to abort. Empty scratches need no confirm.
-  const guardDiscard = async (session: ClientSession, doomed: string[]): Promise<boolean> => {
-    const dirty = doomed.filter((path) => isDirtyScratch(session, path));
-    if (dirty.length === 0) {
-      return true;
-    }
-    return deps.confirmDiscard(dirty.map(basename));
-  };
-
-  // Release a closed tab's working copy. A scratch tab is discarded — its model is dropped without flushing
-  // and the host deletes its temp file; a real file flushes its pending save first.
-  const releaseClosed = (session: ClientSession, path: string, scratch: boolean): void => {
-    if (scratch) {
-      host?.closeFile(session, path, true);
-      session.feature("editor").publish("discardScratch", { path });
-    } else {
-      host?.closeFile(session, path);
-    }
-  };
-
-  // Close every tab matching `predicate` (closeMany skips pinned). Guards unsaved scratch work first (one
-  // confirm for the batch), switches off a doomed active tab, then releases each closed working copy.
-  const closeBy = async (predicate: (entry: EditorSessionEntry) => boolean): Promise<void> => {
-    const session = selectedSession();
-    if (session === null) {
-      return;
-    }
-    const doomed = openTabsFor(session).filter(
-      (entry) => predicate(entry) && entry.pinned !== true,
-    );
-    if (
-      doomed.length === 0 ||
-      !(await guardDiscard(
-        session,
-        doomed.map((entry) => entry.path),
-      ))
-    ) {
-      return;
-    }
-    const scratchPaths = new Set(
-      doomed.filter((entry) => entry.scratch === true).map((entry) => entry.path),
-    );
-    // Overlay tabs have no working copy to release.
-    const overlayPaths = new Set(
-      doomed
-        .filter((entry) => entry.kind === "web" || entry.kind === "source" || entry.kind === "plan")
-        .map((entry) => entry.path),
-    );
-    const wasActive = activePathFor(session);
-    const result = closeManyFor(session, predicate);
-    if (result.disposed.length === 0) {
-      return;
-    }
-    if (wasActive !== null && result.disposed.includes(wasActive)) {
-      applyOrClear(session, result.next);
-    }
-    for (const path of result.disposed) {
-      if (!overlayPaths.has(path)) {
-        releaseClosed(session, path, scratchPaths.has(path));
-      }
-    }
-    for (const entry of doomed) {
-      if (result.disposed.includes(entry.path)) {
-        recordClosed(session, entry);
-      }
-    }
-  };
-
-  // Recently-closed file/web/source tabs, most-recent last, so Reopen Closed Editor (Ctrl+Shift+T) can bring one
-  // back. Scratch and virtual plan tabs are excluded because neither is a persistent document.
-  const closedTabs = new WeakMap<
-    ClientSession,
-    { path: string; kind: EditorSessionEntry["kind"] }[]
-  >();
-  const CLOSED_TABS_LIMIT = 25;
-  const recordClosed = (session: ClientSession, entry: EditorSessionEntry): void => {
-    if (entry.scratch === true || entry.kind === "plan") {
-      return;
-    }
-    const entries = closedTabs.get(session) ?? [];
-    entries.push({ path: entry.path, kind: entry.kind });
-    if (entries.length > CLOSED_TABS_LIMIT) {
-      entries.shift();
-    }
-    closedTabs.set(session, entries);
-  };
-  // Reopen the most recently closed tab that isn't already open again; skip stale records for tabs reopened by
-  // other means. Declines (returns false) when there's nothing to reopen, so Ctrl+Shift+T falls through.
-  const reopenClosed = (): boolean => {
-    const session = selectedSession();
-    if (session === null) {
-      return false;
-    }
-    const entries = closedTabs.get(session) ?? [];
-    while (entries.length > 0) {
-      const entry = entries.pop();
-      if (
-        entry === undefined ||
-        openTabsFor(session).some((tab) => samePath(tab.path, entry.path))
-      ) {
-        continue;
-      }
-      if (entry.kind === "web") {
-        openWebTab(entry.path);
-      } else if (entry.kind === "source") {
-        openSourceTab(entry.path);
-      } else {
-        openFile(entry.path, undefined);
-      }
-
-      return true;
-    }
-
-    return false;
-  };
-
-  const closeTabForSession = async (session: ClientSession, path: string): Promise<void> => {
-    // `path` may arrive from the host (Claude's close_tab) spelled differently than the stored key, so match
-    // by normalized identity, then operate on the entry's own stored path downstream.
-    const entry = openTabsFor(session).find((tab) => samePath(tab.path, path));
-    if (entry === undefined || !(await guardDiscard(session, [entry.path]))) {
-      return;
-    }
-    const scratch = entry.scratch === true;
-    const wasActive = activePathFor(session);
-    const result = closeTabFor(session, entry.path);
-    if (result === null) {
-      return;
-    }
-    recordClosed(session, entry);
-    if (entry.path === wasActive) {
-      applyOrClear(session, result.next);
-    }
-    // Overlay tabs have no working copy / Monaco model to release.
-    if (entry.kind !== "web" && entry.kind !== "source" && entry.kind !== "plan") {
-      releaseClosed(session, result.disposed, scratch);
-    }
-  };
-
-  // Step through tabs in visual order, wrapping. Returns false (so the keybinding falls through to the editor)
-  // when there's nothing to step to.
-  const step = (delta: number): boolean => {
-    const session = selectedSession();
-    if (session === null) {
-      return false;
-    }
-    const list = openTabsFor(session);
-    if (list.length < 2) {
-      return false;
-    }
-    const idx = list.findIndex((tab) => tab.path === activePathFor(session));
-    if (idx === -1) {
-      return false;
-    }
-    const target = list[(idx + delta + list.length) % list.length];
-    if (target === undefined) {
-      return false;
-    }
-    const result = activateTabFor(session, target.path);
-    if (result !== null) {
+  const tabs = createTabActions({
+    depart: (session) => {
       activateDestinationFor(session, "navigation");
-      void applyActive(session, result);
-    }
-    return true;
-  };
-
-  const closeRelative = (path: string, side: "left" | "right"): void => {
-    const session = selectedSession();
-    if (session === null) {
-      return;
-    }
-    const list = openTabsFor(session);
-    const ti = list.findIndex((tab) => tab.path === path);
-    if (ti === -1) {
-      return;
-    }
-    const slice = side === "left" ? list.slice(0, ti) : list.slice(ti + 1);
-    if (slice.length === 0) {
-      return;
-    }
-    const targets = new Set(slice.map((tab) => tab.path));
-    void closeBy((entry) => targets.has(entry.path));
-  };
-
-  // Resolve a targeted op's subject: the explicit path (context menu) or the active tab (keyboard / palette).
-  const target = (path: string | undefined): string | null => path ?? activePath();
-
-  const tabs: TabActions = {
-    activate: (path) => {
-      const session = selectedSession();
-      const result = session === null ? null : activateTabFor(session, path);
-      if (session !== null && result !== null) {
-        activateDestinationFor(session, "navigation");
-        void applyActive(session, result);
-      }
     },
-    close: (path) => {
-      const subject = target(path);
-      const session = selectedSession();
-      if (session !== null && subject !== null) {
-        void closeTabForSession(session, subject);
-      }
+    present: applyOrClear,
+    capture: (tab) => {
+      captureLocation(tab);
     },
-    closeAll: () => void closeBy(() => true),
-    closeOthers: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        void closeBy((entry) => entry.path !== subject);
-      }
+    content: (tab) => host?.contentOf(tab.session, tab.entry.path) ?? "",
+    release: (tab) => {
+      if (!isFileTab(tab.entry)) return;
+      host?.closeFile(tab.session, tab.entry.path, tab.entry.scratch === true);
+      if (tab.entry.scratch)
+        tab.session.feature("editor").publish("discardScratch", { path: tab.entry.path });
     },
-    closeToLeft: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        closeRelative(subject, "left");
-      }
-    },
-    closeToRight: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        closeRelative(subject, "right");
-      }
-    },
-    togglePin: (path) => {
-      const subject = target(path);
-      const session = selectedSession();
-      if (session !== null && subject !== null) {
-        togglePinFor(session, subject);
-      }
-    },
-    promote: (path) => {
-      const subject = target(path);
-      const session = selectedSession();
-      if (session !== null && subject !== null) {
-        promoteFor(session, subject);
-      }
-    },
-    next: () => step(1),
-    prev: () => step(-1),
-    reopenClosed: () => reopenClosed(),
-  };
+    confirmDiscard: deps.confirmDiscard,
+  });
 
   const resolveReview = (keep: boolean): void => {
     const review = activeReview;
@@ -911,13 +578,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (!keep && review.addedTab) {
       dropReviewTabFor(review.session, review.path, review.priorActive);
     }
-    const proposal = reviewProposals.get(review.session) ?? null;
     reviewProposals.delete(review.session);
     if (selectedSession() === review.session) {
       deps.onCurrentFileChanged(activePathFor(review.session));
-    }
-    if (proposal !== null) {
-      restoreSuspendedReview(review.session, proposal);
     }
     review.session.feature("editor").publish("resolveDiff", {
       id: review.id,
@@ -934,15 +597,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         container,
         deps.onSaveError,
         deps.onOpenError,
-        ({ session, path, line }) => navHistoryFor(session).record({ path, line }),
-        ({ session, path, selection }) => {
-          const result = openTabFor(session, path, { preview: true });
-          result.placement = selection === undefined ? { line: 1 } : { selection };
-          // A jump out of a unified-review section (go-to-definition, peek) lands in the file editor, which the
-          // overview would otherwise cover.
-          activateDestinationFor(session, "navigation");
-          void applyActive(session, result);
-        },
+        ({ path, selection, source }) =>
+          navigateFrom(source, path, selection, true, source.capture()),
       ),
     );
     const initDeadline = new Promise<never>((_, reject) => {
@@ -954,43 +610,30 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void Promise.race([editorReady, initDeadline])
       .then(async (created) => {
         host = created;
-        resolveEditorHost(created);
         for (const session of editorSessions) {
           reconcileOpenFiles(session);
         }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod, blame, marks, spell] = await Promise.all([
+        const [diff, prose, marks] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
-          import("../symbols/symbol-source"),
-          import("./git-blame"),
           import("./revise-marks"),
-          import("./spell-check"),
         ]);
-        symbolSource = symbolMod.createSymbolSource(created.editor);
         inlineDiff = diff.createInlineDiff(created.editor, {
           scope: reviewScope,
-          parked: () => reviews.mode() === "unified",
-          active: () =>
-            reviews.mode() !== "unified" || selectedUnifiedSurface()?.actions() === undefined,
-          toolbarHost: () => {
-            if (reviews.mode() !== "unified") return created.editor.getDomNode();
-            const surface = selectedUnifiedSurface();
-            return surface?.actions() === undefined ? (surface?.toolbarHost() ?? null) : null;
+          active: () => {
+            const connection = editorContexts.fromEditor(created.editor);
+            return connection !== undefined && editorContexts.displayed(connection);
           },
+          toolbarHost: () =>
+            editorContexts.fromEditor(created.editor) === undefined
+              ? null
+              : created.editor.getDomNode(),
           revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
           reviewLine: () => diff.inlineReviewLine(created.editor),
           painted: () => {},
           updateGeometry: (change) => change(),
-        });
-        // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
-        // targets the type-split chords; the generic Undo (toolbar) omits it.
-        inlineDiff.bindHistory({
-          onUndoKeep: () => publishSelected("review", "undo", { kind: "keep" }),
-          onUndoRevert: () => publishSelected("review", "undo", { kind: "revert" }),
-          onUndoLast: () => publishSelected("review", "undo", {}),
-          onRedo: () => publishSelected("review", "redo", {}),
         });
         // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
         const syncContent = (): void => {
@@ -1000,26 +643,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           created.editor.onDidChangeModelContent(() => syncContent()),
           created.editor.onDidChangeModel(() => {
             syncContent();
-            scheduleRecordNav();
           }),
-          // A cursor jump (or a model swap's reveal) records a navigation point for back/forward.
-          created.editor.onDidChangeCursorPosition(() => scheduleRecordNav()),
         ];
         syncContent();
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
-        reviseMarks = marks.createReviseMarks(created.editor, {
-          activePath: () => {
-            const current = created.editor.getModel();
-            return current === null || current.uri.scheme !== SESSION_FILE_SCHEME
-              ? null
-              : sessionUriHostPath(current.uri);
-          },
-        });
-        gitBlame = blame.createGitBlame(created.editor);
-        spelling = spell.createSpellCheck(created.editor);
+        reviseMarks = marks.sharedReviseMarks;
+        resolveEditorHost(created);
+        container.setAttribute("data-ready", "true");
+        editorMounted = true;
         const session = selectedSession();
         if (session !== null) {
           await rebindSession(session);
@@ -1029,10 +663,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (model !== null && model.uri.scheme === SESSION_FILE_SCHEME) {
           deps.onCurrentFileChanged(sessionUriHostPath(model.uri));
         }
-        // Deterministic "editor is usable" signal: the shell now reveals before the editor chunk settles
-        // (App defers start past first paint), so tests and any editor-gated UI wait on this, not on the splash.
-        container.setAttribute("data-ready", "true");
-        editorMounted = true;
         mark("editor-ready");
       })
       .catch((error: unknown) => {
@@ -1055,53 +685,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     if (!file.currentExists) {
-      reviews.setCursor(session, { path: file.path, line });
       showUnifiedReview(session);
       return;
     }
-    reviews.enterFile(session, { path: file.path, line });
+    navigation.depart(session);
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
   };
 
-  // Puts the session's own board into unified mode and asks for the diffs it still needs. Session-scoped by
-  // construction: the store publishes to the page only when this session is the selected one.
-  const enterUnifiedFor = (session: ClientSession, cursor: ReviewCursor | null): boolean => {
-    if (reviews.board(session).files.length === 0) {
-      return false;
-    }
-    for (const path of reviews.enterUnified(session, cursor)) {
-      session.feature("review").publish("showFile", { path });
-    }
-    return true;
-  };
-
   const showUnifiedReview = (session: ClientSession): boolean => {
-    if (selectedSession() !== session) {
-      return false;
-    }
-    const state = reviews.board(session);
-    if (state.files.length === 0) {
-      return false;
-    }
-    let cursor = state.cursor;
-    if (state.mode === "file") {
-      const current = activePathFor(session);
-      const file = state.files.find(
-        (candidate) => current !== null && samePath(candidate.summary().path, current),
-      );
-      if (file !== undefined) {
-        const summary = file.summary();
-        cursor = {
-          path: summary.path,
-          line: host?.editor.getPosition()?.lineNumber ?? summary.line,
-        };
-      }
-    }
-    if (!enterUnifiedFor(session, cursor)) {
-      return false;
-    }
-    deps.onDestinationActivated();
+    if (!activateDestinationFor(session, "navigation")) return false;
+    const result = openTabFor(session, REVIEW_TAB_KEY, { kind: "review" });
+    presentTab(session, result);
     return true;
   };
 
@@ -1126,11 +721,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       rev: reviewRev,
     };
     const stepIn = (): void => {
-      const cursor = state?.cursor;
-      const first =
-        state?.mode === "unified" && cursor !== null && cursor !== undefined
-          ? files.find((file) => samePath(file.path, cursor.path))
-          : files[0];
+      const first = files[0];
       if (session !== null && first !== undefined) {
         revealReviewFile(session, first, first.line);
       }
@@ -1141,14 +732,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             fileCount: files.length,
             ...(label !== "" ? { label } : {}),
             stepIn,
-            nextFile: () => {
-              if (state?.mode === "unified" && files.length > 1) stepReviewFile(1);
-              else stepIn();
-            },
-            prevFile: () => {
-              if (state?.mode === "unified" && files.length > 1) stepReviewFile(-1);
-              else stepIn();
-            },
+            nextFile: stepIn,
+            prevFile: stepIn,
           }
         : undefined,
     );
@@ -1172,51 +757,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  const unifiedSurfaces = new WeakMap<ClientSession, UnifiedReviewSurface>();
-  const selectedUnifiedSurface = (): UnifiedReviewSurface | undefined => {
-    const session = selectedSession();
-    return session === null ? undefined : unifiedSurfaces.get(session);
-  };
-  const activeReviewActions = (): InlineDiffActions | undefined => {
-    const session = selectedSession();
-    if (session !== null && reviews.board(session).mode === "unified") {
-      const surface = unifiedSurfaces.get(session);
-      return surface === undefined ? undefined : (surface.actions() ?? inlineDiff);
-    }
-    return inlineDiff;
-  };
-  const revealReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
-    if (reviews.board(session).mode === "unified") {
-      unifiedSurfaces.get(session)?.reveal(file.path, line);
-    } else {
-      openReviewFile(session, file, line);
-    }
-  };
-
-  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
-  // (so Ctrl+Left/Right keep Win/Linux word-nav) when there's no multi-file review. An active file that fell
-  // OUT of the set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the
-  // first file — a nav key pressed at a live review toolbar must never silently no-op.
-  const stepReviewFile = (delta: number): boolean => {
-    const session = selectedSession();
-    if (session === null) {
-      return false;
-    }
-    const files = reviews.board(session).files.map((file) => file.summary());
-    if (files.length < 2) {
-      return false;
-    }
-    const state = reviews.board(session);
-    const current =
-      state.mode === "unified" ? (state.cursor?.path ?? files[0]?.path ?? null) : activePath();
-    const idx = current === null ? -1 : files.findIndex((file) => samePath(file.path, current));
-    const next = idx === -1 ? files[0] : files[(idx + delta + files.length) % files.length];
-    if (next === undefined) {
-      return false;
-    }
-    revealReviewFile(session, next, next.line);
-    return true;
-  };
+  const revealReviewFile = openReviewFile;
 
   // A file's diff just cleared (its last hunk was kept or reverted) while other changed files remain under
   // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
@@ -1284,12 +825,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     path: string | undefined,
   ): ReviewFile | null => {
-    const state = reviews.board(session);
-    const target =
-      path ?? (state.mode === "unified" ? (state.cursor?.path ?? null) : activePathFor(session));
+    const target = path;
     const file = reviews
       .board(session)
-      .files.find((candidate) => target !== null && samePath(candidate.summary().path, target));
+      .files.find(
+        (candidate) => target !== undefined && samePath(candidate.summary().path, target),
+      );
     const diff = file?.diff();
     return file === undefined ||
       diff === null ||
@@ -1341,12 +882,33 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
+  const fileHistoryHandlers = (session: ClientSession) =>
+    reviewHistoryHandlers(session, () => {
+      const connection = host === undefined ? undefined : editorContexts.fromEditor(host.editor);
+      const presentation = connection?.tab.presentation;
+      return ({ path, line }) => {
+        if (
+          connection === undefined ||
+          presentation?.signal.aborted ||
+          !editorContexts.displayed(connection) ||
+          selectedSession() !== session
+        )
+          return;
+        const file = reviews
+          .board(session)
+          .files.find((file) => samePath(file.summary().path, path));
+        if (file !== undefined) openReviewFile(session, file.summary(), line);
+      };
+    });
+
   const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
     const history = reviews.board(session).history;
     if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
       return false;
     }
-    session.feature("review").publish("undo", { kind });
+    const handlers = reviewHistoryHandlers(session, () => () => {});
+    if (kind === "keep") handlers.onUndoKeep();
+    else handlers.onUndoRevert();
     return true;
   };
 
@@ -1354,7 +916,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (!reviews.board(session).history.canRedo) {
       return false;
     }
-    session.feature("review").publish("redo", {});
+    reviewHistoryHandlers(session, () => () => {}).onRedo();
     return true;
   };
 
@@ -1442,6 +1004,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const appliedReviewOptions = (
     session: ClientSession,
     message: ReviewFileDiff,
+    reveal: (file: ReviewFile, line: number) => void,
   ): InlineDiffOptions => {
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
@@ -1450,10 +1013,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       files.length > 1 && index !== -1
         ? {
             onPrevFile: (): void => {
-              stepReviewFile(-1);
+              const file = files[(index - 1 + files.length) % files.length]!;
+              reveal(file, file.line);
             },
             onNextFile: (): void => {
-              stepReviewFile(1);
+              const file = files[(index + 1) % files.length]!;
+              reveal(file, file.line);
             },
             fileIndex: index + 1,
             fileCount: files.length,
@@ -1487,15 +1052,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     ) {
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
-      const active =
-        state.mode === "unified" ? (state.cursor?.path ?? null) : activePathFor(session);
+      const active = activePathFor(session);
       if (active !== null && samePath(active, message.path) && files.length > 1) {
         advanceToNextPendingFile(session, message.path);
       }
       return;
     }
 
-    inlineDiff?.set(session, message.path, appliedReviewOptions(session, message));
+    inlineDiff?.set(
+      session,
+      message.path,
+      appliedReviewOptions(session, message, (file, line) => openReviewFile(session, file, line)),
+    );
     commentProse?.refresh();
   };
 
@@ -1513,6 +1081,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       clearPresentedProposal();
     }
     updateParkedReview(session);
+    inlineDiff?.bindHistory(fileHistoryHandlers(session));
     inlineDiff?.setReviewHistory(state.history);
     const retained: string[] = [];
     for (const file of state.files) {
@@ -1530,9 +1099,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
+    if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
+      void tabs.capture(session, REVIEW_TAB_KEY).close();
     reviews.setFiles(session, files, label);
-    if (reviews.board(session).mode === "unified")
-      enterUnifiedFor(session, reviews.board(session).cursor);
     renderReviewState(session);
   };
 
@@ -1563,26 +1132,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     renderReviewState(session);
   };
 
-  // A proposal is a gate the agent is blocked on, so — unlike the agent's own reveals — it does take the pane
-  // from a unified review. The mode is only suspended: resolving the gate hands the overview back.
   const showProposal = (session: ClientSession, message: DiffProposal): void => {
     const priorActive = activePathFor(session);
     const addedTab = !openTabsFor(session).some((tab) => samePath(tab.path, message.path));
-    const priorUnified =
-      reviews.board(session).mode === "unified" ||
-      (reviewProposals.get(session)?.priorUnified ?? false);
-    reviewProposals.set(session, { ...message, priorActive, addedTab, priorUnified });
-    openTabFor(session, message.path, {});
+    reviewProposals.set(session, { ...message, priorActive, addedTab });
     activateDestinationFor(session, "navigation");
+    openTabFor(session, message.path, {});
     renderReviewState(session);
-  };
-
-  // Hands the overview back to the board a resolved proposal borrowed the pane from. Runs whether or not that
-  // session is on screen — a proposal that closes while the user is in another session must not lose the mode.
-  const restoreSuspendedReview = (session: ClientSession, proposal: SessionProposal): void => {
-    if (proposal.priorUnified) {
-      enterUnifiedFor(session, reviews.board(session).cursor);
-    }
   };
 
   const closeProposal = (session: ClientSession, id: string): void => {
@@ -1601,7 +1157,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       deps.onCurrentFileChanged(activePathFor(session));
       renderReviewState(session);
     }
-    restoreSuspendedReview(session, proposal);
   };
 
   const replaceProposals = (session: ClientSession, proposals: DiffProposal[]): void => {
@@ -1647,6 +1202,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const offSessionFeatures = registerSessionFeature((session) => {
+    const offContext = editorContexts.own(
+      session,
+      () => activeTabFor(session),
+      deps.onEditorContextMenu,
+    );
     editorSessions.add(session);
     const editor = session.feature("editor");
     const review = session.feature("review");
@@ -1688,7 +1248,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
           if (activateDestinationFor(session, "navigation")) {
-            void applyActive(session, result).then(focusEditorSurface);
+            presentTab(session, result);
           }
         },
       ),
@@ -1697,7 +1257,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         replaceProposals(session, proposals),
       ),
       editor.on<{ id: string }>("closeDiff", ({ id }) => closeProposal(session, id)),
-      editor.on<{ path: string }>("closeTab", ({ path }) => closeTabForSession(session, path)),
+      editor.on<{ path: string }>("closeTab", ({ path }) => tabs.capture(session, path).close()),
       review.on<{ label: string; files: ReviewFile[] }>("changes", ({ label, files }) =>
         setReviewFilesFor(session, files, label),
       ),
@@ -1715,6 +1275,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<ReviewHistory>("history", (history) => {
         const state = reviews.setHistory(session, history);
         if (selectedSession() === session) {
+          inlineDiff?.bindHistory(fileHistoryHandlers(session));
           inlineDiff?.setReviewHistory(state.history);
         }
       }),
@@ -1725,7 +1286,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       session.state.editor.subscribe((restored) => {
         if (restored?.review != null) {
           reviews.restore(session, restored.review);
-          if (restored.review.mode === "unified") enterUnifiedFor(session, restored.review.cursor);
         }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session).catch((error: unknown) => {
@@ -1739,6 +1299,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       for (const cleanup of cleanups) {
         cleanup();
       }
+      offContext();
+      navigation.detach(session);
       editorSessions.delete(session);
       pendingReconciliations.delete(session);
       if (!disposing) {
@@ -1747,7 +1309,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     };
   });
 
+  let presentedSession: ClientSession | null = selectedSession();
   const offSelection = onSelectedSession((session) => {
+    if (presentedSession !== null && presentedSession !== session) {
+      navigation.capture(presentedSession);
+      navigation.detach(presentedSession);
+    }
+    presentedSession = session;
     if (!editorMounted) {
       reviews.select(session);
       return;
@@ -1779,63 +1347,41 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
     if (activation !== null) {
-      void applyActive(session, activation);
+      presentTab(session, activation);
     }
     host?.closeFile(session, result.scratchPath, true);
   };
 
   // Ask the host to create a scratch buffer; it comes back as an open-file with `scratch: true`.
-  const newFile = (): void => {
-    selectedSession()?.feature("editor").publish("newScratch", {});
+  const newFile = (session: ClientSession): void => {
+    session.feature("editor").publish("newScratch", {});
   };
 
-  // Save the active editor. A scratch buffer is sent to the host for a save-as dialog (autosave cancelled first
-  // so nothing re-creates the temp); a real file is already autosaved. Returns true either way.
-  const save = (): boolean => {
-    const session = selectedSession();
-    const path = activePath();
-    if (session === null || path === null) {
-      return true;
-    }
-    const entry = openTabsFor(session).find((tab) => tab.path === path);
-    if (entry?.scratch === true) {
-      // Only the native shell bound to its own local backend has a native Save-As dialog (save-scratch-as);
-      // otherwise prompt in-app for a name and send it for the host to resolve under the workspace.
-      if (isBrowserHostedShell() || !session.connection.isLocal) {
-        void deps.promptScratchName(basename(path)).then((name) => {
-          if (name === null) {
-            return;
-          }
-          host?.cancelSave(session, path);
-          void session
-            .feature("editor")
-            .request<ScratchSaveResult, { path: string; content: string; name: string }>(
-              "saveScratchNamed",
-              {
-                path,
-                content: host?.contentOf(session, path) ?? "",
-                name,
-              },
-            )
-            .then((result) => applyScratchSave(session, result))
-            .catch((error: unknown) => session.connection.reportError(error));
-        });
-      } else {
-        host?.cancelSave(session, path);
-        void session
-          .feature("editor")
-          .request<ScratchSaveResult, { path: string; content: string; suggestedName: string }>(
-            "saveScratchAs",
-            {
-              path,
-              content: host?.contentOf(session, path) ?? "",
-              suggestedName: basename(path),
-            },
-          )
-          .then((result) => applyScratchSave(session, result))
-          .catch((error: unknown) => session.connection.reportError(error));
-      }
-    }
+  const saveScratch = async (tab: TabOwner): Promise<void> => {
+    const { session, entry } = tab;
+    const native = !isBrowserHostedShell() && session.connection.isLocal;
+    const name = native ? basename(entry.path) : await deps.promptScratchName(basename(entry.path));
+    if (name === null) return;
+    tab.assertLive();
+    host?.cancelSave(session, entry.path);
+    const payload = {
+      path: entry.path,
+      content: host?.contentOf(session, entry.path) ?? "",
+      ...(native ? { suggestedName: name } : { name }),
+    };
+    const result = await session
+      .feature("editor")
+      .request<ScratchSaveResult, typeof payload>(
+        native ? "saveScratchAs" : "saveScratchNamed",
+        payload,
+      );
+    if (!tab.signal.aborted) applyScratchSave(session, result);
+  };
+
+  const save = (tab: TabOwner): boolean => {
+    tab.assertLive();
+    if (tab.entry.scratch)
+      void saveScratch(tab).catch((error: unknown) => tab.session.connection.reportError(error));
     return true;
   };
 
@@ -1845,10 +1391,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openWebTab,
     openSourceTab,
     focusEditor: focusEditorSurface,
-    reviseSelection: () => {
-      const session = selectedSession();
-      const model = host?.editor.getModel();
-      const selection = host?.editor.getSelection();
+    reviseSelection: ({ session, model }, selection) => {
       if (
         session === null ||
         model == null ||
@@ -1892,22 +1435,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (focus) {
           activateDestinationFor(session, "navigation");
         } else {
-          reviews.leaveUnified(session);
+          navigation.depart(session);
         }
-        void applyActive(
-          session,
-          openTabFor(session, path, { line, column, focus, preview: true }),
-        );
+        presentTab(session, openTabFor(session, path, { line, column, focus, preview: true }));
       }
-    },
-    triggerAction: (actionId) => {
-      if (host === undefined) {
-        return false;
-      }
-      const target = host.focusedEditor();
-      target.focus();
-      target.trigger("weavie-menu", actionId, null);
-      return true;
     },
     newFile,
     save,
@@ -1930,89 +1461,52 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openReviewFile(session, file, line ?? file.line);
       return true;
     },
-    showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
-    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? { x, y, entries: [] },
-    correctSpelling: (args) => spelling?.correct(args) ?? null,
-    addSpellingWord: (scope, args) => spelling?.add(scope, args) ?? Promise.resolve(),
+    hostReady: editorHostReady,
+    filePresenter,
+    captureTab: (tab) => {
+      captureLocation(tab);
+    },
     activeContent,
     reviewActive,
     parkedReviewCount: reviews.count,
     review: {
       scope: reviewScope,
       canClose: () => canCloseReview(reviews.overview()),
-      mode: reviews.mode,
       overview: reviews.overview,
-      createCopyScope: () =>
-        host?.createReviewCopyScope() ?? createDeferredReviewCopyScope(editorHostReady),
-      bindSurface: (session, surface) => {
-        unifiedSurfaces.set(session, surface);
-        inlineDiff?.refreshPresentation();
-        return () => {
-          if (unifiedSurfaces.get(session) === surface) unifiedSurfaces.delete(session);
-          inlineDiff?.refreshPresentation();
-        };
-      },
-      refreshControls: () => inlineDiff?.refreshPresentation(),
-      configureDiff: (session, inline, uri, message) => {
-        reviews.overview();
-        inline.bindHistory({
-          onUndoKeep: () => session.feature("review").publish("undo", { kind: "keep" }),
-          onUndoRevert: () => session.feature("review").publish("undo", { kind: "revert" }),
-          onUndoLast: () => session.feature("review").publish("undo", {}),
-          onRedo: () => session.feature("review").publish("redo", {}),
-        });
+      overviewFor: reviews.overviewFor,
+      configureDiff: (tab, inline, uri, message, reveal) => {
+        const session = tab.session;
+        reviews.overviewFor(session);
+        inline.bindHistory(
+          reviewHistoryHandlers(session, () => {
+            const presentation = tab.presentation;
+            return ({ path, line }) => {
+              if (
+                presentation?.signal.aborted ||
+                selectedSession() !== session ||
+                activeTabFor(session) !== tab
+              )
+                return;
+              const file = reviews
+                .board(session)
+                .files.find((file) => samePath(file.summary().path, path));
+              if (file !== undefined) reveal(file.summary(), line);
+            };
+          }),
+        );
         inline.setReviewHistory(reviews.board(session).history);
-        inline.setByUri(uri, appliedReviewOptions(session, message));
-      },
-      toggleMode: (session) => {
-        if (selectedSession() !== session) {
-          return false;
-        }
-        const state = reviews.board(session);
-        if (state.files.length === 0) {
-          return false;
-        }
-        if (state.mode === "file") {
-          return showUnifiedReview(session);
-        }
-        const cursor = state.cursor;
-        const cursorView = state.files.find(
-          (candidate) =>
-            candidate.summary().currentExists &&
-            cursor !== null &&
-            samePath(candidate.summary().path, cursor.path),
-        );
-        const view =
-          cursorView ?? state.files.find((candidate) => candidate.summary().currentExists);
-        if (view === undefined) {
-          return false;
-        }
-        const file = view.summary();
-        openReviewFile(
-          session,
-          file,
-          cursorView === undefined ? file.line : (cursor?.line ?? file.line),
-        );
-        return true;
+        inline.setByUri(uri, appliedReviewOptions(session, message, reveal));
       },
       toggleFileCollapsed: (session, path) => {
         const state = reviews.board(session);
-        if (selectedSession() !== session || state.mode !== "unified") {
-          return false;
-        }
-        const cursor = state.cursor;
-        const view = state.files.find((candidate) =>
-          samePath(candidate.summary().path, path ?? cursor?.path ?? ""),
+        const target = state.files.find(
+          (candidate) => path !== undefined && samePath(candidate.summary().path, path),
         );
-        const target = view ?? (path === undefined ? state.files[0] : undefined);
         if (target === undefined) {
           return false;
         }
         reviews.setFileCollapsed(session, target.summary().path, !target.collapsed());
         return true;
-      },
-      setCursor: (session, path, line) => {
-        reviews.setCursor(session, { path, line });
       },
       setFileCollapsed: (session, path, collapsed) => {
         reviews.setFileCollapsed(session, path, collapsed);
@@ -2053,32 +1547,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       undoRevert: (session) => undoReview(session, "revert"),
       redo: redoReview,
     },
-    inline: {
-      nextChange: () => activeReviewActions()?.nextChange() ?? false,
-      prevChange: () => activeReviewActions()?.prevChange() ?? false,
-      nextFile: () => activeReviewActions()?.nextFile() ?? false,
-      prevFile: () => activeReviewActions()?.prevFile() ?? false,
-      accept: () => activeReviewActions()?.accept() ?? false,
-      reject: () => activeReviewActions()?.reject() ?? false,
-      undo: () => activeReviewActions()?.undo() ?? false,
-      keepFile: () => activeReviewActions()?.keepFile() ?? false,
-      revertFile: () => activeReviewActions()?.revertFile() ?? false,
-      keepAll: () => activeReviewActions()?.keepAll() ?? false,
-      comment: () => activeReviewActions()?.comment() ?? false,
-      undoKeep: () => activeReviewActions()?.undoKeep() ?? false,
-      undoRevert: () => activeReviewActions()?.undoRevert() ?? false,
-      redoReview: () => activeReviewActions()?.redoReview() ?? false,
-    },
     tabs,
     nav: {
-      back: () => {
-        const session = selectedSession();
+      back: (session) => {
+        if (selectedSession() !== session) return false;
+        navigation.capture(session);
         const acted = session !== null && navHistoryFor(session).back();
         setNavRevision((revision) => revision + 1);
         return acted;
       },
-      forward: () => {
-        const session = selectedSession();
+      forward: (session) => {
+        if (selectedSession() !== session) return false;
         const acted = session !== null && navHistoryFor(session).forward();
         setNavRevision((revision) => revision + 1);
         return acted;
@@ -2098,15 +1577,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     dispose: () => {
       disposing = true;
       window.clearTimeout(initTimer);
-      if (navTimer !== undefined) {
-        clearTimeout(navTimer);
-      }
+      navigation.dispose();
+      offEditorLocations();
       for (const sub of contentSubs) {
         sub.dispose();
       }
       commentProse?.dispose();
-      gitBlame?.dispose();
-      spelling?.dispose();
       reviseMarks?.dispose();
       inlineDiff?.dispose();
       host?.dispose();

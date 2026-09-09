@@ -1,7 +1,7 @@
 import { type Accessor, createSignal } from "solid-js";
 import type { ClientSession, ReviewCommentInfo } from "../../bridge";
 import { setContext } from "../../commands/context";
-import { normalizePath, samePath } from "../fs-path";
+import { normalizePath } from "../fs-path";
 import type { ReviewResume } from "../session-types";
 
 /** One changed file in a review, including aggregate counts and its first changed line. */
@@ -48,13 +48,6 @@ export const EMPTY_REVIEW_HISTORY: ReviewHistory = {
   canRedo: false,
 };
 
-export type ReviewPresentationMode = "file" | "unified";
-
-export interface ReviewCursor {
-  path: string;
-  line: number;
-}
-
 /** Stable per-file projection. A diff/comment push updates only its matching accessors. */
 export interface ReviewFileView {
   summary: Accessor<ReviewFile>;
@@ -68,11 +61,11 @@ export interface ReviewFileView {
 }
 
 export interface ReviewOverview {
+  history: ReviewHistory;
   label: string;
   files: ReviewFileView[];
   added: number;
   removed: number;
-  cursor: ReviewCursor | null;
   fullyLoaded: Accessor<boolean>;
   hasPending: Accessor<boolean>;
 }
@@ -102,21 +95,21 @@ export interface SessionReviewBoard {
   added: number;
   removed: number;
   history: ReviewHistory;
-  mode: ReviewPresentationMode;
-  cursor: ReviewCursor | null;
 }
 
 interface MutableReviewBoard extends SessionReviewBoard {
   entries: Map<string, ReviewEntry>;
+  revision: Accessor<number>;
+  touch(): void;
 }
 
-export function canCloseReview(state: Pick<SessionReviewBoard, "files" | "label">): boolean {
+export function canCloseReview(state: { files: readonly unknown[]; label: string }): boolean {
   return state.files.length > 0 || state.label.length > 0;
 }
 
 export interface ReviewStore {
-  mode: Accessor<ReviewPresentationMode>;
   overview: Accessor<ReviewOverview>;
+  overviewFor(session: ClientSession): ReviewOverview;
   count: Accessor<number>;
   board(session: ClientSession): SessionReviewBoard;
   restore(session: ClientSession, resume: ReviewResume): void;
@@ -127,18 +120,14 @@ export interface ReviewStore {
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   reset(session: ClientSession): SessionReviewBoard;
-  enterUnified(session: ClientSession, cursor: ReviewCursor | null): string[];
-  enterFile(session: ClientSession, cursor: ReviewCursor): void;
-  setCursor(session: ClientSession, cursor: ReviewCursor): void;
-  leaveUnified(session: ClientSession): void;
 }
 
 const emptyOverview = (): ReviewOverview => ({
+  history: EMPTY_REVIEW_HISTORY,
   label: "",
   files: [],
   added: 0,
   removed: 0,
-  cursor: null,
   fullyLoaded: () => true,
   hasPending: () => false,
 });
@@ -148,7 +137,6 @@ export function createReviewStore(
   persist: (session: ClientSession, resume: ReviewResume) => void,
 ): ReviewStore {
   const boards = new WeakMap<ClientSession, MutableReviewBoard>();
-  const [mode, setMode] = createSignal<ReviewPresentationMode>("file");
   const [overview, setOverview] = createSignal<ReviewOverview>(emptyOverview());
   const [count, setCount] = createSignal(0);
   let selected: ClientSession | null = null;
@@ -158,44 +146,45 @@ export function createReviewStore(
     if (existing !== undefined) {
       return existing;
     }
+    const [revision, setRevision] = createSignal(0);
     const created: MutableReviewBoard = {
+      revision,
+      touch: () => setRevision((value) => value + 1),
       entries: new Map(),
       files: [],
       label: "",
       added: 0,
       removed: 0,
       history: EMPTY_REVIEW_HISTORY,
-      mode: "file",
-      cursor: null,
     };
     boards.set(session, created);
     return created;
   };
 
-  const publish = (session: ClientSession, state: MutableReviewBoard): void => {
-    if (selected !== session) {
-      return;
-    }
-    setMode(state.mode);
-    setCount(state.files.length);
-    setOverview({
+  const overviewFor = (session: ClientSession): ReviewOverview => {
+    const state = board(session);
+    state.revision();
+    return {
+      history: state.history,
       label: state.label,
       files: state.files,
       added: state.added,
       removed: state.removed,
-      cursor: state.cursor,
       fullyLoaded: () => state.files.every((file) => file.loaded()),
       hasPending: () => state.files.some((file) => file.pending()),
-    });
+    };
+  };
+  const publish = (session: ClientSession, state: MutableReviewBoard): void => {
+    state.touch();
+    if (selected !== session) return;
+    setCount(state.files.length);
+    setOverview(overviewFor(session));
     setContext("reviewClosable", canCloseReview(state));
     setContext("reviewSetActive", state.files.length > 0);
-    setContext("unifiedReviewActive", state.mode === "unified" && state.files.length > 0);
   };
 
   const save = (session: ClientSession, state: MutableReviewBoard): void => {
     persist(session, {
-      mode: state.mode,
-      cursor: state.cursor,
       files: Object.fromEntries(
         [...state.entries].map(([path, entry]) => [
           path,
@@ -269,25 +258,10 @@ export function createReviewStore(
 
   const restore = (session: ClientSession, resume: ReviewResume): void => {
     const state = board(session);
-    state.mode = resume.mode;
-    state.cursor = resume.cursor;
     for (const [path, saved] of Object.entries(resume.files)) {
       Object.assign(ensureEntry(state, path), saved);
     }
     publish(session, state);
-  };
-
-  const repairCursor = (state: MutableReviewBoard): void => {
-    const first = state.files[0]?.summary();
-    if (first === undefined) {
-      state.mode = "file";
-      state.cursor = null;
-    } else if (
-      state.cursor !== null &&
-      !state.files.some((file) => samePath(file.summary().path, state.cursor?.path ?? ""))
-    ) {
-      state.cursor = { path: first.path, line: first.line };
-    }
   };
 
   const setFiles = (
@@ -306,7 +280,6 @@ export function createReviewStore(
     state.label = label;
     state.added = files.reduce((total, file) => total + file.added, 0);
     state.removed = files.reduce((total, file) => total + file.removed, 0);
-    repairCursor(state);
     if (files.length === 0) save(session, state);
     publish(session, state);
     return state;
@@ -381,8 +354,6 @@ export function createReviewStore(
     state.added = 0;
     state.removed = 0;
     state.history = EMPTY_REVIEW_HISTORY;
-    state.mode = "file";
-    state.cursor = null;
     publish(session, state);
     return state;
   };
@@ -390,56 +361,17 @@ export function createReviewStore(
   const select = (session: ClientSession | null): void => {
     selected = session;
     if (session === null) {
-      setMode("file");
       setOverview(emptyOverview());
       setCount(0);
       setContext("reviewClosable", false);
       setContext("reviewSetActive", false);
-      setContext("unifiedReviewActive", false);
     } else {
       publish(session, board(session));
     }
   };
 
-  const enterUnified = (session: ClientSession, cursor: ReviewCursor | null): string[] => {
-    const state = board(session);
-    state.mode = "unified";
-    if (cursor !== null) {
-      state.cursor = cursor;
-    }
-    publish(session, state);
-    save(session, state);
-    return state.files.filter((file) => !file.loaded()).map((file) => file.summary().path);
-  };
-
-  const enterFile = (session: ClientSession, cursor: ReviewCursor): void => {
-    const state = board(session);
-    state.mode = "file";
-    state.cursor = cursor;
-    publish(session, state);
-    save(session, state);
-  };
-
-  const setCursor = (session: ClientSession, cursor: ReviewCursor): void => {
-    const state = board(session);
-    if (state.cursor?.line === cursor.line && samePath(state.cursor.path, cursor.path)) {
-      return;
-    }
-    state.cursor = cursor;
-    save(session, state);
-  };
-
-  const leaveUnified = (session: ClientSession): void => {
-    const state = board(session);
-    if (state.mode === "unified") {
-      state.mode = "file";
-      publish(session, state);
-      save(session, state);
-    }
-  };
-
   return {
-    mode,
+    overviewFor,
     overview,
     count,
     board,
@@ -451,9 +383,15 @@ export function createReviewStore(
     setHistory,
     setFileCollapsed,
     reset,
-    enterUnified,
-    enterFile,
-    setCursor,
-    leaveUnified,
   };
+}
+
+/** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
+export function hasReviewChanges(diff: ReviewFileDiff): boolean {
+  return (
+    diff.baseline !== diff.current ||
+    diff.baselineExists !== diff.currentExists ||
+    diff.acceptedBaseline !== diff.baseline ||
+    diff.acceptedBaselineExists !== diff.baselineExists
+  );
 }

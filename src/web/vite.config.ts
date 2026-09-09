@@ -3,7 +3,7 @@ import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
 const MONACO_MODULE =
-  /[\\/]node_modules[\\/](monaco-editor|monaco-languageclient|@codingame[\\/]monaco-vscode)/;
+  /[\\/]node_modules[\\/](monaco-editor|vscode-languageclient|@codingame[\\/]monaco-vscode)/;
 
 function rejectEagerMonaco(): Plugin {
   return {

@@ -129,19 +129,22 @@ vi.mock("monaco-editor", () => ({
   },
 }));
 
-vi.mock("monaco-languageclient", () => ({
-  MonacoLanguageClient: class {
+vi.mock("vscode-languageclient/browser.js", () => ({
+  BaseLanguageClient: class {
     private readonly record: ClientRecord;
     private readonly rawSelectors: ClientRecord["selectors"];
     state = 2;
 
-    constructor(options: {
+    constructor(
+      _id: string,
+      _name: string,
       clientOptions: {
         documentSelector: ClientRecord["selectors"];
         workspaceFolder: { uri: FakeUri };
         errorHandler: ClientRecord["errorHandler"];
-      };
-    }) {
+      },
+    ) {
+      const options = { clientOptions };
       this.rawSelectors = options.clientOptions.documentSelector;
       this.record = {
         disposed: false,

@@ -226,6 +226,20 @@ test.describe("unopened definitions", () => {
       await expect(
         peek.locator(".view-line", { hasText: "UNOPENED_DEFINITION_CONTENT" }),
       ).toBeVisible();
+      await expect
+        .poll(() =>
+          peek.locator(".preview > .monaco-editor").evaluate((node) => {
+            const pane = node.closest(".split-view-view");
+            const body = node.closest(".body");
+            if (pane === null || body === null)
+              throw new Error("Peek preview has no layout container");
+            return {
+              width: node.clientWidth - pane.clientWidth,
+              height: node.clientHeight - body.getBoundingClientRect().height,
+            };
+          }),
+        )
+        .toEqual({ width: 0, height: 0 });
       await expect(page.locator(".editor-tab", { hasText: "unopened-definition.ts" })).toHaveCount(
         0,
       );

@@ -11,13 +11,13 @@ const runtime = vi.hoisted(() => ({
 
 vi.mock("monaco-editor", () => ({ editor: { registerCommand: () => ({ dispose: () => {} }) } }));
 
-vi.mock("monaco-languageclient", () => ({
-  MonacoLanguageClient: class {
+vi.mock("vscode-languageclient/browser.js", () => ({
+  BaseLanguageClient: class {
     state = 3;
     middleware = {};
 
-    constructor(options: unknown) {
-      runtime.options.push(options);
+    constructor(_id: string, _name: string, clientOptions: unknown) {
+      runtime.options.push({ clientOptions });
       this.registerFeature({ registrationType: { method: "workspace/executeCommand" } });
     }
 
@@ -59,6 +59,11 @@ import { createWeavieLanguageClient } from "./weavie-language-client";
 
 const raised: Array<{ level: string; message: string; key: string | undefined }> = [];
 const commandNamespace = "test-channel";
+const clientOptions = {
+  name: "Test language server",
+  clientOptions: {},
+  messageTransports: {} as never,
+};
 const modelWorkspaceUri = {
   scheme: "weavie-file",
   fsPath: "/weavie-session-1/repo",
@@ -80,7 +85,7 @@ beforeEach(() => {
 // The failure the base client rethrows, as the provider that invoked the request sees it.
 function fail(method: string, error: unknown, show?: boolean): unknown {
   const client = createWeavieLanguageClient(
-    {} as never,
+    clientOptions,
     commandNamespace,
     modelWorkspaceUri as never,
   );
@@ -140,7 +145,7 @@ describe("Weavie language client notifications", () => {
 
   it("logs the base client's own failure reports instead of toasting them", () => {
     const client = createWeavieLanguageClient(
-      {} as never,
+      clientOptions,
       commandNamespace,
       modelWorkspaceUri as never,
     );
@@ -153,7 +158,7 @@ describe("Weavie language client notifications", () => {
 
   it("does not ask the upstream client to stop before initialization finishes", async () => {
     const client = createWeavieLanguageClient(
-      {} as never,
+      clientOptions,
       commandNamespace,
       modelWorkspaceUri as never,
     );
@@ -167,7 +172,7 @@ describe("Weavie language client notifications", () => {
   });
 
   it("replaces the upstream process-global execute-command feature", () => {
-    createWeavieLanguageClient({} as never, commandNamespace, modelWorkspaceUri as never);
+    createWeavieLanguageClient(clientOptions, commandNamespace, modelWorkspaceUri as never);
 
     expect(runtime.features).toHaveLength(1);
     expect(runtime.features[0]).toBeInstanceOf(SessionExecuteCommandFeature);
@@ -177,11 +182,7 @@ describe("Weavie language client notifications", () => {
   });
 
   it("injects exact-origin conversion in both directions", () => {
-    createWeavieLanguageClient(
-      { clientOptions: {} } as never,
-      commandNamespace,
-      modelWorkspaceUri as never,
-    );
+    createWeavieLanguageClient(clientOptions, commandNamespace, modelWorkspaceUri as never);
     const feature = runtime.features[0] as SessionExecuteCommandFeature;
     const options = runtime.options[0] as {
       clientOptions: {
@@ -206,7 +207,7 @@ describe("Weavie language client notifications", () => {
 
   it("scopes server document selectors to one session worktree", () => {
     const first = createWeavieLanguageClient(
-      {} as never,
+      clientOptions,
       commandNamespace,
       modelWorkspaceUri as never,
     );
@@ -215,7 +216,7 @@ describe("Weavie language client notifications", () => {
       fsPath: "/weavie-session-2/repo",
     };
     const second = createWeavieLanguageClient(
-      {} as never,
+      clientOptions,
       commandNamespace,
       secondWorkspaceUri as never,
     );

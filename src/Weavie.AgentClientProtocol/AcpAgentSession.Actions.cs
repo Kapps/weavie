@@ -190,6 +190,7 @@ public sealed partial class AcpAgentSession {
 					background = HasBackgroundWorkLocked();
 					_waitingForBackground = background;
 				}
+				CompletePermissionTools(turnId);
 				Observe(new AgentTurnStopped(WillResume: background));
 				CompleteContentStreams();
 				if (stopReason == "refusal") RetractTurn(turnId);

@@ -36,7 +36,7 @@ import type {
 } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
-import { setAgentPlan } from "./plan/plan-store";
+import { removeAgentPlan, setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
@@ -1680,6 +1680,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           setAgentPlan(session, message.path, message.id, message.title, message.markdown);
         },
       ),
+      editor.on<{ path: string }>("agentPlanRemoved", (message) => {
+        removeAgentPlan(session, message.path);
+      }),
       editor.on<{ path: string; kind: "web" | "source" | "plan" }>(
         "openOverlay",
         ({ path, kind }) => {

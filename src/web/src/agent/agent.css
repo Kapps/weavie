@@ -650,6 +650,8 @@ a.agent-entry-media {
 
 /* The substance under review (command / paths) reads as code, set off from the reason line. */
 .agent-entry-request .agent-entry-text {
+  max-block-size: min(12lh, 25vh);
+  overflow: auto;
   margin: 4px 0 2px;
   padding: 4px 7px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);

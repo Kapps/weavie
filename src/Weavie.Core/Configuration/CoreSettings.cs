@@ -141,6 +141,7 @@ public static class CoreSettings {
 			Key = AgentSettings.AllowAllPermissions,
 			Kind = SettingKind.Bool,
 			Description = "Automatically select the strongest allow option advertised by an ACP agent. "
+				+ "Mode changes such as plan approval always require your choice. "
 				+ "On by default and applied to the next permission request.",
 			Aliases = ["allow all tools", "auto approve tools", "yolo mode", "bypass permissions"],
 			Apply = ApplyMode.Live,

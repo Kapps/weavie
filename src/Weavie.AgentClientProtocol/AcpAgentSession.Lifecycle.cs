@@ -25,16 +25,20 @@ public sealed partial class AcpAgentSession {
 		SideRuntime[] sideSessions;
 		string? sessionId;
 		bool close;
-		lock (_gate) {
-			if (_disposed) {
-				return;
+		lock (_turnTransitionGate) {
+			lock (_gate) {
+				if (_disposed) {
+					return;
+				}
+				_disposed = true;
+				_controlMutations.Clear();
+				sideSessions = [.. _sideRuntimes.Values];
+				sessionId = _endpoint?.SessionId;
+				close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
 			}
-			_disposed = true;
-			_controlMutations.Clear();
-			sideSessions = [.. _sideRuntimes.Values];
-			_sideRuntimes.Clear();
-			sessionId = _endpoint?.SessionId;
-			close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
+			SettleToolsForDisposal();
+			foreach (var side in sideSessions) side.Session.SettleToolsForDisposal();
+			lock (_gate) _sideRuntimes.Clear();
 		}
 
 		CancelPendingInteractions();

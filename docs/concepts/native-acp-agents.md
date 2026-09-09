@@ -80,7 +80,13 @@ advertised data or protocol output fails the exact agent generation visibly.
 ACP's standard `plan` update is the agent's replaceable execution checklist, so Weavie renders it as progress
 activity rather than an openable document. Weavie advertises the separate plan-document capability: explicit
 `plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
-retracts them. File-backed plans are snapshotted when received and must resolve to a local file.
+retracts them. File-backed plans are snapshotted when received and must resolve to a local file. Open editor
+tabs follow the complete document's revisions; removed plans show an unavailable notice, including after reconnect.
+
+Permission requests can introduce a tool identity before its execution notifications. The same tool state merges
+both sources in receive order, while only execution notifications establish background activity. Mode-change
+permissions (`switch_mode`), including plan implementation, always require a user choice even when automatic
+tool approval is enabled.
 
 Agents mirror one mode axis in both `configOptions` and the legacy `modes` block. The configuration option owns
 that axis, because `session/set_config_option` is what writes it back; a legacy-only mode axis is written with

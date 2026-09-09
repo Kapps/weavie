@@ -683,30 +683,44 @@ test.describe("ACP composer", () => {
     await expect(response).toHaveValue("Keep this field focused");
   });
 
-  test("an input request stays docked while later updates scroll beneath it", async ({ page }) => {
+  test("a tall pending request scrolls with history and retains its draft through updates", async ({
+    page,
+  }) => {
     await mountAgent(page);
+    publishCatalog();
     await page.setViewportSize({ width: 800, height: 500 });
+    publishPane(userMessage("Read this earlier output before answering"));
     publishPane(
       paneMessage({
         type: "input-requested",
         itemId: "input-draft",
         requestId: "input-draft",
         status: "pending",
-        questions: [freeformQuestion],
+        questions: Array.from({ length: 3 }, (_, index) => ({
+          ...freeformQuestion,
+          id: `answer-${index}`,
+          header: `Question ${index + 1}`,
+          question: "Review the earlier explanation before choosing how to proceed.",
+          allowsOther: true,
+          options: [
+            { value: "one", label: "First choice", description: "Keep the current behavior." },
+            { value: "two", label: "Second choice", description: "Use the proposed behavior." },
+          ],
+        })),
       }),
     );
-    const dock = page.locator("[data-agent-pending-request]");
-    const response = dock.locator(".agent-input-request input");
     const body = page.locator(".agent-body");
-    await expect(dock).toBeVisible();
-    await expect(page.locator(".agent-empty")).toHaveCount(0);
-    await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(0);
+    const request = body.locator(".agent-entry-request");
+    const response = request.locator('input[placeholder="Type another answer"]').last();
+    await request.getByRole("radio", { name: "Other", exact: true }).last().check();
     await response.fill("Keep this answer");
     await expect(response).toBeFocused();
-    const initialDockHeight = await dock.evaluate((element) =>
-      Math.round(element.getBoundingClientRect().height),
-    );
+    await expect(page.locator(".agent-empty")).toHaveCount(0);
+    expect(
+      await request.evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeGreaterThan(await body.evaluate((element) => element.clientHeight));
 
+    const originalResponse = await response.elementHandle();
     for (let index = 0; index < 60; index += 1) {
       publishPane(
         paneMessage({
@@ -714,79 +728,197 @@ test.describe("ACP composer", () => {
           itemId: `later-update-${index}`,
           itemType: "agentMessage",
           status: "completed",
-          text: `Later agent update ${index}\nwith enough text to move the request off screen`,
+          text: `Later agent update ${index}\nwith enough text to fill the conversation history`,
+        }),
+      );
+      await expect(body.locator(".agent-virtual-row").last()).toHaveAttribute(
+        "data-index",
+        String(index + 2),
+      );
+      expect(
+        await response.evaluate((element, original) => element === original, originalResponse),
+      ).toBe(true);
+      await expect(response).toBeFocused();
+    }
+    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 3");
+    await expect(response).toBeFocused();
+    await expect(response).toHaveValue("Keep this answer");
+    await waitForBottom(page, body);
+
+    await request.getByRole("button", { name: "Submit answers" }).hover();
+    await page.mouse.wheel(0, -100_000);
+    await expect(request).not.toBeInViewport();
+    await expect(body.locator(".agent-entry-text").first()).toContainText(
+      "Read this earlier output before answering",
+    );
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect(response).toBeFocused();
+    await expect(response).toHaveValue("Keep this answer");
+
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        itemId: "while-reading",
+        itemType: "agentMessage",
+        status: "completed",
+        text: "Another update while the user reads earlier output",
+      }),
+    );
+    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 3");
+    await expect(request).not.toBeInViewport();
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+
+    const freshSession = mockSession("cx-input-draft", "fresh-input", "acp");
+    host.setSessions([agentSession, freshSession]);
+    host.publishSession(freshSession.address, "agent", "controls", controls);
+    await page.locator('.session-chip[title^="fresh-input —"]').click();
+    await expect(page.locator(".agent-empty")).toBeVisible();
+    await page.locator('.session-chip[title^="acp —"]').click();
+    await expect(response).toHaveValue("Keep this answer");
+
+    const composer = page.locator("[data-agent-composer] textarea");
+    await composer.focus();
+    await page.keyboard.press("Alt+ArrowDown");
+    await waitForBottom(page, body);
+    await expect(request.getByRole("button", { name: "Submit answers" })).toBeInViewport();
+    await composer.fill("line\n".repeat(12));
+    await waitForBottom(page, body);
+    await expect(request.getByRole("button", { name: "Submit answers" })).toBeInViewport();
+    await expect(page.locator(".agent-compose")).toBeInViewport();
+    await expect(response).toHaveValue("Keep this answer");
+    await composer.fill("");
+    await body.hover();
+    await page.mouse.wheel(0, -100_000);
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+
+    const pendingHeight = await request.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    const pendingScrollHeight = await body.evaluate((element) => element.scrollHeight);
+    publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
+    await expect(body.locator(".agent-input-request")).toHaveCount(0);
+    await expect(request.locator(".agent-entry-status")).toHaveText("resolved");
+    const resolvedHeight = await request.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    await expect
+      .poll(() => body.evaluate((element) => element.scrollHeight))
+      .toBeLessThanOrEqual(pendingScrollHeight - pendingHeight + resolvedHeight + 1);
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await composer.focus();
+    await page.keyboard.press("Alt+ArrowDown");
+    await waitForBottom(page, body);
+    await expect(body.locator(".agent-virtual-row").last()).toContainText(
+      "Another update while the user reads earlier output",
+    );
+  });
+
+  test("multiple pending requests stay last and shortcuts answer the newest offscreen form", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    for (const id of ["older", "newer"]) {
+      publishPane(
+        paneMessage({
+          type: "input-requested",
+          itemId: id,
+          requestId: id,
+          status: "pending",
+          questions: [{ ...freeformQuestion, header: id }],
+        }),
+      );
+      await page.locator(".agent-input-request", { hasText: id }).locator("input").fill(id);
+    }
+    for (let index = 0; index < 40; index += 1) {
+      publishPane(userMessage(`Earlier output ${index}`));
+    }
+    const body = page.locator(".agent-body");
+    await waitForBottom(page, body);
+    await expect(body.locator(".agent-input-request")).toHaveCount(2);
+    await expect(body.locator(".agent-input-request").nth(0)).toContainText("older");
+    await expect(body.locator(".agent-input-request").nth(1)).toContainText("newer");
+    await page.locator("[data-agent-composer] textarea").focus();
+    await body.hover();
+    await page.mouse.wheel(0, -100_000);
+    await expect(body.locator(".agent-input-request").last()).not.toBeInViewport();
+    await page.keyboard.press("Alt+Enter");
+    expect(await waitForAgentPayload("input")).toMatchObject({
+      requestId: "newer",
+      action: "accept",
+      answers: { answer: ["newer"] },
+    });
+    publishPane(paneMessage({ type: "input-resolved", itemId: "newer", status: "accepted" }));
+    await expect(body.locator(".agent-input-request")).toHaveCount(1);
+    await expect(body.locator(".agent-input-request input")).toHaveValue("older");
+    const checkpoint = host.checkpoint();
+    await page.keyboard.press("Alt+Enter");
+    expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
+      requestId: "older",
+      action: "accept",
+      answers: { answer: ["older"] },
+    });
+  });
+
+  test("resolving an older pending request preserves the mid-history reading position", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishPane(userMessage("Start of history"));
+    for (const id of ["older-anchor", "newer-anchor"]) {
+      publishPane(
+        paneMessage({
+          type: "input-requested",
+          itemId: id,
+          requestId: id,
+          status: "pending",
+          questions: [{ ...freeformQuestion, header: id }],
         }),
       );
     }
-    await body.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
+    for (let index = 0; index < 50; index += 1) {
+      publishPane(userMessage(`Read earlier finding ${index}\nKeep this passage in place.`));
+    }
+    const body = page.locator(".agent-body");
+    await waitForBottom(page, body);
+    await body.hover();
+    await page.mouse.wheel(0, -1_400);
+    await expect(body.locator(".agent-input-request").first()).not.toBeInViewport();
+    const anchor = await body.evaluate(async (element) => {
+      let previous = element.scrollTop;
+      let stationaryFrames = 0;
+      while (stationaryFrames < 2) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        stationaryFrames = previous === element.scrollTop ? stationaryFrames + 1 : 0;
+        previous = element.scrollTop;
+      }
+      const viewport = element.getBoundingClientRect();
+      const row = [...element.querySelectorAll<HTMLElement>(".agent-virtual-row")].find(
+        (candidate) => candidate.getBoundingClientRect().bottom > viewport.top,
+      );
+      if (row === undefined) throw new Error("No visible transcript anchor");
+      return {
+        id: row.dataset.transcriptEntry!,
+        top: row.getBoundingClientRect().top - viewport.top,
+      };
     });
-    await expect(dock).toBeVisible();
-    await expect(response).toBeFocused();
-    await expect(response).toHaveValue("Keep this answer");
-    await expect
-      .poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().height)))
-      .toBe(initialDockHeight);
-    await expect
-      .poll(() =>
-        dock.evaluate((element) => {
-          const controls = [
-            element.querySelector(".agent-input-request input"),
-            element.querySelector(".agent-input-request button[type='submit']"),
-          ];
-          return controls.every((control) => {
-            const bounds = control?.getBoundingClientRect();
-            if (bounds === undefined) {
-              return false;
-            }
-            const hit = document.elementFromPoint(
-              bounds.left + bounds.width / 2,
-              bounds.top + bounds.height / 2,
-            );
-            return hit === control || control?.contains(hit);
-          });
-        }),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        dock.evaluate(
-          (element) =>
-            element.getBoundingClientRect().bottom -
-            (element.nextElementSibling?.getBoundingClientRect().top ?? Number.NaN),
-        ),
-      )
-      .toBe(0);
-    await waitForBottom(page, body);
-
-    // A grown composer takes its room from the docked request, never from its own rows: the panel
-    // yields and scrolls, and the textarea plus every decision button stay inside the pane.
-    const surface = page.locator(".agent-surface");
-    await page.locator("[data-agent-composer] textarea").fill("line\n".repeat(12));
-    await expect
-      .poll(() =>
-        surface.evaluate((element) => {
-          const pane = element.getBoundingClientRect();
-          const rows = [...element.querySelectorAll("[data-agent-composer], .agent-compose")];
-          return rows.every((row) => row.getBoundingClientRect().bottom <= pane.bottom + 1);
-        }),
-      )
-      .toBe(true);
-    await expect(response).toHaveValue("Keep this answer");
-    await page.locator("[data-agent-composer] textarea").fill("");
-
-    publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
-    await expect(dock).toHaveCount(0);
-    await waitForBottom(page, body);
-    await expect(page.getByRole("button", { name: "↓ Jump to latest", exact: true })).toHaveCount(
-      0,
+    publishPane(
+      paneMessage({ type: "input-resolved", itemId: "older-anchor", status: "accepted" }),
     );
-    await body.evaluate((element) => {
-      element.scrollTop = 0;
-    });
-    const resolved = page.locator(".agent-entry-request");
-    await expect(resolved.locator(".agent-entry-status")).toHaveText("resolved");
-    await expect(resolved.locator(".agent-input-request")).toHaveCount(0);
+    await expect(body.locator(".agent-input-request")).toHaveCount(1);
+    await expect
+      .poll(() =>
+        body.evaluate((element, previous) => {
+          const row = [...element.querySelectorAll<HTMLElement>(".agent-virtual-row")].find(
+            (candidate) => candidate.dataset.transcriptEntry === previous.id,
+          );
+          if (row === undefined) return Number.POSITIVE_INFINITY;
+          return Math.abs(
+            row.getBoundingClientRect().top - element.getBoundingClientRect().top - previous.top,
+          );
+        }, anchor),
+      )
+      .toBeLessThanOrEqual(1);
   });
 
   test("a multi-select input returns advertised and custom answers", async ({ page }) => {
@@ -856,11 +988,11 @@ test.describe("ACP composer", () => {
         ],
       }),
     );
-    const dock = page.locator("[data-agent-pending-request]");
-    await expect(dock.getByText("Ship the whole feature.", { exact: true })).toBeVisible();
-    await dock.screenshot({ path: join(shotsDir, "15-input-request.png") });
+    const request = page.locator(".agent-body .agent-entry-request");
+    await expect(request.getByText("Ship the whole feature.", { exact: true })).toBeVisible();
+    await request.screenshot({ path: join(shotsDir, "15-input-request.png") });
     await page.getByRole("radio", { name: "Everything" }).check();
-    await dock.getByRole("button", { name: "Submit answers" }).click();
+    await request.getByRole("button", { name: "Submit answers" }).click();
     expect(await waitForAgentPayload("input")).toMatchObject({
       requestId: "input-review",
       answers: { scope: ["all"] },
@@ -967,10 +1099,16 @@ test.describe("ACP composer", () => {
       }),
     );
 
+    for (let index = 0; index < 40; index += 1) {
+      publishPane(userMessage(`History before the pending form ${index}`));
+    }
     const input = page.locator(".agent-input-request input");
     await input.fill("invalid");
     const beforeInvalid = host.received.length;
     await page.locator("[data-agent-composer] textarea").click();
+    await page.locator(".agent-body").hover();
+    await page.mouse.wheel(0, -100_000);
+    await expect(input).not.toBeInViewport();
     await page.keyboard.press("Alt+Enter");
     await expect(input).toBeFocused();
     expect(await input.evaluate((element) => element.validationMessage)).not.toBe("");
@@ -1000,7 +1138,7 @@ test.describe("ACP composer", () => {
       }),
     );
 
-    const form = page.locator("[data-agent-pending-request]");
+    const form = page.locator(".agent-body .agent-input-request");
     await expect(form.getByRole("button", { name: "Decline", exact: true })).toHaveAttribute(
       "title",
       "Decline request (Alt+N)",
@@ -1029,7 +1167,7 @@ test.describe("ACP composer", () => {
         status: "pending",
       }),
     );
-    const url = page.locator("[data-agent-pending-request]");
+    const url = page.locator(".agent-body .agent-entry-request").last();
     await expect(url.getByText("https://example.test/login", { exact: true })).toBeVisible();
     await expect(url.getByRole("link", { name: "https://example.test/login" })).toHaveCount(0);
     const decline = url.getByRole("button", { name: "Decline", exact: true });

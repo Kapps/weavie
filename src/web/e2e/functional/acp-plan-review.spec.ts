@@ -58,6 +58,15 @@ test.describe("ACP plan review with automatic tool approval", () => {
       await expect(document).toContainText("Detailed work plan");
       await expect(document).toContainText("Implementation step 12");
       await expect(document).toContainText("End of the complete work plan.");
+      const body = surface.locator(".agent-body");
+      await body.hover({ position: { x: 4, y: 20 } });
+      await page.mouse.wheel(0, -1000);
+      const latest = surface.getByRole("button", { name: "Jump to latest", exact: true });
+      await expect(latest).toHaveCount(1);
+      await body.hover({
+        position: { x: (await body.evaluate((element) => element.clientWidth)) - 20, y: 20 },
+      });
+      await latest.click();
       await expect(implement).toBeInViewport({ ratio: 1 });
       await expect(revise).toBeInViewport({ ratio: 1 });
 

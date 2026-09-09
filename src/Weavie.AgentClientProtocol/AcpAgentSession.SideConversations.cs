@@ -4,25 +4,59 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
+	private readonly Queue<string> _pendingAsides = new();
 
 	/// <inheritdoc/>
+	// Fixed 2026-09-09 (root-caused after a `/btw rich` sent as the very first composer action raced the ACP
+	// handshake and silently dropped: EnsureSideConversationSupport threw on `!_ready`, and the handler
+	// swallowed it). An ordinary Submit() sent in that same window is safely queued and delivered once ready
+	// (see AcpAgentSession.Actions.cs's _pendingSubmissions); AskAside had no such queue, so it just failed.
+	// Queue like an ordinary turn instead of racing the handshake.
 	public void AskAside(string prompt) {
 		prompt = RequiredSidePrompt(prompt);
 		lock (_turnTransitionGate) {
-			SideRuntime runtime;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
-				EnsureSideConversationSupport();
-				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, prompt);
-				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
-				_sideRuntimes.Add(conversation.ConversationId, runtime);
+				if (_role is not PrimaryRole) {
+					throw new InvalidOperationException("A side conversation cannot address another side conversation.");
+				}
+				if (!_ready) {
+					_pendingAsides.Enqueue(prompt);
+					return;
+				}
 			}
-			Emit(SideMarker(runtime.Conversation, "forking"));
-			try {
-				runtime.Session.Start();
-				runtime.Session.Submit(SideTurn(prompt));
-			} catch (Exception error) {
-				runtime.Session.FailConversationSerialized(error);
+			StartAside(prompt);
+		}
+	}
+
+	// Runs with _turnTransitionGate held, either directly from AskAside once ready or from FlushPendingAsides
+	// once the ACP handshake resolves _ready (and so _supportsFork/_supportsLoad).
+	private void StartAside(string prompt) {
+		SideRuntime runtime;
+		lock (_gate) {
+			EnsureSideConversationSupport();
+			var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, prompt);
+			runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
+			_sideRuntimes.Add(conversation.ConversationId, runtime);
+		}
+		Emit(SideMarker(runtime.Conversation, "forking"));
+		try {
+			runtime.Session.Start();
+			runtime.Session.Submit(SideTurn(prompt));
+		} catch (Exception error) {
+			runtime.Session.FailConversationSerialized(error);
+		}
+	}
+
+	private void FlushPendingAsides() {
+		lock (_turnTransitionGate) {
+			while (true) {
+				string prompt;
+				lock (_gate) {
+					if (_pendingAsides.Count == 0) return;
+					prompt = _pendingAsides.Dequeue();
+				}
+				StartAside(prompt);
 			}
 		}
 	}

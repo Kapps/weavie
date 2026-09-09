@@ -31,4 +31,21 @@ public sealed class AcpSideForkTests {
 		string prompt = Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")).Skip(1));
 		Assert.EndsWith(":next side prompt", prompt, StringComparison.Ordinal);
 	}
+
+	// Fixed 2026-09-09: AskAside called between Session.Start() (which only fires off the real subprocess
+	// handshake) and that handshake's completion used to throw and silently drop the request — Submit() sent
+	// in the same window is safely queued instead. Session.Start() is synchronous and returns long before the
+	// spawned weavie-fake-acp process completes its initialize/session-new round trip, so calling AskAside
+	// immediately after it (with no wait in between) reliably races the same window a real "very first
+	// composer action" can.
+	[Fact]
+	public async Task AskAsideCalledBeforeReadyIsQueuedInsteadOfDropped() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		fixture.Session.Start();
+		fixture.Session.AskAside("queued before ready");
+		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
+		Assert.NotNull(started.ConversationId);
+		await fixture.WaitForMessageAsync(message =>
+			message.ConversationId == started.ConversationId && message.Text == "echo: queued before ready");
+	}
 }

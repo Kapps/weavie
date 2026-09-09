@@ -232,10 +232,11 @@ test.describe("three-file completion", () => {
 
     await expectClosed(page);
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
-    await expect(page.locator(".editor")).toHaveAttribute(
-      "data-active-file",
-      join(weavie.workspace, "notes.txt"),
-    );
+    // Flaked on windows-latest 2026-09-09 06:21 UTC (run 34317635773, job 102358015410): `data-active-file`
+    // renders the app's canonicalized path (forward slashes, lowercase drive), but `join()` here produced
+    // the raw OS-native `weavie.workspace` (backslashes, uppercase drive on Windows) — a permanent mismatch,
+    // not a timing race. Match the filename the same tail-anchored way every other test in this suite does.
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]notes\.txt$/);
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getValue()))
       .toBe(original);

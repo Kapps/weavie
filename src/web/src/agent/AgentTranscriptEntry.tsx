@@ -13,8 +13,7 @@ import type { AgentSectionLabel } from "./pane-store";
 export function TranscriptEntry(props: {
   expandedDetails: ReadonlySet<string>;
   entry: AgentTranscriptEntry;
-  keyboardApprovalId: string | null;
-  keyboardInputId: string | null;
+  keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
@@ -25,8 +24,7 @@ export function TranscriptEntry(props: {
         entry={props.entry}
         expandedDetails={props.expandedDetails}
         onDetailsToggle={props.onDetailsToggle}
-        keyboardApprovalId={props.keyboardApprovalId}
-        keyboardInputId={props.keyboardInputId}
+        keyboardRequestKey={props.keyboardRequestKey}
         session={props.session}
       />
     );
@@ -88,8 +86,7 @@ export function TranscriptEntry(props: {
         <EntryActions
           detailsExpanded={props.expandedDetails.has(props.entry.id)}
           entry={props.entry}
-          keyboardApprovalId={props.keyboardApprovalId}
-          keyboardInputId={props.keyboardInputId}
+          keyboardRequestKey={props.keyboardRequestKey}
           onDetailsToggle={(open) => props.onDetailsToggle(props.entry.id, open)}
           session={props.session}
         />
@@ -105,8 +102,7 @@ function showEntryHeader(entry: AgentTranscriptEntry): boolean {
 function EntryActions(props: {
   detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
-  keyboardApprovalId: string | null;
-  keyboardInputId: string | null;
+  keyboardRequestKey: string | null;
   onDetailsToggle: (open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
@@ -118,23 +114,23 @@ function EntryActions(props: {
             <ApprovalActions
               session={props.session}
               message={message()}
-              answersToKeys={
-                props.keyboardApprovalId !== null && message().itemId === props.keyboardApprovalId
-              }
+              answersToKeys={props.entry.id === props.keyboardRequestKey}
             />
           </Match>
           <Match
             when={message().type === "authentication-requested" && props.entry.status === "pending"}
           >
-            <AuthenticationActions session={props.session} message={message()} />
+            <AuthenticationActions
+              session={props.session}
+              message={message()}
+              answersToKeys={props.entry.id === props.keyboardRequestKey}
+            />
           </Match>
           <Match when={message().type === "input-requested" && props.entry.status === "pending"}>
             <InputRequestActions
               session={props.session}
               message={message()}
-              answersToKeys={
-                props.keyboardInputId !== null && message().itemId === props.keyboardInputId
-              }
+              answersToKeys={props.entry.id === props.keyboardRequestKey}
             />
           </Match>
           <Match

@@ -8,6 +8,11 @@ const proseLineHeight = 27;
 const monoLineHeight = 18;
 const estimates = new WeakMap<AgentTranscriptEntry, number>();
 
+export function invalidateEntrySize(entry: AgentTranscriptEntry): void {
+  estimates.delete(entry);
+  for (const child of entry.asideEntries ?? []) invalidateEntrySize(child);
+}
+
 // Called for every unmeasured row on each measurement pass, so the per-entry result is memoized.
 export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): number {
   if (entry === undefined) {

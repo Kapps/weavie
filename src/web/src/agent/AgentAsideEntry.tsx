@@ -24,8 +24,7 @@ export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
   onDetailsToggle: (entryId: string, open: boolean) => void;
-  keyboardApprovalId: string | null;
-  keyboardInputId: string | null;
+  keyboardRequestKey: string | null;
   session: ClientSession;
 }): JSX.Element {
   const conversationId = props.entry.conversationId;
@@ -92,8 +91,7 @@ export function AsideEntry(props: {
               <TranscriptEntry
                 expandedDetails={props.expandedDetails}
                 entry={entry}
-                keyboardApprovalId={props.keyboardApprovalId}
-                keyboardInputId={props.keyboardInputId}
+                keyboardRequestKey={props.keyboardRequestKey}
                 onDetailsToggle={props.onDetailsToggle}
                 sectionLabel={null}
                 session={props.session}

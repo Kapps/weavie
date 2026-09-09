@@ -268,12 +268,17 @@ export function UnifiedReview(props: {
   const followViewport = (): void => {
     programmaticSelection = false;
   };
+  // resizeItem, not measureElement: measureElement silently drops the update while the virtualizer still
+  // considers itself "scrolling" (isScrolling stays true for isScrollingResetDelay after our own
+  // scrollToIndex, unrelated to this row) and no smooth scrollState is active for this row — exactly the
+  // window a section's diff paints in. A dropped update leaves every later row's cached offset short by
+  // this row's real growth, which a later file's capture()/restore() (review-editor.ts) reads directly off
+  // the DOM to anchor its own scroll — silently landing short by the same amount, permanently.
   const measure = (element: HTMLElement): void => {
-    queueMicrotask(() => {
-      if (element.isConnected) {
-        virtualizer.measureElement(element);
-      }
-    });
+    if (!element.isConnected) return;
+    const index = Number(element.getAttribute("data-index"));
+    if (Number.isNaN(index)) return;
+    virtualizer.resizeItem(index, element.getBoundingClientRect().height);
   };
 
   return (

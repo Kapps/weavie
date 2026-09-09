@@ -46,22 +46,35 @@ export function createReviewSurface(surface: {
     fail(error: unknown): void;
     cancel(): void;
   } | null = null;
+  // A file's section only publishes once its own diff has painted — including the decorations (e.g. a
+  // "new file" badge) a paint adds after its first, pre-paint content-height reading — so its on-screen
+  // height is final from that point on.
+  const sectionSettled = (file: ReviewFileView): boolean => {
+    if (file.collapsed()) return true;
+    const diff = file.diff();
+    if (!file.loaded()) return false;
+    return (
+      diff === null || !hasReviewChanges(diff) || sections.has(normalizePath(file.summary().path))
+    );
+  };
   const settle = (): void => {
     if (pending === null || !pending.ready) return;
+    const files = surface.files();
+    const targetIndex = files.findIndex(
+      (file) => normalizePath(file.summary().path) === normalizePath(pending!.location.path),
+    );
+    if (targetIndex < 0) {
+      pending.fail(new Error("This file is no longer in the review."));
+      return;
+    }
+    // The target's own capture()/restore() reads earlier files' rendered positions directly to anchor its
+    // scroll (review-editor.ts) — settle on it only once every file stacked above it is done growing, or
+    // that read lands on a still-transient height and the scroll it computes silently falls short once the
+    // real height lands later.
+    if (files.slice(0, targetIndex).some((file) => !sectionSettled(file))) return;
     const section = sections.get(normalizePath(pending.location.path));
     if (section === undefined) {
-      const file = surface
-        .files()
-        .find(
-          (candidate) =>
-            normalizePath(candidate.summary().path) === normalizePath(pending!.location.path),
-        );
-      const diff = file?.diff();
-      if (file === undefined) {
-        pending.fail(new Error("This file is no longer in the review."));
-        return;
-      }
-      if (!file.collapsed() && (!file.loaded() || (diff != null && hasReviewChanges(diff)))) return;
+      if (!sectionSettled(files[targetIndex])) return;
       const operation = pending;
       pending = null;
       operation.finish();

@@ -155,3 +155,42 @@ test("drag selections scroll at the visible edges and restore overscan after rel
     await expectOverscan(page);
   }
 });
+
+test("keeps Find controls visible and clickable while navigating beyond the viewport", async ({
+  page,
+}) => {
+  const scroller = await openReviewMiddle(page);
+  const middleText = (await reviewState(page)).middleText;
+  if (middleText === undefined) throw new Error("Review viewport has no visible code");
+  await page
+    .locator(".unified-review-file .view-line", { hasText: middleText })
+    .locator("span")
+    .first()
+    .click();
+  await page.keyboard.press("ControlOrMeta+f");
+  const find = page.locator(".unified-review-file .find-widget");
+  const input = find.getByRole("textbox", { name: "Find", exact: true });
+  const expectFindVisible = async (): Promise<void> => {
+    await expect(input).toBeInViewport({ ratio: 1 });
+    await expect
+      .poll(async () => {
+        const header = await page.locator(".unified-review-file-header").boundingBox();
+        const field = await input.boundingBox();
+        const viewport = await scroller.boundingBox();
+        if (header === null || field === null || viewport === null)
+          throw new Error("Find controls are not mounted");
+        return Math.min(
+          field.y - header.y - header.height,
+          viewport.y + viewport.height - field.y - field.height,
+        );
+      })
+      .toBeGreaterThanOrEqual(0);
+  };
+  await expectFindVisible();
+  await input.fill("new line 4");
+  await expect.poll(async () => (await reviewState(page)).line).toBe(5);
+  await find.getByRole("button", { name: /^Next Match/ }).click();
+  await expect.poll(async () => (await reviewState(page)).line).toBe(41);
+  await expect.poll(async () => (await reviewState(page)).cursorVisible).toBe(true);
+  await expectFindVisible();
+});

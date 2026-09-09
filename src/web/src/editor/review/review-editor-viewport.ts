@@ -41,6 +41,7 @@ export function createReviewEditorViewport(
       const top = Math.max(0, Math.min(offset - overscan, container.clientHeight - height));
       renderedTop = top;
       mount.style.top = `${top}px`;
+      mount.style.setProperty("--review-viewport-top-offset", `${Math.max(0, offset - top)}px`);
       mount.style.setProperty(
         "--review-scrollbar-offset",
         `${Math.min(0, offset + viewport.height - top - height)}px`,
@@ -90,17 +91,16 @@ export function createReviewEditorViewport(
   const key = editor.onKeyDown(prepareInput);
   const cursor = editor.onDidChangeCursorPosition(prepareInput);
   // Native drag autoscroll needs the visible edge, rather than the offscreen render window.
-  const startSelection = (event: PointerEvent): void => {
-    if (event.button !== 0 || event.pointerType !== "mouse") return;
+  const pointer = editor.onMouseDown(({ event, target }) => {
+    if (!event.leftButton || target.position === null) return;
     selecting = true;
     layout();
-  };
+  });
   const endSelection = (): void => {
     if (!selecting) return;
     selecting = false;
     schedule();
   };
-  mount.addEventListener("pointerdown", startSelection, true);
   window.addEventListener("pointerup", endSelection);
   window.addEventListener("pointercancel", endSelection);
   window.addEventListener("blur", endSelection);
@@ -143,13 +143,13 @@ export function createReviewEditorViewport(
       observer.disconnect();
       scroller.removeEventListener("scroll", schedule);
       mount.removeEventListener("wheel", wheel);
-      mount.removeEventListener("pointerdown", startSelection, true);
       window.removeEventListener("pointerup", endSelection);
       window.removeEventListener("pointercancel", endSelection);
       window.removeEventListener("blur", endSelection);
       scroll.dispose();
       key.dispose();
       cursor.dispose();
+      pointer.dispose();
     },
   };
 }

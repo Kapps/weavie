@@ -16,6 +16,9 @@ export function createReviewEditorViewport(
 } {
   let frame: number | undefined;
   let syncing = false;
+  let renderedTop = 0;
+  let selecting = false;
+  let handlingInput = false;
 
   const bounds = (): { top: number; height: number } => {
     const style = getComputedStyle(scroller);
@@ -32,10 +35,16 @@ export function createReviewEditorViewport(
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(container.clientHeight, viewport.height);
+      const overscan = selecting || handlingInput ? 0 : viewport.height;
+      const height = Math.min(container.clientHeight, viewport.height + 2 * overscan);
       const offset = viewport.top - container.getBoundingClientRect().top;
-      const top = Math.max(0, Math.min(offset, container.clientHeight - height));
+      const top = Math.max(0, Math.min(offset - overscan, container.clientHeight - height));
+      renderedTop = top;
       mount.style.top = `${top}px`;
+      mount.style.setProperty(
+        "--review-scrollbar-offset",
+        `${Math.min(0, offset + viewport.height - top - height)}px`,
+      );
       editor.layout({ width: container.clientWidth, height });
       editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
       editor.render();
@@ -47,6 +56,7 @@ export function createReviewEditorViewport(
     if (frame === undefined) {
       frame = requestAnimationFrame(() => {
         frame = undefined;
+        handlingInput = false;
         layout();
       });
     }
@@ -63,9 +73,37 @@ export function createReviewEditorViewport(
   // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged) {
-      reveal(event.scrollTop);
+      if (selecting || handlingInput) reveal(event.scrollTop);
+      else {
+        scroller.scrollTop += event.scrollTop - renderedTop;
+        layout();
+      }
     }
   });
+  // Native caret reveals, paging, and selection use the visible viewport during input.
+  const prepareInput = (): void => {
+    if (syncing) return;
+    handlingInput = true;
+    layout();
+    schedule();
+  };
+  const key = editor.onKeyDown(prepareInput);
+  const cursor = editor.onDidChangeCursorPosition(prepareInput);
+  // Native drag autoscroll needs the visible edge, rather than the offscreen render window.
+  const startSelection = (event: PointerEvent): void => {
+    if (event.button !== 0 || event.pointerType !== "mouse") return;
+    selecting = true;
+    layout();
+  };
+  const endSelection = (): void => {
+    if (!selecting) return;
+    selecting = false;
+    schedule();
+  };
+  mount.addEventListener("pointerdown", startSelection, true);
+  window.addEventListener("pointerup", endSelection);
+  window.addEventListener("pointercancel", endSelection);
+  window.addEventListener("blur", endSelection);
   const wheel = (event: WheelEvent): void => {
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
     if (horizontal === 0) {
@@ -105,7 +143,13 @@ export function createReviewEditorViewport(
       observer.disconnect();
       scroller.removeEventListener("scroll", schedule);
       mount.removeEventListener("wheel", wheel);
+      mount.removeEventListener("pointerdown", startSelection, true);
+      window.removeEventListener("pointerup", endSelection);
+      window.removeEventListener("pointercancel", endSelection);
+      window.removeEventListener("blur", endSelection);
       scroll.dispose();
+      key.dispose();
+      cursor.dispose();
     },
   };
 }

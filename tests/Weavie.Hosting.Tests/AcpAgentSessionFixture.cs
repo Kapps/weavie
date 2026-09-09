@@ -376,13 +376,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() =>
 		ReadAsync(_snapshots.Reader, _ => true);
 
-	public void Submit(string text) => Session.Submit(new AgentTurnSubmission {
+	public void Submit(string text) => Session.Submit(Prompt(text));
+
+	public void AskAside(string text) => Session.AskAside(Prompt(text));
+
+	private static AgentTurnSubmission Prompt(string text) => new() {
 		Id = Guid.NewGuid().ToString("N"),
 		Text = text,
 		Kind = AgentTurnSubmissionKind.Prompt,
 		CommandName = string.Empty,
 		Attachments = [],
-	});
+	};
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),

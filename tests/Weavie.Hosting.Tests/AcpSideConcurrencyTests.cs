@@ -14,10 +14,10 @@ public sealed class AcpSideConcurrencyTests {
 		fixture.Submit(prompt);
 		var primary = await fixture.WaitForMessageAsync(message =>
 			message.Type == requestType && message.ConversationId is null);
-		fixture.Session.AskAside(prompt);
+		fixture.AskAside(prompt);
 		var first = await fixture.WaitForMessageAsync(message =>
 			message.Type == requestType && message.ConversationId is not null);
-		fixture.Session.AskAside(prompt);
+		fixture.AskAside(prompt);
 		var second = await fixture.WaitForMessageAsync(message => message.Type == requestType
 			&& message.ConversationId is not null && message.ConversationId != first.ConversationId);
 		Assert.Equal(3, new[] { primary.RequestId, first.RequestId, second.RequestId }.Distinct().Count());

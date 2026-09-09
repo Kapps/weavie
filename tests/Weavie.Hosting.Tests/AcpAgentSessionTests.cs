@@ -127,7 +127,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.IsPrimaryThread is not false);
 
-		fixture.Session.AskAside("why this design?");
+		fixture.AskAside("why this design?");
 		var marker = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		string conversationId = Assert.IsType<string>(marker.ConversationId);
 		var answer = await fixture.WaitForMessageAsync(message =>
@@ -169,8 +169,8 @@ public sealed class AcpAgentSessionTests {
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
-		fixture.Session.AskAside("first aside");
-		fixture.Session.AskAside("second aside");
+		fixture.AskAside("first aside");
+		fixture.AskAside("second aside");
 		var first = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: first aside");
 		var second = await fixture.WaitForMessageAsync(message =>
@@ -191,7 +191,7 @@ public sealed class AcpAgentSessionTests {
 			// The anchor is captured before the child starts; primary persistence can advance in that gap.
 			if (message.Type == "side-conversation-started") fixture.Sessions.Adopt("fake", fixture.Workspace, "fake-session", 1);
 		};
-		fixture.Session.AskAside("context");
+		fixture.AskAside("context");
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text?.StartsWith("context:", StringComparison.Ordinal) == true);
 
@@ -229,7 +229,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		fixture.Session.AskAside("permission");
+		fixture.AskAside("permission");
 		var request = await fixture.WaitForMessageAsync(message =>
 			message.Type == "approval-requested" && message.ConversationId is not null);
 		fixture.Session.ResolvePermission(Assert.IsType<string>(request.RequestId), "allow-once");
@@ -245,7 +245,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		fixture.Session.AskAside("rich");
+		fixture.AskAside("rich");
 		var terminal = await fixture.WaitForMessageAsync(message =>
 			message.ConversationId is not null
 			&& message.Type is "turn-completed" or "side-conversation-failed");
@@ -265,7 +265,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		fixture.Session.AskAside("delayed-background");
+		fixture.AskAside("delayed-background");
 		var turn = await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.ConversationId is not null);
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
@@ -288,7 +288,7 @@ public sealed class AcpAgentSessionTests {
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
 
-		fixture.Session.AskAside("authenticated aside");
+		fixture.AskAside("authenticated aside");
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: authenticated aside");
 
@@ -303,7 +303,7 @@ public sealed class AcpAgentSessionTests {
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
-		fixture.Session.AskAside("authentication");
+		fixture.AskAside("authentication");
 		var authentication = await fixture.WaitForMessageAsync(message =>
 			message.Type == "authentication-requested" && message.ConversationId is not null);
 		fixture.Submit("during authentication");
@@ -327,10 +327,10 @@ public sealed class AcpAgentSessionTests {
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is null);
 
-		fixture.Session.AskAside("hold");
+		fixture.AskAside("hold");
 		var first = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
-		fixture.Session.AskAside("hold");
+		fixture.AskAside("hold");
 		var second = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold"
 			&& message.ConversationId is not null && message.ConversationId != first.ConversationId);
@@ -354,7 +354,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		fixture.Session.AskAside("crash-when-released");
+		fixture.AskAside("crash-when-released");
 		var completed = await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.ConversationId is not null);
 		File.WriteAllText(Path.Combine(fixture.Workspace, "release-crash"), string.Empty);
@@ -372,7 +372,7 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_NewConversationDetachesActiveSideRuntime() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
-		fixture.Session.AskAside("hold");
+		fixture.AskAside("hold");
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
 

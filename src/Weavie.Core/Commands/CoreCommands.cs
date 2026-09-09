@@ -843,7 +843,7 @@ public static class CoreCommands {
 			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
 			Aliases = ["btw", "ask aside", "side question"],
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context\"}}",
+			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

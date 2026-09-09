@@ -1,4 +1,5 @@
-import { type ClientSession, registerSessionFeature } from "../bridge";
+import { type ClientSession, invokeCommandInSession, registerSessionFeature } from "../bridge";
+import { CommandIds } from "../commands/types";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { encodeAgentImage, takePastedImages } from "./pasted-images";
@@ -75,26 +76,51 @@ export function removeComposerAttachment(session: ClientSession, id: string): vo
 }
 
 export function submitAgentTurn(session: ClientSession, commandName: string | null): boolean {
+  const submission = prepareSubmission(session, stateFor(session).draft.trim(), commandName);
+  if (submission === null) return false;
+  publishAgent(session, "submit", submission);
+  return true;
+}
+
+export function submitAgentAside(session: ClientSession, prompt: string): boolean {
+  const submission = prepareSubmission(session, prompt, null);
+  if (submission === null) return false;
+  void invokeCommandInSession(session, CommandIds.askAgentAside, {
+    question: submission.prompt,
+    submissionId: submission.id,
+    attachmentIds: submission.attachmentIds,
+  }).then((result) =>
+    settleSubmission(session, {
+      id: submission.id,
+      attachmentIds: result.ok ? submission.attachmentIds : [],
+      status: result.ok ? "accepted" : "rejected",
+      error: result.error ?? "",
+    }),
+  );
+  return true;
+}
+
+function prepareSubmission(session: ClientSession, prompt: string, commandName: string | null) {
   const state = stateFor(session);
   const command = commandName !== null;
   if (
     state.submittingId !== null ||
-    (!command && state.attachments.some((attachment) => attachment.status !== "ready")) ||
-    (state.draft.trim().length === 0 && !command && state.attachments.length === 0)
-  ) {
-    return false;
+    (!command && state.attachments.some((attachment) => attachment.status !== "ready"))
+  )
+    return null;
+  if (prompt.length === 0 && !command && state.attachments.length === 0) {
+    setComposerError(session, "Write a prompt or attach an image before running the agent.");
+    return null;
   }
-
   const id = nextId("submission");
   update(session, (current) => ({ ...current, submittingId: id, error: null }));
-  publishAgent(session, "submit", {
+  return {
     id,
-    prompt: state.draft.trim(),
+    prompt,
     kind: command ? "providerCommand" : "prompt",
     commandName: commandName ?? "",
     attachmentIds: command ? [] : state.attachments.map((attachment) => attachment.id),
-  });
-  return true;
+  };
 }
 
 export function uploadAgentImage(session: ClientSession, blob: Blob): void {
@@ -166,37 +192,41 @@ registerSessionFeature((session) => {
     });
   });
   const offSubmission = feature.on<SubmissionState>("submissionState", (message) => {
-    const state = stateFor(session);
-    if (state.submittingId !== message.id) {
-      return;
-    }
-    if (message.status === "rejected") {
-      update(session, (current) => ({
-        ...current,
-        submittingId: null,
-        error: message.error,
-      }));
-      return;
-    }
-    for (const attachment of state.attachments) {
-      if (message.attachmentIds.includes(attachment.id)) {
-        revoke(attachment);
-      }
-    }
-    update(session, (current) => ({
-      draft: "",
-      attachments: current.attachments.filter(
-        (attachment) => !message.attachmentIds.includes(attachment.id),
-      ),
-      submittingId: null,
-      error: null,
-    }));
+    settleSubmission(session, message);
   });
   return () => {
     offAttachment();
     offSubmission();
   };
 });
+
+function settleSubmission(session: ClientSession, message: SubmissionState): void {
+  const state = stateFor(session);
+  if (state.submittingId !== message.id) {
+    return;
+  }
+  if (message.status === "rejected") {
+    update(session, (current) => ({
+      ...current,
+      submittingId: null,
+      error: message.error,
+    }));
+    return;
+  }
+  for (const attachment of state.attachments) {
+    if (message.attachmentIds.includes(attachment.id)) {
+      revoke(attachment);
+    }
+  }
+  update(session, (current) => ({
+    draft: "",
+    attachments: current.attachments.filter(
+      (attachment) => !message.attachmentIds.includes(attachment.id),
+    ),
+    submittingId: null,
+    error: null,
+  }));
+}
 
 function publishAgent(
   session: ClientSession,

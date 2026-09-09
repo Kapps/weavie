@@ -54,4 +54,7 @@ test("application menu supports keyboard traversal across the top level", async 
     "aria-expanded",
     "true",
   );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
+  await expect(page.getByRole("menuitem", { name: "View", exact: true })).toBeFocused();
 });

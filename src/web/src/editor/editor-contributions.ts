@@ -64,6 +64,7 @@ export function connectTextEditor(options: {
     editor.onContextMenu(({ event }) => {
       event.preventDefault();
       event.stopPropagation();
+      editor.focus();
       editorContexts.openMenu(connection, event.posx, event.posy);
     }),
     editor.onDidFocusEditorText(() => {

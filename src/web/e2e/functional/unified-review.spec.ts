@@ -327,6 +327,9 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     const overview = page.locator(".unified-review");
     const section = sectionFor(page, "walk.txt");
     await expect(section.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 15_000 });
+    await overview.locator(".unified-review-tree-row.file", { hasText: "walk.txt" }).click();
+    const counter = overview.locator(".weavie-inline-stack-sub");
+    await expect(counter).toContainText("change 1/30");
 
     const scroller = overview.locator(".unified-review-diffs");
     const offset = (): Promise<number> => scroller.evaluate((element) => element.scrollTop);
@@ -334,12 +337,16 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     await expect
       .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
       .toBeGreaterThan(0);
-    await expect.poll(offset).toBe(0);
+    const initialOffset = await offset();
 
-    await overview.locator("button[title^='Next change']").click();
+    for (const change of [2, 3, 4]) {
+      await overview.locator("button[title^='Next change']").click();
+      await expect(counter).toContainText(`change ${change}/30`);
+    }
 
     // The walk moved the overview to the next change — it did NOT leave review for the file editor.
-    await expect.poll(offset, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect.poll(offset, { timeout: 15_000 }).toBeGreaterThan(initialOffset);
+    await expect(section.locator(".view-line", { hasText: "line 70 — changed" })).toBeInViewport();
     await expect(overview).toBeVisible();
     await expect(page.locator(".editor-tab.active", { hasText: "walk.txt" })).toHaveCount(0);
     await expect(overview.locator(".weavie-inline-toolbar")).toBeVisible();

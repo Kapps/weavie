@@ -75,12 +75,9 @@
    "ghost" view-zones in place, char-level highlights, and a floating Accept/Reject(/Undo) toolbar. All
    colours come from the standard VS Code diff ids (--diff-* in chrome-vars.ts) so they track the active
    theme; the fallbacks mirror the built-in dark family for themes that omit a key. */
-/* A low-alpha wash so the line still reads as the editor's syntax-coloured text over a green tint — not a
-   bright fill. The whole-line wash (diffEditor.insertedLineBackground) and the char-level overlay
-   (insertedTextBackground) stack on a fully-changed line; the theme keys carry alpha so dark text stays
-   legible on top of both, and light themes supply their own lighter washes. */
+/* Translucent line and character highlights keep syntax colors legible where the two layers overlap. */
 .weavie-inline-added {
-  background: var(--diff-added-line, #2ea04327);
+  background: var(--diff-added-line, #20905030);
 }
 
 .weavie-inline-added-gutter {
@@ -92,7 +89,7 @@
 }
 
 .weavie-inline-added-text {
-  background: var(--diff-added-text, #2ea04343);
+  background: var(--diff-added-text, #20905018);
 }
 
 /* A wholly-new file: the whole file is added, so per-line green (wash + char overlay) would slab the editor. It

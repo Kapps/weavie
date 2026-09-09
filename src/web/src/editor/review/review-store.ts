@@ -110,6 +110,10 @@ interface MutableReviewBoard extends SessionReviewBoard {
   entries: Map<string, ReviewEntry>;
 }
 
+export function canCloseReview(state: Pick<SessionReviewBoard, "files" | "label">): boolean {
+  return state.files.length > 0 || state.label.length > 0;
+}
+
 export interface ReviewStore {
   mode: Accessor<ReviewPresentationMode>;
   overview: Accessor<ReviewOverview>;
@@ -183,6 +187,7 @@ export function createReviewStore(
       fullyLoaded: () => state.files.every((file) => file.loaded()),
       hasPending: () => state.files.some((file) => file.pending()),
     });
+    setContext("reviewClosable", canCloseReview(state));
     setContext("reviewSetActive", state.files.length > 0);
     setContext("unifiedReviewActive", state.mode === "unified" && state.files.length > 0);
   };
@@ -302,6 +307,7 @@ export function createReviewStore(
     state.added = files.reduce((total, file) => total + file.added, 0);
     state.removed = files.reduce((total, file) => total + file.removed, 0);
     repairCursor(state);
+    if (files.length === 0) save(session, state);
     publish(session, state);
     return state;
   };
@@ -387,6 +393,7 @@ export function createReviewStore(
       setMode("file");
       setOverview(emptyOverview());
       setCount(0);
+      setContext("reviewClosable", false);
       setContext("reviewSetActive", false);
       setContext("unifiedReviewActive", false);
     } else {

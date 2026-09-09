@@ -18,8 +18,7 @@ state, and a provenance-only edit cannot bypass change tracking.
 
 Each history action owns immutable patch groups indexed by file path. Replacing a
 group updates only that path's action index and pending storage record. History
-heads contain only immutable text and existence values. Keep All and Revert All
-remain single actions, but changing one constituent file does not serialize the
+heads contain only immutable text and existence values. Revert All remains a single action, but changing one constituent file does not serialize the
 other files' patch groups.
 
 ## Storage and restoration
@@ -51,7 +50,7 @@ not imported; no compatibility reader is maintained.
 
 Core regressions assert that a single-file edit writes only its file record and
 changed metadata, regardless of unrelated files, prompts, or actions. A separate
-Keep All regression asserts that transporting one file writes only that file's
+Revert All regression asserts that transporting one file writes only that file's
 patch group. Tests also cover dirty-state retention after save failure, every
 intermediate multi-file undo checkpoint, and actual SQLite batch rollback/reopen.
 The full-stack durable review scenario verifies keep/revert and undo/redo after

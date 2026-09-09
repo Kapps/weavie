@@ -29,16 +29,14 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 	}
 
 	[Fact]
-	public void NewPrompt_FullyKeptFile_RemainsReviewed() {
+	public void NewPrompt_AcceptedReview_StaysClosed() {
 		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
-		Assert.Single(tracker.TurnChanges());
+		Assert.Empty(tracker.TurnChanges());
 
 		tracker.Observe(NewPrompt);
 
-		var change = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("a\nb\n", change.AcceptedBaselineText);
-		Assert.Equal("a\nB\n", change.BaselineText);
+		Assert.Empty(tracker.TurnChanges());
 		Assert.Single(tracker.Changes());
 	}
 
@@ -57,7 +55,8 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_WithKeptHunks_PreservesUndoHistory() {
-		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
+		var (files, tracker) = Edited("a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, files, "/w/pending.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 		Assert.True(tracker.CanUndoKeep);
 
@@ -71,7 +70,8 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_PreservesRedoHistory() {
-		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
+		var (files, tracker) = Edited("a\nb\n", "a\nB\n");
+		ReviewTestChanges.AddPendingFile(tracker, files, "/w/pending.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 		Assert.True(tracker.UndoLastKeep().Acted);
 
@@ -84,7 +84,8 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_UnkeepUsesTheUnchangedAcceptedAnchor() {
-		var (_, tracker) = Edited("a\nb\nc\nd\ne\n", "n1\nn2\na\nb\nc\nD\ne\n"); // insert n1,n2 at top; d→D
+		var (files, tracker) = Edited("a\nb\nc\nd\ne\n", "n1\nn2\na\nb\nc\nD\ne\n"); // insert n1,n2 at top; d→D
+		ReviewTestChanges.AddPendingFile(tracker, files, "/w/pending.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(1, 1), new LineRange(1, 3), "n1\nn2"));
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(6, 7), new LineRange(6, 7), "D"));
 

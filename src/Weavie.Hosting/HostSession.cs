@@ -30,7 +30,6 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
 public sealed partial class HostSession : IAsyncDisposable {
-	internal object? ReviewArm { get; set; }
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;

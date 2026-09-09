@@ -27,7 +27,7 @@ public sealed class SessionChangeTrackerIncrementalTests {
 			tracker.CaptureBaseline(path);
 			files.WriteAllText(path, string.Join('\n', Enumerable.Repeat("proposal", 100)));
 			tracker.RecordChange(path);
-			tracker.KeepFile(path);
+			tracker.RevertFile(path);
 		}
 		files.WriteAllText(Target, "original\n");
 		tracker.CaptureBaseline(Target);
@@ -47,7 +47,7 @@ public sealed class SessionChangeTrackerIncrementalTests {
 	[Theory]
 	[InlineData(1)]
 	[InlineData(64)]
-	public void EditingOneFileInKeepAll_UpdatesOnlyItsPatchGroup(int fileCount) {
+	public void EditingOneFileInRevertAll_UpdatesOnlyItsPatchGroup(int fileCount) {
 		var files = new InMemoryFileSystem();
 		var persistence = new RecordingPersistence();
 		var tracker = Tracker(files, persistence);
@@ -58,16 +58,16 @@ public sealed class SessionChangeTrackerIncrementalTests {
 			files.WriteAllText(path, "proposal\n");
 			tracker.RecordChange(path);
 		}
-		tracker.AcceptTurn();
+		tracker.RevertAll();
 		persistence.Writes.Clear();
-		files.WriteAllText(paths[0], "prefix\nproposal\n");
+		files.WriteAllText(paths[0], "prefix\nold\n");
 		tracker.RecordHandEdit(paths[0], files.ReadAllText(paths[0]));
 
 		var write = Assert.Single(persistence.Writes);
 		Assert.Equal(2, write.Count);
 		var group = Assert.Single(write, pair => pair.Key.StartsWith("history-patches:", StringComparison.Ordinal));
 		Assert.Equal(paths[0], JsonNode.Parse(group.Value!)!["Path"]!.GetValue<string>());
-		Assert.True(Tracker(files, persistence).UndoLastKeep().Acted);
+		Assert.True(Tracker(files, persistence).UndoLastRevert().Acted);
 		Assert.Equal("prefix\nproposal\n", files.ReadAllText(paths[0]));
 	}
 
@@ -107,23 +107,23 @@ public sealed class SessionChangeTrackerIncrementalTests {
 			files.WriteAllText(path, "proposal\n");
 			tracker.RecordChange(path);
 		}
-		tracker.AcceptTurn();
+		tracker.RevertAll();
 		var before = persistence.Read();
 		persistence.Writes.Clear();
-		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.True(tracker.UndoLastRevert().Acted);
 		Assert.Equal(2, persistence.Writes.Count);
 
 		var intermediate = new MemoryReviewPersistence();
 		intermediate.Save(before.ToDictionary(pair => pair.Key, pair => (string?)pair.Value));
 		intermediate.Save(persistence.Writes[0]);
 		var resumed = Tracker(files, intermediate);
-		Assert.True(resumed.CanUndoKeep);
+		Assert.True(resumed.CanUndoRevert);
 		Assert.True(resumed.CanRedo);
-		Assert.Equal("old\n", resumed.GetTurn(Target)!.BaselineText);
-		Assert.Equal("proposal\n", resumed.GetTurn(other)!.BaselineText);
+		Assert.Equal("proposal\n", resumed.GetTurn(Target)!.CurrentText);
+		Assert.Equal("old\n", resumed.GetTurn(other)!.CurrentText);
 		Assert.True(resumed.Redo().Acted);
-		Assert.Equal("proposal\n", resumed.GetTurn(Target)!.BaselineText);
-		Assert.True(Tracker(files, intermediate).UndoLastKeep().Acted);
+		Assert.Equal("old\n", resumed.GetTurn(Target)!.CurrentText);
+		Assert.True(Tracker(files, intermediate).UndoLastRevert().Acted);
 	}
 
 	private sealed class RecordingPersistence : IReviewPersistence {

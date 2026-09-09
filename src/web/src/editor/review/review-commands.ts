@@ -41,6 +41,10 @@ export function reviewCommandBindings(
       (args, { session }) => session !== null && editor.review.revertFile(session, pathArg(args)),
     ],
     [
+      CommandIds.reviewClose,
+      (_args, { session }) => session !== null && editor.review.close(session),
+    ],
+    [
       CommandIds.keepAll,
       (_args, { session }) => session !== null && editor.review.keepAll(session),
     ],

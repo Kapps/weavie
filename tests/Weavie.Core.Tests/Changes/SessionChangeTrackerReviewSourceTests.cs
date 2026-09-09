@@ -70,6 +70,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "session baseline\n");
 		var tracker = Tracker(files, persistence);
+		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
 		tracker.CaptureBaseline(File);
 		files.WriteAllText(File, "kept proposal\n");
 		tracker.RecordChange(File);
@@ -95,6 +96,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "committed\nspace\nold\n");
 		var tracker = Tracker(files, persistence);
+		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
 		tracker.CaptureBaseline(File);
 		files.WriteAllText(File, "committed\nspace\nkept\n");
 		tracker.RecordChange(File);
@@ -115,6 +117,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "kept\nspace\nold\n");
 		var tracker = Tracker(files, persistence);
+		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
 		tracker.ArmReview(Review, [new(File, "original\nspace\nold\n", files.ReadAllText(File), true, true)]);
 		tracker.KeepFile(File);
 		files.WriteAllText(File, "kept\nspace\nnew head edit\n");

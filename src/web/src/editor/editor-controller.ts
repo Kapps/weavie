@@ -39,6 +39,7 @@ import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
+  canCloseReview,
   createReviewStore,
   type ReviewComments,
   type ReviewCursor,
@@ -216,6 +217,7 @@ export interface EditorController {
   parkedReviewCount(): number;
   readonly review: {
     scope: ReviewScopeState;
+    canClose(): boolean;
     mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
     /** Creates the model-reference scope owned by one mounted unified-review surface. */
@@ -236,6 +238,7 @@ export interface EditorController {
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
+    close(session: ClientSession): boolean;
     keepAll(session: ClientSession): boolean;
     revertAll(session: ClientSession): boolean;
     undoKeep(session: ClientSession): boolean;
@@ -1933,6 +1936,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     parkedReviewCount: reviews.count,
     review: {
       scope: reviewScope,
+      canClose: () => canCloseReview(reviews.overview()),
       mode: reviews.mode,
       overview: reviews.overview,
       createCopyScope: () =>
@@ -2025,6 +2029,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           return false;
         }
         revertFile(session, file.path);
+        return true;
+      },
+      close: (session) => {
+        if (!canCloseReview(reviews.board(session))) return false;
+        session.feature("review").publish("close", {});
         return true;
       },
       keepAll: (session) => {

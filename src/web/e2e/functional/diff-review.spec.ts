@@ -229,9 +229,7 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
   });
 
-  test("keep-all retains existing kept decisions and fades the remaining pending changes", async ({
-    page,
-  }) => {
+  test("keep-all closes the review after a partial acceptance", async ({ page }) => {
     await openFile(page, "hello.ts");
     await focusFirstHunk(page);
     await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → it fades, leaving one pending + one accepted
@@ -239,8 +237,8 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
 
     await runCommand(page, "Keep All Changes");
     await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(ACCEPTED)).toHaveCount(2);
-    await expect(page.locator(TOOLBAR)).toBeVisible();
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });
 
@@ -453,11 +451,19 @@ test.describe("applied review — typing never tears the diff down (regression)"
 });
 
 test.describe("applied review — scope picker (keep whole file)", () => {
-  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\na pending note\n"),
+      ],
+    },
+  });
 
-  test("with scope = File, one Keep fades every hunk in the file (kept, not gone)", async ({
+  test("with scope = File, one Keep fades the file while another file remains pending", async ({
     page,
   }) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt"]);
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
@@ -466,26 +472,23 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
     await page.locator(".weavie-inline-accept").click();
 
-    // No pending hunks remain, but the whole file is now faded-accepted (both hunks) with their inline undos —
-    // a fully-kept file still renders its faded band (it isn't bailed on for having no bright diff).
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(2);
     await expect(page.locator(UNDO)).toHaveCount(2);
   });
 
-  test("with scope = All changes, one Keep reviews every hunk without closing the review", async ({
-    page,
-  }) => {
+  test("with scope = All files, one Keep closes the whole review", async ({ page }) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt"]);
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
     await page.locator(".weavie-inline-scope-btn").click();
-    await page.locator(".weavie-inline-scope-item", { hasText: "All changes" }).click();
+    await page.locator(".weavie-inline-scope-item", { hasText: "All files" }).click();
     await page.locator(".weavie-inline-accept").click();
 
     await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(ACCEPTED)).toHaveCount(2);
-    await expect(page.locator(TOOLBAR)).toBeVisible();
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });
 
@@ -493,7 +496,7 @@ test.describe("applied review — file scope from a later change", () => {
   const changed = fourHunks();
   test.use({ fakeScript: { steps: [...appliedEdit("long.ts", changed)] } });
 
-  test("keeping the file from change 4 preserves its already-applied bytes and fades every hunk", async ({
+  test("keeping the final file from change 4 preserves its already-applied bytes and closes the review", async ({
     page,
     weavie,
   }) => {
@@ -514,7 +517,8 @@ test.describe("applied review — file scope from a later change", () => {
     await page.locator(".weavie-inline-accept").click();
 
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(0);
-    await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(4);
+    await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
     expect(read(weavie.workspace, "long.ts")).toBe(changed);
     await expect
       .poll(() =>
@@ -551,14 +555,24 @@ test.describe("parked navigator — surfaces without moving the editor", () => {
   });
 });
 
-test.describe("applied review — keep-all is reversible", () => {
-  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+test.describe("applied review — partial file acceptance is reversible", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\na pending note\n"),
+      ],
+    },
+  });
 
-  test("undo keep-all restores every pending hunk", async ({ page }) => {
+  test("undo file acceptance restores its hunks while another file remains pending", async ({
+    page,
+  }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
-    await runCommand(page, "Keep All Changes");
+    await awaitReviewSet(page, ["hello.ts", "notes.txt"]);
+    await runCommand(page, "Keep File (Review)");
 
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(2);
@@ -733,12 +747,14 @@ test.describe("applied review — large files stay responsive", () => {
       steps: [
         { op: "edit", path: "{{WORKSPACE}}/generated.txt", content: original },
         ...appliedEdit("generated.txt", modified),
+        ...appliedEdit("notes.txt", "just plain text\na pending note\n"),
       ],
     },
   });
 
   test("renders and reviews a 5,000-line rewrite with bounded editor allocations", async ({
     page,
+    weavie,
   }) => {
     await openFile(page, "generated.txt");
     await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
@@ -749,7 +765,7 @@ test.describe("applied review — large files stay responsive", () => {
       "data-line-count",
       "5000",
     );
-    await awaitReviewSet(page, ["generated.txt"]);
+    await awaitReviewSet(page, ["generated.txt", "notes.txt"]);
     await page.evaluate(() => window.__WEAVIE_EDITOR__?.setScrollTop(0));
     const ghostContent = page.locator(".weavie-inline-removed-content");
     const renderedGhostLines = () =>
@@ -941,6 +957,8 @@ test.describe("applied review — large files stay responsive", () => {
     await focusFirstHunk(page);
     await expect(page.locator(KEEP_BTN)).toBeEnabled(); // the recompute landed; coordinates are current again
     await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await openFile(page, "generated.txt");
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(0);
     await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(1);
     await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
@@ -948,10 +966,8 @@ test.describe("applied review — large files stay responsive", () => {
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
 
     await page.keyboard.press("ControlOrMeta+Backspace");
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
-    await expect
-      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue()))
-      .toBe(original);
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await expect.poll(() => read(weavie.workspace, "generated.txt")).toBe(original);
   });
 });
 
@@ -979,10 +995,8 @@ test.describe("applied review — every file remains reviewable", () => {
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? -1))
-      .toBe(100);
+      .toBe(0);
     await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
-    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
-    await runCommand(page, "Undo Keep (Review)");
-    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(1);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });

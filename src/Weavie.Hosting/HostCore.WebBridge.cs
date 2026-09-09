@@ -253,9 +253,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void PushReviewStateToWeb(HostSession session, MessageTarget target) {
 		var changes = session.Changes.TurnChanges();
-		if (changes.Count > 0) {
-			PushTurnChangesToWeb(session, target);
-		}
+		PushTurnChangesToWeb(session, target);
 		foreach (var change in changes) {
 			PushReviewFileToWeb(session, change.Path, target);
 		}
@@ -310,12 +308,9 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Keeps every pending change, retaining faded proof and undo history.</summary>
-	private void AcceptTurn(HostSession session) {
-		session.Changes.AcceptTurn();
-		PushTurnChangesToWeb(session);
-		foreach (var file in session.Changes.TurnChangeSummaries()) PushTurnDiffToWeb(session, file.Change.Path);
-		PushReviewHistoryToWeb(session);
+	private void CloseReview(HostSession session) {
+		session.Changes.CloseReview();
+		PushReviewActionToWeb(session, []);
 	}
 
 	/// <summary>
@@ -366,6 +361,7 @@ public sealed partial class HostCore {
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is { } turn
 				&& turn.CurrentExists
+				&& (turn.BaselineText != turn.CurrentText || turn.BaselineExists != turn.CurrentExists)
 				&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
 				session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
 				return;
@@ -402,13 +398,16 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		PushReviewActionToWeb(session, result.Paths);
+	}
+
+	private void PushReviewActionToWeb(HostSession session, IReadOnlyList<string> paths) {
 		PushReviewHistoryToWeb(session);
-		foreach (string path in result.Paths) {
-			if (session.Changes.GetTurn(path) is not null) {
-				PushTurnDiffToWeb(session, path);
+		if (session.Changes.TurnChanges().Count > 0) {
+			foreach (string path in paths) {
+				if (session.Changes.GetTurn(path) is not null) PushTurnDiffToWeb(session, path);
 			}
 		}
-
 		PushTurnChangesToWeb(session);
 	}
 
@@ -490,10 +489,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
-		PushReviewHistoryToWeb(session);
-		PushTurnDiffToWeb(session, path);
-		PushTurnChangesToWeb(session);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>
@@ -507,10 +503,7 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
-		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
-		PushReviewHistoryToWeb(session);
-		PushTurnDiffToWeb(session, path);
-		PushTurnChangesToWeb(session);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>

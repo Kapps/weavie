@@ -8,7 +8,8 @@ import {
   type ReviewScopeState,
 } from "../inline-diff";
 import { createEmbeddedEditor, type monaco } from "../monaco-setup";
-import type { NavLocation } from "../nav-history";
+import type { TextLocation } from "../nav-history";
+import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewFileDiff } from "./review-store";
@@ -19,13 +20,11 @@ type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
 };
 
 export interface ReviewEditor {
-  capture(): NavLocation;
-  restore(location: NavLocation): void;
+  capture(): TextLocation;
+  restore(location: TextLocation): void;
   focus(): void;
   layout(): void;
   inline: InlineDiff;
-  reveal(line: number): void;
-  line(): number;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
 }
@@ -33,6 +32,7 @@ export interface ReviewEditor {
 /** The section owns sizing and collapsed context; InlineDiff owns all review rendering and actions. */
 export function createReviewEditor(options: {
   session: ClientSession;
+  tab: TabOwner;
   scope: ReviewScopeState;
   container: HTMLElement;
   scroller: HTMLElement;
@@ -89,7 +89,6 @@ export function createReviewEditor(options: {
   const presentation: InlineDiffPresentation = {
     scope: options.scope,
     updateGeometry: viewport.update,
-    parked: () => false,
     active: options.active,
     toolbarHost: options.toolbarHost,
     revealLine: (line) => {
@@ -125,10 +124,9 @@ export function createReviewEditor(options: {
       options.onPainted();
     },
   };
-  const capture = (): NavLocation => {
+  const capture = (): TextLocation => {
     const line = presentation.reviewLine();
     return {
-      kind: "review",
       path: options.diff.path,
       line,
       viewState: editor.saveViewState(),
@@ -141,7 +139,7 @@ export function createReviewEditor(options: {
       },
     };
   };
-  const restore = (location: NavLocation): void => {
+  const restore = (location: TextLocation): void => {
     viewport.update(() => {
       if (location.viewState != null) editor.restoreViewState(location.viewState);
       else editor.setPosition({ lineNumber: location.line, column: 1 });
@@ -153,7 +151,7 @@ export function createReviewEditor(options: {
   };
   const binding = connectTextEditor({
     session: options.session,
-    kind: "review",
+    tab: options.tab,
     editor,
     model,
     capture,
@@ -174,11 +172,6 @@ export function createReviewEditor(options: {
     },
     layout: viewport.layout,
     inline,
-    line: () => editor.getPosition()?.lineNumber ?? 1,
-    reveal: (line) => {
-      editor.setPosition({ lineNumber: line, column: 1 });
-      presentation.revealLine(line);
-    },
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
       binding.dispose();

@@ -1,15 +1,21 @@
 # Owned editor surfaces
 
-File editors and unified-review sections share text behavior through exact session/model connections.
+Every open tab owns its lifetime, mounted content, and saved reading position. File editors and
+unified-review sections share text behavior through exact session/model connections.
 The main Monaco widget is a renderer that can be rebound; it is never an owner or a routing address.
 This follows the [session message bus](session-message-bus.md) ownership contract.
 
 ## Ownership
 
-`editor-context.ts` registers one owner for each `ClientSession`. Its presentation is read from the
-authoritative review board. Each mounted text editor registers its session, model, capabilities,
-and binding lifetime. A model swap disposes the previous connection, even when the widget is reused.
-Virtualized review sections unregister only their own connections.
+`OwnedEditorSession` owns `TabOwner` instances keyed by the existing entry kind and resource path.
+Closing a tab aborts its ownership; reopening the same resource creates a new owner. `TabContent`
+selects the renderer and mounts it through that owner. Previously activated web tabs retain their
+browsing contexts while hidden; restored inactive URLs remain dormant. There is one activation path
+for every kind, with no separate review or web presentation registry.
+
+`editor-context.ts` registers each mounted text editor's tab, session, model, capabilities, and
+binding lifetime. A model swap disposes the previous connection, even when the widget is reused.
+Virtualized review sections unregister only their own connections. A preview exposes no text target.
 
 `editor-contributions.ts` attaches selection reporting, status, selection search, symbols, spelling,
 blame, revision decorations, and Alt-click peek to these connections. Saving remains working-copy
@@ -35,8 +41,9 @@ Revise's pending editor confirmation cancels when its selected view detaches.
 ## Navigation
 
 `editor-navigation.ts` owns per-session history and restoration lifetimes. A history location contains
-the presentation kind, path, reading line, Monaco view state, and, for review, an anchor relative to
-the outer scroller. The same file in file and review presentation is two distinct destinations.
+an existing tab descriptor and its captured view state. The renderer owns that state's shape: Monaco
+state for a file, or a section location and outer scroll anchor for Review. The same file in a normal
+file tab and in Review therefore has two distinct destinations without a special navigation union.
 
 Monaco definition/reference opens enter through `ICodeEditorService`'s source-carrying handler. The
 source's registered connection supplies the departure; the destination URI must belong to the same
@@ -57,8 +64,8 @@ sequenceDiagram
 
 History suppresses recording during traversal and symbol previews. Restoration completes after the
 review section is mounted and its diff is painted. Session detachment, a superseding navigation, or
-surface disposal cancels the pending presentation work. Missing review destinations produce a
-visible failure instead of opening an unrelated file editor.
+tab disposal cancels the pending presentation work. A missing saved review section produces a
+notice and leaves the user in the coherent Review tab. Session restoration preserves pane focus.
 
 The regression suite covers exact Back/Forward restoration, same-file definitions, palette and symbol
 navigation, search previews, and late definition replies after session switches. Unit tests pin

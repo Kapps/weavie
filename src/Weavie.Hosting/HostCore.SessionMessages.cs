@@ -82,14 +82,10 @@ public sealed partial class HostCore {
 			RunReviewAction(session, () => KeepFile(session, message));
 			return Task.CompletedTask;
 		});
-		review.Handle<JsonElement>("undo", (message, _) => {
-			ReviewUndo(session, message);
-			return Task.CompletedTask;
-		});
-		review.Handle<EmptySessionMessage>("redo", (_, _) => {
-			ReviewRedo(session);
-			return Task.CompletedTask;
-		});
+		review.Handle<JsonElement, ReviewHistoryLocation?>("undo", (message, _) =>
+			Task.FromResult(ReviewUndo(session, message)));
+		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, _) =>
+			Task.FromResult(ReviewRedo(session)));
 		review.Handle<FilePathMessage>("showFile", (message, _) => {
 			PushReviewFileToWeb(session, message.Path);
 			return Task.CompletedTask;

@@ -19,6 +19,7 @@ export function captureEditorCommand(session: ClientSession | null) {
 
 export function captureConnectionCommand(connection: TextEditorConnection | undefined) {
   const selections = connection?.editor.getSelections();
+  const presentation = connection?.tab.presentation;
   return (
     action: (
       connection: TextEditorConnection,
@@ -26,7 +27,11 @@ export function captureConnectionCommand(connection: TextEditorConnection | unde
     ) => void | boolean | Promise<void>,
   ) => {
     if (connection === undefined || selections == null || selections.length === 0) return false;
-    if (!editorContexts.live(connection) || selectedSession() !== connection.session) {
+    if (
+      presentation?.signal.aborted ||
+      !editorContexts.displayed(connection) ||
+      selectedSession() !== connection.session
+    ) {
       throw new Error("The editor connection for this command is no longer displayed.");
     }
     connection.editor.setSelections(selections);

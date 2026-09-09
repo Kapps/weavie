@@ -604,11 +604,11 @@ describe("captured editor command connections", () => {
       release = resolve;
     });
     const ran: unknown[] = [];
-    reg.registerCapturedCommand(command.id, ({ session }) => {
+    reg.registerCapturedCommand(command.id, ({ session }, capturedArgs) => {
       const connection = target;
       return async (args) => {
         if (args === "block") await blocked;
-        ran.push({ session, connection });
+        ran.push({ session, connection, capturedArgs });
       };
     });
     const first = reg.dispatchCommand(command.id, "block");
@@ -618,8 +618,8 @@ describe("captured editor command connections", () => {
     release();
     await Promise.all([first, second]);
     expect(ran).toEqual([
-      { session: owner, connection: "review-a" },
-      { session: owner, connection: "review-a" },
+      { session: owner, connection: "review-a", capturedArgs: "block" },
+      { session: owner, connection: "review-a", capturedArgs: "queued" },
     ]);
   });
 

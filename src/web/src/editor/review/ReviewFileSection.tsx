@@ -6,12 +6,14 @@ import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
+import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
   session: ClientSession;
+  tab: TabOwner;
   scope: ReviewScopeState;
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
@@ -128,6 +130,7 @@ export function ReviewFileSection(props: {
         <div id={bodyId()}>
           <ReviewFileBody
             session={props.session}
+            tab={props.tab}
             position={props.style}
             header={() => header}
             scroller={props.scroller}

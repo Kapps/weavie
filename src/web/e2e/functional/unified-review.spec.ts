@@ -39,7 +39,7 @@ const distinctTokenClasses = (section: Locator): Promise<number> =>
         ).size,
     );
 
-test.describe("unified review mode", () => {
+test.describe("Review Changes tab", () => {
   test.use({
     fakeScript: {
       steps: [
@@ -49,7 +49,7 @@ test.describe("unified review mode", () => {
     },
   });
 
-  test("renders each file in a highlighted editor and toggles into the exact file review", async ({
+  test("renders each file in a highlighted editor and preserves the review tab when opening files", async ({
     page,
   }) => {
     const cue = page.locator(".editor-empty-review");
@@ -97,16 +97,16 @@ test.describe("unified review mode", () => {
     await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
 
-    const mode = page.locator(".editor-review-toggle");
-    await expect(mode).toContainText("Unified review");
-    await expect(mode).toHaveAttribute("title", /Switch to unified review.*\(/);
-    await mode.click();
+    const reviewTab = page.locator(".editor-tab", { hasText: "Review Changes" });
+    await expect(reviewTab).toBeVisible();
+    await reviewTab.click();
     await expect(overview).toBeVisible();
-    await expect(mode).toContainText("File review");
+    await expect(reviewTab).toHaveClass(/\bactive\b/);
 
     await openFile(page, "README.md");
     await expect(overview).toHaveCount(0);
     await expect(page.locator(".editor-tab.active", { hasText: "README.md" })).toBeVisible();
+    await expect(reviewTab).toBeVisible();
   });
 
   test("a file-level keep leaves the change in the faded reviewed band", async ({ page }) => {
@@ -224,7 +224,7 @@ test.describe("unified review mode", () => {
   });
 });
 
-test.describe("unified review mode — file tree", () => {
+test.describe("Review Changes tab — file tree", () => {
   test.use({
     fakeScript: {
       steps: [
@@ -275,7 +275,7 @@ test.describe("unified review mode — file tree", () => {
   });
 });
 
-test.describe("unified review mode — collapsed context", () => {
+test.describe("Review Changes tab — collapsed context", () => {
   const untouched = Array.from({ length: 200 }, (_, index) => `line ${index}`).join("\n");
   const changed = untouched.replace("line 100", "line 100 — changed by the agent");
   test.use({
@@ -300,7 +300,7 @@ test.describe("unified review mode — collapsed context", () => {
   });
 });
 
-test.describe("unified review mode — the walk stays on the page", () => {
+test.describe("Review Changes tab — the walk stays on the page", () => {
   // Changes spread through a long file: enough collapsed hunks that the overview is taller than its viewport,
   // so a step to the next change has somewhere to scroll to.
   const spread = Array.from({ length: 600 }, (_, index) => `line ${index}`);
@@ -396,12 +396,11 @@ test("a cold deleted file renders from its review snapshot instead of reading th
     "title",
     "Deleted file — review snapshot",
   );
-  const mode = page.locator(".editor-review-toggle");
-  await expect(mode).toBeDisabled();
-  await expect(mode).toHaveAttribute("title", /File review unavailable.*\(/);
+  await expect(page.locator(".editor-tab.active", { hasText: "Review Changes" })).toBeVisible();
+  await expect(notes.locator("button.unified-review-file-name")).toHaveCount(0);
 });
 
-test.describe("unified review mode — large file set", () => {
+test.describe("Review Changes tab — large file set", () => {
   const fileCount = 100;
   const readyFile = ".large-review-ready";
   test.use({
@@ -415,7 +414,7 @@ test.describe("unified review mode — large file set", () => {
     },
   });
 
-  test("restores the exact file across a reverse mode toggle without mounting every editor", async ({
+  test("restores the exact review file across tab switches without mounting every editor", async ({
     page,
     weavie,
   }) => {
@@ -445,11 +444,11 @@ test.describe("unified review mode — large file set", () => {
     await targetSection.locator(".unified-review-file-name").click();
     await expect(page.locator(".editor-tab.active", { hasText: targetName })).toBeVisible();
 
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
     await expect(overview).toBeVisible();
     await expect(targetSection).toBeVisible();
 
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-tab", { hasText: targetName }).click();
     await expect(page.locator(".editor-tab.active", { hasText: targetName })).toBeVisible();
   });
 });

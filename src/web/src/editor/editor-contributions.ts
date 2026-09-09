@@ -7,19 +7,20 @@ import { installAltClickPeek } from "./alt-click-peek";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
-import type { NavLocation } from "./nav-history";
+import type { TextLocation } from "./nav-history";
 import { sharedReviseMarks } from "./revise-marks";
 import { SESSION_FILE_SCHEME } from "./session-uri-owner";
 import { createSpellCheck } from "./spell-check";
+import type { TabOwner } from "./tab-owner";
 
 /** Shared text behavior is installed once per exact editor/model binding, including virtualized sections. */
 export function connectTextEditor(options: {
   session: ClientSession;
-  kind: "file" | "review";
+  tab: TabOwner;
   editor: monaco.editor.IStandaloneCodeEditor;
   model: monaco.editor.ITextModel;
-  capture(): NavLocation | undefined;
-  restore(location: NavLocation): void;
+  capture(): TextLocation | undefined;
+  restore(location: TextLocation): void;
 }): { connection: TextEditorConnection; dispose(): void } {
   const { editor, model, session } = options;
   const lifetime = new AbortController();
@@ -70,6 +71,7 @@ export function connectTextEditor(options: {
       publish();
     }),
     editor.onDidChangeCursorSelection(publish),
+    editor.onDidScrollChange(() => editorContexts.changed(connection)),
     installAltClickPeek(editor),
   ];
   publish();

@@ -2,12 +2,14 @@ import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } 
 import type { ClientSession } from "../../bridge";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
+import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
 import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileBody(props: {
   session: ClientSession;
+  tab: TabOwner;
   position: string;
   header: () => HTMLElement;
   scope: ReviewScopeState;
@@ -101,6 +103,7 @@ export function ReviewFileBody(props: {
         liveExists = latest.currentExists;
         live = createReviewEditor({
           session: props.session,
+          tab: props.tab,
           scope: props.scope,
           container: mount,
           scroller: props.scroller(),

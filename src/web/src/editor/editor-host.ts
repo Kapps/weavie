@@ -20,10 +20,9 @@ import { installTestLenses } from "../tests/test-lens";
 import { setDirtyPath } from "./dirty-store";
 import { editorContexts } from "./editor-context";
 import { connectTextEditor } from "./editor-contributions";
-import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
-import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
+import { activeTabFor, type Placement, promoteFor, tabOwnerFor } from "./session-store";
 import {
   SESSION_FILE_SCHEME,
   sessionFileUri,
@@ -45,12 +44,7 @@ export interface ReviewCopy {
 
 /** Owns every model reference acquired by one mounted unified-review surface. */
 export interface ReviewCopyScope {
-  open(
-    session: ClientSession,
-    path: string,
-    current: string,
-    currentExists: boolean,
-  ): Promise<ReviewCopy>;
+  open(path: string, current: string, currentExists: boolean): Promise<ReviewCopy>;
   dispose(): void;
 }
 
@@ -114,14 +108,9 @@ export interface EditorHost {
   /** Flushes dirty working copies belonging to one exact session before that backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
   /** Creates one model-reference scope owned by a mounted unified-review surface. */
-  createReviewCopyScope(): ReviewCopyScope;
+  createReviewCopyScope(session: ClientSession): ReviewCopyScope;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
-  /**
-   * Rebinds the editor to the (already-updated) session store after a switch: releases the previous session's
-   * review copies, then reuses the new active tab's warm working copy (non-active tabs reopen lazily).
-   */
-  rebindSession(session: ClientSession, signal: AbortSignal): Promise<void>;
   /** Releases working copies no longer owned by one of the session's open file tabs. */
   reconcileSession(session: ClientSession, openPaths: readonly string[]): void;
   /**
@@ -201,16 +190,19 @@ export async function createEditorHost(
     if (model === null) return;
     const session = sessionForUri(model.uri);
     if (session === undefined) return;
+    const tab = isUserFileModel(model)
+      ? tabOwnerFor(session, sessionUriHostPath(model.uri))
+      : activeTabFor(session);
+    if (tab === undefined) return;
     textBinding = connectTextEditor({
       session,
-      kind: "file",
+      tab,
       editor,
       model,
       capture: () =>
         !isUserFileModel(model)
           ? undefined
           : {
-              kind: "file",
               path: sessionUriHostPath(model.uri),
               line: editor.getPosition()?.lineNumber ?? 1,
               viewState: editor.saveViewState(),
@@ -256,31 +248,6 @@ export async function createEditorHost(
         setDirtyPath(session, sessionUriHostPath(model.resource), model.isDirty());
       }
     }),
-  );
-
-  // Keep the active tab's Monaco view state (scroll/cursor/folding) fresh in the session store so a relaunch /
-  // hot reload reopens at the same position. Data-only (captureViewState never changes the active tab or order,
-  // so no capture↔show loop); only real file working copies, debounced.
-  let viewStateTimer: ReturnType<typeof setTimeout> | undefined;
-  const snapshotViewState = (): void => {
-    const model = editor.getModel();
-    if (model === null || !isUserFileModel(model)) {
-      return;
-    }
-    const session = sessionForUri(model.uri);
-    if (session !== undefined) {
-      captureViewStateFor(session, sessionUriHostPath(model.uri), editor.saveViewState() ?? null);
-    }
-  };
-  const scheduleSnapshotViewState = (): void => {
-    if (viewStateTimer !== undefined) {
-      clearTimeout(viewStateTimer);
-    }
-    viewStateTimer = setTimeout(snapshotViewState, 200);
-  };
-  disposables.push(
-    editor.onDidChangeCursorSelection(scheduleSnapshotViewState),
-    editor.onDidScrollChange(scheduleSnapshotViewState),
   );
 
   // Save: debounce-flush the working copy to disk so embedded Claude (which reads disk) sees current state. A
@@ -406,15 +373,31 @@ export async function createEditorHost(
     );
   };
 
-  // A newly-created reference is private until its open wins. Concurrent opens can therefore dispose their own
-  // superseded candidates without invalidating the reference adopted by a newer open of the same URI.
-  const resolveRef = async (uri: monaco.Uri): Promise<{ ref: ModelRef; owned: boolean }> => {
+  // Each scope holds an independent lease; concurrent opens adopt only one reference within that scope.
+  const acquireRef = async (
+    scope: Map<string, ModelRef>,
+    uri: monaco.Uri,
+    valid: () => boolean,
+  ): Promise<ModelRef | undefined> => {
+    if (!valid()) return undefined;
     const key = uri.toString();
-    const existing = refs.get(key);
-    if (existing !== undefined) {
-      return { ref: existing, owned: false };
+    let ref = scope.get(key);
+    if (ref === undefined) {
+      const candidate = await textModelService.createModelReference(uri);
+      if (!valid()) {
+        candidate.dispose();
+        return undefined;
+      }
+      ref = scope.get(key);
+      if (ref === undefined) {
+        scope.set(key, candidate);
+        ref = candidate;
+      } else {
+        candidate.dispose();
+      }
     }
-    return { ref: await textModelService.createModelReference(uri), owned: true };
+    attachSave(ref.object.textEditorModel);
+    return ref;
   };
 
   // The single path that swaps the editor to a file working copy (open + restore differ only in `placement`).
@@ -433,28 +416,12 @@ export async function createEditorHost(
     if (signal.aborted || owner === undefined || selectedSession() !== owner) {
       return { kind: "superseded" };
     }
-    // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
-    snapshotViewState();
     const token = ++openSeq;
     try {
-      const resolved = await resolveRef(uri);
-      let ref = resolved.ref;
-      if (signal.aborted || token !== openSeq || selectedSession() !== owner) {
-        if (resolved.owned) {
-          ref.dispose();
-        }
-        return { kind: "superseded" };
-      }
-      if (resolved.owned) {
-        const existing = refs.get(uri.toString());
-        if (existing === undefined) {
-          refs.set(uri.toString(), ref);
-        } else {
-          ref.dispose();
-          ref = existing;
-        }
-      }
-      attachSave(ref.object.textEditorModel);
+      const valid = (): boolean =>
+        !signal.aborted && token === openSeq && selectedSession() === owner;
+      const ref = await acquireRef(refs, uri, valid);
+      if (ref === undefined || !valid()) return { kind: "superseded" };
       editor.setModel(ref.object.textEditorModel);
       if ("line" in placement) {
         const position = { lineNumber: placement.line, column: placement.column ?? 1 };
@@ -549,7 +516,7 @@ export async function createEditorHost(
   // its own references, never the copies a rapidly-mounted successor just acquired.
   const reviewScopes = new Set<() => void>();
   let reviewScopeSequence = 0;
-  const createReviewCopyScope = (): ReviewCopyScope => {
+  const createReviewCopyScope = (session: ClientSession): ReviewCopyScope => {
     const refsByUri = new Map<string, ModelRef>();
     const snapshots = new Map<string, monaco.editor.ITextModel>();
     const scope = ++reviewScopeSequence;
@@ -573,8 +540,8 @@ export async function createEditorHost(
     reviewScopes.add(dispose);
 
     return {
-      open: async (session, path, current, currentExists) => {
-        if (disposed) {
+      open: async (path, current, currentExists) => {
+        if (disposed || session.signal.aborted) {
           throw new Error("the review closed while this file was loading");
         }
         const fileUri = sessionFileUri(session, path);
@@ -586,7 +553,7 @@ export async function createEditorHost(
           }
           const uri = fileUri.with({ scheme: REVIEW_SCHEME, query: `deleted=${scope}` });
           const model = monaco.editor.createModel(current, undefined, uri);
-          if (disposed) {
+          if (disposed || session.signal.aborted) {
             model.dispose();
             throw new Error("the review closed while this file was loading");
           }
@@ -594,22 +561,12 @@ export async function createEditorHost(
           return { model, editable: false };
         }
 
-        const held = refsByUri.get(key);
-        if (held !== undefined) {
-          return { model: held.object.textEditorModel, editable: true };
-        }
-        const ref = await textModelService.createModelReference(fileUri);
-        if (disposed) {
-          ref.dispose();
-          throw new Error("the review closed while this file was loading");
-        }
-        const existing = refsByUri.get(key);
-        if (existing !== undefined) {
-          ref.dispose();
-          return { model: existing.object.textEditorModel, editable: true };
-        }
-        refsByUri.set(key, ref);
-        attachSave(ref.object.textEditorModel);
+        const ref = await acquireRef(
+          refsByUri,
+          fileUri,
+          () => !disposed && !session.signal.aborted,
+        );
+        if (ref === undefined) throw new Error("the review closed while this file was loading");
         return { model: ref.object.textEditorModel, editable: true };
       },
       dispose,
@@ -623,16 +580,6 @@ export async function createEditorHost(
   };
 
   const clear = (): void => {
-    snapshotViewState();
-    openSeq += 1;
-    editor.setModel(null);
-  };
-
-  // Park the shared widget between session projections. Open tab references stay owned by their sessions, so a
-  // warm switch reuses the working copy without another host read.
-  const parkSession = (): void => {
-    // A rebind to media/web/source/empty opens no successor model, so it must invalidate an older async text
-    // open explicitly. The immutable binding check above also keeps its eventual reference out of this session.
     openSeq += 1;
     editor.setModel(null);
   };
@@ -812,13 +759,6 @@ export async function createEditorHost(
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
     }
-    // Flush the active tab's view state synchronously (the debounced timer dies with teardown) so the rebuilt
-    // host's restoreSession() reopens it precisely. The tab set already lives in the store.
-    if (viewStateTimer !== undefined) {
-      clearTimeout(viewStateTimer);
-      viewStateTimer = undefined;
-    }
-    snapshotViewState();
     for (const subscription of disposables) {
       subscription.dispose();
     }
@@ -826,40 +766,6 @@ export async function createEditorHost(
     editor.dispose();
     // The tab model references are not disposed — they persist on window so the next host reattaches to the same
     // working copies and the refcount never hits 0.
-  };
-
-  // Restore the editor on every fresh widget build (relaunch, Ctrl+R, hot reload); the session store is already
-  // seeded (from disk on `ready` or carried across the hot-swap). Reopens the active file via showFile,
-  // re-adopting a surviving working copy rather than re-reading. Non-active entries reopen lazily.
-  const restoreSession = async (owner: ClientSession, signal: AbortSignal): Promise<void> => {
-    const session = editorSessionFor(owner);
-    if (session === null || session.active === null) {
-      return;
-    }
-    const entry = session.open.find((open) => open.path === session.active);
-    // An overlay tab has no Monaco model — never read its target as a file. App renders it over the released editor.
-    // A media file likewise restores in MediaPane rather than as a text working copy.
-    if (
-      entry === undefined ||
-      entry.kind === "web" ||
-      entry.kind === "source" ||
-      entry.kind === "plan" ||
-      mediaTypeOf(entry.path) !== null
-    ) {
-      return;
-    }
-    await showFile(
-      sessionFileUri(owner, entry.path),
-      {
-        viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
-      },
-      signal,
-    );
-  };
-
-  const rebindSession = async (session: ClientSession, signal: AbortSignal): Promise<void> => {
-    parkSession();
-    await restoreSession(session, signal);
   };
 
   // Wait for Monaco's first paint before resolving, so the caller (which fades the splash on resolution)
@@ -879,7 +785,6 @@ export async function createEditorHost(
     flushSession: (session) => flushDirtyFor(session),
     createReviewCopyScope,
     clear,
-    rebindSession,
     beginReview,
     endReview,
     dispose,

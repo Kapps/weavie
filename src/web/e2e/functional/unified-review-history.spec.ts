@@ -47,7 +47,7 @@ async function reviewState(page: Page): Promise<{ selections: unknown; scrollTop
 async function prepareDeparture(page: Page): Promise<void> {
   await awaitReviewSet(page, ["a-review.ts", sourceName]);
   await openFile(page, "notes.txt");
-  await page.locator(".editor-review-toggle").click();
+  await page.locator(".editor-review-open").click();
   await page.locator(".unified-review-tree-row.file", { hasText: sourceName }).click();
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: sourceName }),

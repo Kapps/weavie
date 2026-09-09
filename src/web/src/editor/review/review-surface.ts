@@ -1,17 +1,17 @@
 import { notify } from "../../notify/notify";
 import { normalizePath } from "../fs-path";
-import type { InlineDiffActions } from "../inline-diff";
-import type { NavLocation } from "../nav-history";
+import type { TextLocation } from "../nav-history";
+import type { TabPresenter } from "../tab-owner";
 import type { ReviewEditor } from "./review-editor";
 import { hasReviewChanges, type ReviewFileView } from "./review-store";
 
-export interface UnifiedReviewSurface {
-  capture(): NavLocation | undefined;
-  restore(location: NavLocation, signal: AbortSignal): Promise<void>;
-  focus(): void;
+interface ReviewViewState {
+  location: TextLocation | null;
+  scrollTop: number;
+}
+
+export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
-  actions(): InlineDiffActions | undefined;
-  toolbarHost(): HTMLElement | null;
   refresh(): void;
   reveal(path: string, line: number): void;
 }
@@ -25,8 +25,9 @@ export interface ReviewSectionRegistry {
 
 /** Resolves exact file destinations through the virtualizer; hunk navigation belongs to InlineDiff. */
 export function createReviewSurface(surface: {
-  toolbarHost(): HTMLElement | null;
   changed(): void;
+  clear(): void;
+  scroller(): HTMLElement;
   files(): ReviewFileView[];
   currentIndex(): number;
   select(index: number, path: string, line: number): void;
@@ -38,7 +39,7 @@ export function createReviewSurface(surface: {
   const lifetime = new AbortController();
   const failures = new Map<string, unknown>();
   let pending: {
-    location: NavLocation;
+    location: TextLocation;
     ready: boolean;
     finish(): void;
     cancel(): void;
@@ -55,24 +56,26 @@ export function createReviewSurface(surface: {
             normalizePath(candidate.summary().path) === normalizePath(pending!.location.path),
         );
       const diff = file?.diff();
-      if (file === undefined || !file.loaded() || (diff != null && hasReviewChanges(diff))) return;
+      if (file === undefined) {
+        pending.fail(new Error("This file is no longer in the review."));
+        return;
+      }
+      if (!file.collapsed() && (!file.loaded() || (diff != null && hasReviewChanges(diff)))) return;
       const operation = pending;
       pending = null;
-      surface.focus();
       operation.finish();
       return;
     }
     const operation = pending;
     pending = null;
     section.restore(operation.location);
-    section.focus();
     operation.finish();
   };
   const activeSection = (): ReviewEditor | undefined => {
     const file = surface.files()[surface.currentIndex()];
     return file === undefined ? undefined : sections.get(normalizePath(file.summary().path));
   };
-  const restore = (location: NavLocation, signal: AbortSignal): Promise<void> => {
+  const restore = (location: TextLocation, signal: AbortSignal): Promise<void> => {
     pending?.cancel();
     const index = surface
       .files()
@@ -109,7 +112,6 @@ export function createReviewSurface(surface: {
         return;
       }
       validity.addEventListener("abort", cancel, { once: true });
-      surface.expand(file);
       surface.select(index, location.path, location.line);
       queueMicrotask(() => {
         if (pending !== operation) return;
@@ -122,38 +124,60 @@ export function createReviewSurface(surface: {
       });
     });
   };
+  const focus = (): void => {
+    const section = activeSection();
+    if (section === undefined) surface.focus();
+    else section.focus();
+  };
   return {
+    text: true,
     capture: () => {
       const file = surface.files()[surface.currentIndex()];
-      return (
+      const location =
         activeSection()?.capture() ??
-        (file === undefined
-          ? undefined
-          : {
-              kind: "review",
-              path: file.summary().path,
-              line: file.summary().line,
-            })
-      );
+        (file === undefined ? null : { path: file.summary().path, line: file.summary().line });
+      return { state: { location, scrollTop: surface.scroller().scrollTop }, text: location };
     },
-    restore,
-    focus: () => {
-      const section = activeSection();
-      if (section === undefined) surface.focus();
-      else section.focus();
+    restore: async (placement, signal) => {
+      signal.throwIfAborted();
+      surface.clear();
+      const saved =
+        "viewState" in placement ? (placement.viewState as ReviewViewState | null) : null;
+      if (saved?.location != null) {
+        if (
+          surface
+            .files()
+            .some(
+              (file) => normalizePath(file.summary().path) === normalizePath(saved.location!.path),
+            )
+        ) {
+          await restore(saved.location, signal);
+        } else {
+          notify("warn", "This saved location is no longer in the review.");
+        }
+      } else if (saved !== null) {
+        surface.scroller().scrollTop = saved.scrollTop;
+      }
+      signal.throwIfAborted();
     },
+    focus,
     dispose: () => lifetime.abort(),
     refresh: () => {
       settle();
       activeSection()?.inline.refreshPresentation();
     },
-    toolbarHost: surface.toolbarHost,
-    actions: () => activeSection()?.inline,
+    actions: () => activeSection()?.inline.captureActions(),
     reveal: (path, line) => {
-      void restore({ kind: "review", path, line }, lifetime.signal).catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
-          notify("warn", String(error));
-      });
+      const file = surface
+        .files()
+        .find((file) => normalizePath(file.summary().path) === normalizePath(path));
+      if (file !== undefined) surface.expand(file);
+      void restore({ path, line }, lifetime.signal)
+        .then(focus)
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === "AbortError"))
+            notify("warn", String(error));
+        });
     },
     sections: {
       empty: () => settle(),

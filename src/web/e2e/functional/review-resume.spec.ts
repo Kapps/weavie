@@ -69,7 +69,7 @@ test.describe("durable applied review", () => {
     await expect.poll(() => readFile(join(weavie.workspace, "README.md"), "utf8")).toBe(NEXT);
     await openFile(page, "hello.ts");
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-review-open").click();
     const hello = section(page, "hello.ts");
     await expect(hello.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
@@ -117,14 +117,14 @@ test.describe("durable applied review", () => {
     );
     await expect(section(page, "README.md").locator(".weavie-inline-added").first()).toBeVisible();
 
-    await page.locator(".editor-review-toggle").click();
+    await notes.locator(".unified-review-file-name").click();
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
     await expect
       .poll(() =>
         page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition()?.lineNumber),
       )
       .toBe(2);
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
 
     await section(page, "hello.ts").locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
@@ -171,8 +171,8 @@ test.describe("durable pull-request review", () => {
   test("opening the same pull request retains its kept decision and undo", async ({ page }) => {
     await openPr(page);
     await expect(page.locator(".session-chip")).toHaveCount(2);
-    await expect(page.locator(".editor-review-toggle")).toBeVisible();
-    await page.locator(".editor-review-toggle").click();
+    await expect(page.locator(".editor-review-open")).toBeVisible();
+    await page.locator(".editor-review-open").click();
     const hello = section(page, "hello.ts");
     await hello.locator(".unified-review-file-action.keep").click();
     await expect(hello.locator(".unified-review-status")).toHaveText("Reviewed");

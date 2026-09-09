@@ -335,7 +335,7 @@ public sealed partial class HostCore {
 	/// Undoes a review action: <c>kind</c> "keep"/"revert" drives the type-split chords, an absent kind the
 	/// toolbar's generic Undo. A blocked undo (a newer edit moved the file) toasts; otherwise the editor refreshes.
 	/// </summary>
-	private void ReviewUndo(HostSession session, JsonElement root) {
+	private ReviewHistoryLocation? ReviewUndo(HostSession session, JsonElement root) {
 		string? kind = root.GetStringOrNull("kind");
 		var result = kind switch {
 			"keep" => session.Changes.UndoLastKeep(),
@@ -343,34 +343,28 @@ public sealed partial class HostCore {
 			_ => session.Changes.UndoLast(),
 		};
 		HandleHistory(session, result);
-		RevealHistoryChange(session, result);
+		return HistoryChangeLocation(session, result);
 	}
 
 	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
-	private void ReviewRedo(HostSession session) {
+	private ReviewHistoryLocation? ReviewRedo(HostSession session) {
 		var result = session.Changes.Redo();
 		HandleHistory(session, result);
-		RevealHistoryChange(session, result);
+		return HistoryChangeLocation(session, result);
 	}
 
-	/// <summary>
-	/// After an undo/redo, land the editor on the change it acted on: a per-hunk action opens at that hunk's
-	/// recorded line (still valid — the undo only runs while the file's current content is unchanged), a
-	/// file/set action at the first affected file's first pending hunk. No-op when nothing is left to show.
-	/// </summary>
-	private static void RevealHistoryChange(HostSession session, ReviewHistoryResult result) {
-		if (!result.Acted) {
-			return;
-		}
+	private sealed record ReviewHistoryLocation(string Path, int Line);
 
-		foreach (string path in result.Paths) {
-			if (session.Changes.GetTurn(path) is { } turn
-				&& turn.CurrentExists
-				&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
-				session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
-				return;
+	private static ReviewHistoryLocation? HistoryChangeLocation(HostSession session, ReviewHistoryResult result) {
+		if (result.Acted) {
+			foreach (string path in result.Paths) {
+				if (session.Changes.GetTurn(path) is { } turn
+					&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
+					return new(path, line);
+				}
 			}
 		}
+		return null;
 	}
 
 	/// <summary>

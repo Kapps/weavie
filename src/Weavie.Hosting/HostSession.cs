@@ -468,9 +468,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
 		if (existing >= 0) {
 			var entry = open[existing];
-			if (entry.Preview && !preview) {
-				open[existing] = entry with { Preview = false };
-			}
+			bool sameKind = (entry.Kind ?? "file") == (kind ?? "file");
+			open[existing] = entry with {
+				Kind = kind,
+				Preview = entry.Preview && preview,
+				ViewState = sameKind ? entry.ViewState : null,
+			};
 		} else {
 			var entry = new EditorSessionEntry {
 				Path = path,

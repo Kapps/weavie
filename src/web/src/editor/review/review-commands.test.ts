@@ -2,7 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../../bridge";
 import { CommandIds } from "../../commands/types";
 import type { EditorController } from "../editor-controller";
-import { reviewCommandBindings } from "./review-commands";
+import type { TabOwner } from "../tab-owner";
+
+const env = vi.hoisted(() => ({
+  selected: null as ClientSession | null,
+  tab: undefined as TabOwner | undefined,
+}));
+vi.mock("../../bridge", () => ({ selectedSession: () => env.selected }));
+vi.mock("../session-store", () => ({
+  activeTabFor: (session: ClientSession) => (session === env.selected ? env.tab : undefined),
+}));
+vi.mock("../tab-command-bindings", () => ({
+  commandPath: (args: { path?: string } | undefined) => args?.path,
+}));
+const { reviewCommandBindings } = await import("./review-commands");
 
 const left = { address: { slot: "left", incarnation: "1" } } as ClientSession;
 const right = { address: { slot: "right", incarnation: "1" } } as ClientSession;
@@ -26,20 +39,26 @@ const review = {
   undoKeep: vi.fn(() => true),
   undoRevert: vi.fn(() => true),
   redo: vi.fn(() => true),
-  toggleMode: vi.fn(() => true),
   toggleFileCollapsed: vi.fn(() => true),
 };
-const openReview = vi.fn(() => true);
-const editor = { inline, review, openReview } as unknown as Pick<
-  EditorController,
-  "inline" | "openReview" | "review"
->;
-const bindings = new Map(reviewCommandBindings(editor, () => left));
+const openReview = vi.fn((session: ClientSession) => session === env.selected);
+const lifetime = new AbortController();
+const presentation = {
+  signal: lifetime.signal,
+  actions: () => inline,
+  capture: () => ({ state: null, text: { path: "/left/one.ts", line: 9 } }),
+};
+const editor = { review, openReview } as unknown as EditorController;
+const bindings = new Map(reviewCommandBindings(editor));
+const capture = (id: string, args: unknown, session: ClientSession) =>
+  bindings.get(id)!({ session }, args);
 const run = async (id: string, args: unknown, session: ClientSession): Promise<unknown> =>
-  bindings.get(id)?.(args, { session });
+  capture(id, args, session)(args, { session });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  env.selected = left;
+  env.tab = { presentation } as unknown as TabOwner;
 });
 
 describe("review command bindings", () => {
@@ -69,7 +88,6 @@ describe("review command bindings", () => {
       CommandIds.rejectChange,
       CommandIds.reviewComment,
       CommandIds.reviewOpen,
-      CommandIds.reviewToggleMode,
       CommandIds.reviewToggleFile,
       CommandIds.reviewNextFile,
       CommandIds.reviewPrevFile,
@@ -78,8 +96,7 @@ describe("review command bindings", () => {
     for (const id of ids) {
       expect(await run(id, { path: "/right/one.ts", line: 9 }, right)).toBe(false);
     }
-    expect(openReview).not.toHaveBeenCalled();
-    expect(review.toggleMode).not.toHaveBeenCalled();
+    expect(openReview).toHaveBeenCalledWith(right, "/right/one.ts", 9);
     expect(review.toggleFileCollapsed).not.toHaveBeenCalled();
     expect(Object.values(inline).every((action) => action.mock.calls.length === 0)).toBe(true);
   });
@@ -102,4 +119,19 @@ describe("review command bindings", () => {
     expect(review.undoKeep).not.toHaveBeenCalled();
     expect(review.undoRevert).not.toHaveBeenCalled();
   });
+});
+
+it("keeps a captured file action addressed after switching tabs and sessions", () => {
+  const keep = capture(CommandIds.keepFile, undefined, left);
+  env.selected = right;
+  env.tab = { presentation } as unknown as TabOwner;
+  keep(undefined, { session: right });
+  expect(review.keepFile).toHaveBeenCalledWith(left, "/left/one.ts");
+});
+
+it("rejects a captured presentation action after its tab is replaced", () => {
+  const accept = capture(CommandIds.acceptChange, undefined, left);
+  env.tab = { presentation } as unknown as TabOwner;
+  expect(() => accept(undefined, { session: left })).toThrow("no longer displayed");
+  expect(inline.accept).not.toHaveBeenCalled();
 });

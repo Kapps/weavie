@@ -2,6 +2,7 @@ import type * as monaco from "monaco-editor";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { createEditorContexts, type TextEditorConnection } from "./editor-context";
+import { TabOwner } from "./tab-owner";
 
 function session(): ClientSession {
   return { signal: new AbortController().signal } as ClientSession;
@@ -14,11 +15,11 @@ function binding(owner: ClientSession, kind: "file" | "review") {
   const editor = { getModel: () => displayedModel } as monaco.editor.IStandaloneCodeEditor;
   const connection = {
     session: owner,
-    kind,
+    tab: tab(owner, kind),
     editor,
     model,
     signal: lifetime.signal,
-  } as TextEditorConnection;
+  } as unknown as TextEditorConnection;
   return {
     connection,
     lifetime,
@@ -33,7 +34,7 @@ describe("owned editor connections", () => {
     const contexts = createEditorContexts();
     const owner = session();
     const showMenu = vi.fn();
-    contexts.own(owner, () => "review", showMenu);
+    contexts.own(owner, () => tab(owner, "review"), showMenu);
     const current = binding(owner, "review");
     const clicked = binding(owner, "review");
     contexts.register(current.connection);
@@ -53,12 +54,12 @@ describe("owned editor connections", () => {
     let kind: "file" | "review" = "file";
     contexts.own(
       a,
-      () => kind,
+      () => tab(a, kind),
       () => {},
     );
     contexts.own(
       b,
-      () => "file",
+      () => tab(b, "file"),
       () => {},
     );
     const file = binding(a, "file");
@@ -80,7 +81,7 @@ describe("owned editor connections", () => {
     const original = binding(session(), "file");
     contexts.own(
       original.connection.session,
-      () => "file",
+      () => original.connection.tab,
       () => {},
     );
     contexts.register(original.connection);
@@ -96,7 +97,7 @@ describe("owned editor connections", () => {
     const contexts = createEditorContexts();
     contexts.own(
       owner,
-      () => "review",
+      () => tab(owner, "review"),
       () => {},
     );
     const first = binding(owner, "review");
@@ -111,3 +112,25 @@ describe("owned editor connections", () => {
     expect(contexts.get(owner)).toBeUndefined();
   });
 });
+
+const tabs = new WeakMap<ClientSession, Map<string, TabOwner>>();
+function tab(session: ClientSession, kind: "file" | "review"): TabOwner {
+  let values = tabs.get(session);
+  if (values === undefined) {
+    values = new Map();
+    tabs.set(session, values);
+  }
+  let owner = values.get(kind);
+  if (owner === undefined) {
+    owner = new TabOwner(session, { kind, path: kind, viewState: null });
+    owner.mount({
+      text: true,
+      capture: () => ({ state: null, text: { path: kind, line: 1 } }),
+      restore: async () => {},
+      focus: () => {},
+      actions: () => undefined,
+    });
+    values.set(kind, owner);
+  }
+  return owner;
+}

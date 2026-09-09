@@ -254,7 +254,6 @@ public static class CoreCommands {
 	public const string ReviewOpen = "weavie.review.open";
 
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
-	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
 	/// <summary>Expands or collapses the current file in unified review; bound to <c>alt+[</c>.</summary>
 	public const string ReviewToggleFile = "weavie.review.toggleFile";
@@ -1453,6 +1452,7 @@ public static class CoreCommands {
 		// active, so Ctrl+Left/Right keep their Win/Linux word-nav meaning outside a review.
 		registry.Register(new CommandDefinition {
 			Id = ReviewOpen,
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
 			Title = "Review Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
@@ -1461,17 +1461,6 @@ public static class CoreCommands {
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
 			When = "reviewAvailable",
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
-		});
-
-		registry.Register(new CommandDefinition {
-			Id = ReviewToggleMode,
-			Title = "Toggle Review Mode",
-			RunsIn = CommandLocation.Web,
-			Category = "Review",
-			When = "reviewSetActive",
-			Description = "Switch seamlessly between the unified all-files review and the in-depth file review.",
-			Aliases = ["toggle review mode", "unified review", "file review", "review overview"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {

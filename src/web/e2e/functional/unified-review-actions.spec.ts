@@ -25,7 +25,7 @@ test.use({
 async function prepare(page: Page): Promise<Locator> {
   await awaitReviewSet(page, [source]);
   await openFile(page, "notes.txt");
-  await page.locator(".editor-review-toggle").click();
+  await page.locator(".editor-review-open").click();
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: source }),
   });

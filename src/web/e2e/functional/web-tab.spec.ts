@@ -59,7 +59,7 @@ async function openUrl(page: import("@playwright/test").Page, url: string): Prom
 }
 
 function activeFrame(page: import("@playwright/test").Page) {
-  return page.frameLocator(".editor-web:not([hidden]) iframe");
+  return page.frameLocator(".editor-tab-content:not([hidden]) .editor-web iframe");
 }
 
 test("@cross Markdown preview links open externally without replacing the app", async ({
@@ -119,14 +119,16 @@ test("web tab retains its live page state across editor tabs until close", async
   await openFile(page, "README.md");
   const retained = page.locator(".editor-web");
   await expect(retained).toBeHidden();
-  await expect(retained).toHaveAttribute("inert", "");
-  await expect(retained).not.toHaveAttribute("tabindex", "0");
+  const shell = page.locator(".editor-tab-content", { has: retained });
+  await expect(shell).toHaveAttribute("inert", "");
+  await retained.focus();
+  await expect(retained).not.toBeFocused();
   await expect(retained.locator("iframe")).toHaveCount(1);
 
   await page.locator(".editor-tab", { hasText: new URL(url).host }).click();
   await expect(frame.locator("#load-count")).toHaveText("Page loads: 1");
   await expect(frame.getByRole("textbox", { name: "Approval note" })).toHaveValue("APPROVE CANARY");
-  await expect(retained).not.toHaveAttribute("inert", "");
+  await expect(shell).not.toHaveAttribute("inert", "");
   await expect(retained).toHaveAttribute("tabindex", "0");
 
   await retained.focus();

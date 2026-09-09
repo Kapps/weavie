@@ -41,9 +41,9 @@ function updateListings(
   listings.update(session, mutate);
 }
 
-export const selectedFileIndex = (): FileIndex => {
-  return indexes.get(selectedSession()) ?? EMPTY_INDEX;
-};
+export const fileIndexFor = (session: ClientSession | null): FileIndex =>
+  indexes.get(session) ?? EMPTY_INDEX;
+export const selectedFileIndex = (): FileIndex => fileIndexFor(selectedSession());
 export const selectedDirectoryListings = (): DirListings => {
   return listings.get(selectedSession()) ?? {};
 };

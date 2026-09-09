@@ -60,7 +60,7 @@ const catalogs = new Map<string, CommandCatalog>([
     },
   ],
 ]);
-export type CommandCapture = (context: CommandContext) => CommandHandler;
+export type CommandCapture = (context: CommandContext, args: unknown) => CommandHandler;
 const handlers = new Map<string, CommandCapture>();
 const executionLanes = new Map<string, Promise<void>>();
 const changeSubscribers = new Set<() => void>();
@@ -203,7 +203,7 @@ function prepareCommand(
   context: CommandContext,
 ): () => ReturnType<CommandHandler> {
   try {
-    const handler = capture(context);
+    const handler = capture(context, args);
     return () => handler(args, context);
   } catch (error) {
     return () => {
@@ -220,12 +220,13 @@ interface CommandScope {
 function captureScope(
   session: ClientSession | null,
   overrides: ReadonlyMap<string, CommandHandler>,
+  args: unknown,
 ): CommandScope {
   const context = { session };
   const bound = new Map<string, CommandCapture>();
   for (const [id, capture] of handlers) {
     try {
-      const handler = overrides.get(id) ?? capture(context);
+      const handler = overrides.get(id) ?? capture(context, args);
       bound.set(id, () => handler);
     } catch (error) {
       bound.set(id, () => () => {
@@ -248,7 +249,10 @@ function capturedRunner(backendId: string, scope: CommandScope): CommandRunner {
 
 /** Chrome captures its command connections before taking focus, and retains them until dismissal. */
 export function captureCommandRunner(): CommandRunner {
-  return capturedRunner(getActiveCatalogBackendId(), captureScope(selectedSession(), new Map()));
+  return capturedRunner(
+    getActiveCatalogBackendId(),
+    captureScope(selectedSession(), new Map(), undefined),
+  );
 }
 
 /** An owned surface supplies captured operations without resolving the session's current command target. */
@@ -256,7 +260,7 @@ export function captureCommandRunnerFor(
   session: ClientSession,
   overrides: ReadonlyMap<string, CommandHandler>,
 ): CommandRunner {
-  return capturedRunner(session.connection.id, captureScope(session, overrides));
+  return capturedRunner(session.connection.id, captureScope(session, overrides, undefined));
 }
 
 /** The current command catalog. */
@@ -527,7 +531,7 @@ export function dispatchCommand(id: string, args?: unknown): Promise<CommandResu
     getActiveCatalogBackendId(),
     id,
     args,
-    captureScope(selectedSession(), new Map()),
+    captureScope(selectedSession(), new Map(), args),
   );
 }
 
@@ -537,7 +541,7 @@ export function dispatchCommandFromCatalog(
   id: string,
   args?: unknown,
 ): Promise<CommandResult> {
-  return dispatchFromCatalog(backendId, id, args, captureScope(selectedSession(), new Map()));
+  return dispatchFromCatalog(backendId, id, args, captureScope(selectedSession(), new Map(), args));
 }
 
 /**
@@ -642,6 +646,11 @@ registerSessionFeature((session) =>
           error: `Command '${id}' is not owned by the local presentation client.`,
         });
       }
-      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args, captureScope(session, new Map()));
+      return dispatchFromCatalog(
+        LOCAL_BACKEND_ID,
+        id,
+        args,
+        captureScope(session, new Map(), args),
+      );
     }),
 );

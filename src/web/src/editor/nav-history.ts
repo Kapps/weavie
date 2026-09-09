@@ -2,14 +2,25 @@
 
 import type * as monaco from "monaco-editor";
 import { samePath } from "./fs-path";
+import type { EditorSessionEntry } from "./session-types";
+import { tabResourceKey } from "./tab-entry";
 
 /** A surface destination with a logical reading anchor and its exact text selection/view state. */
-export interface NavLocation {
-  kind: "file" | "review";
+export interface TextLocation {
   path: string;
   line: number;
   viewState?: monaco.editor.ICodeEditorViewState | null;
   anchor?: { line: number; offset: number };
+}
+
+export interface TabViewState {
+  state: unknown | null;
+  text: TextLocation | null;
+}
+
+export interface NavLocation {
+  tab: Pick<EditorSessionEntry, "path" | "kind">;
+  view: TabViewState;
 }
 
 /** Back/forward navigation over recorded editor locations, exposed to the Go Back / Go Forward commands. */
@@ -68,9 +79,13 @@ export function createNavHistory(
     if (
       !explicit &&
       current !== undefined &&
-      current.kind === loc.kind &&
-      samePath(current.path, loc.path) &&
-      Math.abs(current.line - loc.line) < JUMP_LINES
+      tabResourceKey({ ...current.tab, viewState: null }) ===
+        tabResourceKey({ ...loc.tab, viewState: null }) &&
+      ((current.view.text === null && loc.view.text === null) ||
+        (current.view.text !== null &&
+          loc.view.text !== null &&
+          samePath(current.view.text.path, loc.view.text.path) &&
+          Math.abs(current.view.text.line - loc.view.text.line) < JUMP_LINES))
     ) {
       // Same region: keep the entry anchored to the latest position so Back returns precisely here.
       entries[index] = loc;

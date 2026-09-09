@@ -9,6 +9,7 @@ import {
 } from "./editor-command-bindings";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import type { EditorController } from "./editor-controller";
+import { TabOwner } from "./tab-owner";
 
 const env = vi.hoisted(() => ({ selected: null as ClientSession | null }));
 vi.mock("../bridge", () => ({ selectedSession: () => env.selected }));
@@ -33,14 +34,14 @@ function connection(session: ClientSession) {
   };
   const binding = {
     session,
-    kind: "review",
+    tab: tab(session),
     model,
     editor,
     signal: new AbortController().signal,
   } as unknown as TextEditorConnection;
   editorContexts.own(
     session,
-    () => "review",
+    () => tab(session),
     () => {},
   );
   editorContexts.register(binding);
@@ -60,6 +61,7 @@ beforeEach(() => {
 
 it("editable proposals retain text mutations while Revise requires a working-copy file", () => {
   const source = connection(env.selected!);
+  source.binding.tab.presentation!.capture = () => ({ state: null, text: null });
   const commands = createEditorCommands({} as EditorController, vi.fn());
   const captured = commands.capture(source.binding);
   captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected });
@@ -128,3 +130,20 @@ it("an old captured command cannot use a shared widget after its model binding c
   expect(action).not.toHaveBeenCalled();
   expect(original.editor.setSelections).not.toHaveBeenCalled();
 });
+
+const tabs = new WeakMap<ClientSession, TabOwner>();
+function tab(session: ClientSession): TabOwner {
+  let owner = tabs.get(session);
+  if (owner === undefined) {
+    owner = new TabOwner(session, { kind: "review", path: "weavie:review", viewState: null });
+    owner.mount({
+      text: true,
+      capture: () => ({ state: null, text: { path: "file", line: 1 } }),
+      restore: async () => {},
+      focus: () => {},
+      actions: () => undefined,
+    });
+    tabs.set(session, owner);
+  }
+  return owner;
+}

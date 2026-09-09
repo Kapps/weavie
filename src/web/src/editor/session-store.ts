@@ -157,7 +157,8 @@ class OwnedEditorSession {
     const pendingLine = entry.viewState === null ? this.pendingLines.get(entry.path) : undefined;
     return {
       path: entry.path,
-      placement: pendingLine === undefined ? { viewState: entry.viewState ?? null } : { line: pendingLine },
+      placement:
+        pendingLine === undefined ? { viewState: entry.viewState ?? null } : { line: pendingLine },
     };
   }
 

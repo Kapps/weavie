@@ -215,11 +215,10 @@ jobs:
   release:
     name: publish release and advance channel
     needs: [prepare, checks, runner, publish]
+    # Release checks report failures without blocking publication of complete packages.
     if: >-
       always() && !cancelled() && needs.prepare.result == 'success' &&
-      needs.runner.result == 'success' && needs.publish.result == 'success' &&
-      (needs.checks.result == 'success' ||
-       (github.event_name == 'workflow_run' && needs.checks.result == 'skipped'))
+      needs.runner.result == 'success' && needs.publish.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

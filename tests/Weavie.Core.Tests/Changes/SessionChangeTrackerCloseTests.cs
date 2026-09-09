@@ -57,6 +57,32 @@ public sealed class SessionChangeTrackerCloseTests {
 	}
 
 	[Theory]
+	[InlineData("\r\n", "\n")]
+	[InlineData("\n", "\r\n")]
+	public void LastHunkAcceptance_ClosesAcrossLineEndingChanges(string baselineEol, string currentEol) {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		string baseline = $"old{baselineEol}tail{baselineEol}";
+		string current = $"proposal{currentEol}new tail{currentEol}";
+		files.WriteAllText(File, current);
+		var tracker = Tracker(files, persistence);
+		tracker.ArmReview(Review, [new(File, baseline, current, true, true)]);
+		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "proposal"));
+		Assert.NotNull(tracker.Review);
+		Assert.True(tracker.CanUndoKeep);
+
+		Assert.True(tracker.KeepHunk(File, new(2, 3), new(2, 3), "new tail"));
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Null(tracker.Review);
+		Assert.False(tracker.CanUndoKeep);
+		tracker = Tracker(files, persistence);
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Null(tracker.Review);
+		Assert.Equal(current, tracker.GetTurn(File)!.BaselineText);
+		Assert.Equal(current, files.ReadAllText(File));
+	}
+
+	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
 	public void LastFileAcceptance_WaitsForExistenceOnlyChangesAndPersistsClosure(bool currentExists) {

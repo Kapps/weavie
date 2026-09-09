@@ -21,7 +21,8 @@ public sealed partial class SessionChangeTracker {
 
 	private bool CompleteAcceptanceLocked() {
 		if (_current.Any(file => !_nonText.ContainsKey(file.Key)
-			&& (_reviewBaseline.GetValueOrDefault(file.Key, string.Empty) != file.Value
+			&& ((_reviewBaseline.GetValueOrDefault(file.Key, string.Empty) != file.Value
+					&& LineDiff.FirstChangedLine(_reviewBaseline.GetValueOrDefault(file.Key, string.Empty), file.Value) is not null)
 				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)))) return false;
 		CloseReviewLocked();
 		return true;

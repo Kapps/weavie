@@ -15,7 +15,6 @@ export function createReviewEditorViewport(
   dispose(): void;
 } {
   let frame: number | undefined;
-  let pendingRevealTop: number | undefined;
   let syncing = false;
 
   const bounds = (): { top: number; height: number } => {
@@ -48,11 +47,6 @@ export function createReviewEditorViewport(
     if (frame === undefined) {
       frame = requestAnimationFrame(() => {
         frame = undefined;
-        if (pendingRevealTop !== undefined) {
-          const top = pendingRevealTop;
-          pendingRevealTop = undefined;
-          scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
-        }
         layout();
       });
     }
@@ -66,14 +60,18 @@ export function createReviewEditorViewport(
     scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
     layout();
   };
-  // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
-  // Deferred a frame rather than applied inline: Monaco fires this mid-dispatch of its own reveal command, and
-  // calling back into setScrollTop/render synchronously from there is reentrant — occasionally leaving Monaco's
-  // own render pass and ours racing under CI-runner scheduling pressure. See the flake note in
-  // unified-review-scroll.spec.ts.
+  // Keyboard/caret reveals still move the page; only Monaco's own render pass may be deferred. The
+  // scroller.scrollTop update below is a plain DOM mutation, not a Monaco call, so it stays inline — a
+  // reader (e.g. capture()'s reviewLine()) that runs synchronously right after a reveal must see the real,
+  // current scroll position, or its viewport-membership check works off stale bounds and silently anchors
+  // to the wrong line (corrupting nav history entries that later collapse by line proximity). Only `layout()`,
+  // which calls back into Monaco (setScrollTop, render), is deferred to the next animation frame: Monaco
+  // fires this event mid-dispatch of its own reveal command, and calling back into it synchronously from
+  // there is reentrant — occasionally leaving Monaco's own render pass and ours racing under CI-runner
+  // scheduling pressure. See the flake note in unified-review-scroll.spec.ts.
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged) {
-      pendingRevealTop = event.scrollTop;
+      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
       schedule();
     }
   });

@@ -29,6 +29,7 @@ test("dark-mode comments remain readable over stacked added-line and word backgr
   const comment = section.locator(".view-line", { hasText: "Handle the updated case." });
   await expect(comment).toBeVisible();
   await expect(section.locator(".weavie-inline-added-text")).toBeVisible();
+  await expect(comment.locator(".mtki")).toBeVisible();
   await expect
     .poll(() =>
       section.evaluate((element) => {

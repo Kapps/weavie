@@ -22,6 +22,7 @@ type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
 export interface ReviewEditor {
   capture(): TextLocation;
   restore(location: TextLocation): void;
+  revealFileStart(line: number): void;
   focus(): void;
   layout(): void;
   inline: InlineDiff;
@@ -167,6 +168,10 @@ export function createReviewEditor(options: {
   return {
     capture,
     restore,
+    revealFileStart: (line) => {
+      viewport.update(() => editor.setPosition({ lineNumber: line, column: 1 }));
+      viewport.reveal(0);
+    },
     focus: () => {
       editorContexts.activate(binding.connection);
       editor.focus();

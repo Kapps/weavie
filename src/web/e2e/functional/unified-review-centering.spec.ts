@@ -33,29 +33,47 @@ async function expectCenteredLine(section: Locator, text: string): Promise<void>
     .toBeLessThanOrEqual(25);
 }
 
-test("Next and Keep center changes within and across unified review files", async ({ page }) => {
-  await awaitReviewSet(page, files);
-  await page.locator(".editor-empty-review").click();
-  const toolbar = page.locator(".weavie-inline-toolbar");
-  const counter = toolbar.locator(".weavie-inline-stack-sub");
-  const first = page.locator(".unified-review-file", {
-    has: page.locator(".unified-review-file-name", { hasText: files[0] }),
-  });
-  await expect(counter).toContainText("change 1/8");
-  await toolbar.locator("button[title^='Next change']").click();
-  await expect(counter).toContainText("change 2/8");
-  await expectCenteredLine(first, "// comment 30 updated");
-  await toolbar.locator(".weavie-inline-accept").click();
-  await expect(counter).toContainText("change 2/7");
-  await expectCenteredLine(first, "// comment 50 updated");
+for (const keepFile of ["toolbar", "file header"]) {
+  test(`Next and Keep center changes, then ${keepFile} Keep opens the next file at the top`, async ({
+    page,
+  }) => {
+    await awaitReviewSet(page, files);
+    await page.locator(".editor-empty-review").click();
+    await page.locator(".unified-review-tree-row.file", { hasText: files[0] }).click();
+    const toolbar = page.locator(".weavie-inline-toolbar");
+    const counter = toolbar.locator(".weavie-inline-stack-sub");
+    const first = page.locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: files[0] }),
+    });
+    await expect(counter).toContainText("change 1/8");
+    await toolbar.locator("button[title^='Next change']").click();
+    await expect(counter).toContainText("change 2/8");
+    await expectCenteredLine(first, "// comment 30 updated");
+    await toolbar.locator(".weavie-inline-accept").click();
+    await expect(counter).toContainText("change 2/7");
+    await expectCenteredLine(first, "// comment 50 updated");
 
-  await toolbar.locator(".weavie-inline-scope-btn").click();
-  await toolbar.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
-  await toolbar.locator(".weavie-inline-accept").click();
-  await expect(first.locator(".unified-review-status")).toHaveText("Reviewed");
-  await expect(toolbar.locator(".weavie-inline-stack-name")).toHaveText(files[1]);
-  const second = page.locator(".unified-review-file", {
-    has: page.locator(".unified-review-file-name", { hasText: files[1] }),
+    if (keepFile === "toolbar") {
+      await toolbar.locator(".weavie-inline-scope-btn").click();
+      await toolbar.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
+      await toolbar.locator(".weavie-inline-accept").click();
+    } else {
+      await first.locator(".unified-review-file-action.keep").click();
+    }
+    await expect(first.locator(".unified-review-status")).toHaveText("Reviewed");
+    await expect(toolbar.locator(".weavie-inline-stack-name")).toHaveText(files[1]);
+    const second = page.locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: files[1] }),
+    });
+    await expect
+      .poll(async () => {
+        const header = await second.locator(".unified-review-file-header").boundingBox();
+        const viewport = await page.locator(".unified-review-diffs").boundingBox();
+        if (header === null || viewport === null) throw new Error("Next file header is missing");
+        const offset = header.y - viewport.y;
+        return offset >= 0 && offset <= 25;
+      })
+      .toBe(true);
+    await expect(second.locator(".view-line", { hasText: /^\/\/\scomment\s7$/ })).toBeInViewport();
   });
-  await expectCenteredLine(second, "// comment 10 updated");
-});
+}

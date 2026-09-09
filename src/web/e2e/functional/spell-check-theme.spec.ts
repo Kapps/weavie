@@ -28,13 +28,33 @@ async function underlineColors(page: Page): Promise<string[]> {
   );
 }
 
-async function expectVisibleUnderlines(page: Page): Promise<void> {
-  for (const mark of await marks(page).all()) {
-    await expect(mark).toHaveCSS("text-decoration-line", "underline");
-    await expect(mark).toHaveCSS("text-decoration-thickness", "2px");
-    await expect(mark).toHaveCSS("text-decoration-skip-ink", "none");
-    await expect(mark).toHaveCSS("text-decoration-color", /^rgb\(\d+, \d+, \d+\)$/);
-  }
+async function expectVisibleUnderlines(page: Page): Promise<string[]> {
+  let colors: string[] = [];
+  await expect
+    .poll(async () => {
+      const styles = await marks(page).evaluateAll((elements) =>
+        elements.map((element) => {
+          const style = getComputedStyle(element);
+          return {
+            color: style.textDecorationColor,
+            line: style.textDecorationLine,
+            thickness: style.textDecorationThickness,
+            skipInk: style.textDecorationSkipInk,
+          };
+        }),
+      );
+      colors = styles.map((style) => style.color);
+      return styles;
+    })
+    .toEqual(
+      Array(3).fill({
+        color: expect.stringMatching(/^rgb\(\d+, \d+, \d+\)$/),
+        line: "underline",
+        thickness: "2px",
+        skipInk: "none",
+      }),
+    );
+  return colors;
 }
 
 test("spelling colors remain visible across syntax and track theme overrides without stale colors", async ({
@@ -48,8 +68,7 @@ test("spelling colors remain visible across syntax and track theme overrides wit
   await openFile(page, "hello.ts");
   await expect(marks(page)).toHaveText(["identifiertypoo", "stringtypoo", "commenttypoo"]);
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
-  await expectVisibleUnderlines(page);
-  const dark = await underlineColors(page);
+  const dark = await expectVisibleUnderlines(page);
   expect(new Set(dark).size).toBe(1);
 
   await writeFile(join(weavie.workspace, ".dark-override"), "");
@@ -57,8 +76,7 @@ test("spelling colors remain visible across syntax and track theme overrides wit
   await runCommand(page, "Cycle Theme Mode");
   await runCommand(page, "Cycle Theme Mode");
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
-  await expectVisibleUnderlines(page);
-  const light = await underlineColors(page);
+  const light = await expectVisibleUnderlines(page);
   expect(new Set(light).size).toBe(1);
   expect(light).not.toEqual(dark);
   expect(light).not.toEqual(Array(3).fill("rgb(255, 102, 204)"));

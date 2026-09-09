@@ -23,7 +23,7 @@ export function createReviewEditorViewport(
     const inset = paddingTop + header.offsetHeight;
     return {
       top: scroller.getBoundingClientRect().top + scroller.clientTop + inset,
-      height: Math.max(0, scroller.clientHeight - inset),
+      height: Math.max(0, scroller.clientHeight - inset - Number.parseFloat(style.paddingBottom)),
     };
   };
 

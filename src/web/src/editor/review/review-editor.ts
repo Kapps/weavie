@@ -7,7 +7,7 @@ import {
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, type monaco } from "../monaco-setup";
+import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
@@ -86,15 +86,17 @@ export function createReviewEditor(options: {
     viewport.layout();
     options.onHeight(next);
   };
+  const revealLine = (line: number): void => {
+    options.onReveal();
+    const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+    viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
+  };
   const presentation: InlineDiffPresentation = {
     scope: options.scope,
     updateGeometry: viewport.update,
     active: options.active,
     toolbarHost: options.toolbarHost,
-    revealLine: (line) => {
-      options.onReveal();
-      viewport.reveal(editor.getTopForLineNumber(line));
-    },
+    revealLine,
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
       const bounds = viewport.bounds();
@@ -145,9 +147,8 @@ export function createReviewEditor(options: {
       else editor.setPosition({ lineNumber: location.line, column: 1 });
     });
     const anchor = location.anchor;
-    viewport.reveal(
-      editor.getTopForLineNumber(anchor?.line ?? location.line) + (anchor?.offset ?? 0),
-    );
+    if (anchor === undefined) revealLine(location.line);
+    else viewport.reveal(editor.getTopForLineNumber(anchor.line) + anchor.offset);
   };
   const binding = connectTextEditor({
     session: options.session,

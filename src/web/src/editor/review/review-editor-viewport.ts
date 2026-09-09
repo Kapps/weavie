@@ -27,15 +27,23 @@ export function createReviewEditorViewport(
     };
   };
 
+  // Where `mount` (Monaco's small rendered window) must sit within `container` for the current scroll to line
+  // up with the scroller's visible pane. A plain DOM write, never a Monaco call — safe to run synchronously
+  // even mid-dispatch of Monaco's own event, unlike the rest of `layout()` below.
+  const position = (): { top: number; height: number } => {
+    const viewport = bounds();
+    const height = Math.min(container.clientHeight, viewport.height);
+    const offset = viewport.top - container.getBoundingClientRect().top;
+    const top = Math.max(0, Math.min(offset, container.clientHeight - height));
+    mount.style.top = `${top}px`;
+    return { top, height };
+  };
+
   const layout = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
-      const viewport = bounds();
-      const height = Math.min(container.clientHeight, viewport.height);
-      const offset = viewport.top - container.getBoundingClientRect().top;
-      const top = Math.max(0, Math.min(offset, container.clientHeight - height));
-      mount.style.top = `${top}px`;
+      const { top, height } = position();
       editor.layout({ width: container.clientWidth, height });
       editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
       editor.render();
@@ -43,7 +51,15 @@ export function createReviewEditorViewport(
       syncing = wasSyncing;
     }
   };
+  // Re-syncs `mount`'s DOM position immediately (never stale), deferring only the Monaco-reentrant part of
+  // `layout()` to the next frame. Without the immediate `position()`, a same-file jump made from outside the
+  // editor (e.g. an omnibar commit) calls the editor's own `.focus()` right after this while `mount` still sits
+  // at its pre-jump spot; the browser's native scroll-into-view-on-focus then drags `scroller.scrollTop` back
+  // toward that stale spot, undoing the line above and corrupting whatever reads the scroll position next
+  // (capture()'s reviewLine() included). See the unified-review-history.spec.ts "document symbols preview"
+  // regression this fixed.
   const schedule = (): void => {
+    position();
     if (frame === undefined) {
       frame = requestAnimationFrame(() => {
         frame = undefined;

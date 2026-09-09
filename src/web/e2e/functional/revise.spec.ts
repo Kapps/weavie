@@ -34,7 +34,7 @@ for (const failedConfirmation of [false, true]) {
       await clickIntoEditor(page);
       await pressDocumentStart(page);
       for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowDown");
-      await page.keyboard.press("ControlOrMeta+Alt+e");
+      await page.keyboard.press("ControlOrMeta+Shift+e");
       const prompt = page.locator(".session-prompt-input");
       await expect(prompt).toBeFocused();
       await prompt.fill("Shorten this comment to one line");

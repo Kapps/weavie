@@ -93,7 +93,6 @@ test("file navigation wraps and file-scope Keep uses the unified selection", asy
     "Reviewed",
   );
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
-  await page.keyboard.press(navChord("ArrowRight"));
   await expect(name).toHaveText("notes.txt");
   await expect(toolbar.locator(".weavie-inline-scope-btn")).toContainText("File");
   await expect(overview).toBeVisible();

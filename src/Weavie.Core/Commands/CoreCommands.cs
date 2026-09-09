@@ -1339,7 +1339,7 @@ public static class CoreCommands {
 				+ "tinted while the model works, and the edit is one undo step.",
 			Aliases = ["revise", "rewrite selection", "shorten comment", "reword"],
 			When = "editorFocused",
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+e" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+shift+e" }],
 		});
 
 		registry.Register(new CommandDefinition {

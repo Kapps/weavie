@@ -8,6 +8,8 @@ import type { VsCodeColorTheme } from "../vscode-theme";
 /** Stable id Monaco/`setTheme` and the `theme.light`/`theme.dark` settings reference this built-in by. */
 export const WEAVIE_DARK_ID = "weavie-dark";
 
+const COMMENT_FOREGROUND = "#a0a8b2";
+
 export const WEAVIE_DARK: VsCodeColorTheme = {
   name: "Weavie Dark",
   type: "dark",
@@ -46,8 +48,8 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
 
     // ── Diff (inline change review + standalone diff editor) ────────────────────────────────────────
     // Dark, saturated green washes keep muted syntax (especially comments) legible when the layers stack.
-    "diffEditor.insertedLineBackground": "#2ea04327",
-    "diffEditor.insertedTextBackground": "#2ea04343",
+    "diffEditor.insertedLineBackground": "#20905030",
+    "diffEditor.insertedTextBackground": "#20905018",
     "diffEditor.removedLineBackground": "#c47a7a21",
     "diffEditor.removedTextBackground": "#c47a7a3d",
     "editorWarning.foreground": "#e0b060",
@@ -168,7 +170,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     {
       name: "Comment",
       scope: ["comment", "punctuation.definition.comment", "string.comment"],
-      settings: { foreground: "#45484f", fontStyle: "italic" },
+      settings: { foreground: COMMENT_FOREGROUND, fontStyle: "italic" },
     },
     {
       name: "String",
@@ -353,7 +355,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     keyword: "#5fa295",
     string: "#6fdc66",
     operator: "#6f7b8a",
-    comment: { foreground: "#45484f", fontStyle: "italic" },
+    comment: { foreground: COMMENT_FOREGROUND, fontStyle: "italic" },
     // Variables (incl. parameters) are italic — the data flowing through; properties a lighter upright shade.
     variable: { foreground: "#d4dce6", fontStyle: "italic" },
     parameter: { foreground: "#d4dce6", fontStyle: "italic" },

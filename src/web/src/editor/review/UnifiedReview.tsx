@@ -151,19 +151,7 @@ export function UnifiedReview(props: {
       );
     },
     measureElement: (element) => element.getBoundingClientRect().height,
-    onChange: (instance) => {
-      sizeVirtualList(instance.getTotalSize());
-      if (programmaticSelection) {
-        return;
-      }
-      const virtualIndex = instance.range?.startIndex;
-      const index = virtualIndex === undefined ? undefined : virtualIndex - 1;
-      const summary = index === undefined || index < 0 ? undefined : files()[index]?.summary();
-      if (index !== undefined && summary !== undefined) {
-        setVisibleFile(index);
-        props.changed();
-      }
-    },
+    onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 2,
     useAnimationFrameWithResizeObserver: true,
   });
@@ -194,6 +182,7 @@ export function UnifiedReview(props: {
     props.changed();
   };
   const surface = createReviewSurface({
+    active: () => selectedSession() === props.session && activeTabFor(props.session) === props.tab,
     signal: props.tab.signal,
     clear: props.clear,
     scroller: () => scroller!,
@@ -315,6 +304,10 @@ export function UnifiedReview(props: {
         onPointerDown={followViewport}
         onWheel={followViewport}
         onScroll={() => {
+          if (!programmaticSelection) {
+            const row = virtualizer.getVirtualItemForOffset(scroller!.scrollTop);
+            if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
+          }
           surface.refresh();
           props.changed();
         }}

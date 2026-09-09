@@ -37,41 +37,59 @@ async function prepare(page: Page): Promise<Locator> {
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowDown");
   return section;
 }
-test("review context menu copies and revises the selected review file", async ({
-  page,
-  weavie,
-}) => {
-  const section = await prepare(page);
-  await page.evaluate(() => navigator.clipboard.writeText("unrelated clipboard"));
-  await section
-    .locator(".view-line")
-    .first()
-    .click({ button: "right", position: { x: 45, y: 4 } });
-  await expect(page.locator(".context-menu")).toBeVisible();
-  await page.locator(".context-menu-item").filter({ hasText: /^Copy/ }).click();
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(content.split("\n").slice(0, 4).join(EOL));
-  const notesBefore = await readFile(join(weavie.workspace, "notes.txt"), "utf8");
-  await section
-    .locator(".view-line")
-    .first()
-    .click({ button: "right", position: { x: 45, y: 4 } });
-  await page
-    .locator(".context-menu-item")
-    .filter({ hasText: /^Revise Selection/ })
-    .click();
-  const prompt = page.locator(".session-prompt-input");
-  await expect(prompt).toBeFocused();
-  await prompt.fill("Shorten the selected review comment to one line");
-  await prompt.press("Enter");
-  await expect
-    .poll(() => readFile(join(weavie.workspace, source), "utf8"))
-    .toBe('// revised by the fake\ngreet("review selection");\n');
-  await expect(section.locator(".view-lines")).toContainText("// revised by the fake");
-  expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(notesBefore);
-  await expect(page.locator(".weavie-revising-pill")).toHaveCount(0);
-});
+for (const trigger of ["context menu", "shortcut"]) {
+  test(`review ${trigger} revises the selected review file`, async ({ page, weavie }) => {
+    const section = await prepare(page);
+    const notesBefore = await readFile(join(weavie.workspace, "notes.txt"), "utf8");
+    if (trigger === "context menu") {
+      await page.evaluate(() => navigator.clipboard.writeText("unrelated clipboard"));
+      await section
+        .locator(".view-line")
+        .first()
+        .click({ button: "right", position: { x: 45, y: 4 } });
+      await expect(page.locator(".context-menu")).toBeVisible();
+      await page.locator(".context-menu-item").filter({ hasText: /^Copy/ }).click();
+      await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .toBe(content.split("\n").slice(0, 4).join(EOL));
+      await section
+        .locator(".view-line")
+        .first()
+        .click({ button: "right", position: { x: 45, y: 4 } });
+      const revise = page.locator(".context-menu-item").filter({ hasText: /^Revise Selection/ });
+      await expect(revise).toContainText(
+        process.platform === "darwin" ? "⌘+Shift+E" : "Ctrl+Shift+E",
+      );
+      await revise.click();
+    } else {
+      await section
+        .locator(".view-line")
+        .first()
+        .click({ button: "right", position: { x: 45, y: 4 } });
+      await expect(page.locator(".context-menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".context-menu")).toHaveCount(0);
+      await expect
+        .poll(() =>
+          section
+            .locator(".monaco-editor")
+            .evaluate((editor) => editor.contains(document.activeElement)),
+        )
+        .toBe(true);
+      await page.keyboard.press("ControlOrMeta+Shift+e");
+    }
+    const prompt = page.locator(".session-prompt-input");
+    await expect(prompt).toBeFocused();
+    await prompt.fill("Shorten the selected review comment to one line");
+    await prompt.press("Enter");
+    await expect
+      .poll(() => readFile(join(weavie.workspace, source), "utf8"))
+      .toBe('// revised by the fake\ngreet("review selection");\n');
+    await expect(section.locator(".view-lines")).toContainText("// revised by the fake");
+    expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(notesBefore);
+    await expect(page.locator(".weavie-revising-pill")).toHaveCount(0);
+  });
+}
 test.describe("pending review revision ownership", () => {
   let confirmation: PromiseWithResolvers<() => void>;
   let requested = false;
@@ -112,7 +130,7 @@ test.describe("pending review revision ownership", () => {
   }) => {
     await prepare(page);
     const origin = await activeSessionSlot(page);
-    await page.keyboard.press("ControlOrMeta+Alt+e");
+    await page.keyboard.press("ControlOrMeta+Shift+e");
     const prompt = page.locator(".session-prompt-input");
     await prompt.fill("Shorten the selected review comment");
     await prompt.press("Enter");

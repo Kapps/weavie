@@ -60,6 +60,11 @@ export function connectTextEditor(options: {
     editorContexts.changed(connection);
   };
   const subscriptions = [
+    editor.onContextMenu(({ event }) => {
+      event.preventDefault();
+      event.stopPropagation();
+      editorContexts.openMenu(connection, event.posx, event.posy);
+    }),
     editor.onDidFocusEditorText(() => {
       editorContexts.activate(connection);
       publish();

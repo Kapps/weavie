@@ -11,7 +11,7 @@ import {
 } from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { captureCommandRunner, dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { ClientSession } from "../messaging/host-connection";
 import { isDirtyPath } from "./dirty-store";
@@ -183,7 +183,12 @@ export function TabStrip(props: {
   };
   const openMenu = (event: MouseEvent, view: TabView): void => {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, entries: menuEntries(view) });
+    setMenu({
+      runCommand: captureCommandRunner(),
+      x: event.clientX,
+      y: event.clientY,
+      entries: menuEntries(view),
+    });
   };
 
   return (

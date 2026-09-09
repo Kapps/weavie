@@ -1,5 +1,5 @@
 import type * as monaco from "monaco-editor";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { createEditorContexts, type TextEditorConnection } from "./editor-context";
 
@@ -29,13 +29,38 @@ function binding(owner: ClientSession, kind: "file" | "review") {
 }
 
 describe("owned editor connections", () => {
+  it("routes a context-menu event through its source connection even when another editor is current", () => {
+    const contexts = createEditorContexts();
+    const owner = session();
+    const showMenu = vi.fn();
+    contexts.own(owner, () => "review", showMenu);
+    const current = binding(owner, "review");
+    const clicked = binding(owner, "review");
+    contexts.register(current.connection);
+    contexts.register(clicked.connection);
+    contexts.openMenu(clicked.connection, 40, 60);
+    expect(showMenu).toHaveBeenCalledWith(clicked.connection, 40, 60);
+    expect(contexts.get(owner)).toBe(current.connection);
+    clicked.lifetime.abort();
+    contexts.openMenu(clicked.connection, 40, 60);
+    expect(showMenu).toHaveBeenCalledTimes(1);
+  });
+
   it("selects presentation only within its exact session and never substitutes a hidden file editor", () => {
     const contexts = createEditorContexts();
     const a = session();
     const b = session();
     let kind: "file" | "review" = "file";
-    contexts.own(a, () => kind);
-    contexts.own(b, () => "file");
+    contexts.own(
+      a,
+      () => kind,
+      () => {},
+    );
+    contexts.own(
+      b,
+      () => "file",
+      () => {},
+    );
     const file = binding(a, "file");
     const review = binding(a, "review");
     const other = binding(b, "file");
@@ -53,7 +78,11 @@ describe("owned editor connections", () => {
   it("retires a captured connection when its shared Monaco widget changes models", () => {
     const contexts = createEditorContexts();
     const original = binding(session(), "file");
-    contexts.own(original.connection.session, () => "file");
+    contexts.own(
+      original.connection.session,
+      () => "file",
+      () => {},
+    );
     contexts.register(original.connection);
     const captured = contexts.get(original.connection.session)!;
     original.rebind();
@@ -65,7 +94,11 @@ describe("owned editor connections", () => {
     const lifetime = new AbortController();
     const owner = { signal: lifetime.signal } as ClientSession;
     const contexts = createEditorContexts();
-    contexts.own(owner, () => "review");
+    contexts.own(
+      owner,
+      () => "review",
+      () => {},
+    );
     const first = binding(owner, "review");
     const removeFirst = contexts.register(first.connection);
     const second = { ...first.connection, signal: new AbortController().signal };

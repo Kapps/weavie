@@ -18,12 +18,19 @@ export interface TextEditorConnection {
   restore(location: NavLocation): void;
 }
 
+export type TextEditorMenuHandler = (
+  connection: TextEditorConnection,
+  x: number,
+  y: number,
+) => void;
+
 /** Registrations belong to exact sessions and model bindings, never to the shared widget's next model. */
 export function createEditorContexts() {
   const owners = new WeakMap<
     ClientSession,
     {
       surface: () => "file" | "review";
+      openMenu: TextEditorMenuHandler;
       current: Map<"file" | "review", TextEditorConnection>;
     }
   >();
@@ -49,8 +56,19 @@ export function createEditorContexts() {
       const state = owners.get(connection.session);
       return state?.current.get(state.surface()) === connection;
     },
-    own(session: ClientSession, surface: () => "file" | "review"): () => void {
-      const state = { surface, current: new Map<"file" | "review", TextEditorConnection>() };
+    openMenu(connection: TextEditorConnection, x: number, y: number): void {
+      if (live(connection)) owner(connection.session).openMenu(connection, x, y);
+    },
+    own(
+      session: ClientSession,
+      surface: () => "file" | "review",
+      openMenu: TextEditorMenuHandler,
+    ): () => void {
+      const state = {
+        surface,
+        openMenu,
+        current: new Map<"file" | "review", TextEditorConnection>(),
+      };
       owners.set(session, state);
       return () => {
         if (owners.get(session) === state) owners.delete(session);

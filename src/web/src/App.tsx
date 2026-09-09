@@ -103,6 +103,7 @@ import { keyHint } from "./commands/key-hint";
 import { formatKey, installKeybindings } from "./commands/keybindings";
 import {
   applySessionActivation,
+  captureCommandRunner,
   dispatchCommand,
   dispatchCommandFromCatalog,
   getKeybindings,
@@ -118,7 +119,7 @@ import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
-import { registerEditorCommands } from "./editor/editor-command-bindings";
+import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
 import MediaPane from "./editor/media/MediaPane";
@@ -675,6 +676,7 @@ export default function App(): JSX.Element {
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
+    onEditorContextMenu: (connection, x, y) => editorCommands.openMenu(connection, x, y),
     onSaveError: (message) => addToast("error", message),
     onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
@@ -703,6 +705,7 @@ export default function App(): JSX.Element {
     promptScratchName,
     promptRevision,
   });
+  const editorCommands = createEditorCommands(editor, setContextMenu);
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
@@ -1172,6 +1175,7 @@ export default function App(): JSX.Element {
       { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
     );
     setContextMenu({
+      runCommand: captureCommandRunner(),
       x: event.clientX,
       y: event.clientY,
       ...(url !== undefined ? { header: url } : {}),
@@ -1255,37 +1259,7 @@ export default function App(): JSX.Element {
             }
           />
           <div class="editor-pane">
-            <div
-              class="editor"
-              role="application"
-              ref={editorContainer}
-              onContextMenu={(event) => {
-                // Only when a document is mounted — the empty-state pane has no selection to act on.
-                if (openTabs().length === 0) {
-                  return;
-                }
-                event.preventDefault();
-                const spelling = editor.spellingMenuAt(event.clientX, event.clientY);
-                setContextMenu({
-                  ...spelling,
-                  entries: [
-                    ...spelling.entries,
-                    { commandId: CommandIds.editorGoToDefinition },
-                    { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.editorGoToReferences },
-                    { commandId: CommandIds.editorRename },
-                    { kind: "separator" },
-                    { commandId: CommandIds.reviseSelection },
-                    { kind: "separator" },
-                    { commandId: CommandIds.editorCut },
-                    { commandId: CommandIds.editorCopy },
-                    { commandId: CommandIds.editorPaste },
-                    { kind: "separator" },
-                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                  ],
-                });
-              }}
-            />
+            <div class="editor" role="application" ref={editorContainer} />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
@@ -1727,7 +1701,7 @@ export default function App(): JSX.Element {
       ...reviewCommandBindings(editor, selectedSession).map(([id, handler]) =>
         registerCommand(id, handler),
       ),
-      registerEditorCommands(editor, setContextMenu),
+      editorCommands.register(),
       // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
       // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
       // through to the editor with <2 tabs.

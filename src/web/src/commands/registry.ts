@@ -217,12 +217,15 @@ interface CommandScope {
   handlers: Map<string, CommandCapture>;
 }
 
-function captureScope(session: ClientSession | null): CommandScope {
+function captureScope(
+  session: ClientSession | null,
+  overrides: ReadonlyMap<string, CommandHandler>,
+): CommandScope {
   const context = { session };
   const bound = new Map<string, CommandCapture>();
   for (const [id, capture] of handlers) {
     try {
-      const handler = capture(context);
+      const handler = overrides.get(id) ?? capture(context);
       bound.set(id, () => handler);
     } catch (error) {
       bound.set(id, () => () => {
@@ -233,15 +236,27 @@ function captureScope(session: ClientSession | null): CommandScope {
   return { session, handlers: bound };
 }
 
-/** Chrome captures its command connections before taking focus, and retains them until dismissal. */
-export function captureCommandRunner(): (id: string, args: unknown) => Promise<CommandResult> {
-  const backendId = getActiveCatalogBackendId();
-  const scope = captureScope(selectedSession());
+export type CommandRunner = (id: string, args: unknown) => Promise<CommandResult>;
+
+function capturedRunner(backendId: string, scope: CommandScope): CommandRunner {
   return async (id, args) => {
     const result = await dispatchFromCatalog(backendId, id, args, scope);
     reportCommandResult(result);
     return result;
   };
+}
+
+/** Chrome captures its command connections before taking focus, and retains them until dismissal. */
+export function captureCommandRunner(): CommandRunner {
+  return capturedRunner(getActiveCatalogBackendId(), captureScope(selectedSession(), new Map()));
+}
+
+/** An owned surface supplies captured operations without resolving the session's current command target. */
+export function captureCommandRunnerFor(
+  session: ClientSession,
+  overrides: ReadonlyMap<string, CommandHandler>,
+): CommandRunner {
+  return capturedRunner(session.connection.id, captureScope(session, overrides));
 }
 
 /** The current command catalog. */
@@ -512,7 +527,7 @@ export function dispatchCommand(id: string, args?: unknown): Promise<CommandResu
     getActiveCatalogBackendId(),
     id,
     args,
-    captureScope(selectedSession()),
+    captureScope(selectedSession(), new Map()),
   );
 }
 
@@ -522,7 +537,7 @@ export function dispatchCommandFromCatalog(
   id: string,
   args?: unknown,
 ): Promise<CommandResult> {
-  return dispatchFromCatalog(backendId, id, args, captureScope(selectedSession()));
+  return dispatchFromCatalog(backendId, id, args, captureScope(selectedSession(), new Map()));
 }
 
 /**
@@ -627,6 +642,6 @@ registerSessionFeature((session) =>
           error: `Command '${id}' is not owned by the local presentation client.`,
         });
       }
-      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args, captureScope(session));
+      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args, captureScope(session, new Map()));
     }),
 );

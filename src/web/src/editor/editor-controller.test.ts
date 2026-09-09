@@ -83,6 +83,7 @@ function dependencies(confirm: EditorControllerDeps["confirm"]): EditorControlle
     confirm,
     confirmDiscard: () => Promise.resolve(true),
     focusVisibleOverlay: () => false,
+    onEditorContextMenu: () => {},
     onCurrentFileChanged: () => {},
     onDestinationActivated: () => {},
     onOpenError: () => {},

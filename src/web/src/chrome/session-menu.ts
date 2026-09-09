@@ -1,3 +1,4 @@
+import type { CommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { ContextMenuEntry, ContextMenuState } from "./ContextMenu";
 import type { RailSession } from "./session-store";
@@ -8,8 +9,10 @@ export function sessionMenuAt(
   x: number,
   y: number,
   inRail: boolean,
+  runCommand: CommandRunner,
 ): ContextMenuState {
   return {
+    runCommand,
     x,
     y,
     header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,

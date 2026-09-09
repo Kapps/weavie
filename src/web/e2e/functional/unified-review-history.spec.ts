@@ -112,7 +112,7 @@ async function registerDefinition(
   );
 }
 
-for (const invocation of ["keyboard", "palette"] as const) {
+for (const invocation of ["keyboard", "palette", "context menu"] as const) {
   test(`${invocation} definition navigation restores the exact unified review departure with Back`, async ({
     page,
   }) => {
@@ -120,7 +120,16 @@ for (const invocation of ["keyboard", "palette"] as const) {
     await registerDefinition(page, sourceName, "hello.ts", false);
     const departure = await reviewState(page);
     if (invocation === "keyboard") await page.keyboard.press("F12");
-    else {
+    else if (invocation === "context menu") {
+      await page.locator(".unified-review .view-line", { hasText: "review departure" }).click({
+        button: "right",
+        position: { x: 40, y: 4 },
+      });
+      await page
+        .locator(".context-menu-item")
+        .filter({ hasText: /^Go to Definition/ })
+        .click();
+    } else {
       await page.keyboard.press("ControlOrMeta+Shift+p");
       await page.locator(".tb-omnibar-input").fill(">Go to Definition");
       await expect(

@@ -653,6 +653,21 @@ it("a captured palette Core command invokes its original session even after sele
   expect(env.invokedSessions).toEqual([owner]);
 });
 
+it("an explicit surface runner never recaptures an overridden command from the current target", async () => {
+  setCatalog("local", [cmd("web.owned-menu", "web")]);
+  const owner = env.selected!;
+  const recapture = vi.fn(() => {
+    throw new Error("must not resolve current editor");
+  });
+  reg.registerCapturedCommand("web.owned-menu", recapture);
+  const captured = vi.fn(async () => {});
+  const run = reg.captureCommandRunnerFor(owner, new Map([["web.owned-menu", captured]]));
+  env.selected = fakeSession("other", "other-incarnation");
+  expect(await run("web.owned-menu", { replacement: "word" })).toEqual({ ok: true });
+  expect(recapture).not.toHaveBeenCalled();
+  expect(captured).toHaveBeenCalledWith({ replacement: "word" }, { session: owner });
+});
+
 it("does not infer a different session from an explicit backend on a session command", async () => {
   setCatalog("local", [cmd("core.owned", "core")]);
   const result = await reg.dispatchCommand("core.owned", { backendId: "remote:r" });

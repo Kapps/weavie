@@ -1,20 +1,30 @@
 import type * as monaco from "monaco-editor";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
-import { captureEditorCommand } from "./editor-command-bindings";
+import { CommandIds } from "../commands/types";
+import {
+  captureConnectionCommand,
+  captureEditorCommand,
+  createEditorCommands,
+} from "./editor-command-bindings";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
+import type { EditorController } from "./editor-controller";
 
 const env = vi.hoisted(() => ({ selected: null as ClientSession | null }));
 vi.mock("../bridge", () => ({ selectedSession: () => env.selected }));
 vi.mock("../commands/registry", () => ({ registerCapturedCommand: vi.fn() }));
 
 function connection(session: ClientSession) {
-  const model = {} as monaco.editor.ITextModel;
+  const model = { uri: { scheme: "test-proposal" } } as monaco.editor.ITextModel;
   let currentModel = model;
+  const options = { readOnly: false };
   let selections = [
     { startLineNumber: 8, startColumn: 3, endLineNumber: 8, endColumn: 9 },
   ] as monaco.Selection[];
   const editor = {
+    getRawOptions: () => options,
+    focus: vi.fn(),
+    trigger: vi.fn(),
     getModel: () => currentModel,
     getSelections: () => selections,
     setSelections: vi.fn((value: monaco.Selection[]) => {
@@ -28,11 +38,16 @@ function connection(session: ClientSession) {
     editor,
     signal: new AbortController().signal,
   } as unknown as TextEditorConnection;
-  editorContexts.own(session, () => "review");
+  editorContexts.own(
+    session,
+    () => "review",
+    () => {},
+  );
   editorContexts.register(binding);
   return {
     binding,
     editor,
+    options,
     changeModel: () => {
       currentModel = {} as monaco.editor.ITextModel;
     },
@@ -41,6 +56,40 @@ function connection(session: ClientSession) {
 
 beforeEach(() => {
   env.selected = { signal: new AbortController().signal } as ClientSession;
+});
+
+it("editable proposals retain text mutations while Revise requires a working-copy file", () => {
+  const source = connection(env.selected!);
+  const commands = createEditorCommands({} as EditorController, vi.fn());
+  const captured = commands.capture(source.binding);
+  captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected });
+  expect(source.editor.trigger).toHaveBeenCalledWith(
+    "weavie-command",
+    "editor.action.clipboardPasteAction",
+    null,
+  );
+  expect(() =>
+    captured.get(CommandIds.reviseSelection)!(undefined, { session: env.selected }),
+  ).toThrow("Revise requires an editable file");
+  source.options.readOnly = true;
+  expect(() => captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected })).toThrow(
+    "read-only",
+  );
+  expect(source.editor.trigger).toHaveBeenCalledTimes(1);
+});
+
+it("explicit menu capture uses its clicked connection without resolving the current editor", () => {
+  const clicked = connection(env.selected!);
+  const current = connection(env.selected!);
+  editorContexts.activate(current.binding);
+  const run = captureConnectionCommand(clicked.binding);
+  const action = vi.fn();
+  run(action);
+  expect(action).toHaveBeenCalledWith(
+    clicked.binding,
+    expect.objectContaining({ startLineNumber: 8 }),
+  );
+  expect(current.editor.setSelections).not.toHaveBeenCalled();
 });
 
 it("keeps a captured review selection when another editor becomes the session's command context", () => {

@@ -11,14 +11,17 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
-import type { ContextMenuState } from "../chrome/ContextMenu";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
 // stays in the lazily loaded editor chunk rather than the first-paint entry chunk.
 import type { SymbolActions } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
-import { editorContexts, type TextEditorConnection } from "./editor-context";
+import {
+  editorContexts,
+  type TextEditorConnection,
+  type TextEditorMenuHandler,
+} from "./editor-context";
 import type { EditorHost, ReviewCopyScope } from "./editor-host";
 import { createEditorNavigation } from "./editor-navigation";
 import { createEditorSymbols, noEditorSymbols } from "./editor-symbols";
@@ -83,6 +86,8 @@ export interface EditorControllerDeps {
   onCurrentFileChanged: (path: string | null) => void;
   /** Reveal an accepted foreground editor destination in the app's active presentation. */
   onDestinationActivated: () => void;
+  /** Present a menu for the exact editor connection that received the context-menu event. */
+  onEditorContextMenu: TextEditorMenuHandler;
   /** Activate the editor pane and focus its visible overlay; false when Monaco is the visible surface. */
   focusVisibleOverlay: () => boolean;
   /** Confirm discarding unsaved scratch buffers about to be closed (`names`); the single close-path guard. */
@@ -198,9 +203,6 @@ export interface EditorController {
    * only when no editor is mounted, so the command declines rather than appearing to do nothing.
    */
   showBlameAtCursor(): boolean;
-  spellingMenuAt(x: number, y: number): ContextMenuState;
-  correctSpelling(args: unknown): ContextMenuState | null;
-  addSpellingWord(scope: "user" | "project", args: unknown): Promise<void>;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
   activeContent(): string;
   /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
@@ -1653,8 +1655,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const offSessionFeatures = registerSessionFeature((session) => {
-    const offContext = editorContexts.own(session, () =>
-      reviews.board(session).mode === "unified" ? "review" : "file",
+    const offContext = editorContexts.own(
+      session,
+      () => (reviews.board(session).mode === "unified" ? "review" : "file"),
+      deps.onEditorContextMenu,
     );
     editorSessions.add(session);
     const editor = session.feature("editor");
@@ -1932,10 +1936,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return true;
     },
     showBlameAtCursor: () => displayedText()?.blame.showAtCursor() ?? false,
-    spellingMenuAt: (x, y) => displayedText()?.spelling.menuAt(x, y) ?? { x, y, entries: [] },
-    correctSpelling: (args) => displayedText()?.spelling.correct(args) ?? null,
-    addSpellingWord: (scope, args) =>
-      displayedText()?.spelling.add(scope, args) ?? Promise.resolve(),
     activeContent,
     reviewActive,
     parkedReviewCount: reviews.count,

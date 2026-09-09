@@ -11,7 +11,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
-import { captureCommandRunner, findCommand } from "../commands/registry";
+import { type CommandRunner, findCommand } from "../commands/registry";
 import { nextIndex } from "../list-navigation";
 import { modalActive, onModalOpened } from "./modal-state";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
@@ -44,12 +44,16 @@ export interface ContextMenuSubmenu {
 export type ContextMenuEntry = ContextMenuItem | ContextMenuSeparator | ContextMenuSubmenu;
 
 // An open context menu: where to anchor it, an optional header (e.g. the target's name), and its entries.
-export interface ContextMenuState {
+export interface ContextMenuContent {
   x: number;
   y: number;
   header?: string;
   entries: ContextMenuEntry[];
   loadEntries?: (signal: AbortSignal) => Promise<ContextMenuEntry[]>;
+}
+
+export interface ContextMenuState extends ContextMenuContent {
+  runCommand: CommandRunner;
 }
 
 const labelOf = (item: ContextMenuItem): string =>
@@ -71,7 +75,7 @@ function MenuPanel(props: {
   y: number;
   header?: string | undefined;
   closeAll: () => void;
-  runCommand: ReturnType<typeof captureCommandRunner>;
+  runCommand: CommandRunner;
   // The opening row's rect, so a panel near the right edge flips to the parent's left instead of spilling.
   anchorRect?: DOMRect;
   // Focus the first row on mount (keyboard-opened submenu); a mouse-opened one leaves focus on the cursor.
@@ -202,8 +206,9 @@ function MenuPanel(props: {
   });
 
   const run = async (item: ContextMenuItem): Promise<void> => {
+    const runCommand = props.runCommand;
     props.closeAll();
-    await props.runCommand(item.commandId, item.args);
+    await runCommand(item.commandId, item.args);
   };
 
   return (
@@ -303,11 +308,9 @@ export function ContextMenu(props: {
   onClose: (reason: "dismiss" | "close") => void;
   dismissInside?: string;
 }): JSX.Element {
-  let runCommand = captureCommandRunner();
   const [entries, setEntries] = createSignal<ContextMenuEntry[]>([]);
   createEffect(() => {
     const menu = props.menu;
-    runCommand = captureCommandRunner();
     const pending = new AbortController();
     onCleanup(() => pending.abort());
     setEntries(menu.entries);
@@ -351,7 +354,7 @@ export function ContextMenu(props: {
   return (
     <Portal>
       <MenuPanel
-        runCommand={(id, args) => runCommand(id, args)}
+        runCommand={props.menu.runCommand}
         entries={entries()}
         x={props.menu.x}
         y={props.menu.y}

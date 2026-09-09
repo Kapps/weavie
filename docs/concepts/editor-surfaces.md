@@ -28,6 +28,10 @@ Editor commands retain the original model and selection. An expired binding or d
 that it is unavailable; it cannot substitute another editor. Durable requests already submitted to a
 session, such as revision work, remain addressed to that session after its view changes.
 
+Context menus originate from each connection's Monaco event. Menu state carries its captured command
+runner through dismissal and asynchronous spelling suggestions; rendering never resolves another editor.
+Revise's pending editor confirmation cancels when its selected view detaches.
+
 ## Navigation
 
 `editor-navigation.ts` owns per-session history and restoration lifetimes. A history location contains

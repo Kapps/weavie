@@ -16,10 +16,10 @@ import { CommandIds } from "../commands/types";
 import { scrollVirtualElement } from "../virtual-scroll";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
+import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
-import { TranscriptEntry } from "./AgentTranscriptEntry";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
@@ -101,12 +101,17 @@ export function AgentPaneBody(props: {
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
+  const layout = createAgentPaneLayout(props.model, () => body);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
-      return props.model.entries.length;
+      return layout.count();
     },
-    getItemKey: (index) =>
-      `${props.model.generation()}\0${props.model.entries[index]?.id ?? index}`,
+    get getItemKey() {
+      return layout.itemKey();
+    },
+    get rangeExtractor() {
+      return layout.rangeExtractor();
+    },
     getScrollElement: () => body ?? null,
     estimateSize: (index) => estimateEntrySize(props.model.entries[index]),
     anchorTo: "end",
@@ -136,6 +141,7 @@ export function AgentPaneBody(props: {
   );
   virtualizerChanged = scroll.onVirtualizerChange;
   virtualizerScroll = scroll.noteControllerScroll;
+  layout.observe(virtualizer, scroll);
 
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
@@ -194,9 +200,9 @@ export function AgentPaneBody(props: {
             agentTurnStartId={props.model.agentTurnStartId()}
             compact={props.compact}
             entries={props.model.entries}
+            entryForKey={layout.entryForKey}
             expandedDetails={expandedDetails()}
-            keyboardApprovalId={props.model.keyboardApprovalId()}
-            keyboardInputId={props.model.keyboardInputId()}
+            keyboardRequestKey={props.model.keyboardRequestKey()}
             onDetailsToggle={(entryId, open) => {
               props.model.setActivityExpanded(entryId, open);
               setExpandedDetails((current) => toggleMember(current, entryId, open));
@@ -204,7 +210,6 @@ export function AgentPaneBody(props: {
             providerName={props.providerName}
             sectionLabels={props.model.sectionLabels()}
             session={props.model.session}
-            showEmptyState={props.model.pinnedRequest() === null}
             virtualizer={virtualizer}
           />
         </div>
@@ -239,25 +244,6 @@ export function AgentPaneBody(props: {
           </Show>
         </div>
       </div>
-      <Show when={props.model.pinnedRequest()?.id} keyed>
-        {(_requestId) => (
-          <section
-            class="agent-pending-request"
-            data-agent-pending-request
-            aria-label="Waiting for your response"
-          >
-            <TranscriptEntry
-              expandedDetails={expandedDetails()}
-              entry={props.model.pinnedRequest()!}
-              keyboardApprovalId={props.model.keyboardApprovalId()}
-              keyboardInputId={props.model.keyboardInputId()}
-              onDetailsToggle={() => {}}
-              sectionLabel={null}
-              session={props.model.session}
-            />
-          </section>
-        )}
-      </Show>
       <AgentComposer
         active={props.active}
         compact={props.compact}

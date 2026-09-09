@@ -6,6 +6,7 @@ import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { paneActivityIdentity } from "./AgentPaneIdentity";
 import { projectAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { orderPendingRequests } from "./AgentPendingRequests";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
@@ -27,11 +28,11 @@ export interface AgentPaneModel {
   readonly history: Accessor<readonly string[]>;
   readonly interruptible: Accessor<boolean>;
   readonly keyboardApprovalId: Accessor<string | null>;
-  readonly keyboardInputId: Accessor<string | null>;
+  readonly keyboardRequestKey: Accessor<string | null>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
-  readonly pinnedRequest: Accessor<AgentTranscriptEntry | null>;
+  readonly pendingRowIndexes: Accessor<readonly number[]>;
   readonly revision: Accessor<number>;
   readonly sectionLabels: Accessor<ReadonlyMap<string, AgentSectionLabel>>;
   readonly session: ClientSession;
@@ -60,11 +61,11 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const [pendingRequestKind, setPendingRequestKind] = createSignal<PendingRequestKind | null>(null);
   const [keyboardApprovalId, setKeyboardApprovalId] = createSignal<string | null>(null);
-  const [keyboardInputId, setKeyboardInputId] = createSignal<string | null>(null);
+  const [keyboardRequestKey, setKeyboardRequestKey] = createSignal<string | null>(null);
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
-  const [pinnedRequest, setPinnedRequest] = createSignal<AgentTranscriptEntry | null>(null);
+  const [pendingRowIndexes, setPendingRowIndexes] = createSignal<readonly number[]>([]);
   const [agentTurnStartId, setAgentTurnStartId] = createSignal<string | null>(null);
   const [agentTurnStartIndex, setAgentTurnStartIndex] = createSignal<number | null>(null);
   const [sectionLabels, setSectionLabels] = createSignal<ReadonlyMap<string, AgentSectionLabel>>(
@@ -91,14 +92,9 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const canInterrupt = hasInterruptibleActivity(updates);
     const request = pendingRequest(updates);
     const approvalId = request?.kind === "approval" ? request.requestId : null;
-    const inputId = request?.kind === "input" ? request.requestId : null;
-    const pinned =
-      request === null
-        ? null
-        : (projection.entries.find((entry) => entry.id === request.key) ?? null);
-    const visible =
-      pinned === null ? projection.entries : projection.entries.filter((entry) => entry !== pinned);
-    const turnStartId = latestAgentTurnStartId(visible);
+    const turnStartId = latestAgentTurnStartId(projection.entries);
+    const ordered = orderPendingRequests(projection.entries);
+    const visible = ordered.entries;
     const turnStartIndex =
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
     const labels = computeSectionLabels(visible, active);
@@ -115,13 +111,11 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       setTurnStartedAt(activeTurnStartedAt(updates));
       setPendingRequestKind(request?.kind ?? null);
       setKeyboardApprovalId(approvalId);
-      setKeyboardInputId(inputId);
+      setKeyboardRequestKey(request?.key ?? null);
+      setPendingRowIndexes(ordered.pendingRowIndexes);
       setPendingLegacyImageCount(countPendingLegacyImages(updates));
       setHistory(submittedPrompts(updates));
       setLatestPlan(latestCompletedPlan(updates));
-      if (pinnedRequest()?.id !== pinned?.id) {
-        setPinnedRequest(pinned);
-      }
       setAgentTurnStartId(turnStartId);
       setAgentTurnStartIndex(turnStartIndex);
       setSectionLabels(labels);
@@ -191,11 +185,11 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     history,
     interruptible,
     keyboardApprovalId,
-    keyboardInputId,
+    keyboardRequestKey,
     latestPlan,
     pendingLegacyImageCount,
     pendingRequestKind,
-    pinnedRequest,
+    pendingRowIndexes,
     revision,
     sectionLabels,
     session,

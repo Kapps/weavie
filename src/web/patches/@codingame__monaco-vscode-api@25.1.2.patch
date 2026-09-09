@@ -1,0 +1,256 @@
+diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts
+index 521974461ba0061365dd63a2da0b2b78c3a23fef..c01ae6e0d999ff15a97a1addfd94f1549228ccb3 100644
+--- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts
++++ b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts
+@@ -9,6 +9,7 @@ import { MouseMiddleClickAction } from "../../../../common/config/editorOptions.
+  */
+ export declare class ClickLinkMouseEvent {
+     readonly target: IMouseTarget;
++    readonly hasPeekModifier: boolean;
+     readonly hasTriggerModifier: boolean;
+     readonly hasSideBySideModifier: boolean;
+     readonly isNoneOrSingleMouseDown: boolean;
+@@ -16,16 +17,17 @@ export declare class ClickLinkMouseEvent {
+     readonly isMiddleClick: boolean;
+     readonly isRightClick: boolean;
+     readonly mouseMiddleClickAction: MouseMiddleClickAction;
+-    constructor(source: IEditorMouseEvent, opts: ClickLinkOptions);
++    constructor(source: IEditorMouseEvent, opts: ClickLinkOptions, peekEnabled: boolean);
+ }
+ /**
+  * An event that encapsulates the various trigger modifiers logic needed for go to definition.
+  */
+ export declare class ClickLinkKeyboardEvent {
++    readonly keyCodeIsPeekKey: boolean;
+     readonly keyCodeIsTriggerKey: boolean;
+     readonly keyCodeIsSideBySideKey: boolean;
+     readonly hasTriggerModifier: boolean;
+-    constructor(source: IKeyboardEvent, opts: ClickLinkOptions);
++    constructor(source: IKeyboardEvent, opts: ClickLinkOptions, peekEnabled: boolean);
+ }
+ export type TriggerModifier = "ctrlKey" | "shiftKey" | "altKey" | "metaKey";
+ export declare class ClickLinkOptions {
+@@ -38,6 +40,7 @@ export declare class ClickLinkOptions {
+     equals(other: ClickLinkOptions): boolean;
+ }
+ export interface IClickLinkGestureOptions {
++    isPeekEnabled?: () => boolean;
+     /**
+      * Return 0 if the mouse event should not be considered.
+      */
+@@ -54,6 +57,8 @@ export declare class ClickLinkGesture extends Disposable {
+     private readonly _onCancel;
+     readonly onCancel: Event<void>;
+     private readonly _editor;
++    private readonly _isPeekEnabled;
++    private _selectionsBeforeClick;
+     private readonly _extractLineNumberFromMouseEvent;
+     private _opts;
+     private _lastMouseMoveEvent;
+diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js
+index 1ae48b72d801c120e6e6d938cb14ae8007bfdefa..ed29baeb31768935c6de90dfae23340fe7b2c49c 100644
+--- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js
++++ b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js
+@@ -1,4 +1,5 @@
+ 
++import { addDisposableListener } from '../../../../../base/browser/dom.js';
+ import { Emitter } from '../../../../../base/common/event.js';
+ import { KeyCode } from '../../../../../base/common/keyCodes.js';
+ import { Disposable } from '../../../../../base/common/lifecycle.js';
+@@ -9,27 +10,30 @@ function hasModifier(e, modifier) {
+     return !!e[modifier];
+ }
+ class ClickLinkMouseEvent {
+-    constructor(source, opts) {
++    constructor(source, opts, peekEnabled) {
+         this.target = source.target;
+         this.isLeftClick = source.event.leftButton;
+         this.isMiddleClick = source.event.middleButton;
+         this.isRightClick = source.event.rightButton;
+         this.mouseMiddleClickAction = opts.mouseMiddleClickAction;
+-        this.hasTriggerModifier = hasModifier(source.event, opts.triggerModifier);
++        this.hasPeekModifier = peekEnabled && source.event.altKey && !source.event.ctrlKey && !source.event.metaKey && !source.event.shiftKey;
++        this.hasTriggerModifier = this.hasPeekModifier || hasModifier(source.event, opts.triggerModifier);
+         if (this.isMiddleClick && opts.mouseMiddleClickAction === 'ctrlLeftClick') {
+             this.isMiddleClick = false;
+             this.isLeftClick = true;
+             this.hasTriggerModifier = true;
+         }
+-        this.hasSideBySideModifier = hasModifier(source.event, opts.triggerSideBySideModifier);
++        this.hasSideBySideModifier = !this.hasPeekModifier && hasModifier(source.event, opts.triggerSideBySideModifier);
+         this.isNoneOrSingleMouseDown = (source.event.detail <= 1);
+     }
+ }
+ class ClickLinkKeyboardEvent {
+-    constructor(source, opts) {
+-        this.keyCodeIsTriggerKey = (source.keyCode === opts.triggerKey);
++    constructor(source, opts, peekEnabled) {
++        this.keyCodeIsPeekKey = peekEnabled && source.keyCode === KeyCode.Alt;
++        const peekKey = this.keyCodeIsPeekKey && !source.ctrlKey && !source.metaKey && !source.shiftKey;
++        this.keyCodeIsTriggerKey = peekKey || (source.keyCode === opts.triggerKey);
+         this.keyCodeIsSideBySideKey = (source.keyCode === opts.triggerSideBySideKey);
+-        this.hasTriggerModifier = hasModifier(source, opts.triggerModifier);
++        this.hasTriggerModifier = (peekEnabled && source.altKey && !source.ctrlKey && !source.metaKey && !source.shiftKey) || hasModifier(source, opts.triggerModifier);
+     }
+ }
+ class ClickLinkOptions {
+@@ -70,6 +74,11 @@ class ClickLinkGesture extends Disposable {
+         this._onCancel = this._register(( new Emitter()));
+         this.onCancel = this._onCancel.event;
+         this._editor = editor;
++        this._isPeekEnabled = opts?.isPeekEnabled ?? (() => false);
++        this._selectionsBeforeClick = 1;
++        this._register(addDisposableListener(editor.getContainerDomNode(), 'mousedown', () => {
++            this._selectionsBeforeClick = editor.getSelections()?.length ?? 1;
++        }, true));
+         this._extractLineNumberFromMouseEvent = opts?.extractLineNumberFromMouseEvent ?? ((e) => e.target.position ? e.target.position.lineNumber : 0);
+         this._opts = createOptions(this._editor.getOption(EditorOption.multiCursorModifier), this._editor.getOption(EditorOption.mouseMiddleClickAction));
+         this._lastMouseMoveEvent = null;
+@@ -88,11 +97,11 @@ class ClickLinkGesture extends Disposable {
+                 this._onCancel.fire();
+             }
+         }));
+-        this._register(this._editor.onMouseMove((e) => this._onEditorMouseMove(( new ClickLinkMouseEvent(e, this._opts)))));
+-        this._register(this._editor.onMouseDown((e) => this._onEditorMouseDown(( new ClickLinkMouseEvent(e, this._opts)))));
+-        this._register(this._editor.onMouseUp((e) => this._onEditorMouseUp(( new ClickLinkMouseEvent(e, this._opts)))));
+-        this._register(this._editor.onKeyDown((e) => this._onEditorKeyDown(( new ClickLinkKeyboardEvent(e, this._opts)))));
+-        this._register(this._editor.onKeyUp((e) => this._onEditorKeyUp(( new ClickLinkKeyboardEvent(e, this._opts)))));
++        this._register(this._editor.onMouseMove((e) => this._onEditorMouseMove(( new ClickLinkMouseEvent(e, this._opts, this._isPeekEnabled() && (editor.getSelections()?.length ?? 1) === 1)))));
++        this._register(this._editor.onMouseDown((e) => this._onEditorMouseDown(( new ClickLinkMouseEvent(e, this._opts, this._isPeekEnabled() && this._selectionsBeforeClick === 1)))));
++        this._register(this._editor.onMouseUp((e) => this._onEditorMouseUp(( new ClickLinkMouseEvent(e, this._opts, this._isPeekEnabled() && this._selectionsBeforeClick === 1)))));
++        this._register(this._editor.onKeyDown((e) => this._onEditorKeyDown(( new ClickLinkKeyboardEvent(e, this._opts, this._isPeekEnabled() && (editor.getSelections()?.length ?? 1) === 1)))));
++        this._register(this._editor.onKeyUp((e) => this._onEditorKeyUp(( new ClickLinkKeyboardEvent(e, this._opts, this._isPeekEnabled())))));
+         this._register(this._editor.onMouseDrag(() => this._resetHandler()));
+         this._register(this._editor.onDidChangeCursorSelection((e) => this._onDidChangeCursorSelection(e)));
+         this._register(this._editor.onDidChangeModel((e) => this._resetHandler()));
+@@ -104,7 +113,8 @@ class ClickLinkGesture extends Disposable {
+         }));
+     }
+     _onDidChangeCursorSelection(e) {
+-        if (e.selection && e.selection.startColumn !== e.selection.endColumn) {
++        if ((e.selection && e.selection.startColumn !== e.selection.endColumn)
++            || (this._isPeekEnabled() && e.secondarySelections.some(selection => !selection.isEmpty()))) {
+             this._resetHandler();
+         }
+     }
+@@ -130,12 +140,12 @@ class ClickLinkGesture extends Disposable {
+             )) {
+             this._onMouseMoveOrRelevantKeyDown.fire([this._lastMouseMoveEvent, e]);
+         }
+-        else if (e.hasTriggerModifier) {
++        else if (e.hasTriggerModifier || this._isPeekEnabled()) {
+             this._onCancel.fire();
+         }
+     }
+     _onEditorKeyUp(e) {
+-        if (e.keyCodeIsTriggerKey) {
++        if (e.keyCodeIsTriggerKey || e.keyCodeIsPeekKey) {
+             this._onCancel.fire();
+         }
+     }
+diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.d.ts b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.d.ts
+index fd2b3735296cf88b20f500c7f86c6afc31ba9694..f59b16b42bf7afb1362d85cc250b39105b127e76 100644
+--- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.d.ts
++++ b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.d.ts
+@@ -11,6 +11,7 @@ export declare class GotoDefinitionAtPositionEditorContribution implements IEdit
+     static readonly ID = "editor.contrib.gotodefinitionatposition";
+     static readonly MAX_SOURCE_PREVIEW_LINES = 8;
+     private readonly editor;
++    private altClickPeekEnabled;
+     private readonly toUnhook;
+     private readonly toUnhookForKeyboard;
+     private readonly linkDecorations;
+@@ -18,6 +19,8 @@ export declare class GotoDefinitionAtPositionEditorContribution implements IEdit
+     private previousPromise;
+     constructor(editor: ICodeEditor, textModelResolverService: ITextModelService, languageService: ILanguageService, languageFeaturesService: ILanguageFeaturesService);
+     static get(editor: ICodeEditor): GotoDefinitionAtPositionEditorContribution | null;
++    /** Enables Alt+Click through the native definition hover and peek gesture. */
++    enableAltClickPeek(): void;
+     startFindDefinitionFromCursor(position: Position): Promise<void>;
+     private startFindDefinitionFromMouse;
+     private startFindDefinition;
+diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js
+index 185d634c5da7260d54e4a9912d3432707da5258d..be3e3f1d4de22300076c898663fa6be8eeb26f35 100644
+--- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js
++++ b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js
+@@ -37,15 +37,16 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+         this.currentWordAtPosition = null;
+         this.previousPromise = null;
+         this.editor = editor;
++        this.altClickPeekEnabled = false;
+         this.linkDecorations = this.editor.createDecorationsCollection();
+-        const linkGesture = ( new ClickLinkGesture(editor));
++        const linkGesture = ( new ClickLinkGesture(editor, { isPeekEnabled: () => this.altClickPeekEnabled }));
+         this.toUnhook.add(linkGesture);
+         this.toUnhook.add(linkGesture.onMouseMoveOrRelevantKeyDown(([mouseEvent, keyboardEvent]) => {
+             this.startFindDefinitionFromMouse(mouseEvent, keyboardEvent ?? undefined);
+         }));
+         this.toUnhook.add(linkGesture.onExecute((mouseEvent) => {
+             if (this.isEnabled(mouseEvent)) {
+-                this.gotoDefinition(mouseEvent.target.position, mouseEvent.hasSideBySideModifier)
++                this.gotoDefinition(mouseEvent.target.position, mouseEvent.hasSideBySideModifier, mouseEvent.hasPeekModifier)
+                     .catch((error) => {
+                     onUnexpectedError(error);
+                 })
+@@ -62,6 +63,9 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+     static get(editor) {
+         return editor.getContribution(GotoDefinitionAtPositionEditorContribution_1.ID);
+     }
++    enableAltClickPeek() {
++        this.altClickPeekEnabled = true;
++    }
+     async startFindDefinitionFromCursor(position) {
+         await this.startFindDefinition(position);
+         this.toUnhookForKeyboard.add(this.editor.onDidChangeCursorPosition(() => {
+@@ -118,6 +122,9 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+             onUnexpectedError(error);
+             return;
+         }
++        if (this.currentWordAtPosition !== word) {
++            return;
++        }
+         if (!results || !results.length || !state.validate(this.editor)) {
+             this.removeLinkDecorations();
+             return;
+@@ -140,7 +147,7 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+                 return;
+             }
+             return this.textModelResolverService.createModelReference(result.uri).then(ref => {
+-                if (!ref.object || !ref.object.textEditorModel) {
++                if (this.currentWordAtPosition !== word || !state.validate(this.editor) || !ref.object || !ref.object.textEditorModel) {
+                     ref.dispose();
+                     return;
+                 }
+@@ -208,6 +215,7 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+             && mouseEvent.isLeftClick
+             && mouseEvent.isNoneOrSingleMouseDown
+             && mouseEvent.target.type === MouseTargetType.CONTENT_TEXT
++            && (!mouseEvent.hasPeekModifier || this.editor.getModel().getWordAtPosition(mouseEvent.target.position) !== null)
+             && !(mouseEvent.target.detail.injectedText?.options instanceof ModelDecorationInjectedTextOptions)
+             && (mouseEvent.hasTriggerModifier || (withKey ? withKey.keyCodeIsTriggerKey : false))
+             && ( this.languageFeaturesService.definitionProvider.has(this.editor.getModel()));
+@@ -219,10 +227,10 @@ let GotoDefinitionAtPositionEditorContribution = class GotoDefinitionAtPositionE
+         }
+         return getDefinitionsAtPosition(this.languageFeaturesService.definitionProvider, model, position, false, token);
+     }
+-    async gotoDefinition(position, openToSide) {
++    async gotoDefinition(position, openToSide, openInPeek) {
+         this.editor.setPosition(position);
+         return this.editor.invokeWithinContext((accessor) => {
+-            const canPeek = !openToSide && this.editor.getOption(EditorOption.definitionLinkOpensInPeek) && !this.isInPeekEditor(accessor);
++            const canPeek = !openToSide && (openInPeek || this.editor.getOption(EditorOption.definitionLinkOpensInPeek)) && !this.isInPeekEditor(accessor);
+             const action = ( new DefinitionAction(
+                 { openToSide, openInPeek: canPeek, muteMessage: true },
+                 { title: { value: '', original: '' }, id: '', precondition: undefined }
+diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesWidget.js b/vscode/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesWidget.js
+index c06ad9c930cf3c81d363aaf6acb516957cc8ac1d..0d3f3f997c76cb4fca5cb557df6201ea8f80e533 100644
+--- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesWidget.js
++++ b/vscode/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesWidget.js
+@@ -273,6 +273,7 @@ let ReferenceWidget = class ReferenceWidget extends PeekViewWidget {
+         this._splitView = ( new SplitView(containerElement, { orientation: Orientation.HORIZONTAL }));
+         this._previewContainer = append(containerElement, $('div.preview.inline'));
+         const options = {
++            automaticLayout: false,
+             scrollBeyondLastLine: false,
+             scrollbar: {
+                 verticalScrollbarSize: 14,

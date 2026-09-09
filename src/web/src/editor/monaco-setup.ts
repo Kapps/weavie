@@ -4,6 +4,7 @@ import {
   StorageScope,
   StorageTarget,
 } from "@codingame/monaco-vscode-api/services";
+import { GotoDefinitionAtPositionEditorContribution } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition";
 import * as monaco from "monaco-editor";
 import { log } from "../bridge";
 import {
@@ -82,6 +83,13 @@ function buildEditor(
     ...toMonacoOptions(editorOptions),
     ...overrides,
   });
+  const definitions = editor.getContribution<GotoDefinitionAtPositionEditorContribution>(
+    GotoDefinitionAtPositionEditorContribution.ID,
+  );
+  if (definitions === null) {
+    throw new Error("Monaco definition contribution is not registered.");
+  }
+  definitions.enableAltClickPeek();
   applySuggestExpandDocs(editorOptions.suggestExpandDocs);
 
   // Apply live font changes (Monaco re-lays out on updateOptions); drop the subscription with the editor.

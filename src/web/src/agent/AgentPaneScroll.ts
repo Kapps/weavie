@@ -17,7 +17,7 @@ export function createAgentPaneScroll(
   wheel: { cancel: () => void; isActive: () => boolean },
 ) {
   let bottomCorrectionScheduled = false;
-  let contentHeight = virtualizer.getTotalSize();
+  let anchorAtBottom = initiallyFollowingLatest;
   let controllerScrolls: Array<{ top: number }> = [];
   let scrollScheduled = false;
   let viewportHeight = 0;
@@ -77,6 +77,7 @@ export function createAgentPaneScroll(
     }
     wheel.cancel();
     setFollowingLatest(followsLatest);
+    anchorAtBottom = followsLatest;
     action();
     noteControllerScroll(element.scrollTop);
     updateAgentTurnStartPosition();
@@ -147,21 +148,20 @@ export function createAgentPaneScroll(
       controllerScrolls.splice(assigned, 1);
     } else {
       controllerScrolls = [];
+      anchorAtBottom = false;
       setFollowingLatest(!wheel.isActive() && isNearBottom());
     }
     updateAgentTurnStartPosition();
   };
 
   const onVirtualizerChange = (sync: boolean): void => {
-    const nextHeight = virtualizer.getTotalSize();
-    const sizeChanged = nextHeight !== contentHeight;
-    contentHeight = nextHeight;
-    if (sizeChanged && followingLatest() && !sync && !bottomCorrectionScheduled) {
+    if (anchorAtBottom && followingLatest() && !sync && !bottomCorrectionScheduled) {
       bottomCorrectionScheduled = true;
       requestAnimationFrame(() => {
         bottomCorrectionScheduled = false;
         const element = body();
         if (
+          anchorAtBottom &&
           followingLatest() &&
           element !== undefined &&
           element.scrollHeight - element.clientHeight - element.scrollTop > 1
@@ -232,6 +232,7 @@ export function createAgentPaneScroll(
     onScroll,
     onWheelIntent: (): void => {
       controllerScrolls = [];
+      anchorAtBottom = false;
       setFollowingLatest(false);
     },
     onWheelSettled: (): void => {

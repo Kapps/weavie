@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 namespace Weavie.FakeAcp;
 
-internal sealed class FakeAcpAgent : IAcpAgent {
+internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
@@ -70,16 +70,16 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
 			"session/set_mode" => SetMode(parameters),
 			"session/set_config_option" => await SetConfigAsync(parameters, ct).ConfigureAwait(false),
-			"_session/steering" => Steer(parameters),
+			"_session/steering" => await SteerAsync(parameters, ct).ConfigureAwait(false),
 			_ => throw new AcpAdapterException(-32601, $"Unknown fake ACP method '{method}'.", null),
 		};
 
 	public Task HandleNotificationAsync(string method, JsonElement parameters, CancellationToken ct) {
 		if (method == "session/cancel") {
-			if (_cancelFails) throw new InvalidOperationException("Synthetic downstream interrupt failure.");
 			TaskCompletionSource<string>? held;
 			lock (_gate) held = _heldPrompt;
-			held?.TrySetResult("cancelled");
+			if (_cancelFails) held?.TrySetException(new AcpAdapterException(-32603, "Synthetic downstream interrupt failure.", null));
+			else held?.TrySetResult("cancelled");
 		}
 		return Task.CompletedTask;
 	}
@@ -118,7 +118,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 						["name"] = "Fake login",
 					})
 				: [],
-			["_meta"] = new JsonObject { ["steering"] = new JsonObject { ["supported"] = true } },
+			["_meta"] = new JsonObject { ["steering"] = new JsonObject { ["supported"] = _fakeMode != "no-steering" } },
 		};
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
@@ -352,11 +352,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}
 		if (text == "/hold-command") {
 			RequireIsolatedCommand(prompt, text);
-			return await HoldAsync(ct).ConfigureAwait(false);
+			return await HoldAsync(cancelAsError: false, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request") {
 			_cancelFails = text == "hold-cancel-error";
-			return await HoldAsync(ct).ConfigureAwait(false);
+			return await HoldAsync(cancelAsError: text == "hold-cancelled-request", ct).ConfigureAwait(false);
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
@@ -380,7 +380,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (text == "malformed-update") {
 			Connection().Notify("session/update", new JsonObject { ["sessionId"] = _sessionId });
 		} else if (text == "plan-document") PlanDocument("live-plan", "# Implementation plan");
-		else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");
+		else if (text == "full-plan") PlanDocument("live-plan", FullPlanMarkdown);
+		else if (text == "full-plan-revision") PlanDocument("live-plan", FullPlanMarkdown + "\n\n## Final revision\n\nPreserve the complete revised document.");
+		else if (text.StartsWith("permission-lifecycle:", StringComparison.Ordinal)) {
+			await PermissionLifecycleAsync(text["permission-lifecycle:".Length..], ct).ConfigureAwait(false);
+		} else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");
 		else if (text == "remove-plan") RemovePlan("live-plan");
 		else if (text == "item-plan-document") ItemPlanDocument();
 		else if (text == "file-plan-document") FilePlanDocument();
@@ -487,7 +491,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}
 	}
 
-	private async Task<JsonNode> HoldAsync(CancellationToken ct) {
+	private async Task<JsonNode> HoldAsync(bool cancelAsError, CancellationToken ct) {
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
@@ -512,6 +516,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["status"] = result == "cancelled" ? "failed" : "completed",
 		});
 		Message("steered: " + result);
+		if (result == "cancelled" && cancelAsError) {
+			throw new AcpAdapterException(-32800, "Request cancelled.", null);
+		}
 		return new JsonObject { ["stopReason"] = result == "cancelled" ? "cancelled" : "end_turn" };
 	}
 
@@ -540,9 +547,15 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return new JsonObject();
 	}
 
-	private JsonObject Steer(JsonElement parameters) {
+	private async Task<JsonObject> SteerAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
 		string text = PromptText(AcpJson.RequiredArray(parameters, "prompt", "_session/steering"));
+		if (text == "held-steering") {
+			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "steering-started"), string.Empty);
+			string release = Path.Combine(Environment.CurrentDirectory, "release-steering");
+			while (!File.Exists(release)) await Task.Delay(10, ct).ConfigureAwait(false);
+			return new JsonObject { ["outcome"] = "promptRequired" };
+		}
 		if (text.StartsWith("/compact", StringComparison.Ordinal)
 			|| text.StartsWith("/review", StringComparison.Ordinal)) {
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "command-steered"), text);

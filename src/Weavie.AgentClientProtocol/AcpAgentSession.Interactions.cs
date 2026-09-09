@@ -35,6 +35,7 @@ public sealed partial class AcpAgentSession {
 			pending.ThreadId,
 			pending.TurnId,
 			answers: null);
+		if (OptionalString(option, "kind") is "reject_once" or "reject_always") CompletePermissionTool(pending.Request);
 	}
 
 	/// <inheritdoc/>
@@ -221,6 +222,7 @@ public sealed partial class AcpAgentSession {
 		foreach (var entry in _pendingRequests) {
 			if (!_pendingRequests.TryRemove(entry.Key, out var pending)) continue;
 			cancelled = true;
+			CompletePermissionTool(pending.Request);
 			try {
 				if (pending.Kind == "permission") {
 					CompleteDeferredClientRequest(

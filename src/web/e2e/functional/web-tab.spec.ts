@@ -59,7 +59,7 @@ async function openUrl(page: import("@playwright/test").Page, url: string): Prom
 }
 
 function activeFrame(page: import("@playwright/test").Page) {
-  return page.frameLocator(".editor-web:not([hidden]) iframe");
+  return page.frameLocator(".editor-tab-content:not([hidden]) .editor-web iframe");
 }
 
 test("@cross Markdown preview links open externally without replacing the app", async ({
@@ -117,22 +117,35 @@ test("web tab retains its live page state across editor tabs until close", async
   await frame.getByRole("textbox", { name: "Approval note" }).fill("APPROVE CANARY");
 
   await openFile(page, "README.md");
+  const footer = page.locator(".editor-surface .pane-footer");
+  const cursor = footer.locator(".footer-seg", { hasText: /^Ln / });
+  await expect(cursor).toBeVisible();
+  await page.locator(".editor-preview-toggle").click();
+  await expect(cursor).toHaveCount(0);
+  await expect(footer.locator(".footer-recent-toggle")).toBeVisible();
+  await page.locator(".editor-preview-toggle").click();
+  await expect(cursor).toBeVisible();
   const retained = page.locator(".editor-web");
   await expect(retained).toBeHidden();
-  await expect(retained).toHaveAttribute("inert", "");
-  await expect(retained).not.toHaveAttribute("tabindex", "0");
+  const shell = page.locator(".editor-tab-content", { has: retained });
+  await expect(shell).toHaveAttribute("inert", "");
+  await retained.focus();
+  await expect(retained).not.toBeFocused();
   await expect(retained.locator("iframe")).toHaveCount(1);
 
   await page.locator(".editor-tab", { hasText: new URL(url).host }).click();
+  await expect(cursor).toHaveCount(0);
+  await expect(footer.locator(".footer-recent-toggle")).toBeVisible();
   await expect(frame.locator("#load-count")).toHaveText("Page loads: 1");
   await expect(frame.getByRole("textbox", { name: "Approval note" })).toHaveValue("APPROVE CANARY");
-  await expect(retained).not.toHaveAttribute("inert", "");
+  await expect(shell).not.toHaveAttribute("inert", "");
   await expect(retained).toHaveAttribute("tabindex", "0");
 
   await retained.focus();
   await expect(retained).toBeFocused();
   await page.keyboard.press("Control+Tab");
   await expect(page.locator(".editor-tab.active")).toHaveText(/README\.md/);
+  await expect(cursor).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
@@ -148,6 +161,10 @@ test("web tab retains its live page state across editor tabs until close", async
   await openUrl(page, url);
   await expect(activeFrame(page).locator("#load-count")).toHaveText("Page loads: 2");
   await expect(activeFrame(page).getByRole("textbox", { name: "Approval note" })).toHaveValue("");
+  await runCommand(page, "Close All Editors");
+  await expect(page.locator(".editor-empty")).toBeVisible();
+  await expect(cursor).toHaveCount(0);
+  await expect(footer.locator(".footer-recent-toggle")).toBeVisible();
 });
 
 test("same URL keeps isolated live state in two exact sessions", async ({ page }) => {

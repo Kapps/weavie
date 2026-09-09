@@ -278,13 +278,13 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public void ToggleReviewMode_IsBoundAndReviewGated() {
-		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewToggleMode);
+	public void OpenReview_IsBoundAndReviewGated() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewOpen);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
 		Assert.Equal("$mod+Shift+u", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("!terminalFocused", command.DefaultKeybindings[0].When);
-		Assert.Equal("reviewSetActive", command.When);
+		Assert.Equal("reviewAvailable", command.When);
 	}
 
 	[Fact]

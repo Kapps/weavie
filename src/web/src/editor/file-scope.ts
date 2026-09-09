@@ -1,6 +1,7 @@
 import { selectedFileIndex } from "../files/session-files";
 import { isOutsideWorkspace } from "./fs-path";
-import { activePath, isFileTab, openTabs } from "./session-store";
+import { activePath, openTabs } from "./session-store";
+import { isFileTab } from "./tab-entry";
 
 /**
  * Whether the file the user is currently looking at sits outside the checkout, which is what the editor footer

@@ -7,12 +7,10 @@ import type {
   EditorViewState,
   ReviewResume,
 } from "./session-types";
+import { isFileTab, matchesTab, tabKind, tabResourceKey } from "./tab-entry";
+import { TabOwner } from "./tab-owner";
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
-
-/** Whether the tab names a workspace file, rather than an overlay (web page, fetched source, plan). */
-export const isFileTab = (entry: EditorSessionEntry): boolean =>
-  entry.kind !== "web" && entry.kind !== "source" && entry.kind !== "plan";
 
 function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {
   const pinned = open.filter((entry) => entry.pinned);
@@ -22,7 +20,12 @@ function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {
 function structureKey(session: EditorSession): string {
   return JSON.stringify({
     active: session.active,
-    open: session.open.map((entry) => [entry.path, entry.preview === true, entry.pinned === true]),
+    open: session.open.map((entry) => [
+      entry.path,
+      tabKind(entry),
+      entry.preview === true,
+      entry.pinned === true,
+    ]),
   });
 }
 
@@ -38,8 +41,31 @@ class OwnedEditorSession {
   // its default (line 1) until the user scrolls it — including a *second*, redundant restore of the same tab
   // (e.g. session selection settling late after a reload) that lands after an explicit reveal already showed
   // it at a specific line. This closes that gap without round-tripping a synthetic viewState: superseded the
-  // moment a real one is captured (see restoreSession), never read once the tab is gone.
+  // moment a real one is captured (see activate), never read once the tab is gone.
   private readonly pendingLines = new Map<string, number>();
+  private readonly tabs = new Map<string, TabOwner>();
+
+  tab(path: string): TabOwner | undefined {
+    const entry = this.readState()?.open.find((entry) => matchesTab(entry, path));
+    return entry === undefined ? undefined : this.tabs.get(tabResourceKey(entry));
+  }
+
+  private reconcileTabs(next: EditorSession): void {
+    const live = new Set<string>();
+    for (const entry of next.open) {
+      const key = tabResourceKey(entry);
+      live.add(key);
+      const tab = this.tabs.get(key);
+      if (tab === undefined) this.tabs.set(key, new TabOwner(this.owner, entry));
+      else tab.entry = entry;
+    }
+    for (const [key, tab] of this.tabs) {
+      if (!live.has(key)) {
+        tab.dispose();
+        this.tabs.delete(key);
+      }
+    }
+  }
 
   constructor(private readonly owner: ClientSession) {
     this.feature = owner.feature("editor");
@@ -57,6 +83,7 @@ class OwnedEditorSession {
   restore(session: EditorSession): void {
     this.cancelPending();
     const next = { ...session, open: normalize(session.open) };
+    this.reconcileTabs(next);
     this.writeState(next);
     this.emitOpenEditors(next);
     this.notifyStructure();
@@ -70,7 +97,7 @@ class OwnedEditorSession {
       focus?: boolean;
       preview?: boolean;
       scratch?: boolean;
-      kind?: "web" | "source" | "plan";
+      kind?: "file" | "web" | "source" | "plan" | "review";
     },
   ): ActivateResult {
     const current = this.readState() ?? { active: null, open: [] };
@@ -84,8 +111,8 @@ class OwnedEditorSession {
     }
     const scratch = opts.scratch === true;
     const preview = !scratch && opts.preview === true;
-    const existing = current.open.find((entry) => samePath(entry.path, path));
-    if (existing !== undefined) {
+    const existing = current.open.find((entry) => matchesTab(entry, path));
+    if (existing !== undefined && tabKind(existing) === (opts.kind ?? "file")) {
       const open =
         existing.preview && !preview
           ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
@@ -99,43 +126,44 @@ class OwnedEditorSession {
       };
     }
 
-    let open: EditorSessionEntry[];
-    if (preview) {
-      const previewIndex = current.open.findIndex((entry) => entry.preview);
-      open =
-        previewIndex === -1
-          ? normalize([...current.open, { path, viewState: null, preview: true }])
-          : current.open.map((entry, index) =>
-              index === previewIndex ? { path, viewState: null, preview: true } : entry,
-            );
-    } else {
-      open = normalize([
-        ...current.open,
-        {
-          path,
-          viewState: null,
-          ...(scratch ? { scratch: true } : {}),
-          ...(opts.kind === undefined ? {} : { kind: opts.kind }),
-        },
-      ]);
-    }
+    const entry: EditorSessionEntry = {
+      path,
+      viewState: null,
+      ...(existing?.pinned ? { pinned: true } : {}),
+      ...(scratch ? { scratch: true } : {}),
+      ...(preview ? { preview: true } : {}),
+      ...(opts.kind === undefined ? {} : { kind: opts.kind }),
+    };
+    const previewIndex = preview ? current.open.findIndex((entry) => entry.preview) : -1;
+    const replaced = existing === undefined ? previewIndex : current.open.indexOf(existing);
+    const open =
+      replaced === -1
+        ? normalize([...current.open, entry])
+        : current.open.map((previous, index) => (index === replaced ? entry : previous));
     this.commit({ active: path, open });
     return { path, placement };
   }
 
   activate(path: string): ActivateResult | null {
     const current = this.readState();
-    const entry = current?.open.find((candidate) => samePath(candidate.path, path));
+    const entry = current?.open.find((candidate) => matchesTab(candidate, path));
     if (current === null || entry === undefined) {
       return null;
     }
     this.commit({ active: entry.path, open: current.open });
-    return { path: entry.path, placement: { viewState: entry.viewState ?? null } };
+    // A freshly opened tab has no captured viewState yet; fall back to the line an explicit reveal just asked
+    // for so a redundant activation (e.g. session selection settling late after a reload) can't regress it to
+    // the file's top. A real viewState — captured the moment the user actually leaves the tab — always wins.
+    const pendingLine = entry.viewState === null ? this.pendingLines.get(entry.path) : undefined;
+    return {
+      path: entry.path,
+      placement: pendingLine === undefined ? { viewState: entry.viewState ?? null } : { line: pendingLine },
+    };
   }
 
   close(path: string): CloseResult | null {
     const current = this.readState();
-    const target = current?.open.find((entry) => samePath(entry.path, path));
+    const target = current?.open.find((entry) => matchesTab(entry, path));
     if (current === null || target === undefined) {
       return null;
     }
@@ -149,7 +177,7 @@ class OwnedEditorSession {
 
   dropReview(path: string, fallback: string | null): void {
     const current = this.readState();
-    const target = current?.open.find((entry) => samePath(entry.path, path));
+    const target = current?.open.find((entry) => matchesTab(entry, path));
     if (current === null || target === undefined) {
       return;
     }
@@ -222,7 +250,7 @@ class OwnedEditorSession {
       return;
     }
     const open = current.open.map((entry) => {
-      if (!samePath(entry.path, path)) {
+      if (!matchesTab(entry, path)) {
         return entry;
       }
       return entry.pinned
@@ -239,7 +267,7 @@ class OwnedEditorSession {
     }
     let changed = false;
     const open = current.open.map((entry) => {
-      if (entry.preview && samePath(entry.path, path)) {
+      if (entry.preview && matchesTab(entry, path)) {
         changed = true;
         return { ...entry, preview: false };
       }
@@ -257,7 +285,7 @@ class OwnedEditorSession {
     }
     let changed = false;
     const open = current.open.map((entry) => {
-      if (samePath(entry.path, path)) {
+      if (matchesTab(entry, path)) {
         changed = true;
         return { ...entry, viewState };
       }
@@ -282,6 +310,8 @@ class OwnedEditorSession {
   closeState(): void {
     this.cancelPending();
     this.structureListeners.clear();
+    for (const tab of this.tabs.values()) tab.dispose();
+    this.tabs.clear();
   }
 
   subscribeStructure(listener: () => void): () => void {
@@ -298,6 +328,7 @@ class OwnedEditorSession {
   private commit(next: EditorSession): void {
     next = { review: this.readState()?.review ?? null, ...next };
     const structureChanged = structureKey(next) !== this.lastStructure;
+    this.reconcileTabs(next);
     this.writeState(next);
     this.cancelPending();
     this.postTimer = setTimeout(() => {
@@ -474,7 +505,7 @@ export function openTab(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "web" | "source" | "plan";
+    kind?: "file" | "web" | "source" | "plan" | "review";
   } = {},
 ): ActivateResult {
   return (
@@ -494,7 +525,7 @@ export function openTabFor(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "web" | "source" | "plan";
+    kind?: "file" | "web" | "source" | "plan" | "review";
   } = {},
 ): ActivateResult {
   return (
@@ -550,3 +581,11 @@ export const captureViewStateFor = (
   path: string,
   viewState: EditorViewState | null,
 ): void => stateFor(owner)?.captureViewState(path, viewState);
+
+export const tabOwnerFor = (session: ClientSession, path: string): TabOwner | undefined =>
+  stateFor(session)?.tab(path);
+
+export const activeTabFor = (session: ClientSession): TabOwner | undefined => {
+  const path = activePathFor(session);
+  return path === null ? undefined : tabOwnerFor(session, path);
+};

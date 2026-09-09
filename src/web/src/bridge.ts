@@ -455,15 +455,11 @@ function selectedForBackend(backendId: string): ClientSession | undefined {
   return active?.connection.id === backendId ? active : undefined;
 }
 
-export async function invokeCommandOnBackend(
-  backendId: string,
+export async function invokeCommandInSession(
+  source: ClientSession,
   id: string,
   args: unknown,
 ): Promise<CommandResult> {
-  const source = selectedForBackend(backendId);
-  if (source === undefined) {
-    return { ok: false, error: "No live session is available." };
-  }
   try {
     return await source.feature("commands").request<
       CommandResult,

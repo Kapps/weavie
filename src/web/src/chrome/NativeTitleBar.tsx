@@ -14,7 +14,7 @@ export function NativeTitleBar(props: {
   workspaceLabel: string;
   onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
-  symbols: SymbolActions;
+  symbols: () => SymbolActions;
 }): JSX.Element {
   return (
     <div class="native-titlebar">

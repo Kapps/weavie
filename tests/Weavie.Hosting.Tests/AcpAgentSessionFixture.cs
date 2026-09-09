@@ -100,6 +100,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithoutSteeringAdapter() => Create(
+		"fake",
+		"Non-steering ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "no-steering",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateImmediatelyMalformedAdapter() => Create(
 		"fake",
 		"Malformed ACP",

@@ -3,10 +3,31 @@
   inset: 0;
   z-index: 12;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
+}
+
+.unified-review-controls {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  padding: 0.5em 1em;
+}
+
+.unified-review-controls:empty {
+  display: none;
+}
+
+.unified-review-controls > .weavie-inline-toolbar {
+  position: relative;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
+  bottom: auto;
+  left: auto;
+  transform: none;
 }
 
 .unified-review:focus-visible {
@@ -209,6 +230,7 @@
   height: 100%;
   min-width: 0;
   overflow: auto;
+  overflow-anchor: none;
   width: 100%;
   max-width: 100rem;
   margin: 0 auto;
@@ -300,6 +322,13 @@
 
 /* Sized by its editor to the exact content height (review-editor.ts); the list does the scrolling. */
 .unified-review-editor {
+  position: relative;
+  width: 100%;
+}
+
+.unified-review-editor-viewport {
+  position: absolute;
+  left: 0;
   width: 100%;
 }
 

@@ -363,11 +363,11 @@ public sealed partial class AcpAgentSession :
 
 	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) {
 		var result = new List<TerminalizedTool>();
-		foreach (string id in _activeTools.ToArray()) {
-			var tool = _tools[id];
+		foreach (var tool in _tools.Values.Where(tool => _activeTools.Contains(tool.Id) || !tool.CompletedObserved)) {
 			tool.Status = status;
+			tool.LocallyTerminalized = true;
 			var completions = PendingMutationCompletions(tool);
-			_activeTools.Remove(id);
+			_activeTools.Remove(tool.Id);
 			result.Add(new TerminalizedTool(tool, completions));
 		}
 		return [.. result];
@@ -406,7 +406,7 @@ public sealed partial class AcpAgentSession :
 
 	private void PublishTerminalizedToolMessages(IEnumerable<TerminalizedTool> tools) {
 		foreach (var terminalized in tools) {
-			PublishTool(terminalized.Tool);
+			if (terminalized.Tool.NotificationReported) PublishTool(terminalized.Tool);
 		}
 	}
 
@@ -497,26 +497,6 @@ public sealed partial class AcpAgentSession :
 	private sealed record TerminalizedTool(
 		AcpToolState Tool,
 		IReadOnlyList<AgentMutation> CompletionMutations);
-
-	private sealed class AcpToolState {
-		public required string Id { get; init; }
-		public required string TurnId { get; init; }
-		public string? Title { get; set; }
-		public string? Kind { get; set; }
-		public string? Status { get; set; }
-		public string? Text { get; set; }
-		public IReadOnlyList<AgentPaneLocation>? Locations { get; set; }
-		public IReadOnlyList<AgentPaneDiff>? Diffs { get; set; }
-		public IReadOnlyList<AgentPaneContent>? Content { get; set; }
-		public string? TerminalId { get; set; }
-		public long? StartedAtMs { get; set; }
-		public bool MutationMetadataDisclosed { get; set; }
-		public List<AgentMutation> ObservedMutations { get; } = [];
-		public HashSet<string> ObservedMutationKeys { get; } = new(StringComparer.Ordinal);
-		public int CompletedMutationCount { get; set; }
-		public bool StartedObserved => ObservedMutations.Count > 0;
-		public bool CompletedObserved => CompletedMutationCount == ObservedMutations.Count;
-	}
 
 	private sealed class AcpContentState {
 		public required string Id { get; init; }

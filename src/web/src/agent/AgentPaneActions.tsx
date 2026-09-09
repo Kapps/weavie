@@ -89,6 +89,7 @@ export function ApprovalActions(props: {
 export function AuthenticationActions(props: {
   session: ClientSession;
   message: AgentPaneUpdate;
+  answersToKeys: boolean;
 }): JSX.Element {
   const authenticate = (methodId: string): boolean => {
     const requestId = props.message.requestId;
@@ -99,7 +100,7 @@ export function AuthenticationActions(props: {
   };
   createEffect(() => {
     const first = props.message.actions?.[0];
-    if (first === undefined) {
+    if (!props.answersToKeys || first === undefined) {
       return;
     }
     const off = registerCommand(CommandIds.agentAuthenticate, () => authenticate(first.id));
@@ -113,7 +114,9 @@ export function AuthenticationActions(props: {
           <button
             type="button"
             title={
-              action.id === firstId() && liveKeyLabel(CommandIds.agentAuthenticate) !== ""
+              props.answersToKeys &&
+              action.id === firstId() &&
+              liveKeyLabel(CommandIds.agentAuthenticate) !== ""
                 ? `${action.label} (${liveKeyLabel(CommandIds.agentAuthenticate)})`
                 : action.label
             }

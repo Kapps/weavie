@@ -1,11 +1,11 @@
-import { Check, ChevronDown, ChevronUp, RotateCcw } from "lucide-solid";
+import { Check, RotateCcw } from "lucide-solid";
 import type { JSX } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { ReviewOverview } from "./review-store";
 
-/** The overview's own toolbar: where the walk is, how to step it, and the two set-wide review actions. */
+/** Review-wide actions and heading. */
 export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): JSX.Element {
   return (
     <header class="unified-review-header">
@@ -25,25 +25,9 @@ export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): 
         </button>
         <button
           type="button"
-          class="unified-review-action"
-          title={`Previous change${keyHint(CommandIds.prevChange)}`}
-          onClick={() => void runCommandWithFeedback(CommandIds.prevChange)}
-        >
-          <ChevronUp size="1em" /> Prev
-        </button>
-        <button
-          type="button"
-          class="unified-review-action"
-          title={`Next change${keyHint(CommandIds.nextChange)}`}
-          onClick={() => void runCommandWithFeedback(CommandIds.nextChange)}
-        >
-          <ChevronDown size="1em" /> Next
-        </button>
-        <button
-          type="button"
           class="unified-review-action keep"
           disabled={!props.overview().fullyLoaded()}
-          title={`Keep all changes${keyHint(CommandIds.keepAll)}`}
+          title={`Keep all changes and close diff${keyHint(CommandIds.keepAll)}`}
           onClick={() => void runCommandWithFeedback(CommandIds.keepAll)}
         >
           <Check size="1em" /> Keep all

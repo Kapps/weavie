@@ -1,7 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import type { EditorControllerDeps } from "./editor-controller";
-import type { EditorHost, ReviewCopyScope } from "./editor-host";
 
 const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
@@ -25,9 +24,8 @@ vi.mock("../bridge", () => ({
 
 vi.stubGlobal("location", { search: "" });
 vi.stubGlobal("window", {});
-const { createDeferredReviewCopyScope, createEditorController } = await import(
-  "./editor-controller"
-);
+const { activePathFor, openTabsFor } = await import("./session-store");
+const { createEditorController } = await import("./editor-controller");
 
 interface FakeFeature {
   handlers: Map<string, Array<(message: unknown) => void>>;
@@ -69,6 +67,7 @@ function fakeSession(slot: string): ClientSession {
     return current;
   };
   return {
+    signal: new AbortController().signal,
     address: { slot, incarnation: "1" },
     connection: { id: "local", isLocal: true, reportError: () => {} },
     feature,
@@ -82,7 +81,7 @@ function dependencies(confirm: EditorControllerDeps["confirm"]): EditorControlle
   return {
     confirm,
     confirmDiscard: () => Promise.resolve(true),
-    focusVisibleOverlay: () => false,
+    onEditorContextMenu: () => {},
     onCurrentFileChanged: () => {},
     onDestinationActivated: () => {},
     onOpenError: () => {},
@@ -164,30 +163,7 @@ it("keeps a deleted ref entry until the authoritative review change list removes
   expect(controller.review.overview().files).toHaveLength(0);
 });
 
-it("upgrades an early unified-review scope when the editor host becomes ready", async () => {
-  let resolveHost!: (host: Pick<EditorHost, "createReviewCopyScope">) => void;
-  const hostReady = new Promise<Pick<EditorHost, "createReviewCopyScope">>((resolve) => {
-    resolveHost = resolve;
-  });
-  const realScope: ReviewCopyScope = {
-    open: async () => ({ model: {} as never, editable: true }),
-    dispose: vi.fn(),
-  };
-  const open = vi.spyOn(realScope, "open");
-  const deferred = createDeferredReviewCopyScope(hostReady);
-  const session = fakeSession("early-review");
-
-  const opening = deferred.open(session, "/work/review.ts", "current", true);
-  expect(open).not.toHaveBeenCalled();
-  resolveHost({ createReviewCopyScope: () => realScope });
-
-  await expect(opening).resolves.toMatchObject({ editable: true });
-  expect(open).toHaveBeenCalledWith(session, "/work/review.ts", "current", true);
-  deferred.dispose();
-  expect(realScope.dispose).toHaveBeenCalledOnce();
-});
-
-it("holds unified review through the agent's reveals and hands it back after a proposal", () => {
+it("opens unified review explicitly as a tab while files and proposals use normal file tabs", () => {
   const session = fakeSession("held-review");
   env.selected = session;
   const controller = createEditorController(dependencies(() => Promise.resolve(true)));
@@ -205,14 +181,16 @@ it("holds unified review through the agent's reveals and hands it back after a p
     currentExists: true,
   };
   review.emit("changes", { label: "turn", files: [file] });
-  expect(controller.review.toggleMode(session)).toBe(true);
-  expect(controller.review.mode()).toBe("unified");
+  expect(openTabsFor(session)).toHaveLength(0);
+  expect(controller.openReview(session, undefined, undefined)).toBe(true);
+  expect(activePathFor(session)).toBe("weavie:review");
 
-  // The agent revealing a file lands behind the overview.
+  // File reveals activate their own tab and retain Review in the strip.
   editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "reveal" });
-  expect(controller.review.mode()).toBe("unified");
+  expect(activePathFor(session)).toBe("/work/other.ts");
+  expect(openTabsFor(session).some((tab) => tab.kind === "review")).toBe(true);
 
-  // A proposal is a gate, so it takes the pane — and gives it back when it closes.
+  // Rejecting a temporary proposal tab returns to the prior normal tab.
   editor.emit("showDiff", {
     id: "diff-1",
     path: "/work/held.ts",
@@ -220,11 +198,12 @@ it("holds unified review through the agent's reveals and hands it back after a p
     original: "before",
     proposed: "after",
   });
-  expect(controller.review.mode()).toBe("file");
+  expect(activePathFor(session)).toBe("/work/held.ts");
   editor.emit("closeDiff", { id: "diff-1" });
-  expect(controller.review.mode()).toBe("unified");
+  expect(activePathFor(session)).toBe("/work/other.ts");
+  expect(openTabsFor(session).some((tab) => tab.kind === "review")).toBe(true);
 
-  // The user navigating somewhere does leave it.
+  // Explicit navigation follows the same selection path.
   editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "navigation" });
-  expect(controller.review.mode()).toBe("file");
+  expect(activePathFor(session)).toBe("/work/other.ts");
 });

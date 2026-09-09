@@ -2,7 +2,12 @@ import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { ClientSession } from "../../bridge";
 import type { ReviewResume } from "../session-types";
-import { createReviewStore, type ReviewFile, type ReviewFileDiff } from "./review-store";
+import {
+  canCloseReview,
+  createReviewStore,
+  type ReviewFile,
+  type ReviewFileDiff,
+} from "./review-store";
 
 const firstFile: ReviewFile = {
   path: "/work/src/first.ts",
@@ -42,6 +47,25 @@ function session(): ClientSession {
 }
 
 describe("review store", () => {
+  it("persists an empty authoritative board while another session is selected", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      store.setFiles(client, [firstFile], "PR #1");
+      store.setFileCollapsed(client, firstFile.path, true);
+      store.select(session());
+      store.setFiles(client, [], "PR #1");
+      expect(canCloseReview(store.board(client))).toBe(true);
+      store.setFiles(client, [], "");
+      expect(canCloseReview(store.board(client))).toBe(false);
+      expect(saved.at(-1)).toEqual({ files: {} });
+      store.select(client);
+      expect(store.count()).toBe(0);
+      dispose();
+    });
+  });
+
   it("resumes presentation from compact metadata, unfolding only when the file changes", () => {
     createRoot((dispose) => {
       const saved: ReviewResume[] = [];
@@ -54,7 +78,6 @@ describe("review store", () => {
       store.setFiles(client, [firstFile], "PR #1");
       store.setDiff(client, content);
       store.setFileCollapsed(client, firstFile.path, true);
-      store.enterUnified(client, { path: firstFile.path, line: 12 });
       const resume = saved.at(-1)!;
       expect(JSON.stringify(resume)).not.toContain("private source");
 
@@ -63,8 +86,6 @@ describe("review store", () => {
       restored.restore(freshClient, resume);
       restored.setFiles(freshClient, [firstFile], "PR #1");
       restored.setDiff(freshClient, content);
-      expect(restored.board(freshClient).mode).toBe("unified");
-      expect(restored.board(freshClient).cursor).toEqual(resume.cursor);
       expect(restored.board(freshClient).files[0]!.collapsed()).toBe(true);
       restored.setDiff(freshClient, {
         ...content,
@@ -229,7 +250,7 @@ describe("review store", () => {
     });
   });
 
-  it("isolates mode, cursor, files, and counts by session", () => {
+  it("isolates files, claims, and counts by session", () => {
     createRoot((dispose) => {
       const store = createReviewStore(() => {});
       const left = session();
@@ -239,43 +260,32 @@ describe("review store", () => {
       store.setDiff(left, diff(firstFile));
       store.setDiff(right, diff(secondFile));
       store.setFileCollapsed(left, firstFile.path, true);
-      store.enterUnified(left, { path: firstFile.path, line: 12 });
-      store.enterUnified(right, { path: secondFile.path, line: 19 });
 
       store.select(left);
-      expect(store.mode()).toBe("unified");
       expect(store.count()).toBe(1);
       expect(store.overview().label).toBe("left");
-      expect(store.overview().cursor).toEqual({ path: firstFile.path, line: 12 });
       expect(store.overview().files[0]?.collapsed()).toBe(true);
 
       store.select(right);
-      expect(store.mode()).toBe("unified");
       expect(store.overview().files.map((file) => file.summary().path)).toEqual([secondFile.path]);
-      expect(store.overview().cursor).toEqual({ path: secondFile.path, line: 19 });
       expect(store.overview().files[0]?.collapsed()).toBe(false);
 
       store.select(left);
-      expect(store.board(left).cursor).toEqual({ path: firstFile.path, line: 12 });
       expect(store.overview().files[0]?.summary().path).toBe(firstFile.path);
       expect(store.overview().files[0]?.collapsed()).toBe(true);
       dispose();
     });
   });
 
-  it("repairs the cursor when a file disappears and resets the selected projection", () => {
+  it("removes a disappeared file and resets the selected projection", () => {
     createRoot((dispose) => {
       const store = createReviewStore(() => {});
       const client = session();
       store.setFiles(client, [firstFile, secondFile], "turn");
-      store.enterUnified(client, { path: firstFile.path, line: 12 });
       store.setFiles(client, [secondFile], "turn");
-
-      expect(store.board(client).cursor).toEqual({ path: secondFile.path, line: secondFile.line });
 
       store.select(client);
       store.reset(client);
-      expect(store.mode()).toBe("file");
       expect(store.count()).toBe(0);
       expect(store.overview().files).toEqual([]);
       dispose();

@@ -448,6 +448,7 @@ public sealed class CorrectionRecorderTests {
 	public void UndoKeep_RestoresCorrectionProvenance() {
 		Boundary("p1");
 		AgentEdit("app.cs", "agent\n");
+		AgentEdit("other.cs", "still pending\n");
 		_tracker.KeepFile(Abs("app.cs"));
 		Assert.True(_tracker.UndoLastKeep().Acted);
 
@@ -502,7 +503,7 @@ public sealed class CorrectionRecorderTests {
 		AgentEdit("app.cs", "agent line\n");
 		HandEdit("app.cs", "user line\n"); // recorded here, not deferred to a boundary
 
-		_tracker.AcceptTurn();
+		_tracker.CloseReview();
 
 		Assert.Equal(1, _corpus.Count);
 	}

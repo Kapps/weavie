@@ -1,37 +1,32 @@
 import { ChevronDown, ChevronRight } from "lucide-solid";
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Accessor, createEffect, For, type JSX, Show } from "solid-js";
+import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
-import { createReviewEditor, estimatedEditorHeight, type ReviewEditor } from "./review-editor";
+import type { InlineDiff, ReviewScopeState } from "../inline-diff";
+import type { TabOwner } from "../tab-owner";
+import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
-import type { ReviewSection, ReviewSectionRegistry } from "./review-walk";
-
-/** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
-function hasChanges(diff: ReviewFileDiff): boolean {
-  return (
-    diff.baseline !== diff.current ||
-    diff.baselineExists !== diff.currentExists ||
-    diff.acceptedBaseline !== diff.baseline ||
-    diff.acceptedBaselineExists !== diff.baselineExists
-  );
-}
+import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
+  session: ClientSession;
+  tab: TabOwner;
+  scope: ReviewScopeState;
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
+  scroller: () => HTMLElement;
+  editorHeight: () => number;
+  onEditorHeight: (height: number) => void;
   index: number;
   measure: (element: HTMLElement) => void;
-  onFocus: () => void;
+  onFocus: (line: number) => void;
+  active: () => boolean;
+  toolbarHost: () => HTMLElement | null;
+  configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
+  onReveal: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
   style: string;
@@ -42,6 +37,7 @@ export function ReviewFileSection(props: {
   const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
+  let header!: HTMLElement;
   const remeasure = (): void => {
     if (article !== undefined) {
       props.measure(article);
@@ -61,10 +57,12 @@ export function ReviewFileSection(props: {
         article = element;
         props.measure(element);
       }}
-      onFocusIn={props.onFocus}
+      onFocusIn={() => {
+        if (!props.active()) props.onFocus(summary().line);
+      }}
       style={props.style}
     >
-      <header class="unified-review-file-header">
+      <header class="unified-review-file-header" ref={header}>
         <button
           type="button"
           class="unified-review-file-toggle"
@@ -131,10 +129,23 @@ export function ReviewFileSection(props: {
       <Show when={!collapsed()}>
         <div id={bodyId()}>
           <ReviewFileBody
+            session={props.session}
+            tab={props.tab}
+            position={props.style}
+            header={() => header}
+            scroller={props.scroller}
+            editorHeight={props.editorHeight}
+            onEditorHeight={props.onEditorHeight}
+            scope={props.scope}
             file={props.file}
             measure={remeasure}
             openCopy={props.openCopy}
             register={props.register}
+            active={props.active}
+            toolbarHost={props.toolbarHost}
+            configureDiff={props.configureDiff}
+            onReveal={props.onReveal}
+            onCursor={props.onFocus}
           />
           <For each={props.file().diff()?.rejected}>
             {(rejected) => (
@@ -150,143 +161,6 @@ export function ReviewFileSection(props: {
         </div>
       </Show>
     </article>
-  );
-}
-
-function ReviewFileBody(props: {
-  file: Accessor<ReviewFileView>;
-  measure: () => void;
-  openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
-  register: ReviewSectionRegistry;
-}): JSX.Element {
-  const summary = () => props.file().summary();
-  const diff = () => props.file().diff();
-  const [diffNotice, setDiffNotice] = createSignal("");
-  const [openError, setOpenError] = createSignal("");
-
-  let mount: HTMLDivElement | undefined;
-  let live: ReviewEditor | undefined;
-  let liveExists: boolean | undefined;
-  let resolution = 0;
-  let dropped = false;
-
-  // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
-  // of the virtualized <Show> during teardown would be a stale read.
-  const path = summary().path;
-  // One handle for the body's whole life, answering from whatever editor is live right now. Published on every
-  // paint too, so a walk that arrived before the geometry existed can settle the moment it does.
-  const section: ReviewSection = {
-    element: () => mount,
-    painted: () => live?.painted() ?? false,
-    changeLines: () => live?.changeLines() ?? [],
-    topForLine: (line) => live?.topForLine(line) ?? 0,
-  };
-  const publish = (): void => props.register.set(path, section);
-  // A file whose diff has landed and holds nothing to show — including one kept all the way through, whose
-  // diff is null precisely because it is done.
-  const nothingLeft = (): boolean => {
-    const value = diff();
-    return props.file().loaded() && (value === null || !hasChanges(value));
-  };
-
-  createEffect(() => {
-    const value = diff();
-    if (value === null || !hasChanges(value)) {
-      resolution += 1;
-      if (live !== undefined) {
-        live.dispose();
-        live = undefined;
-        liveExists = undefined;
-        publish();
-        mount?.style.removeProperty("height");
-        props.measure();
-      }
-      return;
-    }
-    if (live !== undefined && liveExists !== value.currentExists) {
-      resolution += 1;
-      live.dispose();
-      live = undefined;
-      liveExists = undefined;
-      publish();
-      if (mount !== undefined) {
-        mount.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
-      }
-    }
-    if (live !== undefined) {
-      live.update(value);
-      return;
-    }
-    const token = ++resolution;
-    void props.openCopy(value).then(
-      (copy) => {
-        const latest = diff();
-        if (
-          dropped ||
-          token !== resolution ||
-          mount === undefined ||
-          latest === null ||
-          !hasChanges(latest)
-        ) {
-          return;
-        }
-        liveExists = latest.currentExists;
-        live = createReviewEditor({
-          container: mount,
-          model: copy.model,
-          editable: copy.editable,
-          diff: latest,
-          onHeight: props.measure,
-          onPainted: publish,
-          onStatus: (status) =>
-            setDiffNotice(
-              status === "ready"
-                ? ""
-                : status === "timed-out"
-                  ? "Diff calculation timed out — the file is shown in full."
-                  : "Diff calculation failed — the file is shown in full.",
-            ),
-        });
-        publish();
-      },
-      (error: unknown) => {
-        if (!dropped && token === resolution) {
-          setOpenError(String(error));
-        }
-      },
-    );
-  });
-
-  onCleanup(() => {
-    dropped = true;
-    resolution += 1;
-    live?.dispose();
-    live = undefined;
-    props.register.clear(path, section);
-  });
-
-  return (
-    <>
-      <Show when={diffNotice() !== ""}>
-        <div class="unified-review-notice">{diffNotice()}</div>
-      </Show>
-      <Show when={openError() !== ""}>
-        <div class="unified-review-notice">Couldn't open this file: {openError()}</div>
-      </Show>
-      <Show when={!props.file().loaded()}>
-        <div class="unified-review-notice">Loading diff…</div>
-      </Show>
-      <Show when={nothingLeft()}>
-        <div class="unified-review-notice">No changes remain in this file.</div>
-      </Show>
-      <div
-        class="unified-review-editor"
-        ref={(element) => {
-          mount = element;
-          element.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
-        }}
-      />
-    </>
   );
 }
 

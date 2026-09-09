@@ -37,7 +37,7 @@ export class SourceEditController {
   private restore: (() => void) | undefined;
 
   constructor(
-    private readonly session: ClientSession,
+    readonly session: ClientSession,
     private readonly target: string,
   ) {}
 
@@ -146,6 +146,43 @@ export class SourceEditController {
     }
     this.open(this.focusedBlock);
     return true;
+  }
+
+  /** Commands retain the exact document, block and draft admitted before chrome takes focus. */
+  captureCommands(): { edit(): boolean; commit(): boolean; cancel(): boolean } {
+    const content = this.content;
+    const block = this.blockFocused() ? this.focusedBlock : undefined;
+    const textarea = this.editorFocused() ? this.textarea : undefined;
+    const edit = sourceEditState(this.session, this.target);
+    const draft = textarea?.value;
+    const assertDocument = (): void => {
+      if (active !== this || this.content !== content || this.session.signal.aborted)
+        throw new Error("The source document for this command is no longer displayed.");
+    };
+    const inDraft = (action: () => boolean): boolean => {
+      if (textarea === undefined) return false;
+      assertDocument();
+      if (
+        this.textarea !== textarea ||
+        sourceEditState(this.session, this.target) !== edit ||
+        textarea.value !== draft
+      )
+        throw new Error("The source draft for this command has changed.");
+      textarea.focus();
+      return action();
+    };
+    return {
+      edit: () => {
+        if (block === undefined) return false;
+        assertDocument();
+        if (!content?.contains(block) || sourceEditState(this.session, this.target) !== undefined)
+          return false;
+        this.open(block);
+        return true;
+      },
+      commit: () => inDraft(() => this.commit()),
+      cancel: () => inDraft(() => this.cancel()),
+    };
   }
 
   /**

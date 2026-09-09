@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Weavie.Core.Agents;
-using Weavie.Core.Configuration;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -22,6 +21,10 @@ public sealed partial class AcpAgentSession {
 					new AcpProtocolException($"ACP client request id '{request.Id}' is already active."));
 				return;
 			}
+			if (request.Method == "session/request_permission") {
+				HandlePermissionRequest(state);
+				return;
+			}
 		}
 		Run(() => HandleClientRequestAsync(state));
 	}
@@ -32,7 +35,7 @@ public sealed partial class AcpAgentSession {
 			state.Token.ThrowIfCancellationRequested();
 			ValidateRequestSession(request);
 			if (request.Method is not (
-				"fs/read_text_file" or "fs/write_text_file" or "session/request_permission"
+				"fs/read_text_file" or "fs/write_text_file"
 				or "terminal/create" or "terminal/output" or "terminal/wait_for_exit"
 				or "terminal/kill" or "terminal/release" or "elicitation/create")) {
 				FailClientRequest(state, -32601, $"Unsupported ACP client method '{request.Method}'.", null);
@@ -41,7 +44,6 @@ public sealed partial class AcpAgentSession {
 			object response = request.Method switch {
 				"fs/read_text_file" => ReadTextFile(request),
 				"fs/write_text_file" => WriteTextFile(request),
-				"session/request_permission" => RequestPermission(request, state),
 				"terminal/create" => await CreateTerminalAsync(request, state.Token).ConfigureAwait(false),
 				"terminal/output" => TerminalOutput(request),
 				"terminal/wait_for_exit" => await WaitForTerminalAsync(request, state.Token).ConfigureAwait(false),
@@ -50,15 +52,22 @@ public sealed partial class AcpAgentSession {
 				"elicitation/create" => RequestInput(request, state),
 				_ => throw new UnreachableException(),
 			};
-			if (!ReferenceEquals(response, DeferredClientResponse)) {
-				state.Token.ThrowIfCancellationRequested();
-				CompleteClientRequest(state, response);
-			}
-		} catch (OperationCanceledException) when (state.Token.IsCancellationRequested) {
-			CancelClientRequest(state);
+			CompleteClientResponse(state, response);
 		} catch (Exception ex) {
-			if (FailClientRequest(state, -32002, ex.Message, null)) EmitFailure(ex);
+			HandleClientRequestFailure(state, ex);
 		}
+	}
+
+	private void CompleteClientResponse(AcpClientRequestState state, object response) {
+		if (ReferenceEquals(response, DeferredClientResponse)) return;
+		state.Token.ThrowIfCancellationRequested();
+		CompleteClientRequest(state, response);
+	}
+
+	private void HandleClientRequestFailure(AcpClientRequestState state, Exception error) {
+		if (error is OperationCanceledException && state.Token.IsCancellationRequested) {
+			CancelClientRequest(state);
+		} else if (FailClientRequest(state, -32002, error.Message, null)) EmitFailure(error);
 	}
 
 	private void ValidateRequestSession(AcpClientRequest request) {
@@ -112,67 +121,6 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException($"An ACP filesystem path must be absolute: {path}");
 		}
 		return Path.GetFullPath(path);
-	}
-
-	private object RequestPermission(AcpClientRequest request, AcpClientRequestState state) {
-		if (!request.Parameters.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array) {
-			throw new AcpProtocolException("An ACP permission request is missing options.");
-		}
-		if (_context.Settings.RequireBool(AgentSettings.AllowAllPermissions)) {
-			string? optionId = options.EnumerateArray()
-				.Where(option => OptionalString(option, "kind") is "allow_always" or "allow_once")
-				.OrderBy(option => OptionalString(option, "kind") == "allow_always" ? 0 : 1)
-				.Select(option => OptionalString(option, "optionId"))
-				.FirstOrDefault(id => id is not null);
-			string selected = optionId ?? throw new AcpProtocolException(
-				"Permission bypass is enabled, but ACP advertised no allow option.");
-			return new { outcome = new { outcome = "selected", optionId = selected } };
-		}
-
-		if (!request.Parameters.TryGetProperty("toolCall", out var tool) || tool.ValueKind != JsonValueKind.Object) {
-			throw new AcpProtocolException("An ACP permission request is missing toolCall.");
-		}
-		var actions = options.EnumerateArray().Select(option => new AgentActionOption {
-			Id = RequiredString(option, "optionId", "permission option"),
-			Label = RequiredString(option, "name", "permission option"),
-			Kind = RequiredString(option, "kind", "permission option"),
-		}).ToArray();
-		string? threadId = SessionId();
-		string turnId = TurnId();
-		if (!_pendingRequests.TryAdd(
-			request.Id,
-			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
-			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
-		}
-		if (!state.PublishDeferred(() => {
-			Observe(new AgentPermissionRequested());
-			Observe(new AgentPermissionResolved(RequiresUserInput: true));
-			Emit(new AgentPaneMessage {
-				Type = "approval-requested",
-				ProviderId = _definition.Id,
-				ThreadId = threadId,
-				TurnId = turnId,
-				ItemId = $"request:{request.Id}",
-				RequestId = request.Id,
-				ItemType = OptionalString(tool, "kind") ?? "tool",
-				Category = OptionalString(tool, "kind"),
-				Summary = OptionalString(tool, "title") ?? "Permission requested",
-				Text = ToolRequestText(tool),
-				Actions = actions,
-				Status = "pending",
-			});
-		})) {
-			_pendingRequests.TryRemove(request.Id, out _);
-			state.Token.ThrowIfCancellationRequested();
-		}
-		return DeferredClientResponse;
-	}
-
-	private static string? ToolRequestText(JsonElement tool) {
-		if (tool.TryGetProperty("rawInput", out var rawInput)) {
-			return rawInput.ValueKind == JsonValueKind.String ? rawInput.GetString() : rawInput.GetRawText();
-		}
-		return null;
 	}
 
 	private async Task<object> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
@@ -262,6 +210,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void CancelCompletedClientRequest(AcpClientRequestState state) {
+		CompletePermissionTool(state.Request);
 		_pendingRequests.TryRemove(state.Request.Id, out var pending);
 		RespondToCompletedClientRequest(state, null, -32800, "Request cancelled.", null);
 		if (pending is not null) {

@@ -176,60 +176,88 @@ test("BTW continues on its fork and returns control to the primary conversation"
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });
 
-test("ACP controls and rich structured output stay native @cross", async ({ page, weavie }) => {
-  const surface = await createAcpSession(page, "acp-rich-output");
-  await writeFile(
-    join(sessionWorktrees(weavie.workspace)[0]!, "sample.txt"),
-    "one\ntwo\nthree\nfour\nfive\nsix\nnew\n",
-  );
+for (const switchDuringStartup of [false, true]) {
+  test(`ACP controls and rich structured output stay native${switchDuringStartup ? " across startup session switches" : ""} @cross`, async ({
+    page,
+    weavie,
+  }) => {
+    const initialSlot = await activeSessionSlot(page);
+    const surface = await createAcpSession(page, "acp-rich-output");
+    const acpSlot = await activeSessionSlot(page);
+    await writeFile(
+      join(sessionWorktrees(weavie.workspace)[0]!, "sample.txt"),
+      "one\ntwo\nthree\nfour\nfive\nsix\nnew\n",
+    );
 
-  await surface.getByRole("button", { name: "Model Alpha" }).click();
-  await surface.getByRole("option", { name: "Beta" }).click();
-  await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
+    await surface.getByRole("button", { name: "Model Alpha" }).click();
+    await surface.getByRole("option", { name: "Beta" }).click();
+    await expect(surface.getByRole("button", { name: "Model Beta" })).toBeVisible();
 
-  await surface.getByRole("button", { name: "Fast Off" }).click();
-  await surface.getByRole("option", { name: "On" }).click();
-  await expect(surface.getByRole("button", { name: "Fast On" })).toBeVisible();
+    await surface.getByRole("button", { name: "Fast Off" }).click();
+    await surface.getByRole("option", { name: "On" }).click();
+    await expect(surface.getByRole("button", { name: "Fast On" })).toBeVisible();
 
-  await surface.getByRole("button", { name: "Mode Default" }).click();
-  await surface.getByRole("option", { name: "Plan" }).click();
-  await expect(surface.getByRole("button", { name: "Mode Plan" })).toBeVisible();
+    await surface.getByRole("button", { name: "Mode Default" }).click();
+    await surface.getByRole("option", { name: "Plan" }).click();
+    await expect(surface.getByRole("button", { name: "Mode Plan" })).toBeVisible();
 
-  const composer = surface.locator("[data-agent-composer] textarea");
-  await composer.fill("rich");
-  await composer.press("Enter");
+    const composer = surface.locator("[data-agent-composer] textarea");
+    await composer.fill("rich");
+    await composer.press("Enter");
 
-  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
-    "rich response",
-  );
-  const activity = surface.locator(".agent-entry-activity").last();
-  await expect(activity).toContainText("edited 1 file");
-  await activity.locator("summary").click();
-  await expect(activity.getByRole("button", { name: "Review edit" })).toBeVisible();
-  await expect(surface.locator(".agent-working")).toHaveCount(0);
+    await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
+      "rich response",
+    );
+    const activity = surface.locator(".agent-entry-activity").last();
+    await expect(activity).toContainText("edited 1 file");
+    await activity.locator("summary").click();
+    await expect(activity.getByRole("button", { name: "Review edit" })).toBeVisible();
+    await expect(surface.locator(".agent-working")).toHaveCount(0);
 
-  // The agent reported 123 of 4096 context tokens; the circle renders that share.
-  const usage = surface.getByRole("button", { name: "Context window 3% used" });
-  await expect(usage.locator(".agent-usage-circle")).toBeVisible();
-  await usage.hover();
-  const tooltip = page.getByRole("tooltip");
-  // The grouping separator follows the browser locale; the token counts do not.
-  await expect(tooltip).toContainText(/123 of 4.?096 tokens/);
-  // The agent also reported a weekly window at 0.62 utilization through Claude's _meta extension.
-  await expect(tooltip).toContainText("Weekly limit");
-  await expect(tooltip).toContainText("62% used · approaching limit");
+    // The agent reported 123 of 4096 context tokens; the circle renders that share.
+    const usage = surface.getByRole("button", { name: "Context window 3% used" });
+    await expect(usage.locator(".agent-usage-circle")).toBeVisible();
+    await usage.hover();
+    const tooltip = page.getByRole("tooltip");
+    // The grouping separator follows the browser locale; the token counts do not.
+    await expect(tooltip).toContainText(/123 of 4.?096 tokens/);
+    // The agent also reported a weekly window at 0.62 utilization through Claude's _meta extension.
+    await expect(tooltip).toContainText("Weekly limit");
+    await expect(tooltip).toContainText("62% used · approaching limit");
 
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(surface).toContainText("rich response");
-  await activity.locator("summary").click();
-  const edit = activity.locator(".agent-activity-step", { hasText: "Edit file" });
-  await expect(edit.getByText("show output", { exact: true })).toHaveCount(0);
-  await edit.getByRole("button", { name: "Review edit" }).click();
-  await expectRevealed(page, "sample.txt", 7);
-  const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
-  await progress.getByText("show output", { exact: true }).click();
-  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
-});
+    const editorRequested = Promise.withResolvers<void>();
+    const releaseEditor = Promise.withResolvers<void>();
+    await page.route(/\/assets\/editor-host-[^/]+\.js$/, async (route) => {
+      editorRequested.resolve();
+      await releaseEditor.promise;
+      await route.continue();
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await editorRequested.promise;
+    await expect(surface).toContainText("rich response");
+    await activity.locator("summary").click();
+    const edit = activity.locator(".agent-activity-step", { hasText: "Edit file" });
+    await expect(edit.getByText("show output", { exact: true })).toHaveCount(0);
+    await edit.getByRole("button", { name: "Review edit" }).click();
+    await expect(page.locator(".editor-tab", { hasText: "sample.txt" })).toBeVisible();
+    await expect(page.locator(".editor")).not.toHaveAttribute("data-ready", "true");
+    if (switchDuringStartup) {
+      await page.locator(`.session-chip[data-session-slot="${initialSlot}"]`).click();
+      await waitForSessionSwitch(page, acpSlot);
+      await page.locator(`.session-chip[data-session-slot="${acpSlot}"]`).click();
+      await waitForSessionSwitch(page, initialSlot);
+    }
+    releaseEditor.resolve();
+    if (switchDuringStartup) {
+      await expectRevealed(page, "sample.txt", 1);
+      await edit.getByRole("button", { name: "Review edit" }).click();
+    }
+    await expectRevealed(page, "sample.txt", 7);
+    const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
+    await progress.getByText("show output", { exact: true }).click();
+    await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+  });
+}
 
 test("ACP task progress stays activity while plan documents remain openable", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-plan-distinction");

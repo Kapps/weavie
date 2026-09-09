@@ -208,6 +208,11 @@ test.describe("three-file completion", () => {
     );
     const original = await readFile(join(weavie.workspace, "notes.txt"), "utf8");
     await openFile(page, "notes.txt");
+    // Capture the app's own canonicalized path instead of building one with `join`: `data-active-file`
+    // lowercases the drive letter and uses forward slashes (see fs-path.ts), which `join` on Windows does
+    // not, so a hand-built expectation always mismatched there (2026-09-09, run 34374758357).
+    const notesPath = await page.locator(".editor").getAttribute("data-active-file");
+    if (notesPath === null) throw new Error("notes.txt is not open");
     await page.locator(".editor-review-open").click();
     const reviewTab = page.locator(".editor-tab", { hasText: "Review Changes" });
     const overview = page.locator(".unified-review");
@@ -232,10 +237,7 @@ test.describe("three-file completion", () => {
 
     await expectClosed(page);
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
-    await expect(page.locator(".editor")).toHaveAttribute(
-      "data-active-file",
-      join(weavie.workspace, "notes.txt"),
-    );
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", notesPath);
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getValue()))
       .toBe(original);

@@ -63,7 +63,8 @@ export function createReviewSurface(surface: {
     const targetIndex = files.findIndex(
       (file) => normalizePath(file.summary().path) === normalizePath(pending!.location.path),
     );
-    if (targetIndex < 0) {
+    const target = targetIndex < 0 ? undefined : files[targetIndex];
+    if (target === undefined) {
       pending.fail(new Error("This file is no longer in the review."));
       return;
     }
@@ -74,7 +75,7 @@ export function createReviewSurface(surface: {
     if (files.slice(0, targetIndex).some((file) => !sectionSettled(file))) return;
     const section = sections.get(normalizePath(pending.location.path));
     if (section === undefined) {
-      if (!sectionSettled(files[targetIndex])) return;
+      if (!sectionSettled(target)) return;
       const operation = pending;
       pending = null;
       operation.finish();

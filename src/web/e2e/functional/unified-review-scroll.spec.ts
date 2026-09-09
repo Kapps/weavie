@@ -24,12 +24,18 @@ async function expectUnobscuredLine(section: Locator, line: Locator): Promise<vo
       const header = await section.locator(".unified-review-file-header").boundingBox();
       const toolbar = await section.page().locator(".weavie-inline-toolbar").boundingBox();
       const bounds = await line.boundingBox();
-      if (header === null || toolbar === null || bounds === null) {
-        throw new Error("review line, header, or toolbar is missing");
-      }
-      return Math.min(bounds.y - header.y - header.height, toolbar.y - bounds.y - bounds.height);
+      return {
+        header,
+        toolbar,
+        bounds,
+        unobscured:
+          header !== null &&
+          toolbar !== null &&
+          bounds !== null &&
+          Math.min(bounds.y - header.y - header.height, toolbar.y - bounds.y - bounds.height) >= 0,
+      };
     })
-    .toBeGreaterThanOrEqual(0);
+    .toMatchObject({ unobscured: true });
 }
 
 test.describe("Review Changes tab — large addition", () => {

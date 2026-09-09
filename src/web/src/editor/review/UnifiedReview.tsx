@@ -1,5 +1,14 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
@@ -48,7 +57,11 @@ export function UnifiedReview(props: {
   createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
+  let virtualList: HTMLDivElement | undefined;
   let toolbarHost: HTMLElement | undefined;
+  const sizeVirtualList = (height: number): void => {
+    if (virtualList !== undefined) virtualList.style.height = `${height}px`;
+  };
   let programmaticSelection = true;
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const visibleFile = (): number =>
@@ -131,9 +144,15 @@ export function UnifiedReview(props: {
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,
-    scrollToFn: scrollVirtualElement,
+    scrollToFn: (offset, options, instance) => {
+      // TanStack requests resize corrections before notifying Solid of the new scroll range.
+      return scrollVirtualElement(offset, options, instance, () =>
+        sizeVirtualList(instance.getTotalSize()),
+      );
+    },
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => {
+      sizeVirtualList(instance.getTotalSize());
       if (programmaticSelection) {
         return;
       }
@@ -148,6 +167,7 @@ export function UnifiedReview(props: {
     overscan: 2,
     useAnimationFrameWithResizeObserver: true,
   });
+  createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 
   let collapseSnapshot = new Map<string, boolean>();
   createEffect(() => {
@@ -269,11 +289,18 @@ export function UnifiedReview(props: {
     programmaticSelection = false;
   };
   const measure = (element: HTMLElement): void => {
-    queueMicrotask(() => {
+    const commit = (): void => {
       if (element.isConnected) {
-        virtualizer.measureElement(element);
+        const index = virtualizer.indexFromElement(element);
+        const height = element.getBoundingClientRect().height;
+        batch(() => {
+          virtualizer.measureElement(element);
+          virtualizer.resizeItem(index, height);
+        });
       }
-    });
+    };
+    if (element.isConnected) commit();
+    else queueMicrotask(commit);
   };
 
   return (
@@ -292,7 +319,13 @@ export function UnifiedReview(props: {
           props.changed();
         }}
       >
-        <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
+        <div
+          class="unified-review-virtual-list"
+          ref={(element) => {
+            virtualList = element;
+            sizeVirtualList(virtualizer.getTotalSize());
+          }}
+        >
           <For each={rowKeys()}>
             {(key) => {
               const row = () => rows().find((candidate) => String(candidate.key) === key);

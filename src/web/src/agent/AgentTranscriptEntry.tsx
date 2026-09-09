@@ -8,7 +8,6 @@ import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./A
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { isPendingRequest } from "./AgentPendingRequests";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -32,7 +31,6 @@ export function TranscriptEntry(props: {
   }
   return (
     <article
-      data-agent-pending-request={isPendingRequest(props.entry) ? "" : undefined}
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",

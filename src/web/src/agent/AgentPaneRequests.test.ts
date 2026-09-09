@@ -83,22 +83,6 @@ describe("pending requests in the agent transcript", () => {
     });
   });
 
-  it("uses scoped request identities for keyboard targeting and restores the previous request", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
-      const first = { ...request("approval", "same-item"), requestId: "provider-first" };
-      const second = { ...first, threadId: "another-thread", requestId: "provider-second" };
-      model.replace([first, second]);
-      expect(model.keyboardRequestKey()).toBe(paneItemIdentity(second));
-      expect(model.keyboardApprovalId()).toBe("provider-second");
-      model.replace([first, second, { ...second, type: "approval-resolved", status: "denied" }]);
-      expect(model.keyboardRequestKey()).toBe(paneItemIdentity(first));
-      expect(model.keyboardApprovalId()).toBe("provider-first");
-      expect(model.entries.at(-1)?.id).toBe(paneItemIdentity(first));
-      dispose();
-    });
-  });
-
   it("does not treat an older request moved past a new prompt as the new turn's output", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);

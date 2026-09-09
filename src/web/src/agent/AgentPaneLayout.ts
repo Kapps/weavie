@@ -21,7 +21,7 @@ interface Layout {
   generation: number;
   entries: Map<string, AgentTranscriptEntry>;
   keys: string[];
-  pendingKeys: Set<string>;
+  pendingRows: Map<string, number>;
 }
 
 export function createAgentPaneLayout(
@@ -32,7 +32,7 @@ export function createAgentPaneLayout(
     generation: model.generation(),
     entries: new Map(),
     keys: [],
-    pendingKeys: new Set(),
+    pendingRows: new Map(),
   });
   let beforeChange = (_previous: Layout, _next: Layout): void => {};
   createComputed(() => {
@@ -43,7 +43,7 @@ export function createAgentPaneLayout(
       generation,
       entries,
       keys,
-      pendingKeys: new Set(model.pendingRowIndexes().map((index) => keys[index]!)),
+      pendingRows: new Map(model.pendingRowIndexes().map((index) => [keys[index]!, index])),
     };
     untrack(() => beforeChange(layout(), next));
     setLayout(next);
@@ -53,10 +53,7 @@ export function createAgentPaneLayout(
     return (index: number) => keys[index]!;
   });
   const rangeExtractor = createMemo(() => {
-    const current = layout();
-    const pending = current.keys.flatMap((key, index) =>
-      current.pendingKeys.has(key) ? [index] : [],
-    );
+    const pending = [...layout().pendingRows.values()];
     // Pending forms own live command handlers and focus even while outside the viewport.
     return (range: Range) =>
       [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
@@ -97,8 +94,8 @@ export function createAgentPaneLayout(
       createEffect(
         on(layout, (next, previous) => {
           if (previous !== undefined) {
-            for (const key of previous.pendingKeys) {
-              if (next.pendingKeys.has(key)) continue;
+            for (const key of previous.pendingRows.keys()) {
+              if (next.pendingRows.has(key)) continue;
               const index = next.keys.indexOf(key);
               const entry = model.entries[index];
               if (entry === undefined) continue;

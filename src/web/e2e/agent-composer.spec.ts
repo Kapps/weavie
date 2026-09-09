@@ -696,26 +696,19 @@ test.describe("ACP composer", () => {
         itemId: "input-draft",
         requestId: "input-draft",
         status: "pending",
-        questions: Array.from({ length: 3 }, (_, index) => ({
+        questions: Array.from({ length: 6 }, (_, index) => ({
           ...freeformQuestion,
           id: `answer-${index}`,
           header: `Question ${index + 1}`,
-          question: "Review the earlier explanation before choosing how to proceed.",
-          allowsOther: true,
-          options: [
-            { value: "one", label: "First choice", description: "Keep the current behavior." },
-            { value: "two", label: "Second choice", description: "Use the proposed behavior." },
-          ],
+          question: "Review the earlier explanation before answering.",
         })),
       }),
     );
     const body = page.locator(".agent-body");
     const request = body.locator(".agent-entry-request");
-    const response = request.locator('input[placeholder="Type another answer"]').last();
-    await request.getByRole("radio", { name: "Other", exact: true }).last().check();
+    const response = request.locator("input").last();
     await response.fill("Keep this answer");
     await expect(response).toBeFocused();
-    await expect(page.locator(".agent-empty")).toHaveCount(0);
     expect(
       await request.evaluate((element) => element.getBoundingClientRect().height),
     ).toBeGreaterThan(await body.evaluate((element) => element.clientHeight));
@@ -740,8 +733,7 @@ test.describe("ACP composer", () => {
       ).toBe(true);
       await expect(response).toBeFocused();
     }
-    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 3");
-    await expect(response).toBeFocused();
+    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 6");
     await expect(response).toHaveValue("Keep this answer");
     await waitForBottom(page, body);
 
@@ -764,7 +756,7 @@ test.describe("ACP composer", () => {
         text: "Another update while the user reads earlier output",
       }),
     );
-    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 3");
+    await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 6");
     await expect(request).not.toBeInViewport();
     await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
 

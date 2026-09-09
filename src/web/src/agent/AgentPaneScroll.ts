@@ -17,6 +17,7 @@ export function createAgentPaneScroll(
   wheel: { cancel: () => void; isActive: () => boolean },
 ) {
   let bottomCorrectionScheduled = false;
+  let contentHeight = virtualizer.getTotalSize();
   let controllerScrolls: Array<{ top: number }> = [];
   let scrollScheduled = false;
   let viewportHeight = 0;
@@ -152,7 +153,10 @@ export function createAgentPaneScroll(
   };
 
   const onVirtualizerChange = (sync: boolean): void => {
-    if (followingLatest() && !sync && !bottomCorrectionScheduled) {
+    const nextHeight = virtualizer.getTotalSize();
+    const sizeChanged = nextHeight !== contentHeight;
+    contentHeight = nextHeight;
+    if (sizeChanged && followingLatest() && !sync && !bottomCorrectionScheduled) {
       bottomCorrectionScheduled = true;
       requestAnimationFrame(() => {
         bottomCorrectionScheduled = false;

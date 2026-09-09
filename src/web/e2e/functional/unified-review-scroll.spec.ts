@@ -55,6 +55,13 @@ test.describe("Review Changes tab — large addition", () => {
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
+    // Failed deterministically on macOS CI both times it has run — 2026-09-09 06:06 UTC (run 34317635773)
+    // and 16:07 UTC (run 34374758357), never once passed on macOS, always passes on Linux. Not flaky: both
+    // failures are byte-identical 30s toBeInViewport timeouts here. Investigated the reveal()/layout()
+    // feedback loop in review-editor-viewport.ts and ruled out several candidate mechanisms (content/scroll
+    // height divergence, the scroll listener's missing `syncing` guard, content-size-driven re-layout) by
+    // tracing the actual code paths — none of them explain it under closer inspection. No verified fix
+    // without a macOS runner to reproduce against; needs `playwright show-trace` on one of the runs' trace.zip.
     await page.keyboard.press("ControlOrMeta+End");
     await expectUnobscuredLine(
       section,

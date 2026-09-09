@@ -35,8 +35,8 @@ test.describe("ACP plan review with automatic tool approval", () => {
       await expect(approval).toContainText("Implement this plan?");
       const implement = approval.getByRole("button", { name: "Yes, implement this plan" });
       const revise = approval.getByRole("button", { name: "No, revise this plan" });
-      await expect(implement).toBeInViewport();
-      await expect(revise).toBeInViewport();
+      await expect(implement).toBeInViewport({ ratio: 1 });
+      await expect(revise).toBeInViewport({ ratio: 1 });
       const payload = approval.locator(".agent-entry-text");
       await expect
         .poll(() => payload.evaluate((element) => element.scrollHeight > element.clientHeight))
@@ -50,16 +50,16 @@ test.describe("ACP plan review with automatic tool approval", () => {
           ),
         )
         .toBe(true);
-      await expect(implement).toBeInViewport();
-      await expect(revise).toBeInViewport();
+      await expect(implement).toBeInViewport({ ratio: 1 });
+      await expect(revise).toBeInViewport({ ratio: 1 });
 
       await surface.getByRole("button", { name: "Open plan" }).click();
       const document = page.locator(".editor-plan .agent-markdown");
       await expect(document).toContainText("Detailed work plan");
       await expect(document).toContainText("Implementation step 12");
       await expect(document).toContainText("End of the complete work plan.");
-      await expect(implement).toBeVisible();
-      await expect(revise).toBeVisible();
+      await expect(implement).toBeInViewport({ ratio: 1 });
+      await expect(revise).toBeInViewport({ ratio: 1 });
 
       await approval.getByRole("button", { name: scenario.choice }).click();
       await expect(

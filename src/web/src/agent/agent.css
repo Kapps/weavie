@@ -1,4 +1,5 @@
 .agent-surface {
+  container-type: size;
   --agent-control-inline-padding: 6px;
   --agent-scroll-nav-inline-size: 32px;
 }
@@ -650,7 +651,7 @@ a.agent-entry-media {
 
 /* The substance under review (command / paths) reads as code, set off from the reason line. */
 .agent-entry-request .agent-entry-text {
-  max-block-size: min(12lh, 25vh);
+  max-block-size: min(12lh, 25cqh);
   overflow: auto;
   margin: 4px 0 2px;
   padding: 4px 7px;

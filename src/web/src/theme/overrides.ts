@@ -55,7 +55,12 @@ export interface ResolvedTheme {
  * rewrites every hex perceptually (OKLCH), leaving non-hex values and alpha untouched.
  */
 export function resolveTheme(base: VsCodeColorTheme, ops: readonly OverrideOp[]): ResolvedTheme {
-  const colors: Record<string, string> = { ...base.colors };
+  // Weavie-only colors have polarity defaults even when an imported VS Code theme omits them.
+  const colors: Record<string, string> = {
+    "editorSpellCheck.foreground":
+      base.type === "light" || base.type === "hcLight" ? "#005fb8" : "#70b7ff",
+    ...base.colors,
+  };
   const tokenColors: TokenColorRule[] = base.tokenColors.map((rule) => ({
     ...rule,
     settings: { ...rule.settings },

@@ -822,8 +822,9 @@ test.describe("ACP composer", () => {
       publishPane(
         paneMessage({
           type: "input-requested",
-          itemId: id,
-          requestId: id,
+          itemId: "shared-request-item",
+          turnId: id,
+          requestId: `${id}-wire`,
           status: "pending",
           questions: [{ ...freeformQuestion, header: id }],
         }),
@@ -844,17 +845,24 @@ test.describe("ACP composer", () => {
     await expect(body.locator(".agent-input-request").last()).not.toBeInViewport();
     await page.keyboard.press("Alt+Enter");
     expect(await waitForAgentPayload("input")).toMatchObject({
-      requestId: "newer",
+      requestId: "newer-wire",
       action: "accept",
       answers: { answer: ["newer"] },
     });
-    publishPane(paneMessage({ type: "input-resolved", itemId: "newer", status: "accepted" }));
+    publishPane(
+      paneMessage({
+        type: "input-resolved",
+        itemId: "shared-request-item",
+        turnId: "newer",
+        status: "accepted",
+      }),
+    );
     await expect(body.locator(".agent-input-request")).toHaveCount(1);
     await expect(body.locator(".agent-input-request input")).toHaveValue("older");
     const checkpoint = host.checkpoint();
     await page.keyboard.press("Alt+Enter");
     expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
-      requestId: "older",
+      requestId: "older-wire",
       action: "accept",
       answers: { answer: ["older"] },
     });

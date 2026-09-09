@@ -75,6 +75,10 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
         await snapshot;
       }
       if (snapshot !== undefined) {
+        // Recurred on Windows CI 2026-09-09 16:07 UTC (run 34374758357, shard 4/6, mid palette-focus-gated.spec.ts)
+        // and 2026-09-09 06:07 UTC (run 34317635773). Investigated: no single test triggers it — it hits whatever
+        // test is running when the runner's TCP port pool is exhausted. windows-network.txt above captures the
+        // diagnostic; no root cause identified yet from available data, so no fix applied here.
         throw new Error(`Browser socket allocation failed:\n${failures.join("\n")}`);
       }
     },

@@ -10,6 +10,8 @@ interface ReviewViewState {
   scrollTop: number;
 }
 
+type ReviewAlignment = "location" | "file-start";
+
 export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
   refresh(): void;
@@ -26,6 +28,7 @@ export interface ReviewSectionRegistry {
 /** Resolves exact file destinations through the virtualizer; hunk navigation belongs to InlineDiff. */
 export function createReviewSurface(surface: {
   changed(): void;
+  active(): boolean;
   signal: AbortSignal;
   clear(): void;
   scroller(): HTMLElement;
@@ -41,6 +44,7 @@ export function createReviewSurface(surface: {
   const failures = new Map<string, unknown>();
   let pending: {
     location: TextLocation;
+    alignment: ReviewAlignment;
     ready: boolean;
     finish(): void;
     fail(error: unknown): void;
@@ -57,6 +61,8 @@ export function createReviewSurface(surface: {
       diff === null || !hasReviewChanges(diff) || sections.has(normalizePath(file.summary().path))
     );
   };
+  let selectedFile: ReviewFileView | undefined;
+  let selectedPending = false;
   const settle = (): void => {
     if (pending === null || !pending.ready) return;
     const files = surface.files();
@@ -83,14 +89,19 @@ export function createReviewSurface(surface: {
     }
     const operation = pending;
     pending = null;
-    section.restore(operation.location);
+    if (operation.alignment === "file-start") section.revealFileStart(operation.location.line);
+    else section.restore(operation.location);
     operation.finish();
   };
   const activeSection = (): ReviewEditor | undefined => {
     const file = surface.files()[surface.currentIndex()];
     return file === undefined ? undefined : sections.get(normalizePath(file.summary().path));
   };
-  const restore = (location: TextLocation, signal: AbortSignal): Promise<void> => {
+  const restore = (
+    location: TextLocation,
+    signal: AbortSignal,
+    alignment: ReviewAlignment,
+  ): Promise<void> => {
     pending?.cancel();
     const index = surface
       .files()
@@ -110,7 +121,14 @@ export function createReviewSurface(surface: {
       const fail = (error: unknown): void => complete(() => reject(error));
       const cancel = (): void =>
         fail(new DOMException("Review navigation cancelled", "AbortError"));
-      const operation = { location, ready: false, cancel, fail, finish: () => complete(resolve) };
+      const operation = {
+        location,
+        alignment,
+        ready: false,
+        cancel,
+        fail,
+        finish: () => complete(resolve),
+      };
       pending = operation;
       if (validity.aborted) {
         cancel();
@@ -134,6 +152,35 @@ export function createReviewSurface(surface: {
     if (section === undefined) surface.focus();
     else section.focus();
   };
+  const reveal = (location: TextLocation, alignment: ReviewAlignment): void => {
+    const file = surface
+      .files()
+      .find((file) => normalizePath(file.summary().path) === normalizePath(location.path));
+    if (file !== undefined) surface.expand(file);
+    void restore(location, lifetime.signal, alignment)
+      .then(focus)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError"))
+          notify("warn", String(error));
+      });
+  };
+  const advanceReviewedFile = (): void => {
+    const files = surface.files();
+    const index = surface.currentIndex();
+    const file = files[index];
+    const isPending = file?.pending() === true;
+    const completed = file === selectedFile && selectedPending && !isPending;
+    selectedFile = file;
+    selectedPending = isPending;
+    if (!completed || !surface.active()) return;
+    for (let step = 1; step < files.length; step++) {
+      const next = files[(index + step) % files.length]!;
+      if (!next.pending()) continue;
+      const { path, line } = next.summary();
+      reveal({ path, line }, "file-start");
+      return;
+    }
+  };
   return {
     text: true,
     capture: () => {
@@ -156,7 +203,7 @@ export function createReviewSurface(surface: {
               (file) => normalizePath(file.summary().path) === normalizePath(saved.location!.path),
             )
         ) {
-          await restore(saved.location, signal);
+          await restore(saved.location, signal, "location");
         } else {
           notify("warn", "This saved location is no longer in the review.");
         }
@@ -169,21 +216,11 @@ export function createReviewSurface(surface: {
     dispose: () => lifetime.abort(),
     refresh: () => {
       settle();
+      advanceReviewedFile();
       activeSection()?.inline.refreshPresentation();
     },
     actions: () => activeSection()?.inline.captureActions(),
-    reveal: (path, line) => {
-      const file = surface
-        .files()
-        .find((file) => normalizePath(file.summary().path) === normalizePath(path));
-      if (file !== undefined) surface.expand(file);
-      void restore({ path, line }, lifetime.signal)
-        .then(focus)
-        .catch((error: unknown) => {
-          if (!(error instanceof DOMException && error.name === "AbortError"))
-            notify("warn", String(error));
-        });
-    },
+    reveal: (path, line) => reveal({ path, line }, "location"),
     sections: {
       empty: () => settle(),
       failed: (path, error) => {

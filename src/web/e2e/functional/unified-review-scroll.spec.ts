@@ -33,7 +33,18 @@ async function expectUnobscuredLine(section: Locator, line: Locator): Promise<vo
 }
 
 test.describe("Review Changes tab — large addition", () => {
+  const workerRequested = Promise.withResolvers<void>();
+  const releaseWorker = Promise.withResolvers<void>();
   test.use({
+    preNavigate: {
+      run: async (page) => {
+        await page.route(/\/assets\/editor\.worker-[^/]+\.js$/, async (route) => {
+          workerRequested.resolve();
+          await releaseWorker.promise;
+          await route.continue();
+        });
+      },
+    },
     fakeScript: {
       steps: appliedEdit(
         "large-review.txt",
@@ -56,6 +67,8 @@ test.describe("Review Changes tab — large addition", () => {
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await page.keyboard.press("ControlOrMeta+End");
+    await workerRequested.promise;
+    releaseWorker.resolve();
     await expectUnobscuredLine(
       section,
       section.locator(".view-line", { hasText: "new line 3999" }),

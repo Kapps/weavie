@@ -76,9 +76,7 @@ export function createReviewEditor(options: {
   );
   const gaps = editor.createDecorationsCollection([]);
   let height = 0;
-  let painted = false;
   const measure = (): void => {
-    if (!painted) return;
     const next = editor.getContentHeight();
     if (height === next) return;
     height = next;
@@ -118,7 +116,6 @@ export function createReviewEditor(options: {
         const collapsed = collapseUnchanged(markers, model.getLineCount());
         gaps.set(collapsed.gapMarkers);
         editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-        painted = true;
         measure();
       });
       options.onPainted();
@@ -162,6 +159,7 @@ export function createReviewEditor(options: {
     editor.onDidContentSizeChange(measure),
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
   ];
+  measure();
   options.configure(inline, model.uri.toString(), options.diff);
   return {
     capture,

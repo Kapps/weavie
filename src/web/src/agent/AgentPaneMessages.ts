@@ -19,6 +19,7 @@ import type {
   AgentTranscriptEntry,
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
+import { isPendingRequest } from "./AgentPendingRequests";
 import { planIdentity } from "./agent-plan";
 
 interface MutableActivity extends AgentTranscriptEntry {
@@ -476,10 +477,6 @@ function lastAnchorIndex(entries: AgentTranscriptEntry[]): number {
 
 function isActivityEntry(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "activity";
-}
-
-function isPendingRequest(entry: AgentTranscriptEntry): boolean {
-  return entry.kind === "request" && entry.status === "pending";
 }
 
 function isAssistantResult(entry: AgentTranscriptEntry): boolean {

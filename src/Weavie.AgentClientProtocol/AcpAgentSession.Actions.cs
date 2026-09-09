@@ -32,7 +32,7 @@ public sealed partial class AcpAgentSession {
 
 	private void DispatchPendingSubmission() {
 		try {
-			DeliverNextSubmission();
+			lock (_turnTransitionGate) DeliverNextSubmission();
 		} finally {
 			PublishQueue();
 		}
@@ -64,9 +64,10 @@ public sealed partial class AcpAgentSession {
 			}
 			epoch = _submissionEpoch;
 		}
-		Run(steer
-			? () => DeliverSteeringAsync(submission, epoch)
-			: () => DeliverPromptAsync(sessionId, submission, epoch));
+		var delivery = steer
+			? DeliverSteeringAsync(submission, epoch)
+			: DeliverPromptAsync(sessionId, submission, epoch);
+		Run(() => delivery);
 	}
 
 	// Serialized so concurrent publishers cannot deliver an older queue after a newer one and leave the
@@ -207,7 +208,11 @@ public sealed partial class AcpAgentSession {
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
 				if (!OwnsOperation(generation, epoch)) return;
-				if (ex is AcpRequestException { Code: -32000 } authenticationRequired) {
+				bool cancellationFailed;
+				lock (_gate) cancellationFailed = _cancelRequested && ex is not AcpRequestException { Code: -32800 };
+				if (cancellationFailed) {
+					FailRuntimeSerialized(new AcpProtocolException($"{_definition.Name} could not cancel the turn: {ex.Message}"));
+				} else if (ex is AcpRequestException { Code: -32000 } authenticationRequired) {
 					TerminalizedTool[] tools;
 					string turnId = TurnId();
 					lock (_gate) {
@@ -454,8 +459,8 @@ public sealed partial class AcpAgentSession {
 
 	/// <inheritdoc/>
 	public void Interrupt() {
-		SideRuntime[] activeSides;
 		lock (_turnTransitionGate) {
+			SideRuntime[] activeSides;
 			lock (_gate) {
 				activeSides = !_promptActive && !HasBackgroundWorkLocked() && !HasPendingInteractionLocked()
 					? [.. _sideRuntimes.Values.Where(side => side.Session.HasWork())]
@@ -465,45 +470,39 @@ public sealed partial class AcpAgentSession {
 				foreach (var side in activeSides) side.Session.Interrupt();
 				return;
 			}
-		}
-		string? sessionId;
-		lock (_turnTransitionGate) {
+			string? sessionId;
 			lock (_gate) {
-				_pendingSubmissions.Clear();
-				_submissionEpoch++;
+				if (_role is SideRole && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
 			}
 			if (sessionId is not null) {
 				long generation;
 				lock (_gate) generation = _activeGeneration;
-				RunRuntime(
-					generation,
-					() => Endpoint(generation).NotifyAsync("session/cancel", new { }));
+				var cancellation = Endpoint(generation).NotifyAsync("session/cancel", new { });
+				RunRuntime(generation, () => cancellation);
 			}
-		}
-		PublishQueue();
-		bool interactionCancelled = CancelPendingInteractions();
-		if (interactionCancelled && sessionId is null && _role is SideRole) {
-			lock (_turnTransitionGate) {
+			PublishQueue();
+			bool interactionCancelled = CancelPendingInteractions();
+			if (interactionCancelled && sessionId is null && _role is SideRole) {
 				lock (_gate) if (_sessionOpening) return;
 				FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
+				return;
 			}
-			return;
-		}
-		if (interactionCancelled && sessionId is null) {
-			Observe(new AgentTurnStopped(WillResume: false));
-		}
-		if (interactionCancelled) {
-			bool settled;
-			lock (_gate) {
-				settled = _role is SideRole
-					&& _ready
-					&& !_promptActive
-					&& !HasBackgroundWorkLocked()
-					&& _pendingSubmissions.Count == 0;
+			if (interactionCancelled && sessionId is null) {
+				Observe(new AgentTurnStopped(WillResume: false));
 			}
-			if (settled) SignalSideTurnSettled();
+			if (interactionCancelled) {
+				bool settled;
+				lock (_gate) {
+					settled = _role is SideRole
+						&& _ready
+						&& !_promptActive
+						&& !HasBackgroundWorkLocked()
+						&& _pendingSubmissions.Count == 0;
+				}
+				if (settled) SignalSideTurnSettled();
+			}
 		}
 	}
 

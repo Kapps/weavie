@@ -7,7 +7,6 @@
 .agent-body-wrap {
   position: relative;
   display: flex;
-  /* Basis 0, so the transcript takes what is left over and a docked request keeps its own height. */
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
@@ -123,28 +122,12 @@
     var(--bg);
 }
 
-.agent-body,
-.agent-pending-request {
+.agent-body {
   color: var(--fg);
   font-family: var(--font-content-family);
   font-size: var(--font-content-size);
   font-weight: var(--font-content-weight);
   line-height: 1.24;
-}
-
-.agent-pending-request {
-  position: relative;
-  z-index: 1;
-  box-sizing: border-box;
-  /* Sized to the prompt itself, and the only item that yields when the composer grows. */
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow: auto;
-  padding: 6px 8px;
-  border-top: 1px solid var(--border);
-  background: var(--bar);
-  box-shadow: 0 -4px 12px color-mix(in srgb, var(--bg) 55%, transparent);
-  overscroll-behavior: contain;
 }
 
 .agent-transcript {

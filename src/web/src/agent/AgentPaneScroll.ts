@@ -156,7 +156,12 @@ export function createAgentPaneScroll(
       bottomCorrectionScheduled = true;
       requestAnimationFrame(() => {
         bottomCorrectionScheduled = false;
-        if (followingLatest() && !isNearBottom()) {
+        const element = body();
+        if (
+          followingLatest() &&
+          element !== undefined &&
+          element.scrollHeight - element.clientHeight - element.scrollTop > 1
+        ) {
           assignBottom();
         }
       });
@@ -231,5 +236,13 @@ export function createAgentPaneScroll(
     },
     onViewportResize,
     onVirtualizerChange,
+    restoreReadingPosition: (offset: number): void => {
+      const element = body();
+      if (!followingLatest() && element !== undefined && Math.abs(element.scrollTop - offset) > 1) {
+        element.scrollTop = offset;
+        noteControllerScroll(element.scrollTop);
+        updateAgentTurnStartPosition();
+      }
+    },
   };
 }

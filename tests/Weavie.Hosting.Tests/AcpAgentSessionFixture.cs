@@ -177,6 +177,19 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithEmbeddedContext(bool enabled) => enabled
+		? Create(allowAllPermissions: true, persistedSessionId: null)
+		: Create(
+			"fake",
+			"ACP without embedded context",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal) {
+				["WEAVIE_FAKE_ACP_MODE"] = "no-embedded-context",
+			},
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateResumeOnlyAdapter(string persistedSessionId, long turnNumber) {
 		var fixture = Create(
 			"fake",

@@ -5,10 +5,11 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AcpSideAttachmentTests {
 	[Theory]
-	[InlineData("image")]
-	[InlineData("")]
-	public async Task AsideKeepsTheSubmittedImageAndIdentityInItsOwnTranscript(string prompt) {
-		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+	[InlineData("image", true)]
+	[InlineData("", true)]
+	[InlineData("", false)]
+	public async Task AsideKeepsTheSubmittedImageAndIdentityInItsOwnTranscript(string prompt, bool embeddedContext) {
+		await using var fixture = AcpAgentSessionFixture.CreateWithEmbeddedContext(embeddedContext);
 		await fixture.StartAsync();
 		string path = Path.Combine(fixture.Workspace, "attachment.png");
 		await File.WriteAllBytesAsync(path, [0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
@@ -27,12 +28,20 @@ public sealed class AcpSideAttachmentTests {
 		Assert.Equal(path, image.Text);
 		Assert.Equal(completed.ConversationId, image.ConversationId);
 		Assert.Equal("end_turn", completed.Status);
+		var request = Assert.Single(AcpPromptAssertions.Read(fixture));
+		AcpPromptAssertions.SideScope(request, prompt);
+		var wireImage = Assert.Single(AcpPromptAssertions.Blocks(request),
+			block => block.GetProperty("type").GetString() == "image");
+		Assert.Equal("image/png", wireImage.GetProperty("mimeType").GetString());
+		Assert.Equal(Convert.ToBase64String(await File.ReadAllBytesAsync(path)),
+			wireImage.GetProperty("data").GetString());
 		if (prompt.Length > 0) {
 			var question = Assert.Single(fixture.Messages, message => message.Type == "user-message");
 			Assert.Equal("side-submission", question.ItemId);
+			Assert.Equal(prompt, question.Text);
 			Assert.Equal(completed.ConversationId, question.ConversationId);
 			Assert.Contains(fixture.Messages, message => message.Type == "item-completed"
 				&& message.Text == "image=True" && message.ConversationId == completed.ConversationId);
-		}
+		} else Assert.DoesNotContain(fixture.Messages, message => message.Type == "user-message");
 	}
 }

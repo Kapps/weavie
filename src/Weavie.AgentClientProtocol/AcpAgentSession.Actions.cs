@@ -355,6 +355,9 @@ public sealed partial class AcpAgentSession {
 		if (includesGuidance) {
 			lock (_gate) _guidanceSent = true;
 		}
+		if (_role is SideRole) {
+			blocks.Add(new { type = "text", text = EmbeddedAgentGuidance.SideConversationInstructions });
+		}
 
 		return [.. blocks];
 	}

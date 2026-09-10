@@ -6,21 +6,27 @@ public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
 
 	/// <inheritdoc/>
-	public void AskAside(string prompt) {
-		prompt = RequiredSidePrompt(prompt);
+	public void AskAside(AgentTurnSubmission submission) {
+		ArgumentNullException.ThrowIfNull(submission);
+		if (submission.Kind != AgentTurnSubmissionKind.Prompt || submission.CommandName.Length != 0) {
+			throw new ArgumentException("A side question must be an ordinary prompt.", nameof(submission));
+		}
+		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
+			throw new ArgumentException("Write a side question or attach an image.", nameof(submission));
+		}
 		lock (_turnTransitionGate) {
 			SideRuntime runtime;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
 				EnsureSideConversationSupport();
-				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, prompt);
+				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
 				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
 				_sideRuntimes.Add(conversation.ConversationId, runtime);
 			}
-			Emit(SideMarker(runtime.Conversation, "forking"));
+			runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
 			try {
 				runtime.Session.Start();
-				runtime.Session.Submit(SideTurn(prompt));
+				runtime.Session.Submit(submission);
 			} catch (Exception error) {
 				runtime.Session.FailConversationSerialized(error);
 			}
@@ -35,10 +41,19 @@ public sealed partial class AcpAgentSession {
 			SideRuntime runtime;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
-				runtime = _sideRuntimes.GetValueOrDefault(conversationId)
-					?? throw new InvalidOperationException("That side conversation is no longer available.");
+				_sideRuntimes.TryGetValue(conversationId, out runtime!);
+				var state = _sideConversations.GetValueOrDefault(conversationId);
+				if (runtime is null && (state is null || state.Failed || state.SessionId is null)) {
+					throw new InvalidOperationException("That side conversation is no longer available.");
+				}
 				EnsureSideConversationSupport();
+				if (runtime is null) {
+					runtime = CreateSideRuntime(new(state!.ConversationId, state.AnchorTurnNumber, state.InitialPrompt), state.GuidanceSent, _activeGeneration);
+					runtime.Session.RestoreContinuation(state);
+					_sideRuntimes.Add(conversationId, runtime);
+				}
 			}
+			runtime.Session.Start();
 			runtime.Session.Submit(SideTurn(prompt));
 		}
 	}
@@ -106,9 +121,7 @@ public sealed partial class AcpAgentSession {
 	private sealed record SideConversation(
 		string ConversationId,
 		long AnchorTurnNumber,
-		string InitialPrompt) {
-		public long LocalTurnNumber { get; set; }
-	}
+		string InitialPrompt);
 
 	private sealed class SideRuntime(AcpAgentSession session, SideConversation conversation) {
 		public SideConversation Conversation { get; } = conversation;

@@ -1,6 +1,8 @@
 .weavie-misspelling {
   text-decoration-line: underline;
   text-decoration-style: dotted;
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-decoration-color: var(--weavie-editorSpellCheck-foreground);
+  text-decoration-thickness: 2px;
+  text-decoration-skip-ink: none;
   text-underline-offset: 3px;
 }

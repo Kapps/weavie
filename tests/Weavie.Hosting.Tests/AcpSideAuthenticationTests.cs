@@ -11,7 +11,7 @@ public sealed class AcpSideAuthenticationTests {
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 		var starts = fixture.Events.Values.OfType<AgentSessionStarted>().ToHashSet(ReferenceEqualityComparer.Instance);
-		fixture.Session.AskAside("side prompt must not replay");
+		fixture.AskAside("side prompt must not replay");
 		var authentication = await fixture.WaitForMessageAsync(message =>
 			message.Type == "authentication-requested" && message.ConversationId is not null);
 

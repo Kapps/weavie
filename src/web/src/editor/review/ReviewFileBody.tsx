@@ -1,4 +1,12 @@
-import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import {
+  type Accessor,
+  batch,
+  createEffect,
+  createSignal,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
@@ -100,29 +108,32 @@ export function ReviewFileBody(props: {
         if (dropped || token !== resolution || mount === undefined) return;
         const latest = diff();
         if (latest === null || !hasReviewChanges(latest)) return;
-        liveExists = latest.currentExists;
-        live = createReviewEditor({
-          session: props.session,
-          tab: props.tab,
-          scope: props.scope,
-          container: mount,
-          scroller: props.scroller(),
-          header: props.header(),
-          model: copy.model,
-          editable: copy.editable,
-          diff: latest,
-          onHeight: (height) => {
-            props.onEditorHeight(height);
-            props.measure();
-          },
-          onPainted: publish,
-          active: props.active,
-          toolbarHost: () => (props.active() ? props.toolbarHost() : null),
-          configure: props.configureDiff,
-          onReveal: props.onReveal,
-          onCursor: props.onCursor,
+        const container = mount;
+        batch(() => {
+          liveExists = latest.currentExists;
+          live = createReviewEditor({
+            session: props.session,
+            tab: props.tab,
+            scope: props.scope,
+            container,
+            scroller: props.scroller(),
+            header: props.header(),
+            model: copy.model,
+            editable: copy.editable,
+            diff: latest,
+            onHeight: (height) => {
+              props.onEditorHeight(height);
+              props.measure();
+            },
+            onPainted: publish,
+            active: props.active,
+            toolbarHost: () => (props.active() ? props.toolbarHost() : null),
+            configure: props.configureDiff,
+            onReveal: props.onReveal,
+            onCursor: props.onCursor,
+          });
+          setMounted(live);
         });
-        setMounted(live);
       },
       (error: unknown) => {
         if (!dropped && token === resolution) {

@@ -10,7 +10,7 @@ public sealed class AcpRecoveryTests {
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 		string? sessionId = fixture.Sessions.Resolve("fake", fixture.Workspace);
-		fixture.Session.AskAside("malformed-update");
+		fixture.AskAside("malformed-update");
 		await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-failed");
 
 		fixture.Submit("primary still works");
@@ -28,7 +28,7 @@ public sealed class AcpRecoveryTests {
 	public async Task PrimaryDisposalDoesNotWaitForAChildCloseResponse() {
 		await using var fixture = AcpAgentSessionFixture.CreateHeldCloseAdapter();
 		await fixture.StartAsync();
-		fixture.Session.AskAside("hello");
+		fixture.AskAside("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is not null);
 
 		await fixture.Session.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));

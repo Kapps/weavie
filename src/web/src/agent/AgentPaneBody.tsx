@@ -121,7 +121,7 @@ export function AgentPaneBody(props: {
     onChange: (_instance, sync) => virtualizerChanged(sync),
     overscan: 4,
     scrollToFn: (offset, options, instance) => {
-      virtualizerScroll(scrollVirtualElement(offset, options, instance));
+      virtualizerScroll(scrollVirtualElement(offset, options, instance, () => {}));
     },
   });
   const wheel = createAgentPaneWheel(

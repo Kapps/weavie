@@ -33,6 +33,8 @@ internal sealed class TestHost : IAsyncDisposable {
 	internal const string TestPageId = "test-page";
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly TempDirectory _temp;
+	public AcpSessionStore AcpSessions => _services.AcpSessions;
+
 	private readonly HostServices _services;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
@@ -594,6 +596,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AcpAgents = acpAgents,
+			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),
 			Inference = inferenceFor(settings),
 			RemoteAgents = remoteAgents,
 			RailState = railState,

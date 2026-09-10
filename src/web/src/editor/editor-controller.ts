@@ -258,14 +258,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
     });
   };
-  const trackActivation = <T>(session: ClientSession, activation: Promise<T>): Promise<T> => {
+  const trackActivation = <T>(
+    session: ClientSession,
+    signal: AbortSignal,
+    activation: Promise<T>,
+  ): Promise<T> => {
     pendingActivations.set(session, activation);
     const settled = (): void => {
+      signal.removeEventListener("abort", settled);
       if (pendingActivations.get(session) === activation) {
         pendingActivations.delete(session);
         scheduleReconciliation(session);
       }
     };
+    if (signal.aborted) settled();
+    else signal.addEventListener("abort", settled, { once: true });
     void activation.then(settled, settled);
     return activation;
   };
@@ -349,13 +356,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     result: ActivateResult,
   ): Promise<TextEditorConnection | undefined> => {
-    if (selectedSession() !== session || host === undefined) return Promise.resolve(undefined);
+    if (selectedSession() !== session) return Promise.resolve(undefined);
     const tab = tabOwnerFor(session, result.path);
     if (tab === undefined) return Promise.resolve(undefined);
     deps.onCurrentFileChanged(isFileTab(tab.entry) ? tab.entry.path : null);
     const signal = navigation.signal(session);
     return trackActivation(
       session,
+      signal,
       (async () => {
         const presenter = await tab.wait(signal);
         const validity = AbortSignal.any([signal, presenter.signal]);
@@ -417,7 +425,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       preview,
       scratch,
     });
-    if (foreground && host !== undefined) {
+    if (foreground) {
       presentTab(session, result);
     }
   };
@@ -444,13 +452,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     path: string,
     selection: monaco.IRange | undefined,
     preview: boolean,
+    target: "source" | "file",
     origin: TextLocation | undefined,
   ): Promise<TextEditorConnection | undefined> => {
     if (!editorContexts.displayed(source) || selectedSession() !== source.session) return undefined;
     const { session } = source;
     if (origin !== undefined) source.restore(origin);
     navigation.depart(session);
-    if (origin !== undefined && samePath(origin.path, path)) {
+    if (
+      origin !== undefined &&
+      samePath(origin.path, path) &&
+      (target === "source" || isFileTab(source.tab.entry))
+    ) {
       if (selection !== undefined) {
         source.editor.setSelection(selection);
         source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
@@ -475,7 +488,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       origin,
       suspendHistory: () => navHistoryFor(connection.session).suspend(),
       commit: (origin, symbol) => {
-        void navigateFrom(connection, symbol.path, symbol.range, false, origin);
+        void navigateFrom(connection, symbol.path, symbol.range, false, "source", origin);
       },
     });
   };
@@ -598,7 +611,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         deps.onSaveError,
         deps.onOpenError,
         ({ path, selection, source }) =>
-          navigateFrom(source, path, selection, true, source.capture()),
+          navigateFrom(source, path, selection, true, "file", source.capture()),
       ),
     );
     const initDeadline = new Promise<never>((_, reject) => {
@@ -655,8 +668,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         container.setAttribute("data-ready", "true");
         editorMounted = true;
         const session = selectedSession();
-        if (session !== null) {
+        if (session !== null && !pendingActivations.has(session)) {
           await rebindSession(session);
+        } else if (session !== null) {
+          renderReviewState(session);
         }
         // Reflect whatever file the editor ended up showing (replayed pending-open or hot-reload restore).
         const model = created.editor.getModel();

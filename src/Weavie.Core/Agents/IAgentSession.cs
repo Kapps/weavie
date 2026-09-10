@@ -70,14 +70,14 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
 	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
-	/// <summary>Raised when provider resume supplies a complete authoritative transcript replacement.</summary>
+	/// <summary>Restores the complete display journal, including all side conversations.</summary>
 	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
 }
 
 /// <summary>Context-preserving side conversations owned by one structured agent session.</summary>
 public interface IStructuredAgentSideConversations {
 	/// <summary>Forks the current context and asks a question outside the primary transcript.</summary>
-	void AskAside(string prompt);
+	void AskAside(AgentTurnSubmission submission);
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, string prompt);

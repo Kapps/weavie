@@ -17,23 +17,40 @@ async function expectBoundedEditor(section: Locator, scroller: Locator): Promise
   await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(100);
 }
 
-async function expectUnobscuredLine(section: Locator, line: Locator): Promise<void> {
+async function expectUnobscuredLine(line: Locator): Promise<void> {
   await expect(line).toBeInViewport();
   await expect
-    .poll(async () => {
-      const header = await section.locator(".unified-review-file-header").boundingBox();
-      const toolbar = await section.page().locator(".weavie-inline-toolbar").boundingBox();
-      const bounds = await line.boundingBox();
-      if (header === null || toolbar === null || bounds === null) {
-        throw new Error("review line, header, or toolbar is missing");
-      }
-      return Math.min(bounds.y - header.y - header.height, toolbar.y - bounds.y - bounds.height);
-    })
-    .toBeGreaterThanOrEqual(0);
+    .poll(() =>
+      line.evaluate((element) => {
+        const header = element
+          .closest(".unified-review-file")
+          ?.querySelector(".unified-review-file-header")
+          ?.getBoundingClientRect();
+        const toolbar = document.querySelector(".weavie-inline-toolbar")?.getBoundingClientRect();
+        const bounds = element.getBoundingClientRect();
+        const clearance =
+          header === undefined || toolbar === undefined
+            ? null
+            : Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
+        return { clearance, unobscured: clearance !== null && clearance >= 0 };
+      }),
+    )
+    .toMatchObject({ unobscured: true });
 }
 
 test.describe("Review Changes tab — large addition", () => {
+  const workerRequested = Promise.withResolvers<void>();
+  const releaseWorker = Promise.withResolvers<void>();
   test.use({
+    preNavigate: {
+      run: async (page) => {
+        await page.route(/\/assets\/editor\.worker-[^/]+\.js$/, async (route) => {
+          workerRequested.resolve();
+          await releaseWorker.promise;
+          await route.continue();
+        });
+      },
+    },
     fakeScript: {
       steps: appliedEdit(
         "large-review.txt",
@@ -49,18 +66,29 @@ test.describe("Review Changes tab — large addition", () => {
     await page.locator(".editor-empty-review").click();
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
+    const lastLine = section.locator(".view-line", { hasText: "new line 3999" });
+    const newFileBand = section.locator(".weavie-inline-newfile-tag");
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expectBoundedEditor(section, scroller);
-    await expect(section.locator(".view-line", { hasText: "new line 3999" })).toHaveCount(0);
+    await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
+    // Failed deterministically on macOS CI both times it has run — 2026-09-09 06:06 UTC (run 34317635773)
+    // and 16:07 UTC (run 34374758357), never once passed on macOS, always passes on Linux. Not flaky: both
+    // failures are byte-identical 30s toBeInViewport timeouts here. Investigated the reveal()/layout()
+    // feedback loop in review-editor-viewport.ts and ruled out several candidate mechanisms (content/scroll
+    // height divergence, the scroll listener's missing `syncing` guard, content-size-driven re-layout) by
+    // tracing the actual code paths — none of them explain it under closer inspection. No verified fix
+    // without a macOS runner to reproduce against; needs `playwright show-trace` on one of the runs' trace.zip.
     await page.keyboard.press("ControlOrMeta+End");
-    await expectUnobscuredLine(
-      section,
-      section.locator(".view-line", { hasText: "new line 3999" }),
-    );
+    await workerRequested.promise;
+    await expectUnobscuredLine(lastLine);
     await expectBoundedEditor(section, scroller);
+    await expect(newFileBand).toHaveCount(0);
+    releaseWorker.resolve();
+    await expect(newFileBand).toHaveText("New file");
+    await expectUnobscuredLine(lastLine);
     await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);
@@ -84,11 +112,10 @@ test.describe("Review Changes tab — large addition", () => {
       )
       .toBeLessThanOrEqual(1);
     await expectUnobscuredLine(
-      section,
       section.locator(".view-line", { hasText: "new line 3999 edited at the end" }),
     );
     await page.keyboard.press("ControlOrMeta+Home");
-    await expectUnobscuredLine(section, firstLine);
+    await expectUnobscuredLine(firstLine);
     await expectBoundedEditor(section, scroller);
     const left = await firstLine.evaluate((element) => element.getBoundingClientRect().left);
     await firstLine.hover({ position: { x: 10, y: 10 } });
@@ -150,10 +177,7 @@ test.describe("Review Changes tab — large replacement", () => {
       await expect(ghost).toContainText("old line 3999");
       await expect.poll(renderedGhostLines).toBeLessThan(100);
       await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-      await expectUnobscuredLine(
-        section,
-        section.locator(".view-line", { hasText: "new line 3999" }),
-      );
+      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
       await expectBoundedEditor(section, scroller);
       if (reviewed) {
         await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();
@@ -214,10 +238,7 @@ test.describe("Review Changes tab — large separated changes", () => {
     await scroller.hover();
     await page.mouse.wheel(0, 200_000);
     await expect(counter).toContainText("change 2/2");
-    await expectUnobscuredLine(
-      section,
-      section.locator(".view-line", { hasText: "new line 3999" }),
-    );
+    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
     await toolbar.locator(".weavie-inline-accept").click();
     await expect(counter).toContainText("change 1/1");
     await expect

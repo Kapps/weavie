@@ -141,6 +141,12 @@ public sealed class TurnKeepTests {
 		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
 
+	// Flaked in CI 2026-09-09 (https://github.com/Kapps/weavie/actions/runs/34341764867/job/102433941701):
+	// Assert.Null() on the post-Clear "review changes" event saw a non-null payload. Root cause: this test (unlike
+	// its siblings) never awaited FileActivity.DrainAsync after RecordChange, so the async FileChanged fact from
+	// AddPendingFile/RecordChange could still be in flight through HostCore's review-refresh pipeline when
+	// Bridge.Clear() ran, occasionally landing after it. Fixed by draining before Clear(), matching every other
+	// test in this file.
 	[Fact]
 	public async Task NewPrompt_PreservesFadedBandAndUndoWithoutResetPushes() {
 		await using var host = await TestHost.StartAsync();
@@ -151,6 +157,7 @@ public sealed class TurnKeepTests {
 		session.Changes.CaptureBaseline(path);
 		File.WriteAllText(path, "hello\nworld\n");
 		session.Changes.RecordChange(path);
+		await session.FileActivity.DrainAsync(CancellationToken.None);
 		host.SessionEvent(session, "review", "keepFile", new { path });
 		Assert.Equal(2, session.Changes.TurnChanges().Count);
 

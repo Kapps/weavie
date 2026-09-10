@@ -7,6 +7,7 @@ import {
   For,
   type JSX,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
@@ -276,7 +277,15 @@ export function UnifiedReview(props: {
 
   const followViewport = (): void => {
     programmaticSelection = false;
+    surface.takeControl();
   };
+  onMount(() => {
+    const element = scroller!;
+    for (const event of ["keydown", "pointerdown", "wheel"]) {
+      element.addEventListener(event, followViewport, true);
+      onCleanup(() => element.removeEventListener(event, followViewport, true));
+    }
+  });
   const measure = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
@@ -300,9 +309,6 @@ export function UnifiedReview(props: {
         class="unified-review-diffs"
         ref={scroller}
         tabIndex={-1}
-        onKeyDown={followViewport}
-        onPointerDown={followViewport}
-        onWheel={followViewport}
         onScroll={() => {
           if (!programmaticSelection) {
             const row = virtualizer.getVirtualItemForOffset(scroller!.scrollTop);

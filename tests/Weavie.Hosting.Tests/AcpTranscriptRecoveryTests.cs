@@ -16,7 +16,7 @@ public sealed class AcpTranscriptRecoveryTests {
 		await fixture.StartAsync();
 		fixture.Submit("hold");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-started" && message.ItemId == "tool:hold");
-		fixture.Session.AskAside("hold");
+		fixture.AskAside("hold");
 		var side = await fixture.WaitForMessageAsync(message => message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
 		string parentId = Assert.IsType<string>(fixture.Sessions.Resolve("fake", fixture.Workspace));
 		using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = fixture.Sessions.FilePath, Pooling = false }.ToString());

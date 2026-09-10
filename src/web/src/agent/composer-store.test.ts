@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 
 const bridge = vi.hoisted(() => ({
+  invokeCommand: vi.fn(),
   installers: new Set<(session: ClientSession) => undefined | (() => void)>(),
   sessions: new Map<
     string,
@@ -30,6 +31,7 @@ vi.stubGlobal("window", {
 });
 
 vi.mock("../bridge", () => ({
+  invokeCommandInSession: bridge.invokeCommand,
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
     bridge.installers.add(installer);
     return () => {};
@@ -87,6 +89,7 @@ describe("agent composer attachments", () => {
   beforeEach(() => {
     bridge.posted.length = 0;
     drafts.clear();
+    bridge.invokeCommand.mockReset();
   });
 
   it("captures the backend and blocks submission until the remote upload is ready", async () => {
@@ -166,6 +169,86 @@ describe("agent composer attachments", () => {
       error: "",
     });
     expect(store.composerState(session).attachments).toHaveLength(1);
+  });
+
+  it("keeps an aside draft and images through upload and rejection, then claims only its accepted images", async () => {
+    const session = owner("remote-aside", "slot-aside");
+    store.setComposerDraft(session, "/btw describe it");
+    store.captureAgentImagePaste(
+      pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
+      session,
+    );
+    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    await flushAsyncWork();
+    const attachmentId = store.composerState(session).attachments[0]!.id;
+    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    expect(bridge.invokeCommand).not.toHaveBeenCalled();
+    deliver("remote-aside", "slot-aside", "attachmentState", {
+      id: attachmentId,
+      status: "ready",
+      error: "",
+    });
+    bridge.invokeCommand.mockResolvedValueOnce({ ok: false, error: "Fork unavailable" });
+    expect(store.submitAgentAside(session, "describe it")).toBe(true);
+    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    expect(store.composerState(session).draft).toBe("/btw describe it");
+    expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
+      question: "describe it",
+      submissionId: expect.any(String),
+      attachmentIds: [attachmentId],
+    });
+    await flushAsyncWork();
+    expect(store.composerState(session)).toMatchObject({
+      draft: "/btw describe it",
+      submittingId: null,
+      error: "Fork unavailable",
+    });
+    expect(store.composerState(session).attachments).toHaveLength(1);
+
+    const other = owner("remote-aside", "other-slot");
+    store.setComposerDraft(other, "keep this draft");
+    bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
+    expect(store.submitAgentAside(session, "describe it")).toBe(true);
+    store.captureAgentImagePaste(
+      pasteEvent(new Blob([new Uint8Array([2])], { type: "image/png" })),
+      session,
+    );
+    await flushAsyncWork();
+    expect(store.composerState(session)).toMatchObject({
+      draft: "",
+      submittingId: null,
+      error: null,
+    });
+    expect(store.composerState(session).attachments).toHaveLength(1);
+    expect(store.composerState(session).attachments[0]!.id).not.toBe(attachmentId);
+    expect(store.composerState(other).draft).toBe("keep this draft");
+  });
+
+  it("accepts an image-only aside and rejects an empty aside", async () => {
+    const session = owner("image-only", "aside");
+    store.setComposerDraft(session, "/btw");
+    expect(store.submitAgentAside(session, "")).toBe(false);
+    expect(store.composerState(session).error).toContain("attach an image");
+    store.captureAgentImagePaste(
+      pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
+      session,
+    );
+    await flushAsyncWork();
+    const attachmentId = store.composerState(session).attachments[0]!.id;
+    deliver("image-only", "aside", "attachmentState", {
+      id: attachmentId,
+      status: "ready",
+      error: "",
+    });
+    bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
+    expect(store.submitAgentAside(session, "")).toBe(true);
+    await flushAsyncWork();
+    expect(store.composerState(session).attachments).toHaveLength(0);
+    expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
+      question: "",
+      submissionId: expect.any(String),
+      attachmentIds: [attachmentId],
+    });
   });
 
   it("restores a draft into a new session incarnation for the same backend and slot", () => {

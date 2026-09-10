@@ -1,6 +1,62 @@
 import { createAcpSession } from "../harness/acp-session";
 import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { pastePng } from "../harness/pasted-image";
+
+for (const { primaryRunning, prompt } of [
+  { primaryRunning: false, prompt: "image" },
+  { primaryRunning: true, prompt: "image" },
+  { primaryRunning: false, prompt: "" },
+]) {
+  test(`BTW sends ${prompt ? "pasted images" : "an image-only prompt"} ${primaryRunning ? "while the primary runs" : "before the primary starts"}`, async ({
+    page,
+  }) => {
+    const surface = await createAcpSession(page, `acp-side-image-${primaryRunning}`);
+    const composer = surface.locator("[data-agent-composer] textarea");
+    if (primaryRunning) {
+      await composer.fill("hold");
+      await composer.press("Enter");
+      await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+    }
+
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const context = canvas.getContext("2d");
+      if (context === null) throw new Error("Canvas is unavailable");
+      context.fillStyle = "#e35d37";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await pastePng(composer, png);
+    await expect(surface.locator(".agent-attachment")).toHaveAttribute("title", "ready");
+    await composer.fill(`/btw ${prompt}`);
+    await composer.press("Enter");
+
+    const aside = surface.locator(".agent-aside");
+    await expect(aside).toContainText(prompt ? "image=True" : "echo:");
+    const image = aside.locator(".agent-entry-media");
+    await expect(image).toBeVisible();
+    await expect(image).toHaveJSProperty("naturalWidth", 64);
+    await expect(image).toHaveAttribute("src", `data:image/png;base64,${png}`);
+    await expect(surface.locator(".agent-attachment")).toHaveCount(0);
+    await expect(composer).toHaveValue("");
+
+    if (primaryRunning) {
+      await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+      await composer.fill("finish primary independently");
+      await composer.press("Enter");
+      await expect(surface).toContainText("steered: finish primary independently");
+      await expect(surface.locator(".agent-working")).toHaveCount(0);
+    }
+    await composer.fill("image");
+    await composer.press("Enter");
+    await expect(surface).toContainText("image=False");
+    await expect(aside).not.toContainText("image=False");
+    await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
+  });
+}
 
 test("multiple BTW threads overlap the primary and route independent replies", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-concurrent-sides");

@@ -27,18 +27,30 @@ async function expectUnobscuredLine(line: Locator): Promise<void> {
           ?.querySelector(".unified-review-file-header")
           ?.getBoundingClientRect();
         const toolbar = document.querySelector(".weavie-inline-toolbar")?.getBoundingClientRect();
-        if (header === undefined || toolbar === undefined) {
-          throw new Error("review header or toolbar is missing");
-        }
         const bounds = element.getBoundingClientRect();
-        return Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
+        const clearance =
+          header === undefined || toolbar === undefined
+            ? null
+            : Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
+        return { clearance, unobscured: clearance !== null && clearance >= 0 };
       }),
     )
-    .toBeGreaterThanOrEqual(0);
+    .toMatchObject({ unobscured: true });
 }
 
 test.describe("Review Changes tab — large addition", () => {
+  const workerRequested = Promise.withResolvers<void>();
+  const releaseWorker = Promise.withResolvers<void>();
   test.use({
+    preNavigate: {
+      run: async (page) => {
+        await page.route(/\/assets\/editor\.worker-[^/]+\.js$/, async (route) => {
+          workerRequested.resolve();
+          await releaseWorker.promise;
+          await route.continue();
+        });
+      },
+    },
     fakeScript: {
       steps: appliedEdit(
         "large-review.txt",
@@ -54,15 +66,22 @@ test.describe("Review Changes tab — large addition", () => {
     await page.locator(".editor-empty-review").click();
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
+    const lastLine = section.locator(".view-line", { hasText: "new line 3999" });
+    const newFileBand = section.locator(".weavie-inline-newfile-tag");
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expectBoundedEditor(section, scroller);
-    await expect(section.locator(".view-line", { hasText: "new line 3999" })).toHaveCount(0);
+    await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await page.keyboard.press("ControlOrMeta+End");
-    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
+    await workerRequested.promise;
+    await expectUnobscuredLine(lastLine);
     await expectBoundedEditor(section, scroller);
+    await expect(newFileBand).toHaveCount(0);
+    releaseWorker.resolve();
+    await expect(newFileBand).toHaveText("New file");
+    await expectUnobscuredLine(lastLine);
     await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);

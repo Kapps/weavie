@@ -24,6 +24,7 @@ import {
   removeComposerAttachment,
   setComposerDraft,
   setComposerError,
+  submitAgentAside,
   submitAgentTurn,
   uploadAgentImage,
 } from "./composer-store";
@@ -86,7 +87,8 @@ export function AgentComposer(props: {
     }
     if (props.session === null || state.submittingId !== null) return false;
     const slash = agentControlState(props.session).slash;
-    if (weavieCommandForDraft(slash, state.draft) !== null) return true;
+    const command = weavieCommandForDraft(slash, state.draft);
+    if (command !== null && command.commandId !== CommandIds.askAgentAside) return true;
     if (providerCommandForDraft(slash, state.draft) !== null) return true;
     return (
       state.attachments.every((attachment) => attachment.status === "ready") &&
@@ -233,6 +235,12 @@ export function AgentComposer(props: {
     const weavieCommand = weavieCommandForDraft(slash, composer().draft);
     if (weavieCommand?.kind === "weavieCommand") {
       const input = weavieCommandInput(weavieCommand, composer().draft);
+      if (weavieCommand.commandId === CommandIds.askAgentAside) {
+        if (!submitAgentAside(session, input ?? "")) return false;
+        setHistoryCursor(IDLE_CURSOR);
+        props.onSubmitted();
+        return true;
+      }
       if (weavieCommand.inputName !== null && input === null) {
         setComposerError(
           session,

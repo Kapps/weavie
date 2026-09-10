@@ -7,6 +7,24 @@ import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 import { pastePng } from "../harness/pasted-image";
 
+type PromptBlock = {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  annotations?: { audience: string[] };
+  resource?: { uri: string; text: string };
+};
+
+async function wirePrompts(
+  statePath: string,
+): Promise<{ parameters: { sessionId: string; prompt: PromptBlock[] } }[]> {
+  return (await readFile(join(statePath, "wire-prompts.jsonl"), "utf8"))
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line));
+}
+
 const selectedEditors = new WeakSet<Page>();
 test.use({
   preNavigate: {
@@ -64,7 +82,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await composer.press("Enter");
   await expect(surface.locator(".agent-tone-assistant")).toContainText("echo: Keep my XML:");
   await expect(userText).toHaveText(prompt);
-  const image = surface.locator(".agent-entry-media");
+  const image = surface.locator(".agent-entry-media").first();
   await expect(image).toHaveAttribute("src", ZOOM_IMAGE_SRC);
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(image).toHaveJSProperty("naturalHeight", 80);
@@ -81,13 +99,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
     join(weavie.home, ".weavie", "fake-acp-state", "session-transcript-fake-session.log"),
     "utf8",
   );
-  const blocks: {
-    type: string;
-    data?: string;
-    mimeType?: string;
-    annotations?: { audience: string[] };
-    resource?: { uri: string; text: string };
-  }[] = JSON.parse(transcript);
+  const blocks: PromptBlock[] = JSON.parse(transcript);
   expect(blocks.find((block) => block.type === "image")).toMatchObject({
     mimeType: "image/png",
     data: encodedImage,
@@ -102,10 +114,16 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   expect(context[1]?.resource?.uri).toContain("#selection");
   expect(context[1]?.resource?.text).toContain("just plain text");
 
+  await pastePng(composer, encodedImage);
+  await expect(surface.locator(".agent-attachment")).toHaveAttribute("title", "ready");
   await composer.fill("/btw side question before reopening");
   await composer.press("Enter");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("echo: side question before reopening");
+  const sideImage = aside.locator(".agent-entry-media");
+  await expect(sideImage).toHaveAttribute("src", ZOOM_IMAGE_SRC);
+  await expect(sideImage).toHaveJSProperty("naturalWidth", 200);
+  await expect(surface.locator(".agent-attachment")).toHaveCount(0);
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
   await reply.fill("identify-session");
@@ -115,6 +133,23 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   const fork = forks.trim().split("->");
   expect(fork).toHaveLength(2);
   const childId = fork[1]!;
+  const initialSide = (await wirePrompts(statePath)).find(
+    (request) => request.parameters.sessionId === childId,
+  )!.parameters.prompt;
+  const scope = initialSide.find(
+    (block) => block.type === "text" && block.annotations?.audience.includes("assistant"),
+  );
+  expect(scope).toMatchObject({
+    text: expect.any(String),
+    annotations: { audience: ["assistant"] },
+  });
+  const reminder = scope!.text!;
+  expect(reminder).not.toBe("");
+  expect(initialSide.find((block) => block.type === "image")).toMatchObject({
+    mimeType: "image/png",
+    data: encodedImage,
+  });
+  await expect(surface).not.toContainText(reminder);
   const identity = aside.locator(".agent-tone-assistant", { hasText: `session: ${childId}` });
   await expect(identity).toHaveCount(1);
   await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
@@ -135,6 +170,10 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await expect(image).toHaveAttribute("src", ZOOM_IMAGE_SRC);
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(image).toHaveJSProperty("naturalHeight", 80);
+  await expect(sideImage).toHaveAttribute("src", ZOOM_IMAGE_SRC);
+  await expect(sideImage).toHaveJSProperty("naturalWidth", 200);
+  await expect(sideImage).toHaveJSProperty("naturalHeight", 80);
+  await expect(surface).not.toContainText(reminder);
   await expect(surface).not.toContainText("data:image/");
   await expect(surface).not.toContainText("You are running embedded in Weavie");
   await expect(surface).not.toContainText("#selection");
@@ -161,6 +200,16 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   const main = surface.locator(".agent-transcript > .agent-virtual-row > .agent-entry-message");
   await expect(main.filter({ hasText: "side continues independently" })).toHaveCount(0);
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
+  await expect(surface).not.toContainText(reminder);
+  const requests = await wirePrompts(statePath);
+  const sideRequests = requests.filter((request) => request.parameters.sessionId === childId);
+  expect(sideRequests).toHaveLength(4);
+  for (const request of sideRequests) {
+    expect(request.parameters.prompt.filter((block) => block.text === reminder)).toEqual([scope]);
+  }
+  for (const request of requests.filter((request) => request.parameters.sessionId === fork[0])) {
+    expect(request.parameters.prompt.some((block) => block.text === reminder)).toBe(false);
+  }
   expect(await readFile(join(statePath, "forks.log"), "utf8")).toBe(forks);
   const loads = (await readFile(join(statePath, "loads.log"), "utf8")).trim().split(/\r?\n/);
   expect(loads.filter((id) => id === fork[0])).toHaveLength(1);

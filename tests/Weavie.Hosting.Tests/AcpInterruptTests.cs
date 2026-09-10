@@ -67,7 +67,7 @@ public sealed class AcpInterruptTests {
 	public async Task InterruptPreservesQueuedRepliesToAnActiveSideConversation() {
 		await using var fixture = AcpAgentSessionFixture.CreateWithoutSteeringAdapter();
 		await fixture.StartAsync();
-		fixture.Session.AskAside("hold");
+		fixture.AskAside("hold");
 		var held = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		string conversationId = Assert.IsType<string>(held.ConversationId);
 		fixture.Session.ReplyAside(conversationId, "queued side reply");

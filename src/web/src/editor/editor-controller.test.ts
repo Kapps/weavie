@@ -24,7 +24,7 @@ vi.mock("../bridge", () => ({
 
 vi.stubGlobal("location", { search: "" });
 vi.stubGlobal("window", {});
-const { activePathFor, openTabsFor } = await import("./session-store");
+const { activePathFor, openTabsFor, tabOwnerFor } = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
 
 interface FakeFeature {
@@ -90,6 +90,35 @@ function dependencies(confirm: EditorControllerDeps["confirm"]): EditorControlle
     promptScratchName: () => Promise.resolve(null),
   };
 }
+
+it("the latest reveal retains its placement while the editor has not initialized", async () => {
+  const session = fakeSession("pending-reveal");
+  env.selected = session;
+  const onOpenError = vi.fn();
+  const controller = createEditorController({
+    ...dependencies(() => Promise.resolve(true)),
+    onOpenError,
+  });
+  for (const install of env.installers) install(session);
+
+  controller.openFile("/work/sample.txt", 7);
+  controller.openFile("/work/sample.txt", 3);
+  const restore = vi.fn(async () => {});
+  const tab = tabOwnerFor(session, "/work/sample.txt");
+  if (tab === undefined) throw new Error("The reveal must open a tab.");
+  tab.mount({
+    text: true,
+    capture: () => ({ state: null, text: null }),
+    restore,
+    focus: () => {},
+    actions: () => undefined,
+  });
+
+  await vi.waitFor(() =>
+    expect(restore).toHaveBeenCalledExactlyOnceWith({ line: 3 }, expect.any(AbortSignal)),
+  );
+  expect(onOpenError).not.toHaveBeenCalled();
+});
 
 it("reverts an unfocused review board through its exact session", async () => {
   const selected = fakeSession("selected");

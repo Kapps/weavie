@@ -258,14 +258,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
     });
   };
-  const trackActivation = <T>(session: ClientSession, activation: Promise<T>): Promise<T> => {
+  const trackActivation = <T>(
+    session: ClientSession,
+    signal: AbortSignal,
+    activation: Promise<T>,
+  ): Promise<T> => {
     pendingActivations.set(session, activation);
     const settled = (): void => {
+      signal.removeEventListener("abort", settled);
       if (pendingActivations.get(session) === activation) {
         pendingActivations.delete(session);
         scheduleReconciliation(session);
       }
     };
+    if (signal.aborted) settled();
+    else signal.addEventListener("abort", settled, { once: true });
     void activation.then(settled, settled);
     return activation;
   };
@@ -349,13 +356,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     result: ActivateResult,
   ): Promise<TextEditorConnection | undefined> => {
-    if (selectedSession() !== session || host === undefined) return Promise.resolve(undefined);
+    if (selectedSession() !== session) return Promise.resolve(undefined);
     const tab = tabOwnerFor(session, result.path);
     if (tab === undefined) return Promise.resolve(undefined);
     deps.onCurrentFileChanged(isFileTab(tab.entry) ? tab.entry.path : null);
     const signal = navigation.signal(session);
     return trackActivation(
       session,
+      signal,
       (async () => {
         const presenter = await tab.wait(signal);
         const validity = AbortSignal.any([signal, presenter.signal]);
@@ -417,7 +425,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       preview,
       scratch,
     });
-    if (foreground && host !== undefined) {
+    if (foreground) {
       presentTab(session, result);
     }
   };
@@ -660,8 +668,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         container.setAttribute("data-ready", "true");
         editorMounted = true;
         const session = selectedSession();
-        if (session !== null) {
+        if (session !== null && !pendingActivations.has(session)) {
           await rebindSession(session);
+        } else if (session !== null) {
+          renderReviewState(session);
         }
         // Reflect whatever file the editor ended up showing (replayed pending-open or hot-reload restore).
         const model = created.editor.getModel();

@@ -6,21 +6,27 @@ public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
 
 	/// <inheritdoc/>
-	public void AskAside(string prompt) {
-		prompt = RequiredSidePrompt(prompt);
+	public void AskAside(AgentTurnSubmission submission) {
+		ArgumentNullException.ThrowIfNull(submission);
+		if (submission.Kind != AgentTurnSubmissionKind.Prompt || submission.CommandName.Length != 0) {
+			throw new ArgumentException("A side question must be an ordinary prompt.", nameof(submission));
+		}
+		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
+			throw new ArgumentException("Write a side question or attach an image.", nameof(submission));
+		}
 		lock (_turnTransitionGate) {
 			SideRuntime runtime;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
 				EnsureSideConversationSupport();
-				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, prompt);
+				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
 				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
 				_sideRuntimes.Add(conversation.ConversationId, runtime);
 			}
 			runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
 			try {
 				runtime.Session.Start();
-				runtime.Session.Submit(SideTurn(prompt));
+				runtime.Session.Submit(submission);
 			} catch (Exception error) {
 				runtime.Session.FailConversationSerialized(error);
 			}

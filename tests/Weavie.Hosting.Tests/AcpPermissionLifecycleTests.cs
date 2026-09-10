@@ -30,7 +30,7 @@ public sealed class AcpPermissionLifecycleTests {
 		await fixture.StartAsync();
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
-		fixture.Session.AskAside("permission-lifecycle:edit-hold");
+		fixture.AskAside("permission-lifecycle:edit-hold");
 		var held = await fixture.WaitForMessageAsync(message => message.Text == "permission approved and held");
 		await fixture.Session.DisposeAsync();
 
@@ -165,7 +165,7 @@ public sealed class AcpPermissionLifecycleTests {
 		await fixture.StartAsync();
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
-		fixture.Session.AskAside("permission-lifecycle:plan");
+		fixture.AskAside("permission-lifecycle:plan");
 		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
 		Assert.NotNull(approval.ConversationId);
 		fixture.Session.ResolvePermission(approval.RequestId!, "allow");

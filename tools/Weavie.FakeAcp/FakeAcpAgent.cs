@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.Mcp;
 
 namespace Weavie.FakeAcp;
 
 internal sealed partial class FakeAcpAgent : IAcpAgent {
+	private static readonly Lock PromptLogGate = new();
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
@@ -122,7 +124,10 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		};
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
-			["promptCapabilities"] = new JsonObject { ["image"] = true, ["embeddedContext"] = true },
+			["promptCapabilities"] = new JsonObject {
+				["image"] = true,
+				["embeddedContext"] = _fakeMode != "no-embedded-context",
+			},
 			["sessionCapabilities"] = new JsonObject {
 				["resume"] = _fakeMode == "flatten-replay" ? null : new JsonObject(),
 				["close"] = new JsonObject(),
@@ -361,6 +366,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private async Task<JsonNode> PromptAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
+		RecordWirePrompt("session/prompt", parameters);
 		_prompted = true;
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
@@ -593,6 +599,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private async Task<JsonObject> SteerAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
+		RecordWirePrompt("_session/steering", parameters);
 		string text = PromptText(AcpJson.RequiredArray(parameters, "prompt", "_session/steering"));
 		if (text == "held-steering") {
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "steering-started"), string.Empty);
@@ -1315,9 +1322,18 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
+	private void RecordWirePrompt(string method, JsonElement parameters) {
+		lock (PromptLogGate) {
+			File.AppendAllText(
+				StatePath("wire-prompts.jsonl"),
+				JsonSerializer.Serialize(new { method, parameters }) + Environment.NewLine);
+		}
+	}
+
 	private static string PromptText(JsonElement prompt) => string.Concat(prompt.EnumerateArray()
 		.Where(block => AcpJson.OptionalString(block, "type") == "text")
-		.Select(block => AcpJson.OptionalString(block, "text")));
+		.Select(block => AcpJson.OptionalString(block, "text"))
+		.Where(text => text != EmbeddedAgentGuidance.SideConversationInstructions));
 
 	private static string? ResourceUri(JsonElement block) =>
 		block.TryGetProperty("resource", out var resource) ? AcpJson.OptionalString(resource, "uri") : null;

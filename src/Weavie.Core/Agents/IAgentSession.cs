@@ -77,7 +77,7 @@ public interface IStructuredAgentSession : IAgentSession {
 /// <summary>Context-preserving side conversations owned by one structured agent session.</summary>
 public interface IStructuredAgentSideConversations {
 	/// <summary>Forks the current context and asks a question outside the primary transcript.</summary>
-	void AskAside(string prompt);
+	void AskAside(AgentTurnSubmission submission);
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, string prompt);

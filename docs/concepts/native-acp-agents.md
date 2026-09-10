@@ -108,6 +108,10 @@ Side conversations share the primary conversation's ACP process and run concurre
 the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's
 submission queue. Collapsible cards retain independent drafts and history expansion. Interrupt stops the
 primary while it has work, otherwise all active side conversations.
+Every side prompt carries a scope reminder in plain text, independent of embedded-context support.
+Inherited history supplies background; only requests made in the side conversation assign it work.
+The side agent is instructed to complete that work, report its result, and stop without resuming the
+primary agent's unfinished tasks or workflows.
 Before the primary has any turns, a side conversation starts with `session/new`: there is no history to fork,
 and providers may not have created a transcript yet. Otherwise, the fork is loaded on the connection that
 created it: transferring it to another process can conflict with the provider's existing transcript writer.
@@ -152,7 +156,7 @@ and fail continuation visibly. Storage failures stop submissions and surface an 
 history and activity performed outside Weavie are not imported.
 
 Live content visibility follows ACP's [`annotations.audience`](https://agentclientprotocol.com/protocol/v1/schema#annotations).
-Weavie marks injected guidance and editor selections as assistant-only resources. No XML tags or resource URIs
+Weavie marks injected guidance and editor selections as assistant-only content. No XML tags or resource URIs
 are classified during rendering or reload. See [native pane persistence](../specs/agent-pane-persistence.md)
 for storage, recovery, and transport ownership.
 

@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { altClick, expectRevealed } from "../harness/actions";
+import { altClick, awaitHorizontalScrollRange, expectRevealed } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -100,6 +100,7 @@ test("Alt+click definition peek owns vertical and horizontal scrolling inside un
   await expect(
     preview.locator(".view-line", { hasText: "export const hiddenDefinition" }),
   ).toBeVisible();
+  await awaitHorizontalScrollRange(preview, 100);
   const reviewTop = await review.evaluate((element) => element.scrollTop);
   const initial = await peekScroll(page);
   await preview.hover();

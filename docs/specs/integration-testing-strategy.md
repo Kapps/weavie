@@ -37,6 +37,31 @@ responses end to end" — is the wrong target on two counts:
    never `wait(1s)` — a timing guess is the silent-timeout fallback the repo bans and the #1 flake
    source.
 
+## Choosing test boundaries
+
+Each functional test owns a fresh host, workspace, browser context, and fake agent. A separate test
+should earn that startup cost through a distinct boundary or precondition. Before adding one, compare
+its setup, actions, and assertions with the existing E2E and unit coverage.
+
+- Keep full-stack coverage for process, transport, persistence, and ownership boundaries; keep browser
+  coverage for actual rendering, focus, keyboard dispatch, and layout. Pure state transitions and input
+  permutations belong in unit tests when no integration behavior differs.
+- Put related observations of one short journey in named `test.step` blocks: opening a control and
+  selecting its value, keeping a hunk and undoing it, or transferring focus and typing. Delete a test
+  whose assertions are already covered by the same setup and entrypoint in another test.
+- Preserve meaningful entrypoints and setup differences. Keyboard and mouse dispatch both need coverage;
+  cold initialization, reconnect, concurrent sessions, and deliberately stalled frames are distinct
+  preconditions. Sharing a feature name is not sufficient reason to combine tests.
+- Keep isolation between journeys. Do not replace per-test fixtures with a shared mutable host, or join
+  unrelated workflows into a long test. A consolidation must fit the existing timeout budget.
+- Synchronize every step with its own completion. A message received for an earlier action, or an
+  intermediate persisted tab snapshot, cannot establish that the current action completed.
+- Review removed assertions against their retained owners and run the changed journeys. Fewer test
+  declarations reduce repeated setup; they do not establish a lower flake rate. Failures in retained
+  coverage still require a mechanism and a fix under the [flake policy](e2e-flake-policy.md).
+
+The consolidation coverage map is in [E2E coverage consolidation](e2e-coverage-consolidation.md).
+
 ## Agent process seams
 
 `TerminalController.ResolveClaudeLaunch` (`src/Weavie.Hosting/TerminalController.cs`) is the single

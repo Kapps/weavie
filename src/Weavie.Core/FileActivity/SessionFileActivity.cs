@@ -37,6 +37,9 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 		_worker = Task.Run(ProcessAsync);
 	}
 
+	/// <summary>Completes after the initial inventory is reconciled with installed workspace watches.</summary>
+	public Task ObservationReady => _watcher.Ready;
+
 	/// <summary>Registers an ordered consumer and its required, user-visible failure handler.</summary>
 	public IDisposable Subscribe(
 		string name,

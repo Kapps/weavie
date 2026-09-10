@@ -146,6 +146,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			ObservedPaths.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
+		FileIndexPublisher = new WorkspaceFileIndexPublisher(Inventory, FileIndex, FileActivity.ObservationReady);
 		Shells = new ShellTerminalSet(
 			Bus,
 			settings,
@@ -367,7 +368,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
 
-	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
+	internal WorkspaceFileIndexPublisher FileIndexPublisher { get; }
 
 	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }

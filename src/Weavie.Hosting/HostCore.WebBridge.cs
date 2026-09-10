@@ -121,84 +121,31 @@ public sealed partial class HostCore {
 	private static void PushLspConfigToWeb(HostSession session, MessageTarget target) =>
 		target.Feature("lsp").PublishJson("config", session.LspConfigJson);
 
-	/// <summary>
-	/// Re-walks one session's worktree and publishes its file index. An invalidating refresh first clears only
-	/// that session's prior index; a slow result remains addressed to the same owner.
-	/// </summary>
-	private void PushFileIndexToWeb(HostSession session, bool invalidate) =>
-		PushFileIndexToWeb(session, invalidate, session.Bus.BroadcastTarget);
+	private Task PublishCurrentFileIndexAsync(HostSession session, MessageTarget target) =>
+		PublishFileIndexAsync(session, target, session.FileIndexPublisher.PublishCurrentAsync);
 
-	private void PushFileIndexToWeb(
+	private Task RefreshFileIndexAsync(HostSession session) =>
+		PublishFileIndexAsync(session, session.Bus.BroadcastTarget, session.FileIndexPublisher.RefreshAndPublishAsync);
+
+	private Task PublishFileIndexAsync(
 		HostSession session,
-		bool invalidate,
-		MessageTarget target) {
-		if (invalidate) {
-			target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: true));
-		}
+		MessageTarget target,
+		Func<Action<IReadOnlyList<string>>, Action<Exception>, CancellationToken, Task> publish) =>
+		session.Background.Run(ct => publish(
+			files => target.Feature("files").Publish("index", FileIndexPayload(session, files, pending: false)),
+			error => {
+				target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
+				Notify(session, "error", $"Couldn't load workspace files: {error.Message}");
+			},
+			ct));
 
-		_ = session.Background.Run(async ct => {
-			await session.FileIndexGate.WaitAsync(ct).ConfigureAwait(false);
-			try {
-				IReadOnlyList<string> files;
-				try {
-					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
-					if (inventory.IsRepository) {
-						files = inventory.Files;
-					} else {
-						var seed = await session.Inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
-						bool completed = false;
-						try {
-							var navigation = session.FileIndex.ListSnapshot();
-							var completedInventory = session.Inventory.CompleteNonRepositorySeed(
-								seed,
-								navigation.Files,
-								navigation.Directories);
-							files = completedInventory.Files;
-							completed = true;
-						} finally {
-							if (!completed) {
-								session.Inventory.CancelNonRepositorySeed(seed);
-							}
-						}
-					}
-				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-					target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
-					Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
-					return;
-				}
-
-				ct.ThrowIfCancellationRequested();
-				target.Feature("files").Publish("index", FileIndexPayload(session, files, pending: false));
-			} finally {
-				session.FileIndexGate.Release();
-			}
-		});
-	}
-
-	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
+	// `home` anchors `~/…` expansion against the host's profile, not the browser's.
 	private static object FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new {
 		root = session.FileIndex.Root,
 		home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
 		files,
 		pending,
 	};
-
-	/// <summary>
-	/// Publishes one session's file index from the inventory's already-current Git snapshot instead of forcing
-	/// another reload — used only by a consumer of the watcher's own invalidation fact, which fired *because*
-	/// that watcher just refreshed this same inventory via Git. A non-repository snapshot skips the seeding
-	/// dance <see cref="PushFileIndexToWeb(HostSession, bool)"/> does, so that path still reloads through it.
-	/// </summary>
-	private void PushCachedFileIndexToWeb(HostSession session) {
-		if (session.Inventory.LastSnapshot is not { IsRepository: true } inventory) {
-			PushFileIndexToWeb(session, false);
-			return;
-		}
-
-		session.Bus.BroadcastTarget.Feature("files").Publish(
-			"index",
-			FileIndexPayload(session, inventory.Files, pending: false));
-	}
 
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
 	// omnibar renders the top few as its Recent section.

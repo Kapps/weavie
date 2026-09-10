@@ -25,7 +25,7 @@ public sealed partial class HostCore {
 			fact => {
 				if (fact is FilesInvalidated invalidated && invalidated.Changes.Any(
 					change => change.Kind != FileInvalidationKind.Changed)) {
-					PushCachedFileIndexToWeb(session);
+					return PublishCurrentFileIndexAsync(session, session.Bus.BroadcastTarget);
 				}
 				return Task.CompletedTask;
 			},

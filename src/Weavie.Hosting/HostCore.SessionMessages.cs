@@ -111,7 +111,7 @@ public sealed partial class HostCore {
 			"refs",
 			(_, ct) => ListRefsAsync(session, ct));
 		files.Handle<EmptySessionMessage>("refreshIndex", (_, _) => {
-			PushFileIndexToWeb(session, false);
+			_ = RefreshFileIndexAsync(session);
 			return Task.CompletedTask;
 		});
 
@@ -170,7 +170,8 @@ public sealed partial class HostCore {
 		PostSessionStatus(target, session.Status.Status);
 		PushReviewStateToWeb(session, target);
 		session.DiffPresenter.Replay(target.Feature("editor"));
-		PushFileIndexToWeb(session, true, target);
+		target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: true));
+		_ = PublishCurrentFileIndexAsync(session, target);
 		PushGitStatus(session, target);
 		PushPullRequestStatus(session, target);
 		PushRefLinkBase(session, target);

@@ -42,7 +42,7 @@ public sealed class AcpSideForkTests {
 	public async Task AskAsideCalledBeforeReadyIsQueuedInsteadOfDropped() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		fixture.Session.Start();
-		fixture.Session.AskAside("queued before ready");
+		fixture.AskAside("queued before ready");
 		var started = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		Assert.NotNull(started.ConversationId);
 		await fixture.WaitForMessageAsync(message =>

@@ -111,12 +111,7 @@ test("a PR's review comments render and reply", async ({ page }) => {
   });
 });
 
-// KNOWN BUG (#218): the new-comment composer's KEYBOARD submit (Ctrl+Enter) doesn't fire — the composer is a
-// Monaco view-zone inside the vscode workbench (shadow DOM), which intercepts its keydowns before the composer's
-// own handler runs. (Its submit BUTTON works, but a transient toast over it makes a click unreliable here, which
-// is why this uses Ctrl+Enter.) Render + reply are unaffected. Re-enable (drop `.fixme`) once the composer moves
-// to an app-level overlay outside the view-zone.
-test.fixme("a PR's review comments can be authored inline", async ({ page }) => {
+test("a PR's review comments can be authored inline", async ({ page }) => {
   await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");

@@ -20,26 +20,22 @@ async function expectCenteredLine(section: Locator, text: string): Promise<void>
   const line = section.locator(".view-line", { hasText: text });
   await expect(line).toBeInViewport();
   await expect
-    .poll(async () => {
-      const scroller = await section.page().locator(".unified-review-diffs").boundingBox();
-      const header = await section.locator(".unified-review-file-header").boundingBox();
-      const bounds = await line.boundingBox();
-      return {
-        scroller,
-        header,
-        bounds,
-        centered:
-          scroller !== null &&
-          header !== null &&
-          bounds !== null &&
-          Math.abs(
-            bounds.y +
-              bounds.height / 2 -
-              (scroller.y + header.height + scroller.y + scroller.height) / 2,
-          ) <= 25,
-      };
-    })
-    .toMatchObject({ centered: true });
+    .poll(() =>
+      section.evaluate((element, targetText) => {
+        // Monaco replaces line elements during rendering; sample all geometry in one DOM read.
+        const scroller = element.closest(".unified-review-diffs")?.getBoundingClientRect();
+        const header = element
+          .querySelector(".unified-review-file-header")
+          ?.getBoundingClientRect();
+        const bounds = Array.from(element.querySelectorAll(".view-line"))
+          .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").includes(targetText))
+          ?.getBoundingClientRect();
+        if (!scroller || !header || !bounds) return Number.POSITIVE_INFINITY;
+        const center = (scroller.y + header.height + scroller.y + scroller.height) / 2;
+        return Math.abs(bounds.y + bounds.height / 2 - center);
+      }, text),
+    )
+    .toBeLessThanOrEqual(25);
 }
 
 for (const keepFile of ["toolbar", "file header"]) {
@@ -78,17 +74,11 @@ for (const keepFile of ["toolbar", "file header"]) {
       .poll(async () => {
         const header = await second.locator(".unified-review-file-header").boundingBox();
         const viewport = await page.locator(".unified-review-diffs").boundingBox();
-        return {
-          header,
-          viewport,
-          atStart:
-            header !== null &&
-            viewport !== null &&
-            header.y - viewport.y >= 0 &&
-            header.y - viewport.y <= 25,
-        };
+        if (header === null || viewport === null) throw new Error("Next file header is missing");
+        const offset = header.y - viewport.y;
+        return offset >= 0 && offset <= 25;
       })
-      .toMatchObject({ atStart: true });
+      .toBe(true);
     await expect(second.locator(".view-line", { hasText: /^\/\/\scomment\s7$/ })).toBeInViewport();
   });
 }

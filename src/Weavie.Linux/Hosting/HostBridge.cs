@@ -59,12 +59,26 @@ internal sealed class HostBridge : IWebTransportHub {
 		if (type == 2) {
 			string? url = Marshal.PtrToStringUTF8(WebKit.webkit_uri_response_get_uri(
 				WebKit.webkit_response_policy_decision_get_response(decision)));
-			deny = !Security.Allows(url, WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision));
+			bool mainFrame = WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision);
+			deny = !Security.Allows(url, mainFrame);
+			// WebKitGTK's frame loader can wedge after ignoring a main-frame response for a non-network
+			// scheme (e.g. a data: URI reached via location.href): decide-policy stops firing for this
+			// view, so a same-document reload issued afterward never completes. Reassert the app document
+			// ourselves for exactly that case — http(s)/app denials (which do redirect through here safely)
+			// are untouched, so a denied navigation still leaves the session otherwise undisturbed.
+			if (deny && mainFrame && Security.Document is { } document && !IsNetworkScheme(url)) {
+				string documentUrl = document.ToString();
+				GtkMain.Invoke(() => WebKit.webkit_web_view_load_uri(_webView, documentUrl));
+			}
 		}
 		if (!deny) return 0;
 		WebKit.webkit_policy_decision_ignore(decision);
 		return 1;
 	}
+
+	private static bool IsNetworkScheme(string? url) =>
+		Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+			&& (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps || parsed.Scheme == "app");
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c> (on the main thread).</summary>
 	public void Broadcast(WebTransportMessage message) {

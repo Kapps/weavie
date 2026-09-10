@@ -36,7 +36,7 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
   });
 
-  it("groups a side conversation inline without mixing its turns into the primary transcript", () => {
+  it("groups a side conversation at its first recorded position without mixing primary turns", () => {
     const conversation = {
       conversationId: "aside-1",
       anchorTurnId: "1",
@@ -100,16 +100,16 @@ describe("toAgentTranscript", () => {
       "message",
       "message",
       "notice",
-      "aside",
       "message",
+      "aside",
     ]);
-    expect(transcript[3]).toMatchObject({
+    expect(transcript[4]).toMatchObject({
       conversationId: "aside-1",
       asideActive: false,
       asideReplyable: true,
       status: null,
     });
-    expect(transcript[3]?.asideEntries?.map((entry) => entry.text)).toEqual([
+    expect(transcript[4]?.asideEntries?.map((entry) => entry.text)).toEqual([
       "Why?",
       "Because context matters.",
     ]);

@@ -22,6 +22,10 @@ test("file browser uses omnibar fuzzy ranking and bounds results without losing 
   }
   await awaitEditorReady(page);
   const omnibar = page.locator(".tb-omnibar-input");
+  // Flaked on Windows CI 2026-09-09 16:07 UTC (run 34374758357, shard 3/6): browser/context closed mid-test
+  // after a 60s timeout, in the same run where a sibling shard hit ERR_NO_BUFFER_SPACE (see
+  // harness/network-fixtures.ts) — consistent with runner-wide resource pressure from this test's 26k
+  // synchronous file writes, not a bug in this test. Did not reproduce on the prior run; no change made.
   await omnibar.click();
   await omnibar.fill("q");
   await expect(page.locator(".tb-omnibar-row")).toHaveCount(300);

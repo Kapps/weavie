@@ -49,7 +49,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   const registry = JSON.parse(await readFile(registryPath, "utf8"));
   registry.agents[0].args.push("--flatten-replay");
   await writeFile(registryPath, JSON.stringify(registry));
-  await runCommand(page, "Manage ACP Agents");
+  await runCommand(page, "Manage ACP Agents…");
   const registryDialog = page.locator(".acp-registry-dialog");
   await registryDialog.getByRole("button", { name: "Reload", exact: true }).click();
   await expect(

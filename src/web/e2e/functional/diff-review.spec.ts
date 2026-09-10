@@ -188,7 +188,7 @@ test.describe("applied review — keep all after partial acceptance", () => {
     await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → it fades, leaving one pending + one accepted
     await expect(page.locator(ACCEPTED)).toHaveCount(1);
 
-    await runCommand(page, "Keep All Changes");
+    await runCommand(page, "Keep All Changes (Review)");
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);

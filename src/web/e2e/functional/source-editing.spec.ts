@@ -31,7 +31,7 @@ const NOTION_DOC = {
 };
 
 async function openDoc(page: Page): Promise<ReturnType<Page["locator"]>> {
-  await runCommand(page, "Open URL");
+  await runCommand(page, "Open URL…");
   const input = page.locator(".url-prompt-input");
   await expect(input).toBeVisible();
   await input.fill(PAGE_URL);

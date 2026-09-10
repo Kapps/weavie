@@ -133,7 +133,7 @@ export function UnifiedReview(props: {
     gap: 20,
     scrollToFn: scrollVirtualElement,
     measureElement: (element) => element.getBoundingClientRect().height,
-    overscan: 2,
+    overscan: 6,
     useAnimationFrameWithResizeObserver: true,
   });
 

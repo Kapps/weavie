@@ -9,7 +9,7 @@ export interface EditorSessionEntry {
   path: string;
   // Tab kind: a file, iframe web tab, fetched source document, or read-only transient plan.
   // Overlay kinds are session-owned and round-trip with the tab set. Absent ⇒ "file".
-  kind?: "file" | "web" | "source" | "plan";
+  kind?: "file" | "web" | "source" | "plan" | "review";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a
   // persistent tab by editing or double-clicking. Absent ⇒ false.
@@ -28,7 +28,5 @@ export interface EditorSession {
 }
 
 export interface ReviewResume {
-  mode: "file" | "unified";
-  cursor: { path: string; line: number } | null;
   files: Record<string, { collapsed: boolean; signature: string; reviewedAt: string | null }>;
 }

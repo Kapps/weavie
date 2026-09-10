@@ -4,8 +4,7 @@
 
 import { type ClientSession, log, type ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
-import { formatKey, IS_MAC } from "../commands/keybindings";
-import { findCommand } from "../commands/registry";
+import { IS_MAC } from "../commands/keybindings";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { monaco } from "./monaco-setup";
@@ -19,6 +18,12 @@ import {
   type HunkUnkeep,
 } from "./review/diff-markers";
 import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./review/diff-zones";
+import {
+  createParkedNavigation,
+  createParkedToolbar,
+  makeButton,
+  withShortcut,
+} from "./review/review-toolbar";
 import { sessionFileUri } from "./session-uri";
 
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
@@ -126,7 +131,6 @@ export interface InlineDiffActions {
 /** Presentation hooks keep review actions shared while each surface owns its toolbar and scrolling. */
 export interface InlineDiffPresentation {
   scope: ReviewScopeState;
-  parked(): boolean;
   active(): boolean;
   toolbarHost(): HTMLElement | null;
   revealLine(line: number): void;
@@ -149,7 +153,8 @@ export function inlineReviewLine(editor: monaco.editor.IStandaloneCodeEditor): n
 }
 
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
-export interface InlineDiff extends InlineDiffActions {
+export interface InlineDiff {
+  captureActions(): InlineDiffActions;
   /** Refresh the toolbar mount and command context after the active review surface changes. */
   refreshPresentation(): void;
   /** Register (or replace) the diff for a file path; renders immediately if that file is the active model. */
@@ -274,7 +279,6 @@ export function createInlineDiff(
   // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
   let parkedReview: ParkedReview | undefined;
   let showingParked = false;
-  let presentationParked = presentation.parked();
   // The transient "new comment" composer zone (a PR file under review), opened by the toolbar Comment button.
   // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
   // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
@@ -612,29 +616,6 @@ export function createInlineDiff(
     return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
   };
 
-  const makeButton = (
-    className: string,
-    label: string,
-    title: string,
-    onClick: () => void,
-  ): HTMLButtonElement => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = className;
-    button.textContent = label;
-    button.title = title;
-    button.addEventListener("click", () => onClick());
-    return button;
-  };
-
-  // Every toolbar button advertises its shortcut on hover ("<label> (<shortcut>)") using the command's
-  // effective keys; unbound commands show just the label.
-  const withShortcut = (label: string, commandId: string): string => {
-    const keys = findCommand(commandId)?.keys ?? [];
-    return keys.length > 0 ? `${label} (${keys.map(formatKey).join(" / ")})` : label;
-  };
-
-  // Reveal a hunk's anchor line: center it, land the cursor there, focus the editor.
   const reveal = (line: number): void => {
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
@@ -809,13 +790,9 @@ export function createInlineDiff(
   // Parked navigator: the review set is non-empty but no changed file is in view, so the toolbar sits at
   // "change 0" without moving the editor. Any nav (or Keep) steps in — opens the first change — at which point
   // the live toolbar takes over. stepIn declines when there's nothing to step into.
-  const stepIn = (): boolean => {
-    if (parkedReview === undefined) {
-      return false;
-    }
-    parkedReview.stepIn();
-    return true;
-  };
+  const parkedNavigation = () =>
+    parkedReview === undefined ? undefined : createParkedNavigation(parkedReview);
+  const stepIn = (): boolean => parkedNavigation()?.accept() ?? false;
   // While a new-comment composer is open, the review chords fall through to it: its own keydown handler owns
   // Ctrl+Enter (submit), Ctrl+Backspace (delete word), and arrows (caret). Gate on the zone being open, not
   // document.activeElement — the editor lives in a shadow root, so activeElement is the shadow host, never the
@@ -837,13 +814,13 @@ export function createInlineDiff(
     composerFocused()
       ? false
       : showingParked
-        ? runAction(parkedReview?.nextFile)
+        ? (parkedNavigation()?.nextFile() ?? false)
         : runAction(fileOptions()?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
     composerFocused()
       ? false
       : showingParked
-        ? runAction(parkedReview?.prevFile)
+        ? (parkedNavigation()?.prevFile() ?? false)
         : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
@@ -918,27 +895,19 @@ export function createInlineDiff(
   // case the undo chords are meaningful and must consume the key rather than type into the editor.
   const reviewUp = (): boolean =>
     parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
-  const undoKeep = (): boolean => {
-    if (!reviewUp()) {
-      return false;
-    }
-    if (history.canUndoKeep) {
-      runAction(historyHandlers?.onUndoKeep);
-    }
-    return true;
-  };
-  const undoRevert = (): boolean => {
-    if (!reviewUp()) {
-      return false;
-    }
-    if (history.canUndoRevert) {
-      runAction(historyHandlers?.onUndoRevert);
-    }
-    return true;
+  const captureHistoryActions = () => {
+    const handlers = historyHandlers;
+    return {
+      undoKeep: (): boolean =>
+        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
+      undoRevert: (): boolean =>
+        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
+      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
+    };
   };
   const undoLast = (): boolean =>
     history.canUndo ? runAction(historyHandlers?.onUndoLast) : false;
-  const redoReview = (): boolean => (history.canRedo ? runAction(historyHandlers?.onRedo) : false);
+  const redoReview = (): boolean => captureHistoryActions().redoReview();
 
   // Dim/enable the toolbar's Undo/Redo buttons to match availability (cheap — no full re-render).
   const syncHistoryButtons = (): void => {
@@ -1439,91 +1408,14 @@ export function createInlineDiff(
       replaceToolbar(undefined);
       return;
     }
-    const bar = document.createElement("div");
-    bar.className = "weavie-inline-toolbar";
-    const multiFile = parkedReview.fileCount > 1;
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "←",
-          withShortcut("Previous file", CommandIds.reviewPrevFile),
-          prevFile,
-        ),
-      );
-    }
-    const stack = document.createElement("div");
-    stack.className = "weavie-inline-stack";
-    const name = document.createElement("span");
-    name.className = "weavie-inline-stack-name";
-    name.textContent = "Review changes";
-    const sub = document.createElement("span");
-    sub.className = "weavie-inline-stack-sub";
-    const parkedLabel = parkedReview.label === undefined ? "" : `${parkedReview.label} · `;
-    sub.textContent = `${parkedLabel}${parkedReview.fileCount} file${parkedReview.fileCount === 1 ? "" : "s"} · press ↓ to start`;
-    stack.append(name, sub);
-    bar.appendChild(stack);
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "→",
-          withShortcut("Next file", CommandIds.reviewNextFile),
-          nextFile,
-        ),
-      );
-    }
-    bar.append(
-      makeButton(
-        "weavie-inline-nav",
-        "↑",
-        withShortcut("Review changes", CommandIds.prevChange),
-        stepIn,
-      ),
-      makeButton(
-        "weavie-inline-nav",
-        "↓",
-        withShortcut("Review changes", CommandIds.nextChange),
-        stepIn,
-      ),
+    const controls = createParkedToolbar(
+      parkedReview,
+      { stepIn, nextFile, prevFile, undo: undoLast, redo: redoReview },
+      history,
     );
-    const divider = document.createElement("span");
-    divider.className = "weavie-inline-divider";
-    bar.appendChild(divider);
-    // Inert until a change is in view, but shown so the bar reads as the same toolbar at "change 0".
-    const keep = makeButton(
-      "weavie-inline-accept",
-      "Keep",
-      "Step into a change first (↓)",
-      () => {},
-    );
-    const revert = makeButton(
-      "weavie-inline-reject",
-      "Revert",
-      "Step into a change first (↓)",
-      () => {},
-    );
-    keep.disabled = true;
-    revert.disabled = true;
-    bar.append(keep, revert);
-    const histDivider = document.createElement("span");
-    histDivider.className = "weavie-inline-divider";
-    bar.appendChild(histDivider);
-    undoButton = makeButton(
-      "weavie-inline-hist",
-      "↶",
-      `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
-      undoLast,
-    );
-    redoButton = makeButton(
-      "weavie-inline-hist",
-      "↷",
-      withShortcut("Redo review action", CommandIds.redoReview),
-      redoReview,
-    );
-    bar.append(undoButton, redoButton);
-    syncHistoryButtons();
-    replaceToolbar(bar);
+    undoButton = controls.undo;
+    redoButton = controls.redo;
+    replaceToolbar(controls.bar);
     showingParked = true;
   };
 
@@ -1547,7 +1439,6 @@ export function createInlineDiff(
     try {
       while (renderQueued && !disposed) {
         renderQueued = false;
-        if (presentation.parked()) continue;
         const model = editor.getModel();
         const uriString = model?.uri.toString();
         const options = uriString === undefined ? undefined : diffs.get(uriString);
@@ -1589,13 +1480,8 @@ export function createInlineDiff(
     const model = editor.getModel();
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
-    presentationParked = presentation.parked();
     renderedScope = presentation.scope.current;
-    if (presentationParked) {
-      renderQueued = false;
-      diffComputer.dispose();
-      renderParked();
-    } else if (model !== null && uriString !== undefined && options !== undefined) {
+    if (model !== null && uriString !== undefined && options !== undefined) {
       if (renderedUri !== uriString) {
         clearRender(); // what is on screen belongs to another file; nothing here to preserve
       }
@@ -1612,7 +1498,6 @@ export function createInlineDiff(
   };
 
   const scheduleRender = (): void => {
-    if (presentation.parked()) return;
     const model = editor.getModel();
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
@@ -1713,11 +1598,48 @@ export function createInlineDiff(
     }
   };
 
+  const actions = {
+    nextChange,
+    prevChange,
+    nextFile,
+    prevFile,
+    accept,
+    reject,
+    undo,
+    keepFile,
+    revertFile,
+    keepAll,
+    comment,
+  };
   return {
+    captureActions() {
+      const model = editor.getModel();
+      const version = model?.getVersionId();
+      const options = currentOptions;
+      const line = reviewLine();
+      const scope = presentation.scope.current;
+      const locationActions = Object.fromEntries(
+        Object.entries(actions).map(([name, action]) => [
+          name,
+          () => {
+            if (
+              disposed ||
+              editor.getModel() !== model ||
+              model?.getVersionId() !== version ||
+              currentOptions !== options ||
+              reviewLine() !== line ||
+              presentation.scope.current !== scope
+            )
+              throw new Error("The review location for this command has changed.");
+            return action();
+          },
+        ]),
+      );
+      return { ...locationActions, ...captureHistoryActions() } as InlineDiffActions;
+    },
     refreshPresentation() {
       if (
         renderedScope !== presentation.scope.current ||
-        presentationParked !== presentation.parked() ||
         (toolbarNode === undefined && presentation.active())
       ) {
         renderActive();
@@ -1791,20 +1713,6 @@ export function createInlineDiff(
       syncDiffContext();
     },
     hasDiffForUri: (uri) => diffs.has(uri),
-    nextChange,
-    prevChange,
-    nextFile,
-    prevFile,
-    accept,
-    reject,
-    undo,
-    keepFile,
-    revertFile,
-    keepAll,
-    comment,
-    undoKeep,
-    undoRevert,
-    redoReview,
     bindHistory(handlers) {
       historyHandlers = handlers;
     },

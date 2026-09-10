@@ -1,103 +1,98 @@
-import type { ClientSession } from "../../bridge";
-import type { CommandHandler } from "../../commands/registry";
+import { selectedSession } from "../../bridge";
+import type { CommandCapture, CommandHandler } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { EditorController } from "../editor-controller";
+import type { InlineDiffActions } from "../inline-diff";
+import { activeTabFor } from "../session-store";
+import { commandPath } from "../tab-command-bindings";
 
-export type ReviewCommandBinding = readonly [id: string, handler: CommandHandler];
+export type ReviewCommandBinding = readonly [id: string, capture: CommandCapture];
 
-const pathArg = (args: unknown): string | undefined => {
-  const path = (args as { path?: unknown } | undefined)?.path;
-  return typeof path === "string" ? path : undefined;
-};
-
-/** Binds review commands to their captured session owner. UI navigation additionally requires that owner visible. */
-export function reviewCommandBindings(
-  editor: Pick<EditorController, "inline" | "openReview" | "review">,
-  selectedSession: () => ClientSession | null,
-): ReviewCommandBinding[] {
-  const selected = (session: ClientSession | null): session is ClientSession =>
-    session !== null && session === selectedSession();
+export function reviewCommandBindings(editor: EditorController): ReviewCommandBinding[] {
+  const atView =
+    (action: keyof InlineDiffActions): CommandCapture =>
+    ({ session }) => {
+      const tab = session === null ? undefined : activeTabFor(session);
+      const presentation = tab?.presentation;
+      const run = presentation?.actions()?.[action];
+      if (run === undefined && session !== null) {
+        if (action === "undoKeep") return () => editor.review.undoKeep(session);
+        if (action === "undoRevert") return () => editor.review.undoRevert(session);
+        if (action === "redoReview") return () => editor.review.redo(session);
+      }
+      return () => {
+        if (run === undefined || presentation === undefined) return false;
+        if (
+          presentation.signal.aborted ||
+          selectedSession() !== session ||
+          activeTabFor(session!) !== tab
+        )
+          throw new Error("The review connection for this command is no longer displayed.");
+        return run();
+      };
+    };
+  const forSession =
+    (
+      action: (
+        session: NonNullable<ReturnType<typeof selectedSession>>,
+        path: string | undefined,
+        args: unknown,
+      ) => ReturnType<CommandHandler>,
+    ): CommandCapture =>
+    ({ session }, args) => {
+      const path =
+        commandPath(args) ??
+        (session === null ? undefined : activeTabFor(session)?.presentation?.capture().text?.path);
+      return () => session !== null && action(session, path, args);
+    };
   return [
+    ...(
+      [
+        [CommandIds.nextChange, "nextChange"],
+        [CommandIds.prevChange, "prevChange"],
+        [CommandIds.acceptChange, "accept"],
+        [CommandIds.rejectChange, "reject"],
+        [CommandIds.reviewComment, "comment"],
+        [CommandIds.reviewNextFile, "nextFile"],
+        [CommandIds.reviewPrevFile, "prevFile"],
+        [CommandIds.undoKeep, "undoKeep"],
+        [CommandIds.undoRevert, "undoRevert"],
+        [CommandIds.redoReview, "redoReview"],
+      ] satisfies [string, keyof InlineDiffActions][]
+    ).map(([id, action]): ReviewCommandBinding => [id, atView(action)]),
+    [CommandIds.undoChange, forSession((session) => editor.review.revert(session))],
+    [CommandIds.keepFile, forSession((session, path) => editor.review.keepFile(session, path))],
+    [CommandIds.revertFile, forSession((session, path) => editor.review.revertFile(session, path))],
+    [CommandIds.reviewClose, forSession((session) => editor.review.close(session))],
+    [CommandIds.keepAll, forSession((session) => editor.review.keepAll(session))],
     [
-      CommandIds.nextChange,
-      (_args, { session }) => selected(session) && editor.inline.nextChange(),
-    ],
-    [
-      CommandIds.prevChange,
-      (_args, { session }) => selected(session) && editor.inline.prevChange(),
-    ],
-    [CommandIds.acceptChange, (_args, { session }) => selected(session) && editor.inline.accept()],
-    [CommandIds.rejectChange, (_args, { session }) => selected(session) && editor.inline.reject()],
-    [
-      CommandIds.undoChange,
-      (_args, { session }) => session !== null && editor.review.revert(session),
-    ],
-    [
-      CommandIds.keepFile,
-      (args, { session }) => session !== null && editor.review.keepFile(session, pathArg(args)),
-    ],
-    [
-      CommandIds.revertFile,
-      (args, { session }) => session !== null && editor.review.revertFile(session, pathArg(args)),
-    ],
-    [
-      CommandIds.reviewClose,
-      (_args, { session }) => session !== null && editor.review.close(session),
-    ],
-    [
-      CommandIds.keepAll,
-      (_args, { session }) => session !== null && editor.review.keepAll(session),
-    ],
-    [
-      CommandIds.reviewComment,
-      (_args, { session }) => selected(session) && editor.inline.comment(),
-    ],
-    [
-      CommandIds.undoKeep,
-      (_args, { session }) =>
-        session !== null &&
-        (selected(session) ? editor.inline.undoKeep() : editor.review.undoKeep(session)),
-    ],
-    [
-      CommandIds.undoRevert,
-      (_args, { session }) =>
-        session !== null &&
-        (selected(session) ? editor.inline.undoRevert() : editor.review.undoRevert(session)),
-    ],
-    [
-      CommandIds.redoReview,
-      (_args, { session }) => session !== null && editor.review.redo(session),
-    ],
-    [
-      CommandIds.reviewOpen,
-      (args, { session }) => {
-        if (!selected(session)) {
-          return false;
-        }
-        const line = (args as { line?: unknown } | undefined)?.line;
-        return editor.openReview(
-          session,
-          pathArg(args),
-          typeof line === "number" ? line : undefined,
+      CommandIds.reviewToggleFile,
+      (context, args) => {
+        const { session } = context;
+        const tab = session === null ? undefined : activeTabFor(session);
+        const presentation = tab?.presentation;
+        const run = forSession((session, path) => editor.review.toggleFileCollapsed(session, path))(
+          context,
+          args,
         );
+        return () =>
+          presentation !== undefined &&
+          !presentation.signal.aborted &&
+          selectedSession() === session &&
+          activeTabFor(session!) === tab &&
+          run(args, context);
       },
     ],
     [
-      CommandIds.reviewToggleMode,
-      (_args, { session }) => selected(session) && editor.review.toggleMode(session),
-    ],
-    [
-      CommandIds.reviewToggleFile,
-      (args, { session }) =>
-        selected(session) && editor.review.toggleFileCollapsed(session, pathArg(args)),
-    ],
-    [
-      CommandIds.reviewNextFile,
-      (_args, { session }) => selected(session) && editor.inline.nextFile(),
-    ],
-    [
-      CommandIds.reviewPrevFile,
-      (_args, { session }) => selected(session) && editor.inline.prevFile(),
+      CommandIds.reviewOpen,
+      forSession((session, _path, args) => {
+        const line = (args as { line?: unknown } | undefined)?.line;
+        return editor.openReview(
+          session,
+          commandPath(args),
+          typeof line === "number" ? line : undefined,
+        );
+      }),
     ],
   ];
 }

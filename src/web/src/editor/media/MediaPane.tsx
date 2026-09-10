@@ -1,7 +1,14 @@
-import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { type ClientSession, mediaResourceUrl } from "../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
-import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { basename, samePath } from "../fs-path";
 import { mediaTypeOf } from "./media-types";
 
@@ -13,13 +20,10 @@ import { mediaTypeOf } from "./media-types";
 export default function MediaPane(props: {
   session: ClientSession;
   path: string;
-  focusOnMount: boolean;
+  bind(element: HTMLElement): () => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
-  preserveEditorFocusOnMount(
-    () => host,
-    () => props.focusOnMount,
-  );
+  onMount(() => onCleanup(props.bind(host)));
 
   // Live view of editor.videoAutoplay — toggling it updates the mounted element, so the next load honors it.
   const [autoplay, setAutoplay] = createSignal(currentEditorOptions().videoAutoplay);

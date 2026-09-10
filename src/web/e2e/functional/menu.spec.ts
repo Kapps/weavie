@@ -22,7 +22,9 @@ test("application menus expose command shortcuts, submenus, and dispatch", async
   const diff = page.getByRole("menuitem", { name: "Diff", exact: true });
   await expect(diff).toBeVisible();
   await diff.click();
-  await expect(page.getByRole("menuitem", { name: "Review Changes", exact: true })).toBeDisabled();
+  const review = page.getByRole("menuitem", { name: /^Review Changes/ });
+  await expect(review).toBeDisabled();
+  await expect(review.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+U`);
 
   const diffAgainst = page.getByRole("menuitem", { name: /^Diff Against…/ });
   await expect(diffAgainst).toBeVisible();
@@ -52,4 +54,7 @@ test("application menu supports keyboard traversal across the top level", async 
     "aria-expanded",
     "true",
   );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toBeHidden();
+  await expect(page.getByRole("menuitem", { name: "View", exact: true })).toBeFocused();
 });

@@ -1,4 +1,6 @@
 import { createSignal } from "solid-js";
+import { selectedSession } from "../bridge";
+import { editorContexts, type TextEditorConnection } from "./editor-context";
 
 /** The active editor's cursor/selection/language/line-ending snapshot, rendered by the editor pane footer. */
 export interface EditorStatus {
@@ -11,14 +13,28 @@ export interface EditorStatus {
   eol: "LF" | "CRLF";
 }
 
-// Top-level module signal (HMR-safe, out of the dynamic editor chunk), mirroring dirty-store. Null while the
-// editor shows no file model (empty pane, or a web/source overlay tab) so the footer hides its segments.
-const [status, setStatus] = createSignal<EditorStatus | null>(null);
+const [snapshot, setSnapshot] = createSignal<{
+  connection: TextEditorConnection;
+  status: EditorStatus;
+} | null>(null);
 
-/** The active editor's cursor/selection/language/EOL (reactive), or null when no file is in view. */
-export const editorStatus = status;
+/** The visible text connection's cursor/selection/EOL, or null without a matching snapshot. */
+export function editorStatus(): EditorStatus | null {
+  const current = snapshot();
+  const session = selectedSession();
+  return current !== null &&
+    session === current.connection.session &&
+    editorContexts.get(session) === current.connection
+    ? current.status
+    : null;
+}
 
-/** Replaces the editor status snapshot; pass null when the editor shows no file model. */
-export function setEditorStatus(next: EditorStatus | null): void {
-  setStatus(next);
+/** Publishes status owned by the exact text connection. */
+export function setEditorStatus(connection: TextEditorConnection, status: EditorStatus): void {
+  setSnapshot({ connection, status });
+}
+
+/** Retiring an old connection cannot clear a newer connection's status. */
+export function clearEditorStatus(connection: TextEditorConnection): void {
+  setSnapshot((current) => (current?.connection === connection ? null : current));
 }

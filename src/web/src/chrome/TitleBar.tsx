@@ -20,7 +20,7 @@ export function TitleBar(props: {
   onWindowControl: (action: WindowControlAction) => void;
   onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
-  symbols: SymbolActions;
+  symbols: () => SymbolActions;
 }): JSX.Element {
   const shell = window.__WEAVIE_SHELL__;
   const label = (): string => shell?.workspaceLabel ?? "weavie";

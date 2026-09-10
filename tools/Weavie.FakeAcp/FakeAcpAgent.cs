@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 namespace Weavie.FakeAcp;
 
-internal sealed class FakeAcpAgent : IAcpAgent {
+internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
@@ -380,7 +380,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (text == "malformed-update") {
 			Connection().Notify("session/update", new JsonObject { ["sessionId"] = _sessionId });
 		} else if (text == "plan-document") PlanDocument("live-plan", "# Implementation plan");
-		else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");
+		else if (text == "full-plan") PlanDocument("live-plan", FullPlanMarkdown);
+		else if (text == "full-plan-revision") PlanDocument("live-plan", FullPlanMarkdown + "\n\n## Final revision\n\nPreserve the complete revised document.");
+		else if (text.StartsWith("permission-lifecycle:", StringComparison.Ordinal)) {
+			await PermissionLifecycleAsync(text["permission-lifecycle:".Length..], ct).ConfigureAwait(false);
+		} else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");
 		else if (text == "remove-plan") RemovePlan("live-plan");
 		else if (text == "item-plan-document") ItemPlanDocument();
 		else if (text == "file-plan-document") FilePlanDocument();

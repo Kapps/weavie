@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, type JSX, on, onCleanup, Show, untrack } from "solid-js";
 import { type ContextOverrides, onContextChanged, paneFocusContext } from "../commands/context";
-import { onCommandsChanged } from "../commands/registry";
+import { captureCommandRunner, onCommandsChanged } from "../commands/registry";
 import { nextIndex } from "../list-navigation";
 import { APPLICATION_MENUS, type ApplicationMenuDefinition } from "./application-menu";
 import { buildApplicationMenuEntries } from "./application-menu-model";
@@ -33,6 +33,7 @@ export function Menu(): JSX.Element {
     setMenuContext(lastWorkspaceContext);
     const rect = button.getBoundingClientRect();
     setOpenMenu({
+      runCommand: captureCommandRunner(),
       id: menu.id,
       x: rect.left,
       y: rect.bottom,

@@ -1,6 +1,7 @@
 import { X } from "lucide-solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { captureCommandRunner } from "../commands/registry";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { type PopoverAnchor, placeRailPopover } from "./popover-position";
 import { sessionMenuAt } from "./session-menu";
@@ -65,7 +66,7 @@ export function RemoteAgentsPanel(props: {
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
-    setMenu(sessionMenuAt(session, event.clientX, event.clientY, false));
+    setMenu(sessionMenuAt(session, event.clientX, event.clientY, false, captureCommandRunner()));
   };
 
   return (

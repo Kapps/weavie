@@ -8,7 +8,7 @@ mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without st
 finishes you can either scan every diff in one unified overview or walk the result inline, in the live
 editor, change-by-change and file-by-file. Doing nothing keeps the change — it was already written to disk.
 
-The two review modes are projections over one Core-owned review board:
+Both review presentations are projections over one Core-owned review board:
 
 - **Unified review** is a GitHub-style page with a full-width changed-file tree first, showing aggregate and
   per-path additions/deletions, followed by every file's diff. Each file section is collapsible and is a
@@ -25,19 +25,21 @@ The two review modes are projections over one Core-owned review board:
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
-The persistent editor-tab-strip button and `weavie.review.toggleMode` (`$mod+Shift+u` by default) move
-between them without creating a second review state.
+The tab-strip button and `weavie.review.open` (`$mod+Shift+u` by default) open a persistent
+**Review Changes** tab (`kind: "review"`, resource `weavie:review`). Ordinary file reviews and pending
+Keep/Reject proposals belong to their normal file tabs. Passive changes update the review board without
+opening or selecting a tab. Opening a file selects its file tab and retains Review Changes for Back or
+later tab selection.
 
-**Unified review is a mode the user is in, not an overlay that anything can dismiss.** Every editor open the
-host pushes carries an `EditorOpenIntent`: `Navigation` (the user went somewhere — a terminal link, `Ctrl+N`)
-takes the pane and leaves review; `Reveal` (the agent's MCP `openFile`, a review action's own jump, arming a
-ref diff) opens the tab *behind* the overview and never evicts it. A `default`-mode `openDiff` proposal is the
-one exception — it is a gate the agent is blocked on, so it must be seen — and even there the mode is only
-**suspended**: resolving or closing the proposal hands the overview back. Entering unified mode requests any diffs not yet
-streamed by a PR/ref review; host re-emissions update both views. This builds directly on the hook-driven
-change tracker and the inline diff renderer that already exist. See
+All tabs use the same [owned tab lifecycle](../concepts/editor-surfaces.md) for activation, navigation,
+closing, pinning, and persistence. Review's reading location belongs to its tab view state; collapsed
+and reviewed claims belong to the domain board and survive closing that tab. Mounting Review requests
+diffs that have not yet streamed. Undo/redo returns the affected location to its invoking connection,
+which reveals it within the owning tab. Host re-emissions update both presentations.
+
+The review board uses the hook-driven change tracker and shared inline diff renderer. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
-[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on.
+[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the change-capture machinery.
 
 ## Thesis: review is post-hoc, so reject is the only action that touches disk
 
@@ -311,7 +313,7 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
 | `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
-| `weavie.review.toggleMode` | `$mod+Shift+u` | switch between unified and file review |
+| `weavie.review.open` | `$mod+Shift+u` | open the Review Changes tab |
 | `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
 
 Every step of the walk — Next/Previous Change and Next/Previous File — is routed by the mode the session is
@@ -445,12 +447,13 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 
 ## Closing a review
 
-Close Diff sits beside the mode toggle in both review presentations and is also a
+Close Diff sits beside Review Changes in the tab strip and is also a
 command with a default `$mod+Alt+W` binding. It accepts remaining changes at their
 current contents, clears the review source and decision history, and returns to
 the editor. Existing rejections stay applied; closing never rewrites files.
 
-Accepting the last pending hunk or file automatically performs the same completion.
+Accepting the last pending hunk or file automatically performs the same completion and closes the
+Review Changes tab through the shared tab lifecycle. Closing only the tab preserves review decisions.
 Keep All closes immediately. Partial accepts remain undoable while any other file
 has pending text or existence changes. Redoing the last acceptance also closes;
 rejecting the last change retains rejection history until acceptance or Close Diff.

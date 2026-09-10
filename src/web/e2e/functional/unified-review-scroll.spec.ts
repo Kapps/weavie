@@ -37,7 +37,7 @@ async function expectUnobscuredLine(line: Locator): Promise<void> {
     .toBeGreaterThanOrEqual(0);
 }
 
-test.describe("unified review mode — large addition", () => {
+test.describe("Review Changes tab — large addition", () => {
   test.use({
     fakeScript: {
       steps: appliedEdit(
@@ -100,7 +100,7 @@ test.describe("unified review mode — large addition", () => {
   });
 });
 
-test.describe("unified review mode — large replacement", () => {
+test.describe("Review Changes tab — large replacement", () => {
   test.use({
     fakeScript: {
       steps: [
@@ -178,7 +178,7 @@ test.describe("unified review mode — large replacement", () => {
   });
 });
 
-test.describe("unified review mode — large separated changes", () => {
+test.describe("Review Changes tab — large separated changes", () => {
   const baseline = Array.from({ length: lineCount }, (_, index) => `old line ${index}`);
   const content = baseline
     .map((line, index) => (index < 1_000 || index >= 3_000 ? `new line ${index}` : line))

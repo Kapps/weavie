@@ -42,6 +42,7 @@ function fakeSession(backendId: string, owner: string): FakeSession {
   }
   const fake = {} as FakeSession;
   const client = {
+    signal: new AbortController().signal,
     connection: {
       id: backendId,
       reportError: (error: unknown) => {
@@ -357,4 +358,80 @@ describe("session ownership", () => {
       slot: "sess-remote",
     });
   });
+});
+
+it("preserves the tab owner through metadata changes and retires it on close or kind replacement", () => {
+  seed([], null);
+  const session = bridgeState.selected!;
+  store.openTab("https://example.test", { kind: "web", preview: true });
+  const first = store.activeTabFor(session)!;
+  store.captureViewStateFor(session, first.entry.path, { reading: 12 });
+  store.togglePinFor(session, first.entry.path);
+  expect(store.activeTabFor(session)).toBe(first);
+  expect(first.signal.aborted).toBe(false);
+  store.openTab(first.entry.path, { kind: "source" });
+  const replacement = store.activeTabFor(session)!;
+  expect(replacement).not.toBe(first);
+  expect(first.signal.aborted).toBe(true);
+  expect(store.openTabs()).toHaveLength(1);
+  expect(replacement.entry.kind).toBe("source");
+  store.closeTabFor(session, replacement.entry.path);
+  store.openTab(replacement.entry.path, { kind: "source" });
+  expect(store.activeTabFor(session)).not.toBe(replacement);
+  expect(replacement.signal.aborted).toBe(true);
+});
+
+it("closing a captured batch never adopts tabs opened or reopened during its confirmation", async () => {
+  const { createTabActions } = await import("./tab-actions");
+  seed(
+    [
+      { path: "/scratch", scratch: true, viewState: null },
+      { path: "/old", viewState: null },
+    ],
+    "/scratch",
+  );
+  const session = bridgeState.selected!;
+  let confirm!: (accepted: boolean) => void;
+  const pending = new Promise<boolean>((resolve) => {
+    confirm = resolve;
+  });
+  const present = vi.fn();
+  const release = vi.fn();
+  const actions = createTabActions({
+    depart: () => {},
+    present,
+    capture: () => {},
+    content: () => "unsaved",
+    release,
+    confirmDiscard: () => pending,
+  });
+  const captured = actions.capture(session, undefined);
+  const closing = captured.closeAll();
+  store.closeTabFor(session, "/old");
+  store.openTabFor(session, "/old", {});
+  const reopened = store.activeTabFor(session)!;
+  store.openTabFor(session, "/new", {});
+  confirm(true);
+  await closing;
+  expect(store.openTabsFor(session).map((entry) => entry.path)).toEqual(["/old", "/new"]);
+  expect(reopened.signal.aborted).toBe(false);
+  expect(release).toHaveBeenCalledOnce();
+  expect(present).not.toHaveBeenCalled();
+});
+
+it("a tab menu retains its owner across selection and rejects pinning a reopened resource", () => {
+  seed(
+    [
+      { path: "/a", viewState: null },
+      { path: "/b", viewState: null },
+    ],
+    "/a",
+  );
+  const session = bridgeState.selected!;
+  const first = store.activeTabFor(session)!;
+  store.activateTabFor(session, "/b");
+  first.assertLive();
+  store.closeTabFor(session, "/a");
+  store.openTabFor(session, "/a", {});
+  expect(() => first.assertLive()).toThrow("closed");
 });

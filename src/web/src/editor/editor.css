@@ -276,7 +276,8 @@
   color: var(--accent);
 }
 
-/* Review controls share the tab strip in both presentations. */
+/* Entry point to unified review. Reads as a live, pressable control at rest — a dimmed one is indistinguishable
+   from a disabled one, and this is the affordance that teaches the mode exists. */
 .editor-review-action {
   flex: 0 0 auto;
   display: inline-flex;
@@ -295,19 +296,6 @@
 .editor-review-action:not(:disabled):hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-.editor-review-action[aria-pressed="true"]:not(:disabled) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
-  color: var(--accent);
-}
-
-.editor-review-action:disabled {
-  border-color: var(--border);
-  background: transparent;
-  color: var(--dim);
-  cursor: default;
 }
 
 .editor-review-action:focus-visible {
@@ -552,4 +540,15 @@
   color: var(--dim);
   font-size: var(--font-metadata-size);
   text-align: center;
+}
+
+.editor-tab-content {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  outline: none;
+}
+
+.editor-tab-content > * {
+  pointer-events: auto;
 }

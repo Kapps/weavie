@@ -13,7 +13,6 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
-import { registerActiveEditor } from "./vscode-services";
 import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
@@ -26,9 +25,6 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
  */
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
   const editor = buildEditor(container, null, {});
-
-  // The editor service opens go-to-def / reveal-file targets through this editor.
-  registerActiveEditor(editor);
 
   // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
   // global.d.ts.

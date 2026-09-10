@@ -11,8 +11,9 @@ import {
   WorkspaceSymbolProviderRegistry,
 } from "@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/search/common/search";
 import { CancellationToken } from "vscode-jsonrpc";
+import type { ClientSession } from "../bridge";
 import { monaco } from "../editor/monaco-setup";
-import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../editor/session-uri";
+import { SESSION_FILE_SCHEME, sessionOwnsUri, sessionUriHostPath } from "../editor/session-uri";
 import {
   type DocSymbolNode,
   type FlatSymbol,
@@ -82,10 +83,14 @@ function toNode(symbol: monaco.languages.DocumentSymbol): DocSymbolNode {
  * provider is registered (the honest "no language server for this file" signal, not a silent empty). Preview
  * navigation is layered on top by the editor controller (it owns the tabs + the real editor).
  */
-export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor): SymbolQuerySource {
+export function createSymbolSource(
+  session: ClientSession,
+  model: monaco.editor.ITextModel,
+  signal: AbortSignal,
+): SymbolQuerySource {
   const documentSymbols = async (): Promise<SymbolQueryResult> => {
-    const model = editor.getModel();
-    if (model === null || model.uri.scheme !== SESSION_FILE_SCHEME) {
+    signal.throwIfAborted();
+    if (model.uri.scheme !== SESSION_FILE_SCHEME) {
       return { providerAvailable: false, items: [] };
     }
     const providers =
@@ -96,6 +101,7 @@ export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor):
     const path = sessionUriHostPath(model.uri);
     for (const provider of providers) {
       const symbols = await provider.provideDocumentSymbols(model, CancellationToken.None);
+      signal.throwIfAborted();
       if (symbols != null && symbols.length > 0) {
         return {
           providerAvailable: true,
@@ -116,13 +122,15 @@ export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor):
     const source = new monaco.CancellationTokenSource();
     signal.addEventListener("abort", () => source.cancel(), { once: true });
     const found = await getWorkspaceSymbols(query, source.token);
-    const items: FlatSymbol[] = found.map(({ symbol }) => ({
-      name: symbol.name,
-      kind: kindLabel(symbol.kind),
-      container: symbol.containerName ?? "",
-      path: sessionUriHostPath(symbol.location.uri),
-      range: symbol.location.range,
-    }));
+    const items: FlatSymbol[] = found
+      .filter(({ symbol }) => sessionOwnsUri(session, symbol.location.uri))
+      .map(({ symbol }) => ({
+        name: symbol.name,
+        kind: kindLabel(symbol.kind),
+        container: symbol.containerName ?? "",
+        path: sessionUriHostPath(symbol.location.uri),
+        range: symbol.location.range,
+      }));
     return { providerAvailable: true, items };
   };
 

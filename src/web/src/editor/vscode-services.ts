@@ -15,7 +15,6 @@ import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-serv
 import getModelServiceOverride from "@codingame/monaco-vscode-model-service-override";
 import getTextmateServiceOverride from "@codingame/monaco-vscode-textmate-service-override";
 import getThemeServiceOverride from "@codingame/monaco-vscode-theme-service-override";
-import type * as monaco from "monaco-editor";
 
 // Curated LSP-backed languages: each registers a language + TextMate grammar + full language-configuration;
 // theme-defaults ships the built-in color themes. Every other language's highlighting comes from the broad
@@ -43,73 +42,25 @@ import { getClipboardServiceOverride } from "./clipboard-service";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
 import { getNotificationServiceOverride } from "./notification-service";
-import { REVEAL_SCROLL } from "./reveal-scroll";
 
 declare global {
   interface Window {
     /**
      * VSCode-service state kept on `window` so it outlives a Vite hot reload, matching the lifetime of the
-     * process-global singletons `initialize()` flips (a module-local guard would reset and re-init would
-     * throw). `activeEditor` lives here too so the once-captured `openEditor` closure reads the current editor.
+     * process-global singletons `initialize()` flips; a module-local guard would reinitialize them.
      */
     __WEAVIE_EDITOR_SERVICES__?: {
       initPromise?: Promise<void>;
-      activeEditor?: monaco.editor.IStandaloneCodeEditor;
-      openSink?: OpenEditorSink;
     };
   }
 }
 
-// Routes editor-service file-opens (go-to-def / peek / references) through the tab store as a preview open,
-// so navigation doesn't pile up persistent tabs. Registered by the editor host.
-export type OpenEditorSink = (uri: monaco.Uri, selection: monaco.IRange | undefined) => void;
-
-/** Registers the sink the editor service routes file-opens through (called once the editor host is up). */
-export function setOpenEditorSink(sink: OpenEditorSink): void {
-  servicesState.openSink = sink;
-}
-
-// First module instance creates the state; later hot-reloaded instances reuse the same object.
 window.__WEAVIE_EDITOR_SERVICES__ ??= {};
 const servicesState = window.__WEAVIE_EDITOR_SERVICES__;
 
-/**
- * Registers weavie's editor as the surface the editor service opens files into. Until called, file-open
- * requests are no-ops.
- */
-export function registerActiveEditor(editor: monaco.editor.IStandaloneCodeEditor): void {
-  servicesState.activeEditor = editor;
-}
-
-/** The editor weavie renders files into — focus-independent, so palette/keyboard commands can reach it. */
-export function activeCodeEditor(): monaco.editor.IStandaloneCodeEditor | undefined {
-  return servicesState.activeEditor;
-}
-
-// weavie owns layout: when the editor service is asked to open a model (go-to-def, peek, reveal-file), show
-// it in our own editor pane and reveal the requested range.
-const openEditor: OpenEditor = (modelRef, options) => {
-  const activeEditor = servicesState.activeEditor;
-  if (activeEditor === undefined) {
-    return Promise.resolve(undefined);
-  }
-  const selection = (options as { selection?: monaco.IRange } | undefined)?.selection;
-
-  // When the editor host has registered its sink, route through the tab store (preview open + range reveal).
-  const sink = servicesState.openSink;
-  if (sink !== undefined) {
-    sink(modelRef.object.textEditorModel.uri, selection);
-    return Promise.resolve(activeEditor);
-  }
-
-  // Fallback before the host is up or in plain-browser dev: bare setModel.
-  activeEditor.setModel(modelRef.object.textEditorModel);
-  if (selection !== undefined) {
-    activeEditor.setSelection(selection);
-    activeEditor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
-  }
-  activeEditor.focus();
-  return Promise.resolve(activeEditor);
+// Text navigation enters through ICodeEditorService's source-carrying handler in the editor host.
+const openEditor: OpenEditor = async () => {
+  throw new Error("Cannot navigate without an owned editor connection.");
 };
 
 /** Initializes the VSCode services backing Monaco. Idempotent — subsequent calls return the same promise. */

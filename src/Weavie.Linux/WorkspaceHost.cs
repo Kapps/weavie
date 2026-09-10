@@ -135,7 +135,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
 
 		ShowWindow();
-		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspaceNativePageUrl);
+		((IWebSurface)this).LoadAsync(_core.WorkspaceNativePageUrl, string.Empty).GetAwaiter().GetResult();
 	}
 
 	/// <summary>Sizes the window for <paramref name="placement"/>, live when it is already on screen (welcome → workspace).</summary>
@@ -150,6 +150,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
+		_bridge.Security.Revoke();
 		StopInstanceServer();
 		DisposeHotkeys();
 		CloseWorkspace();
@@ -204,20 +205,24 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	}
 
 	private void InjectAtDocumentStart(string source) {
+		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
 		IntPtr script = WebKit.webkit_user_script_new(
 			source, WebKit.InjectTopFrame, WebKit.InjectAtDocumentStart, IntPtr.Zero, IntPtr.Zero);
 		WebKit.webkit_user_content_manager_add_script(_contentManager, script);
+		WebKit.webkit_user_script_unref(script);
 	}
 
 	// IWebSurface — the WelcomeController drives the welcome page through these. Every caller (Start + the bridge's
 	// main-thread message handler) is already on the GTK main thread, so these touch the view directly.
-	void IWebSurface.Navigate(string url) => WebKit.webkit_web_view_load_uri(_webView, url);
+	Task IWebSurface.LoadAsync(string url, string startupScript) =>
+		_bridge.Security.LoadAsync(url, startupScript,
+			"this.webkit.messageHandlers.weavie.postMessage.bind(this.webkit.messageHandlers.weavie)",
+			script => { InjectAtDocumentStart(script); return Task.CompletedTask; },
+			url => WebKit.webkit_web_view_load_uri(_webView, url));
 
-	void IWebSurface.RenderHtml(string html) => WebKit.webkit_web_view_load_html(_webView, html, IntPtr.Zero);
-
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
-		InjectAtDocumentStart(script);
-		return Task.CompletedTask;
+	void IWebSurface.RenderHtml(string html) {
+		_bridge.Security.Revoke();
+		WebKit.webkit_web_view_load_html(_webView, html, IntPtr.Zero);
 	}
 
 	private void SaveWindowState() {

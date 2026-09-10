@@ -30,8 +30,8 @@
       (() => {
         function toHost(level, message) {
           try {
-            const h = window.webkit?.messageHandlers?.weavie;
-            if (h) h.postMessage(JSON.stringify({ type: "log", level: level, message: message }));
+            const send = window.__weaviePostMessage;
+            if (send) send(JSON.stringify({ type: "log", level: level, message: message }));
           } catch (_err) {}
         }
         window.addEventListener(

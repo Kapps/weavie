@@ -6,12 +6,9 @@ namespace Weavie.Hosting.Web;
 /// WKWebView (Mac), WebKitGTK (Linux) each implement these; each marshals onto its own UI thread.
 /// </summary>
 public interface IWebSurface {
-	/// <summary>Navigates the WebView to <paramref name="url"/> (the chosen origin's <c>/index.html</c>, or a recovery target).</summary>
-	void Navigate(string url);
+	/// <summary>Installs the authenticated bridge and startup data before loading the selected app document.</summary>
+	Task LoadAsync(string url, string startupScript);
 
-	/// <summary>Loads an HTML document string directly into the WebView (no network, no backend) — used for the dev-server error page.</summary>
+	/// <summary>Revokes the bridge and displays an unprivileged recovery document.</summary>
 	void RenderHtml(string html);
-
-	/// <summary>Registers a script to run at document start on the next navigation (the bootstrap globals). Completes once registered.</summary>
-	Task InjectStartupScriptAsync(string script);
 }

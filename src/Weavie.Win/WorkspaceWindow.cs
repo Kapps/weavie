@@ -20,17 +20,6 @@ namespace Weavie.Win;
 internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuActions, IHostPlatform {
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage, so the web app
 	// runs unmodified across platforms.
-	private const string BridgeShim =
-		"""
-        (function () {
-          window.webkit = window.webkit || {};
-          window.webkit.messageHandlers = window.webkit.messageHandlers || {};
-          window.webkit.messageHandlers.weavie = {
-            postMessage: function (body) { window.chrome.webview.postMessage(body); }
-          };
-        })();
-        """;
-
 	private readonly AppController _app;
 	private readonly string _workspaceRoot;
 	private readonly HostBridge _bridge = new();

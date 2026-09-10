@@ -64,14 +64,9 @@ test.describe("native in-process bridge contract", () => {
       const address = { slot: "cx", incarnation: "cx-incarnation" };
       const sent: string[] = [];
       (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
-      let receive: ((event: { data: unknown }) => void) | null = null;
       const push = (message: Envelope): void => {
         const raw = JSON.stringify(message);
-        if (receive !== null) {
-          receive({ data: raw });
-        } else {
-          window.__weavieReceive?.(raw);
-        }
+        window.__weavieReceive?.(raw);
       };
       const event = (
         scope: "host" | "session",
@@ -158,16 +153,6 @@ test.describe("native in-process bridge contract", () => {
         }
       };
 
-      const chrome = (window as unknown as { chrome?: Record<string, unknown> }).chrome ?? {};
-      chrome.webview = {
-        postMessage: send,
-        addEventListener: (type: string, listener: (event: { data: unknown }) => void) => {
-          if (type === "message") {
-            receive = listener;
-          }
-        },
-      };
-      (window as unknown as { chrome: Record<string, unknown> }).chrome = chrome;
       (window as unknown as { __weavieHostEvent: typeof event }).__weavieHostEvent = (
         scope,
         session,
@@ -175,9 +160,7 @@ test.describe("native in-process bridge contract", () => {
         name,
         payload,
       ) => push(event(scope, session, feature, name, payload));
-      (window as unknown as { webkit: unknown }).webkit = {
-        messageHandlers: { weavie: { postMessage: send } },
-      };
+      window.__weaviePostMessage = send;
     });
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });

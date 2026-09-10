@@ -17,17 +17,6 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 	private const string AppHost = "weavie.dev";
 
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage.
-	private const string BridgeShim =
-		"""
-        (function () {
-          window.webkit = window.webkit || {};
-          window.webkit.messageHandlers = window.webkit.messageHandlers || {};
-          window.webkit.messageHandlers.weavie = {
-            postMessage: function (body) { window.chrome.webview.postMessage(body); }
-          };
-        })();
-        """;
-
 	// Fraction of the screen's working area the window opens at — "about half the screen".
 	private const double WidthFraction = 0.5;
 	private const double HeightFraction = 0.62;
@@ -136,7 +125,6 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		var core = _webView.CoreWebView2;
 
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
 		if (_closing) {
 			return;
 		}
@@ -168,16 +156,24 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 	}
 
 	// IWebSurface — the WebView2 ops the shared welcome flow drives; WebView2 is UI-thread-affine, so each marshals.
-	void IWebSurface.Navigate(string url) => _dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url));
+	Task IWebSurface.LoadAsync(string url, string startupScript) =>
+		_bridge.Security.LoadAsync(url, startupScript, "this.chrome.webview.postMessage.bind(this.chrome.webview)",
+			InjectStartupScriptAsync, url => _dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url)));
 
-	void IWebSurface.RenderHtml(string html) => _dispatcher.Post(() => _webView.CoreWebView2?.NavigateToString(html));
+	void IWebSurface.RenderHtml(string html) {
+		_bridge.Security.Revoke();
+		_dispatcher.Post(() => _webView.CoreWebView2?.NavigateToString(html));
+	}
 
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
+	private string? _startupScriptId;
+
+	private Task InjectStartupScriptAsync(string script) {
 		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_dispatcher.Post(async () => {
 			try {
 				if (_webView.CoreWebView2 is { } core) {
-					await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
+					if (_startupScriptId is not null) core.RemoveScriptToExecuteOnDocumentCreated(_startupScriptId);
+					_startupScriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
 				}
 
 				tcs.SetResult();

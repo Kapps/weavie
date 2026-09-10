@@ -32,16 +32,20 @@ internal sealed partial class WorkspaceWindow {
 	}
 
 	// IWebSurface — WKWebView is main-thread-affine, so each op marshals onto the main thread.
-	void IWebSurface.Navigate(string url) =>
-		_app.Dispatcher.Post(() => _webView.LoadRequest(new NSUrlRequest(new NSUrl(url))));
+	Task IWebSurface.LoadAsync(string url, string startupScript) =>
+		_bridge.Security.LoadAsync(url, startupScript, "this.webkit.messageHandlers.weavie.postMessage.bind(this.webkit.messageHandlers.weavie)",
+			InjectStartupScriptAsync, url => _app.Dispatcher.Post(() => _webView.LoadRequest(new NSUrlRequest(new NSUrl(url)))));
 
-	void IWebSurface.RenderHtml(string html) =>
+	void IWebSurface.RenderHtml(string html) {
+		_bridge.Security.Revoke();
 		_app.Dispatcher.Post(() => _webView.LoadHtmlString(new NSString(html), null));
+	}
 
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
+	private Task InjectStartupScriptAsync(string script) {
 		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_app.Dispatcher.Post(() => {
 			try {
+				_webView.Configuration.UserContentController.RemoveAllUserScripts();
 				_webView.Configuration.UserContentController.AddUserScript(new WKUserScript(
 					new NSString(script),
 					WKUserScriptInjectionTime.AtDocumentStart,

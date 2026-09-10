@@ -11,11 +11,16 @@ namespace Weavie.Linux.Hosting;
 internal sealed class HostBridge : IWebTransportHub {
 	// Kept alive: native holds a bare function pointer to this.
 	private readonly ScriptMessageCallback _onScriptMessage;
+	private readonly PolicyDecisionCallback _onPolicy;
 	private IntPtr _webView;
+
+	/// <summary>The shared document and message authentication boundary.</summary>
+	public NativeBridgeSecurity Security { get; } = new();
 
 	/// <summary>Call <see cref="RegisterOn"/> with the view's user-content manager to wire inbound messages.</summary>
 	internal HostBridge() {
 		_onScriptMessage = OnScriptMessage;
+		_onPolicy = OnPolicy;
 	}
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the GTK main thread).</summary>
@@ -43,7 +48,23 @@ internal sealed class HostBridge : IWebTransportHub {
 	}
 
 	/// <summary>Binds the bridge to the web view it pushes outbound messages into.</summary>
-	internal void Attach(IntPtr webView) => _webView = webView;
+	internal void Attach(IntPtr webView) {
+		_webView = webView;
+		GLib.g_signal_connect_data(webView, "decide-policy", Marshal.GetFunctionPointerForDelegate(_onPolicy),
+			IntPtr.Zero, IntPtr.Zero, 0);
+	}
+
+	private int OnPolicy(IntPtr view, IntPtr decision, int type, IntPtr data) {
+		bool deny = type == 1;
+		if (type == 2) {
+			string? url = Marshal.PtrToStringUTF8(WebKit.webkit_uri_response_get_uri(
+				WebKit.webkit_response_policy_decision_get_response(decision)));
+			deny = !Security.Allows(url, WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision));
+		}
+		if (!deny) return 0;
+		WebKit.webkit_policy_decision_ignore(decision);
+		return 1;
+	}
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c> (on the main thread).</summary>
 	public void Broadcast(WebTransportMessage message) {
@@ -66,9 +87,10 @@ internal sealed class HostBridge : IWebTransportHub {
 
 	// Main thread: extract the JS value as a string, free WebKit's copy, and forward the raw JSON body.
 	private void OnScriptMessage(IntPtr manager, IntPtr jsValue, IntPtr userData) {
+		if (!WebKit.jsc_value_is_string(jsValue)) return;
 		IntPtr stringPtr = WebKit.jsc_value_to_string(jsValue);
 		string body = Marshal.PtrToStringUTF8(stringPtr) ?? string.Empty;
 		GLib.g_free(stringPtr);
-		MessageReceived?.Invoke(WebPeer.Native, body);
+		if (Security.Authenticate(body) is { } authenticated) MessageReceived?.Invoke(WebPeer.Native, authenticated);
 	}
 }

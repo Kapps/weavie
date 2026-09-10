@@ -23,15 +23,9 @@ test("bundled native bridge restores history from the host resource bootstrap", 
       for (const message of pending.splice(0)) socket.send(message);
     };
     socket.onmessage = (event) => window.__weavieReceive?.(event.data);
-    window.webkit = {
-      messageHandlers: {
-        weavie: {
-          postMessage: (message: string) => {
-            if (socket.readyState === WebSocket.OPEN) socket.send(message);
-            else pending.push(message);
-          },
-        },
-      },
+    window.__weaviePostMessage = (message: string) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(message);
+      else pending.push(message);
     };
   });
   const history = page.waitForResponse((response) => {

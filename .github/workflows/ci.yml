@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      native_matrix: ${{ steps.matrix.outputs.native_matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +43,7 @@ jobs:
           matrix = {'platform': [p for p in platforms if os.environ['FULL'] == 'true' or p['name'] == 'linux']}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'matrix={json.dumps(matrix)}\n')
+              output.write(f'native_matrix={json.dumps({"platform": platforms})}\n')
           PYTHON
 
   web_checks:
@@ -159,7 +161,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.platforms.outputs.native_matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -181,7 +183,7 @@ jobs:
         if: matrix.platform.name == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libdrm-dev pkg-config
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth
 
       # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
       # restoring the one solution-wide format workspace that can evaluate every platform project.
@@ -193,11 +195,34 @@ jobs:
         if: matrix.platform.name == 'macos'
         run: dotnet workload restore weavie.slnx
 
+      - uses: ./temp/workflow/.github/actions/setup-web
+        with:
+          cache-write: ${{ !inputs.ref }}
+      - run: corepack pnpm install --frozen-lockfile
+        working-directory: src/web
+
       - name: Restore
         run: dotnet restore ${{ matrix.platform.restore }}
 
       - name: Build
-        run: dotnet build ${{ matrix.platform.project }} -c Debug --no-restore
+        run: |
+          dotnet build ${{ matrix.platform.project }} -c Release --no-restore
+          dotnet build tools/Weavie.FakeClaude
+          dotnet build tools/Weavie.FakeAcp
+
+      - name: Test desktop bridge in the production application
+        working-directory: src/web
+        shell: bash
+        run: |
+          prefix=()
+          if [[ "${{ matrix.platform.name }}" == linux ]]; then prefix=(dbus-run-session -- xvfb-run -a); fi
+          "${prefix[@]}" corepack pnpm exec playwright test -c e2e/desktop/desktop.config.ts
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-bridge-${{ matrix.platform.name }}
+          path: src/web/test-results
 
       - name: Test macOS native process isolation
         if: matrix.platform.name == 'macos'

@@ -60,6 +60,7 @@ import {
   activeTabFor,
   captureReviewFor,
   captureViewStateFor,
+  clearPendingLineFor,
   closeTabFor,
   convertScratchFor,
   dropReviewTabFor,
@@ -380,8 +381,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const presentTab = (session: ClientSession, result: ActivateResult): void => {
     void applyActive(session, result).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === "AbortError"))
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
         deps.onOpenError(`Couldn't open the tab: ${String(error)}`);
+        return;
+      }
+      // The reveal that carried this placement got cancelled before it ever reached the editor (e.g. the user
+      // switched away from the session while the tab was still mounting) — drop its recorded line so a later,
+      // unrelated activation of the same tab doesn't replay a stale reveal from a visit that's already over.
+      if ("line" in result.placement)
+        clearPendingLineFor(session, result.path, result.placement.line);
     });
   };
 

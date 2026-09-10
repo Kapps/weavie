@@ -80,6 +80,17 @@ class OwnedEditorSession {
     return this.pendingLines.get(path);
   }
 
+  // Drops a requested-line intent that will never reach the editor (its delivery was cancelled, e.g. the user
+  // switched away from the session before the tab mounted): without this, a later, unrelated activation of the
+  // same tab (a session switch back, a settling restore) would replay a reveal from a visit that's already
+  // over. Guarded by the exact line so a newer request for the same path — set after this one was cancelled —
+  // can't be clobbered by a late cancellation of the old one.
+  clearPendingLine(path: string, line: number): void {
+    if (this.pendingLines.get(path) === line) {
+      this.pendingLines.delete(path);
+    }
+  }
+
   restore(session: EditorSession): void {
     this.cancelPending();
     const next = { ...session, open: normalize(session.open) };
@@ -478,6 +489,8 @@ export const editorSessionFor = (owner: ClientSession): EditorSession | null =>
   stateFor(owner)?.current() ?? null;
 export const pendingLineFor = (owner: ClientSession, path: string): number | undefined =>
   stateFor(owner)?.pendingLine(path);
+export const clearPendingLineFor = (owner: ClientSession, path: string, line: number): void =>
+  stateFor(owner)?.clearPendingLine(path, line);
 export function onEditorSessionChanged(owner: ClientSession, listener: () => void): () => void {
   return stateFor(owner)?.subscribeStructure(listener) ?? (() => {});
 }

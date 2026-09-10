@@ -124,6 +124,9 @@ test("identifier corrections preserve camel case and snake case boundaries", asy
   await expect
     .poll(() => readFile(file, "utf8"))
     .toBe("const misspelledCount = 1;\nconst total_mispelled = 2;\n");
+  // Flaked on macOS CI 2026-09-09 16:07 UTC (run 34374758357, shard 5/6): right-click landed while the
+  // remaining mark's decoration element was being replaced, detaching it mid-click. Single occurrence,
+  // did not reproduce on the prior run; no confirmed root cause, so no change made here.
   await word(page, "mispelled").click({ button: "right" });
   await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
   await expect(marks(page)).toHaveCount(0);

@@ -36,6 +36,13 @@ class OwnedEditorSession {
   private postTimer: ReturnType<typeof setTimeout> | undefined;
   private lastStructure = "";
   private readonly structureListeners = new Set<() => void>();
+  // A line explicitly requested for a tab that hasn't captured a real Monaco viewState yet. A tab's persisted
+  // viewState is the only durable "where to show this" the host round-trips, so a fresh tab always restores at
+  // its default (line 1) until the user scrolls it — including a *second*, redundant restore of the same tab
+  // (e.g. session selection settling late after a reload) that lands after an explicit reveal already showed
+  // it at a specific line. This closes that gap without round-tripping a synthetic viewState: superseded the
+  // moment a real one is captured (see activate), never read once the tab is gone.
+  private readonly pendingLines = new Map<string, number>();
   private readonly tabs = new Map<string, TabOwner>();
 
   tab(path: string): TabOwner | undefined {
@@ -69,6 +76,10 @@ class OwnedEditorSession {
     return this.readState;
   }
 
+  pendingLine(path: string): number | undefined {
+    return this.pendingLines.get(path);
+  }
+
   restore(session: EditorSession): void {
     this.cancelPending();
     const next = { ...session, open: normalize(session.open) };
@@ -95,6 +106,9 @@ class OwnedEditorSession {
       ...(opts.column === undefined ? {} : { column: opts.column }),
       ...(opts.focus === undefined ? {} : { focus: opts.focus }),
     };
+    if (opts.line !== undefined) {
+      this.pendingLines.set(path, opts.line);
+    }
     const scratch = opts.scratch === true;
     const preview = !scratch && opts.preview === true;
     const existing = current.open.find((entry) => matchesTab(entry, path));
@@ -137,7 +151,15 @@ class OwnedEditorSession {
       return null;
     }
     this.commit({ active: entry.path, open: current.open });
-    return { path: entry.path, placement: { viewState: entry.viewState ?? null } };
+    // A freshly opened tab has no captured viewState yet; fall back to the line an explicit reveal just asked
+    // for so a redundant activation (e.g. session selection settling late after a reload) can't regress it to
+    // the file's top. A real viewState — captured the moment the user actually leaves the tab — always wins.
+    const pendingLine = entry.viewState === null ? this.pendingLines.get(entry.path) : undefined;
+    return {
+      path: entry.path,
+      placement:
+        pendingLine === undefined ? { viewState: entry.viewState ?? null } : { line: pendingLine },
+    };
   }
 
   close(path: string): CloseResult | null {
@@ -150,6 +172,7 @@ class OwnedEditorSession {
     const open = current.open.filter((entry) => entry !== target);
     const active = nearestSurvivor(current.open, closed, current.active);
     this.commit({ active, open });
+    this.pendingLines.delete(target.path);
     return { disposed: target.path, next: entryPlacement(open, active) };
   }
 
@@ -216,6 +239,9 @@ class OwnedEditorSession {
     const open = current.open.filter((entry) => !closed.has(entry.path));
     const active = nearestSurvivor(current.open, closed, current.active);
     this.commit({ active, open });
+    for (const path of closed) {
+      this.pendingLines.delete(path);
+    }
     return { disposed: [...closed], next: entryPlacement(open, active) };
   }
 
@@ -450,6 +476,8 @@ export interface CloseResult {
 export const editorSession = (): EditorSession | null => selectedState()?.current() ?? null;
 export const editorSessionFor = (owner: ClientSession): EditorSession | null =>
   stateFor(owner)?.current() ?? null;
+export const pendingLineFor = (owner: ClientSession, path: string): number | undefined =>
+  stateFor(owner)?.pendingLine(path);
 export function onEditorSessionChanged(owner: ClientSession, listener: () => void): () => void {
   return stateFor(owner)?.subscribeStructure(listener) ?? (() => {});
 }

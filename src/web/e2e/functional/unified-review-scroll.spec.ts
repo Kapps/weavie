@@ -66,20 +66,22 @@ test.describe("Review Changes tab — large addition", () => {
     await page.locator(".editor-empty-review").click();
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
+    const lastLine = section.locator(".view-line", { hasText: "new line 3999" });
+    const newFileBand = section.locator(".weavie-inline-newfile-tag");
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expectBoundedEditor(section, scroller);
-    await expect(section.locator(".view-line", { hasText: "new line 3999" })).toHaveCount(0);
+    await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await page.keyboard.press("ControlOrMeta+End");
     await workerRequested.promise;
-    releaseWorker.resolve();
-    await expectUnobscuredLine(
-      section,
-      section.locator(".view-line", { hasText: "new line 3999" }),
-    );
+    await expectUnobscuredLine(section, lastLine);
     await expectBoundedEditor(section, scroller);
+    await expect(newFileBand).toHaveCount(0);
+    releaseWorker.resolve();
+    await expect(newFileBand).toHaveText("New file");
+    await expectUnobscuredLine(section, lastLine);
     await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);

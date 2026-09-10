@@ -19,6 +19,14 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
     async ({ context }, use, testInfo) => {
       const failures: string[] = [];
       let snapshot: Promise<void> | undefined;
+      // Flake (Windows only): 2026-09-09 16:18 UTC, run
+      // https://github.com/Kapps/weavie/actions/runs/34374758357/job/102546252324 —
+      // `palette-focus-gated.spec.ts` hit ERR_NO_BUFFER_SPACE on a loopback asset GET during page load.
+      // The captured windows-network.txt rules out ephemeral-port exhaustion (98 total TCP rows against a
+      // 16384-port dynamic range); the host log shows ~20 git.exe subprocesses spawned by the host within
+      // the same instant, at workspace open. Not confirmed as the trigger — this is the first sample since
+      // the capture above was added — but it's the only correlated resource spike in the log and worth
+      // checking first if this recurs.
       const onRequestFailed = (request: Request): void => {
         const error = request.failure()?.errorText ?? "unknown";
         failures.push(`${new Date().toISOString()} ${request.method()} ${request.url()} ${error}`);

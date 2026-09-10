@@ -98,6 +98,14 @@ test.describe("Review Changes tab — large addition", () => {
     // synchronously from inside Monaco's own dispatch of its Ctrl+End reveal, a reentrant call that can race
     // Monaco's own pending render under CI-runner scheduling pressure. Fixed by deferring that reveal to the
     // next animation frame instead of applying it inline.
+    //
+    // Separately, failed deterministically on macOS CI both times it ran before this fix — 2026-09-09 06:06
+    // UTC (run 34317635773) and 16:07 UTC (run 34374758357), never once passed on macOS, always passed on
+    // Linux; both failures were byte-identical 30s toBeInViewport timeouts here. That investigation ruled out
+    // several candidate mechanisms (content/scroll height divergence, the scroll listener's missing `syncing`
+    // guard, content-size-driven re-layout) without a macOS runner to reproduce against. The Windows fix above
+    // (removing the reentrant Monaco call entirely) addresses the same reveal/layout feedback loop those
+    // macOS runs were tracing; watch for recurrence on macOS before assuming it's fully subsumed.
     await page.keyboard.press("ControlOrMeta+End");
     await workerRequested.promise;
     await expectUnobscuredLine(lastLine);

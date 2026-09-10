@@ -68,7 +68,11 @@ async function selectedSessionAddress(
 
 // Open the seeded PNG → the media pane streams it from the authenticated workspace endpoint; naturalWidth
 // proves the bytes decoded. Reload restores the persisted media tab into the pane, never a Monaco working copy.
-test("image renders in the media pane and survives reload", async ({ page, weavie }) => {
+test("image renders, survives text-tab switching, and restores after reload", async ({
+  page,
+  weavie,
+}) => {
+  const slot = await activeSessionSlot(page);
   await openFile(page, "pixel.png");
 
   const img = page.locator(".editor-media img");
@@ -78,14 +82,43 @@ test("image renders in the media pane and survives reload", async ({ page, weavi
     "/weavie-media/pixel.png",
   );
 
-  // Reload: the media tab restores from the persisted editor session, back into the pane (the restore path's
-  // media guard — without it Monaco would read the binary as UTF-8 text). Wait for the debounced session
-  // persist to land host-side first, or the reload races it and restores an empty tab set.
-  await expect.poll(() => persistedSessions(weavie.home)).toContain("pixel.png");
+  await test.step("text and image tabs preserve their contents and media source", async () => {
+    const firstSource = await img.getAttribute("src");
+    await openFile(page, "hello.ts");
+
+    await page.locator(".editor-tab", { hasText: "pixel.png" }).click();
+    await expect(img).toBeVisible();
+    expect(await img.getAttribute("src")).toBe(firstSource);
+
+    await page.locator(".editor-tab", { hasText: "hello.ts" }).click();
+    await expect(page.locator(".editor-media")).toHaveCount(0);
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("greet");
+
+    await page.locator(".editor-tab", { hasText: "pixel.png" }).click();
+    await expect(page.locator(".editor-media img")).toBeVisible();
+    expect(await page.locator(".editor-media img").getAttribute("src")).toBe(firstSource);
+  });
+
+  // Wait for both tabs and the image selection; an earlier image-only or text-active save is insufficient.
+  await expect
+    .poll(() => {
+      const serialized = persistedSessions(weavie.home);
+      if (serialized === "") return null;
+      const state = JSON.parse(serialized) as {
+        sessions: { id: string; editorSession: { active: string; open: { path: string }[] } }[];
+      };
+      const editor = state.sessions.find((session) => session.id === slot)?.editorSession;
+      return { active: editor?.active, open: editor?.open.map((entry) => entry.path) };
+    })
+    .toEqual({
+      active: join(weavie.workspace, "pixel.png"),
+      open: [join(weavie.workspace, "pixel.png"), join(weavie.workspace, "hello.ts")],
+    });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
   await expect(page.locator(".editor-media img")).toBeVisible();
   await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
+  await expect(page.locator(".editor-tab")).toHaveCount(2);
 });
 
 // Video uses the same range-capable endpoint. Metadata readiness proves a paused, metadata-only load settles
@@ -160,24 +193,6 @@ test.describe(() => {
     await expect(video).toHaveAttribute("controls", "");
     await expect(page.locator(".editor-media-notice")).toHaveCount(0);
   });
-});
-
-// A text file and a media file coexist: switching between them swaps the overlay in and out without
-// disturbing the Monaco working copy underneath.
-test("switching between a text tab and a media tab keeps both healthy", async ({ page }) => {
-  await openFile(page, "hello.ts");
-  await openFile(page, "pixel.png");
-  const image = page.locator(".editor-media img");
-  await expect(image).toBeVisible();
-  const firstSource = await image.getAttribute("src");
-
-  await page.locator(".editor-tab", { hasText: "hello.ts" }).click();
-  await expect(page.locator(".editor-media")).toHaveCount(0);
-  await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("greet");
-
-  await page.locator(".editor-tab", { hasText: "pixel.png" }).click();
-  await expect(page.locator(".editor-media img")).toBeVisible();
-  expect(await page.locator(".editor-media img").getAttribute("src")).toBe(firstSource);
 });
 
 // Scratch is session-owned just like workspace files. Same-named media in two scratch stores must render from

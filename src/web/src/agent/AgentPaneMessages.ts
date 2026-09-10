@@ -9,11 +9,7 @@ import {
   type RequestResolution,
   requestLifecycles,
 } from "./AgentPaneMessageFormat";
-import {
-  collectSideConversations,
-  orderSideConversations,
-  sideConversationEntry,
-} from "./AgentPaneSideConversations";
+import { collectSideConversations, sideConversationEntry } from "./AgentPaneSideConversations";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -38,7 +34,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
 ): AgentTranscriptProjection {
-  const updates = orderSideConversations(coalesceStreaming(messages));
+  const updates = coalesceStreaming(messages);
   const resolved = collectResolved(messages);
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {

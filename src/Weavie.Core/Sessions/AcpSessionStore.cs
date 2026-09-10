@@ -13,6 +13,7 @@ public sealed class AcpSessionStore(string path) {
 	};
 	private static readonly JsonSerializerOptions MessageJsonOptions = new(JsonOptions) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 	private readonly Lock _gate = new();
+	private bool _schemaReady;
 
 	/// <summary>The private database backing this store.</summary>
 	public string FilePath { get; } = Path.GetFullPath(path);
@@ -114,13 +115,16 @@ public sealed class AcpSessionStore(string path) {
 				}.ToString());
 				connection.Open();
 				SecureFile.Restrict(FilePath);
-				using var command = connection.CreateCommand();
-				command.CommandText = """
-					CREATE TABLE IF NOT EXISTS conversations (owner TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, id));
-					CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
-					CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
-					""";
-				command.ExecuteNonQuery();
+				if (!_schemaReady) {
+					using var schema = connection.CreateCommand();
+					schema.CommandText = """
+						CREATE TABLE IF NOT EXISTS conversations (owner TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, id));
+						CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
+						CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
+						""";
+					schema.ExecuteNonQuery();
+					_schemaReady = true;
+				}
 				return operation(connection);
 			} catch (Exception error) when (error is SqliteException or JsonException or IOException or UnauthorizedAccessException) {
 				throw new AcpSessionStoreException($"Could not read or save the ACP conversation in '{FilePath}': {error.Message}", error);

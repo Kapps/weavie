@@ -14,44 +14,6 @@ export function collectSideConversations(
   return conversations;
 }
 
-export function orderSideConversations(messages: readonly AgentPaneUpdate[]): AgentPaneUpdate[] {
-  const primary = messages.filter((message) => !message.conversationId);
-  const side = collectSideConversations(messages);
-  if (side.size === 0) return [...messages];
-  const byAnchor = new Map<string, AgentPaneUpdate[][]>();
-  const unanchored: AgentPaneUpdate[][] = [];
-  for (const conversation of side.values()) {
-    const anchor = conversation[0]?.anchorTurnId;
-    if (!anchor) {
-      unanchored.push(conversation);
-      continue;
-    }
-    const group = byAnchor.get(anchor);
-    if (group === undefined) byAnchor.set(anchor, [conversation]);
-    else group.push(conversation);
-  }
-  const lastIndexByTurn = new Map<string, number>();
-  for (let index = 0; index < primary.length; index += 1) {
-    const turnId = primary[index]?.turnId;
-    if (turnId) lastIndexByTurn.set(turnId, index);
-  }
-  const result: AgentPaneUpdate[] = (byAnchor.get("0") ?? []).flat();
-  byAnchor.delete("0");
-  for (let index = 0; index < primary.length; index += 1) {
-    const message = primary[index]!;
-    result.push(message);
-    if (message.turnId && lastIndexByTurn.get(message.turnId) === index) {
-      for (const conversation of byAnchor.get(message.turnId) ?? []) result.push(...conversation);
-      byAnchor.delete(message.turnId);
-    }
-  }
-  for (const conversations of byAnchor.values()) {
-    for (const conversation of conversations) result.push(...conversation);
-  }
-  for (const conversation of unanchored) result.push(...conversation);
-  return result;
-}
-
 export interface SideConversationState {
   active: boolean;
   failed: boolean;

@@ -80,41 +80,6 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
       ).__WEAVIE_EDITOR__?.getPosition()?.lineNumber ?? null,
   );
 
-test.describe("applied review — keep & undo", () => {
-  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
-
-  // Flaked on windows-latest 2026-08-05 04:33 UTC, stuck at count 1 for the full 30s expect.timeout:
-  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92209636984. Fixed in HostCore.WebBridge's
-  // ApplyHistoryResult (see its doc comment) by ordering the "history" push before "diff"/"changes".
-  test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
-    // Flaked on windows-latest 2026-08-05 04:33 UTC: the undo's re-pend (hook bridge → Core →
-    // rewrite hello.ts → re-render) never resolved within the 30s Windows expect.timeout, unrelated
-    // to the PR that surfaced it (a turn-navigation change) — the very next CI run passed this same
-    // test untouched: https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130
-    // test.slow triples the overall timeout budget for the keep+undo round trip; not a retry.
-    test.slow();
-    await openFile(page, "hello.ts");
-    await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending
-
-    // Keep at scope = Change (default): the hunk at the caret leaves the diff, the other stays.
-    await focusFirstHunk(page);
-    await page.keyboard.press("ControlOrMeta+Enter");
-    await expect(page.locator(ADDED)).toHaveCount(1);
-
-    // The keep's history availability (canUndoKeep) is host-pushed, arriving after the local decoration
-    // update above — pressing the undo chord before it lands consumes the key but no-ops (same race as the
-    // revert/undo-revert test below). Wait for the toolbar's history undo to reflect it first.
-    // Flaked 2026-08-06 (run https://github.com/Kapps/weavie/actions/runs/30975495342, e2e windows shard
-    // 2/6): undo-keep chord raced the host round-trip, so `.weavie-inline-added` stayed at 1. Fixed by
-    // waiting for HIST_UNDO to be enabled before firing the chord.
-    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
-
-    // Undo the keep — the hunk returns to the pending set.
-    await page.keyboard.press("ControlOrMeta+Shift+Enter");
-    await expect(page.locator(ADDED)).toHaveCount(2);
-  });
-});
-
 test.describe("applied review — undo-keep reveals the restored hunk", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
@@ -123,6 +88,8 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+
     // Land on hunk 1 (line 2) and Keep it — the caret advances toward hunk 2, leaving line 2.
     await focusFirstHunk(page);
     await expect.poll(() => caretLine(page)).toBe(2);
@@ -130,12 +97,16 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await expect(page.locator(ADDED)).toHaveCount(1); // hunk 1 kept
     await expect.poll(() => caretLine(page)).toBeGreaterThan(2); // caret moved off hunk 1
 
-    // Wait for the host-pushed canUndoKeep before undoing (see the race noted in the test above).
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(UNDO)).toHaveCount(1);
+
+    // History availability arrives from the host after the local decoration update.
     await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
 
     // Undo the keep — the host re-pends hunk 1 AND reveals it, landing the editor back on line 2.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
     await expect(page.locator(ADDED)).toHaveCount(2); // hunk 1 re-pended
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect.poll(() => caretLine(page)).toBe(2); // editor revealed the restored hunk
   });
 
@@ -208,26 +179,8 @@ test.describe("applied review — manual scrolling retargets the review position
   });
 });
 
-test.describe("applied review — accepted band fades (kept, not vanished) + inline undo", () => {
+test.describe("applied review — keep all after partial acceptance", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
-
-  test("keeping a hunk fades it with an inline ↶ undo that re-pends it", async ({ page }) => {
-    await openFile(page, "hello.ts");
-    await expect(page.locator(ADDED)).toHaveCount(2); // two bright pending hunks
-    await expect(page.locator(ACCEPTED)).toHaveCount(0); // nothing kept yet
-
-    // Keep the first hunk: it stays VISIBLE but faded — proof it's accepted — with an inline ↶ undo beside it.
-    await focusFirstHunk(page);
-    await page.keyboard.press("ControlOrMeta+Enter");
-    await expect(page.locator(ADDED)).toHaveCount(1); // one bright hunk remains
-    await expect(page.locator(ACCEPTED)).toHaveCount(1); // the kept hunk is now faded, not gone
-    await expect(page.locator(UNDO)).toHaveCount(1); // its inline ↶ undo
-
-    // Click the inline undo: the kept hunk returns to the bright pending band (no disk write — it never moved disk).
-    await page.locator(UNDO).click();
-    await expect(page.locator(ADDED)).toHaveCount(2);
-    await expect(page.locator(ACCEPTED)).toHaveCount(0);
-  });
 
   test("keep-all closes the review after a partial acceptance", async ({ page }) => {
     await openFile(page, "hello.ts");
@@ -278,9 +231,7 @@ test.describe("applied review — a new turn preserves the faded accepted band",
 test.describe("applied review — inline ✓ keep / ✕ revert on pending hunks", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  test("every pending hunk carries its own keep/revert; clicking ✓ keep fades just that hunk", async ({
-    page,
-  }) => {
+  test("pending hunk buttons keep one hunk and inline undo restores it", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
     await expect(page.locator(KEEP)).toHaveCount(2); // one ✓ keep / ✕ revert pair per pending hunk
@@ -292,6 +243,14 @@ test.describe("applied review — inline ✓ keep / ✕ revert on pending hunks"
     await expect(page.locator(ACCEPTED)).toHaveCount(1);
     await expect(page.locator(UNDO)).toHaveCount(1);
     await expect(page.locator(KEEP)).toHaveCount(1);
+
+    await test.step("inline undo restores the pending band", async () => {
+      await page.locator(UNDO).click();
+      await expect(page.locator(ADDED)).toHaveCount(2);
+      await expect(page.locator(ACCEPTED)).toHaveCount(0);
+      await expect(page.locator(KEEP)).toHaveCount(2);
+      await expect(page.locator(REVERT)).toHaveCount(2);
+    });
   });
 
   test("clicking ✕ revert rewrites disk for just that hunk", async ({ page, weavie }) => {

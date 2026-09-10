@@ -1,5 +1,5 @@
 import { createAcpSession } from "../harness/acp-session";
-import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
+import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { pastePng } from "../harness/pasted-image";
 
@@ -57,6 +57,60 @@ for (const { primaryRunning, prompt } of [
     await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
   });
 }
+
+test("BTW stays at its creation point through later primary output, side replies, and reopening", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "acp-side-position");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("hold");
+  await composer.press("Enter");
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+  await composer.fill("/btw explain the side question");
+  await composer.press("Enter");
+  const aside = surface.locator(".agent-aside");
+  await expect(aside).toContainText("echo: explain the side question");
+  const conversationId = await aside.getAttribute("data-agent-aside");
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+
+  await composer.fill("primary continues after BTW");
+  await composer.press("Enter");
+  await expect(surface).toContainText("steered: primary continues after BTW");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+  const rows = surface.locator(".agent-transcript > .agent-virtual-row");
+  const expectCreationOrder = async (): Promise<void> => {
+    await expect
+      .poll(() =>
+        rows.evaluateAll((elements) =>
+          elements.flatMap((element) => {
+            if (element.querySelector(".agent-aside")) return ["BTW"];
+            if (element.textContent?.includes("steered: primary continues after BTW")) {
+              return ["later primary output"];
+            }
+            return [];
+          }),
+        ),
+      )
+      .toEqual(["BTW", "later primary output"]);
+  };
+  await expectCreationOrder();
+
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
+  await reply.fill("one more side detail");
+  await reply.press("Enter");
+  await expect(aside).toContainText("echo: one more side detail");
+  await expectCreationOrder();
+
+  await runCommand(page, "Unload Session");
+  const unloaded = page.locator('.session-chip.unloaded[title^="acp-side-position"]');
+  await expect(unloaded).toBeVisible();
+  await unloaded.click();
+  await expect(aside).toHaveAttribute("data-agent-aside", conversationId!);
+  await expect(aside).toContainText("echo: one more side detail");
+  await expectCreationOrder();
+  await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
+});
 
 test("multiple BTW threads overlap the primary and route independent replies", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-concurrent-sides");

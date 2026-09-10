@@ -66,20 +66,20 @@ function annotatedLines(): { text: string; labels: number; left: number; middle:
 //
 // The harness workspace is a git repo whose seed files are committed as "seed" by "Weavie E2E".
 
-test("the cursor's line is annotated by default, and only it", async ({ page }) => {
+test("the default cursor annotation opens its change and dismisses with Escape", async ({
+  page,
+}) => {
   await openFile(page, "hello.ts");
+  await test.step("only the cursor line receives the default annotation", async () => {
+    const annotations = page.locator(".weavie-blame");
+    await expect(annotations.first()).toBeVisible();
+    // `\s` rather than literal spaces: Monaco renders the injected text's spacing as non-breaking spaces, so
+    // the label's own separators are not plain " ".
+    await expect(annotations.first()).toContainText(/Weavie\sE2E,\s.+\s•\sseed/);
+    // `currentLine` is the default: one label, on the line the cursor is on — not down the whole file.
+    await expect(annotations).toHaveCount(1);
+  });
 
-  const annotations = page.locator(".weavie-blame");
-  await expect(annotations.first()).toBeVisible();
-  // `\s` rather than literal spaces: Monaco renders the injected text's spacing as non-breaking spaces, so
-  // the label's own separators are not plain " ".
-  await expect(annotations.first()).toContainText(/Weavie\sE2E,\s.+\s•\sseed/);
-  // `currentLine` is the default: one label, on the line the cursor is on — not down the whole file.
-  await expect(annotations).toHaveCount(1);
-});
-
-test("clicking an annotation opens the change that produced the line", async ({ page }) => {
-  await openFile(page, "hello.ts");
   // The annotation is the feature's front door — the entry point that needs no palette.
   await page.locator(".weavie-blame").first().click();
 
@@ -96,14 +96,23 @@ test("clicking an annotation opens the change that produced the line", async ({ 
   await expect(popover).toHaveCount(0);
 });
 
-test("turning blame off removes the annotations and turning it back on restores them", async ({
-  page,
-}) => {
+test("blame toggles off and on while Show Blame remains available", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
 
   await runCommand(page, "Toggle Git Blame Annotations");
   await expect(page.locator(".weavie-blame")).toHaveCount(0);
+
+  await test.step("Show Blame works while annotations are off", async () => {
+    // Asking for a line's blame is a question about the file, not about whether annotations are painted.
+    await runCommand(page, "Show Blame for This Line");
+
+    const popover = page.getByRole("dialog", { name: "Git blame" });
+    await expect(popover).toBeVisible();
+    await expect(popover.locator(".weavie-blame-subject")).toHaveText("seed");
+  });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Git blame" })).toHaveCount(0);
 
   await runCommand(page, "Toggle Git Blame Annotations");
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
@@ -313,17 +322,4 @@ test("a long change leaves the popover's history on screen", async ({ page }) =>
   expect(geometry.entry.bottom).toBeLessThanOrEqual(geometry.panel.bottom);
   expect(geometry.entry.height).toBeGreaterThan(10);
   expect(geometry.panel.bottom).toBeLessThanOrEqual(geometry.viewport);
-});
-
-test("Show Blame answers for the cursor's line even with annotations off", async ({ page }) => {
-  await openFile(page, "hello.ts");
-  await runCommand(page, "Toggle Git Blame Annotations");
-  await expect(page.locator(".weavie-blame")).toHaveCount(0);
-
-  // Asking for a line's blame is a question about the file, not about whether annotations are painted.
-  await runCommand(page, "Show Blame for This Line");
-
-  const popover = page.getByRole("dialog", { name: "Git blame" });
-  await expect(popover).toBeVisible();
-  await expect(popover.locator(".weavie-blame-subject")).toHaveText("seed");
 });

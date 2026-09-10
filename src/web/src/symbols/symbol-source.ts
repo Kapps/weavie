@@ -6,6 +6,7 @@
 
 import { StandaloneServices } from "@codingame/monaco-vscode-api";
 import { ILanguageFeaturesService } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/services/languageFeatures.service";
+import { OutlineModel } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/documentSymbols/browser/outlineModel";
 import {
   getWorkspaceSymbols,
   WorkspaceSymbolProviderRegistry,
@@ -93,23 +94,20 @@ export function createSymbolSource(
     if (model.uri.scheme !== SESSION_FILE_SCHEME) {
       return { providerAvailable: false, items: [] };
     }
-    const providers =
-      StandaloneServices.get(ILanguageFeaturesService).documentSymbolProvider.ordered(model);
-    if (providers.length === 0) {
+    const registry = StandaloneServices.get(ILanguageFeaturesService).documentSymbolProvider;
+    if (!registry.has(model)) {
       return { providerAvailable: false, items: [] };
     }
+    // Merge every registered provider's tree (VS Code's own outline/breadcrumbs behavior) rather than taking
+    // the first provider that answers non-empty — a file can carry more than one document-symbol provider
+    // (e.g. the bundled TypeScript language service alongside a real connected LSP).
+    const outline = await OutlineModel.create(registry, model, CancellationToken.None);
+    signal.throwIfAborted();
     const path = sessionUriHostPath(model.uri);
-    for (const provider of providers) {
-      const symbols = await provider.provideDocumentSymbols(model, CancellationToken.None);
-      signal.throwIfAborted();
-      if (symbols != null && symbols.length > 0) {
-        return {
-          providerAvailable: true,
-          items: flattenDocumentSymbols(symbols.map(toNode), path),
-        };
-      }
-    }
-    return { providerAvailable: true, items: [] };
+    return {
+      providerAvailable: true,
+      items: flattenDocumentSymbols(outline.getTopLevelSymbols().map(toNode), path),
+    };
   };
 
   const workspaceSymbols = async (

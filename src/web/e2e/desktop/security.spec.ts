@@ -11,13 +11,16 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   const acks = new Set<string>();
   const complete = Promise.withResolvers<string>();
   let workspace = "";
-  const attack = () => `
-    const report = path => fetch(location.origin + path, {mode:'no-cors'});
-    window.__weavieReceive = () => report('/leak');
+  const attack = (reportOrigin: string) => `
+    const report = path => fetch(${JSON.stringify(reportOrigin)} + path, {mode:'no-cors'});
+    const leak = () => report('/leak');
+    window.__weavieReceive = leak;
+    try { Object.defineProperty(window, '__weavieDeliver', {value:leak}); } catch {}
+    window.chrome?.webview?.addEventListener('message', leak);
     if (location.pathname === '/opaque' && self.origin !== 'null') report('/leak');
     if (['__weaviePostMessage','__WEAVIE_WELCOME__','__WEAVIE_RESOURCE_BASE__'].some(key => key in window)) report('/leak');
-    try { top.__weaviePostMessage('{}'); report('/leak'); } catch {}
     const body = JSON.stringify({scope:'host',session:null,kind:'request',requestId:'attack',feature:'commands',name:'invoke',payload:{id:'weavie.font.increase',args:null},error:null});
+    try { top.__weaviePostMessage(body); report('/leak'); } catch {}
     const menu = JSON.stringify({scope:'host',session:null,kind:'event',requestId:null,feature:'window',name:'menu',payload:{action:'open-recent',path:${JSON.stringify(workspace)}},error:null});
     for (const value of [body, menu, '0'.repeat(64) + ':' + body, '0'.repeat(64) + ':' + menu]) {
       try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
@@ -38,11 +41,15 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     if (url.pathname === "/state") return void res.end(JSON.stringify([...acks]));
     if (url.pathname === "/redirect")
       return void res.writeHead(302, { Location: "/preview" }).end();
+    if (url.pathname === "/app-frame") {
+      acks.add("/ack/app-frame");
+      return void res.writeHead(302, { Location: url.searchParams.get("target")! }).end();
+    }
     if (url.pathname === "/opaque")
       res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
     res.setHeader("Content-Type", "text/html");
     res.end(
-      `<h1>Untrusted preview</h1><input placeholder="Preview still works"><script>${attack()}</script>`,
+      `<h1>Untrusted preview</h1><input placeholder="Preview still works"><script>${attack(origin)}</script>`,
     );
   });
   server.listen(0, "127.0.0.1");
@@ -54,6 +61,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       return `
       (async () => {
         const origin = ${JSON.stringify(origin)}, nonce = ${JSON.stringify(nonce)};
+        if (self !== top) { ${attack(origin)} return; }
         const wait = async condition => { while (!await condition()) await new Promise(resolve => setTimeout(resolve, 25)); };
         const query = selector => document.querySelector(selector);
         const command = async label => {
@@ -63,6 +71,8 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(row); row().dispatchEvent(new MouseEvent('mousedown', {bubbles:true,button:0}));
         };
         const frame = url => { const f = document.createElement('iframe'); f.src = url; document.body.append(f); return f; };
+        const target = location.href.replace('://', '://user@');
+        frame(target); frame(origin + '/app-frame?target=' + encodeURIComponent(target));
         if (location.pathname === '/welcome.html') {
           await wait(() => document.querySelectorAll('.welcome-row').length === 2);
           frame(origin + '/welcome');
@@ -71,7 +81,8 @@ test("only the app can use the native bridge, across welcome, previews and reloa
         }
         await wait(() => query('.tb-omnibar-input') && !query('#splash'));
         if (window.__WEAVIE_BRIDGE_WS__ !== undefined) throw Error('Expected native transport');
-        window.__weavieReceive = ((receive) => raw => { if (JSON.parse(raw).requestId === 'attack') fetch(origin + '/leak'); receive(raw); })(window.__weavieReceive);
+        let replies = 0;
+        window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies++; receive(raw); })(window.__weavieReceive);
         const font = () => getComputedStyle(document.documentElement).getPropertyValue('--font-content-size').trim();
         if (!sessionStorage.getItem('bridge-reloaded')) {
           await command('Open URL…'); await wait(() => query('.url-prompt-input'));
@@ -80,20 +91,26 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/opaque'));
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
-          const child = frame(location.href.replace('://', '://user@')); await new Promise(resolve => setTimeout(resolve, 100));
-          try { if (child.contentWindow.__weaviePostMessage) throw Error('App subframe has a sender'); } catch (error) { if (error.name !== 'SecurityError') throw error; }
-          for (const url of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted']) { location.href = url; await new Promise(resolve => setTimeout(resolve, 100)); }
-          await command('Increase Font Size'); await wait(() => font() === '17px');
+          for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
+            const before = replies; location.href = url;
+            await command('Increase Font Size'); await wait(() => font() === (17 + index) + 'px' && replies > before);
+          }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }
-        await command('Increase Font Size'); await wait(() => font() === '18px');
+        await command('Increase Font Size'); await wait(() => font() === '20px' && replies > 0);
         await fetch(origin + '/done?nonce=' + nonce + '&result=pass');
       })().catch(error => fetch(${JSON.stringify(origin)} + '/done?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent(String(error))));
     `;
     });
     expect(await Promise.race([complete.promise, app.exited])).toBe("pass");
     expect(acks).toEqual(
-      new Set(["/ack/welcome", "/ack/preview", "/ack/opaque", "/ack/interactive"]),
+      new Set([
+        "/ack/welcome",
+        "/ack/preview",
+        "/ack/opaque",
+        "/ack/interactive",
+        "/ack/app-frame",
+      ]),
     );
   } finally {
     server.closeAllConnections();

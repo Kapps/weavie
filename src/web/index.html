@@ -67,9 +67,9 @@
         var RETRY_KEY = "weavie-boot-module-retry";
         function toHost(level, message) {
           try {
-            const h = window.webkit?.messageHandlers?.weavie || window.chrome?.webview;
-            if (h) {
-              h.postMessage(JSON.stringify({
+            const send = window.__weaviePostMessage;
+            if (send) {
+              send(JSON.stringify({
                 scope: "host", session: null, kind: "event", requestId: null,
                 feature: "diagnostics", name: "log", payload: { level, message }, error: null,
               }));

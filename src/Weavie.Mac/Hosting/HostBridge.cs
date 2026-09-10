@@ -12,6 +12,9 @@ namespace Weavie.Mac.Hosting;
 public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTransportHub {
 	private WKWebView? _webView;
 
+	/// <summary>The shared document and message authentication boundary.</summary>
+	public NativeBridgeSecurity Security { get; } = new();
+
 	/// <summary>Raised with the raw JSON body of each inbound message (on the main thread).</summary>
 	public event Action<WebPeer, string>? MessageReceived;
 
@@ -19,14 +22,18 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTranspor
 	public event Action<WebPeer>? PeerDisconnected;
 
 	/// <summary>Binds the bridge to the web view it pushes outbound messages into.</summary>
-	public void Attach(WKWebView webView) => _webView = webView;
+	public void Attach(WKWebView webView) {
+		_webView = webView;
+		webView.NavigationDelegate = new NativeNavigationDelegate(Security);
+	}
 
 	/// <summary>WKWebView script-message callback: forwards the inbound body to <see cref="MessageReceived"/>.</summary>
 	[Export("userContentController:didReceiveScriptMessage:")]
 	public void DidReceiveScriptMessage(WKUserContentController userContentController, WKScriptMessage message) =>
 		GuardedUiDispatcher.Run(() => {
-			if (_webView is not null) {
-				MessageReceived?.Invoke(WebPeer.Native, message.Body?.ToString() ?? string.Empty);
+			if (ReferenceEquals(message.WebView, _webView) && message.FrameInfo.MainFrame
+				&& message.Body is NSString value && Security.Authenticate(value.ToString()) is { } body) {
+				MessageReceived?.Invoke(WebPeer.Native, body);
 			}
 		}, MacUiFailure.Report);
 
@@ -67,6 +74,7 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTranspor
 			return;
 		}
 		_webView = null;
+		Security.Revoke();
 		try {
 			PeerDisconnected?.Invoke(WebPeer.Native);
 		} catch (Exception disconnectFailure) {

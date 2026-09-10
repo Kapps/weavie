@@ -626,14 +626,9 @@ export function isBrowserHostedShell(): boolean {
 
 class NativeTransport implements BridgeTransport {
   send(json: string): void {
-    const webkit = window.webkit?.messageHandlers?.weavie;
-    if (webkit !== undefined) {
-      webkit.postMessage(json);
-      return;
-    }
-    const webview = window.chrome?.webview;
-    if (webview !== undefined) {
-      webview.postMessage(json);
+    const send = window.__weaviePostMessage;
+    if (send !== undefined) {
+      send(json);
       return;
     }
     throw new Error("The native host bridge is unavailable.");
@@ -839,17 +834,8 @@ function reportError(backendId: string, error: unknown): void {
 
 (() => {
   window.__weavieReceive = (raw: string): void => receiveRaw(LOCAL_BACKEND_ID, raw);
-  window.chrome?.webview?.addEventListener("message", (event) => {
-    if (typeof event.data === "string") {
-      receiveRaw(LOCAL_BACKEND_ID, event.data);
-    }
-  });
-
   let transport: BridgeTransport | null = null;
-  if (
-    window.webkit?.messageHandlers?.weavie !== undefined ||
-    window.chrome?.webview !== undefined
-  ) {
+  if (window.__weaviePostMessage !== undefined) {
     transport = new NativeTransport();
     if (window.__WEAVIE_RESOURCE_BASE__ !== undefined) {
       setResourceBase(LOCAL_BACKEND_ID, window.__WEAVIE_RESOURCE_BASE__);

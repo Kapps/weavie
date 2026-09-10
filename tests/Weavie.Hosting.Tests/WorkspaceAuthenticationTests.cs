@@ -32,7 +32,7 @@ public sealed class WorkspaceAuthenticationTests {
 	}
 
 	[Fact]
-	public async Task Native_bootstrap_establishes_a_cookie_then_redirects_clean() {
+	public async Task Native_bootstrap_commits_its_origin_before_navigating_with_a_strict_cookie() {
 		await using var host = await TestHost.StartAsync();
 		var cookies = new CookieContainer();
 		using var handler = new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies };
@@ -40,8 +40,8 @@ public sealed class WorkspaceAuthenticationTests {
 
 		var bootstrap = await client.GetAsync(host.Core.WorkspaceNativePageUrl);
 
-		Assert.Equal(HttpStatusCode.Redirect, bootstrap.StatusCode);
-		Assert.Equal("/index.html", bootstrap.Headers.Location?.OriginalString);
+		Assert.Equal(HttpStatusCode.OK, bootstrap.StatusCode);
+		Assert.Contains("location.replace('/index.html')", await bootstrap.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 		Assert.Contains(bootstrap.Headers.GetValues("Set-Cookie"), value =>
 			value.Contains("HttpOnly", StringComparison.OrdinalIgnoreCase)
 			&& value.Contains("SameSite=Strict", StringComparison.OrdinalIgnoreCase));

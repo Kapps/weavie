@@ -20,7 +20,6 @@ public sealed class WelcomeControllerTests {
 			"""window.__WEAVIE_WELCOME__ = {"recents":["/a/one","/b/two"]};window.__WEAVIE_THEME__ = {"mode":"dark","light":{"id":"weavie-light","ops":[]},"dark":{"id":"weavie-dark","ops":[]}};""",
 			surface.LastScript);
 		Assert.Equal("app://app/welcome.html", surface.LastNavigated);
-		Assert.True(surface.InjectedBeforeNavigate);
 	}
 
 	[Fact]
@@ -104,15 +103,12 @@ public sealed class WelcomeControllerTests {
 		public WelcomeController Controller { get; set; } = null!;
 		public string? LastScript { get; private set; }
 		public string? LastNavigated { get; private set; }
-		public bool InjectedBeforeNavigate { get; private set; }
-
-		public void Navigate(string url) => LastNavigated = url;
 
 		public void RenderHtml(string html) { }
 
-		public Task InjectStartupScriptAsync(string script) {
+		public Task LoadAsync(string url, string script) {
+			LastNavigated = url;
 			LastScript = script;
-			InjectedBeforeNavigate = LastNavigated is null;
 			return Task.CompletedTask;
 		}
 	}

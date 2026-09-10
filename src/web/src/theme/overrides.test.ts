@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { makeTransform, transformHex } from "./colors";
 import { type OverrideOp, resolveTheme } from "./overrides";
 import type { VsCodeColorTheme } from "./vscode-theme";
 
@@ -11,6 +12,39 @@ function base(): VsCodeColorTheme {
     semanticTokenColors: { variable: "#c0c0c0", "class.declaration": { foreground: "#a0a0a0" } },
   };
 }
+
+describe("spellcheck theme color", () => {
+  it.each([
+    ["dark", "#70b7ff"],
+    ["hc", "#70b7ff"],
+    ["light", "#005fb8"],
+    ["hcLight", "#005fb8"],
+  ] as const)("supplies an opaque default for a %s theme without the key", (type, color) => {
+    expect(resolveTheme({ ...base(), type }, []).colors["editorSpellCheck.foreground"]).toBe(color);
+  });
+
+  it("layers theme colors and ordered overrides over the default without retaining removed overrides", () => {
+    const theme = base();
+    theme.colors["editorSpellCheck.foreground"] = "#ff8800";
+    const ops: OverrideOp[] = [
+      { kind: "transform", op: "darken", amount: 0.2, target: "colors" },
+      { kind: "set", key: "editorSpellCheck.foreground", value: "#00ffff" },
+    ];
+    expect(resolveTheme(theme, ops).colors["editorSpellCheck.foreground"]).toBe("#00ffff");
+    expect(resolveTheme(theme, ops.slice(0, 1)).colors["editorSpellCheck.foreground"]).toBe(
+      transformHex("#ff8800", makeTransform("darken", 0.2)),
+    );
+    expect(resolveTheme(theme, []).colors["editorSpellCheck.foreground"]).toBe("#ff8800");
+    expect(resolveTheme(base(), []).colors["editorSpellCheck.foreground"]).toBe("#70b7ff");
+  });
+
+  it("includes the default in palette transforms", () => {
+    const ops: OverrideOp[] = [{ kind: "transform", op: "darken", amount: 0.2, target: "colors" }];
+    expect(resolveTheme(base(), ops).colors["editorSpellCheck.foreground"]).toBe(
+      transformHex("#70b7ff", makeTransform("darken", 0.2)),
+    );
+  });
+});
 
 describe("resolveTheme set ops", () => {
   it("writes a workbench colour by key", () => {

@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import { normalizePath } from "../../src/editor/fs-path";
 import { openFile, runCommand } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
@@ -232,10 +233,14 @@ test.describe("three-file completion", () => {
 
     await expectClosed(page);
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
-    await expect(page.locator(".editor")).toHaveAttribute(
-      "data-active-file",
-      join(weavie.workspace, "notes.txt"),
-    );
+    // Flaked on Windows CI 2026-09-09 16:07 UTC (run 34374758357): data-active-file is lowercase-drive/
+    // forward-slash normalized, but this compared it against an OS-native path.join with an uppercase
+    // drive and backslashes. Normalize both sides, matching recent-files.spec.ts.
+    await expect
+      .poll(async () =>
+        normalizePath((await page.locator(".editor").getAttribute("data-active-file")) ?? ""),
+      )
+      .toBe(normalizePath(join(weavie.workspace, "notes.txt")));
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getValue()))
       .toBe(original);

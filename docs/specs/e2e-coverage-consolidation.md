@@ -33,8 +33,9 @@ Paths below are relative to `src/web/e2e/`.
 | mobile | 14 | 14 |
 | **Total per platform** | **425** | **406** |
 
-That removes 57 test executions across the three-platform CI matrix, including 42 full-stack host
-startups. Remote transport and mobile coverage stay intact. Consolidated tests use the existing
+That removes 19 test executions in normal Linux PR validation, including 14 full-stack host startups;
+full three-platform validation saves 57 executions and 42 host startups. Remote transport and mobile
+coverage stay intact. Consolidated tests use the existing
 timeouts, retry settings, and assertions; no failing platform or scenario is excluded.
 
 This is a 4.5% reduction in test executions, not a measured reduction in flake rate. Remaining actions

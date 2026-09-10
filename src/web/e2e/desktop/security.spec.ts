@@ -105,8 +105,8 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
           for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
-            const before = replies; location.href = url;
-            await command('Increase Font Size'); await wait(() => font() === (17 + index) + 'px' && replies > before);
+            const before = replies; await command('Increase Font Size'); location.href = url;
+            await wait(() => font() === (17 + index) + 'px' && replies > before);
           }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }

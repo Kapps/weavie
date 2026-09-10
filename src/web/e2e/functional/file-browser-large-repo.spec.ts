@@ -3,29 +3,36 @@ import { join } from "node:path";
 import { awaitEditorReady, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
+const fileCount = 26_000;
+
+test.use({
+  workspaceSeed: {
+    run: async (workspace) => {
+      for (let bucket = 0; bucket < 100; bucket += 1) {
+        const directory = join(workspace, "generated", `bucket-${bucket}`);
+        mkdirSync(directory, { recursive: true });
+        for (let offset = 0; offset < 260; offset += 1) {
+          const index = String(bucket * 260 + offset).padStart(5, "0");
+          writeFileSync(join(directory, `QueryFile-${index}.txt`), `File ${index}\n`);
+        }
+      }
+      mkdirSync(join(workspace, "retained"));
+      for (const name of [
+        "FileBrowserFilter.txt",
+        "FileBrowserFrame.txt",
+        "FastBufferFactory.txt",
+      ]) {
+        writeFileSync(join(workspace, "retained", name), `${name}\n`);
+      }
+    },
+  },
+});
+
 test("file browser uses omnibar fuzzy ranking and bounds results without losing large-repo files", async ({
   page,
-  weavie,
 }) => {
-  const fileCount = 26_000;
-  for (let bucket = 0; bucket < 100; bucket += 1) {
-    const directory = join(weavie.workspace, "generated", `bucket-${bucket}`);
-    mkdirSync(directory, { recursive: true });
-    for (let offset = 0; offset < 260; offset += 1) {
-      const index = String(bucket * 260 + offset).padStart(5, "0");
-      writeFileSync(join(directory, `QueryFile-${index}.txt`), `File ${index}\n`);
-    }
-  }
-  mkdirSync(join(weavie.workspace, "retained"));
-  for (const name of ["FileBrowserFilter.txt", "FileBrowserFrame.txt", "FastBufferFactory.txt"]) {
-    writeFileSync(join(weavie.workspace, "retained", name), `${name}\n`);
-  }
   await awaitEditorReady(page);
   const omnibar = page.locator(".tb-omnibar-input");
-  // Flaked on Windows CI 2026-09-09 16:07 UTC (run 34374758357, shard 3/6): browser/context closed mid-test
-  // after a 60s timeout, in the same run where a sibling shard hit ERR_NO_BUFFER_SPACE (see
-  // harness/network-fixtures.ts) — consistent with runner-wide resource pressure from this test's 26k
-  // synchronous file writes, not a bug in this test. Did not reproduce on the prior run; no change made.
   await omnibar.click();
   await omnibar.fill("q");
   await expect(page.locator(".tb-omnibar-row")).toHaveCount(300);

@@ -6,7 +6,12 @@ test.describe("runner browser entry", () => {
   test.skip(!runnerBuilt(), "Weavie.Runner not built (run `dotnet build src/Weavie.Runner`)");
 
   test("scrubs query tokens and remembers one valid token entry", async ({ page }) => {
-    const runner = await launchRunner({ fakeScript: null });
+    const runner = await launchRunner({
+      fakeScript: null,
+      inference: "disabled",
+      automaticInference: false,
+      workspaceSeed: null,
+    });
     try {
       await page.goto(`${runner.url}/?token=${runner.token}`, { waitUntil: "domcontentloaded" });
       expect(new URL(page.url()).search).toBe("");

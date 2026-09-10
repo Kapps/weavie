@@ -70,7 +70,7 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
 	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
-	/// <summary>Raised when provider resume supplies a complete authoritative transcript replacement.</summary>
+	/// <summary>Restores the complete display journal, including all side conversations.</summary>
 	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
 }
 

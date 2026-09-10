@@ -33,6 +33,18 @@ public sealed partial class AcpAgentSession {
 		DisposeSideRuntime(runtime);
 	}
 
+	private void SuspendSideRuntimes(string reason) {
+		SideRuntime[] sides;
+		lock (_gate) sides = [.. _sideRuntimes.Values];
+		foreach (var side in sides) {
+			side.Session.TerminalizeForRestart(clearSubmissions: true, reason);
+			side.Session.SaveContinuation();
+			lock (_gate) _sideRuntimes.Remove(side.Conversation.ConversationId);
+			if (side.Session.SessionId() is null) PublishSideTerminal(side.Conversation);
+			DisposeSideRuntime(side);
+		}
+	}
+
 	private void FailSideRuntimes(Exception error) {
 		SideRuntime[] sides;
 		lock (_gate) sides = [.. _sideRuntimes.Values];
@@ -50,18 +62,17 @@ public sealed partial class AcpAgentSession {
 		Run(async () => await runtime.Session.DisposeAsync().ConfigureAwait(false));
 	}
 
-	private void PublishSideTerminal(SideConversation conversation) {
-		Emit(new AgentPaneMessage {
-			Type = "side-conversation-failed",
-			ProviderId = _definition.Id,
-			ThreadId = SessionId(),
-			ConversationId = conversation.ConversationId,
-			AnchorTurnId = conversation.AnchorTurnNumber.ToString(
-				System.Globalization.CultureInfo.InvariantCulture),
-			IsPrimaryThread = false,
-			Status = "failed",
-		});
-	}
+	private void PublishSideTerminal(SideConversation conversation) => Emit(SideTerminal(conversation));
+
+	private AgentPaneMessage SideTerminal(SideConversation conversation) => new() {
+		Type = "side-conversation-failed",
+		ProviderId = _definition.Id,
+		ThreadId = SessionId(),
+		ConversationId = conversation.ConversationId,
+		AnchorTurnId = conversation.AnchorTurnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
+		IsPrimaryThread = false,
+		Status = "failed",
+	};
 
 	private bool TrySideRequest(string requestId, out SideRequestOwner owner) {
 		int separator = requestId.IndexOf(':', StringComparison.Ordinal);

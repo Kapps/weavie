@@ -36,14 +36,10 @@ for (const { primaryRunning, prompt } of [
 
     const aside = surface.locator(".agent-aside");
     await expect(aside).toContainText(prompt ? "image=True" : "echo:");
-    const attachment = aside.getByRole("link", { name: /paste-1\.png$/ });
-    await expect(attachment).toBeVisible();
-    await attachment.click();
-    const image = page.locator(".editor-media img");
+    const image = aside.locator(".agent-entry-media");
     await expect(image).toBeVisible();
     await expect(image).toHaveJSProperty("naturalWidth", 64);
-    const imageResponse = await page.request.get((await image.getAttribute("src")) as string);
-    expect(await imageResponse.body()).toEqual(Buffer.from(png, "base64"));
+    await expect(image).toHaveAttribute("src", `data:image/png;base64,${png}`);
     await expect(surface.locator(".agent-attachment")).toHaveCount(0);
     await expect(composer).toHaveValue("");
 

@@ -25,7 +25,9 @@ public sealed class AcpSideAttachmentTests {
 			message.Type == "turn-completed" && message.ConversationId is not null);
 		var image = Assert.Single(fixture.Messages, message => message.Type == "user-image");
 		Assert.Equal("side-image", image.ItemId);
-		Assert.Equal(path, image.Text);
+		Assert.Equal("image/png", image.MediaType);
+		Assert.Equal(Convert.ToBase64String(await File.ReadAllBytesAsync(path)), image.MediaData);
+		Assert.Null(image.Text);
 		Assert.Equal(completed.ConversationId, image.ConversationId);
 		Assert.Equal("end_turn", completed.Status);
 		var request = Assert.Single(AcpPromptAssertions.Read(fixture));

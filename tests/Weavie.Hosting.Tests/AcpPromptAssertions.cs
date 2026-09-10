@@ -13,9 +13,12 @@ internal static class AcpPromptAssertions {
 		request.GetProperty("parameters").GetProperty("prompt").EnumerateArray();
 
 	public static void SideScope(JsonElement request, string userText) {
+		var reminder = Assert.Single(Blocks(request), block => block.GetProperty("type").GetString() == "text"
+			&& block.GetProperty("text").GetString() == EmbeddedAgentGuidance.SideConversationInstructions);
+		Assert.Equal(["assistant"], reminder.GetProperty("annotations").GetProperty("audience")
+			.EnumerateArray().Select(value => value.GetString()));
 		string?[] text = [.. Blocks(request).Where(block => block.GetProperty("type").GetString() == "text")
 			.Select(block => block.GetProperty("text").GetString())];
-		Assert.Single(text, value => value == EmbeddedAgentGuidance.SideConversationInstructions);
 		Assert.Equal(userText.Length == 0 ? [] : new[] { userText },
 			text.Where(value => value != EmbeddedAgentGuidance.SideConversationInstructions));
 	}

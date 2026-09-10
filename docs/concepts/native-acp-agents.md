@@ -123,15 +123,12 @@ unknown-session messages to the endpoint that owns that opening request. Authent
 prompts do not hold this opening gate. The conversation owns its fork from startup.
 Retired endpoints reject requests and discard late updates until their generation ends. Closing a side conversation leaves the connection running;
 an unrecoverable runtime failure stops the shared process so failed work cannot continue invisibly.
-Replacing the process terminalizes all its side conversations.
+An explicit process restart interrupts side work but retains the saved child identities for later replies.
 
-**Only the current conversation can own live work.** Primary `session/load` replays into a fresh process, while a
-side load replays a fork that owns none of the parent's tools. A tool still marked running in either transcript
-is recorded as cancelled when replay ends, never counted as background work. Left
-live it would be unsettleable: Waiting has no other exit, so one interrupted tool would pin the session for the
-host's whole life and hold the update drain with it. The judgement happens once the replay is over rather than per
-update, because a finished tool replays as two frames whose first one is non-terminal. For the same reason
-`session/resume` must not replay: it is the reconnect path, where the pane content is already loaded.
+**Only the current conversation can own live work.** Provider load replays are excluded from the pane and
+activity tracking. Weavie restores its own display journal and explicitly cancels work owned by the previous
+process. A saved `/btw` remains replyable through its exact persisted child identity; its runtime opens lazily
+when the user replies.
 
 Elicitation is an explicit trust boundary. Form and URL cards support accept, decline, and cancel; browser flows
 require absolute HTTP(S) URLs. Password fields and unsafe URL schemes are rejected visibly. Permissions default to
@@ -148,12 +145,20 @@ sessions show the context circle alone until it exposes structured data.
 
 ## Persistence
 
-ACP session ids are stored by exact provider id and canonical workspace before the first prompt is sent. If that
-atomic write fails, the exact agent generation is terminated before it can do work. Provider transcripts remain
-provider-owned; Weavie's pane journal is rendering state. Loading asks a capable agent for its transcript and
-replaces the pane snapshot before accepting new turns. Malformed or unreadable association data at the current
-document version is never reset or overwritten. A document written at another version holds nothing this build can
-read — Weavie carries no migrations — so it starts with no associations and the next write takes the file over.
+Weavie owns the displayed transcript in the private `acp-conversations.db` SQLite database. Each display event
+commits with the exact conversation identity and local turn/plan state before publication. The ACP agent
+continues owning model context. Reopen restores Weavie's display and resumes the saved provider session;
+load-only adapters replay for setup, but their history does not replace the display.
+
+BTW identities, anchors, and independent continuation state survive unload. Reply resumes the saved child,
+including its original fork context and prior exchanges. Provider failures leave the saved display readable
+and fail continuation visibly. Storage failures stop submissions and surface an error. Existing provider-only
+history and activity performed outside Weavie are not imported.
+
+Live content visibility follows ACP's [`annotations.audience`](https://agentclientprotocol.com/protocol/v1/schema#annotations).
+Weavie marks injected guidance and editor selections as assistant-only content. No XML tags or resource URIs
+are classified during rendering or reload. See [native pane persistence](../specs/agent-pane-persistence.md)
+for storage, recovery, and transport ownership.
 
 There is no legacy Codex wire, bundled private-provider adapter, protocol negotiation, or migration branch. Host
 and web protocol changes move together.

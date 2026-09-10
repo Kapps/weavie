@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 using Xunit;
 
@@ -45,6 +46,70 @@ public sealed class AcpSideGuidanceTests {
 				&& message.ConversationId == conversation).Select(message => message.Text));
 		Assert.DoesNotContain(fixture.Messages, message =>
 			message.Text?.Contains(EmbeddedAgentGuidance.SideConversationInstructions, StringComparison.Ordinal) == true);
+	}
+
+	[Fact]
+	public async Task RestoredAsidePreservesItsImageAndRoleWithoutDisplayingFlattenedProviderGuidance() {
+		await using var fixture = AcpAgentSessionFixture.CreateFlattenReplayAdapter("saved-primary");
+		var primary = Assert.Single(fixture.Sessions.ReadConversations("fake", fixture.Workspace));
+		var side = primary with {
+			ConversationId = "saved-aside",
+			SessionId = "saved-child",
+			AnchorTurnNumber = 1,
+			InitialPrompt = "explain this image",
+			TurnNumber = 1,
+		};
+		const string imageData = "iVBORwECAw==";
+		var image = new AgentPaneMessage {
+			Type = "user-image",
+			ProviderId = "fake",
+			ConversationId = side.ConversationId,
+			ThreadId = side.SessionId,
+			TurnId = "1",
+			ItemId = "saved-image",
+			MediaType = "image/png",
+			MediaData = imageData,
+			Status = "submitted",
+		};
+		fixture.Sessions.Save("fake", fixture.Workspace, side, [
+			new AgentPaneMessage {
+				Type = "user-message", ProviderId = "fake", ConversationId = side.ConversationId,
+				ThreadId = side.SessionId, TurnId = "1", ItemId = "saved-question", Text = side.InitialPrompt,
+			},
+			image,
+		]);
+		Directory.CreateDirectory(fixture.FakeAcpStateDirectory);
+		await File.WriteAllTextAsync(Path.Combine(fixture.FakeAcpStateDirectory, "session-transcript-saved-child.log"),
+			JsonSerializer.Serialize(new object[] {
+				new { type = "text", text = side.InitialPrompt },
+				new { type = "image", mimeType = image.MediaType, data = imageData },
+				new { type = "text", text = EmbeddedAgentGuidance.SideConversationInstructions,
+					annotations = new { audience = new[] { "assistant" } } },
+			}) + Environment.NewLine);
+
+		await fixture.StartAsync();
+		var snapshot = await fixture.WaitForSnapshotAsync();
+		Assert.Equal(image, Assert.Single(snapshot, message => message.Type == "user-image"));
+		Assert.DoesNotContain(snapshot, message => message.Text == EmbeddedAgentGuidance.SideConversationInstructions);
+		fixture.Session.ReplyAside(side.ConversationId, "explain one more detail");
+		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
+			&& message.ConversationId == side.ConversationId);
+
+		Assert.Equal(side.SessionId, completed.ThreadId);
+		Assert.Equal("2", completed.TurnId);
+		var request = Assert.Single(AcpPromptAssertions.Read(fixture));
+		Assert.Equal(side.SessionId, request.GetProperty("parameters").GetProperty("sessionId").GetString());
+		AcpPromptAssertions.SideScope(request, "explain one more detail");
+		Assert.False(HasGenericGuidance(request));
+		Assert.Equal(["saved-primary", "saved-child"], File.ReadAllLines(
+			Path.Combine(fixture.FakeAcpStateDirectory, "loads.log")));
+		Assert.False(File.Exists(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")));
+		var display = fixture.Sessions.ReadMessages("fake", fixture.Workspace);
+		Assert.Equal(image, Assert.Single(display, message => message.Type == "user-image"));
+		Assert.DoesNotContain(display, message =>
+			message.Text?.Contains(EmbeddedAgentGuidance.SideConversationInstructions, StringComparison.Ordinal) == true);
+		Assert.Equal([side.InitialPrompt, "explain one more detail"],
+			display.Where(message => message.Type == "user-message").Select(message => message.Text));
 	}
 
 	[Fact]

@@ -5,7 +5,9 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
-	private void PublishTool(AcpToolState tool) => PublishPane(new AgentPaneMessage {
+	private void PublishTool(AcpToolState tool) => Emit(ToolMessage(tool));
+
+	private AgentPaneMessage ToolMessage(AcpToolState tool) => new() {
 		Type = tool.Status is "completed" or "failed" or "cancelled" or "settled"
 			? "item-completed"
 			: "item-started",
@@ -23,7 +25,7 @@ public sealed partial class AcpAgentSession {
 		Content = tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
-	});
+	};
 
 	private void ReadToolContent(JsonElement content, AcpToolState tool) {
 		var text = new StringBuilder();
@@ -36,7 +38,7 @@ public sealed partial class AcpAgentSession {
 		foreach (var item in content.EnumerateArray()) {
 			switch (OptionalString(item, "type")) {
 				case "content" when item.TryGetProperty("content", out var block):
-					blocks.Add(ReadToolContentBlock(block));
+					if (AcpContentAnnotations.IsUserVisible(block)) blocks.Add(ReadToolContentBlock(block));
 					break;
 				case "diff":
 					string diffPath = ResolvedPath(item, "path", "tool diff");

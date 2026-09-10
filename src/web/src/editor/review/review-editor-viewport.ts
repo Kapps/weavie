@@ -32,9 +32,13 @@ export function createReviewEditorViewport(
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(container.clientHeight, viewport.height);
+      // Read Monaco's content height directly rather than `container.clientHeight` (a CSS mirror of it
+      // written by the caller's `measure()`): the mirror can still hold the pre-edit height when a scroll
+      // arrives in the same tick as a content-size change, clamping the reveal short of the real end.
+      const contentHeight = editor.getContentHeight();
+      const height = Math.min(contentHeight, viewport.height);
       const offset = viewport.top - container.getBoundingClientRect().top;
-      const top = Math.max(0, Math.min(offset, container.clientHeight - height));
+      const top = Math.max(0, Math.min(offset, contentHeight - height));
       mount.style.top = `${top}px`;
       editor.layout({ width: container.clientWidth, height });
       editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);

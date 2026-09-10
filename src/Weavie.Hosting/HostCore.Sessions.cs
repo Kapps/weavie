@@ -50,7 +50,7 @@ public sealed partial class HostCore {
 				}
 				string question = RequiredCommandString(argsJson, "question", "Ask Agent Aside");
 				sideConversations.AskAside(question);
-				return Task.FromResult(CommandResult.Success("Asked in a side conversation."));
+				return Task.FromResult(CommandResult.Success());
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
 			}

@@ -7,7 +7,7 @@ import {
   type ClientSession,
   hostInjected,
   invokeClientCommandOnHost,
-  invokeCommandOnBackend,
+  invokeCommandInSession,
   invokeSessionCommandOnBackend,
   LOCAL_BACKEND_ID,
   log,
@@ -60,7 +60,8 @@ const catalogs = new Map<string, CommandCatalog>([
     },
   ],
 ]);
-const handlers = new Map<string, CommandHandler>();
+export type CommandCapture = (context: CommandContext, args: unknown) => CommandHandler;
+const handlers = new Map<string, CommandCapture>();
 const executionLanes = new Map<string, Promise<void>>();
 const changeSubscribers = new Set<() => void>();
 const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
@@ -185,12 +186,72 @@ function runInExecutionLane<T>(lane: string, run: () => Promise<T>): Promise<T> 
 
 /** Registers the handler for a web command id; returns an unregister function. */
 export function registerCommand(id: string, handler: CommandHandler): () => void {
-  handlers.set(id, handler);
+  return registerCapturedCommand(id, () => handler);
+}
+
+/** Captures an exact operation before it enters an execution lane or yields to another view. */
+export function registerCapturedCommand(id: string, capture: CommandCapture): () => void {
+  handlers.set(id, capture);
   return () => {
-    if (handlers.get(id) === handler) {
-      handlers.delete(id);
-    }
+    if (handlers.get(id) === capture) handlers.delete(id);
   };
+}
+
+function captureHandler(
+  capture: CommandCapture,
+  args: unknown,
+  context: CommandContext,
+): CommandHandler {
+  try {
+    return capture(context, args);
+  } catch (error) {
+    return () => {
+      throw error;
+    };
+  }
+}
+
+interface CommandScope {
+  session: ClientSession | null;
+  handlers: Map<string, CommandHandler>;
+}
+
+function captureScope(
+  session: ClientSession | null,
+  overrides: ReadonlyMap<string, CommandHandler>,
+  args: unknown,
+): CommandScope {
+  const context = { session };
+  const bound = new Map<string, CommandHandler>();
+  for (const [id, capture] of handlers)
+    bound.set(id, overrides.get(id) ?? captureHandler(capture, args, context));
+  return { session, handlers: bound };
+}
+
+export type CommandRunner = (id: string, args: unknown) => Promise<CommandResult>;
+
+function capturedRunner(backendId: string, scope: CommandScope): CommandRunner {
+  return async (id, args) => {
+    const result = await dispatchFromCatalog(backendId, id, args, scope);
+    reportCommandResult(result);
+    return result;
+  };
+}
+
+/** Chrome captures its command connections before taking focus, and retains them until dismissal. */
+export function captureCommandRunner(): CommandRunner {
+  return capturedRunner(
+    getActiveCatalogBackendId(),
+    captureScope(selectedSession(), new Map(), undefined),
+  );
+}
+
+/** An owned surface supplies captured operations without resolving the session's current command target. */
+export function captureCommandRunnerFor(
+  session: ClientSession,
+  overrides: ReadonlyMap<string, CommandHandler>,
+): CommandRunner {
+  return capturedRunner(session.connection.id, captureScope(session, overrides, undefined));
 }
 
 /** The current command catalog. */
@@ -298,6 +359,7 @@ async function routeCoreCommand(
   command: CommandInfo,
   args: unknown,
   catalogBackendId: string,
+  session: ClientSession | null,
 ): Promise<CommandResult> {
   const fields = args as { backendId?: unknown; id?: unknown; classify?: unknown } | undefined;
   const backendId = fields?.backendId;
@@ -307,7 +369,7 @@ async function routeCoreCommand(
       : typeof backendId === "string" && backendId.length > 0
         ? backendId
         : catalogBackendId;
-  const active = selectedSession();
+  const active = session;
   const selectedId =
     SESSION_LIFECYCLE.has(command.id) &&
     typeof fields?.id !== "string" &&
@@ -322,7 +384,12 @@ async function routeCoreCommand(
       ? invokeClientCommandOnHost(command.id, routedArgs)
       : command.scope === "host"
         ? invokeSessionCommandOnBackend(target, command.id, routedArgs)
-        : invokeCommandOnBackend(target, command.id, routedArgs));
+        : session !== null && session.connection.id === target
+          ? invokeCommandInSession(session, command.id, routedArgs)
+          : Promise.resolve({
+              ok: false,
+              error: "This command has no captured session on that backend.",
+            }));
     if (result.ok) {
       await applySessionActivation(target, result, commit);
       await applyTerminalActivation(target, result);
@@ -377,9 +444,11 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
     return false;
   }
   const session = selectedSession();
+  const captured = captureHandler(handler, args, { session });
+  const invoke = () => captured(args, { session });
   const lane = executionLaneKey(command, backendId, session);
   if (executionLanes.has(lane)) {
-    void runInExecutionLane(lane, async () => handler(args, { session })).catch((error: unknown) =>
+    void runInExecutionLane(lane, async () => invoke()).catch((error: unknown) =>
       notify("warn", String(error)),
     );
     return true;
@@ -387,7 +456,7 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
 
   let outcome: ReturnType<CommandHandler>;
   try {
-    outcome = handler(args, { session });
+    outcome = invoke();
   } catch (error) {
     // A thrown handler is a failure, not a decline — surface it (matching the palette) rather than swallow it
     // to the console, so a keyboard-run command isn't a silent no-op. It still consumed the key.
@@ -417,34 +486,52 @@ export function runForKeybindingFromCatalog(backendId: string, id: string, args:
  * (e.g. a toast) can react. A Core command round-trips to its backend; a web command runs locally and its
  * return maps onto the result (an explicit `false` ⇒ declined). Never rejects — failures resolve as `ok: false`.
  */
-function dispatchFromCatalog(backendId: string, id: string, args: unknown): Promise<CommandResult> {
+function dispatchFromCatalog(
+  backendId: string,
+  id: string,
+  args: unknown,
+  scope: CommandScope,
+): Promise<CommandResult> {
   const command = commandForClient(backendId, id);
   if (command === undefined) {
     log("warn", `unknown command '${id}'`);
     return Promise.resolve({ ok: false, error: `Unknown command '${id}'.` });
   }
   if (command.runsIn === "core") {
-    return routeCoreCommand(command, args, backendId);
+    return routeCoreCommand(command, args, backendId, scope.session);
   }
-  const handler = handlers.get(id);
+  const handler = scope.handlers.get(id);
   if (handler === undefined) {
     log("warn", `no web handler registered for command '${id}'`);
     return Promise.resolve({ ok: false, error: `No web handler for '${id}'.` });
   }
-  const session = selectedSession();
+  return executeWebCommand(command, backendId, scope.session, handler, args);
+}
+
+function executeWebCommand(
+  command: CommandInfo,
+  backendId: string,
+  session: ClientSession | null,
+  handler: CommandHandler,
+  args: unknown,
+): Promise<CommandResult> {
   return runInExecutionLane(executionLaneKey(command, backendId, session), async () => {
     try {
-      const value = await handler(args, { session });
-      return { ok: value !== false };
+      return { ok: (await handler(args, { session })) !== false };
     } catch (error) {
-      log("error", `command '${id}' failed: ${String(error)}`);
+      log("error", `command '${command.id}' failed: ${String(error)}`);
       return { ok: false, error: String(error) };
     }
   });
 }
 
 export function dispatchCommand(id: string, args?: unknown): Promise<CommandResult> {
-  return dispatchFromCatalog(getActiveCatalogBackendId(), id, args);
+  return dispatchFromCatalog(
+    getActiveCatalogBackendId(),
+    id,
+    args,
+    captureScope(selectedSession(), new Map(), args),
+  );
 }
 
 /** Dispatches using one backend's catalog even when a session on another backend is selected. */
@@ -453,7 +540,7 @@ export function dispatchCommandFromCatalog(
   id: string,
   args?: unknown,
 ): Promise<CommandResult> {
-  return dispatchFromCatalog(backendId, id, args);
+  return dispatchFromCatalog(backendId, id, args, captureScope(selectedSession(), new Map(), args));
 }
 
 /**
@@ -526,16 +613,16 @@ async function runBoundWebCommand(
   if (handler === undefined) {
     return { ok: false, error: `No web handler for '${id}'.` };
   }
-  return runInExecutionLane(executionLaneKey(command, session.connection.id, session), async () => {
-    try {
-      const outcome = await handler(args, { session });
-      return outcome === false
-        ? { ok: false, error: `Command '${id}' declined the request.` }
-        : { ok: true };
-    } catch (error) {
-      return { ok: false, error: String(error) };
-    }
-  });
+  const result = await executeWebCommand(
+    command,
+    session.connection.id,
+    session,
+    captureHandler(handler, args, { session }),
+    args,
+  );
+  return !result.ok && result.error === undefined
+    ? { ok: false, error: `Command '${id}' declined the request.` }
+    : result;
 }
 
 registerViewFeature((session) =>
@@ -557,6 +644,11 @@ registerSessionFeature((session) =>
           error: `Command '${id}' is not owned by the local presentation client.`,
         });
       }
-      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args);
+      return dispatchFromCatalog(
+        LOCAL_BACKEND_ID,
+        id,
+        args,
+        captureScope(session, new Map(), args),
+      );
     }),
 );

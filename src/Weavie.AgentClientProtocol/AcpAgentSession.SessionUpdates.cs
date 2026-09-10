@@ -10,7 +10,7 @@ public sealed partial class AcpAgentSession {
 		if (!update.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array) {
 			throw new AcpProtocolException("An ACP plan update is missing entries.");
 		}
-		PublishPane(new AgentPaneMessage {
+		Emit(new AgentPaneMessage {
 			Type = "item-completed",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
@@ -54,7 +54,7 @@ public sealed partial class AcpAgentSession {
 				_planTurns.Add(planId, turnId);
 			}
 		}
-		PublishPane(new AgentPaneMessage {
+		Emit(new AgentPaneMessage {
 			Type = "item-completed",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
@@ -75,7 +75,7 @@ public sealed partial class AcpAgentSession {
 			_planTurns.Remove(planId, out turnId);
 		}
 		if (turnId is null) return;
-		PublishPane(new AgentPaneMessage {
+		Emit(new AgentPaneMessage {
 			Type = "item-retracted",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
@@ -111,7 +111,7 @@ public sealed partial class AcpAgentSession {
 
 	private void EmitSessionInfo(JsonElement update) {
 		if (OptionalString(update, "title") is { Length: > 0 } title) {
-			PublishPane(new AgentPaneMessage {
+			Emit(new AgentPaneMessage {
 				Type = "session-info",
 				ProviderId = _definition.Id,
 				ThreadId = SessionId(),
@@ -161,7 +161,6 @@ public sealed partial class AcpAgentSession {
 		return new(OptionalString(limit, "rateLimitType") ?? "limit", status, usedPercent, resetsAt);
 	}
 
-	private void PublishPane(AgentPaneMessage message) => Emit(message);
 
 	private static long ReadRequiredNonNegativeInt64(JsonElement value, string property, string source) =>
 		value.TryGetProperty(property, out var result) && result.TryGetInt64(out long number) && number >= 0

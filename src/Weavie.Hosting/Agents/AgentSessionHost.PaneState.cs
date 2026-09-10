@@ -4,47 +4,17 @@ using Weavie.Core.Agents;
 namespace Weavie.Hosting.Agents;
 
 public sealed partial class AgentSessionHost {
-	internal bool TryGetCompletedPlan(string threadId, string turnId, string itemId, out AgentPlan plan) {
-		plan = default;
-		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) {
-			return false;
-		}
-
-		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
-		lock (_paneGate) {
-			if (_paneActiveItems.Contains(key)) {
-				return false;
-			}
-
-			for (int index = _paneMessages.Count - 1; index >= 0; index--) {
-				var message = _paneMessages[index];
-				if (!string.Equals(AgentPaneIdentity.ItemKey(message), key, StringComparison.Ordinal)) {
-					continue;
-				}
-
-				if (message.Type != "item-completed"
-					|| !string.Equals(message.ItemType, "plan", StringComparison.Ordinal)
-					|| string.IsNullOrWhiteSpace(message.Text)) {
-					return false;
-				}
-
-				plan = new AgentPlan(key, "Plan", message.Text);
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 	private void PublishPaneMessage(AgentPaneMessage message) {
 		lock (_paneGate) {
 			if (message.Type == "transcript-reset") {
 				ResetPaneLocked();
 				_paneOutput.Reset();
+				PublishPlanDocumentsLocked();
 				return;
 			}
 
 			_paneOutput.Live(StorePaneMessageLocked(message));
+			if (message.ItemType == "plan" || message.Type == "item-retracted") PublishPlanDocumentsLocked();
 		}
 	}
 
@@ -59,6 +29,7 @@ public sealed partial class AgentSessionHost {
 					_paneOutput.Live(StorePaneMessageLocked(message));
 				}
 
+				PublishPlanDocumentsLocked();
 				return;
 			}
 
@@ -71,6 +42,7 @@ public sealed partial class AgentSessionHost {
 			foreach (var message in messages) {
 				_paneOutput.Live(StorePaneMessageLocked(message));
 			}
+			PublishPlanDocumentsLocked();
 		}
 	}
 

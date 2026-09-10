@@ -22,7 +22,8 @@ The repository owner opens **Actions → release → Run workflow** on `main`:
 
 For stable `0.2.1`, patch selects `0.2.2`, minor selects `0.3.0`, and major selects `1.0.0`.
 Before the first stable release, the same arithmetic applies to the baseline: minor selects `0.2.0`.
-Starting the workflow authorizes publication after validation; there is no additional approval click.
+Starting the workflow authorizes publication once packages succeed, even if release checks fail;
+there is no additional approval click.
 
 ```bash
 # Release the current main-latest source as the next minor version.
@@ -41,7 +42,7 @@ must belong to `main`'s history. Manual latest builds can explicitly select an e
 automatic latest publication refuses to replace a newer main commit with an older one. Latest publication also checks the published runner manifest and rejects older
 or identical build numbers, so retrying a superseded run cannot rewind the feed.
 
-Every validated publication records an immutable annotated `build-<number>` tag containing its
+Every publication records an immutable annotated `build-<number>` tag containing its
 source commit, public version, build number, and channel. Numbered selection uses that provenance,
 not the workflow run's `head_sha` (which can identify the workflow code rather than the build source).
 Build-number selection is available for builds recorded by this release system. Commit selection
@@ -56,7 +57,8 @@ The project list comes from `weavie.slnx`; the platform catalog lives in `.githu
 
 Automatic latest builds start only after successful push CI for this repository's `main`. They
 publish the Linux desktop archive and runner bundle to the rolling `main-latest` GitHub prerelease.
-A manual latest build runs Linux CI against its pinned source before publishing.
+A manual latest build runs Linux CI against its pinned source before publishing. Manual release
+checks are advisory: failures remain visible in the workflow but do not block publication.
 
 Stable runs the same checks plus Windows/macOS native checks and E2E. Every source checkout, including
 E2E bundle, shards, and report, begins with the trusted workflow revision and full Git history.
@@ -71,7 +73,7 @@ save shared dependency or browser caches. Ordinary PR CI is a separate trust bou
 fork-workflow approval settings must require owner approval if external PR code must not run
 automatically. PR-modifiable workflow checks cannot enforce that repository-level policy.
 
-After all checks and packages pass, stable publication:
+After checks finish and all packages pass, stable publication:
 
 1. Creates annotated `vX.Y.Z` with the exact source and build provenance.
 2. Uploads all native archives, runner bundle, and `release-plan.json` to a draft GitHub Release.
@@ -80,7 +82,7 @@ After all checks and packages pass, stable publication:
 5. Marks the versioned release as GitHub's latest stable release for easy discovery.
 
 There is no separate mutable `stable` Release with duplicated assets. The `stable` Git ref is a
-single atomic pointer to the permanent versioned release. Downloads are the exact validated
+single atomic pointer to the permanent versioned release. Downloads are the exact packaged
 artifacts, never rebuilt during promotion. Users download stable releases from
 [GitHub Releases](https://github.com/Kapps/weavie/releases/latest).
 
@@ -90,7 +92,8 @@ Stable attempts serialize planning through publication, so simultaneous requests
 the same public version. GitHub concurrency retains the active run and one pending successor;
 another queued request can replace that pending run. The latest channel has its own concurrency group.
 
-Failed checks do not create a versioned release or move stable. A failed upload cleans its draft and
+Failed release checks can still create a versioned release and move stable. Failed preparation,
+failed packaging, or workflow cancellation prevents publication. A failed upload cleans its draft and
 unpublished version tag, leaving stable intact. A release that was published before stable promotion
 failed remains permanent: that public version is consumed. **Re-run failed jobs** to finish its
 promotion from the same plan and artifacts, without rebuilding or replacing published assets.

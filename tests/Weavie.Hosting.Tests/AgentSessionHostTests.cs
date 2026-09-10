@@ -15,7 +15,7 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed class AgentSessionHostTests {
+public sealed partial class AgentSessionHostTests {
 	[Fact]
 	public async Task Pane_wire_keeps_review_paths_and_output_without_transmitting_diff_contents() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
@@ -366,44 +366,6 @@ public sealed class AgentSessionHostTests {
 		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "new-primary");
 		Assert.DoesNotContain(history, message => message.GetProperty("itemId").GetString() == "old-side");
 		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "new-side");
-	}
-
-	[Fact]
-	public async Task CompletedPlan_IsAvailableOnlyForItsExactCurrentIdentity() {
-		await using var fixture = CreateFixture(static () => "slot-1", 0);
-		var (session, host) = (fixture.Session, fixture.Host);
-		const string threadId = "thread-plan";
-		const string turnId = "turn-plan";
-		const string itemId = "item-plan";
-
-		session.Emit(new AgentPaneMessage {
-			Type = "plan-delta",
-			ProviderId = "structured",
-			ThreadId = threadId,
-			TurnId = turnId,
-			ItemId = itemId,
-			ItemType = "plan",
-			Text = "# Draft",
-		});
-		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
-
-		session.Emit(new AgentPaneMessage {
-			Type = "item-completed",
-			ProviderId = "structured",
-			ThreadId = threadId,
-			TurnId = turnId,
-			ItemId = itemId,
-			ItemType = "plan",
-			Text = "# Final plan",
-		});
-		Assert.True(host.TryGetCompletedPlan(threadId, turnId, itemId, out var plan));
-		Assert.Equal("# Final plan", plan.Markdown);
-		Assert.False(host.TryGetCompletedPlan("another-thread", turnId, itemId, out _));
-		Assert.False(host.TryGetCompletedPlan(threadId, "another-turn", itemId, out _));
-		Assert.False(host.TryGetCompletedPlan(threadId, turnId, "another-item", out _));
-
-		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
-		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
 	}
 
 	[Fact]

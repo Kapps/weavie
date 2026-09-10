@@ -54,7 +54,7 @@ test.describe("diff palette gating — no diff active", () => {
 test.describe("diff palette gating — diff active", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  test("Diff commands appear for pending changes and kept decisions remain undoable", async ({
+  test("Diff commands appear for pending changes and disappear after Keep All", async ({
     page,
   }) => {
     // Open the changed file: the applied review renders an inline diff over it → `diffActive` true.
@@ -68,18 +68,13 @@ test.describe("diff palette gating — diff active", () => {
 
     await openPalette(page, ">Keep All Changes");
     await page.locator(".tb-omnibar-input").press("Enter");
-    await expect(page.locator(".weavie-inline-accepted")).toHaveCount(2);
+    await expect(page.locator(".weavie-inline-accepted")).toHaveCount(0);
     await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
-    await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
-
-    await openPalette(page, ">Undo Keep (Review)");
-    await expect(page.locator(".tb-omnibar-row", { hasText: "Undo Keep (Review)" })).toHaveCount(1);
-    await page.locator(".tb-omnibar-input").press("Enter");
-    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(2);
+    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
 
     await openPalette(page, ">change");
     for (const title of DIFF_TITLES) {
-      await expect(diffRow(page, title)).toHaveCount(1);
+      await expect(diffRow(page, title)).toHaveCount(0);
     }
   });
 });

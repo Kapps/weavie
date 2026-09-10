@@ -1,4 +1,4 @@
-import type { Virtualizer } from "@tanstack/solid-virtual";
+import type { VirtualItem, Virtualizer } from "@tanstack/solid-virtual";
 import { For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
@@ -11,24 +11,19 @@ export function AgentTranscript(props: {
   agentTurnStartId: string | null;
   compact: boolean;
   entries: AgentTranscriptEntry[];
+  entryForKey: (key: VirtualItem["key"]) => AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
-  keyboardApprovalId: string | null;
-  keyboardInputId: string | null;
+  keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   providerName: string;
   sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
   session: ClientSession;
-  showEmptyState: boolean;
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={
-        <Show when={props.showEmptyState}>
-          <EmptyState compact={props.compact} providerName={props.providerName} />
-        </Show>
-      }
+      fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
     >
       <div
         class="agent-transcript"
@@ -37,9 +32,9 @@ export function AgentTranscript(props: {
       >
         <For each={props.virtualizer.getVirtualItems().map((row) => row.key)}>
           {(key) => {
+            const entry = props.entryForKey(key);
             const virtualRow = () =>
               props.virtualizer.getVirtualItems().find((row) => row.key === key)!;
-            const entry = (): AgentTranscriptEntry => props.entries[virtualRow().index]!;
             const previous = (): AgentTranscriptEntry | undefined =>
               props.entries[virtualRow().index - 1];
             onCleanup(() => props.virtualizer.measureElement(null));
@@ -48,18 +43,16 @@ export function AgentTranscript(props: {
                 class="agent-virtual-row"
                 classList={{
                   "agent-virtual-row-assistant-pair":
-                    entry().kind === "message" &&
-                    entry().tone === "assistant" &&
+                    entry.kind === "message" &&
+                    entry.tone === "assistant" &&
                     previous()?.kind === "message" &&
                     previous()?.tone === "assistant",
                   "agent-virtual-row-first": virtualRow().index === 0,
-                  "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
+                  "agent-virtual-row-user": entry.kind === "message" && entry.tone === "user",
                 }}
                 data-index={virtualRow().index}
-                data-agent-turn-output-start={
-                  entry().id === props.agentTurnStartId ? "" : undefined
-                }
-                data-transcript-entry={entry().id}
+                data-agent-turn-output-start={entry.id === props.agentTurnStartId ? "" : undefined}
+                data-transcript-entry={entry.id}
                 ref={(element) =>
                   queueMicrotask(() => {
                     if (element.isConnected) {
@@ -71,11 +64,10 @@ export function AgentTranscript(props: {
               >
                 <TranscriptEntry
                   expandedDetails={props.expandedDetails}
-                  entry={entry()}
-                  keyboardApprovalId={props.keyboardApprovalId}
-                  keyboardInputId={props.keyboardInputId}
+                  entry={entry}
+                  keyboardRequestKey={props.keyboardRequestKey}
                   onDetailsToggle={props.onDetailsToggle}
-                  sectionLabel={props.sectionLabels.get(entry().id) ?? null}
+                  sectionLabel={props.sectionLabels.get(entry.id) ?? null}
                   session={props.session}
                 />
               </div>

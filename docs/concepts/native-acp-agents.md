@@ -73,6 +73,8 @@ instead of using steering. This prevents embedded guidance, editor resources, or
 such as `/compact` into model-directed prose. A command waiting for its own turn never holds back the queue behind
 it: prompts submitted afterwards still steer the running turn. Everything still waiting is published to the
 composer as the authoritative queue, so a deferred command is visible rather than silent.
+Interrupt cancels the running turn while preserving accepted submissions: queued commands and prompts run
+after cancellation settles, and pending steering responses retain their delivery ownership.
 
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
@@ -80,7 +82,13 @@ advertised data or protocol output fails the exact agent generation visibly.
 ACP's standard `plan` update is the agent's replaceable execution checklist, so Weavie renders it as progress
 activity rather than an openable document. Weavie advertises the separate plan-document capability: explicit
 `plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
-retracts them. File-backed plans are snapshotted when received and must resolve to a local file.
+retracts them. File-backed plans are snapshotted when received and must resolve to a local file. Open editor
+tabs follow the complete document's revisions; removed plans show an unavailable notice, including after reconnect.
+
+Permission requests can introduce a tool identity before its execution notifications. The same tool state merges
+both sources in receive order, while only execution notifications establish background activity. Mode-change
+permissions (`switch_mode`), including plan implementation, always require a user choice even when automatic
+tool approval is enabled.
 
 Agents mirror one mode axis in both `configOptions` and the legacy `modes` block. The configuration option owns
 that axis, because `session/set_config_option` is what writes it back; a legacy-only mode axis is written with

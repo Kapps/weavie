@@ -80,7 +80,10 @@ public sealed partial class SessionChangeTracker {
 					action.RemovePatches(path);
 					reversed.ReplacePatches(path, [.. patches]);
 					if (!destination.Contains(reversed)) destination.Add(reversed);
-					if (action.PatchCount == 0) source.Remove(action);
+					if (action.PatchCount == 0) {
+						source.Remove(action);
+						if (!undo && action.Kind == ReviewActionKind.Keep) CompleteAcceptanceLocked();
+					}
 					Checkpoint();
 					if (action.TouchesDisk) ReportCurrentState(path);
 				}
@@ -117,6 +120,10 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before) {
+		if (kind == ReviewActionKind.Keep && CompleteAcceptanceLocked()) {
+			Checkpoint();
+			return;
+		}
 		var patches = new List<ReviewPatch>();
 		foreach (var previous in before) {
 			var current = Capture(previous.Path, withDisk: true);

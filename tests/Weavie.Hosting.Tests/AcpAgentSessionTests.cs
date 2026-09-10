@@ -1337,6 +1337,7 @@ public sealed class AcpAgentSessionTests {
 
 		fixture.Submit("hold-cancel-error");
 		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		fixture.SubmitCommand("compact", "/compact");
 		fixture.Session.Interrupt();
 		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
@@ -1344,9 +1345,11 @@ public sealed class AcpAgentSessionTests {
 			Change.State: Weavie.Core.Processes.SupervisorState.Idle,
 		});
 
-		Assert.Contains("ACP agent", error.Text, StringComparison.OrdinalIgnoreCase);
+		Assert.Contains("Synthetic downstream interrupt failure", error.Text, StringComparison.Ordinal);
 		Assert.Equal("failed", completed.Status);
 		Assert.Equal(SessionStatus.Error, fixture.Events.Status.Status);
+		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "compact-executed")));
+		Assert.Equal("/compact", Assert.Single(fixture.Session.QueuedSubmissions).Text);
 	}
 
 	[Fact]

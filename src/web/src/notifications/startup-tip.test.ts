@@ -7,7 +7,7 @@ const harness = vi.hoisted(() => ({
   splashDismissed: undefined as (() => void) | undefined,
 }));
 const notify = vi.hoisted(() => vi.fn());
-const keyHint = vi.hoisted(() => vi.fn(() => " (Ctrl+Alt+E)"));
+const keyHint = vi.hoisted(() => vi.fn(() => " (Ctrl+Shift+E)"));
 
 vi.mock("../bridge", () => ({
   registerHostFeature: (installer: (connection: unknown) => (() => void) | undefined) => {
@@ -76,7 +76,7 @@ describe("startup tip intake", () => {
     expect(keyHint).toHaveBeenCalledWith("local", "weavie.revise.selection");
     expect(notify).toHaveBeenCalledWith(
       "info",
-      "Tip: Run Revise Selection (Ctrl+Alt+E). Rewrite selected code in one undo step.",
+      "Tip: Run Revise Selection (Ctrl+Shift+E). Rewrite selected code in one undo step.",
       "startup-tip:revise-selection",
     );
     installed.cleanup();

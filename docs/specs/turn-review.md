@@ -8,7 +8,7 @@ mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without st
 finishes you can either scan every diff in one unified overview or walk the result inline, in the live
 editor, change-by-change and file-by-file. Doing nothing keeps the change — it was already written to disk.
 
-The two review modes are projections over one Core-owned review board:
+Both review presentations are projections over one Core-owned review board:
 
 - **Unified review** is a GitHub-style page with a full-width changed-file tree first, showing aggregate and
   per-path additions/deletions, followed by every file's diff. Each file section is collapsible and is a
@@ -25,19 +25,21 @@ The two review modes are projections over one Core-owned review board:
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
-The persistent editor-tab-strip button and `weavie.review.toggleMode` (`$mod+Shift+u` by default) move
-between them without creating a second review state.
+The tab-strip button and `weavie.review.open` (`$mod+Shift+u` by default) open a persistent
+**Review Changes** tab (`kind: "review"`, resource `weavie:review`). Ordinary file reviews and pending
+Keep/Reject proposals belong to their normal file tabs. Passive changes update the review board without
+opening or selecting a tab. Opening a file selects its file tab and retains Review Changes for Back or
+later tab selection.
 
-**Unified review is a mode the user is in, not an overlay that anything can dismiss.** Every editor open the
-host pushes carries an `EditorOpenIntent`: `Navigation` (the user went somewhere — a terminal link, `Ctrl+N`)
-takes the pane and leaves review; `Reveal` (the agent's MCP `openFile`, a review action's own jump, arming a
-ref diff) opens the tab *behind* the overview and never evicts it. A `default`-mode `openDiff` proposal is the
-one exception — it is a gate the agent is blocked on, so it must be seen — and even there the mode is only
-**suspended**: resolving or closing the proposal hands the overview back. Entering unified mode requests any diffs not yet
-streamed by a PR/ref review; host re-emissions update both views. This builds directly on the hook-driven
-change tracker and the inline diff renderer that already exist. See
+All tabs use the same [owned tab lifecycle](../concepts/editor-surfaces.md) for activation, navigation,
+closing, pinning, and persistence. Review's reading location belongs to its tab view state; collapsed
+and reviewed claims belong to the domain board and survive closing that tab. Mounting Review requests
+diffs that have not yet streamed. Undo/redo returns the affected location to its invoking connection,
+which reveals it within the owning tab. Host re-emissions update both presentations.
+
+The review board uses the hook-driven change tracker and shared inline diff renderer. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
-[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on.
+[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the change-capture machinery.
 
 ## Thesis: review is post-hoc, so reject is the only action that touches disk
 
@@ -232,10 +234,11 @@ baseline instead of the *baseline* lines into the file:
    write), then re-emit `turn-diff` — now review-baseline-equals-current over that region, so the hunk
    leaves the *bright* band and reappears *faded* (`accepted anchor → review baseline`, see below).
 3. The web reveals the next bright hunk; when the file's last bright hunk is kept, review baseline equals
-   current (no pending hunks), and the file stays in the review set carrying its faded band.
+   current. The file retains its faded band while other files have pending changes; accepting the
+   last pending change closes the entire review.
 
-**Keep file** and **Keep-all** advance the relevant review baselines to current as one reversible
-decision. Neither advances the accepted anchor.
+**Keep file** is reversible while other changes remain pending. **Keep-all** accepts the remaining
+changes and closes the review. Final acceptance advances both boundaries and clears review history.
 
 ### The faded "accepted" band: Keep fades a hunk, it doesn't hide it
 
@@ -268,7 +271,7 @@ inline-undo overlay — the nav and Keep/Revert only ever touch bright pending h
 
 ## Undo/redo
 
-Keep, reject, revise, and their set-wide actions are reversible. Core retains local text/provenance
+Partial keeps, rejects, and revisions are reversible until final acceptance or explicit closure. Core retains local text/provenance
 deltas, not whole-file undo snapshots. Unrelated edits transport decision coordinates. Overlapping
 external edits invalidate undo visibly; ambiguous repeated text is never used to guess a target.
 Reversible overlapping decisions retain only the endpoint offsets needed to undo the covering action.
@@ -305,12 +308,12 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.redo` | _(palette/toolbar)_ | **Redo** the most recently undone keep/revert |
 | `weavie.review.keepFile` | _(palette + scope picker)_ | **Keep file** (= Keep at scope "File") |
 | `weavie.review.revertFile` | _(palette + scope picker)_ | **Revert file** (= Revert at scope "File"; confirms) |
-| `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — one reversible decision; preserves faded marks and history |
+| `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — accepts remaining changes and closes the review |
 | `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
 | `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
 | `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
-| `weavie.review.toggleMode` | `$mod+Shift+u` | switch between unified and file review |
+| `weavie.review.open` | `$mod+Shift+u` | open the Review Changes tab |
 | `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
 
 Every step of the walk — Next/Previous Change and Next/Previous File — is routed by the mode the session is
@@ -353,7 +356,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |
-| `accept-turn` | Keep-all (one reversible decision) | `{}` |
+| `accept-turn` | Keep-all and close review | `{}` |
 | `undo-turn` | Revert-all (one undoable step via `SessionChangeTracker.RevertAll`) | `{}` |
 | `review-undo` | undo the last keep / revert (or generic) | `{ kind?: "keep" \| "revert" }` |
 | `review-redo` | redo the last undone action | `{}` |
@@ -441,3 +444,23 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
   the chosen trade for the 2D model; if it grates in practice, `Alt+Left/Right` is the fallback binding.
   On Mac the navigator is `⌃⌘+arrows` — unclaimed by the OS and text editing — so no steal exists there;
   bare Ctrl+arrows would be eaten by Mission Control/Spaces and bare `⌘+arrows` are line/document nav.
+
+## Closing a review
+
+Close Diff sits beside Review Changes in the tab strip and is also a
+command with a default `$mod+Alt+W` binding. It accepts remaining changes at their
+current contents, clears the review source and decision history, and returns to
+the editor. Existing rejections stay applied; closing never rewrites files.
+
+Accepting the last pending hunk or file automatically performs the same completion and closes the
+Review Changes tab through the shared tab lifecycle. Closing only the tab preserves review decisions.
+Keep All closes immediately. Partial accepts remain undoable while any other file
+has pending text or existence changes. Redoing the last acceptance also closes;
+rejecting the last change retains rejection history until acceptance or Close Diff.
+
+Completion advances the review and accepted boundaries in one persisted
+checkpoint. Session change tracking and correction provenance remain intact, and
+later agent edits start a fresh pending diff. Closing also works for a source with
+no remaining files. Session synchronization publishes the empty review so reloads
+and restarts clear any retained presentation. Explicitly opening a source again
+seeds a fresh diff against its requested base.

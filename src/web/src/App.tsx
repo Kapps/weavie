@@ -1,4 +1,4 @@
-import { FileCode2, Files } from "lucide-solid";
+import { Files, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -96,19 +96,21 @@ import {
   updateRestarting,
 } from "./chrome/update-store";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
-import { installClipboardTrimming, writeClipboard } from "./clipboard";
+import { installClipboardTrimming } from "./clipboard";
 import { hasTextSelection, paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
 import { formatKey, installKeybindings } from "./commands/keybindings";
 import {
   applySessionActivation,
+  captureCommandRunner,
   dispatchCommand,
   dispatchCommandFromCatalog,
   getKeybindings,
   onCommandsChanged,
   onSessionActivated,
   onTerminalActivated,
+  registerCapturedCommand,
   registerCommand,
   runCommandWithFeedback,
 } from "./commands/registry";
@@ -118,10 +120,8 @@ import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
+import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
-import { basename, repoRelativePath } from "./editor/fs-path";
-import MediaPane from "./editor/media/MediaPane";
-import { mediaTypeOf } from "./editor/media/media-types";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -136,24 +136,18 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
-import {
-  activePath,
-  activePathFor,
-  flushEditorSession,
-  openTabs,
-  openTabsFor,
-} from "./editor/session-store";
+import { activePath, activeTabFor, flushEditorSession, openTabs } from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   dismissSourceTokenPrompt,
   onSourceEditError,
   openSelectedSourceTarget,
   selectedSourceTokenPrompt,
-  sourceDoc,
 } from "./editor/source/source-store";
+import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
-import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
-import WebTabStack from "./editor/WebTabPane";
+import { tabCommandBindings } from "./editor/tab-command-bindings";
+import { isFileTab, tabKind } from "./editor/tab-entry";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   refreshSelectedFileIndex,
@@ -199,10 +193,6 @@ import { openUrlExternal } from "./terminal/terminal-links";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
-const PlanView = lazy(() => import("./editor/plan/PlanView"));
-const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
-const UnifiedReview = lazy(() => import("./editor/review/UnifiedReview"));
-const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
@@ -499,7 +489,7 @@ export default function App(): JSX.Element {
         : [],
     ),
   );
-  const webTabSessions = createMemo<ClientSession[]>(() =>
+  const editorSessions = createMemo<ClientSession[]>(() =>
     sessions().flatMap((session) =>
       session.loaded && session.owner !== null ? [session.owner] : [],
     ),
@@ -552,7 +542,7 @@ export default function App(): JSX.Element {
   // Desktop opens the shared Sessions surface as a modal; compact mode keeps it as native navigation.
   const [sessionsModalOpen, setSessionsModalOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
-  const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
+  const [diffAgainstOwner, setDiffAgainstOwner] = createSignal<ClientSession | null>(null);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
   const visibleBuildMismatch = createMemo(() =>
@@ -674,34 +664,22 @@ export default function App(): JSX.Element {
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
+    onEditorContextMenu: (connection, x, y) => editorCommands.openMenu(connection, x, y),
     onSaveError: (message) => addToast("error", message),
     onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
     onDestinationActivated: () => {
+      setActivePane("editor");
       if (compact()) {
-        setActivePane("editor");
         drillMobileSurface("editor");
       }
-    },
-    focusVisibleOverlay: () => {
-      setActivePane("editor");
-      const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
-        ":scope > [data-kind='editor'][tabindex]:not([hidden])",
-      );
-      // A shadow-tree descendant that already owns focus (e.g. a block-editor textarea mid-draft, restored by
-      // SourceView's own mount) must keep it — stealing it back to the overlay host is how homeSessionFocus's
-      // rAF-deferred refocus on an ordinary session switch knocks a live keystroke off target (same class of
-      // bug preserveEditorFocusOnMount guards against for SourceView's own mount-time focus).
-      if (overlay?.shadowRoot?.activeElement == null) {
-        overlay?.focus();
-      }
-      return document.activeElement === overlay;
     },
     confirmDiscard,
     confirm,
     promptScratchName,
     promptRevision,
   });
+  const editorCommands = createEditorCommands(editor, setContextMenu);
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
@@ -847,68 +825,29 @@ export default function App(): JSX.Element {
   // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
   // so the command DECLINES (key falls through to the editor) on a non-previewable file.
   const toggleActivePreview = (): boolean => {
-    const path = activePath();
-    if (path === null || !canPreview(path)) {
+    const session = selectedSession();
+    const tab = session === null ? undefined : activeTabFor(session);
+    const path = tab?.entry.path;
+    if (
+      session === null ||
+      tab === undefined ||
+      !isFileTab(tab.entry) ||
+      path === undefined ||
+      !canPreview(path)
+    ) {
       return false;
     }
-    // Returning to Source hands focus back to Monaco; Preview preserves existing editor-pane focus on mount.
-    if (toggleViewMode(path) === "source") {
-      editor.focusEditor();
-    }
+    void runCommandWithFeedback(CommandIds.toggleEditorPreview);
     return true;
   };
 
-  const activeTabBinding = createMemo<{
-    session: ClientSession;
-    path: string;
-    kind: "file" | "web" | "source" | "plan";
-  } | null>(() => {
+  const activeTabBinding = createMemo(() => {
     const session = selectedSession();
-    if (session === null) {
-      return null;
-    }
-    const path = activePathFor(session);
-    if (path === null) {
-      return null;
-    }
-    return {
-      session,
-      path,
-      kind: openTabsFor(session).find((tab) => tab.path === path)?.kind ?? "file",
-    };
+    return session === null ? undefined : activeTabFor(session);
   });
-
-  // The active file's path when it's previewable, in Preview mode, and not under inline review (which owns the
-  // editor) — drives the Preview overlay; null otherwise.
-  const activePreviewBinding = createMemo(() => {
-    const binding = activeTabBinding();
-    return binding !== null &&
-      binding.kind === "file" &&
-      canPreview(binding.path) &&
-      isPreviewMode(binding.path) &&
-      !editor.reviewActive()
-      ? binding
-      : null;
-  });
-
-  const activeMediaBinding = createMemo(() => {
-    const binding = activeTabBinding();
-    return binding !== null &&
-      binding.kind === "file" &&
-      mediaTypeOf(binding.path) !== null &&
-      !editor.reviewActive()
-      ? binding
-      : null;
-  });
-
-  const activeSourceBinding = createMemo(() => {
-    const binding = activeTabBinding();
-    return binding?.kind === "source" ? binding : null;
-  });
-
-  const activePlanBinding = createMemo(() => {
-    const binding = activeTabBinding();
-    return binding?.kind === "plan" ? binding : null;
+  createEffect(() => {
+    const tab = activeTabBinding();
+    setContext("unifiedReviewActive", tab !== undefined && tabKind(tab.entry) === "review");
   });
 
   const resultAddress = (result: { data?: unknown }): { slot: string; incarnation: string } => {
@@ -1171,16 +1110,13 @@ export default function App(): JSX.Element {
       { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
     );
     setContextMenu({
+      runCommand: captureCommandRunner(),
       x: event.clientX,
       y: event.clientY,
       ...(url !== undefined ? { header: url } : {}),
       entries,
     });
   };
-
-  const fileReviewUnavailable = (): boolean =>
-    editor.review.mode() === "unified" &&
-    !editor.review.overview().files.some((file) => file.summary().currentExists);
 
   const renderPane = (kind: string): JSX.Element => {
     if (isTool(kind)) {
@@ -1228,22 +1164,28 @@ export default function App(): JSX.Element {
             session={selectedSession}
             tabs={openTabs}
             activePath={activePath}
-            actions={editor.tabs}
+            controller={editor}
             trailing={
               <>
                 <Show when={editor.parkedReviewCount() > 0}>
                   <button
                     type="button"
-                    class="editor-review-toggle"
-                    aria-pressed={editor.review.mode() === "unified"}
-                    disabled={fileReviewUnavailable()}
-                    title={`${fileReviewUnavailable() ? "File review unavailable — all changed files are deleted" : editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
-                    onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
+                    class="editor-review-action editor-review-open"
+                    title={`Review Changes${keyHint(CommandIds.reviewOpen)}`}
+                    onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
                   >
-                    <Show when={editor.review.mode() === "unified"} fallback={<Files size={14} />}>
-                      <FileCode2 size={14} />
-                    </Show>
-                    {editor.review.mode() === "unified" ? "File review" : "Unified review"}
+                    <Files size={14} />
+                    Review Changes
+                  </button>
+                </Show>
+                <Show when={editor.review.canClose()}>
+                  <button
+                    type="button"
+                    class="editor-review-action editor-review-close"
+                    title={`Accept remaining changes and close diff${keyHint(CommandIds.reviewClose)}`}
+                    onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
+                  >
+                    <X size={14} /> Close Diff
                   </button>
                 </Show>
                 {/* Pane-switch badge: its own cell at the right of the tab bar. */}
@@ -1254,123 +1196,17 @@ export default function App(): JSX.Element {
             }
           />
           <div class="editor-pane">
-            <div
-              class="editor"
-              role="application"
-              ref={editorContainer}
-              onContextMenu={(event) => {
-                // Only when a document is mounted — the empty-state pane has no selection to act on.
-                if (openTabs().length === 0) {
-                  return;
-                }
-                event.preventDefault();
-                const spelling = editor.spellingMenuAt(event.clientX, event.clientY);
-                setContextMenu({
-                  ...spelling,
-                  entries: [
-                    ...spelling.entries,
-                    { commandId: CommandIds.editorGoToDefinition },
-                    { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.editorGoToReferences },
-                    { commandId: CommandIds.editorRename },
-                    { kind: "separator" },
-                    { commandId: CommandIds.reviseSelection },
-                    { kind: "separator" },
-                    { commandId: CommandIds.editorCut },
-                    { commandId: CommandIds.editorCopy },
-                    { commandId: CommandIds.editorPaste },
-                    { kind: "separator" },
-                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                  ],
-                });
-              }}
-            />
+            <div class="editor" role="application" ref={editorContainer} />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
-            {/* Preview mode: render the active file over the still-mounted Monaco host. */}
-            <Show when={activePreviewBinding()}>
-              {(binding) => (
-                <Suspense>
-                  <PreviewPane
-                    session={() => binding().session}
-                    path={() => binding().path}
-                    content={() => editor.activeContent()}
-                    focusOnMount={focusedKind() === "editor"}
-                  />
-                </Suspense>
-              )}
-            </Show>
-            {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
-            <Show when={activeMediaBinding()} keyed>
-              {(binding) => (
-                <MediaPane
-                  session={binding.session}
-                  path={binding.path}
-                  focusOnMount={focusedKind() === "editor"}
-                />
-              )}
-            </Show>
-            {/* Activated web tabs retain their browsing contexts; only the selected session/tab is visible. */}
-            <WebTabStack sessions={webTabSessions} selectedSession={selectedSession} />
-            {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco (or its
-                loading spinner / fetch error while it resolves). */}
-            <Show when={activeSourceBinding()} keyed>
-              {(binding) => (
-                <Suspense>
-                  <SourceView
-                    doc={() => sourceDoc(binding.session, binding.path)}
-                    session={binding.session}
-                    target={() => binding.path}
-                    focusOnMount={focusedKind() === "editor"}
-                  />
-                </Suspense>
-              )}
-            </Show>
-            {/* A completed agent plan: host-owned Markdown in a read-only virtual document. */}
-            <Show when={activePlanBinding()} keyed>
-              {(binding) => (
-                <Suspense>
-                  <PlanView
-                    session={binding.session}
-                    path={binding.path}
-                    focusOnMount={focusedKind() === "editor"}
-                  />
-                </Suspense>
-              )}
-            </Show>
-            <Show
-              when={
-                editor.review.mode() === "unified" && editor.review.overview().files.length > 0
-                  ? selectedSession()
-                  : null
-              }
-              keyed
-            >
-              {(session) => (
-                <Suspense>
-                  <UnifiedReview
-                    scope={editor.review.scope}
-                    overview={editor.review.overview}
-                    session={session}
-                    onCursorChange={editor.review.setCursor}
-                    onFileCollapsed={editor.review.setFileCollapsed}
-                    bindSurface={editor.review.bindSurface}
-                    configureDiff={editor.review.configureDiff}
-                    refreshControls={editor.review.refreshControls}
-                    createCopyScope={editor.review.createCopyScope}
-                  />
-                </Suspense>
-              )}
-            </Show>
+            <TabContent sessions={editorSessions} controller={editor} />
           </div>
-          <Show when={editor.review.mode() !== "unified"}>
-            <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, undefined)}
-              root={() => indexRoot() ?? ""}
-            />
-          </Show>
+          <EditorFooter
+            onOpenRecent={(path) => editor.openFile(path, undefined)}
+            root={() => indexRoot() ?? ""}
+          />
         </div>
       );
     }
@@ -1609,21 +1445,6 @@ export default function App(): JSX.Element {
 
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Core
     // commands route to the host. See docs/specs/commands.md.
-    // A tab command's optional `path` arg (sent by the tab context menu); absent ⇒ act on the active tab.
-    const tabPath = (args: unknown): string | undefined => {
-      const path = (args as { path?: unknown } | undefined)?.path;
-      return typeof path === "string" ? path : undefined;
-    };
-    // Copy a string derived from the target tab's path (the menu's `path` arg, else the active tab) to the
-    // clipboard. Returns false (the command declines) when there's no tab to act on.
-    const copyTabPath = (args: unknown, derive: (path: string) => string): boolean => {
-      const path = tabPath(args) ?? activePath();
-      if (path === null || path === undefined) {
-        return false;
-      }
-      writeClipboard(derive(path));
-      return true;
-    };
     const offCommands = [
       // Returns false when there's no pane at that number, so an unbound Ctrl+digit falls through to the
       // focused xterm/Monaco.
@@ -1715,90 +1536,26 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.searchNextResult, () => stepSearchResult(1)),
       registerCommand(CommandIds.searchPrevResult, () => stepSearchResult(-1)),
 
-      // Notion block editing (source-edit.ts): the handlers return false when no source block/edit is live, so
-      // the plain Enter/Escape chords fall through everywhere else.
-      registerCommand(
-        CommandIds.sourceEditBlock,
-        () => activeSourceEditor()?.editFocusedBlock() ?? false,
-      ),
-      registerCommand(CommandIds.sourceCommitEdit, () => activeSourceEditor()?.commit() ?? false),
-      registerCommand(CommandIds.sourceCancelEdit, () => activeSourceEditor()?.cancel() ?? false),
-      ...reviewCommandBindings(editor, selectedSession).map(([id, handler]) =>
-        registerCommand(id, handler),
-      ),
-      registerCommand(CommandIds.reviseSelection, () => editor.reviseSelection()),
-      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
-      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
-      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
-      registerCommand(CommandIds.spellCorrect, (args) => {
-        const menu = editor.correctSpelling(args);
-        if (menu !== null) setContextMenu(menu);
-      }),
-      registerCommand(CommandIds.spellAddUser, (args) => editor.addSpellingWord("user", args)),
-      registerCommand(CommandIds.spellAddProject, (args) =>
-        editor.addSpellingWord("project", args),
-      ),
-      // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
-      // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
-      // through to the editor with <2 tabs.
-      registerCommand(CommandIds.closeTab, (args) => editor.tabs.close(tabPath(args))),
-      registerCommand(CommandIds.nextTab, () => editor.tabs.next()),
-      registerCommand(CommandIds.prevTab, () => editor.tabs.prev()),
-      registerCommand(CommandIds.closeAllTabs, () => editor.tabs.closeAll()),
-      registerCommand(CommandIds.closeOtherTabs, (args) => editor.tabs.closeOthers(tabPath(args))),
-      registerCommand(CommandIds.closeTabsToLeft, (args) => editor.tabs.closeToLeft(tabPath(args))),
-      registerCommand(CommandIds.closeTabsToRight, (args) =>
-        editor.tabs.closeToRight(tabPath(args)),
-      ),
-      registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
-      registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
-      // Back / forward through visited editor locations (Alt+Left/Right + the back/forward mouse buttons). Each
-      // returns whether it stepped, so the chord falls through to the editor when there's no history that way.
-      registerCommand(CommandIds.navBack, () => editor.nav.back()),
-      registerCommand(CommandIds.navForward, () => editor.nav.forward()),
-      // Copy the target tab's name / repo-relative / absolute path to the clipboard (the tab menu's Copy
-      // submenu; palette / Claude act on the active tab). Decline when there's no target so the chord/row
-      // falls through rather than copying nothing.
-      registerCommand(CommandIds.copyTabName, (args) =>
-        copyTabPath(args, (path) => basename(path)),
-      ),
-      registerCommand(CommandIds.copyTabRelativePath, (args) =>
-        copyTabPath(args, (path) => {
-          const root = indexRoot();
-          return root === null ? path : repoRelativePath(root, path);
+      ...(
+        [
+          [CommandIds.sourceEditBlock, "edit"],
+          [CommandIds.sourceCommitEdit, "commit"],
+          [CommandIds.sourceCancelEdit, "cancel"],
+        ] as const
+      ).map(([id, name]) =>
+        registerCapturedCommand(id, ({ session }) => {
+          const source = activeSourceEditor();
+          const action = source?.session === session ? source.captureCommands()[name] : undefined;
+          return () => action?.() ?? false;
         }),
       ),
-      registerCommand(CommandIds.copyTabPath, (args) => copyTabPath(args, (path) => path)),
-      // Editor clipboard (the right-click menu): trigger Monaco's own actions so the native chords stay Monaco's.
-      registerCommand(CommandIds.editorCopy, () =>
-        editor.triggerAction("editor.action.clipboardCopyAction"),
-      ),
-      registerCommand(CommandIds.editorCut, () =>
-        editor.triggerAction("editor.action.clipboardCutAction"),
-      ),
-      registerCommand(CommandIds.editorPaste, () =>
-        editor.triggerAction("editor.action.clipboardPasteAction"),
-      ),
-      // Code intelligence (right-click menu + F12 / Shift+F12 / F2): trigger Monaco's own actions, whose LSP
-      // providers do the work. triggerAction returns false with no editor mounted, so the chord falls through.
-      registerCommand(CommandIds.editorGoToDefinition, () =>
-        editor.triggerAction("editor.action.revealDefinition"),
-      ),
-      registerCommand(CommandIds.editorPeekDefinition, () =>
-        editor.triggerAction("editor.action.peekDefinition"),
-      ),
-      registerCommand(CommandIds.editorGoToReferences, () =>
-        editor.triggerAction("editor.action.goToReferences"),
-      ),
-      registerCommand(CommandIds.editorRename, () => editor.triggerAction("editor.action.rename")),
-      // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
-      registerCommand(CommandIds.newFile, () => editor.newFile()),
-      registerCommand(CommandIds.saveFile, () => editor.save()),
-      registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
-      registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
-      registerCommand(CommandIds.runTestAtCursor, async () => {
-        await (await import("./tests/test-lens")).runTestAtCursor();
+      ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
+      editorCommands.register(),
+      ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
+      registerCommand(CommandIds.newFile, (_args, { session }) => {
+        if (session !== null) editor.newFile(session);
       }),
+      registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
       // Workspace/window menu commands always target the page-serving host, even while a remote session is active.
       registerCommand(CommandIds.openFolder, () =>
         NATIVE_SHELL ? publishMenuAction("open-folder") : false,
@@ -1846,21 +1603,22 @@ export default function App(): JSX.Element {
       }),
       // Diff Against… (Ctrl+Shift+D / palette): review the working tree against a ref. A 'ref' arg (Claude /
       // a keybinding) skips the prompt; the helpers are the same flow with their ref fixed.
-      registerCommand(CommandIds.diffAgainst, (args) => {
+      registerCommand(CommandIds.diffAgainst, (args, { session }) => {
+        if (session === null) return false;
         const ref = (args as { ref?: unknown } | undefined)?.ref;
         if (typeof ref === "string" && ref.trim().length > 0) {
-          selectedSession()?.feature("review").publish("diffAgainst", { reference: ref.trim() });
+          session.feature("review").publish("diffAgainst", { reference: ref.trim() });
         } else {
-          setDiffAgainstOpen(true);
+          setDiffAgainstOwner(session);
         }
         return true;
       }),
-      registerCommand(CommandIds.diffAgainstParent, () => {
-        selectedSession()?.feature("review").publish("diffAgainst", { reference: "HEAD^" });
+      registerCommand(CommandIds.diffAgainstParent, (_args, { session }) => {
+        session?.feature("review").publish("diffAgainst", { reference: "HEAD^" });
         return true;
       }),
-      registerCommand(CommandIds.diffAgainstHead, () => {
-        selectedSession()?.feature("review").publish("diffAgainst", { reference: "HEAD" });
+      registerCommand(CommandIds.diffAgainstHead, (_args, { session }) => {
+        session?.feature("review").publish("diffAgainst", { reference: "HEAD" });
         return true;
       }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, behind the editor-focused tab bindings): cycle the
@@ -2182,14 +1940,16 @@ export default function App(): JSX.Element {
           onCancel={() => setOpenPrOpen(false)}
         />
       </Show>
-      <Show when={diffAgainstOpen()}>
-        <DiffAgainstPrompt
-          onPick={(ref) => {
-            setDiffAgainstOpen(false);
-            selectedSession()?.feature("review").publish("diffAgainst", { reference: ref });
-          }}
-          onCancel={() => setDiffAgainstOpen(false)}
-        />
+      <Show when={diffAgainstOwner()} keyed>
+        {(session) => (
+          <DiffAgainstPrompt
+            onPick={(ref) => {
+              setDiffAgainstOwner(null);
+              session.feature("review").publish("diffAgainst", { reference: ref });
+            }}
+            onCancel={() => setDiffAgainstOwner(null)}
+          />
+        )}
       </Show>
       <Show when={sourceTokenPrompt()}>
         {(prompt) => (

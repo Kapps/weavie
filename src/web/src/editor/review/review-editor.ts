@@ -1,10 +1,15 @@
+import type { ClientSession } from "../../bridge";
+import { editorContexts } from "../editor-context";
+import { connectTextEditor } from "../editor-contributions";
 import {
   createInlineDiff,
   type InlineDiff,
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, type monaco } from "../monaco-setup";
+import { createEmbeddedEditor, monaco } from "../monaco-setup";
+import type { TextLocation } from "../nav-history";
+import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewFileDiff } from "./review-store";
@@ -15,16 +20,20 @@ type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
 };
 
 export interface ReviewEditor {
+  capture(): TextLocation;
+  restore(location: TextLocation): void;
+  revealFileStart(line: number): void;
+  focus(): void;
   layout(): void;
   inline: InlineDiff;
-  reveal(line: number): void;
-  line(): number;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
 }
 
 /** The section owns sizing and collapsed context; InlineDiff owns all review rendering and actions. */
 export function createReviewEditor(options: {
+  session: ClientSession;
+  tab: TabOwner;
   scope: ReviewScopeState;
   container: HTMLElement;
   scroller: HTMLElement;
@@ -49,7 +58,6 @@ export function createReviewEditor(options: {
     scrollBeyondLastLine: false,
     automaticLayout: false,
     smoothScrolling: false,
-    scrollbar: { handleMouseWheel: false, vertical: "hidden" },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
     hideCursorInOverviewRuler: true,
@@ -78,16 +86,17 @@ export function createReviewEditor(options: {
     viewport.layout();
     options.onHeight(next);
   };
+  const revealLine = (line: number): void => {
+    options.onReveal();
+    const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+    viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
+  };
   const presentation: InlineDiffPresentation = {
     scope: options.scope,
     updateGeometry: viewport.update,
-    parked: () => false,
     active: options.active,
     toolbarHost: options.toolbarHost,
-    revealLine: (line) => {
-      options.onReveal();
-      viewport.reveal(editor.getTopForLineNumber(line));
-    },
+    revealLine,
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
       const bounds = viewport.bounds();
@@ -117,6 +126,38 @@ export function createReviewEditor(options: {
       options.onPainted();
     },
   };
+  const capture = (): TextLocation => {
+    const line = presentation.reviewLine();
+    return {
+      path: options.diff.path,
+      line,
+      viewState: editor.saveViewState(),
+      anchor: {
+        line,
+        offset:
+          viewport.bounds().top -
+          container.getBoundingClientRect().top -
+          editor.getTopForLineNumber(line),
+      },
+    };
+  };
+  const restore = (location: TextLocation): void => {
+    viewport.update(() => {
+      if (location.viewState != null) editor.restoreViewState(location.viewState);
+      else editor.setPosition({ lineNumber: location.line, column: 1 });
+    });
+    const anchor = location.anchor;
+    if (anchor === undefined) revealLine(location.line);
+    else viewport.reveal(editor.getTopForLineNumber(anchor.line) + anchor.offset);
+  };
+  const binding = connectTextEditor({
+    session: options.session,
+    tab: options.tab,
+    editor,
+    model,
+    capture,
+    restore,
+  });
   const inline = createInlineDiff(editor, presentation);
   const subscriptions = [
     editor.onDidContentSizeChange(measure),
@@ -124,15 +165,21 @@ export function createReviewEditor(options: {
   ];
   options.configure(inline, model.uri.toString(), options.diff);
   return {
+    capture,
+    restore,
+    revealFileStart: (line) => {
+      viewport.update(() => editor.setPosition({ lineNumber: line, column: 1 }));
+      viewport.reveal(0);
+    },
+    focus: () => {
+      editorContexts.activate(binding.connection);
+      editor.focus();
+    },
     layout: viewport.layout,
     inline,
-    line: () => editor.getPosition()?.lineNumber ?? 1,
-    reveal: (line) => {
-      editor.setPosition({ lineNumber: line, column: 1 });
-      presentation.revealLine(line);
-    },
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
+      binding.dispose();
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();
       inline.dispose();

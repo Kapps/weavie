@@ -27,9 +27,14 @@ const [profiles, setProfiles] = createSignal(
 const changeListeners = new Set<() => void>();
 
 /** The active workspace's test rules (empty when unconfigured or the repo declared no tests). */
-export const testRules = createMemo(
-  () => profiles().get(selectedSession()?.connection.id ?? "local") ?? [],
-);
+export function testRulesFor(connection: HostConnection): TestRule[] {
+  return profiles().get(connection.id) ?? [];
+}
+
+export const testRules = createMemo(() => {
+  const session = selectedSession();
+  return session === null ? [] : testRulesFor(session.connection);
+});
 
 /** Subscribes to profile changes (a host push). Returns an unsubscribe. Use outside a Solid reactive root. */
 export function onTestProfileChanged(listener: () => void): () => void {

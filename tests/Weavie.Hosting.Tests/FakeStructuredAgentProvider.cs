@@ -16,6 +16,11 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 
 	/// <summary>A prompt that makes the fake emit one completed Markdown plan.</summary>
 	public const string PlanPrompt = "emit-plan";
+	public const string PlanRevisionPrompt = "revise-plan";
+	public const string PlanRemovalPrompt = "remove-plan";
+	public const string PlanReplayPrompt = "replay-plan";
+	public const string PlanRemovedReplayPrompt = "replay-without-plan";
+	public const string RevisedPlanMarkdown = "# Revised work plan\n\n## Implementation\n\nPreserve every paragraph.\n\n```text\nComplete source document\n```\n\n## Validation\n\nEnd of the revised plan.";
 
 	public const string PlanMarkdown = "# Plan\n\n- Inspect the code\n- Implement the fix";
 
@@ -118,6 +123,19 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 					Text = PlanMarkdown,
 					Status = "completed",
 				});
+				return;
+			}
+			if (submission.Text is PlanRevisionPrompt or PlanRemovalPrompt) {
+				var plan = transcript.Last(message => message.ItemType == "plan");
+				Emit(plan with {
+					Type = submission.Text == PlanRemovalPrompt ? "item-retracted" : "item-completed",
+					Text = submission.Text == PlanRemovalPrompt ? null : RevisedPlanMarkdown,
+				});
+				return;
+			}
+			if (submission.Text is PlanReplayPrompt or PlanRemovedReplayPrompt) {
+				if (submission.Text == PlanRemovedReplayPrompt) transcript.RemoveAll(message => message.ItemType == "plan");
+				PaneSnapshot?.Invoke([.. transcript]);
 				return;
 			}
 

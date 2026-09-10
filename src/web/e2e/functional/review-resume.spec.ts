@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { type MessageEnvelope, parseEnvelope } from "../../src/messaging/message-envelope";
-import { openFile, runCommand } from "../harness/actions";
+import { openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
@@ -69,7 +69,7 @@ test.describe("durable applied review", () => {
     await expect.poll(() => readFile(join(weavie.workspace, "README.md"), "utf8")).toBe(NEXT);
     await openFile(page, "hello.ts");
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-review-open").click();
     const hello = section(page, "hello.ts");
     await expect(hello.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
@@ -117,21 +117,28 @@ test.describe("durable applied review", () => {
     );
     await expect(section(page, "README.md").locator(".weavie-inline-added").first()).toBeVisible();
 
-    await page.locator(".editor-review-toggle").click();
+    await notes.locator(".unified-review-file-name").click();
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
     await expect
       .poll(() =>
         page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition()?.lineNumber),
       )
       .toBe(2);
-    await page.locator(".editor-review-toggle").click();
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
 
     await section(page, "hello.ts").locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await runCommand(page, "Undo Revert (Review)");
     await expect.poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8")).toBe(HELLO);
     await expect(page.locator(".weavie-inline-added")).toHaveCount(1);
-    await runCommand(page, "Redo Review Action");
+    await openCommandPalette(page);
+    await page.locator(".tb-omnibar-input").fill(">Redo Review Action");
+    await expect(page.locator(".tb-omnibar-row", { hasText: "Redo Review Action" })).toBeVisible();
+    // A deferred reveal can move the cursor after admission; session history owns no hunk position.
+    await page.evaluate(() =>
+      (window as WeavieWindow).__WEAVIE_EDITOR__?.setPosition({ lineNumber: 1, column: 1 }),
+    );
+    await page.locator(".tb-omnibar-input").press("Enter");
     await expect
       .poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8"))
       .toBe(HELLO.replace("console.warn", "console.log"));
@@ -171,8 +178,8 @@ test.describe("durable pull-request review", () => {
   test("opening the same pull request retains its kept decision and undo", async ({ page }) => {
     await openPr(page);
     await expect(page.locator(".session-chip")).toHaveCount(2);
-    await expect(page.locator(".editor-review-toggle")).toBeVisible();
-    await page.locator(".editor-review-toggle").click();
+    await expect(page.locator(".editor-review-open")).toBeVisible();
+    await page.locator(".editor-review-open").click();
     const hello = section(page, "hello.ts");
     await hello.locator(".unified-review-file-action.keep").click();
     await expect(hello.locator(".unified-review-status")).toHaveText("Reviewed");

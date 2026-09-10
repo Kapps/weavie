@@ -1,6 +1,6 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { formatKey } from "../commands/keybindings";
-import { findCommand, getKeybindings } from "../commands/registry";
+import { captureCommandRunner, findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { sessionMenuAt } from "./session-menu";
@@ -53,7 +53,7 @@ export function SessionRail(props: {
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
-    setMenu(sessionMenuAt(session, event.clientX, event.clientY, true));
+    setMenu(sessionMenuAt(session, event.clientX, event.clientY, true, captureCommandRunner()));
   };
 
   return (

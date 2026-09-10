@@ -125,6 +125,7 @@ public sealed partial class HostCore {
 		string headRef,
 		string baseRef,
 		CancellationToken ct) {
+		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		string? mergeBase = null;
@@ -161,6 +162,7 @@ public sealed partial class HostCore {
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
+				request,
 				ct)
 				.ConfigureAwait(false);
 			return null;

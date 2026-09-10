@@ -10,7 +10,7 @@ namespace Weavie.Hosting.Tests;
 [Collection(TestCollections.HostIntegration)]
 public sealed class TurnKeepTests {
 	[Fact]
-	public async Task KeepFile_AdvancesBaseline_LeavingFileFadedInReviewSet() {
+	public async Task KeepFile_LastAcceptance_PublishesClosedReview() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
@@ -19,21 +19,22 @@ public sealed class TurnKeepTests {
 		File.WriteAllText(path, "hello\nworld\n");
 		session.Changes.RecordChange(path);
 		Assert.Single(session.Changes.TurnChanges());
+		await session.FileActivity.DrainAsync(CancellationToken.None);
 
 		host.Bridge.Clear();
 		host.SessionEvent(session, "review", "keepFile", new { path });
 
-		// The file stays in the review set as a faded accepted band (no pending hunks) until keep-all commits it.
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);     // review baseline == current → nothing bright/pending
-		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText); // accepted anchor still behind → faded band remains
-		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(turn.AcceptedBaselineText, turn.CurrentText);
+		Assert.Empty(host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("files").EnumerateArray());
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
 
 	[Fact]
-	public async Task KeepHunk_AdvancesBaseline_OverJustThatHunk() {
+	public async Task KeepHunk_LastAcceptance_PublishesClosedReview() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
@@ -42,6 +43,7 @@ public sealed class TurnKeepTests {
 		File.WriteAllText(path, "hello\nworld\n"); // one added hunk: line 2
 		session.Changes.RecordChange(path);
 		Assert.Single(session.Changes.TurnChanges());
+		await session.FileActivity.DrainAsync(CancellationToken.None);
 
 		host.Bridge.Clear();
 		host.SessionEvent(
@@ -57,13 +59,13 @@ public sealed class TurnKeepTests {
 				guardText = "world",
 			});
 
-		// The only hunk is now faded-accepted: no pending diff (review baseline == current), but the file stays.
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);
-		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText);
-		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(turn.AcceptedBaselineText, turn.CurrentText);
+		Assert.Empty(host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("files").EnumerateArray());
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
 
 	[Fact]
@@ -107,6 +109,7 @@ public sealed class TurnKeepTests {
 	public async Task UnkeepHunk_ReturnsAKeptHunkToThePendingBand() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
+		AddPendingFile(host);
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path); // accepted anchor = "hello\n"
@@ -142,13 +145,14 @@ public sealed class TurnKeepTests {
 	public async Task NewPrompt_PreservesFadedBandAndUndoWithoutResetPushes() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
+		AddPendingFile(host);
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path);
 		File.WriteAllText(path, "hello\nworld\n");
 		session.Changes.RecordChange(path);
 		host.SessionEvent(session, "review", "keepFile", new { path });
-		Assert.Single(session.Changes.TurnChanges()); // kept: faded band only
+		Assert.Equal(2, session.Changes.TurnChanges().Count);
 
 		host.Bridge.Clear();
 		session.Changes.Observe(new Weavie.Core.Hooks.HookRequest {
@@ -157,7 +161,7 @@ public sealed class TurnKeepTests {
 			ToolInputJson = "{}",
 		});
 
-		var reviewed = Assert.Single(session.Changes.TurnChanges());
+		var reviewed = session.Changes.GetTurn(path)!;
 		Assert.Equal("hello\n", reviewed.AcceptedBaselineText);
 		Assert.Equal("hello\nworld\n", reviewed.BaselineText);
 		Assert.True(session.Changes.CanUndoKeep);
@@ -191,5 +195,11 @@ public sealed class TurnKeepTests {
 			});
 
 		Assert.Single(session.Changes.TurnChanges()); // still pending — the guard aborted the keep
+	}
+	private static void AddPendingFile(TestHost host) {
+		string path = Path.Combine(host.RepoRoot, "pending.txt");
+		host.SelectedSession.Changes.CaptureBaseline(path);
+		File.WriteAllText(path, "pending\n");
+		host.SelectedSession.Changes.RecordChange(path);
 	}
 }

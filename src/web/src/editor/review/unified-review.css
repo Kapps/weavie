@@ -332,6 +332,14 @@
   width: 100%;
 }
 
+/* Keep the review's scrollbar local: Monaco option overrides also reach nested peek editors. */
+.unified-review-editor-viewport > .monaco-editor
+  > .overflow-guard
+  > .monaco-scrollable-element
+  > .scrollbar.vertical {
+  display: none;
+}
+
 /* Round the last section corners on Monaco's own clip layer — never on an ancestor, which would trap the
    fixed-position suggest/hover widgets. */
 .unified-review-editor .overflow-guard {

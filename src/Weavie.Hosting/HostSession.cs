@@ -30,7 +30,6 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
 public sealed partial class HostSession : IAsyncDisposable {
-	internal object? ReviewArm { get; set; }
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
@@ -232,6 +231,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("terminal.agent"),
 				settings,
 			ptyLauncher);
+		Agent.PlanDocumentsChanged += UpdateAgentPlans;
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor
@@ -468,9 +468,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
 		if (existing >= 0) {
 			var entry = open[existing];
-			if (entry.Preview && !preview) {
-				open[existing] = entry with { Preview = false };
-			}
+			bool sameKind = (entry.Kind ?? "file") == (kind ?? "file");
+			open[existing] = entry with {
+				Kind = kind,
+				Preview = entry.Preview && preview,
+				ViewState = sameKind ? entry.ViewState : null,
+			};
 		} else {
 			var entry = new EditorSessionEntry {
 				Path = path,
@@ -670,18 +673,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	public void OpenNewScratch() {
 		string path = Scratch.CreateNew();
 		FileOpener.Open(path, line: null, preview: false, scratch: true, EditorOpenIntent.Navigation);
-	}
-
-	/// <summary>Reveals the exact completed agent plan in this session's editor channel.</summary>
-	public bool OpenAgentPlan(string threadId, string turnId, string itemId) {
-		if (!Agent.TryGetCompletedPlan(threadId, turnId, itemId, out var plan)) {
-			return false;
-		}
-
-		string path = AgentPlanProtocol.Path(plan);
-		State.Set("editor", $"plan:{plan.Id}", "agentPlan", AgentPlanProtocol.Show(plan, path));
-		OpenEditorOverlay(path, "plan");
-		return true;
 	}
 
 	private static Action<string> Tagged(string tag) => line => {

@@ -102,19 +102,4 @@ public sealed class McpStdioProxyTests {
 		listener.Start();
 		return ((IPEndPoint)listener.LocalEndpoint).Port;
 	}
-
-	private static HttpListener StartListener(out string url) {
-		for (int attempt = 0; ; attempt++) {
-			string candidateUrl = $"http://127.0.0.1:{FreePort()}/";
-			var listener = new HttpListener();
-			listener.Prefixes.Add(candidateUrl);
-			try {
-				listener.Start();
-				url = candidateUrl;
-				return listener;
-			} catch (HttpListenerException) when (attempt < 4) {
-				listener.Close();
-			}
-		}
-	}
 }

@@ -34,27 +34,32 @@ public sealed class WorkspaceFileIndex {
 	public IReadOnlyList<string> List() => ListSnapshot().Files;
 
 	/// <summary>Returns every file and visited directory from one navigation walk.</summary>
-	public WorkspaceFileIndexSnapshot ListSnapshot() {
+	public WorkspaceFileIndexSnapshot ListSnapshot() => ListSnapshot(_ => { });
+
+	/// <summary>Observes each directory before reading its navigation entries.</summary>
+	public WorkspaceFileIndexSnapshot ListSnapshot(Action<string> observeDirectory) {
+		ArgumentNullException.ThrowIfNull(observeDirectory);
 		if (!_fileSystem.DirectoryExists(Root)) {
 			return new WorkspaceFileIndexSnapshot([], []);
 		}
 
 		var files = new List<string>();
 		var directories = new List<string>();
-		Walk(Root, files, directories);
+		Walk(Root, files, directories, observeDirectory);
 		files.Sort(StringComparer.OrdinalIgnoreCase);
 		directories.Sort(StringComparer.OrdinalIgnoreCase);
 		return new WorkspaceFileIndexSnapshot(files, directories);
 	}
 
 	/// <summary>Depth-first walk collecting navigation paths while pruning ignored directories.</summary>
-	private void Walk(string directory, List<string> files, List<string> directories) {
+	private void Walk(string directory, List<string> files, List<string> directories, Action<string> observeDirectory) {
 		// Iterative DFS so a deep tree can't blow the stack.
 		var stack = new Stack<string>();
 		stack.Push(directory);
 
 		while (stack.Count > 0) {
 			string current = stack.Pop();
+			observeDirectory(current);
 			directories.Add(current);
 			foreach (var entry in _fileSystem.EnumerateDirectory(current)) {
 				string fullPath = Path.Combine(current, entry.Name);

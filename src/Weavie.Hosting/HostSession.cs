@@ -146,7 +146,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			ObservedPaths.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
-		FileIndexPublisher = new WorkspaceFileIndexPublisher(Inventory, FileIndex, FileActivity.ObservationReady);
+		FileIndexPublisher = new WorkspaceFileIndexPublisher(Inventory, FileIndex, FileActivity);
 		Shells = new ShellTerminalSet(
 			Bus,
 			settings,

@@ -1,3 +1,4 @@
+using Weavie.Core.FileActivity;
 using Weavie.Core.Git;
 
 namespace Weavie.Core.Workspaces;
@@ -6,20 +7,20 @@ namespace Weavie.Core.Workspaces;
 public sealed class WorkspaceFileIndexPublisher : IDisposable {
 	private readonly WorkspaceInventory _inventory;
 	private readonly WorkspaceFileIndex _navigation;
-	private readonly Task _observationReady;
+	private readonly IWorkspaceNavigationObserver _observer;
 	private readonly SemaphoreSlim _gate = new(1, 1);
 
 	/// <summary>Owns publication over the inventory established by the workspace observer.</summary>
 	public WorkspaceFileIndexPublisher(
 		WorkspaceInventory inventory,
 		WorkspaceFileIndex navigation,
-		Task observationReady) {
+		IWorkspaceNavigationObserver observer) {
 		ArgumentNullException.ThrowIfNull(inventory);
 		ArgumentNullException.ThrowIfNull(navigation);
-		ArgumentNullException.ThrowIfNull(observationReady);
+		ArgumentNullException.ThrowIfNull(observer);
 		_inventory = inventory;
 		_navigation = navigation;
-		_observationReady = observationReady;
+		_observer = observer;
 	}
 
 	/// <summary>Publishes the observer's current inventory without reloading Git.</summary>
@@ -39,7 +40,7 @@ public sealed class WorkspaceFileIndexPublisher : IDisposable {
 		try {
 			IReadOnlyList<string> files;
 			try {
-				await _observationReady.WaitAsync(ct).ConfigureAwait(false);
+				await _observer.ObservationReady.WaitAsync(ct).ConfigureAwait(false);
 				var snapshot = refresh
 					? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
 					: _inventory.LastSnapshot ?? throw new InvalidOperationException("Workspace observation has no inventory.");
@@ -57,10 +58,11 @@ public sealed class WorkspaceFileIndexPublisher : IDisposable {
 	}
 
 	private async Task<IReadOnlyList<string>> SeedNavigationAsync(CancellationToken ct) {
+		using var observation = await _observer.ObserveNavigationAsync(ct).ConfigureAwait(false);
 		var seed = await _inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
 		bool completed = false;
 		try {
-			var navigation = _navigation.ListSnapshot();
+			var navigation = _navigation.ListSnapshot(observation.ObserveDirectory);
 			var inventory = _inventory.CompleteNonRepositorySeed(seed, navigation.Files, navigation.Directories);
 			completed = true;
 			return inventory.Files;

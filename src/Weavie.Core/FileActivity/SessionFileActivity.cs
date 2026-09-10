@@ -8,7 +8,7 @@ namespace Weavie.Core.FileActivity;
 /// Owns one session's ordered file-activity stream and workspace invalidation source. Facts are transient and
 /// exact-owner scoped; reconnect recovery remains the session lifecycle snapshot rather than activity replay.
 /// </summary>
-public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
+public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable, IWorkspaceNavigationObserver {
 	private readonly Lock _gate = new();
 	private readonly Channel<ActivityCommand> _commands = Channel.CreateUnbounded<ActivityCommand>(
 		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -39,6 +39,10 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 
 	/// <summary>Completes after the initial inventory is reconciled with installed workspace watches.</summary>
 	public Task ObservationReady => _watcher.Ready;
+
+	/// <inheritdoc/>
+	public Task<IWorkspaceNavigationObservation> ObserveNavigationAsync(CancellationToken ct) =>
+		_watcher.ObserveNavigationAsync(ct);
 
 	/// <summary>Registers an ordered consumer and its required, user-visible failure handler.</summary>
 	public IDisposable Subscribe(

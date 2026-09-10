@@ -20,7 +20,8 @@ public sealed class WorkspaceFileIndexPublisherTests : IDisposable {
 		Assert.Equal([PathOf("a.ts")], inventory.LastSnapshot!.Files);
 		_root.WriteFile("b.ts", "");
 		using var watcher = new WorkspaceInvalidationWatcher(inventory, _ => { }, _ => { }, 1);
-		using var publisher = NewPublisher(inventory, watcher.Ready);
+		using var publisher = new WorkspaceFileIndexPublisher(
+			inventory, new WorkspaceFileIndex(new InMemoryFileSystem(), _root.Path), watcher);
 		var publications = new List<string[]>();
 		var publishing = publisher.PublishCurrentAsync(files => publications.Add([.. files]), UnexpectedFailure, CancellationToken.None);
 		Assert.False(publishing.IsCompleted);
@@ -108,7 +109,7 @@ public sealed class WorkspaceFileIndexPublisherTests : IDisposable {
 		fs.WriteAllText(PathOf("src", "a.ts"), "");
 		fs.WriteAllText(PathOf("b.ts"), "");
 		using var publisher = new WorkspaceFileIndexPublisher(
-			inventory, new WorkspaceFileIndex(fs, _root.Path), Task.CompletedTask);
+			inventory, new WorkspaceFileIndex(fs, _root.Path), new ControlledObserver(Task.CompletedTask));
 		var publications = new List<IReadOnlyList<string>>();
 
 		await publisher.PublishCurrentAsync(publications.Add, UnexpectedFailure, CancellationToken.None);
@@ -165,7 +166,20 @@ public sealed class WorkspaceFileIndexPublisherTests : IDisposable {
 	private static void UnexpectedFailure(Exception error) => Assert.Fail(error.ToString());
 
 	private WorkspaceFileIndexPublisher NewPublisher(WorkspaceInventory inventory, Task ready) =>
-		new(inventory, new WorkspaceFileIndex(new InMemoryFileSystem(), _root.Path), ready);
+		new(inventory, new WorkspaceFileIndex(new InMemoryFileSystem(), _root.Path), new ControlledObserver(ready));
+
+	private sealed class ControlledObserver(Task ready) : IWorkspaceNavigationObserver, IWorkspaceNavigationObservation {
+		public Task ObservationReady => ready;
+
+		public Task<IWorkspaceNavigationObservation> ObserveNavigationAsync(CancellationToken ct) {
+			ct.ThrowIfCancellationRequested();
+			return Task.FromResult<IWorkspaceNavigationObservation>(this);
+		}
+
+		public void ObserveDirectory(string path) { }
+
+		public void Dispose() { }
+	}
 
 	public void Dispose() => _root.Dispose();
 }

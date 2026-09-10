@@ -10,7 +10,7 @@ namespace Weavie.Core.FileActivity;
 /// Reports generic workspace invalidations from an authoritative file inventory. Platform watch sets observe
 /// only inventoried paths; filtering for domain-specific consumers belongs in their projections.
 /// </summary>
-public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
+public sealed partial class WorkspaceInvalidationWatcher : IDisposable, IWorkspaceNavigationObserver {
 	private readonly WorkspaceInventory _inventory;
 	private readonly Action<IReadOnlyList<FileInvalidation>> _onChanges;
 	private readonly Action<string> _log;
@@ -168,7 +168,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			_ready.TrySetException(ex);
 			throw;
 		} finally {
-			_directoryWatchers.Dispose();
+			await DisposeWatchesAsync().ConfigureAwait(false);
 			_finished.TrySetResult();
 		}
 	}
@@ -193,19 +193,30 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 		timer?.Dispose();
 		_stopping.Cancel();
-		_directoryWatchers.Dispose();
 		_refreshSignals.Writer.TryComplete();
 		FlushPendingOnStop();
 		if (waitForRun) {
 			await _finished.Task.ConfigureAwait(false);
+		} else {
+			await DisposeWatchesAsync().ConfigureAwait(false);
 		}
 		_stopping.Dispose();
+		_observationGate.Dispose();
 	}
 
 	// Spacing re-enumerations by the previous pass keeps a burst (a checkout, an install) under half this loop.
 	private TimeSpan CooldownAfter(TimeSpan lastRefresh) => lastRefresh > _debounce ? lastRefresh : _debounce;
 
 	private async Task RefreshAsync(bool initial, CancellationToken ct) {
+		await _observationGate.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			await RefreshObservedAsync(initial, ct).ConfigureAwait(false);
+		} finally {
+			_observationGate.Release();
+		}
+	}
+
+	private async Task RefreshObservedAsync(bool initial, CancellationToken ct) {
 		bool watchesChanged;
 		do {
 			var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);

@@ -13,6 +13,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 			if (Directory.Exists(e.FullPath)) {
 				_inventory.TrackNonRepositoryDirectory(e.FullPath);
 				_directoryWatchers.EnsureWatching(e.FullPath);
+				Record(e.FullPath, FileInvalidationKind.Created);
 			} else {
 				_inventory.TrackNonRepositoryFile(e.FullPath);
 				Record(e.FullPath, FileInvalidationKind.Created);
@@ -54,6 +55,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 				RecordKnown(e.FullPath, FileInvalidationKind.Deleted);
 			}
 		} else if (_inventory.IsKnownNonRepositoryDirectory(e.FullPath)) {
+			Record(e.FullPath, FileInvalidationKind.Deleted);
 			foreach (string file in _inventory.ForgetNonRepositoryTree(e.FullPath)) {
 				Record(file, FileInvalidationKind.Deleted);
 			}
@@ -85,6 +87,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 
 		bool ignoredDestination = WorkspacePaths.HasIgnoredSegment(newPath);
 		if (_inventory.IsKnownNonRepositoryDirectory(oldPath)) {
+			Record(oldPath, FileInvalidationKind.Deleted);
 			if (ignoredDestination) {
 				foreach (string file in _inventory.ForgetNonRepositoryTree(oldPath)) {
 					Record(file, FileInvalidationKind.Deleted);
@@ -97,6 +100,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 
 				_inventory.TrackNonRepositoryDirectory(newPath);
 				_directoryWatchers.EnsureWatching(newPath);
+				Record(newPath, FileInvalidationKind.Created);
 			}
 
 			SignalRefresh();
@@ -110,6 +114,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 		if (!ignoredDestination && Directory.Exists(newPath)) {
 			_inventory.TrackNonRepositoryDirectory(newPath);
 			_directoryWatchers.EnsureWatching(newPath);
+			Record(newPath, FileInvalidationKind.Created);
 		} else if (!ignoredDestination) {
 			_inventory.TrackNonRepositoryFile(newPath);
 			Record(newPath, FileInvalidationKind.Created);

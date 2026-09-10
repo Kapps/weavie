@@ -363,17 +363,69 @@ test.describe("ACP composer", () => {
     });
   }
 
-  test("status line shows each provider-owned ACP control", async ({ page }) => {
+  test("provider controls display and apply model, reasoning, and boolean axes", async ({
+    page,
+  }) => {
     await mountAgent(page);
 
-    const segments = page.locator(".agent-status-segment");
-    await expect(segments).toHaveCount(4);
-    await expect(segments.nth(0)).toContainText("ModelGPT-5.5");
-    await expect(segments.nth(1)).toContainText("ReasoningMedium");
-    await expect(segments.nth(2)).toContainText("FastOff");
-    await expect(segments.nth(3)).toContainText("ModeDefault");
-    await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
-    await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
+    await test.step("status line reflects all provider axes", async () => {
+      const segments = page.locator(".agent-status-segment");
+      await expect(segments).toHaveCount(4);
+      await expect(segments.nth(0)).toContainText("ModelGPT-5.5");
+      await expect(segments.nth(1)).toContainText("ReasoningMedium");
+      await expect(segments.nth(2)).toContainText("FastOff");
+      await expect(segments.nth(3)).toContainText("ModeDefault");
+      await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
+      await page
+        .locator(".agent-compose")
+        .screenshot({ path: join(shotsDir, "00-compose-row.png") });
+    });
+
+    await test.step("model selection sends the provider value", async () => {
+      const checkpoint = host.received.length;
+      await page.locator(".agent-status-segment", { hasText: "Model" }).click();
+      const picker = page.locator(".agent-control-picker");
+      await expect(picker).toBeVisible();
+      await expect(picker.locator(".agent-control-option")).toHaveCount(2);
+      await page.screenshot({ path: join(shotsDir, "02-model-picker.png") });
+
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+
+      const set = await waitForAgentPayload("setControl", checkpoint);
+      expect(set).toMatchObject({ axis: "model", value: "gpt-5.4-mini" });
+      await expect(picker).toBeHidden();
+    });
+
+    await test.step("reasoning selection sends the thought level", async () => {
+      const checkpoint = host.received.length;
+      await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
+      const sub = page.locator(".agent-control-picker .agent-control-option");
+      await expect(sub).toHaveCount(3);
+      await page.screenshot({ path: join(shotsDir, "02b-effort-submenu.png") });
+
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+
+      const set = await waitForAgentPayload("setControl", checkpoint);
+      expect(set).toMatchObject({ axis: "reasoning", value: "high" });
+      await expect(page.locator(".agent-control-picker")).toBeHidden();
+    });
+
+    await test.step("boolean selection reflects the host acknowledgement", async () => {
+      const checkpoint = host.received.length;
+      await page.locator(".agent-status-segment", { hasText: "Fast" }).click();
+      const fastItems = page.locator(".agent-control-picker .agent-control-option");
+      await expect(fastItems).toHaveCount(2);
+      await fastItems.filter({ hasText: "On" }).click();
+
+      const set = await waitForAgentPayload("setControl", checkpoint);
+      expect(set).toMatchObject({ axis: "fast", value: "true" });
+
+      publishControls(fastOnControls);
+      await expect(page.locator(".agent-status-segment", { hasText: "Fast" })).toContainText("On");
+      await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
+    });
   });
 
   test("agent prose, code, composer, and chrome use the shared typography roles", async ({
@@ -1506,23 +1558,6 @@ test.describe("ACP composer", () => {
     ).toContainText("Results");
   });
 
-  test("the model picker switches the provider-owned model axis", async ({ page }) => {
-    await mountAgent(page);
-
-    await page.locator(".agent-status-segment", { hasText: "Model" }).click();
-    const picker = page.locator(".agent-control-picker");
-    await expect(picker).toBeVisible();
-    await expect(picker.locator(".agent-control-option")).toHaveCount(2);
-    await page.screenshot({ path: join(shotsDir, "02-model-picker.png") });
-
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
-
-    const set = await waitForAgentPayload("setControl");
-    expect(set).toMatchObject({ axis: "model", value: "gpt-5.4-mini" });
-    await expect(picker).toBeHidden();
-  });
-
   test("a control picker is dismissed by clicking away or its own segment", async ({ page }) => {
     await mountAgent(page);
 
@@ -1550,67 +1585,36 @@ test.describe("ACP composer", () => {
     expect(lastAgentPayload("setControl")).toBeUndefined();
   });
 
-  test("the reasoning picker applies the provider-owned thought level", async ({ page }) => {
+  test("control pickers retain keyboard highlights through host re-pushes", async ({ page }) => {
     await mountAgent(page);
 
-    await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
-    const sub = page.locator(".agent-control-picker .agent-control-option");
-    await expect(sub).toHaveCount(3);
-    await page.screenshot({ path: join(shotsDir, "02b-effort-submenu.png") });
+    await test.step("reasoning highlight survives", async () => {
+      await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
+      await page.keyboard.press("ArrowDown");
+      const high = page.locator(".agent-control-option", { hasText: "High" });
+      await expect(high).toHaveClass(/active/);
 
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
+      publishControls(controls);
+      await expect(high).toHaveClass(/active/);
+    });
+    await page.keyboard.press("Escape");
 
-    const set = await waitForAgentPayload("setControl");
-    expect(set).toMatchObject({ axis: "reasoning", value: "high" });
-    await expect(page.locator(".agent-control-picker")).toBeHidden();
-  });
+    await test.step("model highlight survives and selects the highlighted value", async () => {
+      await page.locator(".agent-status-segment", { hasText: "Model" }).click();
+      const options = page.locator(".agent-control-picker .agent-control-option");
+      await expect(options.nth(0)).toHaveClass(/active/); // seeded on the current value
+      await page.keyboard.press("ArrowDown");
+      await expect(options.nth(1)).toHaveClass(/active/);
 
-  test("the Fast picker toggles the provider-owned boolean axis", async ({ page }) => {
-    await mountAgent(page);
+      // A control re-push (which every SetControl triggers) must not re-seed the highlight mid-use.
+      publishControls(controls);
+      await expect(options.nth(1)).toHaveClass(/active/);
 
-    await page.locator(".agent-status-segment", { hasText: "Fast" }).click();
-    const fastItems = page.locator(".agent-control-picker .agent-control-option");
-    await expect(fastItems).toHaveCount(2);
-    await fastItems.filter({ hasText: "On" }).click();
-
-    const set = await waitForAgentPayload("setControl");
-    expect(set).toMatchObject({ axis: "fast", value: "true" });
-
-    publishControls(fastOnControls);
-    await expect(page.locator(".agent-status-segment", { hasText: "Fast" })).toContainText("On");
-    await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
-  });
-
-  test("keyboard focus in a control picker survives a host re-push", async ({ page }) => {
-    await mountAgent(page);
-
-    await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
-    await page.keyboard.press("ArrowDown");
-    const high = page.locator(".agent-control-option", { hasText: "High" });
-    await expect(high).toHaveClass(/active/);
-
-    publishControls(controls);
-    await expect(high).toHaveClass(/active/);
-  });
-
-  test("the model picker keeps its keyboard highlight across a host re-push", async ({ page }) => {
-    await mountAgent(page);
-
-    await page.locator(".agent-status-segment", { hasText: "Model" }).click();
-    const options = page.locator(".agent-control-picker .agent-control-option");
-    await expect(options.nth(0)).toHaveClass(/active/); // seeded on the current value
-    await page.keyboard.press("ArrowDown");
-    await expect(options.nth(1)).toHaveClass(/active/);
-
-    // A control re-push (which every SetControl triggers) must not re-seed the highlight mid-use.
-    publishControls(controls);
-    await expect(options.nth(1)).toHaveClass(/active/);
-
-    // Keyboard selection still applies the highlighted option after the re-push.
-    await page.keyboard.press("Enter");
-    const set = await waitForAgentPayload("setControl");
-    expect(set).toMatchObject({ axis: "model", value: "gpt-5.4-mini" });
+      // Keyboard selection still applies the highlighted option after the re-push.
+      await page.keyboard.press("Enter");
+      const set = await waitForAgentPayload("setControl");
+      expect(set).toMatchObject({ axis: "model", value: "gpt-5.4-mini" });
+    });
   });
 
   test("typing / opens the slash menu and inserts a provider command", async ({ page }) => {
@@ -1820,7 +1824,9 @@ test.describe("ACP composer", () => {
 
   // Pins the informed-approval flow: the card shows the command under review, the buttons wear their
   // chords, and Alt+Y answers the pending request from the keyboard.
-  test("an approval card shows the command and answers to Alt+Y", async ({ page }) => {
+  test("an approval card advertises Alt+Y, sends its answer, and resolves in place", async ({
+    page,
+  }) => {
     await mountAgent(page);
     publishCatalog();
     publishPane(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
@@ -1846,34 +1852,14 @@ test.describe("ACP composer", () => {
     await page.keyboard.press("Alt+y");
     const decision = await waitForAgentPayload("permission");
     expect(decision).toMatchObject({ requestId: "a1", optionId: "allow-once" });
-  });
 
-  // Regression: once the approval resolves, its decision buttons must go — the card is no longer actionable.
-  // The header status flips reactively; the buttons must flip with it in the same live update (no re-mount).
-  test("a resolved approval drops its decision buttons in place", async ({ page }) => {
-    await mountAgent(page);
-    publishCatalog();
-    publishPane(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
-    publishPane(
-      paneMessage({
-        type: "approval-requested",
-        itemId: "a1",
-        requestId: "a1",
-        status: "pending",
-        summary: "Wants to run the test suite.",
-        text: "dotnet test tests/Weavie.Hosting.Tests",
-        actions: permissionActions,
-      }),
-    );
-
-    const card = page.locator(".agent-entry-request");
-    const buttons = card.locator(".agent-approval-actions button");
-    await expect(buttons.filter({ hasText: "Allow once" }).first()).toBeVisible();
-
-    publishPane(paneMessage({ type: "approval-resolved", itemId: "a1", status: "always allowed" }));
-
-    await expect(card.locator(".agent-entry-status")).toHaveText("always allowed");
-    await expect(buttons).toHaveCount(0);
+    await test.step("resolved approval removes its decision buttons in place", async () => {
+      const buttons = card.locator(".agent-approval-actions button");
+      await expect(buttons.filter({ hasText: "Allow once" }).first()).toBeVisible();
+      publishPane(paneMessage({ type: "approval-resolved", itemId: "a1", status: "allowed" }));
+      await expect(card.locator(".agent-entry-status")).toHaveText("allowed");
+      await expect(buttons).toHaveCount(0);
+    });
   });
 
   // Regression: a turn boundary must not strip a still-unresolved approval of its hotkeys. The chip and the

@@ -7,7 +7,7 @@ import { expect, test } from "../harness/fixtures";
 // their `when` BEFORE accounting for that, so every focus-gated command was dropped — searching ">copy"
 // with a terminal focused returned ZERO rows. The fix evaluates `when` against the pane focused when the
 // palette opened. Pure frontend `when`-evaluation against pre-open focus → headless.
-test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Paste on a browser shell)", async ({
+test("palette tracks terminal and editor focus when gating Copy and browser Paste", async ({
   page,
 }) => {
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
@@ -39,34 +39,28 @@ test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Pa
       .locator(".tb-omnibar-row", { hasText: "Paste" })
       .filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
   ).toHaveCount(0);
-});
 
-// Negative half of the same gate: with NO terminal focused (the editor focused instead), the terminal-gated
-// Copy must NOT appear — the fix narrows visibility to the pre-open focus, it doesn't unconditionally show
-// every command. This is what keeps the fix honest rather than "show everything always".
-test("palette hides terminal-gated Copy when the editor was focused before opening", async ({
-  page,
-}) => {
-  const input = page.locator(".tb-omnibar-input");
+  await page.keyboard.press("Escape");
+  await test.step("editor focus hides terminal Copy", async () => {
+    // Open a file and click into Monaco so editorFocused (not terminalFocused) is the pre-open focus.
+    await input.click();
+    await input.fill("hello.ts");
+    await expect(page.locator(".tb-omnibar-row", { hasText: "hello.ts" }).first()).toBeVisible();
+    await input.press("Enter");
+    await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
+    await clickIntoEditor(page);
+    await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
 
-  // Open a file and click into Monaco so editorFocused (not terminalFocused) is the pre-open focus.
-  await input.click();
-  await input.fill("hello.ts");
-  await expect(page.locator(".tb-omnibar-row", { hasText: "hello.ts" }).first()).toBeVisible();
-  await input.press("Enter");
-  await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
-  await clickIntoEditor(page);
-  await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
+    await openCommandPalette(page);
+    await input.fill(">copy");
 
-  await openCommandPalette(page);
-  await input.fill(">copy");
-
-  // No Terminal-category Copy row — the gate held.
-  await expect(
-    page
-      .locator(".tb-omnibar-row", { hasText: "Copy" })
-      .filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
-  ).toHaveCount(0);
+    // No Terminal-category Copy row — the gate held.
+    await expect(
+      page
+        .locator(".tb-omnibar-row", { hasText: "Copy" })
+        .filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
+    ).toHaveCount(0);
+  });
 });
 
 // Hold frames across a shell-tab selection and a newer keyboard command.

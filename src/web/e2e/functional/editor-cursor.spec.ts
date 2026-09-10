@@ -131,90 +131,92 @@ async function lineLength(page: Page, line: number): Promise<number> {
 // 5–11px by mid/end of line. 2.5px clears the benign floor with margin while still catching that drift.
 const TOLERANCE_PX = 2.5;
 
-test("caret stays on the glyph boundary across a line", async ({ page }) => {
+test("caret stays aligned across columns, typing, and autocomplete", async ({ page }) => {
   await openFile(page, "hello.ts");
   await settle(page);
-  const len = await lineLength(page, 1);
-  // Probe the start, several interior columns, and end-of-line (drift grows with column).
-  const columns = [...new Set([1, 11, 21, 31, 41, len + 1].filter((c) => c <= len + 1))];
 
-  const deltas: { column: number; delta: number; charWidth: number }[] = [];
-  for (const column of columns) {
-    const at = await placeCaret(page, 1, column);
-    const sample = need(
-      await caretVsGlyph(page, at.line, at.column),
-      `could not measure the caret at column ${column}`,
+  await test.step("glyph boundaries across a line", async () => {
+    const len = await lineLength(page, 1);
+    // Probe the start, several interior columns, and end-of-line (drift grows with column).
+    const columns = [...new Set([1, 11, 21, 31, 41, len + 1].filter((c) => c <= len + 1))];
+
+    const deltas: { column: number; delta: number; charWidth: number }[] = [];
+    for (const column of columns) {
+      const at = await placeCaret(page, 1, column);
+      const sample = need(
+        await caretVsGlyph(page, at.line, at.column),
+        `could not measure the caret at column ${column}`,
+      );
+      deltas.push({
+        column: at.column,
+        delta: sample.caretLeft - sample.boundary,
+        charWidth: sample.charWidth,
+      });
+    }
+
+    console.log("caret-vs-glyph deltas (px):", JSON.stringify(deltas));
+    for (const { column, delta, charWidth } of deltas) {
+      expect(
+        Math.abs(delta),
+        `column ${column}: caret is ${delta.toFixed(2)}px off the glyph boundary (charWidth ${charWidth.toFixed(2)}px)`,
+      ).toBeLessThanOrEqual(TOLERANCE_PX);
+    }
+  });
+
+  await test.step("typed character lands at the measured caret", async () => {
+    // Insert mid-line (column 20), where any caret drift is large, then type through the real input path.
+    await placeCaret(page, 1, 20);
+    await page.keyboard.type("X");
+    await settle(page);
+
+    // The character landed exactly at the caret column (1-based 20 → 0-based index 19).
+    const lineText = await page.evaluate(
+      () => (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel()?.getLineContent(1) ?? "",
     );
-    deltas.push({
-      column: at.column,
-      delta: sample.caretLeft - sample.boundary,
-      charWidth: sample.charWidth,
-    });
-  }
+    expect(lineText[19]).toBe("X");
 
-  console.log("caret-vs-glyph deltas (px):", JSON.stringify(deltas));
-  for (const { column, delta, charWidth } of deltas) {
+    // The caret advanced past it (now column 21) and sits on the boundary of the real glyphs.
+    const sample = need(
+      await caretVsGlyph(page, 1, 21),
+      "could not measure the caret after typing",
+    );
     expect(
-      Math.abs(delta),
-      `column ${column}: caret is ${delta.toFixed(2)}px off the glyph boundary (charWidth ${charWidth.toFixed(2)}px)`,
+      Math.abs(sample.caretLeft - sample.boundary),
+      `caret is ${(sample.caretLeft - sample.boundary).toFixed(2)}px off after inserting a character`,
     ).toBeLessThanOrEqual(TOLERANCE_PX);
-  }
-});
+  });
 
-test("a typed character is inserted at the caret and the caret stays aligned", async ({ page }) => {
-  await openFile(page, "hello.ts");
-  await settle(page);
+  await test.step("autocomplete anchors to the typed glyphs", async () => {
+    await page.keyboard.press("Escape");
 
-  // Insert mid-line (column 20), where any caret drift is large, then type through the real input path.
-  await placeCaret(page, 1, 20);
-  await page.keyboard.type("X");
-  await settle(page);
+    // A fresh end-of-file line typed with the prefix of an identifier already in the buffer (`console`), so
+    // word-based completion has something deterministic to offer — and the caret is far enough into the line
+    // that any drift is well above the measurement floor.
+    await placeCaret(page, 9999, 9999);
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("consol");
+    await settle(page);
 
-  // The character landed exactly at the caret column (1-based 20 → 0-based index 19).
-  const lineText = await page.evaluate(
-    () => (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel()?.getLineContent(1) ?? "",
-  );
-  expect(lineText[19]).toBe("X");
+    await page.keyboard.press("Control+Space");
+    const widget = page.locator(".suggest-widget");
+    await expect(widget).toBeVisible();
+    await expect(widget).toContainText("console");
 
-  // The caret advanced past it (now column 21) and sits on the boundary of the real glyphs.
-  const sample = need(await caretVsGlyph(page, 1, 21), "could not measure the caret after typing");
-  expect(
-    Math.abs(sample.caretLeft - sample.boundary),
-    `caret is ${(sample.caretLeft - sample.boundary).toFixed(2)}px off after inserting a character`,
-  ).toBeLessThanOrEqual(TOLERANCE_PX);
-});
-
-test("autocomplete opens and the caret stays aligned while it is showing", async ({ page }) => {
-  await openFile(page, "hello.ts");
-  await settle(page);
-
-  // A fresh end-of-file line typed with the prefix of an identifier already in the buffer (`console`), so
-  // word-based completion has something deterministic to offer — and the caret is far enough into the line
-  // that any drift is well above the measurement floor.
-  await placeCaret(page, 9999, 9999);
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("consol");
-  await settle(page);
-
-  await page.keyboard.press("Control+Space");
-  const widget = page.locator(".suggest-widget");
-  await expect(widget).toBeVisible();
-  await expect(widget).toContainText("console");
-
-  // The suggestion anchors to the caret; the caret must be where the typed glyphs actually are.
-  const pos = need(
-    await page.evaluate(() => {
-      const p = (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition();
-      return p === undefined || p === null ? null : { line: p.lineNumber, column: p.column };
-    }),
-    "could not read caret position",
-  );
-  const sample = need(
-    await caretVsGlyph(page, pos.line, pos.column),
-    "could not measure the caret with autocomplete open",
-  );
-  expect(
-    Math.abs(sample.caretLeft - sample.boundary),
-    `caret is ${(sample.caretLeft - sample.boundary).toFixed(2)}px off while autocomplete is open`,
-  ).toBeLessThanOrEqual(TOLERANCE_PX);
+    // The suggestion anchors to the caret; the caret must be where the typed glyphs actually are.
+    const pos = need(
+      await page.evaluate(() => {
+        const p = (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition();
+        return p === undefined || p === null ? null : { line: p.lineNumber, column: p.column };
+      }),
+      "could not read caret position",
+    );
+    const sample = need(
+      await caretVsGlyph(page, pos.line, pos.column),
+      "could not measure the caret with autocomplete open",
+    );
+    expect(
+      Math.abs(sample.caretLeft - sample.boundary),
+      `caret is ${(sample.caretLeft - sample.boundary).toFixed(2)}px off while autocomplete is open`,
+    ).toBeLessThanOrEqual(TOLERANCE_PX);
+  });
 });

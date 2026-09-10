@@ -36,15 +36,12 @@ public sealed partial class AcpAgentSession :
 	private readonly Dictionary<string, AcpContentState> _content = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _planTurns = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, HashSet<string>> _turnItemIds = new(StringComparer.Ordinal);
-	private ReplayedUserMessage? _replayedUserMessage;
-	private readonly List<AgentPaneMessage> _loadedMessages = [];
 	private readonly Dictionary<string, AgentControlAxis> _controls = new(StringComparer.Ordinal);
 	private IReadOnlyList<AgentSlashEntry> _commands = [];
 	private IReadOnlyList<AcpAuthMethod> _authMethods = [];
 	private string? _sessionId;
 	private System.Text.Json.JsonElement _initialization;
 	private long _turnNumber;
-	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
 	private long _publishedQueueVersion;
 	private bool _ready;
@@ -114,7 +111,6 @@ public sealed partial class AcpAgentSession :
 		_role = role;
 		_turnTransitionGate = role is SideRole owned ? owned.Owner._turnTransitionGate : new Lock();
 		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
-		_sideProviderTurnOffset = role is SideRole side ? side.Conversation.AnchorTurnNumber : 0;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
 		_connection = role is SideRole borrowed
 			? borrowed.Owner._connection
@@ -198,6 +194,7 @@ public sealed partial class AcpAgentSession :
 				items.Add(itemId);
 			}
 		}
+		PersistDisplay(message);
 		PaneMessage?.Invoke(message);
 	}
 
@@ -217,16 +214,6 @@ public sealed partial class AcpAgentSession :
 	private AgentPaneMessage? PreparePaneMessage(AgentPaneMessage message) {
 		if (_role is not SideRole side) return message;
 		if (message.Type is "transcript-reset" or "draft") return null;
-		string? turnId = message.TurnId;
-		if (turnId is { Length: > 0 }
-			&& long.TryParse(turnId, System.Globalization.NumberStyles.None,
-				System.Globalization.CultureInfo.InvariantCulture, out long providerTurn)) {
-			if (providerTurn <= _sideProviderTurnOffset) {
-				return null;
-			}
-			turnId = (providerTurn - _sideProviderTurnOffset)
-				.ToString(System.Globalization.CultureInfo.InvariantCulture);
-		}
 		string? originalRequestId = message.RequestId;
 		string? requestId = originalRequestId is { Length: > 0 }
 			? SideRequestId(side.Conversation.ConversationId, originalRequestId)
@@ -242,7 +229,6 @@ public sealed partial class AcpAgentSession :
 			AnchorTurnId = side.Conversation.AnchorTurnNumber.ToString(
 				System.Globalization.CultureInfo.InvariantCulture),
 			IsPrimaryThread = false,
-			TurnId = turnId,
 			RequestId = requestId,
 			ItemId = itemId,
 		};

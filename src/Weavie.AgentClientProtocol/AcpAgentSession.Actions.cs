@@ -89,16 +89,17 @@ public sealed partial class AcpAgentSession {
 		long generation = 0;
 		try {
 			Task<JsonElement> request;
+			PreparedPrompt prompt;
 			lock (_turnTransitionGate) {
 				lock (_gate) {
 					if (epoch != _submissionEpoch) return;
 					generation = _activeGeneration;
 				}
-				object[] prompt = BuildPrompt(submission);
+				prompt = BuildPrompt(submission);
 				request = Endpoint(generation).RequestAsync(
 					"_session/steering",
 					new {
-						prompt,
+						prompt = prompt.Blocks,
 						_meta = new { steering = new { idleBehavior = "promptRequired" } },
 					},
 					CancellationToken.None);
@@ -108,7 +109,7 @@ public sealed partial class AcpAgentSession {
 				if (!OwnsOperation(generation, epoch)) return;
 				switch (RequiredString(result, "outcome", "_session/steering response")) {
 					case "injected":
-						EmitSubmitted(submission, "user-steer");
+						EmitSubmitted(submission, "user-steer", prompt.Images);
 						break;
 					case "promptRequired":
 						lock (_gate) _pendingSubmissions.Requeue(submission);
@@ -154,9 +155,9 @@ public sealed partial class AcpAgentSession {
 					generation = _activeGeneration;
 					guidanceSentBefore = _guidanceSent;
 				}
-				object[] prompt = BuildPrompt(submission);
+				var prompt = BuildPrompt(submission);
 				try {
-					PersistTurn(sessionId);
+					SaveContinuation();
 				} catch (AcpSessionStoreException ex) {
 					_connection.TerminateGeneration(generation, ex.Message);
 					throw;
@@ -171,11 +172,12 @@ public sealed partial class AcpAgentSession {
 				});
 				EmitSubmitted(
 					submission,
-					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message");
+					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
+					prompt.Images);
 				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
 				request = Endpoint(generation).RequestAsync(
 					"session/prompt",
-					new { prompt },
+					new { prompt = prompt.Blocks },
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -280,13 +282,6 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private void PersistTurn(string sessionId) {
-		if (_role is SideRole side) {
-			side.Conversation.LocalTurnNumber = Math.Max(0, _turnNumber - _sideProviderTurnOffset);
-			return;
-		}
-		_sessions.Adopt(_definition.Id, _context.Workspace, sessionId, _turnNumber);
-	}
 
 	private bool OwnsOperation(long generation, long epoch) {
 		lock (_gate) return OwnsOperationLocked(generation, epoch);
@@ -301,56 +296,6 @@ public sealed partial class AcpAgentSession {
 		}
 		_waitingForBackground = false;
 		return true;
-	}
-
-	private object[] BuildPrompt(AgentTurnSubmission submission) {
-		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
-			lock (_gate) {
-				var command = ResolveProviderCommandLocked(submission.CommandName);
-				string text = CanonicalCommandText(submission.Text, command);
-				return [new { type = "text", text }];
-			}
-		}
-
-		var blocks = new List<object>();
-		bool includesGuidance = false;
-		if (submission.Text.Length > 0) {
-			blocks.Add(new { type = "text", text = submission.Text });
-		}
-		foreach (var attachment in submission.Attachments) {
-			if (!_supportsImages) {
-				throw new AcpProtocolException($"{_definition.Name} does not accept image prompts.");
-			}
-			blocks.Add(new {
-				type = "image",
-				mimeType = attachment.Mime,
-				data = Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)),
-			});
-		}
-
-		if (_supportsEmbeddedContext) {
-			lock (_gate) includesGuidance = !_guidanceSent;
-			if (includesGuidance) {
-				blocks.Add(AssistantContext(
-					"weavie://instructions",
-					EmbeddedAgentGuidance.Compose(_context.Runtime)));
-			}
-			if (_context.Editor.Active is { } editor) {
-				string selection = $"Active file: {editor.FilePath}\n"
-					+ $"Language: {editor.LanguageId ?? "unknown"}\n"
-					+ $"Selection: {editor.Selection.Start.Line + 1}:{editor.Selection.Start.Character + 1}"
-					+ $"-{editor.Selection.End.Line + 1}:{editor.Selection.End.Character + 1}\n"
-					+ editor.SelectedText;
-				string path = Path.GetFullPath(editor.FilePath);
-				string uri = new UriBuilder(Uri.UriSchemeFile, string.Empty) { Path = path }.Uri.AbsoluteUri;
-				blocks.Add(AssistantContext(uri + "#selection", selection));
-			}
-		}
-		if (includesGuidance) {
-			lock (_gate) _guidanceSent = true;
-		}
-
-		return [.. blocks];
 	}
 
 	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {
@@ -386,47 +331,13 @@ public sealed partial class AcpAgentSession {
 		return prefix + text[prefix.Length..];
 	}
 
-	private static object AssistantContext(string uri, string text) => new {
-		type = "resource",
-		annotations = new { audience = new[] { "assistant" } },
-		resource = new {
-			uri,
-			mimeType = "text/plain",
-			text,
-		},
-	};
-
-	private void EmitSubmitted(AgentTurnSubmission submission, string type) {
-		if (submission.Text.Length > 0) {
-			Emit(new AgentPaneMessage {
-				Type = type,
-				ProviderId = _definition.Id,
-				ThreadId = SessionId(),
-				TurnId = TurnId(),
-				ItemId = submission.Id,
-				Text = submission.Text,
-			});
-		}
-		foreach (var attachment in submission.Attachments) {
-			Emit(new AgentPaneMessage {
-				Type = "user-image",
-				ProviderId = _definition.Id,
-				ThreadId = SessionId(),
-				TurnId = TurnId(),
-				ItemId = attachment.Id,
-				Text = attachment.Path,
-				Status = "submitted",
-			});
-		}
-	}
-
 	private void RetractTurn(string turnId) {
 		string[] itemIds;
 		lock (_gate) {
 			itemIds = _turnItemIds.Remove(turnId, out var items) ? [.. items] : [];
 		}
 		foreach (string itemId in itemIds) {
-			PaneMessage?.Invoke(new AgentPaneMessage {
+			Emit(new AgentPaneMessage {
 				Type = "item-retracted",
 				ProviderId = _definition.Id,
 				ThreadId = SessionId(),
@@ -517,8 +428,11 @@ public sealed partial class AcpAgentSession {
 	private void Restart(bool clearSubmissions) {
 		lock (_turnTransitionGate) {
 			if (_role is SideRole) throw new InvalidOperationException("Restart the owning primary conversation.");
+			if (!_displayRestored) RestoreDisplay();
+			else if (_storageFailed) SaveContinuation();
+			_storageFailed = false;
 			TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
-			FailSideRuntimes(new InvalidOperationException("ACP agent restarted."));
+			SuspendSideRuntimes("ACP agent restarted.");
 			_connection.Restart();
 		}
 	}
@@ -530,16 +444,20 @@ public sealed partial class AcpAgentSession {
 		}
 		SideRuntime[] sideSessions;
 		lock (_turnTransitionGate) {
-			_sessions.Clear(_definition.Id, _context.Workspace);
 			TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
+			lock (_gate) sideSessions = [.. _sideRuntimes.Values];
+			foreach (var side in sideSessions) side.Session.TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
 			lock (_gate) {
 				_sessionId = null;
 				_turnNumber = 0;
 				_guidanceSent = false;
 				_planTurns.Clear();
-				sideSessions = [.. _sideRuntimes.Values];
 				_sideRuntimes.Clear();
 			}
+			_sideConversations.Clear();
+			_sessions.Clear(_definition.Id, _context.Workspace);
+			_storageFailed = false;
+			_displayRestored = true;
 			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
 			_connection.Restart();
 		}

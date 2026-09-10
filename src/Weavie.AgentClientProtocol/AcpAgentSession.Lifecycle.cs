@@ -16,7 +16,12 @@ public sealed partial class AcpAgentSession {
 		if (_role is SideRole side) {
 			OnProcessStarted(new AcpProcessGeneration(side.Generation, 0));
 		} else {
-			_connection.Start();
+			try {
+				RestoreDisplay();
+				_connection.Start();
+			} catch (Exception error) {
+				FailRuntime(error);
+			}
 		}
 	}
 
@@ -80,7 +85,6 @@ public sealed partial class AcpAgentSession {
 				_runtimeFailed = false;
 				_sessionOpening = false;
 				_loadingTranscript = false;
-				_loadedMessages.Clear();
 				_controls.Clear();
 				_configOwnsMode = false;
 				_commands = [];
@@ -88,7 +92,6 @@ public sealed partial class AcpAgentSession {
 				_activeTools.Clear();
 				_content.Clear();
 				_turnItemIds.Clear();
-				_replayedUserMessage = null;
 				_contextUsage = null;
 				_usageLimits.Clear();
 			}
@@ -135,7 +138,6 @@ public sealed partial class AcpAgentSession {
 	private async Task OpenSessionAsync(long generation) {
 		string? sessionId;
 		bool reconnecting;
-		bool resetTranscript;
 		bool loadSession;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
@@ -145,32 +147,15 @@ public sealed partial class AcpAgentSession {
 					throw new AcpProtocolException(
 						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}
-				string? persisted = _sessionId ?? (_role is SideRole
-					? _endpoint?.SessionId
-					: _sessions.Resolve(_definition.Id, _context.Workspace));
+				string? persisted = _sessionId ?? _endpoint?.SessionId;
 				sessionId = persisted is not null && (_supportsLoad || _supportsResume)
 					? persisted
 					: null;
-				loadSession = sessionId is not null && _supportsLoad && (!reconnecting || !_supportsResume);
-				resetTranscript = persisted is not null && sessionId is null;
+				loadSession = sessionId is not null && _supportsLoad && !_supportsResume;
 				_sessionOpening = true;
 				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
 				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
-				else if (!loadSession && _role is PrimaryRole) {
-					_turnNumber = _sessions.ResolveTurnNumber(_definition.Id, _context.Workspace);
-				}
-			}
-		}
-		if (resetTranscript) {
-			_sessions.Clear(_definition.Id, _context.Workspace);
-			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (_disposed || _activeGeneration != generation) return;
-					_sessionId = null;
-					_turnNumber = 0;
-					_planTurns.Clear();
-				}
-				Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
+
 			}
 		}
 
@@ -181,8 +166,11 @@ public sealed partial class AcpAgentSession {
 					cwd = Path.GetFullPath(_context.Workspace),
 					mcpServers = McpServers(),
 				}).ConfigureAwait(false);
-				if (!OwnsGeneration(generation)) return;
-				sessionId = Endpoint(generation).SessionId;
+				lock (_turnTransitionGate) {
+					if (!OwnsGeneration(generation)) return;
+					sessionId = Endpoint(generation).SessionId;
+					SaveContinuation();
+				}
 				loadSession = true;
 			}
 			if (sessionId is null) {
@@ -196,57 +184,18 @@ public sealed partial class AcpAgentSession {
 				sessionId = Endpoint(generation).SessionId;
 			} else if (loadSession) {
 				lock (_turnTransitionGate) {
-					lock (_gate) {
-						if (_disposed || _activeGeneration != generation) return;
-						_loadingTranscript = true;
-						_turnNumber = 0;
-						_planTurns.Clear();
-						_replayedUserMessage = null;
-						_loadedMessages.Clear();
-					}
+					if (!OwnsGeneration(generation)) return;
+					lock (_gate) _loadingTranscript = true;
 				}
-				bool loaded = false;
 				try {
 					setup = await Endpoint(generation).RequestAsync(
 						"session/load",
-						new {
-							cwd = Path.GetFullPath(_context.Workspace),
-							mcpServers = McpServers(),
-						},
+						new { cwd = Path.GetFullPath(_context.Workspace), mcpServers = McpServers() },
 						CancellationToken.None).ConfigureAwait(false);
-					lock (_turnTransitionGate) {
-						TerminalizedTool[] interrupted;
-						lock (_gate) {
-							if (_disposed || _activeGeneration != generation) return;
-							loaded = true;
-							// Replayed tools belong to the previous process or the fork's parent, never this conversation.
-							interrupted = TerminalizeActiveToolsLocked("cancelled");
-						}
-						CompleteContentStreams();
-						PublishTerminalizedToolMessages(interrupted);
-					}
 				} finally {
-					IReadOnlyList<AgentPaneMessage>? snapshot = null;
 					lock (_turnTransitionGate) {
 						lock (_gate) {
-							if (!_disposed && _activeGeneration == generation) {
-								_loadingTranscript = false;
-								if (loaded) {
-									if (_role is SideRole side) {
-										_sideProviderTurnOffset = Math.Max(
-											0,
-											_turnNumber - side.Conversation.LocalTurnNumber);
-									}
-									snapshot = [.. _loadedMessages
-										.Select(PreparePaneMessage)
-										.Where(message => message is not null)
-										.Select(message => message!)];
-								}
-								_loadedMessages.Clear();
-							}
-						}
-						if (snapshot is not null) {
-							PaneSnapshot?.Invoke(snapshot);
+							if (OwnsGeneration(generation)) _loadingTranscript = false;
 						}
 					}
 				}
@@ -282,13 +231,6 @@ public sealed partial class AcpAgentSession {
 			}
 			throw;
 		}
-		if (loadSession && _role is PrimaryRole) {
-			_sessions.Adopt(
-				_definition.Id,
-				_context.Workspace,
-				sessionId ?? throw new AcpProtocolException("ACP session setup returned no session id."),
-				_turnNumber);
-		}
 
 		lock (_turnTransitionGate) {
 			lock (_gate) {
@@ -297,6 +239,7 @@ public sealed partial class AcpAgentSession {
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
 			}
+			SaveContinuation();
 		}
 		await RestoreControlDefaultsAsync(generation).ConfigureAwait(false);
 		lock (_turnTransitionGate) {

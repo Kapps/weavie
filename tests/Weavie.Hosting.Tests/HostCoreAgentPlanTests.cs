@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 using Weavie.Hosting.Agents;
 using Xunit;

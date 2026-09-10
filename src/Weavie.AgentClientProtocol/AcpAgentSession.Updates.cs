@@ -37,9 +37,10 @@ public sealed partial class AcpAgentSession {
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
 		if (sessionId != Endpoint(_activeGeneration).SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
-		if (kind != "user_message_chunk") CloseReplayedUserMessage();
+		if (_loadingTranscript && kind is not ("available_commands_update" or "current_mode_update"
+			or "config_option_update" or "usage_update")) return;
 		switch (kind) {
-			case "user_message_chunk": EmitContent(update, "user-message-delta", "userMessage"); break;
+			case "user_message_chunk": break;
 			case "agent_message_chunk": EmitContent(update, "agent-message-delta", "agentMessage"); break;
 			case "agent_thought_chunk": EmitContent(update, "thought-message-delta", "thought"); break;
 			case "tool_call": UpdateTool(update, initial: true); break;
@@ -71,12 +72,9 @@ public sealed partial class AcpAgentSession {
 		if (!update.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Object) {
 			throw new AcpProtocolException("An ACP content update is missing its content block.");
 		}
-		if (itemType == "userMessage") {
-			BufferReplayedUserMessage(update, content);
-			return;
-		}
+
 		if (!AcpContentAnnotations.IsUserVisible(content)) return;
-		string turnId = TurnIdForUpdate(userMessage: false);
+		string turnId = TurnId();
 		string id = $"{itemType}:{OptionalString(update, "messageId") ?? turnId}";
 		string? type = OptionalString(content, "type");
 		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
@@ -107,7 +105,6 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void CompleteContentStreams() {
-		CloseReplayedUserMessage();
 		AcpContentState[] content;
 		lock (_gate) {
 			content = [.. _content.Values];
@@ -142,7 +139,7 @@ public sealed partial class AcpAgentSession {
 
 	private void UpdateToolSerialized(JsonElement update, bool initial) {
 		string id = RequiredString(update, "toolCallId", "tool call update");
-		string turnId = TurnIdForUpdate(userMessage: false);
+		string turnId = TurnId();
 		AcpToolState tool;
 		lock (_gate) {
 			bool exists = _tools.TryGetValue(id, out tool!);
@@ -234,18 +231,6 @@ public sealed partial class AcpAgentSession {
 		if (dispatchPending) DispatchPendingSubmission();
 	}
 
-	private string TurnIdForUpdate(bool userMessage) {
-		lock (_gate) {
-			if (!_loadingTranscript) {
-				return _turnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
-			}
-
-			if (userMessage) _turnNumber++;
-			else if (_turnNumber == 0) _turnNumber = 1;
-
-			return _turnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
-		}
-	}
 
 	private void PublishTool(AcpToolState tool) => PublishPane(new AgentPaneMessage {
 		Type = tool.Status is "completed" or "failed" or "cancelled" or "settled"

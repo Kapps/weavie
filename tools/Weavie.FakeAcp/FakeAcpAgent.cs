@@ -25,7 +25,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private string? _sessionId;
 
 	public FakeAcpAgent() {
-		_fakeMode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
+		_fakeMode = Environment.GetCommandLineArgs().Contains("--flatten-replay", StringComparer.Ordinal)
+			? "flatten-replay" : Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
 		string root = Environment.GetEnvironmentVariable("WEAVIE_ROOT")
 			?? throw new InvalidOperationException("WEAVIE_ROOT is required by the fake ACP agent.");
 		_stateDirectory = Path.Combine(root, "fake-acp-state");
@@ -123,7 +124,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["loadSession"] = _fakeMode != "resume-only",
 			["promptCapabilities"] = new JsonObject { ["image"] = true, ["embeddedContext"] = true },
 			["sessionCapabilities"] = new JsonObject {
-				["resume"] = new JsonObject(),
+				["resume"] = _fakeMode == "flatten-replay" ? null : new JsonObject(),
 				["close"] = new JsonObject(),
 				["fork"] = new JsonObject(),
 			},
@@ -489,7 +490,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				Update(new JsonObject {
 					["sessionUpdate"] = "user_message_chunk",
 					["messageId"] = $"fork-user-{turn}",
-					["content"] = JsonNode.Parse(block.GetRawText()),
+					["content"] = _fakeMode == "flatten-replay" ? FlattenBlock(block) : JsonNode.Parse(block.GetRawText()),
 				});
 			}
 			Update(new JsonObject {
@@ -498,6 +499,21 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["content"] = Text("echo: " + PromptText(prompt)),
 			});
 		}
+	}
+
+	private static JsonNode? FlattenBlock(JsonElement block) {
+		if (block.GetProperty("type").GetString() == "image") {
+			return Text($"[@image](data:{block.GetProperty("mimeType").GetString()};base64,{block.GetProperty("data").GetString()})");
+		}
+		if (block.GetProperty("type").GetString() == "resource" && block.TryGetProperty("resource", out var resource)
+			&& resource.TryGetProperty("text", out var text)) {
+			string uri = resource.GetProperty("uri").GetString()!;
+			string link = uri.StartsWith("file:", StringComparison.Ordinal) ? $"[@{uri[(uri.LastIndexOf('/') + 1)..]}]({uri})" : uri;
+			return Text($"{link}\n<context ref=\"{uri}\">\n{text.GetString()}\n</context>");
+		}
+		var content = JsonNode.Parse(block.GetRawText())!;
+		content.AsObject().Remove("annotations");
+		return content;
 	}
 
 	private string TranscriptPath(string sessionId) => StatePath($"session-transcript-{sessionId}.log");

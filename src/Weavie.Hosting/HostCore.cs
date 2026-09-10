@@ -48,6 +48,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly KeybindingStore _keybindings;
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
+	private readonly AcpSessionStore _acpSessions;
 	private readonly AgentProviderRegistry _agentProviders;
 	private readonly IAcpAgentCatalog _acpAgents;
 	private readonly IInferenceService _inference;
@@ -176,6 +177,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
+		_acpSessions = services.AcpSessions;
 		_agentProviders = services.AgentProviders;
 		_acpAgents = services.AcpAgents;
 		_inference = services.Inference;

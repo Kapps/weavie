@@ -353,18 +353,19 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task PrimarySnapshot_PreservesSideTranscript() {
+	public async Task FullSnapshotReplacesPrimaryAndSideTranscripts() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		session.Emit(Completed("old-primary", "old primary"));
 		session.Emit(SideCompleted("old-side", "old side"));
-		session.Replace([Completed("new-primary", "new primary")]);
+		session.Replace([Completed("new-primary", "new primary"), SideCompleted("new-side", "restored side")]);
 		await host.DrainPaneAsync(CancellationToken.None);
 
 		var history = await History(host);
 		Assert.DoesNotContain(history, message => message.GetProperty("itemId").GetString() == "old-primary");
 		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "new-primary");
-		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "old-side");
+		Assert.DoesNotContain(history, message => message.GetProperty("itemId").GetString() == "old-side");
+		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "new-side");
 	}
 
 	[Fact]

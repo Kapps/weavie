@@ -452,13 +452,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     path: string,
     selection: monaco.IRange | undefined,
     preview: boolean,
+    target: "source" | "file",
     origin: TextLocation | undefined,
   ): Promise<TextEditorConnection | undefined> => {
     if (!editorContexts.displayed(source) || selectedSession() !== source.session) return undefined;
     const { session } = source;
     if (origin !== undefined) source.restore(origin);
     navigation.depart(session);
-    if (origin !== undefined && samePath(origin.path, path)) {
+    if (
+      origin !== undefined &&
+      samePath(origin.path, path) &&
+      (target === "source" || isFileTab(source.tab.entry))
+    ) {
       if (selection !== undefined) {
         source.editor.setSelection(selection);
         source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
@@ -483,7 +488,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       origin,
       suspendHistory: () => navHistoryFor(connection.session).suspend(),
       commit: (origin, symbol) => {
-        void navigateFrom(connection, symbol.path, symbol.range, false, origin);
+        void navigateFrom(connection, symbol.path, symbol.range, false, "source", origin);
       },
     });
   };
@@ -606,7 +611,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         deps.onSaveError,
         deps.onOpenError,
         ({ path, selection, source }) =>
-          navigateFrom(source, path, selection, true, source.capture()),
+          navigateFrom(source, path, selection, true, "file", source.capture()),
       ),
     );
     const initDeadline = new Promise<never>((_, reject) => {

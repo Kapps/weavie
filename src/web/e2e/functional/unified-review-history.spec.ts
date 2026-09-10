@@ -171,33 +171,21 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
   });
 }
 
-test("same-file definition navigation preserves review locations in both directions", async ({
+test("same-file definition opens the file and restores the review departure in both directions", async ({
   page,
 }) => {
   await prepareDeparture(page);
   await registerDefinition(page, sourceName, sourceName, false);
   const departure = await reviewState(page);
   await page.keyboard.press("F12");
-  await expect(page.locator(".unified-review")).toBeVisible();
-  await expect
-    .poll(async () => (await reviewState(page)).selections)
-    .toEqual([
-      {
-        startLineNumber: 1,
-        startColumn: 17,
-        endLineNumber: 1,
-        endColumn: 17,
-        selectionStartLineNumber: 1,
-        selectionStartColumn: 17,
-        positionLineNumber: 1,
-        positionColumn: 17,
-      },
-    ]);
-  const destination = await reviewState(page);
+  await expect(page.locator(".unified-review")).toHaveCount(0);
+  await expectRevealed(page, sourceName, 1);
   await runCommand(page, "Go Back");
+  await expect(page.locator(".unified-review")).toBeVisible();
   await expect.poll(() => reviewState(page)).toEqual(departure);
   await runCommand(page, "Go Forward");
-  await expect.poll(() => reviewState(page)).toEqual(destination);
+  await expect(page.locator(".unified-review")).toHaveCount(0);
+  await expectRevealed(page, sourceName, 1);
 });
 
 for (const originSurface of ["review", "file"] as const) {

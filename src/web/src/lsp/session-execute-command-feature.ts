@@ -1,5 +1,4 @@
 import * as monaco from "monaco-editor";
-import type { MonacoLanguageClient } from "monaco-languageclient";
 import {
   type ClientCapabilities,
   type DocumentSelector,
@@ -11,6 +10,7 @@ import {
   type RegistrationData,
   type ServerCapabilities,
 } from "vscode-languageclient";
+import type { BaseLanguageClient } from "vscode-languageclient/browser.js";
 
 /** Carries a server command's producing client through Monaco and back onto the wire. */
 export class SessionCommandScope {
@@ -56,7 +56,7 @@ export class SessionExecuteCommandFeature
   private readonly handlers = new Map<string, CommandHandler>();
 
   constructor(
-    private readonly client: MonacoLanguageClient,
+    private readonly client: BaseLanguageClient,
     private readonly scope: SessionCommandScope,
   ) {}
 

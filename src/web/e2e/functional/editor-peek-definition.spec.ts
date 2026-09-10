@@ -1,4 +1,7 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import { awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
@@ -42,18 +45,7 @@ async function registerGreetDefinition(page: Page): Promise<void> {
   });
 }
 
-// The rendered token for `word` on the line containing `lineText`.
-//
-// Monaco gives each token its own span, so the gesture can address the word itself instead of a viewport
-// coordinate computed from the editor's layout. That matters: the editor's offset in the window keeps moving
-// while the shell lays out and the session starts, and a coordinate measured before it settles addresses a
-// place the line has left by the time the click lands — which reads as "the peek never opened" rather than
-// "we clicked the wrong pixel". Waiting for the reading to stop changing wasn't enough either, because it can
-// sit stably wrong for many frames while the chrome is still assembling. Handing the target to Playwright
-// puts its actionability checks — visible, stable, receives pointer events — at the moment of the click.
-// `last()` takes the innermost span holding the word: a highlighted line nests one span per token inside a
-// span for the whole line, while plain text is a single span — this addresses the text either way, and never
-// the full-width line element, whose centre can land past the end of the code.
+// Address the innermost rendered token so Playwright checks its current layout at click time.
 async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
   await awaitEditorLaidOut(page);
   return page
@@ -138,3 +130,188 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
   );
   await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
 });
+
+const unopenedDefinitionLine = 501;
+
+async function registerUnopenedDefinition(page: Page): Promise<void> {
+  await page.evaluate((line) => {
+    const monaco = (window as WeavieWindow).__WEAVIE_MONACO__;
+    if (monaco === undefined) throw new Error("monaco handle not available");
+    monaco.languages.registerDefinitionProvider("*", {
+      provideDefinition: (model) => {
+        const owner = JSON.parse(
+          decodeURIComponent(model.uri.fragment.slice("weavie-session:".length)),
+        );
+        owner.hostPath = owner.hostPath.replace(/hello\.ts$/, "unopened-definition.ts");
+        return [
+          {
+            uri: model.uri.with({
+              path: model.uri.path.replace(/hello\.ts$/, "unopened-definition.ts"),
+              fragment: `weavie-session:${encodeURIComponent(JSON.stringify(owner))}`,
+            }),
+            range: { startLineNumber: line, startColumn: 17, endLineNumber: line, endColumn: 22 },
+          },
+        ];
+      },
+    });
+  }, unopenedDefinitionLine);
+}
+
+test.describe("unopened definitions", () => {
+  let releaseRead: (() => void) | undefined;
+  test.use({
+    preNavigate: {
+      run: async (page) => {
+        releaseRead = undefined;
+        await page.routeWebSocket("**/*", (socket) => {
+          const server = socket.connectToServer();
+          let requestId: string | undefined;
+          socket.onMessage((data) => {
+            const message = JSON.parse(data.toString()) as MessageEnvelope;
+            if (
+              message.feature === "files" &&
+              message.name === "read" &&
+              (message.payload as { path: string }).path.endsWith("unopened-definition.ts")
+            ) {
+              requestId = message.requestId;
+            }
+            server.send(data);
+          });
+          server.onMessage((data) => {
+            const message = JSON.parse(data.toString()) as MessageEnvelope;
+            if (requestId !== undefined && message.requestId === requestId) {
+              releaseRead = () => socket.send(data);
+            } else socket.send(data);
+          });
+        });
+      },
+    },
+  });
+  for (const gesture of ["Alt+click", "context-menu Peek"] as const) {
+    test(`${gesture} renders a never-opened definition after its file read completes`, async ({
+      page,
+      weavie,
+    }) => {
+      await writeFile(
+        join(weavie.workspace, "unopened-definition.ts"),
+        `${"// Padding before the definition\n".repeat(unopenedDefinitionLine - 1)}export function greet() { return "UNOPENED_DEFINITION_CONTENT"; }\n`,
+      );
+      await focusEditor(page, "hello.ts");
+      await registerUnopenedDefinition(page);
+      expect(
+        await page.evaluate(() => {
+          const monaco = (
+            window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") }
+          ).__WEAVIE_MONACO__;
+          return monaco.editor
+            .getModels()
+            .some((model) => model.uri.path.endsWith("unopened-definition.ts"));
+        }),
+      ).toBe(false);
+      await expect(page.locator(".editor-tab", { hasText: "unopened-definition.ts" })).toHaveCount(
+        0,
+      );
+      const word = await wordToken(page, "const message = greet", "greet");
+      if (gesture === "Alt+click") {
+        await altClick(word);
+      } else {
+        await word.click({ button: "right" });
+        await page.locator(".context-menu-item", { hasText: "Peek Definition" }).click();
+      }
+      const peek = page.locator(".monaco-editor .peekview-widget");
+      await expect(peek).toBeVisible();
+      await expect.poll(() => releaseRead !== undefined).toBe(true);
+      if (releaseRead === undefined) throw new Error("Target file read was not intercepted");
+      releaseRead();
+      await expect(
+        peek.locator(".view-line", { hasText: "UNOPENED_DEFINITION_CONTENT" }),
+      ).toBeVisible();
+      await expect
+        .poll(() =>
+          peek.locator(".preview > .monaco-editor").evaluate((node) => {
+            const pane = node.closest(".split-view-view");
+            const body = node.closest(".body");
+            if (pane === null || body === null)
+              throw new Error("Peek preview has no layout container");
+            return {
+              width: node.clientWidth - pane.clientWidth,
+              height: node.clientHeight - body.getBoundingClientRect().height,
+            };
+          }),
+        )
+        .toEqual({ width: 0, height: 0 });
+      await expect(page.locator(".editor-tab", { hasText: "unopened-definition.ts" })).toHaveCount(
+        0,
+      );
+    });
+  }
+});
+
+test("Alt hovering a definition-backed symbol advertises its link and hand cursor", async ({
+  page,
+}) => {
+  await focusEditor(page, "hello.ts");
+  await registerGreetDefinition(page);
+  const word = await wordToken(page, "const message = greet", "greet");
+  const bounds = await word.boundingBox();
+  if (bounds === null) throw new Error("Symbol has no bounds");
+  await page.keyboard.down("Alt");
+  await word.hover();
+  await expect.poll(() => word.evaluate((node) => getComputedStyle(node).cursor)).toBe("pointer");
+  await expect(page.locator(".goto-definition-link")).toBeVisible();
+  await page.keyboard.up("Alt");
+  await page.keyboard.down("ControlOrMeta");
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.keyboard.up("ControlOrMeta");
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBe(1);
+  await expect(page.locator(".peekview-widget")).toHaveCount(0);
+});
+
+for (const change of ["release Alt", "press Shift"] as const) {
+  test(`Alt hover clears when the user ${change}`, async ({ page }) => {
+    await focusEditor(page, "hello.ts");
+    await registerGreetDefinition(page);
+    const word = await wordToken(page, "const message = greet", "greet");
+    await page.keyboard.down("Alt");
+    await word.hover();
+    await expect(page.locator(".goto-definition-link")).toBeVisible();
+    if (change === "release Alt") await page.keyboard.up("Alt");
+    else await page.keyboard.down("Shift");
+    await expect(page.locator(".goto-definition-link")).toHaveCount(0);
+    await expect.poll(() => word.evaluate((node) => getComputedStyle(node).cursor)).toBe("text");
+  });
+}
+
+for (const cancel of ["release Alt after mouse down", "drag away and back"] as const) {
+  test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
+    await focusEditor(page, "hello.ts");
+    await registerGreetDefinition(page);
+    const word = await wordToken(page, "const message = greet", "greet");
+    await word.hover();
+    const bounds = await word.boundingBox();
+    if (bounds === null) throw new Error("Symbol has no bounds");
+    const x = bounds.x + bounds.width / 2,
+      y = bounds.y + bounds.height / 2;
+    await page.keyboard.down("Alt");
+    await page.mouse.move(x, y);
+    await expect(page.locator(".goto-definition-link")).toBeVisible();
+    await page.mouse.down();
+    if (cancel === "release Alt after mouse down") {
+      await page.keyboard.up("Alt");
+      await expect(page.locator(".goto-definition-link")).toHaveCount(0);
+    } else {
+      await page.mouse.move(x + 60, y, { steps: 5 });
+      await page.mouse.move(x, y, { steps: 5 });
+    }
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+    await expect(page.locator(".peekview-widget")).toHaveCount(0);
+    if (cancel === "release Alt after mouse down") {
+      await expect
+        .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getSelections()?.length))
+        .toBe(2);
+    }
+  });
+}

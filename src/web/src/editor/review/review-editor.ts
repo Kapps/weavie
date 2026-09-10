@@ -58,7 +58,6 @@ export function createReviewEditor(options: {
     scrollBeyondLastLine: false,
     automaticLayout: false,
     smoothScrolling: false,
-    scrollbar: { handleMouseWheel: false, vertical: "hidden" },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
     hideCursorInOverviewRuler: true,

@@ -62,6 +62,13 @@ internal sealed class HostBridge : IWebTransportHub {
 			deny = !Security.Allows(url, WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision));
 		}
 		if (!deny) return 0;
+		// 2026-09-10, https://github.com/Kapps/weavie/actions/runs/34441751017: denying a main-frame
+		// decision here can wedge WebKitGTK's frame loader — decide-policy stops firing for this view
+		// afterward, so a same-document location.reload() issued later never completes. Investigated at
+		// length (see src/web/e2e/desktop/security.spec.ts); no public WebKitGTK API reliably detects or
+		// recovers from the wedge without either an unconditional webkit_web_view_load_uri (which reboots
+		// the SPA on every denial, defeating the "denied navigation leaves the session untouched"
+		// invariant this bridge exists to guarantee) or a timing heuristic. Unresolved upstream engine issue.
 		WebKit.webkit_policy_decision_ignore(decision);
 		return 1;
 	}

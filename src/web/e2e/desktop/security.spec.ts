@@ -120,6 +120,17 @@ test("only the app can use the native bridge, across welcome, previews and reloa
             window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
             await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
           }
+          // Flaked 2026-09-10 (~20-35% locally, matches CI):
+          // https://github.com/Kapps/weavie/actions/runs/34441751017 — desktop process SIGKILLed after
+          // the 60s test timeout, no native signal after this reload. Root cause: WebKitGTK's frame
+          // loader can wedge after this test's three preceding main-frame policy denials, so decide-policy
+          // stops firing and this location.reload() never completes — see the comment on HostBridge.OnPolicy
+          // (src/Weavie.Linux/Hosting/HostBridge.cs). Tried and reverted: explicit use()/ignore() on every
+          // decision, webkit_web_view_stop_loading() after a denial (collateral "Load failed" rejections,
+          // didn't reliably unwedge it), and webkit_web_view_load_uri() recovery (works but reboots the SPA
+          // on every denial, breaking the "denied navigation leaves the session untouched" invariant this
+          // test itself asserts). No fix landed — this is an unresolved WebKitGTK engine issue, not covered
+          // up with a retry or a wider timeout.
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }
         await command('Increase Font Size'); await wait(() => font() === '20px' && replies.size > 0);

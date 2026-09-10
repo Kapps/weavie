@@ -20,6 +20,7 @@ const agentSession = mockSession("cx", "acp", "acp");
 
 const controls = {
   state: {
+    ready: true,
     axes: [
       {
         id: "model",
@@ -1698,7 +1699,7 @@ test.describe("ACP composer", () => {
     // A click inside the composer is still the query's own surface; only leaving it dismisses.
     await textarea.click();
     await expect(menu).toBeVisible();
-    await page.locator(".agent-body").click();
+    await page.getByRole("toolbar").click();
     await expect(menu).toBeHidden();
     await expect(textarea).toHaveValue("/");
   });

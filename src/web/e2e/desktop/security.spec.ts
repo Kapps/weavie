@@ -42,8 +42,18 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     if (url.pathname === "/redirect")
       return void res.writeHead(302, { Location: "/preview" }).end();
     if (url.pathname === "/app-frame") {
+      const target = new URL(url.searchParams.get("target")!);
+      if (
+        !(
+          (target.protocol === "app:" && target.host === "app") ||
+          (target.protocol === "https:" && target.host === "weavie.dev") ||
+          (target.protocol === "http:" && target.hostname === "127.0.0.1")
+        ) ||
+        !["/welcome.html", "/index.html"].includes(target.pathname)
+      )
+        return void res.writeHead(400).end();
       acks.add("/ack/app-frame");
-      return void res.writeHead(302, { Location: url.searchParams.get("target")! }).end();
+      return void res.writeHead(302, { Location: target.href }).end();
     }
     if (url.pathname === "/opaque")
       res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
@@ -56,6 +66,9 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   await once(server, "listening");
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
+    expect((await fetch(`${origin}/app-frame?target=https://example.com/index.html`)).status).toBe(
+      400,
+    );
     const app = await desktop((path) => {
       workspace = path;
       return `

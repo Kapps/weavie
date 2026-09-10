@@ -10,7 +10,8 @@
 # is stable across these releases). 0.25.x also closes GHSA-67mh-4wv8-2f99 (dev server SSRF).
 # dompurify is pulled transitively by the monaco-vscode quickaccess override; pin a patched release to
 # close the XSS / prototype-pollution advisories affecting <=3.3.x.
-# patchedDependencies: Monaco adds native Alt peeking and gives embedded editors their own layout mode.
+# patchedDependencies: Monaco adds native Alt peeking, independent embedded-editor layout, and
+# save-revision tracking that keeps edits and undo dirty until their content reaches disk.
 # vscode-languageclient converts nested LSP commands through Weavie's exact-client aliases;
 # see docs/specs/lsp-over-bridge.md.
 allowBuilds:

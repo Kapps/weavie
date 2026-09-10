@@ -1,5 +1,4 @@
 import type { URI } from "@codingame/monaco-vscode-api/vscode/vs/base/common/uri";
-import { MonacoLanguageClient, type MonacoLanguageClientOptions } from "monaco-languageclient";
 import type { DocumentFilter, DocumentSelector, RelativePattern } from "vscode";
 import {
   CallHierarchyIncomingCallsRequest,
@@ -23,6 +22,11 @@ import {
   TypeHierarchySupertypesRequest,
   WorkspaceSymbolRequest,
 } from "vscode-languageclient";
+import {
+  BaseLanguageClient,
+  type LanguageClientOptions,
+  type MessageTransports,
+} from "vscode-languageclient/browser.js";
 import { SESSION_FILE_SCHEME } from "../editor/session-uri-scheme";
 import { notify } from "../notify/notify";
 import { describeError, isCancellation } from "./lsp-errors";
@@ -31,8 +35,14 @@ import {
   SessionExecuteCommandFeature,
 } from "./session-execute-command-feature";
 
-type UnscopedLanguageClientOptions = Omit<MonacoLanguageClientOptions, "clientOptions"> & {
-  clientOptions: Omit<MonacoLanguageClientOptions["clientOptions"], "commandIdConverters">;
+interface TransportLanguageClientOptions {
+  name: string;
+  clientOptions: LanguageClientOptions;
+  messageTransports: MessageTransports;
+}
+
+type UnscopedLanguageClientOptions = Omit<TransportLanguageClientOptions, "clientOptions"> & {
+  clientOptions: Omit<LanguageClientOptions, "commandIdConverters">;
 };
 
 // The requests a user invokes and waits on a result from, mapped to the action's user-facing name. Everything
@@ -58,15 +68,17 @@ const userInvokedRequests = new Map<string, string>([
   [ExecuteCommandRequest.method, "Command"],
 ]);
 
-class WeavieLanguageClient extends MonacoLanguageClient {
-  private scopedProtocol2CodeConverter: MonacoLanguageClient["protocol2CodeConverter"] | undefined;
+class WeavieLanguageClient extends BaseLanguageClient {
+  private readonly messageTransports: MessageTransports;
+  private scopedProtocol2CodeConverter: BaseLanguageClient["protocol2CodeConverter"] | undefined;
 
   constructor(
-    options: MonacoLanguageClientOptions,
+    options: TransportLanguageClientOptions,
     commandScope: SessionCommandScope,
     modelWorkspaceUri: URI,
   ) {
-    super(options);
+    super(options.name.toLowerCase(), options.name, options.clientOptions);
+    this.messageTransports = options.messageTransports;
     const baseConverter = super.protocol2CodeConverter;
     this.scopedProtocol2CodeConverter = {
       ...baseConverter,
@@ -76,11 +88,15 @@ class WeavieLanguageClient extends MonacoLanguageClient {
     super.registerFeature(new SessionExecuteCommandFeature(this, commandScope));
   }
 
-  override get protocol2CodeConverter(): MonacoLanguageClient["protocol2CodeConverter"] {
+  protected override createMessageTransports(_encoding: string): Promise<MessageTransports> {
+    return Promise.resolve(this.messageTransports);
+  }
+
+  override get protocol2CodeConverter(): BaseLanguageClient["protocol2CodeConverter"] {
     return this.scopedProtocol2CodeConverter ?? super.protocol2CodeConverter;
   }
 
-  override registerFeature(feature: Parameters<MonacoLanguageClient["registerFeature"]>[0]): void {
+  override registerFeature(feature: Parameters<BaseLanguageClient["registerFeature"]>[0]): void {
     if (
       "registrationType" in feature &&
       feature.registrationType.method === ExecuteCommandRequest.method
@@ -174,7 +190,7 @@ export function createWeavieLanguageClient(
   options: UnscopedLanguageClientOptions,
   commandNamespace: string,
   modelWorkspaceUri: URI,
-): MonacoLanguageClient {
+): BaseLanguageClient {
   const commandScope = new SessionCommandScope(commandNamespace);
   return new WeavieLanguageClient(
     {

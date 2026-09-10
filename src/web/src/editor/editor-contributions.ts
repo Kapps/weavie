@@ -3,7 +3,6 @@ import { type ClientSession, selectedSession } from "../bridge";
 import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { createSymbolSource } from "../symbols/symbol-source";
 import { activeEditorMessage } from "./active-editor-message";
-import { installAltClickPeek } from "./alt-click-peek";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
@@ -73,7 +72,6 @@ export function connectTextEditor(options: {
     }),
     editor.onDidChangeCursorSelection(publish),
     editor.onDidScrollChange(() => editorContexts.changed(connection)),
-    installAltClickPeek(editor),
   ];
   publish();
   return {

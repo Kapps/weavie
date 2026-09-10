@@ -1,10 +1,10 @@
-// The warm pool of language clients. One live MonacoLanguageClient belongs to each session/server pair. Each
+// The warm pool of language clients. One live BaseLanguageClient belongs to each session/server pair. Each
 // client's providers match only models carrying its owner's URI namespace, so same-language clients can run in
 // parallel without answering for one another's documents.
 
 import * as monaco from "monaco-editor";
-import type { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction, State } from "vscode-languageclient";
+import type { BaseLanguageClient } from "vscode-languageclient/browser.js";
 import { type ClientSession, log } from "../bridge";
 import { hostUriString, protocolUri, sessionFileUri } from "../editor/session-uri";
 import { PAGE_EPOCH } from "../messaging/page-epoch";
@@ -79,7 +79,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
   let torn = false;
   // Set once this attempt's outcome is decided, so a failed start and a server exit schedule at most one reconnect.
   let handled = false;
-  let client: MonacoLanguageClient | undefined;
+  let client: BaseLanguageClient | undefined;
   let startPromise: Promise<void> | undefined;
   // `entry`, `channel`, and `startPromise` are assigned further down; the closures here forward-reference them,
   // which is safe because nothing calls a closure until this synchronous body has finished.

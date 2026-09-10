@@ -17,18 +17,23 @@ async function expectBoundedEditor(section: Locator, scroller: Locator): Promise
   await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(100);
 }
 
-async function expectUnobscuredLine(section: Locator, line: Locator): Promise<void> {
+async function expectUnobscuredLine(line: Locator): Promise<void> {
   await expect(line).toBeInViewport();
   await expect
-    .poll(async () => {
-      const header = await section.locator(".unified-review-file-header").boundingBox();
-      const toolbar = await section.page().locator(".weavie-inline-toolbar").boundingBox();
-      const bounds = await line.boundingBox();
-      if (header === null || toolbar === null || bounds === null) {
-        throw new Error("review line, header, or toolbar is missing");
-      }
-      return Math.min(bounds.y - header.y - header.height, toolbar.y - bounds.y - bounds.height);
-    })
+    .poll(() =>
+      line.evaluate((element) => {
+        const header = element
+          .closest(".unified-review-file")
+          ?.querySelector(".unified-review-file-header")
+          ?.getBoundingClientRect();
+        const toolbar = document.querySelector(".weavie-inline-toolbar")?.getBoundingClientRect();
+        if (header === undefined || toolbar === undefined) {
+          throw new Error("review header or toolbar is missing");
+        }
+        const bounds = element.getBoundingClientRect();
+        return Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
+      }),
+    )
     .toBeGreaterThanOrEqual(0);
 }
 
@@ -56,10 +61,7 @@ test.describe("Review Changes tab — large addition", () => {
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await page.keyboard.press("ControlOrMeta+End");
-    await expectUnobscuredLine(
-      section,
-      section.locator(".view-line", { hasText: "new line 3999" }),
-    );
+    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
     await expectBoundedEditor(section, scroller);
     await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
@@ -84,11 +86,10 @@ test.describe("Review Changes tab — large addition", () => {
       )
       .toBeLessThanOrEqual(1);
     await expectUnobscuredLine(
-      section,
       section.locator(".view-line", { hasText: "new line 3999 edited at the end" }),
     );
     await page.keyboard.press("ControlOrMeta+Home");
-    await expectUnobscuredLine(section, firstLine);
+    await expectUnobscuredLine(firstLine);
     await expectBoundedEditor(section, scroller);
     const left = await firstLine.evaluate((element) => element.getBoundingClientRect().left);
     await firstLine.hover({ position: { x: 10, y: 10 } });
@@ -150,10 +151,7 @@ test.describe("Review Changes tab — large replacement", () => {
       await expect(ghost).toContainText("old line 3999");
       await expect.poll(renderedGhostLines).toBeLessThan(100);
       await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-      await expectUnobscuredLine(
-        section,
-        section.locator(".view-line", { hasText: "new line 3999" }),
-      );
+      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
       await expectBoundedEditor(section, scroller);
       if (reviewed) {
         await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();
@@ -214,10 +212,7 @@ test.describe("Review Changes tab — large separated changes", () => {
     await scroller.hover();
     await page.mouse.wheel(0, 200_000);
     await expect(counter).toContainText("change 2/2");
-    await expectUnobscuredLine(
-      section,
-      section.locator(".view-line", { hasText: "new line 3999" }),
-    );
+    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
     await toolbar.locator(".weavie-inline-accept").click();
     await expect(counter).toContainText("change 1/1");
     await expect

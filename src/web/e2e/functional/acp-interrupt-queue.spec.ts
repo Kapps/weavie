@@ -1,17 +1,14 @@
-import { createAcpSession } from "../harness/acp-session";
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 
 test("interrupt preserves queued slash commands and runs them once in order", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-interrupt-queue");
-  const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(surface.locator(".agent-working")).toBeVisible();
 
   for (const command of ["/compact", "/review queued after interrupt"]) {
-    await composer.fill(command);
-    await composer.press("Enter");
+    await submitAcpDraft(surface, command);
     await expect(surface.locator(".agent-compose-queued")).toContainText(command);
   }
   await surface.getByRole("button", { name: "Interrupt", exact: true }).click();
@@ -26,8 +23,7 @@ test("interrupt preserves queued slash commands and runs them once in order", as
   await expect(surface.locator(".agent-compose-queued")).toHaveCount(0);
   await expect(surface.locator(".agent-working")).toHaveCount(0);
 
-  await composer.fill("fresh prompt after interrupt");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "fresh prompt after interrupt");
   await expect(responses).toHaveCount(4);
   await expect(responses).toContainText([
     "steered: cancelled",

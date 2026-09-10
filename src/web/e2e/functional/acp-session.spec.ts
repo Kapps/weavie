@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createAcpSession } from "../harness/acp-session";
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, expectRevealed, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
@@ -14,8 +14,7 @@ test("new ACP session initializes and accepts its first prompt @cross", async ({
 
   const composer = surface.locator("[data-agent-composer] textarea");
   await composer.click();
-  await composer.fill("first turn works");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "first turn works");
 
   await expect(surface.locator(".agent-entry.agent-tone-user")).toContainText("first turn works");
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
@@ -29,8 +28,7 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   const surface = await createAcpSession(page, "acp-slash-commands");
   const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("identify-session");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "identify-session");
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
     "session: fake-session",
   );
@@ -40,8 +38,7 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   await expect(menu).toContainText("/compact");
   await expect(menu).toContainText("/clear");
 
-  await composer.fill("/compact");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/compact");
   const compact = surface.locator(".agent-entry-message.agent-tone-user", {
     hasText: "/compact",
   });
@@ -60,8 +57,7 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   await expect(surface.locator(".agent-entry")).toHaveCount(0);
   await expect(surface.getByRole("button", { name: "Model Alpha" })).toBeVisible();
 
-  await composer.fill("identify-session");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "identify-session");
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
     "session: fake-session-2",
   );
@@ -78,12 +74,10 @@ test("ACP side replies survive session switches and run alongside the primary tu
   const acpSlot = await activeSessionSlot(page);
   const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(surface.locator(".agent-working")).toBeVisible();
 
-  await composer.fill("/btw Explain one detail aside");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw Explain one detail aside");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("echo: Explain one detail aside");
   await expect(surface.locator(".agent-working")).toBeVisible();
@@ -132,8 +126,7 @@ test("ACP side replies survive session switches and run alongside the primary tu
   await expect(cancel).toBeVisible();
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
-  await composer.fill("finish while the side question waits");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "finish while the side question waits");
   await expect(surface).toContainText("steered: finish while the side question waits");
   await expect(surface.locator(".agent-working")).toHaveCount(0);
   await expect(composer).toHaveAttribute(
@@ -150,13 +143,10 @@ test("BTW continues on its fork and returns control to the primary conversation"
   page,
 }) => {
   const surface = await createAcpSession(page, "acp-shared-process");
-  const composer = surface.locator("[data-agent-composer] textarea");
-  await composer.fill("primary context");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "primary context");
   await expect(surface).toContainText("echo: primary context");
 
-  await composer.fill("/btw identify-session");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw identify-session");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("session: fake-fork-fake-session-2");
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
@@ -165,8 +155,7 @@ test("BTW continues on its fork and returns control to the primary conversation"
   await reply.press("Enter");
   await expect(aside).toContainText("echo: follow-up stays in the side conversation");
 
-  await composer.fill("identify-session");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "identify-session");
   await expect(
     surface.locator(".agent-entry-message.agent-tone-assistant", {
       hasText: "session: fake-session",
@@ -201,9 +190,7 @@ for (const switchDuringStartup of [false, true]) {
     await surface.getByRole("option", { name: "Plan" }).click();
     await expect(surface.getByRole("button", { name: "Mode Plan" })).toBeVisible();
 
-    const composer = surface.locator("[data-agent-composer] textarea");
-    await composer.fill("rich");
-    await composer.press("Enter");
+    await submitAcpDraft(surface, "rich");
 
     await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
       "rich response",
@@ -257,10 +244,8 @@ for (const switchDuringStartup of [false, true]) {
 
 test("ACP task progress stays activity while plan documents remain openable", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-plan-distinction");
-  const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("rich");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "rich");
 
   await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
     "rich response",
@@ -275,8 +260,7 @@ test("ACP task progress stays activity while plan documents remain openable", as
   await progress.getByText("show output", { exact: true }).click();
   await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
 
-  await composer.fill("plan-document");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "plan-document");
 
   const plan = surface.locator(".agent-entry-plan");
   await expect(plan).toContainText("Ready to review in the editor");
@@ -287,18 +271,14 @@ test("ACP task progress stays activity while plan documents remain openable", as
 
 test("a slash command submitted mid-turn queues without blocking steering", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-queued-command");
-  const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(surface.locator(".agent-working")).toBeVisible();
 
-  await composer.fill("/compact");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/compact");
   await expect(surface.locator(".agent-compose-queued")).toContainText("/compact");
 
-  await composer.fill("steer past the queued command");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "steer past the queued command");
   await expect(
     surface.locator(".agent-entry-message.agent-tone-assistant", {
       hasText: "steered: steer past the queued command",
@@ -318,12 +298,10 @@ test("ACP steering and background completion return the session to idle @cross",
   const surface = await createAcpSession(page, "acp-steering");
   const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(surface.locator(".agent-working")).toBeVisible();
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
-  await composer.fill("use the native pane");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "use the native pane");
   await expect(
     surface.locator(".agent-entry-message.agent-tone-user", { hasText: "Steer" }),
   ).toContainText("use the native pane");
@@ -332,15 +310,13 @@ test("ACP steering and background completion return the session to idle @cross",
   );
   await expect(surface.locator(".agent-working")).toHaveCount(0);
 
-  await composer.fill("background");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "background");
   const subagentActivity = surface.locator(".agent-entry-activity", {
     hasText: "execute: Background agent",
   });
   await expect(subagentActivity).toContainText("running");
   await expect(surface.locator(".agent-working")).toBeVisible();
-  await composer.fill("finish-background");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "finish-background");
   await expect(surface).toContainText("background finished");
   await expect(surface.locator(".agent-working")).toHaveCount(0);
   await expect(composer).toHaveAttribute(

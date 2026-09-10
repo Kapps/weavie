@@ -4,6 +4,13 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
+// Flaked 2026-09-10 05:36 UTC on main, native build (linux):
+// https://github.com/Kapps/weavie/actions/runs/34441751017/job/102758083292
+// Desktop exited (SIGKILL) mid-startup with no application-level error (desktop.log stops
+// abruptly after workspace/terminal init, before any UI interaction). The identical tree
+// (commit 227610c) passed this same job two hours earlier, so this was not a regression from
+// the merge — something outside the app killed the process. No reproducible in-app mechanism
+// found; left as-is (no retry/timeout added).
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }) => {

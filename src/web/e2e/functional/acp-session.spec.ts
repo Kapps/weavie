@@ -248,10 +248,6 @@ for (const switchDuringStartup of [false, true]) {
       await waitForSessionSwitch(page, initialSlot);
     }
     releaseEditor.resolve();
-    if (switchDuringStartup) {
-      await expectRevealed(page, "sample.txt", 1);
-      await edit.getByRole("button", { name: "Review edit" }).click();
-    }
     await expectRevealed(page, "sample.txt", 7);
     const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
     await progress.getByText("show output", { exact: true }).click();

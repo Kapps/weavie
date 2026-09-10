@@ -1,3 +1,8 @@
+export interface FocusIntent {
+  complete(action: () => void): void;
+  dispose(): void;
+}
+
 export interface FocusFrames {
   request(callback: FrameRequestCallback): number;
   cancel(handle: number): void;
@@ -7,6 +12,8 @@ export interface FocusFrames {
 export class DeferredFocus<Owner> {
   private generation = 0;
   private frame: number | null = null;
+  private pending = false;
+  private recovery: { owner: Owner; generation: number; action: () => void } | null = null;
   private disposed = false;
   private readonly events = ["pointerdown", "keydown", "focusin"];
 
@@ -22,36 +29,61 @@ export class DeferredFocus<Owner> {
 
   readonly invalidate = (): void => {
     this.generation += 1;
+    this.pending = false;
+    this.recovery = null;
     if (this.frame !== null) {
       this.frames.cancel(this.frame);
       this.frame = null;
     }
   };
 
-  /** Captures intent before asynchronous work; its completion may focus once. */
-  capture(owner: Owner): (action: () => void) => void {
-    if (this.disposed || owner !== this.owner()) return () => {};
+  /** Captures explicit intent; completion or disposal releases its focus ownership. */
+  capture(owner: Owner): FocusIntent {
+    if (this.disposed || owner !== this.owner()) return { complete: () => {}, dispose: () => {} };
     this.invalidate();
+    this.pending = true;
     const generation = this.generation;
-    let completed = false;
     const current = (): boolean =>
-      !this.disposed && generation === this.generation && owner === this.owner();
-    return (action) => {
-      if (completed || !current()) return;
-      completed = true;
-      action();
+      !this.disposed && generation === this.generation && owner === this.owner() && this.pending;
+    return {
+      complete: (action) => {
+        if (!current()) return;
+        this.pending = false;
+        this.recovery = null;
+        action();
+      },
+      dispose: () => {
+        if (!current()) return;
+        this.pending = false;
+        this.scheduleRecovery();
+      },
     };
   }
 
-  schedule(owner: Owner, action: () => void): void {
+  /** Passive blur recovery yields to explicit intent and subsequent input. */
+  recover(owner: Owner, action: () => void): void {
     if (this.disposed || owner !== this.owner()) return;
-    const complete = this.capture(owner);
-    this.frame = this.frames.request(() =>
-      complete(() => {
-        this.frame = null;
-        action();
-      }),
-    );
+    this.recovery = { owner, generation: this.generation, action };
+    this.scheduleRecovery();
+  }
+
+  private scheduleRecovery(): void {
+    if (this.pending || this.recovery === null) return;
+    if (this.frame !== null) this.frames.cancel(this.frame);
+    const recovery = this.recovery;
+    this.frame = this.frames.request(() => {
+      if (
+        this.disposed ||
+        this.recovery !== recovery ||
+        recovery.generation !== this.generation ||
+        recovery.owner !== this.owner() ||
+        this.pending
+      )
+        return;
+      this.frame = null;
+      this.recovery = null;
+      recovery.action();
+    });
   }
 
   dispose(): void {

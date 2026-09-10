@@ -1,4 +1,5 @@
 import { type Accessor, createMemo, createSignal } from "solid-js";
+import type { FocusIntent } from "../chrome/deferred-focus";
 import { dismissFloatingPopovers } from "../chrome/floating-panels";
 import { changeTool } from "./store";
 import { type LayoutNode, TOOL_KINDS, type ToolKind } from "./types";
@@ -21,12 +22,13 @@ export function createToolPanels(options: {
   compact: Accessor<boolean>;
   revealDock: () => void;
   restoreFocus: () => void;
+  captureFocus: () => FocusIntent;
 }) {
   const [requests, setRequests] = createSignal(new Map<string, ToolKind[]>());
   const [requestedFocus, setFocusRequest] = createSignal<{
     backendId: string;
     kind: ToolKind;
-    nonce: number;
+    intent: FocusIntent;
   } | null>(null);
   const current = createMemo(() => requests().get(options.backendId()) ?? []);
   const focusRequest = createMemo(() => {
@@ -54,28 +56,39 @@ export function createToolPanels(options: {
       return new Map(all).set(backendId, next);
     });
   };
-  const focus = (kind: ToolKind): void => {
-    setFocusRequest((previous) => ({
+  const focus = (kind: ToolKind, intent: FocusIntent): void => {
+    setFocusRequest({
       backendId: options.backendId(),
       kind,
-      nonce: (previous?.nonce ?? 0) + 1,
-    }));
+      intent,
+    });
   };
   const open = async (kind: ToolKind): Promise<void> => {
     dismissFloatingPopovers();
     const backendId = options.backendId();
+    const needsDock = docked(kind) && !options.compact();
+    if (needsDock) options.revealDock();
+    const intent = options.captureFocus();
     request(backendId, kind, true);
-    if (docked(kind) && !options.compact()) {
-      options.revealDock();
-      await changeTool(backendId, kind, "show");
+    if (needsDock) {
+      await changeTool(backendId, kind, "show").catch((error: unknown) => {
+        intent.dispose();
+        throw error;
+      });
     }
-    if (backendId === options.backendId()) focus(kind);
+    if (backendId === options.backendId()) focus(kind, intent);
+    else intent.dispose();
   };
   const close = async (kind: ToolKind): Promise<void> => {
+    const intent = options.captureFocus();
     const backendId = options.backendId();
-    if (docked(kind) && !options.compact()) await changeTool(backendId, kind, "hide");
-    request(backendId, kind, false);
-    if (backendId === options.backendId()) options.restoreFocus();
+    try {
+      if (docked(kind) && !options.compact()) await changeTool(backendId, kind, "hide");
+      request(backendId, kind, false);
+      if (backendId === options.backendId()) intent.complete(options.restoreFocus);
+    } finally {
+      intent.dispose();
+    }
   };
   const toggleDock = async (kind: ToolKind): Promise<void> => {
     dismissFloatingPopovers();
@@ -83,8 +96,13 @@ export function createToolPanels(options: {
     const action = docked(kind) ? "float" : "dock";
     request(backendId, kind, true);
     options.revealDock();
-    await changeTool(backendId, kind, action);
-    if (backendId === options.backendId()) focus(kind);
+    const intent = options.captureFocus();
+    await changeTool(backendId, kind, action).catch((error: unknown) => {
+      intent.dispose();
+      throw error;
+    });
+    if (backendId === options.backendId()) focus(kind, intent);
+    else intent.dispose();
   };
   return { docked, visible, floating, focusRequest, open, close, toggleDock };
 }

@@ -1,5 +1,14 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
@@ -48,7 +57,11 @@ export function UnifiedReview(props: {
   createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
+  let virtualList: HTMLDivElement | undefined;
   let toolbarHost: HTMLElement | undefined;
+  const sizeVirtualList = (height: number): void => {
+    if (virtualList !== undefined) virtualList.style.height = `${height}px`;
+  };
   let programmaticSelection = true;
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const visibleFile = (): number =>
@@ -131,11 +144,18 @@ export function UnifiedReview(props: {
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,
-    scrollToFn: scrollVirtualElement,
+    scrollToFn: (offset, options, instance) => {
+      // TanStack requests resize corrections before notifying Solid of the new scroll range.
+      return scrollVirtualElement(offset, options, instance, () =>
+        sizeVirtualList(instance.getTotalSize()),
+      );
+    },
     measureElement: (element) => element.getBoundingClientRect().height,
-    overscan: 2,
+    onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
+    overscan: 6,
     useAnimationFrameWithResizeObserver: true,
   });
+  createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 
   let collapseSnapshot = new Map<string, boolean>();
   createEffect(() => {
@@ -257,17 +277,26 @@ export function UnifiedReview(props: {
   const followViewport = (): void => {
     programmaticSelection = false;
   };
-  // resizeItem, not measureElement: measureElement silently drops the update while the virtualizer still
-  // considers itself "scrolling" (isScrolling stays true for isScrollingResetDelay after our own
-  // scrollToIndex, unrelated to this row) and no smooth scrollState is active for this row — exactly the
-  // window a section's diff paints in. A dropped update leaves every later row's cached offset short by
-  // this row's real growth, which a later file's capture()/restore() (review-editor.ts) reads directly off
-  // the DOM to anchor its own scroll — silently landing short by the same amount, permanently.
+  // The explicit resizeItem() matters alongside measureElement(): measureElement alone can silently drop the
+  // update while the virtualizer still considers itself "scrolling" (isScrolling stays true for
+  // isScrollingResetDelay after our own scrollToIndex, unrelated to this row) and no smooth scrollState is
+  // active for this row — exactly the window a section's diff paints in. A dropped update leaves every later
+  // row's cached offset short by this row's real growth, which a later file's capture()/restore()
+  // (review-editor.ts) reads directly off the DOM to anchor its own scroll — silently landing short by the
+  // same amount, permanently.
   const measure = (element: HTMLElement): void => {
-    if (!element.isConnected) return;
-    const index = Number(element.getAttribute("data-index"));
-    if (Number.isNaN(index)) return;
-    virtualizer.resizeItem(index, element.getBoundingClientRect().height);
+    const commit = (): void => {
+      if (element.isConnected) {
+        const index = virtualizer.indexFromElement(element);
+        const height = element.getBoundingClientRect().height;
+        batch(() => {
+          virtualizer.measureElement(element);
+          virtualizer.resizeItem(index, height);
+        });
+      }
+    };
+    if (element.isConnected) commit();
+    else queueMicrotask(commit);
   };
 
   return (
@@ -290,7 +319,13 @@ export function UnifiedReview(props: {
           props.changed();
         }}
       >
-        <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
+        <div
+          class="unified-review-virtual-list"
+          ref={(element) => {
+            virtualList = element;
+            sizeVirtualList(virtualizer.getTotalSize());
+          }}
+        >
           <For each={rowKeys()}>
             {(key) => {
               const row = () => rows().find((candidate) => String(candidate.key) === key);

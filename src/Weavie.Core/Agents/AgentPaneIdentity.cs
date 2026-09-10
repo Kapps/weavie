@@ -1,11 +1,12 @@
-using Weavie.Core.Agents;
+namespace Weavie.Core.Agents;
 
-namespace Weavie.Hosting.Agents;
-
-internal static class AgentPaneIdentity {
+/// <summary>Collision-free identity for a pane item within its provider conversation and turn.</summary>
+public static class AgentPaneIdentity {
+	/// <summary>Returns the identity of an item-bearing message.</summary>
 	public static string? ItemKey(AgentPaneMessage message) =>
 		ItemKey(message.ThreadId, message.TurnId, message.ItemId);
 
+	/// <summary>Returns an identity from the exact conversation, turn, and item ids.</summary>
 	public static string? ItemKey(string? threadId, string? turnId, string? itemId) =>
 		string.IsNullOrEmpty(itemId)
 			? null

@@ -158,6 +158,13 @@ Applied **in order**, so "darken all, then set bg pure black" leaves bg pure bla
 declarative ⇒ trivial **undo** (pop the last op), **inspect** (list ops), and **survival across
 base-theme switches** (transforms re-derive; sets re-apply by key).
 
+Spellcheck underlines use the Weavie color key `editorSpellCheck.foreground` in `colors`.
+They are opaque, 2px dotted underlines, independent of syntax text colors. The resolver supplies
+`#70b7ff` for dark/high-contrast dark themes and `#005fb8` for light/high-contrast light themes
+before applying theme colors and override ops, including for imported themes. Set it with
+`setThemeOverride({ key: "editorSpellCheck.foreground", value: "#ff8800" })`; changes, undo,
+and reset apply live through the normal theme pipeline.
+
 ### Per-theme
 Overrides are **per-theme** — keyed by theme id, layered on top of *that* theme, and they do **not**
 follow you when you switch themes ("I tweaked Dracula" stays with Dracula). This matches the natural

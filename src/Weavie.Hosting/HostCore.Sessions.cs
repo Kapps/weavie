@@ -48,8 +48,12 @@ public sealed partial class HostCore {
 					return Task.FromResult(CommandResult.Failure(
 						"This agent does not support context-preserving side conversations."));
 				}
-				string question = RequiredCommandString(argsJson, "question", "Ask Agent Aside");
-				sideConversations.AskAside(question);
+				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				var args = JsonSerializer.Deserialize<AgentAsideCommand>(argsJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))
+					?? throw new ArgumentException("Ask Agent Aside requires a question or image.");
+				session.AcceptAgentSubmission(new HostSession.AgentSubmitMessage(
+					args.SubmissionId ?? Guid.NewGuid().ToString("N"), args.Question ?? string.Empty,
+					"prompt", string.Empty, args.AttachmentIds), sideConversations.AskAside);
 				return Task.FromResult(CommandResult.Success());
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
@@ -98,17 +102,7 @@ public sealed partial class HostCore {
 		};
 	}
 
-	private static string RequiredCommandString(string? argsJson, string property, string command) {
-		if (string.IsNullOrWhiteSpace(argsJson)) throw new ArgumentException($"{command} requires '{property}'.");
-		using var document = JsonDocument.Parse(argsJson);
-		if (document.RootElement.ValueKind != JsonValueKind.Object
-			|| !document.RootElement.TryGetProperty(property, out var value)
-			|| value.ValueKind != JsonValueKind.String
-			|| value.GetString()?.Trim() is not { Length: > 0 } text) {
-			throw new ArgumentException($"{command} requires a non-empty '{property}'.");
-		}
-		return text;
-	}
+	private sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds);
 
 	private void PostForSession(HostSession session, Action action) {
 		_ = session.Background.Run(ct => _ui.InvokeAsync(() => {
@@ -943,6 +937,7 @@ public sealed partial class HostCore {
 				deleteBranch: false,
 				force,
 				CancellationToken.None).ConfigureAwait(false);
+			_acpSessions.ClearWorkspace(worktreePath);
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
 			await _ui.InvokeAsync(() => {

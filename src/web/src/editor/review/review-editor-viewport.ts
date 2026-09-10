@@ -92,6 +92,18 @@ export function createReviewEditorViewport(
     }
   });
   const wheel = (event: WheelEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const root = editor.getDomNode();
+    const scrollable = target.closest(".monaco-scrollable-element");
+    if (
+      target.closest(".monaco-editor") !== root ||
+      (scrollable !== null && scrollable !== root?.querySelector(".monaco-scrollable-element"))
+    ) {
+      return;
+    }
+    // The review owns root-editor scrolling; nested widgets keep Monaco's own wheel handling.
+    event.stopPropagation();
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
     if (horizontal === 0) {
       return;
@@ -107,7 +119,7 @@ export function createReviewEditorViewport(
       event.preventDefault();
     }
   };
-  mount.addEventListener("wheel", wheel, { passive: false });
+  mount.addEventListener("wheel", wheel, { capture: true, passive: false });
   layout();
   return {
     bounds,
@@ -129,7 +141,7 @@ export function createReviewEditorViewport(
       }
       observer.disconnect();
       scroller.removeEventListener("scroll", schedule);
-      mount.removeEventListener("wheel", wheel);
+      mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
     },
   };

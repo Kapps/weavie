@@ -233,7 +233,6 @@ public sealed partial class HostSession {
 	}
 
 	private void HandleAgentSubmit(AgentSubmitMessage message, Func<bool> inputFrozen) {
-		string[] attachmentIds = message.AttachmentIds ?? [];
 		try {
 			if (inputFrozen()) {
 				throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
@@ -243,42 +242,36 @@ public sealed partial class HostSession {
 				throw new InvalidOperationException("This session does not use a structured agent.");
 			}
 
-			if (message.Id.Length > 0 && AgentAttachments.TryReceipt(message.Id, out var receipt)) {
-				PublishSubmissionState(message.Id, receipt, "accepted", string.Empty);
-				return;
-			}
-
-			if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
-				throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
-			}
-			var kind = message.Kind switch {
-				"prompt" => AgentTurnSubmissionKind.Prompt,
-				"providerCommand" => AgentTurnSubmissionKind.ProviderCommand,
-				_ => throw new InvalidOperationException("Agent submissions require a recognized semantic kind."),
-			};
-			if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {
-				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
-			}
-			if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length != 0) {
-				throw new InvalidOperationException("Provider commands cannot include attachments.");
-			}
-
-			var resolved = AgentAttachments.Resolve(attachmentIds);
-			agent.Submit(new AgentTurnSubmission {
-				Id = message.Id,
-				Text = message.Prompt,
-				Kind = kind,
-				CommandName = message.CommandName ?? string.Empty,
-				Attachments = resolved,
-			});
-			if (message.Id.Length > 0) {
-				AgentAttachments.CommitSubmission(message.Id, attachmentIds);
-			}
-
-			PublishSubmissionState(message.Id, attachmentIds, "accepted", string.Empty);
+			var receipt = AcceptAgentSubmission(message, agent.Submit);
+			PublishSubmissionState(message.Id, receipt, "accepted", string.Empty);
 		} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
 			PublishSubmissionState(message.Id, [], "rejected", ex.Message);
 		}
+	}
+
+	internal IReadOnlyList<string> AcceptAgentSubmission(AgentSubmitMessage message, Action<AgentTurnSubmission> submit) {
+		string[] attachmentIds = message.AttachmentIds ?? [];
+		if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
+			throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
+		}
+		var kind = message.Kind switch {
+			"prompt" => AgentTurnSubmissionKind.Prompt,
+			"providerCommand" => AgentTurnSubmissionKind.ProviderCommand,
+			_ => throw new InvalidOperationException("Agent submissions require a recognized semantic kind."),
+		};
+		if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {
+			throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
+		}
+		if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length != 0) {
+			throw new InvalidOperationException("Provider commands cannot include attachments.");
+		}
+		return AgentAttachments.Submit(message.Id, attachmentIds, attachments => submit(new AgentTurnSubmission {
+			Id = message.Id,
+			Text = message.Prompt,
+			Kind = kind,
+			CommandName = message.CommandName ?? string.Empty,
+			Attachments = attachments,
+		}));
 	}
 
 	private void PublishAttachmentState(string id, string status, string error) =>
@@ -348,7 +341,7 @@ public sealed partial class HostSession {
 
 	private sealed record AttachmentUploadMessage(string Id, string Mime, string DataB64);
 
-	private sealed record AgentSubmitMessage(
+	internal sealed record AgentSubmitMessage(
 		string Id,
 		string Prompt,
 		string? Kind,

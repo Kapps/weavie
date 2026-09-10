@@ -19,14 +19,10 @@ public sealed partial class AcpAgentSession {
 		}
 
 		bool completed = tool.Status is "completed" or "failed";
-		bool replaying;
-		lock (_gate) {
-			replaying = _loadingTranscript;
-		}
-		if (!replaying && (tool.MutationMetadataDisclosed || completed)) {
+		if (tool.MutationMetadataDisclosed || completed) {
 			EnsureObservedMutation(tool);
 		}
-		if (!replaying && completed) CompleteToolMutations(tool);
+		if (completed) CompleteToolMutations(tool);
 
 		bool settled = false;
 		bool dispatchPending = false;
@@ -61,7 +57,7 @@ public sealed partial class AcpAgentSession {
 				if (source == ToolUpdateSource.Update) {
 					throw new AcpProtocolException($"ACP updated unknown tool call '{id}'.");
 				}
-				tool = new AcpToolState { Id = id, TurnId = TurnIdForUpdate(userMessage: false) };
+				tool = new AcpToolState { Id = id, TurnId = TurnId() };
 				_tools.Add(id, tool);
 			}
 			if (source == ToolUpdateSource.Initial) {

@@ -172,7 +172,11 @@ function AgentMedia(props: {
   return (
     <>
       <Show when={source() !== null && props.message?.mediaType?.startsWith("image/")}>
-        <img class="agent-entry-media" src={source() ?? ""} alt="Agent-provided content" />
+        <img
+          class="agent-entry-media"
+          src={source() ?? ""}
+          alt={props.message?.type === "user-image" ? "Attached image" : "Agent-provided content"}
+        />
       </Show>
       <Show when={source() !== null && props.message?.mediaType?.startsWith("audio/")}>
         <a class="agent-entry-media" href={source() ?? ""} download="agent-provided-audio">

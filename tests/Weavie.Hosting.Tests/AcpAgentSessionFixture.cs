@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
+using Microsoft.Data.Sqlite;
 using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -177,6 +178,24 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithEmbeddedContext(bool enabled) => enabled
+		? Create(allowAllPermissions: true, persistedSessionId: null)
+		: Create(
+			"fake",
+			"ACP without embedded context",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal) {
+				["WEAVIE_FAKE_ACP_MODE"] = "no-embedded-context",
+			},
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false);
+
+	public static AcpAgentSessionFixture CreateFlattenReplayAdapter(string? persistedSessionId) => Create(
+		"fake", "Flattened ACP", ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_FAKE_ACP_MODE"] = "flatten-replay" },
+		allowAllPermissions: true, persistedSessionId, failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateResumeOnlyAdapter(string persistedSessionId, long turnNumber) {
 		var fixture = Create(
 			"fake",
@@ -188,7 +207,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			allowAllPermissions: true,
 			persistedSessionId: null,
 			failSessionPersistence: false);
-		fixture.Sessions.Adopt("fake", fixture.Workspace, persistedSessionId, turnNumber);
+		SeedSession(fixture.Sessions, "fake", fixture.Workspace, persistedSessionId, turnNumber);
 		return fixture;
 	}
 
@@ -310,9 +329,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
-		var store = new AcpSessionStore(sessionFileSystem, directory.Combine("acp-sessions.json"));
+		var store = new AcpSessionStore(directory.Combine("acp-conversations.db"));
+		if (failSessionPersistence) {
+			store.ReadConversations(providerId, directory.Path);
+			using var database = new SqliteConnection($"Data Source={store.FilePath};Pooling=False");
+			database.Open();
+			using var failure = database.CreateCommand();
+			failure.CommandText = "CREATE TRIGGER deny_turn BEFORE UPDATE ON conversations WHEN json_extract(NEW.state, '$.TurnNumber') > 0 BEGIN SELECT RAISE(ABORT, 'persistence failure'); END";
+			failure.ExecuteNonQuery();
+		}
 		var controls = new AcpControlStore(sessionFileSystem, directory.Combine("acp-controls.json"));
-		if (persistedSessionId is not null) store.Adopt(providerId, directory.Path, persistedSessionId, 0);
+		if (persistedSessionId is not null) SeedSession(store, providerId, directory.Path, persistedSessionId, 0);
 		var events = new RecordingAgentEventSink();
 		var definition = new AcpAgentDefinition {
 			Id = providerId,
@@ -350,6 +377,18 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			authenticationTerminal);
 	}
 
+	internal static void SeedSession(AcpSessionStore store, string provider, string workspace, string sessionId, long turnNumber) =>
+		store.Save(provider, workspace, new() {
+			ConversationId = string.Empty,
+			SessionId = sessionId,
+			TurnNumber = turnNumber,
+			AnchorTurnNumber = 0,
+			InitialPrompt = string.Empty,
+			GuidanceSent = true,
+			PlanTurns = new Dictionary<string, string>(),
+			Failed = false,
+		});
+
 	public async Task<AgentControlState> StartAsync() {
 		Session.Start();
 		return await WaitForControlsAsync(state => state.Axes.Count > 0).ConfigureAwait(false);
@@ -376,13 +415,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() =>
 		ReadAsync(_snapshots.Reader, _ => true);
 
-	public void Submit(string text) => Session.Submit(new AgentTurnSubmission {
+	public void Submit(string text) => Session.Submit(Prompt(text));
+
+	public void AskAside(string text) => Session.AskAside(Prompt(text));
+
+	private static AgentTurnSubmission Prompt(string text) => new() {
 		Id = Guid.NewGuid().ToString("N"),
 		Text = text,
 		Kind = AgentTurnSubmissionKind.Prompt,
 		CommandName = string.Empty,
 		Attachments = [],
-	});
+	};
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),

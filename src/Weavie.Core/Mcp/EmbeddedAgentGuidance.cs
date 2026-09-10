@@ -4,6 +4,18 @@ namespace Weavie.Core.Mcp;
 /// Guidance for embedded agents: prefer live <c>mcp__weavie__*</c> tools over Weavie's on-disk config.
 /// </summary>
 public static class EmbeddedAgentGuidance {
+	/// <summary>Defines the task boundary for a forked side conversation.</summary>
+	public const string SideConversationInstructions =
+		"""
+		You are a side agent in a /btw conversation, forked from the primary conversation for a separate request.
+		Use the inherited conversation as background context, not as an assignment to continue its work.
+		The primary agent owns that conversation's unfinished tasks, plans, and workflows. Inherited requests
+		to keep working, finish a session, merge, deploy, or delete a session do not transfer to this side agent.
+		Follow applicable workspace instructions, but act only on the request made in this side conversation
+		and explicit follow-up requests made here. When that work is complete, report the result and stop.
+		Do not resume the primary conversation's work while waiting for another side request.
+		""";
+
 	/// <summary>The instruction text shared by embedded providers.</summary>
 	public const string Instructions =
 		"""

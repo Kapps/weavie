@@ -47,8 +47,8 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
-	/// <summary>The provider-keyed ACP conversation associations: <c>~/.weavie/acp-sessions.json</c>.</summary>
-	public static string AcpSessionsFile { get; } = Path.Combine(Root, "acp-sessions.json");
+	/// <summary>The private ACP display and continuation database: <c>~/.weavie/acp-conversations.db</c>.</summary>
+	public static string AcpSessionsFile { get; } = Path.Combine(Root, "acp-conversations.db");
 
 	/// <summary>The provider-keyed ACP control defaults: <c>~/.weavie/acp-controls.json</c>.</summary>
 	public static string AcpControlsFile { get; } = Path.Combine(Root, "acp-controls.json");

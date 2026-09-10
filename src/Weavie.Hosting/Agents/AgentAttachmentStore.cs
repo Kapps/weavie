@@ -36,9 +36,15 @@ internal sealed class AgentAttachmentStore(PastedImageStore images) {
 		}
 	}
 
-	public IReadOnlyList<AgentInputAttachment> Resolve(IReadOnlyList<string> ids) {
+	public IReadOnlyList<string> Submit(
+		string submissionId,
+		IReadOnlyList<string> ids,
+		Action<IReadOnlyList<AgentInputAttachment>> submit) {
+		ArgumentNullException.ThrowIfNull(submissionId);
 		ArgumentNullException.ThrowIfNull(ids);
+		ArgumentNullException.ThrowIfNull(submit);
 		lock (_gate) {
+			if (_submissionReceipts.TryGetValue(submissionId, out var receipt)) return receipt;
 			var seen = new HashSet<string>(StringComparer.Ordinal);
 			var resolved = new List<AgentInputAttachment>(ids.Count);
 			foreach (string id in ids) {
@@ -50,26 +56,15 @@ internal sealed class AgentAttachmentStore(PastedImageStore images) {
 				}
 				resolved.Add(item);
 			}
-			return resolved;
-		}
-	}
-
-	public void CommitSubmission(string submissionId, IReadOnlyList<string> ids) {
-		ArgumentException.ThrowIfNullOrEmpty(submissionId);
-		ArgumentNullException.ThrowIfNull(ids);
-		lock (_gate) {
-			foreach (string id in ids) {
-				_items.Remove(id);
-				_closedAttachmentIds.Add(id);
+			submit(resolved);
+			if (submissionId.Length > 0) {
+				foreach (string id in ids) {
+					_items.Remove(id);
+					_closedAttachmentIds.Add(id);
+				}
+				_submissionReceipts[submissionId] = [.. ids];
 			}
-			_submissionReceipts[submissionId] = [.. ids];
-		}
-	}
-
-	public bool TryReceipt(string submissionId, out IReadOnlyList<string> attachmentIds) {
-		ArgumentException.ThrowIfNullOrEmpty(submissionId);
-		lock (_gate) {
-			return _submissionReceipts.TryGetValue(submissionId, out attachmentIds!);
+			return ids;
 		}
 	}
 

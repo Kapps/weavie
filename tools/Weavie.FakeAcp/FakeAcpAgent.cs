@@ -1,10 +1,11 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.Mcp;
 
 namespace Weavie.FakeAcp;
 
 internal sealed partial class FakeAcpAgent : IAcpAgent {
+	private static readonly Lock PromptLogGate = new();
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
@@ -26,7 +27,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private string? _sessionId;
 
 	public FakeAcpAgent() {
-		_fakeMode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
+		_fakeMode = Environment.GetCommandLineArgs().Contains("--flatten-replay", StringComparer.Ordinal)
+			? "flatten-replay" : Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
 		string root = Environment.GetEnvironmentVariable("WEAVIE_ROOT")
 			?? throw new InvalidOperationException("WEAVIE_ROOT is required by the fake ACP agent.");
 		_stateDirectory = Path.Combine(root, "fake-acp-state");
@@ -122,9 +124,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		};
 		if (_fakeMode != "minimal-capabilities") response["agentCapabilities"] = new JsonObject {
 			["loadSession"] = _fakeMode != "resume-only",
-			["promptCapabilities"] = new JsonObject { ["image"] = true, ["embeddedContext"] = true },
+			["promptCapabilities"] = new JsonObject {
+				["image"] = true,
+				["embeddedContext"] = _fakeMode != "no-embedded-context",
+			},
 			["sessionCapabilities"] = new JsonObject {
-				["resume"] = new JsonObject(),
+				["resume"] = _fakeMode == "flatten-replay" ? null : new JsonObject(),
 				["close"] = new JsonObject(),
 				["fork"] = new JsonObject(),
 			},
@@ -168,6 +173,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				["messageId"] = "replayed-user-1",
 				["content"] = Text("prompt"),
 			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-1",
+				["content"] = AssistantOnly(Text("hidden guidance chunk")),
+			});
 			ReplayProgress("first persisted progress");
 			PlanDocument("replayed-plan-1", "# First persisted plan");
 			Update(new JsonObject {
@@ -178,17 +188,40 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-guidance",
-				["content"] = Resource("weavie://instructions", "hidden guidance"),
+				["content"] = AssistantOnly(Resource("context://guidance", "hidden guidance")),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-selection",
-				["content"] = Resource("file:///workspace/file.cs#selection", "hidden selection"),
+				["content"] = AssistantOnly(Resource("file:///workspace/file.cs", "hidden selection")),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-context-only",
+				["content"] = AssistantOnly(Text("hidden selection without markup")),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-user-2",
 				["content"] = Text("second persisted prompt"),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-2",
+				["content"] = new JsonObject {
+					["type"] = "image",
+					["mimeType"] = "image/png",
+					["data"] = "cGljdHVyZQ==",
+				},
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-2",
+				["content"] = AssistantOnly(new JsonObject {
+					["type"] = "image",
+					["mimeType"] = "image/jpeg",
+					["data"] = "hidden image",
+				}),
 			});
 			ReplayProgress("second persisted progress");
 			PlanDocument("replayed-plan-2", "# Second persisted plan");
@@ -333,6 +366,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private async Task<JsonNode> PromptAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
+		RecordWirePrompt("session/prompt", parameters);
 		_prompted = true;
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
@@ -436,16 +470,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		else if (text == "crash") Environment.Exit(19);
 		else {
 			Message("echo: " + text);
-			RecordTranscriptTurn(text);
+			RecordTranscriptTurn(prompt);
 		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
 	}
 
-	private void RecordTranscriptTurn(string prompt) {
+	private void RecordTranscriptTurn(JsonElement prompt) {
 		if (_sessionId is null) return;
-		File.AppendAllText(
-			TranscriptPath(_sessionId),
-			Convert.ToBase64String(Encoding.UTF8.GetBytes(prompt)) + Environment.NewLine);
+		File.AppendAllText(TranscriptPath(_sessionId), JsonSerializer.Serialize(prompt) + Environment.NewLine);
 	}
 
 	private static void CrashWhenReleased() => _ = Task.Run(async () => {
@@ -460,20 +492,38 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		string path = TranscriptPath(sessionId);
 		if (!File.Exists(path)) return;
 		int turn = 0;
-		foreach (string encoded in File.ReadLines(path)) {
+		foreach (string line in File.ReadLines(path)) {
 			turn++;
-			string prompt = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-			Update(new JsonObject {
-				["sessionUpdate"] = "user_message_chunk",
-				["messageId"] = $"fork-user-{turn}",
-				["content"] = Text(prompt),
-			});
+			using var document = JsonDocument.Parse(line);
+			var prompt = document.RootElement;
+			foreach (var block in prompt.EnumerateArray()) {
+				Update(new JsonObject {
+					["sessionUpdate"] = "user_message_chunk",
+					["messageId"] = $"fork-user-{turn}",
+					["content"] = _fakeMode == "flatten-replay" ? FlattenBlock(block) : JsonNode.Parse(block.GetRawText()),
+				});
+			}
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_message_chunk",
 				["messageId"] = $"fork-agent-{turn}",
-				["content"] = Text("echo: " + prompt),
+				["content"] = Text("echo: " + PromptText(prompt)),
 			});
 		}
+	}
+
+	private static JsonNode? FlattenBlock(JsonElement block) {
+		if (block.GetProperty("type").GetString() == "image") {
+			return Text($"[@image](data:{block.GetProperty("mimeType").GetString()};base64,{block.GetProperty("data").GetString()})");
+		}
+		if (block.GetProperty("type").GetString() == "resource" && block.TryGetProperty("resource", out var resource)
+			&& resource.TryGetProperty("text", out var text)) {
+			string uri = resource.GetProperty("uri").GetString()!;
+			string link = uri.StartsWith("file:", StringComparison.Ordinal) ? $"[@{uri[(uri.LastIndexOf('/') + 1)..]}]({uri})" : uri;
+			return Text($"{link}\n<context ref=\"{uri}\">\n{text.GetString()}\n</context>");
+		}
+		var content = JsonNode.Parse(block.GetRawText())!;
+		content.AsObject().Remove("annotations");
+		return content;
 	}
 
 	private string TranscriptPath(string sessionId) => StatePath($"session-transcript-{sessionId}.log");
@@ -549,6 +599,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private async Task<JsonObject> SteerAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
+		RecordWirePrompt("_session/steering", parameters);
 		string text = PromptText(AcpJson.RequiredArray(parameters, "prompt", "_session/steering"));
 		if (text == "held-steering") {
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "steering-started"), string.Empty);
@@ -627,6 +678,13 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	}
 
 	private void SharedMessageId() {
+		foreach (string kind in new[] { "agent_thought_chunk", "agent_message_chunk" }) {
+			Update(new JsonObject {
+				["sessionUpdate"] = kind,
+				["messageId"] = "assistant-only-message",
+				["content"] = AssistantOnly(Text("hidden assistant content")),
+			});
+		}
 		foreach (string text in new[] { "deep ", "thought" }) {
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_thought_chunk",
@@ -656,6 +714,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			["toolCallId"] = "content",
 			["status"] = "completed",
 			["content"] = new JsonArray(
+				Content(AssistantOnly(Text("hidden tool text"))),
 				Content(Text("tool text")),
 				Content(new JsonObject {
 					["type"] = "image",
@@ -1247,6 +1306,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private AcpAgentConnection Connection() =>
 		_connection ?? throw new InvalidOperationException("Fake ACP is not attached.");
 
+	private static JsonObject AssistantOnly(JsonObject content) {
+		content["annotations"] = new JsonObject { ["audience"] = new JsonArray("assistant") };
+		return content;
+	}
+
 	private static JsonObject Text(string value) => new() { ["type"] = "text", ["text"] = value };
 
 	private static JsonObject Resource(string uri, string text) => new() {
@@ -1258,9 +1322,18 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
+	private void RecordWirePrompt(string method, JsonElement parameters) {
+		lock (PromptLogGate) {
+			File.AppendAllText(
+				StatePath("wire-prompts.jsonl"),
+				JsonSerializer.Serialize(new { method, parameters }) + Environment.NewLine);
+		}
+	}
+
 	private static string PromptText(JsonElement prompt) => string.Concat(prompt.EnumerateArray()
 		.Where(block => AcpJson.OptionalString(block, "type") == "text")
-		.Select(block => AcpJson.OptionalString(block, "text")));
+		.Select(block => AcpJson.OptionalString(block, "text"))
+		.Where(text => text != EmbeddedAgentGuidance.SideConversationInstructions));
 
 	private static string? ResourceUri(JsonElement block) =>
 		block.TryGetProperty("resource", out var resource) ? AcpJson.OptionalString(resource, "uri") : null;

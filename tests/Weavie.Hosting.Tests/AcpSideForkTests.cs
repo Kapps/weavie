@@ -11,11 +11,11 @@ public sealed class AcpSideForkTests {
 		await fixture.StartAsync();
 		fixture.Submit("primary context");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
-		fixture.Session.AskAside("interrupted side prompt");
+		fixture.AskAside("interrupted side prompt");
 		var first = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "fork-started")));
 		fixture.Session.Interrupt();
-		fixture.Session.AskAside("next side prompt");
+		fixture.AskAside("next side prompt");
 		File.WriteAllText(Path.Combine(fixture.Workspace, "release-fork"), string.Empty);
 
 		var answer = await fixture.WaitForMessageAsync(message =>

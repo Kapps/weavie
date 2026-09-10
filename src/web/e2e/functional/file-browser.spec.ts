@@ -120,6 +120,7 @@ test("an open Go to File query follows external create, rename and delete", asyn
   await page.locator(".browser-row", { hasText: "empty-directory" }).click();
   await expect(page.locator(".browser-children .browser-empty")).toHaveText("Empty folder");
   await runCommand(page, "Toggle File Browser");
+  await expect(page.locator('.tool-panel[data-tool="files"]')).toBeHidden();
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill("live-index");
   await expect(row("live-index")).toHaveCount(0);

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
-using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;
@@ -415,89 +414,6 @@ public sealed partial class AcpAgentSession {
 				}
 				if (settled) SignalSideTurnSettled();
 			}
-		}
-	}
-
-	/// <inheritdoc/>
-	public void Restart() {
-		bool clearSubmissions;
-		lock (_gate) clearSubmissions = !_runtimeFailed;
-		Restart(clearSubmissions);
-	}
-
-	private void Restart(bool clearSubmissions) {
-		lock (_turnTransitionGate) {
-			if (_role is SideRole) throw new InvalidOperationException("Restart the owning primary conversation.");
-			if (!_displayRestored) RestoreDisplay();
-			else if (_storageFailed) SaveContinuation();
-			_storageFailed = false;
-			TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
-			SuspendSideRuntimes("ACP agent restarted.");
-			_connection.Restart();
-		}
-	}
-
-	/// <inheritdoc/>
-	public void StartNewConversation() {
-		if (_role is not PrimaryRole) {
-			throw new InvalidOperationException("Only the primary ACP conversation can be replaced.");
-		}
-		SideRuntime[] sideSessions;
-		lock (_turnTransitionGate) {
-			TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
-			lock (_gate) sideSessions = [.. _sideRuntimes.Values];
-			foreach (var side in sideSessions) side.Session.TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
-			lock (_gate) {
-				_sessionId = null;
-				_turnNumber = 0;
-				_guidanceSent = false;
-				_planTurns.Clear();
-				_sideRuntimes.Clear();
-			}
-			_sideConversations.Clear();
-			_sessions.Clear(_definition.Id, _context.Workspace);
-			_storageFailed = false;
-			_displayRestored = true;
-			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
-			_connection.Restart();
-		}
-		foreach (var side in sideSessions) DisposeSideRuntime(side);
-	}
-
-	private void TerminalizeForRestart(bool clearSubmissions, string summary) {
-		TerminalizedTool[] tools;
-		bool promptActive;
-		long generation;
-		lock (_gate) {
-			generation = _activeGeneration;
-			_activeGeneration = 0;
-			_ready = false;
-			if (clearSubmissions) _pendingSubmissions.Clear();
-			_submissionEpoch++;
-			_cancelRequested = false;
-			promptActive = _promptActive;
-			_promptActive = false;
-			_steering = false;
-			_waitingForBackground = false;
-			tools = TerminalizeActiveToolsLocked("cancelled");
-		}
-		if (generation > 0) _terminals.ReleaseGeneration(generation);
-		PublishQueue();
-		ObserveTerminalizedTools(tools);
-		if (promptActive || tools.Length > 0) {
-			Observe(new AgentTurnStopped(WillResume: false));
-		}
-		CompleteContentStreams();
-		PublishTerminalizedToolMessages(tools);
-		if (promptActive) {
-			Emit(new AgentPaneMessage {
-				Type = "turn-completed",
-				ProviderId = _definition.Id,
-				ThreadId = SessionId(),
-				TurnId = TurnId(),
-				Status = "cancelled",
-				Summary = summary,
-			});
 		}
 	}
 

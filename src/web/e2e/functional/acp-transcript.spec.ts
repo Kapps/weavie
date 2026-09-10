@@ -1,4 +1,4 @@
-import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { createAcpSession } from "../harness/acp-session";
@@ -125,7 +125,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await runCommand(page, "Unload Session");
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-transcript-context"]');
   await expect(unloaded).toBeVisible();
-  await unlink(stagedImage);
+  await expect(readFile(stagedImage)).rejects.toMatchObject({ code: "ENOENT" });
   await unloaded.click();
 
   await expect(surface.getByRole("button", { name: "Model Alpha" })).toBeVisible();

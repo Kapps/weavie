@@ -104,13 +104,16 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void CompleteContentStreams() {
+		foreach (var message in DrainContentStreams()) Emit(message);
+	}
+
+	private IReadOnlyList<AgentPaneMessage> DrainContentStreams() {
 		AcpContentState[] content;
 		lock (_gate) {
 			content = [.. _content.Values];
 			_content.Clear();
 		}
-		foreach (var state in content) {
-			Emit(new AgentPaneMessage {
+		return [.. content.Select(state => new AgentPaneMessage {
 				Type = "item-completed",
 				ProviderId = _definition.Id,
 				ThreadId = SessionId(),
@@ -128,8 +131,7 @@ public sealed partial class AcpAgentSession {
 				MediaType = state.MediaType,
 				MediaData = state.MediaData,
 				ResourceUri = state.ResourceUri,
-			});
-		}
+			})];
 	}
 
 	private static string? ResourceText(JsonElement content) {

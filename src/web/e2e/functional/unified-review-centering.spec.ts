@@ -20,16 +20,21 @@ async function expectCenteredLine(section: Locator, text: string): Promise<void>
   const line = section.locator(".view-line", { hasText: text });
   await expect(line).toBeInViewport();
   await expect
-    .poll(async () => {
-      const scroller = await section.page().locator(".unified-review-diffs").boundingBox();
-      const header = await section.locator(".unified-review-file-header").boundingBox();
-      const bounds = await line.boundingBox();
-      if (scroller === null || header === null || bounds === null) {
-        throw new Error("Review viewport, header, or changed line is missing");
-      }
-      const center = (scroller.y + header.height + scroller.y + scroller.height) / 2;
-      return Math.abs(bounds.y + bounds.height / 2 - center);
-    })
+    .poll(() =>
+      section.evaluate((element, targetText) => {
+        // Monaco replaces line elements during rendering; sample all geometry in one DOM read.
+        const scroller = element.closest(".unified-review-diffs")?.getBoundingClientRect();
+        const header = element
+          .querySelector(".unified-review-file-header")
+          ?.getBoundingClientRect();
+        const bounds = Array.from(element.querySelectorAll(".view-line"))
+          .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").includes(targetText))
+          ?.getBoundingClientRect();
+        if (!scroller || !header || !bounds) return Number.POSITIVE_INFINITY;
+        const center = (scroller.y + header.height + scroller.y + scroller.height) / 2;
+        return Math.abs(bounds.y + bounds.height / 2 - center);
+      }, text),
+    )
     .toBeLessThanOrEqual(25);
 }
 

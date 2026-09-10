@@ -11,6 +11,17 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   const acks = new Set<string>();
   const complete = Promise.withResolvers<string>();
   let workspace = "";
+  const fontRequest = (requestId: string) =>
+    JSON.stringify({
+      scope: "host",
+      session: null,
+      kind: "request",
+      requestId,
+      feature: "commands",
+      name: "invoke",
+      payload: { id: "weavie.font.increase", args: null },
+      error: null,
+    });
   const attack = (reportOrigin: string) => `
     const report = path => fetch(${JSON.stringify(reportOrigin)} + path, {mode:'no-cors'});
     const leak = () => report('/leak');
@@ -19,7 +30,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     window.chrome?.webview?.addEventListener('message', leak);
     if (location.pathname === '/opaque' && self.origin !== 'null') report('/leak');
     if (['__weaviePostMessage','__WEAVIE_WELCOME__','__WEAVIE_RESOURCE_BASE__'].some(key => key in window)) report('/leak');
-    const body = JSON.stringify({scope:'host',session:null,kind:'request',requestId:'attack',feature:'commands',name:'invoke',payload:{id:'weavie.font.increase',args:null},error:null});
+    const body = ${JSON.stringify(fontRequest("attack"))};
     try { top.__weaviePostMessage(body); report('/leak'); } catch {}
     const menu = JSON.stringify({scope:'host',session:null,kind:'event',requestId:null,feature:'window',name:'menu',payload:{action:'open-recent',path:${JSON.stringify(workspace)}},error:null});
     for (const value of [body, menu, '0'.repeat(64) + ':' + body, '0'.repeat(64) + ':' + menu]) {
@@ -92,10 +103,10 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/welcome'));
           document.querySelectorAll('.welcome-row')[1].click(); return;
         }
-        await wait(() => query('.tb-omnibar-input') && !query('#splash'));
+        await wait(() => query('.editor[data-ready="true"]') && !query('#splash'));
         if (window.__WEAVIE_BRIDGE_WS__ !== undefined) throw Error('Expected native transport');
-        let replies = 0;
-        window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies++; receive(raw); })(window.__weavieReceive);
+        const replies = new Set();
+        window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies.add(message.requestId); receive(raw); })(window.__weavieReceive);
         const font = () => getComputedStyle(document.documentElement).getPropertyValue('--font-content-size').trim();
         if (!sessionStorage.getItem('bridge-reloaded')) {
           await command('Open URL…'); await wait(() => query('.url-prompt-input'));
@@ -105,12 +116,13 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
           for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
-            const before = replies; await command('Increase Font Size'); location.href = url;
-            await wait(() => font() === (17 + index) + 'px' && replies > before);
+            const request = ${fontRequest("trusted")}; request.requestId += index;
+            window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
+            await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
           }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }
-        await command('Increase Font Size'); await wait(() => font() === '20px' && replies > 0);
+        await command('Increase Font Size'); await wait(() => font() === '20px' && replies.size > 0);
         await fetch(origin + '/done?nonce=' + nonce + '&result=pass');
       })().catch(error => fetch(${JSON.stringify(origin)} + '/done?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent(String(error))));
     `;

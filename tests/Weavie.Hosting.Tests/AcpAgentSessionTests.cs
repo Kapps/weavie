@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
@@ -31,11 +32,11 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_PersistsOnlyAfterTheFirstSubmittedTurn() {
+	public async Task NativeSession_PersistsTheIdentityBeforeAcceptingTheFirstTurn() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		Assert.Null(fixture.Sessions.Resolve("fake", fixture.Workspace));
+		Assert.Equal("fake-session", fixture.Sessions.Resolve("fake", fixture.Workspace));
 		fixture.Submit("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
@@ -62,6 +63,19 @@ public sealed class AcpAgentSessionTests {
 		Assert.DoesNotContain(fixture.Messages, message =>
 			message.Text == "persistence failure did not stop the provider");
 		Assert.Equal(SessionStatus.Error, fixture.Events.Status.Status);
+
+		using (var database = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = fixture.Sessions.FilePath, Pooling = false }.ToString())) {
+			database.Open();
+			using var repair = database.CreateCommand();
+			repair.CommandText = "DROP TRIGGER deny_turn";
+			repair.ExecuteNonQuery();
+		}
+		fixture.Session.Restart();
+		fixture.Submit("record after storage recovery");
+		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: record after storage recovery");
+		Assert.Contains(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message =>
+			message.Type == "item-completed" && message.Text == "echo: record after storage recovery");
+
 	}
 
 	[Fact]
@@ -189,7 +203,7 @@ public sealed class AcpAgentSessionTests {
 
 		if (primaryAdvancesBeforeOpening) fixture.Session.PaneMessage += message => {
 			// The anchor is captured before the child starts; primary persistence can advance in that gap.
-			if (message.Type == "side-conversation-started") fixture.Sessions.Adopt("fake", fixture.Workspace, "fake-session", 1);
+			if (message.Type == "side-conversation-started") AcpAgentSessionFixture.SeedSession(fixture.Sessions, "fake", fixture.Workspace, "fake-session", 1);
 		};
 		fixture.Session.AskAside("context");
 		var answer = await fixture.WaitForMessageAsync(message =>
@@ -497,7 +511,7 @@ public sealed class AcpAgentSessionTests {
 		fixture.Session.StartNewConversation();
 		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
 		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted started && !oldStarts.Contains(started));
-		Assert.Null(fixture.Sessions.Resolve("fake", fixture.Workspace));
+		Assert.Equal("fake-session-2", fixture.Sessions.Resolve("fake", fixture.Workspace));
 		fixture.Submit("context-after-reset");
 		var response = await fixture.WaitForMessageAsync(message =>
 			message.Text == "context-after-reset:guidance=True;selection=False");
@@ -887,6 +901,13 @@ public sealed class AcpAgentSessionTests {
 		});
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "image=True");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "3");
+		var submitted = Assert.Single(fixture.Messages, message => message.Type == "user-image");
+		Assert.Equal("image/png", submitted.MediaType);
+		Assert.Equal("AQIDBA==", submitted.MediaData);
+		Assert.Null(submitted.Text);
+		File.Delete(image);
+		Assert.Equal(submitted, Assert.Single(fixture.Sessions.ReadMessages("fake", fixture.Workspace),
+			message => message.Type == "user-image"));
 	}
 
 	[Fact]
@@ -1044,6 +1065,8 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.ItemType == "agentMessage"
 			&& message.Type == "item-completed" && message.Text == "final answer");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemId?.Contains("assistant-only-message", StringComparison.Ordinal) == true);
+
 	}
 
 	[Fact]
@@ -1161,7 +1184,9 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
 			&& message.ItemId == "thought:thought");
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
-			&& message.ItemId == "progress:current");
+				&& message.ItemId == "progress:current");
+		Assert.Equal(fixture.Messages.Where(message => message.Type == "item-retracted"),
+			fixture.Sessions.ReadMessages("fake", fixture.Workspace).Where(message => message.Type == "item-retracted"));
 	}
 
 	[Fact]
@@ -1328,66 +1353,34 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_LoadsTranscriptAndResumesAcrossProcessReplacement() {
-		await using var fixture = AcpAgentSessionFixture.Create(
-			allowAllPermissions: true,
-			persistedSessionId: "replay-session");
+	public async Task NativeSession_RestoresItsDisplayAndDiscardsAdapterReplayAcrossProcessReplacement() {
+		await using var fixture = AcpAgentSessionFixture.CreateFlattenReplayAdapter("replay-session");
+		var state = Assert.Single(fixture.Sessions.ReadConversations("fake", fixture.Workspace)) with {
+			TurnNumber = 2,
+			PlanTurns = new Dictionary<string, string> { ["live-plan"] = "1" },
+		};
+		var prompt = new AgentPaneMessage {
+			Type = "user-message",
+			ProviderId = "fake",
+			ThreadId = "replay-session",
+			TurnId = "2",
+			ItemId = "user",
+			Text = "<context>literal user XML</context>",
+			Status = "completed",
+		};
+		fixture.Sessions.Save("fake", fixture.Workspace, state, [prompt]);
 		var snapshotTask = fixture.WaitForSnapshotAsync();
 		await fixture.StartAsync();
-		var snapshot = await snapshotTask;
-		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "first persisted prompt");
-		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "second persisted prompt");
-		Assert.Contains(snapshot, message => message.Type == "item-completed" && message.Text == "persisted transcript");
-		var progress = snapshot.Where(message => message.ItemType == "progress").ToArray();
-		Assert.Equal(2, progress.Length);
-		Assert.Contains(progress, message => message.Text!.Contains("first persisted progress", StringComparison.Ordinal));
-		Assert.Contains(progress, message => message.Text!.Contains("second persisted progress", StringComparison.Ordinal));
-		var plans = snapshot.Where(message => message.ItemType == "plan").ToArray();
-		Assert.Equal(2, plans.Length);
-		Assert.Equal(["1", "2"], plans.Select(message => message.TurnId));
-		Assert.Contains(plans, message => message.Text == "# First persisted plan");
-		Assert.Contains(plans, message => message.Text == "# Second persisted plan");
-		// The transcript still calls this one running, but the process that ran it is gone: it replays as an
-		// interrupted row, not a spinner nothing will ever resolve.
-		Assert.Contains(snapshot, message => message.Type == "item-completed"
-			&& message.ItemId == "tool:replayed-background"
-			&& message.Status == "cancelled");
-		// A tool that finished replays as pending-then-completed. Judging each frame on its own would file the
-		// first as interrupted, persisting a second record that contradicts the one that follows it.
-		Assert.Equal(
-			["completed"],
-			snapshot
-				.Where(message => message.ItemId == "tool:replayed-finished" && message.Type == "item-completed")
-				.Select(message => message.Status));
-		// The pane places a record where its stream first appears, so a restore has to arrive in conversation order:
-		// every prompt ahead of the work it asked for, and ahead of the turn boundary the pane derives from it.
-		Assert.Equal(
-			[
-				("1", "userMessage:replayed-user-1"),
-				("1", "progress:current"),
-				("1", "plan:replayed-plan-1"),
-				("1", "agentMessage:replayed-agent-1"),
-				("2", "userMessage:replayed-user-2"),
-				("2", "progress:current"),
-				("2", "plan:replayed-plan-2"),
-				("2", "agentMessage:replayed-agent-2"),
-				("2", "tool:replayed-finished"),
-				("2", "tool:replayed-background"),
-			],
-			snapshot.Select(message => (message.TurnId, message.ItemId)).Distinct());
-		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden guidance", StringComparison.Ordinal) == true);
-		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden selection", StringComparison.Ordinal) == true);
-		Assert.All(snapshot, message => Assert.Equal("replay-session", message.ThreadId));
-		// Loading a transcript must not leave the session Waiting on work that died with the previous process:
-		// nothing would ever settle it, so it would hold the update drain for the life of the host.
+		Assert.Equal(new[] { prompt }, await snapshotTask);
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+		Assert.DoesNotContain(fixture.Messages, message => message.Text?.Contains("persisted", StringComparison.Ordinal) == true);
 
 		fixture.Session.Restart();
-		await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "model"));
-		fixture.Submit("after restart");
-		var response = await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
-			&& message.Text == "echo: after restart");
-		Assert.Equal("3", response.TurnId);
+		fixture.Submit("plan-revision");
+		var plan = await fixture.WaitForMessageAsync(message => message.ItemType == "plan" && message.Text == "# Revised implementation plan");
+		Assert.Equal("1", plan.TurnId);
+		Assert.Equal(3, fixture.Sessions.ResolveTurnNumber("fake", fixture.Workspace));
+		Assert.Equal(2, File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "loads.log")).Length);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 	}
 

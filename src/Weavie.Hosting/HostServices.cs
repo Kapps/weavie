@@ -46,6 +46,9 @@ public sealed record HostServices {
 	/// <summary>The installed ACP catalog and official registry operations.</summary>
 	public required IAcpAgentCatalog AcpAgents { get; init; }
 
+	/// <summary>The shared ACP display and continuation store.</summary>
+	public required AcpSessionStore AcpSessions { get; init; }
+
 	/// <summary>The app-global typed inference service over the installed agent providers.</summary>
 	public required IInferenceService Inference { get; init; }
 
@@ -112,7 +115,8 @@ public sealed record HostServices {
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		claudeSessions.Log += Log;
 		var acpAgents = AcpDistributionService.CreateDefault();
-		var agentProviders = AgentProviderComposition.Create(settings, claudeSessions, acpAgents);
+		var acpSessions = new AcpSessionStore(WeaviePaths.AcpSessionsFile);
+		var agentProviders = AgentProviderComposition.Create(settings, claudeSessions, acpAgents, acpSessions);
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
@@ -128,6 +132,7 @@ public sealed record HostServices {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AcpAgents = acpAgents,
+			AcpSessions = acpSessions,
 			Inference = InferenceComposition.CreateDefault(settings, agentProviders),
 			RemoteAgents = remoteAgents,
 			RailState = railState,

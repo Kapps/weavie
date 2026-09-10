@@ -943,6 +943,7 @@ public sealed partial class HostCore {
 				deleteBranch: false,
 				force,
 				CancellationToken.None).ConfigureAwait(false);
+			_acpSessions.ClearWorkspace(worktreePath);
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
 			await _ui.InvokeAsync(() => {

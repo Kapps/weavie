@@ -15,13 +15,14 @@ public static class AgentProviderComposition {
 	public static AgentProviderRegistry Create(
 		SettingsStore settings,
 		ClaudeSessionStore claudeSessions,
-		IAcpAgentCatalog acpAgents) {
+		IAcpAgentCatalog acpAgents,
+		AcpSessionStore sessions) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(claudeSessions);
 		ArgumentNullException.ThrowIfNull(acpAgents);
 		var providers = new AgentProviderRegistry();
 		var claude = new ClaudeAgentProvider(settings, claudeSessions);
-		var sessions = new AcpSessionStore(new LocalFileSystem(), Weavie.Core.WeaviePaths.AcpSessionsFile);
+		ArgumentNullException.ThrowIfNull(sessions);
 		var controls = new AcpControlStore(new LocalFileSystem(), Weavie.Core.WeaviePaths.AcpControlsFile);
 		void Rebuild() => providers.ReplaceAll([claude, .. BuildAcpProviders(acpAgents, sessions, controls)]);
 		Rebuild();

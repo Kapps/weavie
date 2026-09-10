@@ -6,14 +6,25 @@ transcript's size.
 
 ## Ownership
 
-**The provider owns the transcript; Weavie caches nothing.** `AgentSessionHost` materializes the pane in memory
-for as long as the session is loaded, and a cold load starts empty until the provider replays its own
-conversation. A provider that cannot replay comes back empty rather than being handed a stale local copy that
-looks live — the same reason `AcpAgentSession` emits `transcript-reset` when a persisted session can be neither
-loaded nor resumed.
+**Weavie owns the displayed ACP transcript; the agent owns model history and continuation.** The private
+`acp-conversations.db` SQLite database stores the current primary ACP identity, BTW continuation identities,
+local turn numbers, guidance state, plan-to-turn mappings, and ordered provider-neutral display events.
+Each event and its conversation state commit in one transaction before the event reaches the pane. Writes
+append only the new events, so streaming does not rewrite the conversation. Database failures stop the agent
+and surface an error; saved data is never silently discarded or replaced with provider replay.
 
-Switching between loaded sessions never touches this path: it is served from the in-memory pane at a settled
-generation.
+The host's existing pane reducer materializes these events in memory and serves both live updates and HTTP
+history. Switching between loaded sessions uses that in-memory projection. Cold load restores the saved event
+journal, including side conversations, before starting the agent. Pending interactions, active tools, partial
+output, and interrupted turns receive explicit cancellation events; old process requests never become clickable
+live requests after reload.
+
+Submitted images retain the exact encoded bytes and MIME type sent in the ACP prompt. Images and other
+structured media remain media fields in the journal, independent of temporary attachment files and any
+text or data-URL representation in adapter replay.
+
+The journal records activity observed by Weavie. It does not import older provider history or automatically
+merge changes made in another client. The terminal pane keeps its existing provider-owned history behavior.
 
 ## Generations
 
@@ -62,35 +73,39 @@ History command and its effective shortcut. Reloading retries history without re
 
 ## Provider hydration
 
-ACP `session/load` is the only source of history produced outside this process. While load is active,
-`AcpAgentSession` collects the provider's `session/update` stream instead of publishing it live, so a
-half-replayed conversation is never rendered. A successful load raises one host-internal `PaneSnapshot` event.
+ACP reconnect uses `session/resume` when advertised. A load-only agent receives `session/load`; its replayed
+messages, tools, and plans are drained without entering the display or live activity tracking. Configuration,
+commands, and usage updates still establish the current controls. Local turn numbers and plan identities come
+from Weavie's continuation records, independently of replay order or adapter content serialization.
 
-The collected stream must stay in conversation order, because the pane places a record where its stream first
-appears and derives turn boundaries from where the prompts sit. Agent content is positioned by the delta it
-streams; a replayed user prompt has neither that nor the local submission that places it live, so it is closed
-— and published — the moment the replay moves past it, rather than at the end of the load.
+A `/btw` record retains its exact child ACP session id, original anchor and question, and independent local turn
+and plan state. Cold load restores its display without opening a child runtime. Reply creates a runtime bound
+to that saved child, resumes or loads it, and submits there. It never forks a replacement from the current main
+conversation. Missing provider sessions fail visibly while the saved conversation remains readable.
 
-On a cold load the pane is empty, so `AgentSessionHost` stores the snapshot and streams it as live records
-inside the existing generation: connected clients receive the transcript without being told to re-sync, and a
-client that has already loaded history keeps every ordinal it holds. Only a snapshot arriving over existing
-content resets the generation and publishes `paneReset`.
+Provider identities are committed as soon as creation/fork succeeds, before a prompt can be submitted. A host
+interruption during initial fork setup leaves the card explicitly interrupted. `/clear` retires current work,
+atomically removes the primary and side descriptors and journal, resets the pane, and starts a new conversation.
+Late events from retired generations and side runtimes cannot write into the replacement conversation.
+Deleting a Weavie session removes its stored display and continuation data for all providers, including
+uninstalled providers; unloading retains them. Cleanup errors are visible and leave the session entry for retry.
 
 ```mermaid
 sequenceDiagram
+  participant DB as Weavie display store
   participant Host as AgentSessionHost
-  participant ACP as AcpAgentSession
+  participant ACP as ACP agent
   participant Web
 
-  Web->>Host: lifecycle.sync
-  Host-->>Web: bounded controls and attachments
-  Web->>Host: HTTP agent history stream
-  Host-->>Web: completion marker (pane not yet populated)
-
-  ACP->>Host: PaneSnapshot after session/load
-  Host->>Host: empty pane, so keep the generation
-  Host-->>Web: live records
-  Note over Web: transcript appears; no re-sync
+  DB->>Host: saved main and BTW display events
+  Host-->>Web: restored transcript
+  Host->>ACP: resume exact primary session
+  Web->>Host: reply to saved BTW
+  Host->>ACP: resume exact saved child session
+  Host->>ACP: submit reply to child
+  ACP-->>Host: new updates
+  Host->>DB: commit display events and continuation state
+  Host-->>Web: live output in the existing BTW card
 ```
 
 ## Transport isolation
@@ -111,5 +126,6 @@ There is no rejected-session recovery fallback. If `session/load` or `session/re
 ACP session id, the native session fails visibly and retains its saved mapping for diagnosis. Starting a
 different conversation is an explicit user action, never a silent transcript reset.
 
-Weavie holds no second copy to fall back to, which is deliberate: a cached transcript shown after the provider
-failed would render a dead session as a live one.
+A saved display remains readable if continuation fails. The failure is shown explicitly; displaying history
+never implies the provider session is available. A successful explicit restart after a storage failure must
+reestablish persistence before accepting further work.

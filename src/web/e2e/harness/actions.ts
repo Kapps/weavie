@@ -1,6 +1,18 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 import type { WeavieWindow } from "./weavie-window";
+
+// Holding Alt across hover and click lets Monaco replace a token with its definition-link decoration.
+export async function altClick(word: Locator): Promise<void> {
+  const keyboard = word.page().keyboard;
+  await keyboard.down("Alt");
+  try {
+    await word.hover();
+    await word.click();
+  } finally {
+    await keyboard.up("Alt");
+  }
+}
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
 // `data-ready` on `.editor` once Monaco is live. Editor-driving helpers wait on this; non-editor tests don't.

@@ -102,4 +102,5 @@ public sealed class McpStdioProxyTests {
 		listener.Start();
 		return ((IPEndPoint)listener.LocalEndpoint).Port;
 	}
+
 }

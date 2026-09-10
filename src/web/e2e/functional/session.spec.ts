@@ -147,11 +147,21 @@ test("reload restores the client-selected stable session slot @cross", async ({ 
 
 // Delete a (clean) session: right-click its chip → Delete… → confirm. A freshly forked worktree has no
 // changes, so the confirm dialog is the plain clean-state variant (single danger button, no checkbox).
-test("delete a session removes its chip @cross", async ({ page }) => {
+test("delete removes a clean worktree session and preserves the protected workspace @cross", async ({
+  page,
+  weavie,
+}) => {
   const chips = page.locator(".session-chip");
+  const workspaceId = await activeSessionSlot(page);
   await expect(chips).toHaveCount(1);
   await createSession(page, { branch: "e2e/session-delete", provider: "claude" });
   await expect(chips).toHaveCount(2);
+
+  await test.step("the workspace session offers unload but never delete", async () => {
+    await chips.first().click({ button: "right" });
+    await expect(page.locator(".context-menu .context-menu-item")).toHaveText(["Unload session"]);
+    await page.keyboard.press("Escape");
+  });
 
   await chips.nth(1).click({ button: "right" });
   await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
@@ -165,6 +175,8 @@ test("delete a session removes its chip @cross", async ({ page }) => {
     page.locator(".toast", { hasText: "was deleted. Its branch was kept." }),
   ).toHaveCount(1);
   await expect(page.locator(".toast", { hasText: "Deleting session" })).toHaveCount(0);
+  await expect(chips.first()).toHaveAttribute("data-session-slot", workspaceId);
+  expect(await readFile(join(weavie.workspace, "hello.ts"), "utf8")).toContain("greet");
 });
 
 test("delete confirmation names tracked and untracked work that will be lost @cross", async ({
@@ -191,28 +203,6 @@ test("delete confirmation names tracked and untracked work that will be lost @cr
   await expect(dialog.locator(".confirm-file-list")).toContainText("scratch.txt");
   await expect(dialog.locator(".confirm-check input")).not.toBeChecked();
   await expect(dialog.locator(".confirm-btn-danger")).toBeDisabled();
-});
-
-// Weavie doesn't own the directory the user opened, so the session on it is a permanent rail fixture: it
-// offers unload but never delete, and deleting everything else leaves it standing.
-test("the workspace session cannot be deleted", async ({ page, weavie }) => {
-  const chips = page.locator(".session-chip");
-  const workspaceId = await activeSessionSlot(page);
-  await createSession(page, { branch: "e2e/session-survivor", provider: "claude" });
-  await expect(chips).toHaveCount(2);
-
-  await chips.first().click({ button: "right" });
-  const menu = page.locator(".context-menu");
-  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session"]);
-  await page.keyboard.press("Escape");
-
-  await chips.nth(1).click({ button: "right" });
-  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
-  await page.locator(".confirm-dialog .confirm-btn-danger").click();
-
-  await expect(chips).toHaveCount(1);
-  await expect(chips.first()).toHaveAttribute("data-session-slot", workspaceId);
-  expect(await readFile(join(weavie.workspace, "hello.ts"), "utf8")).toContain("greet");
 });
 
 // Ctrl+Tab / Ctrl+Shift+Tab must step exactly one chip per press. Two sessions can't catch a step that walks

@@ -14,7 +14,19 @@ async function editorFontSize(page: import("@playwright/test").Page): Promise<nu
 // new View commands adjust the global font.size setting, which the web applies live to the editor. This pins
 // that the rendered editor font actually grows/shrinks/resets when the commands run. Pure frontend +
 // Core-setting round-trip through the headless host, so headless-only.
-test("Increase / Decrease / Reset Font Size resize the editor live", async ({ page }) => {
+test("font-size commands are discoverable and resize the editor live", async ({ page }) => {
+  await test.step("commands are discoverable under View", async () => {
+    await openCommandPalette(page);
+    await page.locator(".tb-omnibar-input").fill(">font size");
+
+    for (const title of ["Increase Font Size", "Decrease Font Size", "Reset Font Size"]) {
+      const row = page.locator(".tb-omnibar-row", { hasText: title }).first();
+      await expect(row).toBeVisible();
+      await expect(row).toContainText("View");
+    }
+  });
+  await page.keyboard.press("Escape");
+
   await openFile(page, "hello.ts");
   await expect(page.locator(".monaco-editor .view-line").first()).toBeVisible();
 
@@ -67,17 +79,4 @@ test("zooming via the keybindings does not spawn empty toasts", async ({ page })
     const messages = await page.locator(".toast .toast-msg").allTextContents();
     expect(messages.filter((m) => m.trim() === "")).toEqual([]);
   }).toPass({ timeout: 3000 });
-});
-
-// The commands must be discoverable in the palette under the View category — that's the keyboard-first
-// discovery path the issue asked for.
-test("font-size commands appear in the palette under View", async ({ page }) => {
-  await openCommandPalette(page);
-  await page.locator(".tb-omnibar-input").fill(">font size");
-
-  for (const title of ["Increase Font Size", "Decrease Font Size", "Reset Font Size"]) {
-    const row = page.locator(".tb-omnibar-row", { hasText: title }).first();
-    await expect(row).toBeVisible();
-    await expect(row).toContainText("View");
-  }
 });

@@ -183,7 +183,8 @@ jobs:
         if: matrix.platform.name == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
 
       # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
       # restoring the one solution-wide format workspace that can evaluate every platform project.
@@ -206,7 +207,7 @@ jobs:
 
       - name: Build
         run: |
-          dotnet build ${{ matrix.platform.project }} -c Release --no-restore
+          dotnet build ${{ matrix.platform.project }} -c Release
           dotnet build tools/Weavie.FakeClaude
           dotnet build tools/Weavie.FakeAcp
 

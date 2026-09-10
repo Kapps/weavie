@@ -10,8 +10,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   const nonce = randomUUID();
   const acks = new Set<string>();
   const complete = Promise.withResolvers<string>();
-  let origin = "",
-    workspace = "";
+  let workspace = "";
   const attack = () => `
     const report = path => fetch(location.origin + path, {mode:'no-cors'});
     window.__weavieReceive = () => report('/leak');
@@ -24,7 +23,8 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
       try { chrome.webview.postMessage(value); } catch {}
     }
-    report('/ack' + location.pathname);
+    if (location.pathname === '/top' && (window.chrome?.webview || window.webkit?.messageHandlers?.weavie)) report('/leak');
+    report(location.pathname === '/top' ? '/external' : '/ack' + location.pathname);
     if (location.pathname === '/preview') document.body.insertAdjacentHTML('beforeend', '<iframe sandbox="allow-scripts" src="/opaque"></iframe>');
     addEventListener('message', () => { try { top.location = location.origin + '/top'; } catch {} window.open('/top'); report('/ack/interactive'); });
   `;
@@ -47,7 +47,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
     const app = await desktop((path) => {
       workspace = path;

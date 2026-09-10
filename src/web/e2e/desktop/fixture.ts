@@ -71,7 +71,8 @@ export const test = base.extend<{
         await Promise.allSettled(launch ? [launch] : []);
         if (proc) await killProcessTree(proc);
       } finally {
-        await info.attach("desktop.log", { body: log, contentType: "text/plain" });
+        await writeFile(info.outputPath("desktop.log"), log);
+        await info.attach("desktop.log", { path: info.outputPath("desktop.log") });
         await fake.cleanup();
       }
     }

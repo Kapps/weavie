@@ -10,20 +10,6 @@ import {
 import { expect, test } from "../harness/fixtures";
 import type { WeavieWindow } from "../harness/weavie-window";
 
-// Omnibar → open a file → Monaco renders it with syntax highlighting. Highlighting is observed via Monaco's
-// tokenization classes (`.mtk<n>` spans) in the rendered view lines — proof tokens were produced, not just
-// plain text. Pure frontend, so headless-only.
-test("omnibar opens a file and Monaco highlights it", async ({ page }) => {
-  await openFile(page, "hello.ts");
-
-  const viewLines = page.locator(".monaco-editor .view-lines");
-  await expect(viewLines).toContainText("greet");
-  const tokenClasses = await page
-    .locator(".monaco-editor .view-lines [class*='mtk']")
-    .evaluateAll((els) => Array.from(new Set(els.map((el) => el.className))));
-  expect(tokenClasses.length).toBeGreaterThan(1);
-});
-
 // Failed on main 2026-09-04 11:47 UTC on macos shard 3/6 (`Expected: > 1, Received: 1`):
 // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011489774. Root cause: the curated
 // grammar's TextMate tokenization is applied asynchronously after the language id is set, so reading
@@ -111,10 +97,22 @@ test("clicking into the editor never scrolls the file away", async ({ page }) =>
 // a bundler can flatten to `undefined` — freshly typed lines then never colour (a silent, edit-only break). This
 // guards vite.config.ts's `fixTextmateLazyImport` workaround across bundler swaps (Rollup ↔ Rolldown). Pure
 // frontend, so headless-only.
-test("syntax highlighting survives typing new code (incremental re-tokenization)", async ({
+test("omnibar opens highlighted code and typing receives incremental syntax tokens", async ({
   page,
 }) => {
   await openFile(page, "hello.ts");
+
+  await test.step("initial file has syntax tokens", async () => {
+    const viewLines = page.locator(".monaco-editor .view-lines");
+    await expect(viewLines).toContainText("greet");
+    await expect
+      .poll(() =>
+        page
+          .locator(".monaco-editor .view-lines [class*='mtk']")
+          .evaluateAll((els) => new Set(els.map((el) => el.className)).size),
+      )
+      .toBeGreaterThan(1);
+  });
 
   // Type a distinctive line AFTER first render, so its tokens come purely from the incremental re-tokenizer.
   await clickIntoEditor(page);

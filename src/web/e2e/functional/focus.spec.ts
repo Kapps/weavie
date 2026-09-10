@@ -19,54 +19,43 @@ const focusedKind = (page: import("@playwright/test").Page): Promise<string | nu
 
 // Regression: clicking a pane's chrome must move focus into that pane. The shell tab activates its xterm;
 // otherwise DOM focus can stay in the editor and the next keystroke goes to Monaco.
-test("clicking the terminal tab focuses the terminal, not the editor", async ({ page }) => {
+test("terminal chrome transfers focus and typing between editor, shell, and agent", async ({
+  page,
+}) => {
   const editor = page.locator('.editor-surface[data-kind="editor"]');
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+  const claude = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  const viewLines = page.locator(".monaco-editor .view-lines").first();
 
   // Start with the editor genuinely focused: open a file and click into Monaco.
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
+  await pressDocumentStart(page);
   await expect(editor).toHaveClass(/\bactive\b/);
 
-  await shell.locator(".shell-tab-main").click();
+  await test.step("shell tab transfers active styling and DOM focus", async () => {
+    await shell.locator(".shell-tab-main").click();
 
-  // Focus moved: the terminal is highlighted, the editor isn't, and DOM focus is inside the terminal.
-  await expect(shell).toHaveClass(/\bactive\b/);
-  await expect(editor).not.toHaveClass(/\bactive\b/);
-  expect(await focusedKind(page)).toBe("terminal:shell");
-});
+    // Focus moved: the terminal is highlighted, the editor isn't, and DOM focus is inside the terminal.
+    await expect(shell).toHaveClass(/\bactive\b/);
+    await expect(editor).not.toHaveClass(/\bactive\b/);
+    expect(await focusedKind(page)).toBe("terminal:shell");
+  });
 
-// The behavioural half of the same bug: after selecting the terminal by its head, keystrokes must reach the
-// PTY and leave the editor untouched. Before the fix they were inserted into Monaco.
-test("typing after clicking the terminal tab does not leak into the editor", async ({ page }) => {
-  const viewLines = page.locator(".monaco-editor .view-lines").first();
+  await test.step("typing leaves the editor source intact", async () => {
+    await page.keyboard.type("focusXYZZY");
 
-  await openFile(page, "hello.ts");
-  await clickIntoEditor(page);
-  await pressDocumentStart(page);
+    // The editor never received the keystrokes — the marker is absent and the seeded source is intact.
+    await expect(viewLines).not.toContainText("focusXYZZY");
+    await expect(viewLines).toContainText("greet");
+  });
 
-  await page.locator('.terminal-surface[data-kind="terminal:shell"] .shell-tab-main').click();
-  await page.keyboard.type("focusXYZZY");
-
-  // The editor never received the keystrokes — the marker is absent and the seeded source is intact.
-  await expect(viewLines).not.toContainText("focusXYZZY");
-  await expect(viewLines).toContainText("greet");
-});
-
-// Two stacked terminals: clicking the inactive one's head switches focus between them. Same root cause — the
-// head was an inert click target — and the main way a user moves between the claude and shell panes by mouse.
-test("clicking terminal chrome switches focus between agent and shell", async ({ page }) => {
-  const claude = page.locator('.terminal-surface[data-kind="terminal:claude"]');
-  const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
-
-  await shell.locator(".shell-tab-main").click();
-  await expect(shell).toHaveClass(/\bactive\b/);
-  expect(await focusedKind(page)).toBe("terminal:shell");
-
-  await claude.locator(".pane-head").click();
-  await expect(claude).toHaveClass(/\bactive\b/);
-  await expect(shell).not.toHaveClass(/\bactive\b/);
-  expect(await focusedKind(page)).toBe("terminal:claude");
+  await test.step("agent chrome transfers focus out of the shell", async () => {
+    await claude.locator(".pane-head").click();
+    await expect(claude).toHaveClass(/\bactive\b/);
+    await expect(shell).not.toHaveClass(/\bactive\b/);
+    expect(await focusedKind(page)).toBe("terminal:claude");
+  });
 });
 
 test("creating a session focuses its agent while ordinary session switching does not force it", async ({

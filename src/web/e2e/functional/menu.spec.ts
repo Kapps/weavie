@@ -1,6 +1,26 @@
 import { expect, test } from "../harness/fixtures";
 
-test("application menus expose command shortcuts, submenus, and dispatch", async ({ page }) => {
+test("application menus support keyboard traversal, shortcuts, submenus, and dispatch", async ({
+  page,
+}) => {
+  await test.step("keyboard traversal opens, switches, and dismisses menus", async () => {
+    const file = page.getByRole("menuitem", { name: "File", exact: true });
+    await file.focus();
+    await file.press("ArrowRight");
+    await expect(page.getByRole("menuitem", { name: "Go", exact: true })).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("menuitem", { name: "View", exact: true })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(page.getByRole("menuitem", { name: "View", exact: true })).toBeFocused();
+  });
+
   const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
   const file = page.getByRole("menuitem", { name: "File", exact: true });
   await file.click();
@@ -39,22 +59,4 @@ test("application menus expose command shortcuts, submenus, and dispatch", async
   const increase = page.getByRole("menuitem", { name: /^Increase Font Size/ });
   await expect(increase).toBeVisible();
   await expect(increase.locator(".context-menu-keys")).toContainText(`${modifier}+`);
-});
-
-test("application menu supports keyboard traversal across the top level", async ({ page }) => {
-  const file = page.getByRole("menuitem", { name: "File", exact: true });
-  await file.focus();
-  await file.press("ArrowRight");
-  await expect(page.getByRole("menuitem", { name: "Go", exact: true })).toBeFocused();
-
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menu")).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("menuitem", { name: "View", exact: true })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("menu")).toBeHidden();
-  await expect(page.getByRole("menuitem", { name: "View", exact: true })).toBeFocused();
 });

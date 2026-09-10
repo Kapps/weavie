@@ -14,6 +14,23 @@ export async function altClick(word: Locator): Promise<void> {
   }
 }
 
+// Monaco measures long lines asynchronously after their text becomes visible.
+export async function awaitHorizontalScrollRange(editor: Locator, minimum: number): Promise<void> {
+  await expect
+    .poll(() =>
+      editor.evaluate((element) => {
+        const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
+          .__WEAVIE_MONACO__;
+        const instance = monaco.editor
+          .getEditors()
+          .find((candidate) => candidate.getDomNode() === element);
+        if (instance === undefined) throw new Error("Monaco editor is missing");
+        return instance.getScrollWidth() - instance.getLayoutInfo().contentWidth;
+      }),
+    )
+    .toBeGreaterThan(minimum);
+}
+
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
 // `data-ready` on `.editor` once Monaco is live. Editor-driving helpers wait on this; non-editor tests don't.
 // The ceiling tracks the app's own EDITOR_INIT_MS cold-boot deadline: on the remote worker hop under a loaded CI

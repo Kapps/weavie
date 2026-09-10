@@ -85,7 +85,7 @@ export function AgentComposer(props: {
         (state.draft.trim().length > 0 || props.pendingLegacyImageCount > 0)
       );
     }
-    if (props.session === null || state.submittingId !== null) return false;
+    if (props.session === null || state.pendingSubmission !== null) return false;
     if (action.kind === "command" && action.entry.commandId !== CommandIds.askAgentAside)
       return true;
     return (
@@ -465,7 +465,11 @@ export function AgentComposer(props: {
           disabled={!canSubmit()}
         >
           <span class="mobile-action-wide">
-            {composer().submittingId !== null ? "Sending…" : props.turnActive ? "Steer" : "Run"}
+            {composer().pendingSubmission !== null
+              ? "Sending…"
+              : props.turnActive
+                ? "Steer"
+                : "Run"}
           </span>
           <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
         </button>

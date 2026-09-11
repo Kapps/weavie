@@ -11,7 +11,6 @@ export const test = base.extend<{
 }>({
   desktop: async ({ browserName: _browserName }, use, info) => {
     const fake = await prepareFake({
-      workspaceSeed: null,
       fakeScript: null,
       workspaceSeed: null,
       inference: "disabled",

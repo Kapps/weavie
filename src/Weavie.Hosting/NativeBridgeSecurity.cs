@@ -7,21 +7,23 @@ namespace Weavie.Hosting;
 /// <summary>Owns the native bridge capability and the sole document allowed to receive it.</summary>
 public sealed class NativeBridgeSecurity {
 	private readonly SemaphoreSlim _loads = new(1);
-	private Uri? _document;
 	private string _token = string.Empty;
 	private int _revision;
+
+	/// <summary>The currently authorized app document, once a load has completed.</summary>
+	public Uri? Document { get; private set; }
 
 	/// <summary>Revokes authority before rendering recovery HTML or closing the window.</summary>
 	public void Revoke() {
 		Interlocked.Increment(ref _revision);
 		_token = string.Empty;
-		_document = null;
+		Document = null;
 	}
 
 	/// <summary>Allows only the selected app document; subframes must stay outside its origin.</summary>
 	public bool Allows(string? url, bool mainFrame) {
 		if (!Uri.TryCreate(url, UriKind.Absolute, out var candidate)) return false;
-		if (_document is not { } document) return mainFrame && url == "about:blank";
+		if (Document is not { } document) return mainFrame && url == "about:blank";
 		bool sameOrigin = candidate.Scheme == document.Scheme && candidate.IdnHost == document.IdnHost && candidate.Port == document.Port;
 		return mainFrame
 			? sameOrigin && candidate.UserInfo.Length == 0 && candidate.AbsolutePath == document.AbsolutePath
@@ -38,7 +40,7 @@ public sealed class NativeBridgeSecurity {
 			var document = new Uri(url);
 			if (document.Scheme is not ("http" or "https" or "app") || document.Host.Length == 0 || document.UserInfo.Length != 0)
 				throw new ArgumentException("The app document requires an explicit origin.", nameof(url));
-			_document = document;
+			Document = document;
 			_token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 			await install(Script(url, startup, sender)).ConfigureAwait(false);
 			if (revision == _revision) navigate(url);
@@ -60,8 +62,8 @@ public sealed class NativeBridgeSecurity {
 			if (this !== this.top) return;
 			const target = this;
 			const url = this.location.href.split('#')[0];
-			const allowed = this.origin === {{Literal(_document!.GetLeftPart(UriPartial.Authority))}}
-				&& (url === {{Literal(url)}} || url === {{Literal(_document.GetLeftPart(UriPartial.Path))}});
+			const allowed = this.origin === {{Literal(Document!.GetLeftPart(UriPartial.Authority))}}
+				&& (url === {{Literal(url)}} || url === {{Literal(Document.GetLeftPart(UriPartial.Path))}});
 			Object.defineProperty(this, '__weavieDeliver', {
 				value: json => { if (allowed) target.__weavieReceive?.(json); }
 			});

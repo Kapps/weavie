@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
+import { canonicalFsPath } from "../../src/editor/fs-path";
 import {
   activeSessionSlot,
   createSession,
@@ -111,8 +112,8 @@ test("image renders, survives text-tab switching, and restores after reload", as
       return { active: editor?.active, open: editor?.open.map((entry) => entry.path) };
     })
     .toEqual({
-      active: join(weavie.workspace, "pixel.png"),
-      open: [join(weavie.workspace, "pixel.png"), join(weavie.workspace, "hello.ts")],
+      active: canonicalFsPath(join(weavie.workspace, "pixel.png")),
+      open: ["pixel.png", "hello.ts"].map((name) => canonicalFsPath(join(weavie.workspace, name))),
     });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });

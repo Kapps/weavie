@@ -17,14 +17,16 @@ export interface AgentComposerAttachment {
 export interface AgentComposerState {
   draft: string;
   attachments: AgentComposerAttachment[];
-  submittingId: string | null;
+  draftRevision: number;
+  pendingSubmission: { id: string; draftRevision: number } | null;
   error: string | null;
 }
 
 const EMPTY: AgentComposerState = {
   draft: "",
   attachments: [],
-  submittingId: null,
+  draftRevision: 0,
+  pendingSubmission: null,
   error: null,
 };
 let sequence = 0;
@@ -44,7 +46,12 @@ export function composerState(session: ClientSession | null): AgentComposerState
 }
 
 export function setComposerDraft(session: ClientSession, draft: string): void {
-  update(session, (state) => ({ ...state, draft, error: null }));
+  update(session, (state) => ({
+    ...state,
+    draft,
+    draftRevision: state.draftRevision + 1,
+    error: null,
+  }));
 }
 
 export function setComposerError(session: ClientSession, error: string): void {
@@ -104,7 +111,7 @@ function prepareSubmission(session: ClientSession, prompt: string, commandName: 
   const state = stateFor(session);
   const command = commandName !== null;
   if (
-    state.submittingId !== null ||
+    state.pendingSubmission !== null ||
     (!command && state.attachments.some((attachment) => attachment.status !== "ready"))
   )
     return null;
@@ -113,7 +120,11 @@ function prepareSubmission(session: ClientSession, prompt: string, commandName: 
     return null;
   }
   const id = nextId("submission");
-  update(session, (current) => ({ ...current, submittingId: id, error: null }));
+  update(session, (current) => ({
+    ...current,
+    pendingSubmission: { id, draftRevision: current.draftRevision },
+    error: null,
+  }));
   return {
     id,
     prompt,
@@ -202,13 +213,13 @@ registerSessionFeature((session) => {
 
 function settleSubmission(session: ClientSession, message: SubmissionState): void {
   const state = stateFor(session);
-  if (state.submittingId !== message.id) {
+  if (state.pendingSubmission?.id !== message.id) {
     return;
   }
   if (message.status === "rejected") {
     update(session, (current) => ({
       ...current,
-      submittingId: null,
+      pendingSubmission: null,
       error: message.error,
     }));
     return;
@@ -219,11 +230,12 @@ function settleSubmission(session: ClientSession, message: SubmissionState): voi
     }
   }
   update(session, (current) => ({
-    draft: "",
+    ...current,
+    draft: current.draftRevision === state.pendingSubmission?.draftRevision ? "" : current.draft,
     attachments: current.attachments.filter(
       (attachment) => !message.attachmentIds.includes(attachment.id),
     ),
-    submittingId: null,
+    pendingSubmission: null,
     error: null,
   }));
 }

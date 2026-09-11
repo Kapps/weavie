@@ -3,13 +3,14 @@ import { type CDPSession, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { test as base } from "./network-fixtures";
 import { fakeAcpProgram, programExists } from "./test-programs";
-import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
+import { headlessBuilt, launchHeadless, type WeavieHost, type WorkspaceSeed } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
 
 // Per-test options. `fakeScript` (set via test.use) seeds the fake claude before the host boots, so MCP/
 // hook-driven journeys have their script in place when the claude pane launches. Wrapped in an object
 // because Playwright mangles a bare top-level array option value into [value, config].
 type WeavieOptions = {
+  workspaceSeed: WorkspaceSeed | null;
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
   inference: FakeInference;
   automaticInference: boolean;
@@ -80,6 +81,7 @@ export function touchSession(page: Page): CDPSession {
 }
 
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
+  workspaceSeed: [null, { option: true }],
   fakeScript: [null, { option: true }],
   inference: ["disabled", { option: true }],
   automaticInference: [false, { option: true }],
@@ -93,6 +95,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       {
         page,
         fakeScript,
+        workspaceSeed,
         inference,
         automaticInference,
         dismissInferenceOffer,
@@ -122,6 +125,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
 
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,
+        workspaceSeed,
         inference,
         automaticInference,
         pr: prScenario,

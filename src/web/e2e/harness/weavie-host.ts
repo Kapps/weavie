@@ -36,7 +36,12 @@ export interface HeadlessHost extends WeavieHost {
   restart(): Promise<void>;
 }
 
+export interface WorkspaceSeed {
+  run(workspace: string): Promise<void>;
+}
+
 export interface LaunchOptions {
+  workspaceSeed: WorkspaceSeed | null;
   fakeScript: FakeStep[] | null;
   inference: FakeInference;
   automaticInference: boolean;
@@ -281,7 +286,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     await writeFile(notionPath, JSON.stringify(options.notionDoc));
     env.WEAVIE_FAKE_NOTION = notionPath;
   }
-  return {
+  const scaffold: FakeScaffold = {
     home,
     workspace,
     env,
@@ -294,6 +299,13 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
         removeWorkspace(workspace),
       ]).then(),
   };
+  try {
+    if (options.workspaceSeed !== null) await options.workspaceSeed.run(workspace);
+    return scaffold;
+  } catch (error) {
+    await scaffold.cleanup();
+    throw error;
+  }
 }
 
 // Boots a real Weavie.Headless over the scaffold (browser → WSS → Weavie.Headless). Returns once the host

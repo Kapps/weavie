@@ -146,6 +146,41 @@ describe("agent composer attachments", () => {
     expect([...drafts.values()]).toEqual(["keep me"]);
   });
 
+  it.each([null, "compact"])("preserves edits across a held %s submission receipt", (command) => {
+    const session = owner(`receipt-${command}`, "draft");
+    store.setComposerDraft(session, "first");
+    expect(store.submitAgentTurn(session, command)).toBe(true);
+    const first = bridge.posted.at(-1)!.payload.id;
+    store.setComposerDraft(session, "second");
+    store.setComposerDraft(session, "first");
+    expect(store.submitAgentTurn(session, command)).toBe(false);
+    deliver(`receipt-${command}`, "draft", "submissionState", {
+      id: first,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).draft).toBe("first");
+    expect([...drafts.values()]).toEqual(["first"]);
+    expect(store.submitAgentTurn(session, command)).toBe(true);
+    const second = bridge.posted.at(-1)!.payload.id;
+    deliver(`receipt-${command}`, "draft", "submissionState", {
+      id: first,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).pendingSubmission?.id).toBe(second);
+    deliver(`receipt-${command}`, "draft", "submissionState", {
+      id: second,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).draft).toBe("");
+    expect(bridge.posted.filter(({ name }) => name === "submit")).toHaveLength(2);
+  });
+
   it("submits provider commands semantically while leaving staged attachments alone", async () => {
     const session = owner("remote-command", "slot-command");
     const event = pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" }));
@@ -192,6 +227,7 @@ describe("agent composer attachments", () => {
     expect(store.submitAgentAside(session, "describe it")).toBe(true);
     expect(store.submitAgentAside(session, "describe it")).toBe(false);
     expect(store.composerState(session).draft).toBe("/btw describe it");
+    store.setComposerDraft(session, "edited while opening");
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
       question: "describe it",
       submissionId: expect.any(String),
@@ -199,8 +235,8 @@ describe("agent composer attachments", () => {
     });
     await flushAsyncWork();
     expect(store.composerState(session)).toMatchObject({
-      draft: "/btw describe it",
-      submittingId: null,
+      draft: "edited while opening",
+      pendingSubmission: null,
       error: "Fork unavailable",
     });
     expect(store.composerState(session).attachments).toHaveLength(1);
@@ -209,14 +245,15 @@ describe("agent composer attachments", () => {
     store.setComposerDraft(other, "keep this draft");
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
     expect(store.submitAgentAside(session, "describe it")).toBe(true);
+    store.setComposerDraft(session, "next question");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([2])], { type: "image/png" })),
       session,
     );
     await flushAsyncWork();
     expect(store.composerState(session)).toMatchObject({
-      draft: "",
-      submittingId: null,
+      draft: "next question",
+      pendingSubmission: null,
       error: null,
     });
     expect(store.composerState(session).attachments).toHaveLength(1);

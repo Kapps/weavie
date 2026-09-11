@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { clickEditorLine } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -35,7 +34,12 @@ test("downward scrolling preserves file order when the focused review editor lea
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
-  await clickEditorLine(page.locator(".unified-review-file .view-line").first());
+  const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
+  await firstEditor
+    .locator(".view-line")
+    .first()
+    .click({ position: { x: 4, y: 4 } });
+  await expect(firstEditor).toHaveClass(/focused/);
   const observation = await scroller.evaluateHandle((element) => {
     const samples: number[][] = [];
     const sample = () => {

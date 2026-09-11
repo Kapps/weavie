@@ -1,16 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
-}) => {
+}, testInfo) => {
   const nonce = randomUUID();
   const acks = new Set<string>();
   const complete = Promise.withResolvers<string>();
   let workspace = "";
+  // 2026-09-11: timed out twice on main (runs 34553918483, 34554099928) with the driven script never
+  // reaching /done and no signal of which wait() it was stuck in — `acks` is only inspected after
+  // Promise.race settles, so a hang discarded it entirely. The steps log below is written to disk as
+  // each gate is reached (from the HTTP handler, independent of the test body's own await), so the
+  // next hang shows its last reached step instead of a bare timeout.
+  const stepsLog = testInfo.outputPath("driver-steps.log");
+  const step = (label: string) => appendFileSync(stepsLog, `${Date.now()} ${label}\n`);
   const fontRequest = (requestId: string) =>
     JSON.stringify({
       scope: "host",
@@ -48,6 +56,7 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     if (url.pathname === "/done" && url.searchParams.get("nonce") === nonce)
       complete.resolve(url.searchParams.get("result")!);
     if (url.pathname.startsWith("/ack/")) acks.add(url.pathname);
+    if (url.pathname.startsWith("/step/")) step(decodeURIComponent(url.pathname.slice(6)));
     if (url.pathname === "/leak") complete.resolve("Untrusted document received bridge access");
     if (url.pathname === "/state") return void res.end(JSON.stringify([...acks]));
     if (url.pathname === "/redirect")
@@ -88,7 +97,9 @@ test("only the app can use the native bridge, across welcome, previews and reloa
         if (self !== top) { ${attack(origin)} return; }
         const wait = async condition => { while (!await condition()) await new Promise(resolve => setTimeout(resolve, 25)); };
         const query = selector => document.querySelector(selector);
+        const mark = label => fetch(origin + '/step/' + encodeURIComponent(label)).catch(() => {});
         const command = async label => {
+          mark('command:' + label);
           const input = query('.tb-omnibar-input'); input.focus(); input.click(); input.value = '>' + label;
           input.dispatchEvent(new Event('input', {bubbles:true}));
           const row = () => [...document.querySelectorAll('.tb-omnibar-row')].find(row => row.querySelector('.tb-row-leaf')?.textContent === label);
@@ -98,31 +109,44 @@ test("only the app can use the native bridge, across welcome, previews and reloa
         const target = location.href.replace('://', '://user@');
         frame(target); frame(origin + '/app-frame?target=' + encodeURIComponent(target));
         if (location.pathname === '/welcome.html') {
+          mark('welcome:awaiting-rows');
           await wait(() => document.querySelectorAll('.welcome-row').length === 2);
           frame(origin + '/welcome');
+          mark('welcome:awaiting-ack');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/welcome'));
+          mark('welcome:clicking-recent');
           document.querySelectorAll('.welcome-row')[1].click(); return;
         }
+        mark('workspace:awaiting-editor-ready');
         await wait(() => query('.editor[data-ready="true"]') && !query('#splash'));
         if (window.__WEAVIE_BRIDGE_WS__ !== undefined) throw Error('Expected native transport');
         const replies = new Set();
         window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies.add(message.requestId); receive(raw); })(window.__weavieReceive);
         const font = () => getComputedStyle(document.documentElement).getPropertyValue('--font-content-size').trim();
         if (!sessionStorage.getItem('bridge-reloaded')) {
-          await command('Open URL…'); await wait(() => query('.url-prompt-input'));
+          await command('Open URL…');
+          mark('open-url:awaiting-prompt');
+          await wait(() => query('.url-prompt-input'));
           const input = query('.url-prompt-input'); input.value = origin + '/redirect'; input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+          mark('open-url:awaiting-iframe');
           await wait(() => query('.editor-web:not([hidden]) iframe'));
+          mark('open-url:awaiting-opaque-ack');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/opaque'));
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
+          mark('open-url:awaiting-interactive-ack');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
           for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
             const request = ${fontRequest("trusted")}; request.requestId += index;
             window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
+            mark('font-loop:' + index + ':awaiting-reply');
             await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
           }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }
-        await command('Increase Font Size'); await wait(() => font() === '20px' && replies.size > 0);
+        await command('Increase Font Size');
+        mark('reload:awaiting-font-reply');
+        await wait(() => font() === '20px' && replies.size > 0);
+        mark('done:pass');
         await fetch(origin + '/done?nonce=' + nonce + '&result=pass');
       })().catch(error => fetch(${JSON.stringify(origin)} + '/done?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent(String(error))));
     `;

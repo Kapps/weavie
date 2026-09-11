@@ -4,6 +4,7 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
+	private readonly Queue<AgentTurnSubmission> _pendingAsides = new();
 
 	/// <inheritdoc/>
 	public void AskAside(AgentTurnSubmission submission) {
@@ -15,20 +16,56 @@ public sealed partial class AcpAgentSession {
 			throw new ArgumentException("Write a side question or attach an image.", nameof(submission));
 		}
 		lock (_turnTransitionGate) {
-			SideRuntime runtime;
+			bool deferred;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
-				EnsureSideConversationSupport();
-				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
-				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
-				_sideRuntimes.Add(conversation.ConversationId, runtime);
+				if (_role is not PrimaryRole) {
+					throw new InvalidOperationException("A side conversation cannot address another side conversation.");
+				}
+				// _supportsFork/_supportsLoad are only known once the handshake completes; a BTW asked in that
+				// same startup window queues here and is drained by FlushPendingAsides, exactly like the primary
+				// composer's own turns already do in _pendingSubmissions, instead of failing outright.
+				deferred = !_ready;
+				if (deferred) _pendingAsides.Enqueue(submission);
 			}
-			runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
-			try {
-				runtime.Session.Start();
-				runtime.Session.Submit(submission);
-			} catch (Exception error) {
-				runtime.Session.FailConversationSerialized(error);
+			if (!deferred) StartSideConversation(submission);
+		}
+	}
+
+	// Callers hold _turnTransitionGate: either AskAside starting immediately, or FlushPendingAsides
+	// draining a submission once the primary session became ready.
+	private void StartSideConversation(AgentTurnSubmission submission) {
+		SideRuntime runtime;
+		lock (_gate) {
+			EnsureSideConversationSupport();
+			var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
+			runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
+			_sideRuntimes.Add(conversation.ConversationId, runtime);
+		}
+		runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
+		try {
+			runtime.Session.Start();
+			runtime.Session.Submit(submission);
+		} catch (Exception error) {
+			runtime.Session.FailConversationSerialized(error);
+		}
+	}
+
+	private void FlushPendingAsides() {
+		lock (_turnTransitionGate) {
+			while (true) {
+				AgentTurnSubmission submission;
+				lock (_gate) {
+					if (_pendingAsides.Count == 0) return;
+					submission = _pendingAsides.Dequeue();
+				}
+				try {
+					StartSideConversation(submission);
+				} catch (Exception error) {
+					// EnsureSideConversationSupport rejected it once capabilities were known (e.g. the connected
+					// agent doesn't support forking); nothing was emitted for it yet, so surface it directly.
+					EmitFailure(error);
+				}
 			}
 		}
 	}

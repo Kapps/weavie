@@ -93,7 +93,10 @@ public sealed partial class AcpAgentSession {
 			generation = _activeGeneration;
 			_activeGeneration = 0;
 			_ready = false;
-			if (clearSubmissions) _pendingSubmissions.Clear();
+			if (clearSubmissions) {
+				_pendingSubmissions.Clear();
+				_pendingAsides.Clear();
+			}
 			_submissionEpoch++;
 			_cancelRequested = false;
 			promptActive = _promptActive;

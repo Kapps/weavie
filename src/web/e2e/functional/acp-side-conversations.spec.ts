@@ -3,6 +3,10 @@ import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/
 import { expect, test } from "../harness/fixtures";
 import { pastePng } from "../harness/pasted-image";
 
+// 2026-09-11, https://github.com/Kapps/weavie/actions/runs/34628508765: the primaryRunning:false cases send
+// /btw as the first thing after session creation, racing the ACP handshake. AskAside required _ready and
+// threw (silently dropping the aside) if asked before it; fixed in AcpAgentSession.SideConversations.cs to
+// queue like a primary Submit does and flush once ready, instead of failing outright.
 for (const { primaryRunning, prompt } of [
   { primaryRunning: false, prompt: "image" },
   { primaryRunning: true, prompt: "image" },
@@ -159,6 +163,9 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });
 
+// 2026-09-11, https://github.com/Kapps/weavie/actions/runs/34628508765: "/btw rich" below is the first
+// message sent after session creation, racing the ACP handshake — same root cause and fix as the
+// primaryRunning:false cases above.
 test("BTW collapse and nested history expansion preserve per-thread state across session switches", async ({
   page,
 }) => {

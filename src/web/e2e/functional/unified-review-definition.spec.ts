@@ -100,6 +100,12 @@ test("Alt+click definition peek owns vertical and horizontal scrolling inside un
   await expect(
     preview.locator(".view-line", { hasText: "export const hiddenDefinition" }),
   ).toBeVisible();
+  // 2026-09-11, https://github.com/Kapps/weavie/actions/runs/34628508765: opening the peek can move the
+  // host editor's own scrollTop (revealing its anchor line around the newly inserted peek zone); since
+  // review-editor-viewport.ts (PR #839) now defers that correction's Monaco layout() by one rAF instead of
+  // applying it inline, a baseline read here can land mid-settle on a loaded runner. Wait one frame so the
+  // baseline reflects the settled position, not a transient one the deferred correction still has to catch up to.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
   const reviewTop = await review.evaluate((element) => element.scrollTop);
   const initial = await peekScroll(page);
   await preview.hover();

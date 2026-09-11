@@ -15,6 +15,7 @@ type ReviewAlignment = "location" | "file-start";
 export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
   refresh(): void;
+  takeControl(): void;
   reveal(path: string, line: number): void;
 }
 
@@ -200,6 +201,7 @@ export function createReviewSurface(surface: {
     },
     focus,
     dispose: () => lifetime.abort(),
+    takeControl: () => pending?.cancel(),
     refresh: () => {
       settle();
       advanceReviewedFile();

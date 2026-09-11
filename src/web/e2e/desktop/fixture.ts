@@ -13,6 +13,7 @@ export const test = base.extend<{
     const fake = await prepareFake({
       workspaceSeed: null,
       fakeScript: null,
+      workspaceSeed: null,
       inference: "disabled",
       automaticInference: false,
     });

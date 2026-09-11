@@ -177,6 +177,9 @@ export function createReviewEditor(options: {
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
+      if (container.contains(document.activeElement)) {
+        options.scroller.focus({ preventScroll: true });
+      }
       binding.dispose();
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();

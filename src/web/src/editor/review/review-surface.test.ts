@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReviewEditor } from "./review-editor";
 import type { ReviewFileView } from "./review-store";
 import { createReviewSurface } from "./review-surface";
 
@@ -18,7 +19,18 @@ function fixture() {
     pending: () => state.pending[index]!,
     loaded: () => true,
     collapsed: () => state.collapsed,
-    diff: () => null,
+    diff: () => ({
+      revision: "1",
+      rejected: [],
+      path: `/work/${index}.ts`,
+      name: `${index}.ts`,
+      acceptedBaseline: "",
+      acceptedBaselineExists: true,
+      baseline: "",
+      baselineExists: true,
+      current: "changed",
+      currentExists: true,
+    }),
     comments: () => null,
   }));
   const select = vi.fn((index: number) => {
@@ -84,6 +96,87 @@ describe("unified review completion navigation", () => {
     state.pending[0] = false;
     surface.refresh();
     expect(select).not.toHaveBeenCalled();
+    surface.dispose();
+  });
+});
+
+describe("pending review navigation ownership", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function painting() {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    const current = fixture();
+    const section = {
+      restore: vi.fn(),
+      revealFileStart: vi.fn(),
+      focus: vi.fn(),
+    } as unknown as ReviewEditor;
+    const paint = async () => {
+      await Promise.resolve();
+      for (const callback of frames.splice(0)) callback(0);
+    };
+    return { ...current, section, paint };
+  }
+
+  it("leaves newer user movement alone when the first diff paint arrives", async () => {
+    const { surface, section, paint } = painting();
+    surface.reveal("/work/0.ts", 1);
+    await paint();
+    surface.takeControl();
+    surface.sections.set("/work/0.ts", section);
+    await Promise.resolve();
+    expect(section.restore).not.toHaveBeenCalled();
+    expect(section.revealFileStart).not.toHaveBeenCalled();
+    expect(section.focus).not.toHaveBeenCalled();
+    surface.dispose();
+  });
+
+  it("completes a delayed destination exactly once without user takeover", async () => {
+    const { surface, section, paint } = painting();
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    surface.sections.set("/work/0.ts", section);
+    surface.sections.set("/work/0.ts", section);
+    await Promise.resolve();
+    expect(section.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.focus).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  it("allows a new navigation from the input that cancels an older queued frame", async () => {
+    const { surface, section, paint } = painting();
+    surface.reveal("/work/0.ts", 1);
+    await Promise.resolve();
+    surface.takeControl();
+    surface.reveal("/work/0.ts", 80);
+    surface.sections.set("/work/0.ts", section);
+    await paint();
+    await Promise.resolve();
+    expect(section.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.focus).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  it("rejects a presenter restoration when the user takes control", async () => {
+    const { surface, section, paint } = painting();
+    const result = surface.restore(
+      {
+        viewState: {
+          location: { path: "/work/0.ts", line: 1 },
+          scrollTop: 0,
+        },
+      },
+      new AbortController().signal,
+    );
+    const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
+    await paint();
+    surface.takeControl();
+    surface.sections.set("/work/0.ts", section);
+    await rejected;
+    expect(section.restore).not.toHaveBeenCalled();
     surface.dispose();
   });
 });

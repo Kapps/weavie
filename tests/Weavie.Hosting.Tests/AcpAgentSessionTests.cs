@@ -177,6 +177,25 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_QueuesABtwAskedBeforeTheHandshakeFinishesAndStartsItOnceReady() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		fixture.Session.Start();
+		// The handshake is still in flight here — asking before _ready must queue instead of throwing.
+		fixture.AskAside("early side question");
+		await fixture.StartAsync();
+
+		var marker = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
+		string conversationId = Assert.IsType<string>(marker.ConversationId);
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed"
+			&& message.ConversationId == conversationId
+			&& message.Text == "echo: early side question");
+
+		Assert.Equal(conversationId, answer.ConversationId);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
+
+	[Fact]
 	public async Task NativeSession_StartsIndependentSideConversations() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

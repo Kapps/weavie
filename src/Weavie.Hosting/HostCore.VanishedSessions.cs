@@ -45,7 +45,9 @@ public sealed partial class HostCore {
 			await worktrees.ReconcileAsync(CancellationToken.None).ConfigureAwait(false);
 		}
 
-		Notify("warn", $"Session '{slot.Label}' was closed: its worktree {slot.WorktreePath} no longer exists.");
+		// Error level so it stands until dismissed: this notice is the only account of a destroyed session, and a
+		// user away from the screen would otherwise find it simply gone from the rail.
+		Notify("error", $"Session '{slot.Label}' was closed: its worktree {slot.WorktreePath} no longer exists.");
 		return true;
 	}
 }

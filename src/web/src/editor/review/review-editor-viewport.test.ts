@@ -6,12 +6,10 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/config/editorOptions";
 import { ViewLayout } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/viewLayout/viewLayout";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 
 vi.mock("../monaco-setup", () => ({ monaco: { editor: { ScrollType: { Immediate: 1 } } } }));
-
-afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
   vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "6" }));
@@ -118,6 +116,7 @@ function fixture() {
     viewport.dispose();
     content.dispose();
     view.dispose();
+    vi.unstubAllGlobals();
   });
   return {
     view,
@@ -144,6 +143,20 @@ describe("review viewport geometry ownership", () => {
     current.view.getScrollable().setScrollPositionNow({ scrollTop: destination });
     expect(current.rootTop()).toBe(destination);
     expect(current.writes).toEqual([destination]);
+  });
+
+  it("positions a reveal immediately without reentering Monaco layout", () => {
+    const current = fixture();
+    const layout = vi.fn();
+    current.state.duringLayout = layout;
+    const destination = current.view.getCurrentScrollTop() - 100;
+    current.view.getScrollable().setScrollPositionNow({ scrollTop: destination });
+    expect(current.rootTop()).toBe(destination);
+    expect(Number.parseFloat(current.mount.style.top)).toBe(destination);
+    expect(layout).not.toHaveBeenCalled();
+    const frame = vi.mocked(requestAnimationFrame).mock.calls[0]![0];
+    frame(0);
+    expect(layout).toHaveBeenCalledOnce();
   });
 
   it("projects the mount using geometry produced by the current editor layout", () => {

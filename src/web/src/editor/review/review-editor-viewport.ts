@@ -73,7 +73,9 @@ export function createReviewEditorViewport(
   // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged && event.scrollTop !== projectedTop()) {
-      reveal(event.scrollTop);
+      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
+      mount.style.top = `${projectedTop()}px`;
+      schedule();
     }
   });
   const wheel = (event: WheelEvent): void => {

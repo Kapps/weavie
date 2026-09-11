@@ -4,14 +4,8 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
-	private readonly Queue<AgentTurnSubmission> _pendingAsides = new();
 
 	/// <inheritdoc/>
-	// Fixed 2026-09-09 (root-caused after a `/btw rich` sent as the very first composer action raced the ACP
-	// handshake and silently dropped: EnsureSideConversationSupport threw on `!_ready`, and the handler
-	// swallowed it). An ordinary Submit() sent in that same window is safely queued and delivered once ready
-	// (see AcpAgentSession.Actions.cs's _pendingSubmissions); AskAside had no such queue, so it just failed.
-	// Queue like an ordinary turn instead of racing the handshake.
 	public void AskAside(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
 		if (submission.Kind != AgentTurnSubmissionKind.Prompt || submission.CommandName.Length != 0) {
@@ -21,48 +15,20 @@ public sealed partial class AcpAgentSession {
 			throw new ArgumentException("Write a side question or attach an image.", nameof(submission));
 		}
 		lock (_turnTransitionGate) {
+			SideRuntime runtime;
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
-				if (_role is not PrimaryRole) {
-					throw new InvalidOperationException("A side conversation cannot address another side conversation.");
-				}
-				if (!_ready) {
-					_pendingAsides.Enqueue(submission);
-					return;
-				}
+				EnsureSideConversationSupport();
+				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
+				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
+				_sideRuntimes.Add(conversation.ConversationId, runtime);
 			}
-			StartAside(submission);
-		}
-	}
-
-	// Runs with _turnTransitionGate held, either directly from AskAside once ready or from FlushPendingAsides
-	// once the ACP handshake resolves _ready (and so _supportsFork/_supportsLoad).
-	private void StartAside(AgentTurnSubmission submission) {
-		SideRuntime runtime;
-		lock (_gate) {
-			EnsureSideConversationSupport();
-			var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
-			runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
-			_sideRuntimes.Add(conversation.ConversationId, runtime);
-		}
-		runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
-		try {
-			runtime.Session.Start();
-			runtime.Session.Submit(submission);
-		} catch (Exception error) {
-			runtime.Session.FailConversationSerialized(error);
-		}
-	}
-
-	private void FlushPendingAsides() {
-		lock (_turnTransitionGate) {
-			while (true) {
-				AgentTurnSubmission submission;
-				lock (_gate) {
-					if (_pendingAsides.Count == 0) return;
-					submission = _pendingAsides.Dequeue();
-				}
-				StartAside(submission);
+			runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
+			try {
+				runtime.Session.Start();
+				runtime.Session.Submit(submission);
+			} catch (Exception error) {
+				runtime.Session.FailConversationSerialized(error);
 			}
 		}
 	}

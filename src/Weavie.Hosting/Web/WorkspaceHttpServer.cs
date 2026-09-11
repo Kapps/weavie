@@ -45,7 +45,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	/// <summary>The clean workspace document URI after the server is bound.</summary>
 	public string PageUrl => $"{Origin}/index.html";
 
-	/// <summary>The native WebView URI that exchanges its bootstrap proof for a cookie and clean redirect.</summary>
+	/// <summary>The native WebView URI that exchanges its bootstrap proof for a cookie and clean navigation.</summary>
 	public string NativePageUrl => $"{PageUrl}?bootstrap={Uri.EscapeDataString(_options.Token)}";
 
 	/// <summary>The token a browser submits once to establish its workspace cookie.</summary>
@@ -145,7 +145,11 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 
 				if (!_bridge.Available && _authentication.BootstrapTokenMatches(context)) {
 					_authentication.EstablishCookie(context);
-					context.Response.Redirect("/index.html");
+					// Commit this origin before navigating so Strict cookies work when arriving from the welcome page.
+					context.Response.ContentType = "text/html; charset=utf-8";
+					context.Response.Headers.CacheControl = "no-store";
+					context.Response.Headers["Referrer-Policy"] = "no-referrer";
+					await context.Response.WriteAsync("<!doctype html><script>location.replace('/index.html')</script>").ConfigureAwait(false);
 					return;
 				}
 

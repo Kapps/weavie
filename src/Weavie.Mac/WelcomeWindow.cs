@@ -71,16 +71,20 @@ internal sealed class WelcomeWindow : IWebSurface {
 	internal void RefreshRecents() => _ = _controller.RefreshAsync();
 
 	// IWebSurface — the WKWebView ops the shared welcome flow drives; each marshals onto the main thread.
-	void IWebSurface.Navigate(string url) =>
-		_app.Dispatcher.Post(() => _webView.LoadRequest(new NSUrlRequest(new NSUrl(url))));
+	Task IWebSurface.LoadAsync(string url, string startupScript) =>
+		_bridge.Security.LoadAsync(url, startupScript, "this.webkit.messageHandlers.weavie.postMessage.bind(this.webkit.messageHandlers.weavie)",
+			InjectStartupScriptAsync, url => _app.Dispatcher.Post(() => _webView.LoadRequest(new NSUrlRequest(new NSUrl(url)))));
 
-	void IWebSurface.RenderHtml(string html) =>
+	void IWebSurface.RenderHtml(string html) {
+		_bridge.Security.Revoke();
 		_app.Dispatcher.Post(() => _webView.LoadHtmlString(new NSString(html), null));
+	}
 
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
+	private Task InjectStartupScriptAsync(string script) {
 		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_app.Dispatcher.Post(() => {
 			try {
+				_webView.Configuration.UserContentController.RemoveAllUserScripts();
 				_webView.Configuration.UserContentController.AddUserScript(new WKUserScript(
 					new NSString(script), WKUserScriptInjectionTime.AtDocumentStart, isForMainFrameOnly: true));
 				tcs.SetResult();
@@ -92,6 +96,7 @@ internal sealed class WelcomeWindow : IWebSurface {
 	}
 
 	private void OnClosed() {
+		_bridge.Security.Revoke();
 		_controller.Detach();
 		if (_closeObserver is not null) {
 			NSNotificationCenter.DefaultCenter.RemoveObserver(_closeObserver);

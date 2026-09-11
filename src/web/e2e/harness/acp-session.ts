@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 
 export async function createAcpSession(page: import("@playwright/test").Page, branch: string) {
   await page.locator(".session-rail-add").click();
@@ -10,4 +10,11 @@ export async function createAcpSession(page: import("@playwright/test").Page, br
 
   await expect(page.locator(`.session-chip.active[title^="${branch} —"]`)).toBeVisible();
   return page.locator('[data-surface="structured-agent"]');
+}
+
+export async function submitAcpDraft(surface: Locator, draft: string): Promise<void> {
+  const composer = surface.locator("[data-agent-composer]");
+  await composer.locator("textarea").fill(draft);
+  await expect(composer.locator('button[type="submit"]')).toBeEnabled();
+  await composer.locator("textarea").press("Enter");
 }

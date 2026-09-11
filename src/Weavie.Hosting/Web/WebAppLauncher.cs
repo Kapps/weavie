@@ -29,14 +29,14 @@ public sealed class WebAppLauncher {
 		// No ConfigureAwait juggling: the surface marshals each call to its own UI thread, so this flow is
 		// thread-agnostic and the awaits can stay off the captured context.
 		await _core.StartAsync().ConfigureAwait(false);
-		await _surface.InjectStartupScriptAsync(_core.BuildCrossOriginBootstrap()).ConfigureAwait(false);
-		_surface.Navigate($"{origin}/index.html{_indexQuery}");
+		string documentUrl = $"{origin}/index.html{_indexQuery}";
+		await _surface.LoadAsync(documentUrl, _core.BuildCrossOriginBootstrap()).ConfigureAwait(false);
 	}
 
 	/// <summary>Brings the app up from the shared workspace HTTP server's bundled document.</summary>
 	public async Task LaunchBundleAsync() {
 		await _core.StartAsync().ConfigureAwait(false);
 		string suffix = string.IsNullOrEmpty(_indexQuery) ? string.Empty : "&" + _indexQuery.TrimStart('?');
-		_surface.Navigate(_core.WorkspaceNativePageUrl + suffix);
+		await _surface.LoadAsync(_core.WorkspaceNativePageUrl + suffix, string.Empty).ConfigureAwait(false);
 	}
 }

@@ -27,39 +27,33 @@ export function createReviewEditorViewport(
     };
   };
 
-  // Where `mount` (Monaco's small rendered window) must sit within `container` for the current scroll to line
-  // up with the scroller's visible pane. A plain DOM write, never a Monaco call — safe to run synchronously
-  // even mid-dispatch of Monaco's own event, unlike the rest of `layout()` below.
-  const position = (): { top: number; height: number } => {
-    const viewport = bounds();
-    const height = Math.min(container.clientHeight, viewport.height);
-    const offset = viewport.top - container.getBoundingClientRect().top;
-    const top = Math.max(0, Math.min(offset, container.clientHeight - height));
-    mount.style.top = `${top}px`;
-    return { top, height };
-  };
+  const projectedTop = (): number =>
+    Math.floor(
+      Math.max(
+        0,
+        Math.min(
+          bounds().top - container.getBoundingClientRect().top,
+          editor.getScrollHeight() - editor.getLayoutInfo().height,
+        ),
+      ),
+    );
 
   const layout = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
-      const { top, height } = position();
+      const viewport = bounds();
+      const height = Math.min(editor.getContentHeight(), viewport.height);
       editor.layout({ width: container.clientWidth, height });
+      const top = projectedTop();
+      mount.style.top = `${top}px`;
       editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
       editor.render();
     } finally {
       syncing = wasSyncing;
     }
   };
-  // Re-syncs `mount`'s DOM position immediately (never stale), deferring only the Monaco-reentrant part of
-  // `layout()` to the next frame. Without the immediate `position()`, a same-file jump made from outside the
-  // editor (e.g. an omnibar commit) calls the editor's own `.focus()` right after this while `mount` still sits
-  // at its pre-jump spot; the browser's native scroll-into-view-on-focus then drags `scroller.scrollTop` back
-  // toward that stale spot, undoing the line above and corrupting whatever reads the scroll position next
-  // (capture()'s reviewLine() included). See the unified-review-history.spec.ts "document symbols preview"
-  // regression this fixed.
   const schedule = (): void => {
-    position();
     if (frame === undefined) {
       frame = requestAnimationFrame(() => {
         frame = undefined;
@@ -76,18 +70,11 @@ export function createReviewEditorViewport(
     scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
     layout();
   };
-  // Keyboard/caret reveals still move the page; only Monaco's own render pass may be deferred. The
-  // scroller.scrollTop update below is a plain DOM mutation, not a Monaco call, so it stays inline — a
-  // reader (e.g. capture()'s reviewLine()) that runs synchronously right after a reveal must see the real,
-  // current scroll position, or its viewport-membership check works off stale bounds and silently anchors
-  // to the wrong line (corrupting nav history entries that later collapse by line proximity). Only `layout()`,
-  // which calls back into Monaco (setScrollTop, render), is deferred to the next animation frame: Monaco
-  // fires this event mid-dispatch of its own reveal command, and calling back into it synchronously from
-  // there is reentrant — occasionally leaving Monaco's own render pass and ours racing under CI-runner
-  // scheduling pressure. See the flake note in unified-review-scroll.spec.ts.
+  // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
   const scroll = editor.onDidScrollChange((event) => {
-    if (!syncing && event.scrollTopChanged) {
+    if (!syncing && event.scrollTopChanged && event.scrollTop !== projectedTop()) {
       scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
+      mount.style.top = `${projectedTop()}px`;
       schedule();
     }
   });

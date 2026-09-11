@@ -259,7 +259,6 @@ public sealed partial class AcpAgentSession {
 			RestoreSetupActivity();
 			RaiseControls();
 			DispatchPendingSubmission();
-			FlushPendingAsides();
 		}
 	}
 

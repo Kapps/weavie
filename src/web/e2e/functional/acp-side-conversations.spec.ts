@@ -159,14 +159,6 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });
 
-// Flaked on windows-latest 2026-09-09 06:21 UTC (run 34317635773, job 102358015410): `.agent-aside` never
-// appeared within 30s — not a text mismatch, the element itself was never found. Root cause: `/btw rich` here
-// is the very first composer action after `createAcpSession` returns, which races the ACP handshake
-// (`_ready`/`_supportsFork`/`_supportsLoad`, set together once `session/new` resolves). AskAside threw
-// InvalidOperationException on `!_ready` and HostCore.Sessions.cs silently swallowed it, so the aside panel
-// never mounted — unlike an ordinary prompt sent in the same window, which Submit() safely queues and
-// delivers once ready. Fixed at the root in AcpAgentSession.AskAside/FlushPendingAsides (queue instead of
-// throwing on `!_ready`, flushed once the handshake completes) rather than in this test.
 test("BTW collapse and nested history expansion preserve per-thread state across session switches", async ({
   page,
 }) => {

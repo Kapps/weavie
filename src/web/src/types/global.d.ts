@@ -1,13 +1,4 @@
-// Ambient declarations for the WKWebView bridge surface.
-
-interface WeavieWebkitHandler {
-  postMessage(body: string): void;
-}
-
-interface WeavieWebView2 {
-  addEventListener(type: "message", listener: (event: MessageEvent<unknown>) => void): void;
-  postMessage(body: string): void;
-}
+// Ambient declarations for the native host bridge surface.
 
 /** Host-injected shell config (window.__WEAVIE_SHELL__), set before navigation; absent in plain-browser dev. */
 interface WeavieShellConfig {
@@ -32,17 +23,13 @@ interface WeavieWelcomeConfig {
 interface Window {
   /** Removes the classic pre-module error capture once main.tsx owns runtime error reporting. */
   __WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__?: () => void;
-  chrome?: { webview?: WeavieWebView2 };
-  webkit?: {
-    messageHandlers?: {
-      weavie?: WeavieWebkitHandler;
-    };
-  };
+  /** Authenticated sender installed by the native host only in its app document. */
+  __weaviePostMessage?: (raw: string) => void;
   /** Entry point the C# host calls via EvaluateJavaScript to push messages into the page. */
   __weavieReceive?: (raw: string) => void;
   /**
    * Bridge WebSocket advertised by a headless "serve" host: a concrete `ws://host:port/path` URL, or "auto"
-   * to derive it same-origin. Absent in the native shells (messageHandlers channel) and plain-browser dev.
+   * to derive it same-origin. Absent in the native shells (authenticated script channel) and plain-browser dev.
    */
   __WEAVIE_BRIDGE_WS__?: string;
   /** Authenticated HTTP endpoint used directly by image/video elements for streamed workspace media. */

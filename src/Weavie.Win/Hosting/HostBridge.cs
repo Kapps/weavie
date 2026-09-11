@@ -11,6 +11,9 @@ namespace Weavie.Win.Hosting;
 /// </summary>
 public sealed class HostBridge : IWebTransportHub, IDisposable {
 	private CoreWebView2? _core;
+
+	/// <summary>The shared document and message authentication boundary.</summary>
+	public NativeBridgeSecurity Security { get; } = new();
 	private volatile OrderedMessageQueue? _outbound;
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the UI thread).</summary>
@@ -25,10 +28,13 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 		var core = webView.CoreWebView2
 			?? throw new InvalidOperationException("CoreWebView2 not initialized; call EnsureCoreWebView2Async first.");
 		core.WebMessageReceived += OnWebMessageReceived;
+		core.NavigationStarting += (_, e) => e.Cancel |= !Security.Allows(e.Uri, true);
+		core.FrameNavigationStarting += (_, e) => e.Cancel |= !Security.Allows(e.Uri, false);
+		core.NewWindowRequested += (_, e) => e.Handled = true;
 		_core = core;
 		_outbound = new OrderedMessageQueue(
 			action => webView.BeginInvoke(action),
-			core.PostWebMessageAsString,
+			script => _ = SendScriptAsync(core, script),
 			failure => {
 				// Scheduling can fail on a producer thread; native unsubscription stays in UI-owned Dispose.
 				_outbound = null;
@@ -43,22 +49,21 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 	}
 
 	private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e) {
-		if (_outbound is null) {
+		if (_outbound is null || !ReferenceEquals(sender, _core) || !Security.Allows(e.Source, true)) {
 			return;
 		}
 		string body;
 		try {
 			body = e.TryGetWebMessageAsString();
 		} catch (ArgumentException) {
-			// Non-string payload — defensive; the frontend only ever posts JSON strings.
-			body = e.WebMessageAsJson;
+			return;
 		}
 
-		MessageReceived?.Invoke(WebPeer.Native, body ?? string.Empty);
+		if (Security.Authenticate(body) is { } authenticated) MessageReceived?.Invoke(WebPeer.Native, authenticated);
 	}
 
 	/// <summary>Pushes a raw JSON message string through WebView2's ordered host-to-page channel.</summary>
-	public void Broadcast(WebTransportMessage message) => _outbound?.Enqueue(message.Json);
+	public void Broadcast(WebTransportMessage message) => _outbound?.Enqueue(WebBridgeScript.Receive(message.Json));
 
 	/// <inheritdoc/>
 	public void Send(WebPeer peer, WebTransportMessage message) {
@@ -67,8 +72,19 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 		}
 	}
 
+	private async Task SendScriptAsync(CoreWebView2 core, string script) {
+		try {
+			await core.ExecuteScriptAsync(script);
+		} catch (Exception failure) {
+			Dispose();
+			PeerDisconnected?.Invoke(WebPeer.Native);
+			WinUiFailure.Report(failure);
+		}
+	}
+
 	/// <summary>Stops outbound scheduling and detaches the inbound WebView2 handler.</summary>
 	public void Dispose() {
+		Security.Revoke();
 		_outbound?.Dispose();
 		_outbound = null;
 		_core?.WebMessageReceived -= OnWebMessageReceived;

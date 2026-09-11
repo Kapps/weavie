@@ -109,75 +109,32 @@ test("@cross open file browser follows external directory and file changes", asy
   await expect(row("retained.txt")).toBeVisible();
 });
 
-test.describe("Go to File live index", () => {
-  let completedIndexes = 0;
-  test.use({
-    preNavigate: {
-      run: async (page) => {
-        await page.routeWebSocket("**/*", (socket) => {
-          const server = socket.connectToServer();
-          server.onMessage((data) => {
-            const message = JSON.parse(data.toString());
-            if (
-              message.feature === "files" &&
-              message.name === "index" &&
-              message.payload.pending === false
-            ) {
-              completedIndexes += 1;
-            }
-            socket.send(data);
-          });
-        });
-      },
-    },
-  });
-
-  // Flaked on windows-latest 2026-09-09 06:21 UTC (run 34317635773, job 102358015407): "live-index-old.txt"
-  // never appeared within the default 30s wait after an external write. Root cause: discovering a new file
-  // isn't a fixed-latency OS watcher event here — WorkspaceInvalidationWatcher.RecordKnown no-ops for a path
-  // it hasn't seen before, so the row can only appear once the next async RefreshAsync pass re-lists the
-  // workspace by spawning a real `git ls-files` process and diffing the result (WorkspaceInvalidationWatcher.cs,
-  // GitService.ListWorkspacePathsAsync). That subprocess spawn is disproportionately slow and variable on a
-  // loaded Windows CI runner (process creation plus antivirus on-exec scanning of git.exe), so asserting the
-  // DOM row directly races that refresh instead of waiting on it. Wait for the actual `index` completion push
-  // the app already sends (same signal `file-browser.spec.ts`'s "file request completion" tests use) after
-  // each external mutation, instead of asserting the row against Playwright's default timeout.
-  test("an open Go to File query follows external create, rename and delete", async ({
-    page,
-    weavie,
-  }) => {
-    const path = (name: string) => join(weavie.workspace, name);
-    const row = (name: string) => page.locator(".tb-omnibar-row", { hasText: name });
-    const awaitNextIndex = async (mutate: () => Promise<void>): Promise<void> => {
-      const previous = completedIndexes;
-      await mutate();
-      await expect.poll(() => completedIndexes).toBeGreaterThan(previous);
-    };
-    await mkdir(path("empty-directory"));
-    await runCommand(page, "Toggle File Browser");
-    await page.locator(".browser-row", { hasText: "empty-directory" }).click();
-    await expect(page.locator(".browser-children .browser-empty")).toHaveText("Empty folder");
-    await runCommand(page, "Toggle File Browser");
-    await page.locator(".tb-omnibar-input").click();
-    await page.locator(".tb-omnibar-input").fill("live-index");
-    await expect(row("live-index")).toHaveCount(0);
-    await awaitNextIndex(() => writeFile(path("live-index-old.txt"), "new file"));
-    await expect(row("live-index-old.txt")).toBeVisible();
-    await awaitNextIndex(() =>
-      writeFile(path("empty-directory/live-index-nested.txt"), "first child"),
-    );
-    await expect(row("live-index-nested.txt")).toBeVisible();
-    await awaitNextIndex(() => rename(path("live-index-old.txt"), path("live-index-new.txt")));
-    await expect(row("live-index-old.txt")).toHaveCount(0);
-    await expect(row("live-index-new.txt")).toBeVisible();
-    await awaitNextIndex(async () => {
-      await unlink(path("live-index-new.txt"));
-      await unlink(path("empty-directory/live-index-nested.txt"));
-    });
-    await expect(row("live-index-new.txt")).toHaveCount(0);
-    await expect(row("live-index-nested.txt")).toHaveCount(0);
-    await expect(page.locator(".tb-omnibar-input")).toHaveValue("live-index");
-  });
+test("an open Go to File query follows external create, rename and delete", async ({
+  page,
+  weavie,
+}) => {
+  const path = (name: string) => join(weavie.workspace, name);
+  const row = (name: string) => page.locator(".tb-omnibar-row", { hasText: name });
+  await mkdir(path("empty-directory"));
+  await runCommand(page, "Toggle File Browser");
+  await page.locator(".browser-row", { hasText: "empty-directory" }).click();
+  await expect(page.locator(".browser-children .browser-empty")).toHaveText("Empty folder");
+  await runCommand(page, "Toggle File Browser");
+  await page.locator(".tb-omnibar-input").click();
+  await page.locator(".tb-omnibar-input").fill("live-index");
+  await expect(row("live-index")).toHaveCount(0);
+  await writeFile(path("live-index-old.txt"), "new file");
+  await expect(row("live-index-old.txt")).toBeVisible();
+  await writeFile(path("empty-directory/live-index-nested.txt"), "first child");
+  await expect(row("live-index-nested.txt")).toBeVisible();
+  await rename(path("live-index-old.txt"), path("live-index-new.txt"));
+  await expect(row("live-index-old.txt")).toHaveCount(0);
+  await expect(row("live-index-new.txt")).toBeVisible();
+  await unlink(path("live-index-new.txt"));
+  await unlink(path("empty-directory/live-index-nested.txt"));
+  await expect(row("live-index-new.txt")).toHaveCount(0);
+  await expect(row("live-index-nested.txt")).toHaveCount(0);
+  await expect(page.locator(".tb-omnibar-input")).toHaveValue("live-index");
 });
 
 test.describe("file request completion", () => {

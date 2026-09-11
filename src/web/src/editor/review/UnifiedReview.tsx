@@ -7,6 +7,7 @@ import {
   For,
   type JSX,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
@@ -276,14 +277,15 @@ export function UnifiedReview(props: {
 
   const followViewport = (): void => {
     programmaticSelection = false;
+    surface.takeControl();
   };
-  // The explicit resizeItem() matters alongside measureElement(): measureElement alone can silently drop the
-  // update while the virtualizer still considers itself "scrolling" (isScrolling stays true for
-  // isScrollingResetDelay after our own scrollToIndex, unrelated to this row) and no smooth scrollState is
-  // active for this row — exactly the window a section's diff paints in. A dropped update leaves every later
-  // row's cached offset short by this row's real growth, which a later file's capture()/restore()
-  // (review-editor.ts) reads directly off the DOM to anchor its own scroll — silently landing short by the
-  // same amount, permanently.
+  onMount(() => {
+    const element = scroller!;
+    for (const event of ["keydown", "pointerdown", "wheel"]) {
+      element.addEventListener(event, followViewport, true);
+      onCleanup(() => element.removeEventListener(event, followViewport, true));
+    }
+  });
   const measure = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
@@ -307,9 +309,6 @@ export function UnifiedReview(props: {
         class="unified-review-diffs"
         ref={scroller}
         tabIndex={-1}
-        onKeyDown={followViewport}
-        onPointerDown={followViewport}
-        onWheel={followViewport}
         onScroll={() => {
           if (!programmaticSelection) {
             const row = virtualizer.getVirtualItemForOffset(scroller!.scrollTop);

@@ -9,7 +9,12 @@ export async function createAcpSession(page: import("@playwright/test").Page, br
   await expect(inbox).toBeHidden();
 
   await expect(page.locator(`.session-chip.active[title^="${branch} —"]`)).toBeVisible();
-  return page.locator('[data-surface="structured-agent"]');
+  const surface = page.locator('[data-surface="structured-agent"]');
+  await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
+    "data-agent-controls-ready",
+    "true",
+  );
+  return surface;
 }
 
 export async function submitAcpDraft(surface: Locator, draft: string): Promise<void> {

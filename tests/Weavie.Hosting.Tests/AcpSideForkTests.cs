@@ -20,7 +20,8 @@ public sealed class AcpSideForkTests {
 
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: next side prompt");
-		Assert.Contains(fixture.Messages, message => message.Type == "side-conversation-failed"
+		// Each aside settles independently; the next answer does not acknowledge the interrupted fork.
+		await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-failed"
 			&& message.ConversationId == first.ConversationId);
 		Assert.DoesNotContain(fixture.Messages, message => message.ConversationId != first.ConversationId
 			&& message.Text == "early fork update");

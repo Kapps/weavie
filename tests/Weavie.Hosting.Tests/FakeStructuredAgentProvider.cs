@@ -63,6 +63,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 		}
 
 		public AgentControlState ControlState { get; } = new() {
+			Ready = true,
 			Axes = [
 				Axis("model", "Model", "GPT Test"),
 				Axis("approvalPolicy", "Approvals", "On request"),

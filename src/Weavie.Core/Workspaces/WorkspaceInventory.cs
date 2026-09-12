@@ -68,6 +68,13 @@ public sealed partial class WorkspaceInventory {
 				snapshot = BuildSnapshot(isRepository: true,
 					[.. paths.Where(path => !path.EndsWith('/'))],
 					[.. paths.Where(path => path.EndsWith('/'))]);
+			} else if (_isRepository is true) {
+				// Git just reported "not a repository" for a root this same inventory already confirmed was
+				// one — its .git metadata vanished out from under a still-running refresh (e.g. a concurrent
+				// delete), not a workspace that was never a repository. Surface it as the execution failure it
+				// is instead of latching a false "non-repository" verdict that would silence every later
+				// refresh's ability to notice the root is gone.
+				throw new GitException($"Git repository at '{Root}' stopped looking like one mid-refresh.");
 			} else {
 				_isRepository = false;
 				lock (_knownFilesLock) {

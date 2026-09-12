@@ -1,7 +1,6 @@
 .pane-slot.floating-slot {
-  position: fixed;
   inset: 0 auto 0 0;
-  width: min(420px, 80vw);
+  width: min(420px, 80%);
   z-index: 41;
   overflow: visible;
   visibility: visible;

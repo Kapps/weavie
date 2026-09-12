@@ -4,16 +4,12 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
-test.skip(
-  process.platform === "linux",
-  "Navigation probes overlap WebKit cancellation; font replies do not acknowledge navigation completion.",
-);
-
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }) => {
   const nonce = randomUUID();
   const acks = new Set<string>();
+  const requests = new Set<string>();
   const complete = Promise.withResolvers<string>();
   let workspace = "";
   const fontRequest = (requestId: string) =>
@@ -49,12 +45,14 @@ test("only the app can use the native bridge, across welcome, previews and reloa
   `;
   const server = createServer((req, res) => {
     const url = new URL(req.url!, "http://localhost");
+    requests.add(url.pathname);
     res.setHeader("Access-Control-Allow-Origin", "*");
     if (url.pathname === "/done" && url.searchParams.get("nonce") === nonce)
       complete.resolve(url.searchParams.get("result")!);
     if (url.pathname.startsWith("/ack/")) acks.add(url.pathname);
     if (url.pathname === "/leak") complete.resolve("Untrusted document received bridge access");
     if (url.pathname === "/state") return void res.end(JSON.stringify([...acks]));
+    if (url.pathname === "/requests") return void res.end(JSON.stringify([...requests]));
     if (url.pathname === "/redirect")
       return void res.writeHead(302, { Location: "/preview" }).end();
     if (url.pathname === "/app-frame") {
@@ -91,7 +89,9 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       (async () => {
         const origin = ${JSON.stringify(origin)}, nonce = ${JSON.stringify(nonce)};
         if (self !== top) { ${attack(origin)} return; }
-        const wait = async condition => { while (!await condition()) await new Promise(resolve => setTimeout(resolve, 25)); };
+        // A condition can throw transiently (e.g. a fetch cancelled by an in-flight top-level navigation);
+        // treat that as "not yet" rather than failing the whole probe.
+        const wait = async condition => { while (!await Promise.resolve().then(condition).catch(() => false)) await new Promise(resolve => setTimeout(resolve, 25)); };
         const query = selector => document.querySelector(selector);
         const command = async label => {
           const input = query('.tb-omnibar-input'); input.focus(); input.click(); input.value = '>' + label;
@@ -120,10 +120,22 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/opaque'));
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
-          for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
+          // Each denied top-level navigation still fetches its destination (following any redirect) before
+          // WebKit's response-policy decision cancels it. Waiting only on the font-command round trip lets that
+          // fetch outlive the iteration, so the next navigation starts while the previous one's cancellation is
+          // still in flight; wait for the destination fetch to land before moving on, so navigations never
+          // overlap. The data: URI probe is ordered before the two http(s) probes for the same reason: it never
+          // hits the server, so nothing here can confirm its cancellation has settled before the reload() below
+          // runs, and WebKitGTK drops that reload if a data: navigation is still what's mid-cancellation.
+          for (const [index, [url, settles]] of [
+            ['data:text/html,untrusted', null],
+            [origin + '/top', '/top'],
+            [origin + '/redirect', '/preview'],
+          ].entries()) {
             const request = ${fontRequest("trusted")}; request.requestId += index;
             window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
             await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
+            if (settles) await wait(async () => (await (await fetch(origin + '/requests')).json()).includes(settles));
           }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }

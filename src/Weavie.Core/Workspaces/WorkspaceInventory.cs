@@ -59,6 +59,7 @@ public sealed partial class WorkspaceInventory {
 	public async Task<WorkspaceInventorySnapshot> RefreshAsync(CancellationToken ct = default) {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
+			bool wasRepository = _isRepository is true;
 			var paths = _isRepository is false
 				? null
 				: await _load(ct).ConfigureAwait(false);
@@ -68,6 +69,12 @@ public sealed partial class WorkspaceInventory {
 				snapshot = BuildSnapshot(isRepository: true,
 					[.. paths.Where(path => !path.EndsWith('/'))],
 					[.. paths.Where(path => path.EndsWith('/'))]);
+			} else if (wasRepository) {
+				// A directory Weavie already confirmed as a Git repository does not legitimately turn into a plain
+				// folder; the only way `_load` stops finding one is a worktree vanishing mid-teardown (`.git`
+				// unlinked before the rest of the tree). Reporting that as the ordinary non-repository case would
+				// cache it forever and permanently blind this inventory to the very deletion it needs to surface.
+				throw GitException.ForMissingWorkingDirectory(Root);
 			} else {
 				_isRepository = false;
 				lock (_knownFilesLock) {

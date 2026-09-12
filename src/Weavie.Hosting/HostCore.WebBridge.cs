@@ -142,6 +142,13 @@ public sealed partial class HostCore {
 				IReadOnlyList<string> files;
 				try {
 					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+					// A refresh during deletion can lose Git metadata before the root disappears.
+					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
+						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {
+						target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
+						return;
+					}
+
 					if (inventory.IsRepository) {
 						files = inventory.Files;
 					} else {

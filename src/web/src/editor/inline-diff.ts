@@ -262,6 +262,9 @@ export function createInlineDiff(
   let dotsNode: HTMLElement | undefined;
   let scopeMenuNode: HTMLElement | undefined;
   let scopeWrapNode: HTMLElement | undefined;
+  // Survives a toolbar rebuild (a debounced recompute, a font change) so a background render doesn't
+  // silently close the dropdown mid-gesture; reset explicitly on model swap and clearAll.
+  let scopeMenuOpen = false;
   // Session-global review undo/redo: availability (host-pushed) + the bound handlers, plus the toolbar buttons
   // that reflect it. Not per-file, so it survives the active diff clearing.
   let history: ReviewHistoryState = {
@@ -985,14 +988,15 @@ export function createInlineDiff(
     scopeWrapNode = wrap;
     const menu = document.createElement("div");
     menu.className = "weavie-inline-scope-menu";
-    menu.style.display = "none";
+    menu.style.display = scopeMenuOpen ? "flex" : "none";
     scopeMenuNode = menu;
     const toggle = makeButton(
       "weavie-inline-scope-btn",
       `Scope: ${scopeName(scope)} ▾`,
       "Choose what Keep / Revert act on",
       () => {
-        menu.style.display = menu.style.display === "none" ? "flex" : "none";
+        scopeMenuOpen = !scopeMenuOpen;
+        menu.style.display = scopeMenuOpen ? "flex" : "none";
       },
     );
     const head = document.createElement("div");
@@ -1004,7 +1008,10 @@ export function createInlineDiff(
         `weavie-inline-scope-item${value === scope ? " active" : ""}`,
         label,
         label,
-        () => setScope(value),
+        () => {
+          scopeMenuOpen = false;
+          setScope(value);
+        },
       );
       if (count !== undefined) {
         const tag = document.createElement("span");
@@ -1519,6 +1526,7 @@ export function createInlineDiff(
   // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
   const onModel = editor.onDidChangeModel(() => {
     closeNewComposer();
+    scopeMenuOpen = false;
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
       recomputeTimer = undefined;
@@ -1541,23 +1549,21 @@ export function createInlineDiff(
   // Close an open scope dropdown on any click outside it (capture so it beats the editor's own handlers).
   const onDocDown = (event: PointerEvent): void => {
     if (
+      scopeMenuOpen &&
       scopeMenuNode !== undefined &&
-      scopeMenuNode.style.display !== "none" &&
       scopeWrapNode !== undefined &&
       !scopeWrapNode.contains(event.target as Node)
     ) {
+      scopeMenuOpen = false;
       scopeMenuNode.style.display = "none";
     }
   };
   document.addEventListener("pointerdown", onDocDown, true);
   // Escape closes an open scope dropdown from the keyboard (capture so it beats the editor's own Escape).
   const onDocKey = (event: KeyboardEvent): void => {
-    if (
-      event.key === "Escape" &&
-      scopeMenuNode !== undefined &&
-      scopeMenuNode.style.display !== "none"
-    ) {
+    if (event.key === "Escape" && scopeMenuOpen && scopeMenuNode !== undefined) {
       event.stopPropagation();
+      scopeMenuOpen = false;
       scopeMenuNode.style.display = "none";
     }
   };
@@ -1707,6 +1713,7 @@ export function createInlineDiff(
       diffComputer.dispose();
       initialProposalReveals.clear();
       presentation.scope.current = "change";
+      scopeMenuOpen = false;
       parkedReview = undefined;
       closeNewComposer();
       clearRender();

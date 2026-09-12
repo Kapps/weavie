@@ -315,12 +315,9 @@ for (const cancel of ["release Alt after mouse down", "drag away and back"] as c
   test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
     await focusEditor(page, "hello.ts");
     await registerGreetDefinition(page);
-    const word = await wordToken(page, "const message = greet", "greet");
-    await word.hover();
-    const bounds = await word.boundingBox();
-    if (bounds === null) throw new Error("Symbol has no bounds");
-    const x = bounds.x + bounds.width / 2,
-      y = bounds.y + bounds.height / 2;
+    // Model position, not a DOM locator + boundingBox(): the latter races Monaco's own re-render of the span.
+    const { x, y } = await symbolPosition(page, "const message = greet", "greet");
+    await page.mouse.move(x, y);
     await page.keyboard.down("Alt");
     await page.mouse.move(x, y);
     await expect(page.locator(".goto-definition-link")).toBeVisible();

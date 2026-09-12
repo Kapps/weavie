@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -448,6 +448,30 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+
+  test("an open scope menu survives a toolbar rebuild", async ({ page }) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt"]);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await page.locator(".weavie-inline-scope-btn").click();
+    const menu = page.locator(".weavie-inline-scope-menu");
+    await expect(menu).toBeVisible();
+
+    await page.evaluate(() => {
+      document
+        .querySelector(".weavie-inline-toolbar")
+        ?.setAttribute("data-probe", "before-rebuild");
+      window.__WEAVIE_EDITOR__?.focus();
+    });
+    await typeInEditor(page, "x");
+    await expect(page.locator(`${TOOLBAR}[data-probe]`)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(1);
+    await expect(menu).toBeVisible();
+
+    await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
+    await expect(page.locator(".weavie-inline-scope-btn")).toContainText("File");
+    await expect(menu).toBeHidden();
   });
 });
 

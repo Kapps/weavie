@@ -9,7 +9,7 @@ overrides:
   dompurify: 3.4.13
 
 patchedDependencies:
-  '@codingame/monaco-vscode-api@36.2.7': ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02
+  '@codingame/monaco-vscode-api@36.2.7': 890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423
   vscode-languageclient@9.0.1: 5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb
 
 importers:
@@ -18,7 +18,7 @@ importers:
     dependencies:
       '@codingame/monaco-vscode-api':
         specifier: 36.2.7
-        version: 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+        version: 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-csharp-default-extension':
         specifier: 36.2.7
         version: 36.2.7
@@ -1818,7 +1818,7 @@ snapshots:
       esbuild: 0.25.12
       import-meta-resolve: 4.2.0
 
-  '@codingame/monaco-vscode-api@36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)':
+  '@codingame/monaco-vscode-api@36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)':
     dependencies:
       '@codingame/monaco-vscode-base-service-override': 36.2.7
       '@codingame/monaco-vscode-environment-service-override': 36.2.7
@@ -1835,88 +1835,88 @@ snapshots:
 
   '@codingame/monaco-vscode-base-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-csharp-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-editor-api@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-editor-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-environment-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-extension-api@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-extensions-service-override': 36.2.7
 
   '@codingame/monaco-vscode-extensions-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-files-service-override': 36.2.7
 
   '@codingame/monaco-vscode-files-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-go-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-host-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-languages-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-files-service-override': 36.2.7
 
   '@codingame/monaco-vscode-layout-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-model-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-python-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-quickaccess-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-rust-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-textmate-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-files-service-override': 36.2.7
 
   '@codingame/monaco-vscode-theme-defaults-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@codingame/monaco-vscode-theme-service-override@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
       '@codingame/monaco-vscode-files-service-override': 36.2.7
 
   '@codingame/monaco-vscode-typescript-basics-default-extension@36.2.7':
     dependencies:
-      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=ebaa32da477503ef04853c193a90feb04f2227c7b19effe2236ec2b452f6ed02)
+      '@codingame/monaco-vscode-api': 36.2.7(patch_hash=890ee0f95e79ff0783ff4bacbee62298104414e5355022298406de7807558423)
 
   '@emnapi/core@1.11.1':
     dependencies:

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import type { MessageEnvelope } from "../../src/messaging/message-envelope";
-import { awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
+import { altClick, awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
@@ -52,10 +52,6 @@ async function wordToken(page: Page, lineText: string, word: string): Promise<Lo
     .locator(".view-line", { hasText: lineText })
     .locator("span", { hasText: word })
     .last();
-}
-
-async function altClick(word: Locator): Promise<void> {
-  await word.click({ modifiers: ["Alt"] });
 }
 
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({

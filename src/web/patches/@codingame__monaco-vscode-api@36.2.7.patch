@@ -259,3 +259,104 @@ index 9327b6ae5f6b11b57da2aaedde2198d21cb46421..00850e6ec17756ed475ec5f32bbfee9f
              const action = ( new DefinitionAction({
                  openToSide,
                  openInPeek: canPeek,
+diff --git a/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.js b/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.js
+--- a/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.js
++++ b/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.js
+@@ -109,6 +109,7 @@
+         this.lastModelContentChangeFromUndoRedo = undefined;
+         this.saveSequentializer = ( new TaskSequentializer());
+         this.dirty = false;
++        this.writePending = false;
+         this.inConflictMode = false;
+         this.inOrphanMode = false;
+         this.inErrorMode = false;
+@@ -436,7 +437,7 @@
+             this.lastModelContentChangeFromUndoRedo = Date.now();
+         }
+         if (!this.ignoreDirtyOnModelContentChange && !this.isReadonly()) {
+-            if (model.getAlternativeVersionId() === this.bufferSavedVersionId) {
++            if (!this.writePending && model.getAlternativeVersionId() === this.bufferSavedVersionId) {
+                 this.trace(
+                     "onModelContentChanged() - model content changed back to last saved version"
+                 );
+@@ -620,6 +621,8 @@
+                 return;
+             }
+             versionId = this.versionId;
++            const alternativeVersionId = this.textEditorModel.getAlternativeVersionId();
++            const encoding = this.getEncoding();
+             this.inErrorMode = false;
+             progress.report({
+                 message: ( localize(17965, "Writing into file..."))
+@@ -628,36 +631,35 @@
+             const lastResolvedFileStat = assertReturnsDefined(this.lastResolvedFileStat);
+             const resolvedTextFileEditorModel = this;
+             return this.saveSequentializer.run(versionId, (async () => {
++                this.writePending = true;
+                 try {
+                     const stat = await this.textFileService.write(
+                         lastResolvedFileStat.resource,
+                         resolvedTextFileEditorModel.createSnapshot(),
+                         {
+                             mtime: lastResolvedFileStat.mtime,
+-                            encoding: this.getEncoding(),
++                            encoding,
+                             etag: (options.ignoreModifiedSince || !this.filesConfigurationService.preventSaveConflicts(lastResolvedFileStat.resource, resolvedTextFileEditorModel.getLanguageId())) ? ETAG_DISABLED : lastResolvedFileStat.etag,
+                             unlock: options.writeUnlock,
+                             writeElevated: options.writeElevated
+                         }
+                     );
+-                    this.handleSaveSuccess(stat, versionId, options);
++                    this.handleSaveSuccess(stat, versionId, alternativeVersionId, encoding, options);
+                 } catch (error) {
+                     this.handleSaveError(error, versionId, options);
++                } finally {
++                    this.writePending = false;
+                 }
+             })());
+         })(), () => saveCancellation.cancel());
+     }
+-    handleSaveSuccess(stat, versionId, options) {
++    handleSaveSuccess(stat, versionId, alternativeVersionId, encoding, options) {
+         this.updateLastResolvedFileStat(stat);
+-        if (versionId === this.versionId) {
+-            this.trace(
+-                `handleSaveSuccess(${versionId}) - setting dirty to false because versionId did not change`
+-            );
+-            this.setDirty(false);
+-        } else {
+-            this.trace(
+-                `handleSaveSuccess(${versionId}) - not setting dirty to false because versionId did change meanwhile`
+-            );
++        this.bufferSavedVersionId = alternativeVersionId;
++        if (this.isResolved()) {
++            const dirty = this.textEditorModel.getAlternativeVersionId() !== alternativeVersionId || this.getEncoding() !== encoding;
++            this.trace(`handleSaveSuccess(${versionId}) - saved alternative version ${alternativeVersionId}, dirty: ${dirty}`);
++            this.setDirty(dirty);
+         }
+         this.setOrphaned(false);
+         this._onDidSave.fire({
+@@ -769,10 +771,8 @@
+     async setEncodingInternal(encoding, mode) {
+         if (mode === EncodingMode.Encode) {
+             this.updatePreferredEncoding(encoding);
+-            if (!this.isDirty()) {
+-                this.versionId++;
+-                this.setDirty(true);
+-            }
++            this.versionId++;
++            this.setDirty(true);
+             if (!this.inConflictMode) {
+                 await this.save({
+                     source: TextFileEditorModel_1.TEXTFILE_SAVE_ENCODING_SOURCE
+diff --git a/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.d.ts b/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.d.ts
+--- a/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.d.ts
++++ b/vscode/src/vs/workbench/services/textfile/common/textFileEditorModel.d.ts
+@@ -71,6 +71,7 @@
+     lastResolvedFileStat: IFileStatWithMetadata | undefined;
+     private readonly saveSequentializer;
+     private dirty;
++    private writePending;
+     private inConflictMode;
+     private inOrphanMode;
+     private inErrorMode;

@@ -55,7 +55,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 
 		var core = _webView.CoreWebView2;
 
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
 		if (_closing) {
 			return;
 		}
@@ -122,18 +121,24 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 
 	// IWebSurface — the native WebView2 ops the shared bring-up drives. Each marshals onto the UI thread (WebView2
 	// calls are UI-thread-affine), so the shared flow in Weavie.Hosting.Web stays thread-agnostic.
-	void IWebSurface.Navigate(string url) =>
-		_dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url));
+	Task IWebSurface.LoadAsync(string url, string startupScript) =>
+		_bridge.Security.LoadAsync(url, startupScript, "this.chrome.webview.postMessage.bind(this.chrome.webview)",
+			InjectStartupScriptAsync, url => _dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url)));
 
-	void IWebSurface.RenderHtml(string html) =>
+	void IWebSurface.RenderHtml(string html) {
+		_bridge.Security.Revoke();
 		_dispatcher.Post(() => _webView.CoreWebView2?.NavigateToString(html));
+	}
 
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
+	private string? _startupScriptId;
+
+	private Task InjectStartupScriptAsync(string script) {
 		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_dispatcher.Post(async () => {
 			try {
 				if (_webView.CoreWebView2 is { } core) {
-					await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
+					if (_startupScriptId is not null) core.RemoveScriptToExecuteOnDocumentCreated(_startupScriptId);
+					_startupScriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
 				}
 
 				tcs.SetResult();
@@ -185,6 +190,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 	/// <summary>Intercepts the error page's <c>weavie-dev://</c> action links (Retry / Load stale bundle); every
 	/// other navigation passes through untouched.</summary>
 	private async void OnDevRecoveryNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e) {
+		if (_webView.CoreWebView2.Source != "about:blank" || !e.IsUserInitiated || e.IsRedirected) return;
 		string uri = e.Uri ?? string.Empty;
 		if (uri.StartsWith(DevWebBringUp.RetryUrl, StringComparison.OrdinalIgnoreCase)) {
 			e.Cancel = true;
@@ -260,7 +266,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 			if (revived is not null) {
 				_devRecoveryAttempts++;
 				_devOrigin = revived;
-				core.Navigate($"{revived}/index.html");
+				await ((IWebSurface)this).LoadAsync($"{revived}/index.html", _core.BuildCrossOriginBootstrap());
 			} else {
 				// Dev server is gone for good: stop chasing it and load the shared server's bundle.
 				_devOrigin = null;

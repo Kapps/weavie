@@ -70,7 +70,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		_bridge.Attach(_webView);
 #if DEBUG
 		// Intercept the dev-server error page's weavie-dev:// action links (Retry / Load stale bundle).
-		_webView.NavigationDelegate = new DevLinkNavigationDelegate(
+		_webView.NavigationDelegate = new DevLinkNavigationDelegate(_bridge.Security,
 			onRetry: () => _ = RetryDevServerAsync(),
 			onLoadBundle: () => _ = LoadBundleAsync());
 #endif
@@ -151,6 +151,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		RemoveObserver(ref _miniaturizeObserver);
 		RemoveObserver(ref _deminiaturizeObserver);
 		_core.Ready -= PushWindowState;
+		_bridge.Security.Revoke();
 
 		try {
 			_core.DisposeAsync().AsTask().GetAwaiter().GetResult();

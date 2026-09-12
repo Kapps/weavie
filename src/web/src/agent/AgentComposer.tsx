@@ -230,7 +230,7 @@ export function AgentComposer(props: {
       return false;
     }
     const action = draftAction();
-    if (action.kind === "loading") return false;
+    if (action.kind === "loading") return true;
     const weavieCommand = action.kind === "command" ? action.entry : null;
     if (weavieCommand?.kind === "weavieCommand") {
       const input = weavieCommandInput(weavieCommand, composer().draft);

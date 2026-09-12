@@ -55,17 +55,15 @@ public sealed class WelcomeController {
 
 	/// <summary>Injects the bootstrap, starts routing the page's menu events, and navigates to the welcome screen.</summary>
 	public async Task ShowAsync() {
-		await InjectBootstrapAsync().ConfigureAwait(false);
 		_onMessage = OnMessage;
 		_bridge.MessageReceived += _onMessage;
-		_surface.Navigate(_welcomeUrl);
+		await RefreshAsync().ConfigureAwait(false);
 	}
 
 	/// <summary>Re-injects current bootstrap state and reloads the welcome screen.</summary>
-	public async Task RefreshAsync() {
-		await InjectBootstrapAsync().ConfigureAwait(false);
-		_surface.Navigate(_welcomeUrl);
-	}
+	public Task RefreshAsync() => _surface.LoadAsync(_welcomeUrl,
+		$"window.__WEAVIE_WELCOME__ = {BuildConfigJson(_recents())};"
+		+ $"window.__WEAVIE_THEME__ = {_themeJson()};");
 
 	/// <summary>Stops routing the welcome page's menu-actions — call when leaving the welcome surface for a workspace.</summary>
 	public void Detach() {
@@ -74,11 +72,6 @@ public sealed class WelcomeController {
 			_onMessage = null;
 		}
 	}
-
-	private Task InjectBootstrapAsync() =>
-		_surface.InjectStartupScriptAsync(
-			$"window.__WEAVIE_WELCOME__ = {BuildConfigJson(_recents())};"
-			+ $"window.__WEAVIE_THEME__ = {_themeJson()};");
 
 	private void OnMessage(WebPeer _, string json) {
 		if (!MessageEnvelope.TryParse(json, out var envelope)

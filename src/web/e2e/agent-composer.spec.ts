@@ -1643,6 +1643,34 @@ test.describe("ACP composer", () => {
     await page.screenshot({ path: join(shotsDir, "05-provider-command.png") });
   });
 
+  test("startup slash drafts wait for the provider command catalog", async ({ page }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    publishCatalog();
+    publishControls({ state: { ...controls.state, ready: false, slash: [] } });
+    const textarea = page.locator("[data-agent-composer] textarea");
+    const run = page.getByRole("button", { name: "Run", exact: true });
+    await expect(run).toHaveAttribute("title", /Enter/);
+    await textarea.fill("ordinary prompt");
+    await expect(run).toBeEnabled();
+    await textarea.fill("/compact");
+    await expect(page.getByText("Agent commands are loading…", { exact: true })).toBeVisible();
+    await expect(run).toBeDisabled();
+    await textarea.press("Enter");
+    await expect(textarea).toHaveValue("/compact");
+    expect(lastAgentPayload("submit")).toBeUndefined();
+
+    publishControls(controls);
+    await expect(run).toBeEnabled();
+    await expect(page.getByText("Agent commands are loading…", { exact: true })).toBeHidden();
+    await textarea.press("Enter");
+    expect(await waitForAgentPayload("submit")).toMatchObject({
+      prompt: "/compact",
+      kind: "providerCommand",
+      commandName: "compact",
+    });
+  });
+
   test("a no-input provider command submits with ACP command semantics", async ({ page }) => {
     await mountAgent(page);
 

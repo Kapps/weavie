@@ -27,16 +27,26 @@ export function createReviewEditorViewport(
     };
   };
 
+  const projectedTop = (): number =>
+    Math.floor(
+      Math.max(
+        0,
+        Math.min(
+          bounds().top - container.getBoundingClientRect().top,
+          editor.getScrollHeight() - editor.getLayoutInfo().height,
+        ),
+      ),
+    );
+
   const layout = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(container.clientHeight, viewport.height);
-      const offset = viewport.top - container.getBoundingClientRect().top;
-      const top = Math.max(0, Math.min(offset, container.clientHeight - height));
-      mount.style.top = `${top}px`;
+      const height = Math.min(editor.getContentHeight(), viewport.height);
       editor.layout({ width: container.clientWidth, height });
+      const top = projectedTop();
+      mount.style.top = `${top}px`;
       editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
       editor.render();
     } finally {
@@ -62,8 +72,10 @@ export function createReviewEditorViewport(
   };
   // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
   const scroll = editor.onDidScrollChange((event) => {
-    if (!syncing && event.scrollTopChanged) {
-      reveal(event.scrollTop);
+    if (!syncing && event.scrollTopChanged && event.scrollTop !== projectedTop()) {
+      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
+      mount.style.top = `${projectedTop()}px`;
+      schedule();
     }
   });
   const wheel = (event: WheelEvent): void => {

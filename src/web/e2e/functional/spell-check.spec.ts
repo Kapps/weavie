@@ -33,13 +33,70 @@ async function addWord(page: Page, text: string, scope: "User" | "Project"): Pro
   await expect(word(page, text)).toHaveCount(0);
 }
 
-test("spell check marks identifiers, comments, strings and prose", async ({ page, weavie }) => {
+async function provideDeclarations(page: Page, data: number[]): Promise<void> {
+  await page.evaluate((tokens) => {
+    const monaco = window.__WEAVIE_MONACO__;
+    if (!monaco) throw new Error("Monaco is not ready");
+    monaco.languages.registerDocumentSemanticTokensProvider("typescript", {
+      getLegend: () => ({
+        tokenTypes: ["variable", "function", "parameter"],
+        tokenModifiers: ["declaration", "definition"],
+      }),
+      provideDocumentSemanticTokens: () => {
+        document.documentElement.dataset.spellSemanticCalls = String(
+          Number(document.documentElement.dataset.spellSemanticCalls ?? 0) + 1,
+        );
+        return { data: new Uint32Array(tokens) };
+      },
+      releaseDocumentSemanticTokens: () => {},
+    });
+  }, data);
+}
+
+test("spell check splits comments and checks symbol declarations without marking uses", async ({
+  page,
+  weavie,
+}) => {
   await writeFile(
     join(weavie.workspace, "hello.ts"),
-    'const identifiertypoo = "stringtypoo";\n// commenttypoo\n',
+    [
+      'const identifiertypoo = "stringtypoo";',
+      "function functiontypoo(parametertypoo: number) {",
+      "  const localtypoo = parametertypoo;",
+      "  return localtypoo + identifiertypoo;",
+      "}",
+      "functiontypoo(1);",
+      "// identifierName identifier_name HTTPServer version2Name",
+      "// commenttypooName commenttypoo_name commenttypoo2Name",
+      "// don't `ignoredtypoo` https://example.com/urltypoo",
+      "",
+    ].join("\n"),
   );
   await openFile(page, "hello.ts");
-  await expect(marks(page)).toHaveText(["identifiertypoo", "stringtypoo", "commenttypoo"]);
+  await expect(marks(page)).toHaveText([
+    "stringtypoo",
+    "commenttypoo",
+    "commenttypoo",
+    "commenttypoo",
+  ]);
+  // LSP fixture includes declaration, definition, and reference tokens for the same symbols.
+  await provideDeclarations(
+    page,
+    [
+      0, 6, 15, 0, 1, 1, 9, 13, 1, 2, 0, 14, 14, 2, 1, 1, 8, 10, 0, 1, 0, 13, 14, 2, 0, 1, 9, 10, 0,
+      0, 0, 13, 15, 0, 0, 2, 0, 13, 1, 0,
+    ],
+  );
+  await expect(marks(page)).toHaveText([
+    "identifiertypoo",
+    "stringtypoo",
+    "functiontypoo",
+    "parametertypoo",
+    "localtypoo",
+    "commenttypoo",
+    "commenttypoo",
+    "commenttypoo",
+  ]);
   await writeFile(join(weavie.workspace, "notes.txt"), "The spelling is correct.\nprosetypoo\n");
   await openFile(page, "notes.txt");
   await expect(marks(page)).toHaveText(["prosetypoo"]);
@@ -49,90 +106,6 @@ test("spell check marks identifiers, comments, strings and prose", async ({ page
   await page.keyboard.press("Shift+End");
   await page.keyboard.type("correct");
   await expect(marks(page)).toHaveCount(0);
-});
-
-test("C# declarations check class, constant, property, method, parameter and local names", async ({
-  page,
-  weavie,
-}) => {
-  await writeFile(
-    join(weavie.workspace, "Symbols.cs"),
-    [
-      "public class ClassTypoo {",
-      '  public const string DiagnoasticId = "WV0001";',
-      "  public int PropertyTypoo { get; set; }",
-      "  public int MethodTypoo(int parameterTypoo) {",
-      "    int localTypoo = 1;",
-      '    string message = "stringtypoo";',
-      "    // commenttypoo",
-      "    return 0;",
-      "  }",
-      "}",
-      "",
-    ].join("\n"),
-  );
-  await openFile(page, "Symbols.cs");
-  await expect(marks(page)).toHaveText([
-    "Typoo",
-    "Diagnoastic",
-    "Typoo",
-    "Typoo",
-    "Typoo",
-    "Typoo",
-    "stringtypoo",
-    "commenttypoo",
-  ]);
-});
-
-test("Python declarations check unclassified variables alongside scoped names and prose", async ({
-  page,
-  weavie,
-}) => {
-  await writeFile(
-    join(weavie.workspace, "symbols.py"),
-    [
-      "class ClassTypoo:",
-      "    def method_typoo(self, parameter_typoo):",
-      '        local_typoo = "stringtypoo"',
-      "        # commenttypoo",
-      "        return len([])",
-      "",
-    ].join("\n"),
-  );
-  await openFile(page, "symbols.py");
-  await expect(marks(page)).toHaveText([
-    "Typoo",
-    "typoo",
-    "typoo",
-    "typoo",
-    "stringtypoo",
-    "commenttypoo",
-  ]);
-});
-
-test("identifier corrections preserve camel case and snake case boundaries", async ({
-  page,
-  weavie,
-}) => {
-  const file = join(weavie.workspace, "hello.ts");
-  await writeFile(file, "const mispelledCount = 1;\nconst total_mispelled = 2;\n");
-  await openFile(page, "hello.ts");
-  await expect(marks(page)).toHaveText(["mispelled", "mispelled"]);
-  await word(page, "mispelled").first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
-  await expect(marks(page)).toHaveText(["mispelled"]);
-  await expect
-    .poll(() => readFile(file, "utf8"))
-    .toBe("const misspelledCount = 1;\nconst total_mispelled = 2;\n");
-  // Flaked on macOS CI 2026-09-09 16:07 UTC (run 34374758357, shard 5/6): right-click landed while the
-  // remaining mark's decoration element was being replaced, detaching it mid-click. Single occurrence,
-  // did not reproduce on the prior run; no confirmed root cause, so no change made here.
-  await word(page, "mispelled").click({ button: "right" });
-  await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
-  await expect(marks(page)).toHaveCount(0);
-  await expect
-    .poll(() => readFile(file, "utf8"))
-    .toBe("const misspelledCount = 1;\nconst total_misspelled = 2;\n");
 });
 
 test("dictionary menu persists user and project words and observes project edits", async ({
@@ -160,49 +133,31 @@ test("dictionary menu persists user and project words and observes project edits
   await expect(marks(page)).toHaveText(["userwordtypoo", "userwordtypoo"]);
 });
 
-test("large code lines keep rendering while identifier grammar runs in a worker", async ({
+test("scrolling reuses semantic declarations for the unchanged document", async ({
   page,
   weavie,
 }) => {
-  await page.evaluate(() => {
-    window.Worker = new Proxy(window.Worker, {
-      construct(Target, args) {
-        const worker = Reflect.construct(Target, args) as Worker;
-        const frames = new Map<string, number>();
-        const heartbeat = (): void => {
-          for (const [request, count] of frames) frames.set(request, count + 1);
-          requestAnimationFrame(heartbeat);
-        };
-        if (String(args[0]).includes("spell-worker-entry")) {
-          requestAnimationFrame(heartbeat);
-          worker.postMessage = new Proxy(worker.postMessage, {
-            apply(post, owner, messages) {
-              const message = messages[0] as { method: string; req: string };
-              if (message.method === "$tokens") frames.set(message.req, 0);
-              return Reflect.apply(post, owner, messages);
-            },
-          });
-          worker.addEventListener("message", ({ data }) => {
-            const count = frames.get(data.seq);
-            if (count !== undefined) {
-              document.documentElement.dataset.spellWorkerFrames = String(count);
-              frames.delete(data.seq);
-            }
-          });
-        }
-        return worker;
-      },
-    });
-  });
   await writeFile(
     join(weavie.workspace, "large.ts"),
-    `const mispelledCount=0;${"const abc=0;".repeat(10_000)}\n`,
+    [
+      "const starttypoo = 0;",
+      ...Array.from({ length: 1_000 }, () => "// correct"),
+      "const endtypoo = 0;",
+    ].join("\n"),
   );
   await openFile(page, "large.ts");
-  await expect(word(page, "mispelled")).toBeVisible();
-  expect(
-    await page.evaluate(() => Number(document.documentElement.dataset.spellWorkerFrames)),
-  ).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.__WEAVIE_EDITOR__?.updateOptions({ "semanticHighlighting.enabled": false });
+  });
+  await provideDeclarations(page, [0, 6, 10, 0, 1, 1001, 6, 8, 0, 1]);
+  await expect(word(page, "starttypoo")).toBeVisible();
+  const calls = await page.evaluate(() => document.documentElement.dataset.spellSemanticCalls);
+  await clickIntoEditor(page);
+  await pressDocumentEnd(page);
+  await expect(word(page, "endtypoo")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.dataset.spellSemanticCalls)).toBe(
+    calls,
+  );
 });
 
 test("large files check only the visible viewport and refresh after scrolling", async ({

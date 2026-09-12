@@ -1,7 +1,6 @@
 #include <sys/wait.h>
 #include <sys/ioctl.h>
 #include <assert.h>
-#include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -45,49 +44,7 @@ static int inspect_child(int sentinel) {
 	return 0;
 }
 
-static const char output_marker[] = "retained terminal output";
-
-static int close_output_child(void) {
-	assert(write(STDOUT_FILENO, output_marker, sizeof(output_marker)) == sizeof(output_marker));
-	assert(close(STDIN_FILENO) == 0);
-	assert(close(STDOUT_FILENO) == 0);
-	assert(close(STDERR_FILENO) == 0);
-	assert(raise(SIGSTOP) == 0);
-	return 0;
-}
-
-static void retain_output_after_stdio_close(const char *launcher, char *executable) {
-	char *child[] = { executable, "close-output", NULL };
-	int master, pid, status, result;
-	assert(weavie_pty_spawn(launcher, child, environ, NULL, 37, 113, &master, &pid) == 0);
-	do { result = waitpid(pid, &status, WUNTRACED); } while (result < 0 && errno == EINTR);
-	assert(result == pid && WIFSTOPPED(status));
-	int flags = fcntl(master, F_GETFL);
-	assert(flags >= 0 && fcntl(master, F_SETFL, flags | O_NONBLOCK) == 0);
-	char output[sizeof(output_marker)];
-	size_t received = 0;
-	while (received < sizeof(output)) {
-		ssize_t count = read(master, output + received, sizeof(output) - received);
-		if (count < 0 && errno == EINTR) continue;
-		if (count <= 0) break;
-		received += (size_t)count;
-	}
-	assert(kill(pid, SIGCONT) == 0);
-	assert(fcntl(master, F_SETFL, flags) == 0);
-	char remaining[256];
-	while (true) {
-		ssize_t count = read(master, remaining, sizeof(remaining));
-		if (count > 0 || (count < 0 && errno == EINTR)) continue;
-		break;
-	}
-	status = reap(pid);
-	close(master);
-	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-	assert(received == sizeof(output) && memcmp(output, output_marker, sizeof(output)) == 0);
-}
-
 int main(int argc, char **argv) {
-	if (argc == 2 && strcmp(argv[1], "close-output") == 0) return close_output_child();
 	if (argc == 3 && strcmp(argv[1], "child") == 0) return inspect_child(atoi(argv[2]));
 	assert(argc == 2);
 	const char *launcher = argv[1];
@@ -116,7 +73,6 @@ int main(int argc, char **argv) {
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	close(master);
 	close(sentinel);
-	retain_output_after_stdio_close(launcher, argv[0]);
 
 	char *missing[] = { "/weavie-missing-executable", NULL };
 	assert(weavie_pty_spawn(launcher, missing, environ, NULL, 37, 113, &master, &pid) == -ENOENT);

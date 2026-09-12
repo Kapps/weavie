@@ -1,7 +1,7 @@
 import { StandardTokenType } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/encodedTokenAttributes";
 import type { ITokenizationTextModelPart } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/tokenizationTextModelPart";
 import { monaco } from "./monaco-setup";
-import type { IdentifierRange } from "./spell-worker";
+import type { IdentifierRange } from "./spell-tokens";
 
 export interface TokenizedModel extends monaco.editor.ITextModel {
   tokenization: ITokenizationTextModelPart;

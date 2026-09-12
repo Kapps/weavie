@@ -34,12 +34,23 @@ public sealed class SpellCheckTests : IDisposable {
 	}
 
 	[Fact]
-	public void IdentifierPartsRespectCustomDictionariesWithoutChangingProseTokenRules() {
+	public void ProsePartsRespectCustomDictionariesAndSkipLinksAndInlineCode() {
 		var result = SpellChecker.Check(SpellChecker.English.Value,
-			[new(1, 0, "WeavieFrobulatorCount", true), new(2, 0, "WV0001 snake_case https://zztypo.test `zzcode`", false)],
+			[new(1, 0, "WeavieFrobulatorCount", true), new(2, 0, "WeavieFrobulatorCount snake_case https://zztypo.test `zzcode`", false)],
 			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
 			new HashSet<string>(["frobulator"], StringComparer.OrdinalIgnoreCase), CancellationToken.None);
 		Assert.Empty(result);
+	}
+
+	[Fact]
+	public void ProseSplitsIdentifiersAndPreservesContractionsAndUtf16Offsets() {
+		var result = SpellChecker.Check(SpellChecker.English.Value,
+			[new(3, 5, "😀 identifierName mispelledCount HTTPDiagnoastic snake_mispelled2Value isn't", false)],
+			Empty, Empty, CancellationToken.None);
+		Assert.Equal([
+			new Misspelling(3, 23, "mispelled"), new Misspelling(3, 42, "Diagnoastic"),
+			new Misspelling(3, 60, "mispelled")
+		], result);
 	}
 
 	[Fact]

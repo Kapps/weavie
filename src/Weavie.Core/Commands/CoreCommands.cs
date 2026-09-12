@@ -449,8 +449,8 @@ public static class CoreCommands {
 			Title = "Set Spelling Locale",
 			RunsIn = CommandLocation.Core,
 			Category = "Editor",
-			Description = "Download and select a spelling dictionary on this backend. Defaults to US English (en-US). Omit locale to list available locale codes; ask the agent to select one.",
-			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code, e.g. en-US, en-GB, fr, de. Omit to list available codes."}}""",
+			Description = "Select a spelling dictionary on this backend. Defaults to mixed US/Canadian/British English (en) with technical vocabulary. Regional English is bundled; other locales download on selection. Omit locale to list available locale codes; ask the agent to select one.",
+			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code: en accepts US/Canadian/British English; en-US, en-CA, en-GB select a region; fr, de and others download on selection. Omit to list available codes."}}""",
 		});
 		registry.Register(new CommandDefinition {
 			Id = SpellCorrect,

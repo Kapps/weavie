@@ -13,13 +13,13 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	private readonly string _cache = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(settings.FilePath))!, "dictionaries", Revision);
 	private readonly SemaphoreSlim _install = new(1);
 	private readonly Lock _gate = new();
-	private (string Locale, WordList Words)? _loaded;
+	private (string Locale, SpellVocabulary Words)? _loaded;
 
 	/// <summary>Resolves one immutable dictionary for the duration of a check or suggestion request.</summary>
-	public WordList Current {
+	public SpellVocabulary Current {
 		get {
 			string locale = settings.RequireString(EditorSettings.SpellCheckLocale);
-			if (locale == "en-US") return SpellChecker.English.Value;
+			if (SpellVocabulary.IsBundled(locale)) return SpellVocabulary.ForLocale(locale);
 			lock (_gate) {
 				if (_loaded is { } cached && cached.Locale == locale) return cached.Words;
 				string path = LocalePath(locale);
@@ -42,12 +42,12 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 				using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
 				response.EnsureSuccessStatusCode();
 				var entries = await response.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
-				string[] locales = [.. entries.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()!).Select(name => name == "en" ? "en-US" : name)];
+				string[] locales = [.. entries.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()!).Concat(SpellVocabulary.BundledLocales).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 				return CommandResult.Success($"Current spelling locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}. Ask the agent to select a locale.", JsonSerializer.Serialize(new { locales }));
 			}
 			string locale = value.GetString() ?? throw new ArgumentException("Provide a locale code.");
 			string path = LocalePath(locale);
-			if (locale != "en-US") {
+			if (!SpellVocabulary.IsBundled(locale)) {
 				var words = Directory.Exists(path) ? Load(path) : await DownloadAsync(locale, path, ct).ConfigureAwait(false);
 				lock (_gate) _loaded = (locale, words);
 			}
@@ -68,7 +68,7 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 		return Path.Combine(_cache, locale);
 	}
 
-	private async Task<WordList> DownloadAsync(string locale, string path, CancellationToken ct) {
+	private async Task<SpellVocabulary> DownloadAsync(string locale, string path, CancellationToken ct) {
 		Directory.CreateDirectory(_cache);
 		string staging = Path.Combine(_cache, Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(staging);
@@ -89,10 +89,10 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 		}
 	}
 
-	private static WordList Load(string path) {
+	private static SpellVocabulary Load(string path) {
 		var words = WordList.CreateFromFiles(Path.Combine(path, "index.dic"), Path.Combine(path, "index.aff"));
 		if (words.RootCount == 0) throw new InvalidDataException("The downloaded spelling dictionary contains no words.");
-		return words;
+		return new(words);
 	}
 
 	[GeneratedRegex(@"\A[a-z]{2,3}(?:-[A-Za-z0-9]+)*\z", RegexOptions.NonBacktracking)]

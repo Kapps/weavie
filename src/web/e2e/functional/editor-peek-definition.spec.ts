@@ -54,9 +54,13 @@ async function wordToken(page: Page, lineText: string, word: string): Promise<Lo
     .last();
 }
 
-async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+async function symbolPosition(
+  page: Page,
+  lineText: string,
+  word: string,
+): Promise<{ x: number; y: number }> {
   await awaitEditorLaidOut(page);
-  const point = await page.evaluate(
+  return page.evaluate(
     ({ lineText, word }) => {
       const editor = window.__WEAVIE_EDITOR__;
       const model = editor?.getModel();
@@ -75,6 +79,10 @@ async function altClick(page: Page, lineText: string, word: string): Promise<voi
     },
     { lineText, word },
   );
+}
+
+async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+  const point = await symbolPosition(page, lineText, word);
   // Alt hover replaces the token span with a link decoration; target its model position, not DOM identity.
   await page.mouse.move(point.x, point.y);
   await page.keyboard.down("Alt");
@@ -311,12 +319,11 @@ for (const cancel of ["release Alt after mouse down", "drag away and back"] as c
   test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
     await focusEditor(page, "hello.ts");
     await registerGreetDefinition(page);
-    const word = await wordToken(page, "const message = greet", "greet");
-    await word.hover();
-    const bounds = await word.boundingBox();
-    if (bounds === null) throw new Error("Symbol has no bounds");
-    const x = bounds.x + bounds.width / 2,
-      y = bounds.y + bounds.height / 2;
+    // Flaked 2026-09-12 (https://github.com/Kapps/weavie/actions/runs/34711508888) with "Symbol
+    // has no bounds": the `.view-line span` locator raced Monaco's DOM re-render between resolve
+    // and measure. Fixed by targeting the model position (symbolPosition) instead of DOM identity.
+    const { x, y } = await symbolPosition(page, "const message = greet", "greet");
+    await page.mouse.move(x, y);
     await page.keyboard.down("Alt");
     await page.mouse.move(x, y);
     await expect(page.locator(".goto-definition-link")).toBeVisible();

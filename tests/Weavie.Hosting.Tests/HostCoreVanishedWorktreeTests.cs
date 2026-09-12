@@ -6,6 +6,15 @@ namespace Weavie.Hosting.Tests;
 /// A session whose working directory is deleted out from under it ends, instead of staying on the rail and
 /// reporting git's missing-directory words on every reconnect.
 /// </summary>
+// Flaked 2026-09-12 03:17 UTC on main (https://github.com/Kapps/weavie/actions/runs/34669658275/job/103488957262):
+// DeletedWorkspaceCheckoutReportsOnceAndKeepsItsSession timed out waiting for the "gone" notification. Root cause:
+// Directory.Delete(recursive) removes .git before the rest of the tree, so a refresh racing that deletion can see
+// git's own "not a git repository" (WorkspaceInventory.RefreshAsync returns IsRepository=false without throwing)
+// instead of a launch failure. PushFileIndexToWeb only asked EndIfWorkspaceRootIsGone from its exception handler,
+// so this success path never noticed the root was gone — and once WorkspaceInventory caches "not a repository" it
+// never calls git again, so the session stayed silently stuck. Fixed by also checking the vanished-root fact on
+// the non-repository success path in HostCore.WebBridge.cs, not just on git exceptions. Reproduced locally ~1 in
+// 15-20 runs before the fix, 0 failures in 400 repeats after.
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreVanishedWorktreeTests {
 	// git's account of a directory that isn't there — the words this fix exists to stop republishing.

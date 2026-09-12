@@ -142,6 +142,15 @@ public sealed partial class HostCore {
 				IReadOnlyList<string> files;
 				try {
 					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+					// Deleting a root removes its .git before the rest of the tree, so a racing refresh sees git's
+					// own "not a git repository" instead of a launch failure — check the root itself, or a session
+					// whose inventory latches onto that verdict never notices it's gone.
+					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
+						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {
+						target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
+						return;
+					}
+
 					if (inventory.IsRepository) {
 						files = inventory.Files;
 					} else {

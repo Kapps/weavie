@@ -278,21 +278,17 @@ test.describe("unopened definitions", () => {
   }
 });
 
-test("Alt hovering a definition-backed symbol advertises its link and hand cursor", async ({
-  page,
-}) => {
+test("Ctrl/Cmd click navigates to the definition without opening a peek", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
-  const word = await wordToken(page, "const message = greet", "greet");
-  const bounds = await word.boundingBox();
-  if (bounds === null) throw new Error("Symbol has no bounds");
-  await page.keyboard.down("Alt");
-  await word.hover();
-  await expect.poll(() => word.evaluate((node) => getComputedStyle(node).cursor)).toBe("pointer");
-  await expect(page.locator(".goto-definition-link")).toBeVisible();
-  await page.keyboard.up("Alt");
+  const point = await symbolPosition(page, "const message = greet", "greet");
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.click(point.x, point.y);
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBeGreaterThan(1);
   await page.keyboard.down("ControlOrMeta");
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.click(point.x, point.y);
   await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))

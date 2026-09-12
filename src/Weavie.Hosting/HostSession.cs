@@ -8,6 +8,7 @@ using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Git;
 using Weavie.Core.Hooks;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
@@ -298,7 +299,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// log. Returns whether the directory is missing, so an observer whose directory is still there speaks as usual.
 	/// </summary>
 	internal bool EndIfWorkspaceRootIsGone(string failure) {
-		if (Directory.Exists(WorkspaceRoot)) {
+		// A failure already carrying git's own "working directory does not exist" finding is trusted outright:
+		// re-deriving the same fact here would race whatever is still deleting the tree (the root itself often
+		// outlives its children mid-delete) and could reach the opposite, stale answer git already corrected.
+		bool confirmedGone = failure.Contains(GitException.WorkingDirectoryMissingPrefix, StringComparison.Ordinal);
+		if (!confirmedGone && Directory.Exists(WorkspaceRoot)) {
 			return false;
 		}
 

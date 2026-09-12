@@ -483,6 +483,14 @@ public sealed partial class GitService : IGitService {
 		}
 
 		if (result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) {
+			// A worktree being deleted out from under this call can read as "not a git repository" the instant
+			// its `.git` file is unlinked, even though the directory itself (and the rest of the tree) is still
+			// disappearing. Re-checking now tells the two apart: a directory that's actually gone must still
+			// surface as gone, not latch the inventory into a non-repository snapshot it can never leave.
+			if (!Directory.Exists(directory)) {
+				throw GitException.ForMissingWorkingDirectory(directory);
+			}
+
 			return null;
 		}
 
@@ -685,7 +693,7 @@ public sealed partial class GitService : IGitService {
 	private static async Task<ProcessCaptureResult> RunAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
 		if (!Directory.Exists(workingDirectory)) {
-			throw new GitException($"Git working directory does not exist: {workingDirectory}");
+			throw GitException.ForMissingWorkingDirectory(workingDirectory);
 		}
 
 		var result = await ProcessCapture.RunAsync(

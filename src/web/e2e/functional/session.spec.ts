@@ -159,7 +159,10 @@ test("delete removes a clean worktree session and preserves the protected worksp
 
   await test.step("the workspace session offers unload but never delete", async () => {
     await chips.first().click({ button: "right" });
-    await expect(page.locator(".context-menu .context-menu-item")).toHaveText(["Unload session"]);
+    await expect(page.locator(".context-menu .context-menu-item > span:first-child")).toHaveText([
+      "Unload session",
+      "Recreate with…",
+    ]);
     await page.keyboard.press("Escape");
   });
 

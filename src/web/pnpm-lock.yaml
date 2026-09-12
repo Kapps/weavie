@@ -109,12 +109,6 @@ importers:
       vscode-languageclient:
         specifier: 9.0.1
         version: 9.0.1(patch_hash=5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb)
-      vscode-oniguruma:
-        specifier: 2.0.1
-        version: 2.0.1
-      vscode-textmate:
-        specifier: 9.3.2
-        version: 9.3.2
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.2
@@ -1630,12 +1624,6 @@ packages:
   vscode-languageserver-types@3.17.5:
     resolution: {integrity: sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==}
 
-  vscode-oniguruma@2.0.1:
-    resolution: {integrity: sha512-poJU8iHIWnC3vgphJnrLZyI3YdqRlR27xzqDmpPXYzA93R4Gk8z7T6oqDzDoHjoikA2aS82crdXFkjELCdJsjQ==}
-
-  vscode-textmate@9.3.2:
-    resolution: {integrity: sha512-n2uGbUcrjhUEBH16uGA0TvUfhWwliFZ1e3+pTjrkim1Mt7ydB41lV08aUvsi70OlzDWp6X7Bx3w/x3fAXIsN0Q==}
-
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -3037,10 +3025,6 @@ snapshots:
       vscode-languageserver-types: 3.17.5
 
   vscode-languageserver-types@3.17.5: {}
-
-  vscode-oniguruma@2.0.1: {}
-
-  vscode-textmate@9.3.2: {}
 
   why-is-node-running@2.3.0:
     dependencies:

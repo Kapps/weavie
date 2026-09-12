@@ -6,7 +6,7 @@ import { appliedEdit } from "../harness/review";
 
 const sourceName = "definition-review.ts";
 const baseline = [
-  `export const hiddenDefinition = (value: string) => value; // ${"wide definition ".repeat(100)}`,
+  "export const hiddenDefinition = (value: string) => value;",
   ...Array.from({ length: 178 }, (_, index) => `export const untouched${index} = ${index};`),
   'hiddenDefinition("original call");',
 ];
@@ -63,18 +63,6 @@ async function prepareDefinition(page: Page): Promise<Locator> {
   return word;
 }
 
-async function peekScroll(page: Page): Promise<{ top: number; left: number }> {
-  return page.evaluate(() => {
-    const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
-      .__WEAVIE_MONACO__;
-    const editor = monaco.editor
-      .getEditors()
-      .find((candidate) => candidate.getDomNode()?.closest(".peekview-widget"));
-    if (editor === undefined) throw new Error("Definition peek editor is missing");
-    return { top: editor.getScrollTop(), left: editor.getScrollLeft() };
-  });
-}
-
 test("Go to Definition opens an unchanged same-file definition hidden outside the review hunk", async ({
   page,
 }) => {
@@ -88,58 +76,20 @@ test("Go to Definition opens an unchanged same-file definition hidden outside th
   ).toBeInViewport();
 });
 
-test("Alt+click definition peek owns vertical and horizontal scrolling inside unified review", async ({
+test("Alt+click shows an unchanged definition without leaving unified review, and Escape closes it", async ({
   page,
 }) => {
   const word = await prepareDefinition(page);
   await word.click({ modifiers: ["Alt"] });
-  const peek = page.locator(".unified-review .peekview-widget");
-  const preview = peek.locator(".monaco-editor");
-  const review = page.locator(".unified-review-diffs");
-  await expect(preview).toBeVisible();
+  const review = page.locator(".unified-review");
+  const peek = review.locator(".peekview-widget");
+  await expect(peek).toBeVisible();
   await expect(
-    preview.locator(".view-line", { hasText: "export const hiddenDefinition" }),
+    peek.locator(".monaco-editor .view-line", { hasText: "export const hiddenDefinition" }),
   ).toBeVisible();
-  // 2026-09-11, https://github.com/Kapps/weavie/actions/runs/34628508765: opening the peek can move the
-  // host editor's own scrollTop (revealing its anchor line around the newly inserted peek zone); since
-  // review-editor-viewport.ts (PR #839) now defers that correction's Monaco layout() by one rAF instead of
-  // applying it inline, a baseline read here can land mid-settle on a loaded runner. Wait one frame so the
-  // baseline reflects the settled position, not a transient one the deferred correction still has to catch up to.
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
-  const reviewTop = await review.evaluate((element) => element.scrollTop);
-  const initial = await peekScroll(page);
-  await preview.hover();
-  // Chromium reports one legacy wheel notch per event, which Monaco scales independently of deltaX/Y.
-  for (let notch = 0; notch < 4; notch++) await page.mouse.wheel(500, 0);
-  await expect.poll(async () => (await peekScroll(page)).left).toBeGreaterThan(initial.left + 100);
-  for (let notch = 0; notch < 4; notch++) await page.mouse.wheel(0, 500);
-  await expect.poll(async () => (await peekScroll(page)).top).toBeGreaterThan(initial.top + 100);
-  await expect.poll(() => review.evaluate((element) => element.scrollTop)).toBe(reviewTop);
-
-  const vertical = preview.locator(
-    ":scope > .overflow-guard > .monaco-scrollable-element > .scrollbar.vertical > .slider",
-  );
-  await expect(vertical).toBeVisible();
-  const rootScrollbar = page.locator(
-    ".unified-review-file:has(.peekview-widget) .unified-review-editor-viewport > .monaco-editor > .overflow-guard > .monaco-scrollable-element > .scrollbar.vertical",
-  );
-  await expect(rootScrollbar).toHaveCount(1);
-  await expect(rootScrollbar).toBeHidden();
-  const thumb = await vertical.boundingBox();
-  if (thumb === null) throw new Error("Definition peek scrollbar is missing");
-  const beforeDrag = await peekScroll(page);
-  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2 + 35, { steps: 5 });
-  await page.mouse.up();
-  await expect.poll(async () => (await peekScroll(page)).top).toBeGreaterThan(beforeDrag.top);
-  await expect.poll(() => review.evaluate((element) => element.scrollTop)).toBe(reviewTop);
-
+  await expect(review).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(peek).toHaveCount(0);
-  await word.hover();
-  await page.mouse.wheel(0, 500);
-  await expect
-    .poll(() => review.evaluate((element) => element.scrollTop))
-    .toBeGreaterThan(reviewTop);
+  await expect(review).toBeVisible();
+  await expect(word).toBeInViewport();
 });

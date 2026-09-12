@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { expectRevealed } from "../harness/actions";
+import { altClick, awaitHorizontalScrollRange, expectRevealed } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -92,7 +92,7 @@ test("Alt+click definition peek owns vertical and horizontal scrolling inside un
   page,
 }) => {
   const word = await prepareDefinition(page);
-  await word.click({ modifiers: ["Alt"] });
+  await altClick(word);
   const peek = page.locator(".unified-review .peekview-widget");
   const preview = peek.locator(".monaco-editor");
   const review = page.locator(".unified-review-diffs");
@@ -100,6 +100,7 @@ test("Alt+click definition peek owns vertical and horizontal scrolling inside un
   await expect(
     preview.locator(".view-line", { hasText: "export const hiddenDefinition" }),
   ).toBeVisible();
+  await awaitHorizontalScrollRange(preview, 100);
   const reviewTop = await review.evaluate((element) => element.scrollTop);
   const initial = await peekScroll(page);
   await preview.hover();

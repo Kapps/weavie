@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator } from "@playwright/test";
-import { pressDocumentEnd, pressDocumentStart } from "../harness/actions";
+import {
+  awaitHorizontalScrollRange,
+  clickEditorLine,
+  pressDocumentEnd,
+  pressDocumentStart,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -73,7 +78,15 @@ test.describe("Review Changes tab — large addition", () => {
     await expectBoundedEditor(section, scroller);
     await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
-    await firstLine.click({ position: { x: 10, y: 10 } });
+    const editor = section.locator(".monaco-editor");
+    await awaitHorizontalScrollRange(editor, 100);
+    const initialLeft = await firstLine.evaluate((element) => element.getBoundingClientRect().left);
+    await editor.hover();
+    await page.mouse.wheel(500, 0);
+    await expect
+      .poll(() => firstLine.evaluate((element) => element.getBoundingClientRect().left))
+      .toBeLessThan(initialLeft);
+    await clickEditorLine(firstLine);
 
     await pressDocumentEnd(page);
     await workerRequested.promise;

@@ -1,6 +1,35 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 import type { WeavieWindow } from "./weavie-window";
+
+// Holding Alt across hover and click lets Monaco replace a token with its definition-link decoration.
+export async function altClick(word: Locator): Promise<void> {
+  const keyboard = word.page().keyboard;
+  await keyboard.down("Alt");
+  try {
+    await word.hover();
+    await word.click();
+  } finally {
+    await keyboard.up("Alt");
+  }
+}
+
+// Monaco measures long lines asynchronously after their text becomes visible.
+export async function awaitHorizontalScrollRange(editor: Locator, minimum: number): Promise<void> {
+  await expect
+    .poll(() =>
+      editor.evaluate((element) => {
+        const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
+          .__WEAVIE_MONACO__;
+        const instance = monaco.editor
+          .getEditors()
+          .find((candidate) => candidate.getDomNode() === element);
+        if (instance === undefined) throw new Error("Monaco editor is missing");
+        return instance.getScrollWidth() - instance.getLayoutInfo().contentWidth;
+      }),
+    )
+    .toBeGreaterThan(minimum);
+}
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
 // `data-ready` on `.editor` once Monaco is live. Editor-driving helpers wait on this; non-editor tests don't.
@@ -130,11 +159,10 @@ export async function awaitEditorLaidOut(page: Page): Promise<void> {
 }
 
 export async function openCommandPalette(page: Page): Promise<void> {
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".tb-omnibar-box")).not.toHaveClass(/\bopen\b/);
   await page.keyboard.press("ControlOrMeta+Shift+p");
   await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/, { timeout: 1000 });
   await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+  await expect(page.locator(".tb-omnibar-input")).toHaveValue(">");
 }
 
 export async function openSearch(page: Page): Promise<void> {
@@ -143,16 +171,20 @@ export async function openSearch(page: Page): Promise<void> {
   await expect(page.locator(".search-input")).toBeFocused();
 }
 
-// Run a command through the command palette (Show All Commands), matching by title text. Exercises the
-// same keyboard path a user would: $mod+Shift+p, type, Enter on the first match.
+// Choose the exact command title; fuzzy ranking can put a longer matching title first.
 export async function runCommand(page: Page, title: string): Promise<void> {
   const box = page.locator(".tb-omnibar-box");
   await openCommandPalette(page);
   // Command mode is signalled by a leading ">"; keep it on the filled value (a bare fill would drop to
   // file search).
   await page.locator(".tb-omnibar-input").fill(`>${title}`);
-  await expect(page.locator(".tb-omnibar-row", { hasText: title }).first()).toBeVisible();
-  await page.locator(".tb-omnibar-input").press("Enter");
+  const exactTitle = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  await page
+    .locator(".tb-omnibar-row")
+    .filter({
+      has: page.locator(".tb-row-leaf", { hasText: exactTitle }),
+    })
+    .click();
   await expect(box).not.toHaveClass(/\bopen\b/);
 }
 
@@ -194,24 +226,54 @@ export async function expectRevealed(page: Page, file: string, line: number): Pr
     .toBe(line);
 }
 
-// Click into Monaco: focuses the editor pane and puts the caret on the first rendered line.
-//
-// The target is a `.view-line`, never the `.view-lines` container. Monaco sizes that container to the whole
-// scrollable content — with `scrollBeyondLastLine` a 7-line file is 853px tall inside a 709px viewport — and
-// Playwright reveals an element before clicking it. The browser satisfies that by natively scrolling the
-// `overflow:hidden` ancestor, which Monaco deliberately folds back into its own scroll position
-// (`editorScrollbar.ts`'s `onBrowserDesperateReveal`). The editor ends scrolled to its maximum, rendering only
-// the file's last line, and every later locator for any other line matches nothing. A single `.view-line` is
-// one line tall and always inside the viewport, so the reveal is a no-op.
+/** Clicks the visible start of a rendered line without revealing its full scrollable width. */
+export async function clickEditorLine(line: Locator): Promise<void> {
+  const guard = line.locator("xpath=ancestor::*[contains(@class, 'overflow-guard')][1]");
+  await expect(guard).toBeVisible();
+  let position: { x: number; y: number } | null = null;
+  await expect
+    .poll(async () => {
+      position = await line.evaluate((element) => {
+        const guard = element.closest(".overflow-guard");
+        const viewport = guard?.querySelector(":scope > .monaco-scrollable-element");
+        if (!element.isConnected || guard === null || viewport === null || viewport === undefined)
+          return null;
+        const bounds = guard.getBoundingClientRect();
+        const content = viewport.getBoundingClientRect();
+        const row = element.getBoundingClientRect();
+        const left = Math.max(row.left, content.left, bounds.left, 0);
+        const top = Math.max(row.top, content.top, bounds.top, 0);
+        const right = Math.min(row.right, content.right, bounds.right, innerWidth);
+        const bottom = Math.min(row.bottom, content.bottom, bounds.bottom, innerHeight);
+        if (right <= left || bottom <= top) return null;
+        return {
+          x: left + Math.min(4, (right - left) / 2) - bounds.left,
+          y: top + Math.min(4, (bottom - top) / 2) - bounds.top,
+        };
+      });
+      return position;
+    })
+    .not.toBeNull();
+  if (position === null) throw new Error("Editor line has no visible content");
+  await guard.click({ position });
+  await expect
+    .poll(() =>
+      guard.evaluate((element) => {
+        const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
+          .__WEAVIE_MONACO__;
+        return monaco.editor
+          .getEditors()
+          .find((editor) => editor.getDomNode() === element.closest(".monaco-editor"))
+          ?.hasTextFocus();
+      }),
+    )
+    .toBe(true);
+}
+
+// Focus the editor and place the caret at the start of its first visible rendered line.
 export async function clickIntoEditor(page: Page): Promise<void> {
   await awaitEditorReady(page);
-  // Near the line's start, not its centre: a line's box spans the whole content width, so on a short line the
-  // centre lands on the git-blame annotation injected after the code — which owns that click and swallows it,
-  // leaving the editor unfocused.
-  await page
-    .locator(".monaco-editor .view-line")
-    .first()
-    .click({ position: { x: 4, y: 4 } });
+  await clickEditorLine(page.locator(".monaco-editor .view-line").first());
 }
 
 // Type text at the current caret in the focused Monaco editor. Callers place the caret themselves (a click

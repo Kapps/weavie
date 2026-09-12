@@ -13,7 +13,7 @@ const newFileBand = ".weavie-inline-newfile-tag";
 const chips = ".session-chip";
 
 async function openPr101(page: import("@playwright/test").Page): Promise<void> {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(chips)).toHaveCount(2, { timeout: 20_000 });

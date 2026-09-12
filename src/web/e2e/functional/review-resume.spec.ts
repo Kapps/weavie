@@ -27,7 +27,7 @@ const section = (page: Page, name: string): Locator =>
   });
 
 async function openPr(page: Page): Promise<void> {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   const replies = prReplies.get(page)!;
   const expected = replies.length + 1;

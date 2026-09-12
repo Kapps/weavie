@@ -50,7 +50,7 @@ test.afterAll(async () => {
 });
 
 async function openUrl(page: import("@playwright/test").Page, url: string): Promise<void> {
-  await runCommand(page, "Open URL");
+  await runCommand(page, "Open URL…");
   const input = page.locator(".url-prompt-input");
   await expect(input).toBeVisible();
   await input.fill(url);
@@ -209,7 +209,7 @@ test("restored inactive web tab stays dormant until activation", async ({ page, 
 });
 
 test("Open URL rejects a non-http(s) URL", async ({ page }) => {
-  await runCommand(page, "Open URL");
+  await runCommand(page, "Open URL…");
 
   const input = page.locator(".url-prompt-input");
   await expect(input).toBeVisible();

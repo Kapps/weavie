@@ -73,7 +73,10 @@ test.describe("close diff", () => {
       await expect(page.locator(".weavie-inline-added")).toBeVisible();
       await page.locator(".editor-review-open").click();
       await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
-      await runCommand(page, decision);
+      await runCommand(
+        page,
+        decision === "Keep All Changes" ? "Keep All Changes (Review)" : decision,
+      );
       if (decision === "Undo All Changes") {
         await page.getByRole("button", { name: "Revert all", exact: true }).click();
       }

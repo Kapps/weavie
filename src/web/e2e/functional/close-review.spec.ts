@@ -92,7 +92,7 @@ test.describe("close diff", () => {
       }
       await expectClosed(page);
       expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(
-        decision === "Keep All Changes" ? CHANGED : ORIGINAL,
+        decision === "Keep All Changes (Review)" ? CHANGED : ORIGINAL,
       );
     });
   }

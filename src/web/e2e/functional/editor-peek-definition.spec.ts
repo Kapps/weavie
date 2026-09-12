@@ -54,8 +54,32 @@ async function wordToken(page: Page, lineText: string, word: string): Promise<Lo
     .last();
 }
 
-async function altClick(word: Locator): Promise<void> {
-  await word.click({ modifiers: ["Alt"] });
+async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+  await awaitEditorLaidOut(page);
+  const point = await page.evaluate(
+    ({ lineText, word }) => {
+      const editor = window.__WEAVIE_EDITOR__;
+      const model = editor?.getModel();
+      const bounds = editor?.getDomNode()?.getBoundingClientRect();
+      if (!editor || !model || !bounds) throw new Error("Editor is not ready");
+      const line = model.getLinesContent().findIndex((text) => text.includes(lineText));
+      if (line < 0) throw new Error(`Line not found: ${lineText}`);
+      const start = model.getLineContent(line + 1).indexOf(word);
+      if (start < 0) throw new Error(`Word not found: ${word}`);
+      const position = editor.getScrolledVisiblePosition({
+        lineNumber: line + 1,
+        column: start + 1 + Math.floor(word.length / 2),
+      });
+      if (!position) throw new Error("Symbol is not visible");
+      return { x: bounds.left + position.left, y: bounds.top + position.top + position.height / 2 };
+    },
+    { lineText, word },
+  );
+  // Alt hover replaces the token span with a link decoration; target its model position, not DOM identity.
+  await page.mouse.move(point.x, point.y);
+  await page.keyboard.down("Alt");
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up("Alt");
 }
 
 // Flaked 2026-09-11 (https://github.com/Kapps/weavie/actions/runs/34553918483, e2e (linux) shard 3/6):
@@ -70,7 +94,7 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  await altClick(await wordToken(page, "const message = greet", "greet"));
+  await altClick(page, "const message = greet", "greet");
   const peek = page.locator(".monaco-editor .peekview-widget");
   await expect(peek).toBeVisible();
   // The peek embeds its own editor showing the definition's file — the small window into the file.
@@ -94,7 +118,7 @@ test("alt+click without a definition provider leaves Monaco's multicursor gestur
 }) => {
   await focusEditor(page, "notes.txt");
 
-  await altClick(await wordToken(page, "just plain text", "plain"));
+  await altClick(page, "just plain text", "plain");
   // Monaco's default alt+click added a second cursor — the gesture declined and didn't swallow the click.
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 2,
@@ -129,8 +153,7 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
       },
     ]);
   });
-  // `wordToken` re-waits for editor layout itself (see its doc comment) — no separate guard needed here.
-  await altClick(await wordToken(page, "const message = greet", "greet"));
+  await altClick(page, "const message = greet", "greet");
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,
   );
@@ -219,7 +242,7 @@ test.describe("unopened definitions", () => {
       );
       const word = await wordToken(page, "const message = greet", "greet");
       if (gesture === "Alt+click") {
-        await altClick(word);
+        await altClick(page, "const message = greet", "greet");
       } else {
         await word.click({ button: "right" });
         await page.locator(".context-menu-item", { hasText: "Peek Definition" }).click();

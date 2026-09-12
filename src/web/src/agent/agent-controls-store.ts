@@ -6,6 +6,7 @@ import type { AgentControlState, ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 const EMPTY: AgentControlState = {
+  ready: false,
   axes: [],
   slash: [],
 };

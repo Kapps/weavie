@@ -39,8 +39,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
-	private string? _workspaceWatcherFailure;
+	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
+	private int _workspaceRootVanished;
+	private string? _workspaceRootGoneCause;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -285,19 +287,58 @@ public sealed partial class HostSession : IAsyncDisposable {
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {
-			string message = $"Workspace file watching stopped: {ex.Message}";
-			Volatile.Write(ref _workspaceWatcherFailure, message);
-			_notificationMessages.Publish("show", new {
-				level = "error",
-				message,
-			});
+			ReportWorkspaceObservationFailure($"Workspace file watching stopped: {ex.Message}");
 			throw;
 		}
 	}
 
-	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
+	/// <summary>
+	/// Ends this session when its working directory no longer exists, raising <see cref="WorkspaceRootVanished"/>
+	/// for the owner to act on and keeping <paramref name="failure"/> — the observer's own account of it — for the
+	/// log. Returns whether the directory is missing, so an observer whose directory is still there speaks as usual.
+	/// </summary>
+	internal bool EndIfWorkspaceRootIsGone(string failure) {
+		if (Directory.Exists(WorkspaceRoot)) {
+			return false;
+		}
+
+		if (Interlocked.Exchange(ref _workspaceRootVanished, 1) == 0) {
+			Volatile.Write(ref _workspaceRootGoneCause, failure);
+			WorkspaceRootVanished?.Invoke();
+		}
+
+		return true;
+	}
+
+	/// <summary>Re-arms detection after a close that did not happen: the directory came back, or the close failed.</summary>
+	internal void ResumeWorkspaceRootWatch() => Interlocked.Exchange(ref _workspaceRootVanished, 0);
+
+	/// <summary>What the observer that first found the working directory missing was reporting.</summary>
+	internal string WorkspaceRootGoneCause => Volatile.Read(ref _workspaceRootGoneCause) ?? string.Empty;
+
+	/// <summary>Raised once when this session's working directory is deleted out from under it.</summary>
+	internal event Action? WorkspaceRootVanished;
+
+	/// <summary>Reports that this session's working directory itself is gone — the one workspace failure that
+	/// survives <see cref="EndIfWorkspaceRootIsGone"/>, because it is what that method found.</summary>
+	internal void ReportWorkspaceRootGone(string message) => PublishCondition(ref _workspaceFailure, message);
+
+	// An observer that fails because its directory vanished has nothing to say: the session is ending instead.
+	private void ReportWorkspaceObservationFailure(string message) {
+		if (!EndIfWorkspaceRootIsGone(message)) {
+			PublishCondition(ref _workspaceFailure, message);
+		}
+	}
+
+	// Workspace failures remain visible across reconnect: each stays true until the user acts on it.
+	private void PublishCondition(ref string? condition, string message) {
+		Volatile.Write(ref condition, message);
+		_notificationMessages.Publish("show", new { level = "error", message });
+	}
+
+	internal void ReplayWorkspaceFailures(MessageTarget target) {
 		foreach (string? message in new[] {
-			Volatile.Read(ref _workspaceWatcherFailure),
+			Volatile.Read(ref _workspaceFailure),
 			Volatile.Read(ref _observedPathsFailure),
 		}) {
 			if (message is not null) {
@@ -424,10 +465,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 			.Select(entry => entry.Path),
 	];
 
-	// Observation failures remain visible across reconnect, like the workspace watcher's own failure.
 	private void ReportObservedPathsFailure(string message) {
-		Volatile.Write(ref _observedPathsFailure, message);
-		_notificationMessages.Publish("show", new { level = "error", message });
+		if (!EndIfWorkspaceRootIsGone(message)) {
+			PublishCondition(ref _observedPathsFailure, message);
+		}
 	}
 
 	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {

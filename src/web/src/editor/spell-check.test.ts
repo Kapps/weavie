@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const bridge = vi.hoisted(() => ({ request: vi.fn(), changed: () => {} }));
 const tokenization = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("./spell-tokens", () => ({
-  spellingTokens: tokenization.load,
+  createSpellingTokens: () => ({ read: tokenization.load, dispose: () => {} }),
 }));
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 vi.mock("../editor-options", () => ({

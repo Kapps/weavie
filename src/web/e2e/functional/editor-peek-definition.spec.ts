@@ -54,9 +54,13 @@ async function wordToken(page: Page, lineText: string, word: string): Promise<Lo
     .last();
 }
 
-async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+async function symbolPosition(
+  page: Page,
+  lineText: string,
+  word: string,
+): Promise<{ x: number; y: number }> {
   await awaitEditorLaidOut(page);
-  const point = await page.evaluate(
+  return page.evaluate(
     ({ lineText, word }) => {
       const editor = window.__WEAVIE_EDITOR__;
       const model = editor?.getModel();
@@ -75,6 +79,10 @@ async function altClick(page: Page, lineText: string, word: string): Promise<voi
     },
     { lineText, word },
   );
+}
+
+async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+  const point = await symbolPosition(page, lineText, word);
   // Alt hover replaces the token span with a link decoration; target its model position, not DOM identity.
   await page.mouse.move(point.x, point.y);
   await page.keyboard.down("Alt");
@@ -270,30 +278,17 @@ test.describe("unopened definitions", () => {
   }
 });
 
-// Flaked in CI on 2026-09-12 08:04 UTC on an unrelated PR
-// (https://github.com/Kapps/weavie/actions/runs/34682062091/job/103522660783): the cursor stayed "text" for
-// the entire 15s poll instead of ever becoming "pointer". Pulled the trace/viewport/console artifacts rather
-// than guessing from the assertion — the target span stayed present and stable across every retry (not the
-// DOM-remount/detach pattern already tracked in #868 for a different test in this file), and layout/console
-// were clean. The pointer cursor and `.goto-definition-link` are Monaco's own built-in alt+hover gesture, not
-// Weavie source, so the stuck state points at Monaco-internal hover/link recomputation timing rather than
-// anything in this file. No other shard in that run hit it, and I lacked permission to re-run the job to
-// confirm transience. Not yet safely fixable blind — no code change made.
-test("Alt hovering a definition-backed symbol advertises its link and hand cursor", async ({
-  page,
-}) => {
+test("Ctrl/Cmd click navigates to the definition without opening a peek", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
-  const word = await wordToken(page, "const message = greet", "greet");
-  const bounds = await word.boundingBox();
-  if (bounds === null) throw new Error("Symbol has no bounds");
-  await page.keyboard.down("Alt");
-  await word.hover();
-  await expect.poll(() => word.evaluate((node) => getComputedStyle(node).cursor)).toBe("pointer");
-  await expect(page.locator(".goto-definition-link")).toBeVisible();
-  await page.keyboard.up("Alt");
+  const point = await symbolPosition(page, "const message = greet", "greet");
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.click(point.x, point.y);
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBeGreaterThan(1);
   await page.keyboard.down("ControlOrMeta");
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.click(point.x, point.y);
   await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))

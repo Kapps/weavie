@@ -6,6 +6,15 @@ namespace Weavie.Hosting.Tests;
 /// A session whose working directory is deleted out from under it ends, instead of staying on the rail and
 /// reporting git's missing-directory words on every reconnect.
 /// </summary>
+// Flaked on main 2026-09-12 (run https://github.com/Kapps/weavie/actions/runs/34671553854, on
+// DeletedWorkspaceCheckoutReportsOnceAndKeepsItsSession): TimeoutException waiting for the "gone" notification.
+// Root-caused rather than retried/timeout-padded: a session's own post-create background indexing races the
+// worktree deletion, and git's repository discovery reads a directory that vanished mid-call back as "fatal:
+// not a git repository" — indistinguishable from a genuine non-repo. GitService.ListWorkspacePathsAsync cached
+// that as a permanent non-repository verdict, silencing all further git-based refreshes (and the vanished-
+// directory detection they drive) for the rest of the session. Fixed in GitService to throw instead of
+// returning null when the directory is actually gone. Reproduced locally at ~5-15% failure before the fix,
+// 80/80 clean after.
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreVanishedWorktreeTests {
 	// git's account of a directory that isn't there — the words this fix exists to stop republishing.

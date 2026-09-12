@@ -482,7 +482,15 @@ public sealed partial class GitService : IGitService {
 			return [.. paths];
 		}
 
+		// git's own discovery walks the current directory, so a workspace deleted out from under this call reads
+		// back as "not a git repository" too — indistinguishable from a real non-repo by that text alone. Only a
+		// directory still standing earns the non-repository verdict; a vanished one throws, matching the
+		// existence check above, so callers never cache a transient race as "never was a repository."
 		if (result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) {
+			if (!Directory.Exists(directory)) {
+				throw new GitException($"Git working directory does not exist: {directory}");
+			}
+
 			return null;
 		}
 

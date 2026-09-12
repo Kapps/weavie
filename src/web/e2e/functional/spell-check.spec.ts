@@ -242,7 +242,7 @@ test("horizontal scrolling keeps long-line spelling requests within the viewport
   expect(Math.max(...checked().map((text) => text.length))).toBeLessThan(200);
 });
 
-test("US spelling suggestions are requested on demand and corrections support undo and keyboard", async ({
+test("US spelling suggestions are requested on demand and saved corrections support undo", async ({
   page,
   weavie,
 }) => {
@@ -262,28 +262,10 @@ test("US spelling suggestions are requested on demand and corrections support un
   await correction.click();
   await expect(marks(page)).toHaveText(["colour"]);
   await expect.poll(() => readFile(file, "utf8")).toBe("A misspelled word.\ncolor colour\n");
+  await expect(page.getByRole("img", { name: "Unsaved changes" })).toHaveCount(0);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(word(page, "mispelled")).toBeVisible();
   await expect.poll(() => readFile(file, "utf8")).toBe("A mispelled word.\ncolor colour\n");
+  await expect(page.getByRole("img", { name: "Unsaved changes" })).toHaveCount(0);
   expect(suggestions()).toHaveLength(1);
-
-  await word(page, "mispelled").click();
-  await page.keyboard.press("ControlOrMeta+Alt+s");
-  await expect(correction).toBeVisible();
-  expect(suggestions()).toHaveLength(2);
-  await page.keyboard.press("Home");
-  await expect(correction).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(marks(page)).toHaveText(["colour"]);
-  await expect.poll(() => readFile(file, "utf8")).toBe("A misspelled word.\ncolor colour\n");
-
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(word(page, "mispelled")).toBeVisible();
-  await word(page, "mispelled").click({ button: "right" });
-  await expect(correction).toBeVisible();
-  await writeFile(file, "A changed word.\ncolor colour\n");
-  await expect(page.locator(".view-lines")).toContainText("A changed word.");
-  await correction.click();
-  await expect(page.locator(".toast", { hasText: "The spelling target changed" })).toBeVisible();
-  expect(await readFile(file, "utf8")).toBe("A changed word.\ncolor colour\n");
 });

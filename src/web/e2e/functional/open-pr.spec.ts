@@ -12,7 +12,7 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   await expect(page.locator(".session-chip")).toHaveCount(1);
 
   // Open the picker; it lists the stubbed PR #101.
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".session-prompt")).toBeVisible();
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
 
@@ -64,7 +64,7 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
 });
 
 test("typing #N opens a PR directly by number", async ({ page }) => {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".session-prompt")).toBeVisible();
 
   // Type the number directly — no dependence on the list (the host resolves its branch by number).
@@ -81,7 +81,7 @@ test("typing #N opens a PR directly by number", async ({ page }) => {
 });
 
 test("a PR's review comments render and reply", async ({ page }) => {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
@@ -117,7 +117,7 @@ test("a PR's review comments render and reply", async ({ page }) => {
 // is why this uses Ctrl+Enter.) Render + reply are unaffected. Re-enable (drop `.fixme`) once the composer moves
 // to an app-level overlay outside the view-zone.
 test.fixme("a PR's review comments can be authored inline", async ({ page }) => {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });

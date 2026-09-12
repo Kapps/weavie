@@ -53,7 +53,7 @@ async function expectWithin(inner: Locator, outer: Locator): Promise<void> {
 }
 
 async function openCommentedFile(page: Page): Promise<void> {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });

@@ -143,16 +143,18 @@ export async function openSearch(page: Page): Promise<void> {
   await expect(page.locator(".search-input")).toBeFocused();
 }
 
-// Run a command through the command palette (Show All Commands), matching by title text. Exercises the
-// same keyboard path a user would: $mod+Shift+p, type, Enter on the first match.
+// Select the exact command title; fuzzy ranking can put a longer matching title first.
 export async function runCommand(page: Page, title: string): Promise<void> {
   const box = page.locator(".tb-omnibar-box");
   await openCommandPalette(page);
   // Command mode is signalled by a leading ">"; keep it on the filled value (a bare fill would drop to
   // file search).
   await page.locator(".tb-omnibar-input").fill(`>${title}`);
-  await expect(page.locator(".tb-omnibar-row", { hasText: title }).first()).toBeVisible();
-  await page.locator(".tb-omnibar-input").press("Enter");
+  const exactTitle = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  await page
+    .locator(".tb-omnibar-row")
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: exactTitle }) })
+    .click();
   await expect(box).not.toHaveClass(/\bopen\b/);
 }
 

@@ -15,7 +15,7 @@ async function openPrByNumber(
   n: number,
   expectedChips: number,
 ): Promise<void> {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".session-prompt")).toBeVisible();
   await page.locator(".session-prompt-input").fill(`#${n}`);
   await expect(page.locator(".pr-suggestion-number", { hasText: `#${n}` })).toBeVisible();

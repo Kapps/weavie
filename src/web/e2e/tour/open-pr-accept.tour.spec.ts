@@ -10,7 +10,7 @@ test.use({ prScenario: true });
 const hold = (page: import("@playwright/test").Page, ms: number) => page.waitForTimeout(ms);
 
 test("Open PR: Keep + Revert + Comment coexist; reply to a review thread", async ({ page }) => {
-  await runCommand(page, "Open Pull Request");
+  await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await hold(page, 1200);
   await page.locator(".session-prompt-input").press("Enter");

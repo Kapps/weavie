@@ -23,7 +23,7 @@ async function chooseAgent(page: Page, provider: string) {
 }
 
 async function recreate(page: Page, provider: string) {
-  await runCommand(page, "Recreate with");
+  await runCommand(page, "Recreate with…");
   const dialog = await chooseAgent(page, provider);
   await dialog.getByRole("button", { name: "Recreate session", exact: true }).focus();
   await page.keyboard.press("Enter");
@@ -50,10 +50,10 @@ test("main session can change agents and returning starts fresh", async ({ page,
   await expect(surface).toContainText("echo: old main conversation");
   expect(await activeSessionSlot(page)).toBe(slot);
 
-  await runCommand(page, "Recreate with");
+  await runCommand(page, "Recreate with…");
   await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(surface).toContainText("echo: old main conversation");
-  await runCommand(page, "Recreate with");
+  await runCommand(page, "Recreate with…");
   const cancelled = await chooseAgent(page, "claude");
   await cancelled.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(surface).toContainText("echo: old main conversation");

@@ -35,7 +35,7 @@ test.use({ notionDoc: NOTION_DOC });
 
 // Open the URL prompt (the weavie.workspace.openUrl command) and submit `url`.
 async function openUrl(page: import("@playwright/test").Page, url: string): Promise<void> {
-  await runCommand(page, "Open URL");
+  await runCommand(page, "Open URL…");
   const input = page.locator(".url-prompt-input");
   await expect(input).toBeVisible();
   await input.fill(url);

@@ -11,7 +11,7 @@ test("Plan shortcut changes ACP collaboration without changing permissions", asy
   const registry = JSON.parse(await readFile(registryPath, "utf8"));
   registry.agents[0].env.WEAVIE_FAKE_ACP_MODE = "collaboration-mode";
   await writeFile(registryPath, JSON.stringify(registry));
-  await runCommand(page, "Manage ACP Agents");
+  await runCommand(page, "Manage ACP Agents…");
   const dialog = page.locator(".acp-registry-dialog");
   await dialog.getByRole("button", { name: "Reload", exact: true }).click();
   await expect(

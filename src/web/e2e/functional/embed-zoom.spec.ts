@@ -156,7 +156,7 @@ test.describe("source docs", () => {
   test("a source doc's embeds get the magnifier and open the lightbox from the shadow root", async ({
     page,
   }) => {
-    await runCommand(page, "Open URL");
+    await runCommand(page, "Open URL…");
     const input = page.locator(".url-prompt-input");
     await expect(input).toBeVisible();
     await input.fill("https://www.notion.so/Zoomable-Doc-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");

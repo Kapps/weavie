@@ -319,9 +319,7 @@ for (const cancel of ["release Alt after mouse down", "drag away and back"] as c
   test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
     await focusEditor(page, "hello.ts");
     await registerGreetDefinition(page);
-    // Flaked 2026-09-12 (https://github.com/Kapps/weavie/actions/runs/34711508888) with "Symbol
-    // has no bounds": the `.view-line span` locator raced Monaco's DOM re-render between resolve
-    // and measure. Fixed by targeting the model position (symbolPosition) instead of DOM identity.
+    // Model position, not a DOM locator + boundingBox(): the latter races Monaco's own re-render of the span.
     const { x, y } = await symbolPosition(page, "const message = greet", "greet");
     await page.mouse.move(x, y);
     await page.keyboard.down("Alt");

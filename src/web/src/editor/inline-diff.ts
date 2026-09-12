@@ -262,12 +262,8 @@ export function createInlineDiff(
   let dotsNode: HTMLElement | undefined;
   let scopeMenuNode: HTMLElement | undefined;
   let scopeWrapNode: HTMLElement | undefined;
-  // Whether the scope dropdown is open, independent of scopeMenuNode's lifetime: a render can rebuild the
-  // toolbar (a debounced diff recompute, a font change, a cursor-driven counter refresh) at any time, and
-  // the rebuilt menu must come back open if the user had it open — otherwise a background render silently
-  // closes the dropdown out from under a click already in flight. Flaked 2026-09-12
-  // (https://github.com/Kapps/weavie/actions/runs/34711508888): a trailing recompute from a 100-file
-  // review rebuilt the toolbar between the toggle click and the item click, closing the menu unseen.
+  // Survives a toolbar rebuild (a debounced recompute, a font change) so a background render doesn't
+  // silently close the dropdown mid-gesture; reset explicitly on model swap and clearAll.
   let scopeMenuOpen = false;
   // Session-global review undo/redo: availability (host-pushed) + the bound handlers, plus the toolbar buttons
   // that reflect it. Not per-file, so it survives the active diff clearing.
@@ -1530,6 +1526,7 @@ export function createInlineDiff(
   // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
   const onModel = editor.onDidChangeModel(() => {
     closeNewComposer();
+    scopeMenuOpen = false;
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
       recomputeTimer = undefined;

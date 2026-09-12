@@ -5,6 +5,11 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
+test.skip(
+  process.platform === "linux",
+  "Navigation probes overlap WebKit cancellation; font replies do not acknowledge navigation completion.",
+);
+
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }, info) => {

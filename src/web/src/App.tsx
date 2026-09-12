@@ -57,6 +57,7 @@ import {
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { pullRequestStatus } from "./chrome/pull-request-store";
+import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -2069,6 +2070,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
+      <RecreateSessionPrompt />
       <Show when={deleteReq()}>
         {(req) => (
           <DeleteSessionDialog

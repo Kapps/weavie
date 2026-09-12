@@ -3,7 +3,7 @@
 // caret-free and pure so it's trivially testable and provider-agnostic — it filters whatever entries the
 // capability interface supplied.
 
-import type { AgentSlashEntry } from "../bridge";
+import type { AgentControlState, AgentSlashEntry } from "../bridge";
 
 /** The query after the leading slash, or null when the draft isn't a slash command. */
 export function slashQuery(draft: string): string | null {
@@ -61,4 +61,17 @@ export function weavieCommandInput(entry: AgentSlashEntry, draft: string): strin
   const text = draft.trim();
   const boundary = text.search(/\s/);
   return boundary < 0 ? null : text.slice(boundary).trim() || null;
+}
+
+export type AgentDraft =
+  | { kind: "prompt" | "loading" }
+  | { kind: "command"; entry: AgentSlashEntry };
+
+/** Resolves slash input only after its provider catalog is known; local actions remain available. */
+export function classifyAgentDraft(state: AgentControlState, draft: string): AgentDraft {
+  const local = weavieCommandForDraft(state.slash, draft);
+  if (local !== null) return { kind: "command", entry: local };
+  if (!state.ready && draft.trimStart().startsWith("/")) return { kind: "loading" };
+  const provider = providerCommandForDraft(state.slash, draft);
+  return provider === null ? { kind: "prompt" } : { kind: "command", entry: provider };
 }

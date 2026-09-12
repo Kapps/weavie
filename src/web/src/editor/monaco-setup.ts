@@ -75,6 +75,11 @@ function buildEditor(
     // wide default band, while keeping the glyph margin for the lightbulb and change-tracking bars.
     lineNumbersMinChars: 3,
     lineDecorationsWidth: 6,
+    // Monaco's default ("on") accepts an auto-shown, un-navigated suggestion on Enter even when the word-based
+    // provider is merely offering back the word just typed — a no-op "accept" that swallows the newline the
+    // user meant to insert. "smart" only intercepts Enter when accepting would actually change the text, so a
+    // real, explicitly-selected completion still commits on Enter.
+    acceptSuggestionOnEnter: "smart",
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
     ...toMonacoOptions(editorOptions),
     ...overrides,

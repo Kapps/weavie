@@ -164,7 +164,7 @@ public sealed partial class HostCore {
 	private void SyncSession(HostSession session, MessageTarget target) {
 		session.Agent.ReplayState(target.Feature("agent"));
 		session.ReplayEditor(target.Feature("editor"), line => Log(line));
-		session.ReplayWorkspaceWatcherFailure(target);
+		session.ReplayWorkspaceFailures(target);
 		session.State.Replay(target);
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);
@@ -257,6 +257,9 @@ public sealed partial class HostCore {
 
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);
+
+		public Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct) =>
+			_core.RecreateSessionAsync(_source, sessionId, agentProviderId, context, ct);
 
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 			_core.LoadSessionAsync(sessionId, ct);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AgentSlashEntry } from "../bridge";
+import type { AgentControlState, AgentSlashEntry } from "../bridge";
 import {
+  classifyAgentDraft,
   filterSlash,
   providerCommandForDraft,
   slashQuery,
@@ -18,33 +19,33 @@ const entry = (name: string): Extract<AgentSlashEntry, { kind: "providerCommand"
   inputName: null,
 });
 
-describe("weavieCommandForDraft", () => {
-  const clear: AgentSlashEntry = {
-    id: "weavie:clear",
-    name: "clear",
-    description: "Clear",
-    kind: "weavieCommand",
-    commandId: "weavie.agent.clearConversation",
-    inputHint: null,
-    inputName: null,
-  };
+const clear: AgentSlashEntry = {
+  id: "weavie:clear",
+  name: "clear",
+  description: "Clear",
+  kind: "weavieCommand",
+  commandId: "weavie.agent.clearConversation",
+  inputHint: null,
+  inputName: null,
+};
 
+const btw: AgentSlashEntry = {
+  id: "weavie:btw",
+  name: "btw",
+  description: "Ask aside",
+  kind: "weavieCommand",
+  commandId: "weavie.agent.askAside",
+  inputHint: "question",
+  inputName: "question",
+};
+
+describe("weavieCommandForDraft", () => {
   it("matches only an exact client-owned slash action", () => {
     expect(weavieCommandForDraft([clear], "/CLEAR")?.name).toBe("clear");
     expect(weavieCommandForDraft([clear], "/clear now")).toBeNull();
   });
 
   it("requires and extracts free-form input for an argument-taking action", () => {
-    const btw: AgentSlashEntry = {
-      id: "weavie:btw",
-      name: "btw",
-      description: "Ask aside",
-      kind: "weavieCommand",
-      commandId: "weavie.agent.askAside",
-      inputHint: "question",
-      inputName: "question",
-    };
-
     expect(weavieCommandForDraft([btw], "/btw")).toBe(btw);
     expect(weavieCommandInput(btw, "/btw")).toBeNull();
     expect(weavieCommandForDraft([btw], "/BTW   why this design?")).toBe(btw);
@@ -102,5 +103,55 @@ describe("filterSlash", () => {
   it("caps the list at eight entries", () => {
     const many = Array.from({ length: 20 }, (_, index) => entry(`skill-${index}`));
     expect(filterSlash(many, "skill")).toHaveLength(8);
+  });
+});
+
+describe("classifyAgentDraft", () => {
+  const controls = (ready: boolean, slash: AgentSlashEntry[]): AgentControlState => ({
+    ready,
+    axes: [],
+    slash,
+  });
+
+  it.each([
+    { slash: [] },
+    { slash: [clear] },
+  ])("holds aside input while the provider catalog is incomplete: $slash", ({ slash }) => {
+    expect(classifyAgentDraft(controls(false, slash), "/btw rich")).toEqual({ kind: "loading" });
+  });
+
+  it("resolves the retained aside draft when its command becomes available", () => {
+    const draft = "  /BTW   rich details\nwith another line";
+    expect(classifyAgentDraft(controls(false, [clear]), draft)).toEqual({ kind: "loading" });
+    const action = classifyAgentDraft(controls(true, [clear, btw]), draft);
+    expect(action).toEqual({ kind: "command", entry: btw });
+    expect(weavieCommandInput(btw, draft)).toBe("rich details\nwith another line");
+  });
+
+  it("allows local actions and ordinary prompts before the provider is ready", () => {
+    const state = controls(false, [clear]);
+    expect(classifyAgentDraft(state, "/clear")).toEqual({ kind: "command", entry: clear });
+    expect(classifyAgentDraft(state, "explain this function")).toEqual({ kind: "prompt" });
+    expect(classifyAgentDraft(state, "")).toEqual({ kind: "prompt" });
+  });
+
+  it("blocks a stale provider command until the provider is ready", () => {
+    const compact = entry("compact");
+    expect(classifyAgentDraft(controls(false, [clear, compact]), "/compact")).toEqual({
+      kind: "loading",
+    });
+    expect(classifyAgentDraft(controls(true, [clear, compact]), "/compact")).toEqual({
+      kind: "command",
+      entry: compact,
+    });
+  });
+
+  it.each([
+    "/unknown explain this",
+    "/usr/local/bin/tool",
+    "/btw rich",
+    "/clear now",
+  ])("keeps unsupported slash input literal after readiness: %s", (draft) => {
+    expect(classifyAgentDraft(controls(true, [clear]), draft)).toEqual({ kind: "prompt" });
   });
 });

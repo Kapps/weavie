@@ -541,6 +541,8 @@ public sealed partial class AgentSessionHostTests {
 			Available = true,
 		};
 
+		public void ClearConversation(string workspace) { }
+
 		public IAgentSession CreateSession(AgentSessionContext context) => session;
 	}
 

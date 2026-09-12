@@ -204,6 +204,7 @@ public sealed partial class HostCore {
 		string? id = ReadString(args, "id");
 		return message.Id switch {
 			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
+			SessionCommands.RecreateSession => await RecreateSessionAsync(null, id, ReadString(args, "agentProviderId"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,

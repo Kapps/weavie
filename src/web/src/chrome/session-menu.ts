@@ -31,6 +31,7 @@ export function sessionMenuEntries(session: RailSession, inRail: boolean): Conte
     session.loaded
       ? { commandId: CommandIds.unloadSession, args, label: "Unload session" }
       : { commandId: CommandIds.loadSession, args, label: "Load session" },
+    { commandId: CommandIds.recreateSessionPrompt, args, label: "Recreate with…" },
   ];
   if (!session.workspaceCheckout) {
     entries.push(

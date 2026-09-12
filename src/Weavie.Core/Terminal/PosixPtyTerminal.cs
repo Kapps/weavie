@@ -184,6 +184,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 		try {
 			while (true) {
 				nint n = read(_masterFd, buffer, (nuint)buffer.Length);
+				if (n < 0 && Marshal.GetLastPInvokeError() == EINTR) continue;
 				if (n <= 0) {
 					break; // 0 = EOF, -1 = EIO when the child closed the slave / exited
 				}
@@ -205,9 +206,16 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 
 		int code = 0;
-		if (_pid > 0 && waitpid(_pid, out int status, 0) == _pid) {
-			int low = status & 0x7f;
-			code = low == 0 ? (status >> 8) & 0xff : 128 + low;
+		if (_pid > 0) {
+			int status;
+			int waited;
+			do {
+				waited = waitpid(_pid, out status, 0);
+			} while (waited < 0 && Marshal.GetLastPInvokeError() == EINTR);
+			if (waited == _pid) {
+				int low = status & 0x7f;
+				code = low == 0 ? (status >> 8) & 0xff : 128 + low;
+			}
 		}
 
 		_running = false;
@@ -224,6 +232,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 		byte[] remaining = data;
 		while (remaining.Length > 0) {
 			nint written = write(_masterFd, remaining, (nuint)remaining.Length);
+			if (written < 0 && Marshal.GetLastPInvokeError() == EINTR) continue;
 			if (written <= 0) {
 				break;
 			}

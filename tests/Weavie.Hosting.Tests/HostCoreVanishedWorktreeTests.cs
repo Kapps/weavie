@@ -59,6 +59,9 @@ public sealed class HostCoreVanishedWorktreeTests {
 		string gone = $"This workspace's folder no longer exists: {root}. Open a workspace that does.";
 		host.Bridge.Clear();
 
+		// Reproduce a refresh between removal of Git metadata and the workspace root.
+		Directory.Delete(Path.Combine(root, ".git"), recursive: true);
+		Assert.False((await session.Inventory.RefreshAsync()).IsRepository);
 		Directory.Delete(root, recursive: true);
 		host.SessionEvent(session, "files", "refreshIndex", new { });
 		await Wait.UntilAsync(() => NotificationMessages(host).Contains(gone));

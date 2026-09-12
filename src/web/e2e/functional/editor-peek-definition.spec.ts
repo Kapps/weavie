@@ -54,9 +54,13 @@ async function wordToken(page: Page, lineText: string, word: string): Promise<Lo
     .last();
 }
 
-async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+async function symbolPosition(
+  page: Page,
+  lineText: string,
+  word: string,
+): Promise<{ x: number; y: number }> {
   await awaitEditorLaidOut(page);
-  const point = await page.evaluate(
+  return page.evaluate(
     ({ lineText, word }) => {
       const editor = window.__WEAVIE_EDITOR__;
       const model = editor?.getModel();
@@ -75,6 +79,10 @@ async function altClick(page: Page, lineText: string, word: string): Promise<voi
     },
     { lineText, word },
   );
+}
+
+async function altClick(page: Page, lineText: string, word: string): Promise<void> {
+  const point = await symbolPosition(page, lineText, word);
   // Alt hover replaces the token span with a link decoration; target its model position, not DOM identity.
   await page.mouse.move(point.x, point.y);
   await page.keyboard.down("Alt");
@@ -270,21 +278,17 @@ test.describe("unopened definitions", () => {
   }
 });
 
-test("Alt hovering a definition-backed symbol advertises its link and hand cursor", async ({
-  page,
-}) => {
+test("Ctrl/Cmd click navigates to the definition without opening a peek", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
-  const word = await wordToken(page, "const message = greet", "greet");
-  const bounds = await word.boundingBox();
-  if (bounds === null) throw new Error("Symbol has no bounds");
-  await page.keyboard.down("Alt");
-  await word.hover();
-  await expect.poll(() => word.evaluate((node) => getComputedStyle(node).cursor)).toBe("pointer");
-  await expect(page.locator(".goto-definition-link")).toBeVisible();
-  await page.keyboard.up("Alt");
+  const point = await symbolPosition(page, "const message = greet", "greet");
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.click(point.x, point.y);
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBeGreaterThan(1);
   await page.keyboard.down("ControlOrMeta");
-  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.click(point.x, point.y);
   await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
@@ -311,12 +315,9 @@ for (const cancel of ["release Alt after mouse down", "drag away and back"] as c
   test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
     await focusEditor(page, "hello.ts");
     await registerGreetDefinition(page);
-    const word = await wordToken(page, "const message = greet", "greet");
-    await word.hover();
-    const bounds = await word.boundingBox();
-    if (bounds === null) throw new Error("Symbol has no bounds");
-    const x = bounds.x + bounds.width / 2,
-      y = bounds.y + bounds.height / 2;
+    // Model position, not a DOM locator + boundingBox(): the latter races Monaco's own re-render of the span.
+    const { x, y } = await symbolPosition(page, "const message = greet", "greet");
+    await page.mouse.move(x, y);
     await page.keyboard.down("Alt");
     await page.mouse.move(x, y);
     await expect(page.locator(".goto-definition-link")).toBeVisible();

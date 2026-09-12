@@ -36,13 +36,7 @@ import {
   recallNext,
   recallPrevious,
 } from "./prompt-history";
-import {
-  filterSlash,
-  providerCommandForDraft,
-  slashQuery,
-  weavieCommandForDraft,
-  weavieCommandInput,
-} from "./slash";
+import { classifyAgentDraft, filterSlash, slashQuery, weavieCommandInput } from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
 import type { PendingRequestKind } from "./turn-progress";
 
@@ -77,7 +71,13 @@ export function AgentComposer(props: {
     setContext("agentAuthenticationPending", false);
   });
 
+  const draftAction = createMemo(() =>
+    classifyAgentDraft(agentControlState(props.session), composer().draft),
+  );
+
   const canSubmit = createMemo(() => {
+    const action = draftAction();
+    if (action.kind === "loading") return false;
     const state = composer();
     if (props.inputProtocol < 2) {
       return (
@@ -86,10 +86,8 @@ export function AgentComposer(props: {
       );
     }
     if (props.session === null || state.pendingSubmission !== null) return false;
-    const slash = agentControlState(props.session).slash;
-    const command = weavieCommandForDraft(slash, state.draft);
-    if (command !== null && command.commandId !== CommandIds.askAgentAside) return true;
-    if (providerCommandForDraft(slash, state.draft) !== null) return true;
+    if (action.kind === "command" && action.entry.commandId !== CommandIds.askAgentAside)
+      return true;
     return (
       state.attachments.every((attachment) => attachment.status === "ready") &&
       (state.draft.trim().length > 0 || state.attachments.length > 0)
@@ -231,8 +229,9 @@ export function AgentComposer(props: {
     if (!props.active || session === null) {
       return false;
     }
-    const slash = agentControlState(session).slash;
-    const weavieCommand = weavieCommandForDraft(slash, composer().draft);
+    const action = draftAction();
+    if (action.kind === "loading") return true;
+    const weavieCommand = action.kind === "command" ? action.entry : null;
     if (weavieCommand?.kind === "weavieCommand") {
       const input = weavieCommandInput(weavieCommand, composer().draft);
       if (weavieCommand.commandId === CommandIds.askAgentAside) {
@@ -271,8 +270,8 @@ export function AgentComposer(props: {
       });
       setComposerDraft(session, "");
     } else {
-      const command = providerCommandForDraft(slash, composer().draft);
-      if (!submitAgentTurn(session, command?.name ?? null)) return false;
+      const command = action.kind === "command" ? action.entry.name : null;
+      if (!submitAgentTurn(session, command)) return false;
     }
     setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();
@@ -375,6 +374,7 @@ export function AgentComposer(props: {
     <form
       class="agent-compose"
       data-agent-composer
+      data-agent-controls-ready={agentControlState(props.session).ready}
       onSubmit={(event) => {
         event.preventDefault();
         void dispatchCommand(CommandIds.agentSubmit);
@@ -474,6 +474,11 @@ export function AgentComposer(props: {
           <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
         </button>
       </div>
+      <Show when={draftAction().kind === "loading"}>
+        <div class="agent-compose-queued" role="status">
+          Agent commands are loading…
+        </div>
+      </Show>
       <Show when={composer().error !== null}>
         <div class="agent-compose-error">{composer().error}</div>
       </Show>

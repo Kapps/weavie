@@ -181,6 +181,7 @@ export type AgentSlashEntry =
     });
 
 export interface AgentControlState {
+  ready: boolean;
   axes: AgentControlAxis[];
   slash: AgentSlashEntry[];
 }

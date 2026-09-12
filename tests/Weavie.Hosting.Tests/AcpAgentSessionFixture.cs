@@ -391,7 +391,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public async Task<AgentControlState> StartAsync() {
 		Session.Start();
-		return await WaitForControlsAsync(state => state.Axes.Count > 0).ConfigureAwait(false);
+		return await WaitForControlsAsync(state => state.Ready).ConfigureAwait(false);
 	}
 
 	public async Task<AgentPaneMessage> WaitForMessageAsync(Func<AgentPaneMessage, bool> predicate) {

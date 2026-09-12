@@ -78,6 +78,9 @@ public sealed record AgentSlashEntry {
 
 /// <summary>The provider-neutral control + slash surface for one structured-agent session, pushed to the web.</summary>
 public sealed record AgentControlState {
+	/// <summary>Whether provider initialization has established the current command surface.</summary>
+	public required bool Ready { get; init; }
+
 	/// <summary>The provider-owned configuration options, in the provider's order.</summary>
 	public required IReadOnlyList<AgentControlAxis> Axes { get; init; }
 

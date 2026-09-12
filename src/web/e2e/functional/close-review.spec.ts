@@ -67,16 +67,13 @@ test.describe("close diff", () => {
     });
   }
 
-  for (const decision of ["Keep All Changes", "Undo All Changes"]) {
+  for (const decision of ["Keep All Changes (Review)", "Undo All Changes"]) {
     test(`the fully reviewed state closes after ${decision}`, async ({ page, weavie }) => {
       await openFile(page, "notes.txt");
       await expect(page.locator(".weavie-inline-added")).toBeVisible();
       await page.locator(".editor-review-open").click();
       await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
-      await runCommand(
-        page,
-        decision === "Keep All Changes" ? "Keep All Changes (Review)" : decision,
-      );
+      await runCommand(page, decision);
       if (decision === "Undo All Changes") {
         await page.getByRole("button", { name: "Revert all", exact: true }).click();
       }

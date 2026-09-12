@@ -102,6 +102,7 @@ public sealed partial class AcpAgentSession {
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		RaiseControls();
 		foreach (var message in DrainContentStreams()) _pendingTerminalMessages.Enqueue(message);
 		foreach (var tool in tools) {
 			if (tool.Tool.NotificationReported) _pendingTerminalMessages.Enqueue(ToolMessage(tool.Tool));

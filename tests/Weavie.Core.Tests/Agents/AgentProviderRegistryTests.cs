@@ -76,6 +76,8 @@ public sealed class AgentProviderRegistryTests {
 
 		public AgentProviderInfo Info { get; }
 
+		public void ClearConversation(string workspace) { }
+
 		public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();
 	}
 }

@@ -270,6 +270,15 @@ test.describe("unopened definitions", () => {
   }
 });
 
+// Flaked in CI on 2026-09-12 08:04 UTC on an unrelated PR
+// (https://github.com/Kapps/weavie/actions/runs/34682062091/job/103522660783): the cursor stayed "text" for
+// the entire 15s poll instead of ever becoming "pointer". Pulled the trace/viewport/console artifacts rather
+// than guessing from the assertion — the target span stayed present and stable across every retry (not the
+// DOM-remount/detach pattern already tracked in #868 for a different test in this file), and layout/console
+// were clean. The pointer cursor and `.goto-definition-link` are Monaco's own built-in alt+hover gesture, not
+// Weavie source, so the stuck state points at Monaco-internal hover/link recomputation timing rather than
+// anything in this file. No other shard in that run hit it, and I lacked permission to re-run the job to
+// confirm transience. Not yet safely fixable blind — no code change made.
 test("Alt hovering a definition-backed symbol advertises its link and hand cursor", async ({
   page,
 }) => {

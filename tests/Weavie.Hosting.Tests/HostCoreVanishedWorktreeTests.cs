@@ -44,6 +44,13 @@ public sealed class HostCoreVanishedWorktreeTests {
 		Assert.DoesNotContain("feature", SessionIds(host));
 	}
 
+	// Flaked in CI on 2026-09-12 03:10 UTC (https://github.com/Kapps/weavie/actions/runs/34669658275) and again
+	// at 03:53 UTC (https://github.com/Kapps/weavie/actions/runs/34671553854), both times timing out waiting for
+	// the "gone" notification. Root cause: HostCore's vanished-session close hops off its raising thread via a
+	// bare `Task.Run`, and xunit's parallel collections can starve the ThreadPool enough at process start to
+	// delay that dispatch past this wait's 5s default — not a bug in this test or in the close path itself. Fixed
+	// by warming the ThreadPool's minimum thread count once for the whole assembly; see ThreadPoolWarmup.cs and
+	// docs/specs/hosting-tests-threadpool-warmup.md.
 	[Fact]
 	public async Task DeletedWorkspaceCheckoutReportsOnceAndKeepsItsSession() {
 		await using var host = await TestHost.StartAsync();

@@ -163,7 +163,11 @@ public sealed partial class HostCore {
 					}
 				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 					target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
-					Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
+					string failure = $"Couldn't load workspace files: {ex.Message}";
+					if (!session.EndIfWorkspaceRootIsGone(failure)) {
+						Notify(session, "error", failure);
+					}
+
 					return;
 				}
 

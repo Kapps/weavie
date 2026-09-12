@@ -85,11 +85,12 @@ public sealed partial class HostCore {
 	}
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>
-		InvokeForSessionAsync(
-			() => Notify(
-				session,
-				"warn",
-				$"{failure.Consumer} failed while updating file activity: {failure.Error.Message}"));
+		InvokeForSessionAsync(() => {
+			string message = $"{failure.Consumer} failed while updating file activity: {failure.Error.Message}";
+			if (!session.EndIfWorkspaceRootIsGone(message)) {
+				Notify(session, "warn", message);
+			}
+		});
 
 	private Task InvokeForSessionAsync(Action action) =>
 		_ui.InvokeAsync(() => {

@@ -197,6 +197,15 @@ test.describe("Review Changes tab", () => {
   // debounced save the file pane uses — the riskiest seam in wiring a second editor onto a tab's model. The
   // newline matters: it grows the section, which re-measures the virtualizer. Rows keyed by the virtualizer's
   // own item objects would rebuild every section's editor there, and the rest of the typing would land nowhere.
+  // Flaked on ubuntu-latest [remote] 2026-09-06 08:14 UTC (run 34020677807, job 101452854577,
+  // https://github.com/Kapps/weavie/actions/runs/34020677807/job/101452854577): the on-disk content had the
+  // marker's "one" and "two" halves concatenated with no newline between them. Root-caused (not a test flake)
+  // via a local repro (~1-in-20) instrumented with a keydown/mutation trace: Monaco's word-based suggest widget
+  // auto-shows the word just typed as its own completion, and the default `acceptSuggestionOnEnter: "on"`
+  // lets the immediately-following Enter "accept" that no-op suggestion instead of inserting a newline. Fixed
+  // at the source in monaco-setup.ts's shared `buildEditor` (`acceptSuggestionOnEnter: "smart"`, which only
+  // intercepts Enter when accepting would actually change the text) rather than here, since every Monaco
+  // editor in the app — not just review sections — shared the same latent defect.
   test("editing a file in the overview keeps focus across a re-measure and saves it @cross", async ({
     page,
     weavie,

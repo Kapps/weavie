@@ -1,108 +1,170 @@
 import { StandaloneServices } from "@codingame/monaco-vscode-api";
-import { URI } from "@codingame/monaco-vscode-api/vscode/vs/base/common/uri";
-import { IExtensionResourceLoaderService } from "@codingame/monaco-vscode-api/vscode/vs/platform/extensionResourceLoader/common/extensionResourceLoader.service";
-import { IWebWorkerService } from "@codingame/monaco-vscode-api/vscode/vs/platform/webWorker/browser/webWorkerService.service";
-import { IExtensionService } from "@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensions/common/extensions.service";
+import { CancellationTokenSource } from "@codingame/monaco-vscode-api/vscode/vs/base/common/cancellation";
+import type {
+  DocumentRangeSemanticTokensProvider,
+  DocumentSemanticTokensProvider,
+  SemanticTokens,
+} from "@codingame/monaco-vscode-api/vscode/vs/editor/common/languages";
+import { ILanguageFeaturesService } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/services/languageFeatures.service";
 import type { monaco } from "./monaco-setup";
 import type { SpellSpan } from "./spell-prose";
-import type { GrammarDefinition, GrammarHost, IdentifierRange, SpellWorker } from "./spell-worker";
-import WorkerConstructor from "./spell-worker-entry?worker";
 
-type SpellSource = (
-  version: number,
-  ranges: SpellSpan[],
-  signal: AbortSignal,
-) => Promise<IdentifierRange[]>;
-const models = new WeakMap<monaco.editor.ITextModel, Promise<SpellSource>>();
-
-async function createSource(model: monaco.editor.ITextModel): Promise<SpellSource> {
-  const worker = new WorkerConstructor();
-  const client = StandaloneServices.get(IWebWorkerService).createWorkerClient<SpellWorker>(worker);
-  const subscriptions: monaco.IDisposable[] = [];
-  let disposed = false;
-  let rejectFailure: (error: Error) => void = () => {};
-  const failure = new Promise<never>((_resolve, reject) => {
-    rejectFailure = reject;
-  });
-  const dispose = (error: Error): void => {
-    if (disposed) return;
-    disposed = true;
-    models.delete(model);
-    for (const subscription of subscriptions) subscription.dispose();
-    client.dispose();
-    rejectFailure(error);
-  };
-  worker.addEventListener("error", (event) => dispose(new Error(event.message)));
-  subscriptions.push(
-    model.onDidChangeLanguage(() => dispose(new DOMException("Language changed", "AbortError"))),
-    model.onWillDispose(() => dispose(new DOMException("Model disposed", "AbortError"))),
-  );
-  const extensions = StandaloneServices.get(IExtensionService);
-  const loader = StandaloneServices.get(IExtensionResourceLoaderService);
-  client.setChannel<GrammarHost>("grammars", {
-    $read: (location) => loader.readExtensionResource(URI.parse(location)),
-  });
-  const initialize = async (): Promise<void> => {
-    await extensions.whenInstalledExtensionsRegistered();
-    if (disposed) return;
-    const definitions: GrammarDefinition[] = extensions.extensions.flatMap((extension) =>
-      (extension.contributes?.grammars ?? []).map((grammar) => ({
-        scope: grammar.scopeName,
-        language: grammar.language,
-        location: URI.joinPath(extension.extensionLocation, grammar.path).toString(),
-        injectTo: grammar.injectTo ?? [],
-      })),
-    );
-    const initialized = client.proxy.$init(
-      definitions,
-      model.getLanguageId(),
-      model.uri.toString(),
-      model.getLinesContent(),
-      model.getEOL(),
-      model.getVersionId(),
-    );
-    subscriptions.push(
-      model.onDidChangeContent((event) => {
-        void client.proxy.$update(event).catch((error: Error) => dispose(error));
-      }),
-    );
-    await initialized;
-  };
-  try {
-    await Promise.race([initialize(), failure]);
-  } catch (error) {
-    dispose(error instanceof Error ? error : new Error(String(error)));
-    throw error;
-  }
-  let running: Promise<IdentifierRange[]> | undefined;
-  return async (version, ranges, signal) => {
-    while (running !== undefined) await running;
-    signal.throwIfAborted();
-    running = Promise.race([client.proxy.$tokens(version, ranges), failure]);
-    try {
-      return await running;
-    } finally {
-      running = undefined;
-    }
-  };
+export interface IdentifierRange {
+  line: number;
+  startIndex: number;
+  endIndex: number;
 }
 
-export async function spellingTokens(
-  model: monaco.editor.ITextModel,
-  ranges: SpellSpan[],
-  signal: AbortSignal,
-): Promise<IdentifierRange[]> {
-  if (
-    model.getLanguageId() === "plaintext" ||
-    model.getLanguageId() === "markdown" ||
-    ranges.length === 0
-  )
-    return [];
-  let source = models.get(model);
-  if (source === undefined) {
-    source = createSource(model);
-    models.set(model, source);
+type Provider = DocumentSemanticTokensProvider | DocumentRangeSemanticTokensProvider;
+
+function declarations(tokens: SemanticTokens, provider: Provider): IdentifierRange[] {
+  const mask = provider
+    .getLegend()
+    .tokenModifiers.reduce(
+      (mask, modifier, index) =>
+        modifier === "declaration" || modifier === "definition" ? mask | (1 << index) : mask,
+      0,
+    );
+  const ranges: IdentifierRange[] = [];
+  let line = 1;
+  let startIndex = 0;
+  for (let index = 0; index < tokens.data.length; index += 5) {
+    const deltaLine = tokens.data[index]!;
+    line += deltaLine;
+    startIndex = (deltaLine === 0 ? startIndex : 0) + tokens.data[index + 1]!;
+    if ((tokens.data[index + 4]! & mask) !== 0) {
+      ranges.push({ line, startIndex, endIndex: startIndex + tokens.data[index + 2]! });
+    }
   }
-  const version = model.getVersionId();
-  return (await source)(version, ranges, signal);
+  return ranges;
+}
+
+/** Owns declaration metadata for the editor's current model, shared across viewport checks. */
+export function createSpellingTokens(changed: () => void) {
+  const features = StandaloneServices.get(ILanguageFeaturesService);
+  const registries = [
+    features.documentSemanticTokensProvider,
+    features.documentRangeSemanticTokensProvider,
+  ];
+  let model: monaco.editor.ITextModel | undefined;
+  let providers: Provider[] = [];
+  let modelSubscriptions: monaco.IDisposable[] = [];
+  let providerSubscriptions: monaco.IDisposable[] = [];
+  let pending: CancellationTokenSource | undefined;
+  let cached: Promise<IdentifierRange[]> | undefined;
+  const invalidate = (): void => {
+    pending?.dispose(true);
+    pending = undefined;
+    cached = undefined;
+  };
+  const refresh = (): void => {
+    invalidate();
+    changed();
+  };
+  const bindProviders = (): void => {
+    for (const subscription of providerSubscriptions) subscription.dispose();
+    providers =
+      model === undefined
+        ? []
+        : (features.documentSemanticTokensProvider.orderedGroups(model)[0] ??
+          features.documentRangeSemanticTokensProvider.orderedGroups(model)[0] ??
+          []);
+    providerSubscriptions = providers.flatMap((provider) =>
+      provider.onDidChange === undefined ? [] : [provider.onDidChange(refresh)],
+    );
+    invalidate();
+  };
+  const providerChanged = (): void => {
+    bindProviders();
+    changed();
+  };
+  const subscriptions = registries.map((registry) => registry.onDidChange(providerChanged));
+  const unbind = (): void => {
+    invalidate();
+    for (const subscription of [...modelSubscriptions, ...providerSubscriptions])
+      subscription.dispose();
+    modelSubscriptions = [];
+    providerSubscriptions = [];
+    model = undefined;
+    providers = [];
+  };
+  return {
+    async read(
+      current: monaco.editor.ITextModel,
+      ranges: SpellSpan[],
+      signal: AbortSignal,
+    ): Promise<IdentifierRange[]> {
+      signal.throwIfAborted();
+      if (model !== current) {
+        unbind();
+        model = current;
+        modelSubscriptions = [
+          current.onDidChangeContent(invalidate),
+          current.onDidChangeLanguage(providerChanged),
+          current.onWillDispose(unbind),
+        ];
+        bindProviders();
+      }
+      if (ranges.length === 0) return [];
+      if (cached === undefined) {
+        const source = new CancellationTokenSource();
+        pending = source;
+        cached = Promise.all(
+          providers.map(async (provider) => {
+            const full = "provideDocumentSemanticTokens" in provider;
+            const tokens = await (full
+              ? provider.provideDocumentSemanticTokens(current, null, source.token)
+              : provider.provideDocumentRangeSemanticTokens(
+                  current,
+                  current.getFullModelRange(),
+                  source.token,
+                ));
+            try {
+              if (source.token.isCancellationRequested)
+                throw new DOMException("Model changed", "AbortError");
+              if (tokens == null) return [];
+              if (!("data" in tokens))
+                throw new Error("Semantic-token provider returned edits without a previous result");
+              return declarations(tokens, provider);
+            } finally {
+              if (full && tokens != null) provider.releaseDocumentSemanticTokens(tokens.resultId);
+            }
+          }),
+        ).then((results) => results.flat());
+        const request = cached;
+        void request.catch(() => {
+          if (cached === request) invalidate();
+        });
+      }
+      const tokens = await cached;
+      signal.throwIfAborted();
+      const visible = new Map<number, SpellSpan[]>();
+      for (const range of ranges) {
+        const line = visible.get(range.line) ?? [];
+        line.push(range);
+        visible.set(range.line, line);
+      }
+      const unique = new Map<string, IdentifierRange>();
+      for (const token of tokens) {
+        for (const range of visible.get(token.line) ?? []) {
+          const startIndex = Math.max(range.offset, token.startIndex);
+          const endIndex = Math.min(range.offset + range.text.length, token.endIndex);
+          if (startIndex < endIndex) {
+            unique.set(`${token.line}:${startIndex}:${endIndex}`, {
+              line: token.line,
+              startIndex,
+              endIndex,
+            });
+          }
+        }
+      }
+      return [...unique.values()].sort(
+        (left, right) => left.line - right.line || left.startIndex - right.startIndex,
+      );
+    },
+    dispose(): void {
+      unbind();
+      for (const subscription of subscriptions) subscription.dispose();
+    },
+  };
 }

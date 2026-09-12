@@ -54,7 +54,8 @@
   margin-top: 1.1em;
 }
 
-.confirm-btn {
+.confirm-btn,
+.confirm-select {
   padding: 0.4em 0.9em;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -62,6 +63,13 @@
   color: var(--fg);
   font: inherit;
   cursor: pointer;
+}
+
+.confirm-select {
+  display: block;
+  width: 100%;
+  margin-top: 0.5em;
+  background: var(--bg);
 }
 
 /* Ghost buttons only. The filled primary/danger buttons set their own hover below; without this exclusion the
@@ -98,7 +106,8 @@
   background: color-mix(in srgb, var(--danger) 85%, #fff);
 }
 
-.confirm-btn:focus-visible {
+.confirm-btn:focus-visible,
+.confirm-select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

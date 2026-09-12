@@ -14,7 +14,7 @@ import {
   type TokenizedModel,
   visibleSpellRanges,
 } from "./spell-prose";
-import { spellingTokens } from "./spell-tokens";
+import { createSpellingTokens } from "./spell-tokens";
 import "./spell-check.css";
 
 export interface SpellCheck extends SpellingActions {
@@ -47,7 +47,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     const version = model.getVersionId();
     try {
       const ranges = visibleSpellRanges(editor, model);
-      const tokens = await spellingTokens(model, ranges, pending.signal);
+      const tokens = await tokensSource.read(model, ranges, pending.signal);
       if (
         pending.signal.aborted ||
         model.isDisposed() ||
@@ -99,6 +99,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     decorations.clear();
     timer = setTimeout(() => void check(), 250);
   };
+  const tokensSource = createSpellingTokens(schedule);
   const invalidate = (): void => {
     validity.abort();
     validity = new AbortController();
@@ -146,6 +147,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
       for (const subscription of subscriptions) {
         subscription.dispose();
       }
+      tokensSource.dispose();
       offOptions();
       offSessions();
       decorations.clear();

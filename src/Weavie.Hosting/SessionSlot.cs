@@ -19,7 +19,7 @@ public sealed class SessionSlot {
 	public required string WorktreePath { get; init; }
 
 	/// <summary>The provider this session uses. Existing sessions default to Claude.</summary>
-	public required string AgentProviderId { get; init; }
+	public required string AgentProviderId { get; set; }
 
 	/// <summary>The live backend, or <c>null</c> when this slot is unloaded (dormant).</summary>
 	public HostSession? Session { get; set; }

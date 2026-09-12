@@ -450,6 +450,8 @@ public sealed class InferenceServiceTests : IDisposable {
 			return _query(request, ct);
 		}
 
+		public void ClearConversation(string workspace) { }
+
 		public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();
 	}
 }

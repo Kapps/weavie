@@ -9,6 +9,8 @@ namespace Weavie.Core.Terminal;
 /// native <c>weavie_pty_spawn</c> launcher instead. Kernel-differing constants are selected at runtime.
 /// </summary>
 internal static partial class NativeMethods {
+	internal const int EINTR = 4;
+
 	// open(2) flags. O_RDWR is the same on both; O_NOCTTY differs (macOS 0x20000, Linux 0400).
 	internal const int O_RDWR = 0x0002;
 	internal static readonly int O_NOCTTY = OperatingSystem.IsMacOS() ? 0x20000 : 0x100;

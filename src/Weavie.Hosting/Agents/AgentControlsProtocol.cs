@@ -8,6 +8,7 @@ internal static class AgentControlsProtocol {
 		ArgumentNullException.ThrowIfNull(state);
 		return new {
 			state = new {
+				ready = state.Ready,
 				axes = state.Axes.Select(axis => new {
 					id = axis.Id,
 					label = axis.Label,

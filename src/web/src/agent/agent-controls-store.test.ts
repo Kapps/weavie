@@ -68,6 +68,7 @@ vi.mock("../bridge", () => ({
 const store = await import("./agent-controls-store");
 
 const state: AgentControlState = {
+  ready: true,
   axes: [
     {
       id: "model",
@@ -91,7 +92,11 @@ describe("agent controls store", () => {
     emitControls("remote-a", "slot-a", state);
 
     expect(store.agentControlState(owner("remote-a", "slot-a"))).toEqual(state);
-    expect(store.agentControlState(owner("remote-a", "slot-b"))).toEqual({ axes: [], slash: [] });
+    expect(store.agentControlState(owner("remote-a", "slot-b"))).toEqual({
+      ready: false,
+      axes: [],
+      slash: [],
+    });
   });
 
   it("echoes an opaque control id and value to its owning session", () => {

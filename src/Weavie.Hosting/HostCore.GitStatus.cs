@@ -14,7 +14,11 @@ public sealed partial class HostCore {
 			session.Background,
 			session.WorkspaceRoot,
 			monitor.RequestRefresh,
-			error => PostForSession(session, () => Notify(session, "warn", error.Message)));
+			error => PostForSession(session, () => {
+				if (!session.EndIfWorkspaceRootIsGone(error.Message)) {
+					Notify(session, "warn", error.Message);
+				}
+			}));
 		monitor.RequestRefresh();
 	}
 

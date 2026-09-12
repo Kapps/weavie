@@ -164,10 +164,11 @@ public sealed partial class AcpAgentSession :
 		get {
 			lock (_gate) {
 				return new AgentControlState {
+					Ready = _ready,
 					Axes = [.. _controls.Values],
 					Slash = AgentControlCommands.ComposeSlash(
 						_commands,
-						_role is PrimaryRole && _supportsFork && _supportsLoad),
+						_role is PrimaryRole && _ready && _supportsFork && _supportsLoad),
 				};
 			}
 		}
@@ -330,6 +331,7 @@ public sealed partial class AcpAgentSession :
 		FailSideRuntimes(error);
 		AbandonClientRequests();
 		ObserveTerminalizedTools(tools);
+		RaiseControls();
 		Observe(new AgentRuntimeFailed());
 		CompleteContentStreams();
 		PublishTerminalizedToolMessages(tools);

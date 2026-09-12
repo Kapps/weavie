@@ -52,6 +52,12 @@ public static class SessionCommands {
 	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>ctrl+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
 	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
+	/// <summary>Recreates a named session with a fresh agent conversation.</summary>
+	public const string RecreateSession = "weavie.session.recreate";
+
+	/// <summary>Opens the agent picker and recreation confirmation.</summary>
+	public const string RecreateSessionPrompt = "weavie.session.recreatePrompt";
+
 	/// <summary>Loads a dormant session's backend in the background (arg <c>id</c>) without switching the page to it.</summary>
 	public const string LoadSession = "weavie.session.load";
 
@@ -309,6 +315,29 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = RecreateSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
+			Title = "Recreate Session",
+			RunsIn = CommandLocation.Core,
+			Category = "Session",
+			Description = "Recreate the session named by required 'id' with required 'agentProviderId'. Starts a fresh conversation, stops agent and shell work, and keeps the checkout, edits, and editor state.",
+			ShowInPalette = false,
+			ArgsSchemaJson = """{"id":{"type":"string"},"agentProviderId":{"type":"string"}}""",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RecreateSessionPrompt,
+			Title = "Recreate with…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Choose an agent and confirm a fresh conversation in this session's checkout.",
+			Aliases = ["change agent", "switch agent", "recreate session"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Alt+Shift+r" }],
+			ArgsSchemaJson = """{"id":{"type":"string","description":"Session to recreate; omit for the selected session"}}""",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = DeleteSessionPrompt,
 			Title = "Delete Session…",
 			RunsIn = CommandLocation.Web,
@@ -367,6 +396,8 @@ public static class SessionCommands {
 					Handoff = GetString(argsJson, "handoff"),
 				},
 				ct)),
+			dispatcher.RegisterContextualHandler(RecreateSession, (argsJson, context, ct) => host.RecreateSessionAsync(
+				GetString(argsJson, "id"), GetString(argsJson, "agentProviderId"), context, ct)),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,

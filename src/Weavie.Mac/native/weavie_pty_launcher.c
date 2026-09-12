@@ -21,6 +21,10 @@ int main(int argc, char **argv, char **envp) {
 	if (argc < 2) fail(EINVAL);
 	if (fcntl(3, F_SETFD, FD_CLOEXEC) < 0) fail(errno);
 	if (ioctl(0, TIOCSCTTY, 0) < 0) fail(errno);
+	// Retain the session-owned terminal until exit drains output, beyond the last stdio close.
+	int terminal = open("/dev/tty", O_RDWR);
+	if (terminal < 0) fail(errno);
+	if (close(terminal) < 0) fail(errno);
 	execve(argv[1], &argv[1], envp);
 	fail(errno);
 }

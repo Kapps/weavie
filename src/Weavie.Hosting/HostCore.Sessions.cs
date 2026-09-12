@@ -18,6 +18,8 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	/// <summary>Wires behavior to the owning session bus. No callback observes client selection.</summary>
 	private void WireSession(HostSession session) {
+		// Off the raising thread (any observer's, including the UI's): closing a session is lifecycle work.
+		session.WorkspaceRootVanished += () => _ = Task.Run(() => CloseVanishedSessionAsync(session));
 		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
 		session.EditorSessionChanged += state => {
@@ -937,15 +939,7 @@ public sealed partial class HostCore {
 				deleteBranch: false,
 				force,
 				CancellationToken.None).ConfigureAwait(false);
-			_acpSessions.ClearWorkspace(worktreePath);
-			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
-			// removal can't interleave with a concurrent switch reading the slot set.
-			await _ui.InvokeAsync(() => {
-				_sessions?.Remove(target);
-				PushSessionList();
-				PersistSessionState();
-				return Task.CompletedTask;
-			}, CancellationToken.None).ConfigureAwait(false);
+			await RetireSlotAsync(target).ConfigureAwait(false);
 			Notify("info", branchless
 				? $"Session '{label}' was deleted. Its checkout had no branch to keep."
 				: $"Session '{label}' was deleted. Its branch was kept.");
@@ -1025,6 +1019,21 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
+	/// <summary>
+	/// Drops a slot whose worktree is gone: its agent records, its place in the catalog, and the persisted state.
+	/// The slot-set mutation + rail push run on the UI thread (the caller's awaits left it), so the removal can't
+	/// interleave with a concurrent switch reading the slot set.
+	/// </summary>
+	private async Task RetireSlotAsync(SessionSlot slot) {
+		_acpSessions.ClearWorkspace(slot.WorktreePath);
+		await _ui.InvokeAsync(() => {
+			_sessions?.Remove(slot);
+			PushSessionList();
+			PersistSessionState();
+			return Task.CompletedTask;
+		}, CancellationToken.None).ConfigureAwait(false);
+	}
+
 	private async Task<bool> UnloadSlotAsync(SessionSlot slot) {
 		if (slot.Session is not { } session) {
 			return false;

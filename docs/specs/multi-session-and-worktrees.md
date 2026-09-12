@@ -105,6 +105,12 @@ removed, and a non-forced delete of a branchless checkout fails rather than orph
 The catalog publishes which entry is the workspace checkout, so the rail and the compact session list offer it
 no delete rather than advertising a click the host would refuse.
 
+A working directory deleted outside Weavie ends its session the same way. Any session-scoped observer that
+fails asks one question first — does the working directory still exist — and a missing one is reported once as
+the session's end, never as each observer's own failure in git's words. The host then unloads the backend,
+removes the slot, reconciles the worktree registry, and says so. The workspace's own checkout is the exception:
+the catalog re-creates it, so its vanished folder is reported as the workspace failure it is and the slot stands.
+
 ## Client model
 
 Each catalog address creates one `ClientSession`. Feature installers run automatically for all current and
@@ -182,6 +188,8 @@ Sharing a widget must not imply shared domain state.
 - selection changes neither host routing nor background processing;
 - unload drains all owned work and preserves the worktree;
 - dirty delete fails before unload; confirmed delete removes only the target;
+- a session whose working directory is deleted underneath it closes itself, with one notice naming it;
+- the workspace checkout's vanished folder reports the workspace failure and keeps its slot;
 - a discovered checkout's delete removes its worktree; the main working tree and a locked one are refused;
 - background completion updates state and raises attention;
 - multiple hosts contribute sessions to one rail without sharing buses.

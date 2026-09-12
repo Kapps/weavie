@@ -34,12 +34,12 @@ function harness() {
 }
 
 describe("deferred focus ownership", () => {
-  it("runs the current recovery once and cancels an earlier frame", () => {
+  it("runs the current intent once and cancels an earlier frame", () => {
     const { focus, flush, callbacks } = harness();
     const old = vi.fn();
     const current = vi.fn();
-    focus.recover("a", old);
-    focus.recover("a", current);
+    focus.schedule("a", old);
+    focus.schedule("a", current);
     expect(callbacks.size).toBe(1);
     flush();
     flush();
@@ -51,8 +51,8 @@ describe("deferred focus ownership", () => {
     const { focus, callbacks } = harness();
     const action = vi.fn();
     const complete = focus.capture("a");
-    complete.complete(action);
-    complete.complete(action);
+    complete(action);
+    complete(action);
     expect(action).toHaveBeenCalledOnce();
     expect(callbacks.size).toBe(0);
   });
@@ -64,12 +64,12 @@ describe("deferred focus ownership", () => {
   ])("retires both queued frames and asynchronous tickets on %s", (event) => {
     const { focus, input, flush } = harness();
     const action = vi.fn();
-    focus.recover("a", action);
+    focus.schedule("a", action);
     input.dispatchEvent(new Event(event));
     flush();
     const complete = focus.capture("a");
     input.dispatchEvent(new Event(event));
-    complete.complete(action);
+    complete(action);
     flush();
     expect(action).not.toHaveBeenCalled();
   });
@@ -80,7 +80,7 @@ describe("deferred focus ownership", () => {
     const complete = focus.capture("a");
     select("b");
     select("a");
-    complete.complete(action);
+    complete(action);
     flush();
     expect(action).not.toHaveBeenCalled();
   });
@@ -89,8 +89,8 @@ describe("deferred focus ownership", () => {
     const { focus, flush } = harness();
     const action = vi.fn();
     const selected = vi.fn();
-    focus.recover("a", selected);
-    focus.recover("b", action);
+    focus.schedule("a", selected);
+    focus.schedule("b", action);
     flush();
     expect(action).not.toHaveBeenCalled();
     expect(selected).toHaveBeenCalledOnce();
@@ -99,72 +99,12 @@ describe("deferred focus ownership", () => {
   it("cannot execute a delivered stale callback or schedule after disposal", () => {
     const { focus, callbacks, flush } = harness();
     const action = vi.fn();
-    focus.recover("a", action);
+    focus.schedule("a", action);
     const delivered = [...callbacks.values()][0]!;
     focus.dispose();
     delivered(0);
-    focus.recover("a", action);
+    focus.schedule("a", action);
     flush();
     expect(action).not.toHaveBeenCalled();
-  });
-  it("passive recovery cannot cancel or run ahead of an explicit completion", () => {
-    const { focus, flush } = harness();
-    const intent = focus.capture("a");
-    const recovery = vi.fn();
-    const explicit = vi.fn();
-    focus.recover("a", recovery);
-    flush();
-    expect(recovery).not.toHaveBeenCalled();
-    intent.complete(explicit);
-    flush();
-    expect(explicit).toHaveBeenCalledOnce();
-    expect(recovery).not.toHaveBeenCalled();
-  });
-
-  it("releases passive recovery when asynchronous work fails", () => {
-    const { focus, flush } = harness();
-    const intent = focus.capture("a");
-    const recovery = vi.fn();
-    focus.recover("a", recovery);
-    intent.dispose();
-    flush();
-    expect(recovery).toHaveBeenCalledOnce();
-  });
-
-  it("a stale disposal cannot release a newer intent", () => {
-    const { focus, flush } = harness();
-    const old = focus.capture("a");
-    const current = focus.capture("a");
-    const recovery = vi.fn();
-    focus.recover("a", recovery);
-    old.dispose();
-    flush();
-    expect(recovery).not.toHaveBeenCalled();
-    current.dispose();
-    flush();
-    expect(recovery).toHaveBeenCalledOnce();
-  });
-  it("new input cancels recovery waiting behind an explicit intent", () => {
-    const { focus, input, flush } = harness();
-    const intent = focus.capture("a");
-    const recovery = vi.fn();
-    focus.recover("a", recovery);
-    input.dispatchEvent(new Event("keydown"));
-    intent.dispose();
-    flush();
-    expect(recovery).not.toHaveBeenCalled();
-  });
-
-  it("a delivered stale recovery cannot consume its replacement", () => {
-    const { focus, callbacks, flush } = harness();
-    const old = vi.fn();
-    const current = vi.fn();
-    focus.recover("a", old);
-    const delivered = [...callbacks.values()][0]!;
-    focus.recover("a", current);
-    delivered(0);
-    flush();
-    expect(old).not.toHaveBeenCalled();
-    expect(current).toHaveBeenCalledOnce();
   });
 });

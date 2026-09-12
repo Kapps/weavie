@@ -583,7 +583,6 @@ export default function App(): JSX.Element {
     compact,
     revealDock: () => setFullscreen(false),
     restoreFocus: () => focusPane(activePane() ?? "editor"),
-    captureFocus: () => deferredFocus.capture(selectedSession()),
   });
   const browserOpen = (): boolean => toolPanels.visible("files");
   const searchOpen = (): boolean => toolPanels.visible("search");
@@ -793,32 +792,27 @@ export default function App(): JSX.Element {
         id: CommandIds.closeTerminal,
         args: { id, force },
       });
-    try {
-      const result = await invoke(false);
-      if (!result.ok) {
-        const busy = (result.data as { busy?: unknown } | undefined)?.busy === true;
-        if (!busy) {
-          throw new Error(result.error ?? "The terminal could not be closed.");
-        }
-        const approved = await confirm({
-          title: "Close terminal?",
-          body: "A command is still running in this terminal. Closing it will stop that command.",
-          confirmLabel: "Close Terminal",
-        });
-        if (!approved) {
-          return;
-        }
-        restoreFocus.dispose();
-        restoreFocus = deferredFocus.capture(session);
-        const forced = await invoke(true);
-        if (!forced.ok) {
-          throw new Error(forced.error ?? "The terminal could not be closed.");
-        }
+    const result = await invoke(false);
+    if (!result.ok) {
+      const busy = (result.data as { busy?: unknown } | undefined)?.busy === true;
+      if (!busy) {
+        throw new Error(result.error ?? "The terminal could not be closed.");
       }
-      restoreFocus.complete(() => focusPane("terminal:shell"));
-    } finally {
-      restoreFocus.dispose();
+      const approved = await confirm({
+        title: "Close terminal?",
+        body: "A command is still running in this terminal. Closing it will stop that command.",
+        confirmLabel: "Close Terminal",
+      });
+      if (!approved) {
+        return;
+      }
+      restoreFocus = deferredFocus.capture(session);
+      const forced = await invoke(true);
+      if (!forced.ok) {
+        throw new Error(forced.error ?? "The terminal could not be closed.");
+      }
     }
+    restoreFocus(() => focusPane("terminal:shell"));
   };
 
   const stepTerminal = (session: ClientSession, delta: -1 | 1): boolean => {
@@ -1727,7 +1721,7 @@ export default function App(): JSX.Element {
     const onFocusOut = (event: FocusEvent): void => {
       const lost = event.target as Element | null;
       const kind = focusedKind();
-      deferredFocus.recover(selectedSession(), () => {
+      deferredFocus.schedule(selectedSession(), () => {
         if (document.activeElement !== document.body) {
           return;
         }

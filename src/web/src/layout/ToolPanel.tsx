@@ -35,13 +35,11 @@ export function ToolPanel(props: {
   createEffect(
     on([props.panels.focusRequest, visible], ([request, showing]) => {
       if (request?.kind === props.kind && showing) {
-        request.intent.complete(() => {
-          (
-            root.querySelector<HTMLElement>(".search-input") ??
-            root.querySelector<HTMLElement>(".browser-row.active") ??
-            root.querySelector<HTMLElement>(".tool-close")
-          )?.focus();
-        });
+        (
+          root.querySelector<HTMLElement>(".search-input") ??
+          root.querySelector<HTMLElement>(".browser-row.active") ??
+          root.querySelector<HTMLElement>(".tool-close")
+        )?.focus();
       }
     }),
   );

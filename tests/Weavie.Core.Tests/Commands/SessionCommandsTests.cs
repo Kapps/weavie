@@ -259,6 +259,9 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("forked"));
 		}
 
+		public Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct) =>
+			Task.FromResult(CommandResult.Success());
+
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default) {
 			LoadCalled = true;
 			LastLoadedId = sessionId;

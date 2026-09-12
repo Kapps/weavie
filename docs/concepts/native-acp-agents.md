@@ -99,6 +99,12 @@ The generic idle condition is the absence of a primary prompt and live ACP tool 
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.
 
+**Recreate with…** replaces a session's runtime with a fresh conversation using the selected provider,
+including the current provider. It is available from the session context menu and command palette for both
+the workspace checkout and worktrees. The confirmation explains that agent and shell work stops. The checkout,
+edits, editor tabs, and session identity stay; the replacement has a new message-bus incarnation. Selecting a
+previously used provider starts fresh too. The selected provider is saved for subsequent loads and restarts.
+
 Runtime restart preserves the current ACP conversation and reconnects it. The Weavie-owned `/clear` action is a
 different lifecycle: it clears the exact persisted association, resets the pane and local turn state, and restarts
 without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not

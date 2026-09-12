@@ -49,6 +49,9 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 		_inference.QueryInferenceAsync(request, ct);
 
 	/// <inheritdoc/>
+	public void ClearConversation(string workspace) => _sessions.Clear(workspace);
+
+	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) {
 		ArgumentNullException.ThrowIfNull(context);
 		return new ClaudeAgentSession(

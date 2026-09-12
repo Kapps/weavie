@@ -258,6 +258,9 @@ public sealed partial class HostCore {
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);
 
+		public Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct) =>
+			_core.RecreateSessionAsync(_source, sessionId, agentProviderId, context, ct);
+
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 			_core.LoadSessionAsync(sessionId, ct);
 

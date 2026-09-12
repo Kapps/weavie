@@ -34,6 +34,8 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 		Available = true,
 	};
 
+	public void ClearConversation(string workspace) => Transcripts.TryRemove(workspace, out _);
+
 	public IAgentSession CreateSession(AgentSessionContext context) {
 		ArgumentNullException.ThrowIfNull(context);
 		return new FakeStructuredAgentSession(

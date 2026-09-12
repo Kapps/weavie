@@ -137,6 +137,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Available = true,
 		};
 
+		public void ClearConversation(string workspace) { }
+
 		public IAgentSession CreateSession(AgentSessionContext context) => session;
 	}
 

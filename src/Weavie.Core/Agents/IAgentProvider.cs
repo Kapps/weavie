@@ -83,6 +83,9 @@ public interface IAgentProvider {
 	/// <summary>The provider identity.</summary>
 	AgentProviderInfo Info { get; }
 
+	/// <summary>Forgets the saved conversation for this provider and checkout before creating a fresh session.</summary>
+	void ClearConversation(string workspace);
+
 	/// <summary>Creates one live provider session.</summary>
 	IAgentSession CreateSession(AgentSessionContext context);
 }

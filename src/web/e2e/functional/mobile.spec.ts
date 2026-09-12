@@ -652,8 +652,11 @@ test("a compact session row manages its session from a hold and its actions butt
   await expect(menu).toBeVisible();
   await expect(page.locator(".confirm-dialog")).toHaveCount(0);
   await expect(inbox).toBeVisible();
-  // The only row here is the workspace's own checkout, which is never deletable — unload is its whole menu.
-  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session"]);
+  // The workspace checkout can unload or recreate its agent, but cannot be deleted.
+  await expect(menu.locator(".context-menu-item > span:first-child")).toHaveText([
+    "Unload session",
+    "Recreate with…",
+  ]);
   const rowHeights = await menu
     .locator(".context-menu-item")
     .evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
@@ -670,7 +673,10 @@ test("a compact session row manages its session from a hold and its actions butt
     touchPoints: [{ x: heldPoint.x, y: heldPoint.y + 60 }],
   });
   await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await expect(menu.locator(".context-menu-item")).toHaveText(["Load session"]);
+  await expect(menu.locator(".context-menu-item > span:first-child")).toHaveText([
+    "Load session",
+    "Recreate with…",
+  ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
   await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");
 

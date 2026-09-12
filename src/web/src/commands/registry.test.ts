@@ -289,6 +289,18 @@ describe("dispatchCommand — core commands", () => {
     ]);
   });
 
+  it("requires an explicit target when recreating instead of filling the selected session", async () => {
+    setCatalog("local", [{ ...cmd(CommandIds.recreateSession, "core"), scope: "host" }]);
+    await reg.dispatchCommand(CommandIds.recreateSession, { agentProviderId: "claude" });
+    expect(env.invokeCalls).toEqual([
+      {
+        backendId: "local",
+        id: CommandIds.recreateSession,
+        args: { agentProviderId: "claude" },
+      },
+    ]);
+  });
+
   it("uses the local definition and host for client-owned commands", async () => {
     const localFont = {
       ...cmd("weavie.font.increase", "core"),

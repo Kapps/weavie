@@ -162,6 +162,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 
 		public FakeTerminalAgentSession? Session { get; private set; }
 
+		public void ClearConversation(string workspace) { }
+
 		public IAgentSession CreateSession(AgentSessionContext context) => Session = new FakeTerminalAgentSession(workspace);
 
 		internal sealed class FakeTerminalAgentSession(string workspace) : ITerminalAgentSession {

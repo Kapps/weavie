@@ -51,6 +51,9 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 	public AgentProviderInfo Info { get; }
 
 	/// <inheritdoc/>
+	public void ClearConversation(string workspace) => _sessions.Clear(Info.Id, workspace);
+
+	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) =>
 		new AcpAgentSession(context, _currentDefinition, _sessions, _controls, _log);
 

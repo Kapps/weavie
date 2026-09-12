@@ -26,11 +26,12 @@ import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybindi
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
 // chip shows a spinner (session-store's pending set). The delete's classify probe is excluded — it's a quick
 // read with no mutation, so it shouldn't flash a spinner.
-const SESSION_LIFECYCLE = new Set<string>([
+const SELECTED_SESSION_TARGETS = new Set<string>([
   CommandIds.loadSession,
   CommandIds.unloadSession,
   CommandIds.deleteSession,
 ]);
+const SESSION_LIFECYCLE = new Set([...SELECTED_SESSION_TARGETS, CommandIds.recreateSession]);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -371,7 +372,7 @@ async function routeCoreCommand(
         : catalogBackendId;
   const active = session;
   const selectedId =
-    SESSION_LIFECYCLE.has(command.id) &&
+    SELECTED_SESSION_TARGETS.has(command.id) &&
     typeof fields?.id !== "string" &&
     active?.connection.id === target
       ? active.address.slot

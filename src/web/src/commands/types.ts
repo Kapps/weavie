@@ -192,6 +192,8 @@ export const CommandIds = {
   selectSessionByIndex: "weavie.session.selectByIndex",
   newSession: "weavie.session.new",
   loadSession: "weavie.session.load",
+  recreateSession: "weavie.session.recreate",
+  recreateSessionPrompt: "weavie.session.recreatePrompt",
   unloadSession: "weavie.session.unload",
   deleteSession: "weavie.session.delete",
   deleteSessionPrompt: "weavie.session.deletePrompt",

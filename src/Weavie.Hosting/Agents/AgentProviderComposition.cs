@@ -81,6 +81,9 @@ public static class AgentProviderComposition {
 
 		public AgentProviderInfo Info { get; }
 
+		public void ClearConversation(string workspace) =>
+			throw new InvalidOperationException(Info.UnavailableReason);
+
 		public IAgentSession CreateSession(AgentSessionContext context) =>
 			throw new InvalidOperationException(Info.UnavailableReason);
 	}

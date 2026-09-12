@@ -58,6 +58,9 @@ public interface ISessionHost {
 	/// <summary>Forks the invoking session into a new worktree off its HEAD, carrying a handoff brief.</summary>
 	Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct = default);
 
+	/// <summary>Recreates an explicitly named session with a fresh conversation using the selected provider.</summary>
+	Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct = default);
+
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
 	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
 

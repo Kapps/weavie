@@ -161,6 +161,8 @@ public sealed class MessageOperationSupervisionTests {
 	[Fact]
 	public async Task BlockingLogCannotDelayTimeoutOrErrorNotification() {
 		var transport = new RecordingTransport();
+		var time = new ManualTimeProvider();
+		var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var slowLogEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseSlowLog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -175,12 +177,15 @@ public sealed class MessageOperationSupervisionTests {
 				}
 			},
 			policy,
-			TimeProvider.System);
+			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
 		endpoint.Activate();
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty>(
 			"sync",
-			async (_, _) => await releaseHandler.Task);
+			async (_, _) => {
+				handlerEntered.TrySetResult();
+				await releaseHandler.Task;
+			});
 
 		var dispatch = router.RouteAsync(
 			new WebPeer("page"),
@@ -190,7 +195,10 @@ public sealed class MessageOperationSupervisionTests {
 				"sync",
 				JsonSerializer.SerializeToElement(new Empty())).ToJson());
 		try {
+			await handlerEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.SlowAfter);
 			await slowLogEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.Deadline - policy.SlowAfter);
 			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
 			await Wait.UntilAsync(() => transport.Events("notifications", "show")
 				.Any(payload => payload.GetProperty("level").GetString() == "error"));
@@ -204,22 +212,14 @@ public sealed class MessageOperationSupervisionTests {
 	[Fact]
 	public async Task AfterResponseWorkRemainsUnderTheOriginalDeadline() {
 		var transport = new RecordingTransport();
-		// Flaked on main CI 2026-08-30 18:57 UTC (.NET tests, linux):
-		// https://github.com/Kapps/weavie/actions/runs/33329458838/job/99305301184 — LastFailure.Stage
-		// was "feature-queue" instead of "after-response". Root cause: the operation's watchdog starts
-		// in MessageOperationRegistry.Start before the request's `admitted` TaskCompletionSource is
-		// signaled; since that TCS uses RunContinuationsAsynchronously, resuming past `await admitted`
-		// (and thus reaching MarkStage("handler-dispatch")) is a genuine thread-pool-scheduled
-		// continuation, not inline execution. Under heavy parallel test-run contention that scheduling
-		// gap can exceed a 150 ms deadline before dispatch even begins. Not a regression in the
-		// watchdog itself. Widened to give real headroom over that scheduling gap.
-		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(1500));
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(120));
 		await using var router = new HostMessageRouter(
 			transport,
 			new InlineUiDispatcher(),
 			_ => { },
 			policy,
-			TimeProvider.System);
+			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -237,6 +237,9 @@ public sealed class MessageOperationSupervisionTests {
 				"lifecycle",
 				"finish",
 				JsonSerializer.SerializeToElement(new Empty())).ToJson());
+		await Wait.UntilAsync(() => router.Health(ingressResponsive: true).ActiveOperations
+			.Any(operation => operation.Stage == "after-response"));
+		time.Advance(policy.Deadline);
 		await Wait.UntilAsync(() => router.Health(ingressResponsive: true).LastFailure is not null);
 
 		var health = router.Health(ingressResponsive: true);
@@ -248,6 +251,8 @@ public sealed class MessageOperationSupervisionTests {
 
 	[Fact]
 	public async Task BlockingSlowCallbackCannotDelayDeadline() {
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(120));
 		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var timedOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -261,8 +266,8 @@ public sealed class MessageOperationSupervisionTests {
 				"test",
 				"blockedDiagnostics",
 				JsonSerializer.SerializeToElement(new Empty())),
-			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(120)),
-			TimeProvider.System,
+			policy,
+			time,
 			_ => {
 				slowEntered.TrySetResult();
 				releaseSlow.Task.GetAwaiter().GetResult();
@@ -272,17 +277,11 @@ public sealed class MessageOperationSupervisionTests {
 		operation.StartWatchdog();
 		var supervised = operation.SuperviseAsync(() => handler.Task);
 
-		// Flaked on main CI 2026-08-15 03:15 UTC (.NET tests, linux):
-		// https://github.com/Kapps/weavie/actions/runs/31861262573/job/94954950325 — timed out
-		// waiting 2s for slowEntered. Root cause: the "slow" callback blocks a thread-pool thread
-		// synchronously (GetAwaiter().GetResult()), and under heavy parallel test-run contention the
-		// pool can take longer than 2s to schedule that continuation. Not a regression in the
-		// watchdog itself. Widened to 10s to absorb pool contention while still failing fast if the
-		// watchdog genuinely stops firing.
-		var flakeTolerance = TimeSpan.FromSeconds(10);
 		try {
-			await slowEntered.Task.WaitAsync(flakeTolerance);
-			await timedOut.Task.WaitAsync(flakeTolerance);
+			time.Advance(policy.SlowAfter);
+			await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.Deadline - policy.SlowAfter);
+			await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(2));
 			await Assert.ThrowsAsync<MessageOperationTimeoutException>(() => supervised);
 			Assert.True(operation.HasTimedOut);
 		} finally {

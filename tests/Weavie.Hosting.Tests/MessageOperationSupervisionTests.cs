@@ -158,11 +158,6 @@ public sealed class MessageOperationSupervisionTests {
 		release.TrySetResult();
 	}
 
-	// Flaked on main CI 2026-09-12 (.NET tests, linux):
-	// https://github.com/Kapps/weavie/actions/runs/34717579174/job/103617457476 — timed out waiting for
-	// the "[message] slow" log. Root cause: on a wall clock the slow and deadline watchdogs are independent
-	// timer continuations, and when the deadline's ran first the slow path saw a timed-out operation and
-	// never logged. Fixed by driving the watchdogs from a manual clock so each fires exactly when advanced.
 	[Fact]
 	public async Task BlockingLogCannotDelayTimeoutOrErrorNotification() {
 		var transport = new RecordingTransport();
@@ -214,11 +209,6 @@ public sealed class MessageOperationSupervisionTests {
 		}
 	}
 
-	// Flaked on main CI 2026-08-30 18:57 UTC (.NET tests, linux):
-	// https://github.com/Kapps/weavie/actions/runs/33329458838/job/99305301184 — LastFailure.Stage was
-	// "feature-queue": the wall-clock deadline elapsed before dispatch was even scheduled. First widened to
-	// 1500 ms; on 2026-09-12 replaced by a manual clock that is advanced only once the after-response stage
-	// is reached, so scheduling delay can no longer move the deadline.
 	[Fact]
 	public async Task AfterResponseWorkRemainsUnderTheOriginalDeadline() {
 		var transport = new RecordingTransport();
@@ -259,10 +249,6 @@ public sealed class MessageOperationSupervisionTests {
 		release.TrySetResult();
 	}
 
-	// Flaked on main CI 2026-08-15 03:15 UTC (.NET tests, linux):
-	// https://github.com/Kapps/weavie/actions/runs/31861262573/job/94954950325 — timed out waiting for
-	// slowEntered, the same wall-clock ordering race as BlockingLogCannotDelayTimeoutOrErrorNotification.
-	// First widened to 10 s; on 2026-09-12 replaced by a manual clock advanced one watchdog at a time.
 	[Fact]
 	public async Task BlockingSlowCallbackCannotDelayDeadline() {
 		var time = new ManualTimeProvider();

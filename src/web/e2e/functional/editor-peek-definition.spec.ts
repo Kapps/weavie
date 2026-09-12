@@ -82,12 +82,6 @@ async function altClick(page: Page, lineText: string, word: string): Promise<voi
   await page.keyboard.up("Alt");
 }
 
-// Flaked 2026-09-11 (https://github.com/Kapps/weavie/actions/runs/34553918483, e2e (linux) shard 3/6):
-// every click on "greet" reported "<html> intercepts pointer events" or "element was detached from the
-// DOM, retrying" for the full 30s budget, right after the file opened — the view-line was being torn
-// down and rebuilt in a tight loop, so no click ever landed on a stable target. Later tests in this same
-// file, using the same helpers against the same file, passed immediately after. Not reproduced locally or
-// on any run since; what was remounting the editor surface right after open is still unknown.
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {

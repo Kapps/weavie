@@ -138,6 +138,8 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 
 internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryWatchSet {
 	private readonly string _root;
+	private readonly string? _rootParent;
+	private readonly string _rootName;
 	private readonly Action<FileSystemEventArgs> _created;
 	private readonly Action<FileSystemEventArgs> _changed;
 	private readonly Action<FileSystemEventArgs> _deleted;
@@ -145,6 +147,7 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 	private readonly Action<Exception> _error;
 	private readonly Lock _gate = new();
 	private FileSystemWatcher? _watcher;
+	private FileSystemWatcher? _selfDeleteWatcher;
 	private bool _disposed;
 
 	public RecursiveWorkspaceDirectoryWatchSet(
@@ -154,7 +157,9 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 		Action<FileSystemEventArgs> deleted,
 		Action<string, string> renamed,
 		Action<Exception> error) {
-		_root = root;
+		_root = PathIdentity.Normalize(root);
+		_rootParent = Path.GetDirectoryName(_root);
+		_rootName = Path.GetFileName(_root);
 		_created = created;
 		_changed = changed;
 		_deleted = deleted;
@@ -202,6 +207,38 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 				watcher.Dispose();
 				throw;
 			}
+
+			ArmSelfDeleteWatch();
+			if (!Directory.Exists(_root) && _rootParent is not null) {
+				_deleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, _rootParent, _rootName));
+			}
+		}
+	}
+
+	// A recursive watcher need not report its own root disappearing; observe that entry from its parent.
+	private void ArmSelfDeleteWatch() {
+		if (_selfDeleteWatcher is not null || string.IsNullOrEmpty(_rootName) || _rootParent is null || !Directory.Exists(_rootParent)) {
+			return;
+		}
+
+		var watcher = new FileSystemWatcher(_rootParent) {
+			IncludeSubdirectories = false,
+			NotifyFilter = NotifyFilters.DirectoryName,
+			Filter = _rootName,
+		};
+		watcher.Deleted += (_, e) => _deleted(e);
+		watcher.Error += (_, e) => _error(e.GetException());
+		watcher.Renamed += (_, e) => {
+			if (PathIdentity.Comparer.Equals(e.OldFullPath, _root)) {
+				_deleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, _rootParent, _rootName));
+			}
+		};
+		try {
+			watcher.EnableRaisingEvents = true;
+			_selfDeleteWatcher = watcher;
+		} catch (Exception ex) {
+			watcher.Dispose();
+			_error(ex);
 		}
 	}
 
@@ -216,6 +253,11 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 				_watcher.EnableRaisingEvents = false;
 				_watcher.Dispose();
 				_watcher = null;
+			}
+			if (_selfDeleteWatcher is not null) {
+				_selfDeleteWatcher.EnableRaisingEvents = false;
+				_selfDeleteWatcher.Dispose();
+				_selfDeleteWatcher = null;
 			}
 		}
 	}

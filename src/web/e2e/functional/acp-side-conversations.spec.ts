@@ -1,4 +1,4 @@
-import { createAcpSession } from "../harness/acp-session";
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { pastePng } from "../harness/pasted-image";
@@ -14,8 +14,7 @@ for (const { primaryRunning, prompt } of [
     const surface = await createAcpSession(page, `acp-side-image-${primaryRunning}`);
     const composer = surface.locator("[data-agent-composer] textarea");
     if (primaryRunning) {
-      await composer.fill("hold");
-      await composer.press("Enter");
+      await submitAcpDraft(surface, "hold");
       await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
     }
 
@@ -31,8 +30,7 @@ for (const { primaryRunning, prompt } of [
     });
     await pastePng(composer, png);
     await expect(surface.locator(".agent-attachment")).toHaveAttribute("title", "ready");
-    await composer.fill(`/btw ${prompt}`);
-    await composer.press("Enter");
+    await submitAcpDraft(surface, `/btw ${prompt}`);
 
     const aside = surface.locator(".agent-aside");
     await expect(aside).toContainText(prompt ? "image=True" : "echo:");
@@ -45,13 +43,11 @@ for (const { primaryRunning, prompt } of [
 
     if (primaryRunning) {
       await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
-      await composer.fill("finish primary independently");
-      await composer.press("Enter");
+      await submitAcpDraft(surface, "finish primary independently");
       await expect(surface).toContainText("steered: finish primary independently");
       await expect(surface.locator(".agent-working")).toHaveCount(0);
     }
-    await composer.fill("image");
-    await composer.press("Enter");
+    await submitAcpDraft(surface, "image");
     await expect(surface).toContainText("image=False");
     await expect(aside).not.toContainText("image=False");
     await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
@@ -63,18 +59,15 @@ test("BTW stays at its creation point through later primary output, side replies
 }) => {
   const surface = await createAcpSession(page, "acp-side-position");
   const composer = surface.locator("[data-agent-composer] textarea");
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
-  await composer.fill("/btw explain the side question");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw explain the side question");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("echo: explain the side question");
   const conversationId = await aside.getAttribute("data-agent-aside");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
-  await composer.fill("primary continues after BTW");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "primary continues after BTW");
   await expect(surface).toContainText("steered: primary continues after BTW");
   await expect(surface.locator(".agent-working")).toHaveCount(0);
   const rows = surface.locator(".agent-transcript > .agent-virtual-row");
@@ -115,16 +108,13 @@ test("BTW stays at its creation point through later primary output, side replies
 test("multiple BTW threads overlap the primary and route independent replies", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-concurrent-sides");
   const composer = surface.locator("[data-agent-composer] textarea");
-  await composer.fill("hold");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "hold");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
-  await composer.fill("/btw input");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw input");
   const first = surface.locator(".agent-aside").nth(0);
   await expect(first).toContainText("Choose a value");
-  await composer.fill("/btw input");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw input");
   const second = surface.locator(".agent-aside").nth(1);
   await expect(second).toContainText("Choose a value");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
@@ -150,8 +140,7 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await firstReply.press("Enter");
   await expect(first).toContainText("session: fake-fork-fake-session-2");
 
-  await composer.fill("finish primary independently");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "finish primary independently");
   await expect(surface).toContainText("steered: finish primary independently");
   await expect(first).not.toContainText("steered:");
   await expect(second).not.toContainText("steered:");
@@ -165,9 +154,7 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   const initialSlot = await activeSessionSlot(page);
   const surface = await createAcpSession(page, "acp-side-history");
   const acpSlot = await activeSessionSlot(page);
-  const composer = surface.locator("[data-agent-composer] textarea");
-  await composer.fill("/btw rich");
-  await composer.press("Enter");
+  await submitAcpDraft(surface, "/btw rich");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("rich response");
   const activity = aside.locator(".agent-entry-activity").first();

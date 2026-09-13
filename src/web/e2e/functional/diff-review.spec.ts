@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
@@ -954,22 +955,32 @@ test.describe("applied review — large files stay responsive", () => {
   });
 });
 
-test.describe("applied review — every file remains reviewable", () => {
+test.describe("large review — every file remains reviewable", () => {
   test.use({
-    fakeScript: {
-      steps: Array.from({ length: 100 }, (_, index) =>
-        appliedEdit(`bulk-${index}.txt`, `change ${index}\n`),
-      ).flat(),
+    workspaceSeed: {
+      run: async (workspace) => {
+        for (let index = 0; index < 100; index++) {
+          writeFileSync(join(workspace, `bulk-${index}.txt`), "original\n");
+        }
+        execFileSync("git", ["add", "."], { cwd: workspace });
+        execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "Seed review files"], {
+          cwd: workspace,
+        });
+      },
     },
   });
 
-  test("does not truncate a large review set", async ({ page }) => {
+  test("does not truncate a large review set", async ({ page, weavie }) => {
+    for (let index = 0; index < 100; index++) {
+      writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
+    }
+    await runCommand(page, "Diff Against HEAD");
     await openFile(page, "README.md");
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
       .toBe(100);
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
 
     await openFile(page, "bulk-0.txt");
     await page.locator(".weavie-inline-scope-btn").click();

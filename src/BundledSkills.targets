@@ -1,0 +1,12 @@
+<Project>
+  <!-- macOS runs managed code from MonoBundle; ordinary content is packaged as Resources. -->
+  <Target Name="CopyBundledSkillsToMacBundle" AfterTargets="Build">
+    <ItemGroup>
+      <_BundledSkillFiles Include="$(MSBuildThisFileDirectory)Weavie.Core/Skills/Bundled/**/*" />
+    </ItemGroup>
+    <Error Condition="'@(_BundledSkillFiles)' == ''" Text="The bundled Weavie skills are missing." />
+    <Copy SourceFiles="@(_BundledSkillFiles)"
+          DestinationFiles="@(_BundledSkillFiles->'$(OutDir)$(AssemblyName).app/Contents/MonoBundle/skills/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -30,8 +30,9 @@ public sealed class AcpSideGuidanceTests {
 		var requests = AcpPromptAssertions.Read(fixture);
 		Assert.Equal(4, requests.Length);
 		AssertPrimaryScope(requests[0]);
-		Assert.Equal(embeddedContext, HasGenericGuidance(requests[0]));
-		foreach (var request in requests.Skip(1)) Assert.False(HasGenericGuidance(request));
+		Assert.True(HasGenericGuidance(requests[0]));
+		Assert.True(HasGenericGuidance(requests[1]));
+		foreach (var request in requests.Skip(2)) Assert.False(HasGenericGuidance(request));
 		AcpPromptAssertions.SideScope(requests[1], "why did the check fail?");
 		AcpPromptAssertions.SideScope(requests[2], "explain the alternative");
 		AssertPrimaryScope(requests[3]);
@@ -100,7 +101,7 @@ public sealed class AcpSideGuidanceTests {
 		var request = Assert.Single(AcpPromptAssertions.Read(fixture));
 		Assert.Equal(side.SessionId, request.GetProperty("parameters").GetProperty("sessionId").GetString());
 		AcpPromptAssertions.SideScope(request, "explain one more detail");
-		Assert.False(HasGenericGuidance(request));
+		Assert.True(HasGenericGuidance(request));
 		Assert.Equal(["saved-primary", "saved-child"], File.ReadAllLines(
 			Path.Combine(fixture.FakeAcpStateDirectory, "loads.log")));
 		Assert.False(File.Exists(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")));
@@ -142,7 +143,9 @@ public sealed class AcpSideGuidanceTests {
 
 	private static bool HasGenericGuidance(JsonElement request) => AcpPromptAssertions.Blocks(request)
 		.Any(block => block.GetProperty("type").GetString() == "resource"
-			&& block.GetProperty("resource").GetProperty("uri").GetString() == "weavie://instructions");
+			? block.GetProperty("resource").GetProperty("uri").GetString() == "weavie://instructions"
+			: block.GetProperty("type").GetString() == "text"
+				&& block.GetProperty("text").GetString()!.StartsWith(EmbeddedAgentGuidance.Instructions, StringComparison.Ordinal));
 
 	private static void AssertPrimaryScope(JsonElement request) => Assert.DoesNotContain(
 		AcpPromptAssertions.Blocks(request), block => block.GetProperty("type").GetString() == "text"

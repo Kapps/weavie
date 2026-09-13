@@ -20,7 +20,6 @@ public sealed class HostCoreTranscriptDeletionTests {
 			AnchorTurnNumber = 0,
 			InitialPrompt = "",
 			TurnNumber = 1,
-			GuidanceSent = true,
 			PlanTurns = new Dictionary<string, string>(),
 			Failed = false,
 		};

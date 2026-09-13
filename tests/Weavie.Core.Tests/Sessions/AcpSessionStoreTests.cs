@@ -16,7 +16,6 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		var side = State("btw-1", "fork-id", 2) with {
 			AnchorTurnNumber = 3,
 			InitialPrompt = "why?",
-			GuidanceSent = true,
 			PlanTurns = new Dictionary<string, string> { ["plan"] = "1" },
 		};
 		var first = Message("user-message", "<context>literal user XML</context>");
@@ -33,7 +32,6 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Equal("fork-id", savedSide.SessionId);
 		Assert.Equal(2, savedSide.TurnNumber);
 		Assert.Equal(3, savedSide.AnchorTurnNumber);
-		Assert.True(savedSide.GuidanceSent);
 		Assert.Equal("1", savedSide.PlanTurns["plan"]);
 		Assert.Equal(new[] { first, second }, reloaded.ReadMessages("provider", "/workspace"));
 
@@ -45,6 +43,23 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Empty(reloaded.ReadMessages("other-provider", "/workspace"));
 		Assert.Empty(reloaded.ReadConversations("other-provider", "/workspace"));
 		Assert.Single(reloaded.ReadMessages("provider", "/another-workspace"));
+	}
+
+	[Fact]
+	public void RemovingPersistedGuidancePreservesConversationAndDisplayHistory() {
+		var store = new AcpSessionStore(Database);
+		store.Save("provider", "/workspace", State("", "primary-id", 4), [Message("user-message", "saved")]);
+		using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Database, Pooling = false }.ToString())) {
+			connection.Open();
+			using var command = connection.CreateCommand();
+			command.CommandText = "UPDATE conversations SET state = json_set(state, '$.GuidanceSent', json('true'))";
+			command.ExecuteNonQuery();
+		}
+
+		var reopened = new AcpSessionStore(Database);
+		Assert.Equal("primary-id", reopened.Resolve("provider", "/workspace"));
+		Assert.Equal(4, reopened.ResolveTurnNumber("provider", "/workspace"));
+		Assert.Equal("saved", Assert.Single(reopened.ReadMessages("provider", "/workspace")).Text);
 	}
 
 	[Fact]
@@ -82,7 +97,6 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		TurnNumber = turn,
 		AnchorTurnNumber = 0,
 		InitialPrompt = "",
-		GuidanceSent = false,
 		PlanTurns = new Dictionary<string, string>(),
 		Failed = false,
 	};

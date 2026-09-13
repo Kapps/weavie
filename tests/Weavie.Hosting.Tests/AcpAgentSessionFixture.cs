@@ -384,7 +384,6 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			TurnNumber = turnNumber,
 			AnchorTurnNumber = 0,
 			InitialPrompt = string.Empty,
-			GuidanceSent = true,
 			PlanTurns = new Dictionary<string, string>(),
 			Failed = false,
 		});

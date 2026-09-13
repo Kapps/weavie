@@ -20,7 +20,7 @@ public sealed partial class AcpAgentSession {
 				ObjectDisposedException.ThrowIf(_disposed, this);
 				EnsureSideConversationSupport();
 				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
-				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
+				runtime = CreateSideRuntime(conversation, _activeGeneration);
 				_sideRuntimes.Add(conversation.ConversationId, runtime);
 			}
 			runtime.Session.Emit(SideMarker(runtime.Conversation, "forking"));
@@ -48,7 +48,7 @@ public sealed partial class AcpAgentSession {
 				}
 				EnsureSideConversationSupport();
 				if (runtime is null) {
-					runtime = CreateSideRuntime(new(state!.ConversationId, state.AnchorTurnNumber, state.InitialPrompt), state.GuidanceSent, _activeGeneration);
+					runtime = CreateSideRuntime(new(state!.ConversationId, state.AnchorTurnNumber, state.InitialPrompt), _activeGeneration);
 					runtime.Session.RestoreContinuation(state);
 					_sideRuntimes.Add(conversationId, runtime);
 				}
@@ -80,14 +80,14 @@ public sealed partial class AcpAgentSession {
 			|| HasBackgroundWorkLocked() || HasPendingInteractionLocked();
 	}
 
-	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited, long generation) {
+	private SideRuntime CreateSideRuntime(SideConversation conversation, long generation) {
 		var child = new AcpAgentSession(
 			_context with { Events = new SideEventSink(this, conversation.ConversationId) },
 			_definitionSource,
 			_sessions,
 			_controlDefaults,
 			_log,
-			new SideRole(conversation, guidanceInherited, this, generation));
+			new SideRole(conversation, this, generation));
 		var runtime = new SideRuntime(child, conversation);
 		child.PaneMessage += message => ForwardSideMessage(runtime, message);
 		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
@@ -117,7 +117,7 @@ public sealed partial class AcpAgentSession {
 	private abstract record AcpSessionRole;
 	private sealed record PrimaryRole : AcpSessionRole;
 	private sealed record SideRole(
-		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, long Generation) : AcpSessionRole;
+		SideConversation Conversation, AcpAgentSession Owner, long Generation) : AcpSessionRole;
 	private sealed record SideConversation(
 		string ConversationId,
 		long AnchorTurnNumber,

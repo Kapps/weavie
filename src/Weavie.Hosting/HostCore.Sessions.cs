@@ -83,7 +83,6 @@ public sealed partial class HostCore {
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
 		RegisterTestRunHandlers(session);
-		RegisterIssueReportingHandlers(session);
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 		WireSpelling(session);

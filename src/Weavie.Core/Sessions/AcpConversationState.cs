@@ -12,8 +12,6 @@ public sealed record AcpConversationState {
 	public required string InitialPrompt { get; init; }
 	/// <summary>The last locally allocated turn in this conversation.</summary>
 	public required long TurnNumber { get; init; }
-	/// <summary>Whether this conversation already received or inherited host guidance.</summary>
-	public required bool GuidanceSent { get; init; }
 	/// <summary>Persistent plan identities and their original local turns.</summary>
 	public required IReadOnlyDictionary<string, string> PlanTurns { get; init; }
 	/// <summary>Whether a side conversation was explicitly retired after a terminal failure.</summary>

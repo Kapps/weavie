@@ -138,6 +138,8 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 
 internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryWatchSet {
 	private readonly string _root;
+	private readonly string? _rootParent;
+	private readonly string _rootName;
 	private readonly Action<FileSystemEventArgs> _created;
 	private readonly Action<FileSystemEventArgs> _changed;
 	private readonly Action<FileSystemEventArgs> _deleted;
@@ -145,6 +147,7 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 	private readonly Action<Exception> _error;
 	private readonly Lock _gate = new();
 	private FileSystemWatcher? _watcher;
+	private FileSystemWatcher? _selfDeleteWatcher;
 	private bool _disposed;
 
 	public RecursiveWorkspaceDirectoryWatchSet(
@@ -154,7 +157,9 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 		Action<FileSystemEventArgs> deleted,
 		Action<string, string> renamed,
 		Action<Exception> error) {
-		_root = root;
+		_root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+		_rootParent = Path.GetDirectoryName(_root);
+		_rootName = Path.GetFileName(_root);
 		_created = created;
 		_changed = changed;
 		_deleted = deleted;
@@ -202,6 +207,36 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 				watcher.Dispose();
 				throw;
 			}
+
+			ArmSelfDeleteWatch();
+		}
+	}
+
+	// A watcher rooted at the directory itself does not reliably report that exact directory's own deletion
+	// (macOS FSEvents can drop the stream with no further event; Windows invalidates the handle) — so a
+	// session whose worktree is removed out from under it can go undetected indefinitely. Watching the parent
+	// for this one entry's removal covers that gap, mirroring LinuxWorkspaceDirectoryWatchSet's IN_DELETE_SELF.
+	private void ArmSelfDeleteWatch() {
+		if (_selfDeleteWatcher is not null || string.IsNullOrEmpty(_rootName) || _rootParent is null || !Directory.Exists(_rootParent)) {
+			return;
+		}
+
+		var watcher = new FileSystemWatcher(_rootParent) {
+			IncludeSubdirectories = false,
+			NotifyFilter = NotifyFilters.DirectoryName,
+			Filter = _rootName,
+		};
+		watcher.Deleted += (_, e) => _deleted(e);
+		watcher.Renamed += (_, e) => {
+			if (PathIdentity.Comparer.Equals(e.OldFullPath, _root)) {
+				_deleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, _rootParent, _rootName));
+			}
+		};
+		try {
+			watcher.EnableRaisingEvents = true;
+			_selfDeleteWatcher = watcher;
+		} catch {
+			watcher.Dispose();
 		}
 	}
 
@@ -216,6 +251,11 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 				_watcher.EnableRaisingEvents = false;
 				_watcher.Dispose();
 				_watcher = null;
+			}
+			if (_selfDeleteWatcher is not null) {
+				_selfDeleteWatcher.EnableRaisingEvents = false;
+				_selfDeleteWatcher.Dispose();
+				_selfDeleteWatcher = null;
 			}
 		}
 	}

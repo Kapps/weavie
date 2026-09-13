@@ -297,6 +297,12 @@ test("seeds from a highlight in the agent transcript, over an older editor selec
   await awaitEditorReady(page);
   await createSession(page, { branch: "e2e/find-transcript-seed", provider: "fake-acp" });
 
+  // Load Search before arranging the competing selections; this journey checks seed precedence.
+  await page.keyboard.press("ControlOrMeta+Shift+f");
+  await expect(page.locator(".search-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".search-panel")).toBeHidden();
+
   // The fake agent echoes the prompt, so the transcript holds a word that exists in the worktree.
   const surface = page.locator('[data-surface="structured-agent"]');
   const composer = surface.locator("[data-agent-composer] textarea");

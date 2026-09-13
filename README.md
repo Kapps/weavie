@@ -59,11 +59,10 @@ for manual version bumps and choosing a source build or commit.
 
 Please report any issues or feature requests by [creating an issue](https://github.com/Kapps/weavie/issues/new).
 
-Weavie bundles the skills **report-weavie-bug** and **request-weavie-feature**. Ask your agent to
-report a Weavie bug or request a Weavie feature, or name the skill directly. Weavie advertises their
-names, descriptions, and file paths through its session guidance across providers; the agent reads
-the relevant `SKILL.md` on demand. This does not require a provider's native skill menu.
-The files ship with Weavie; nothing is installed into your repositories or global skill directories.
+Weavie also bundles **Report a Weavie Bug** and **Request a Weavie Feature** in the command palette,
+with customizable shortcuts shown alongside each command. They prefill your agent with reporting
+instructions; send the prompt to prepare a report. MCP clients that support prompts can invoke
+`/mcp__weavie__report-bug` or `/mcp__weavie__request-feature` directly.
 Both workflows exclude sensitive information, including source code from non-public repositories,
 and ask you to approve the exact sanitized report before publishing to the public tracker.
 Submission uses your agent's available authenticated GitHub tools or GitHub CLI; if it cannot submit,

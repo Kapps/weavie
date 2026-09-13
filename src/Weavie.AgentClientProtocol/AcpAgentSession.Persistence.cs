@@ -15,6 +15,7 @@ public sealed partial class AcpAgentSession {
 			AnchorTurnNumber = _role is SideRole anchored ? anchored.Conversation.AnchorTurnNumber : 0,
 			InitialPrompt = _role is SideRole question ? question.Conversation.InitialPrompt : string.Empty,
 			TurnNumber = _turnNumber,
+			GuidanceSent = _guidanceSent,
 			PlanTurns = new Dictionary<string, string>(_planTurns),
 			Failed = _role is SideRole && _runtimeFailed,
 		};
@@ -23,6 +24,7 @@ public sealed partial class AcpAgentSession {
 	private void RestoreContinuation(AcpConversationState state) {
 		_sessionId = state.SessionId;
 		_turnNumber = state.TurnNumber;
+		_guidanceSent = state.GuidanceSent;
 		_planTurns.Clear();
 		foreach (var (id, turn) in state.PlanTurns) _planTurns.Add(id, turn);
 	}

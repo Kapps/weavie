@@ -20,7 +20,6 @@ internal static class AcpPromptAssertions {
 		string?[] text = [.. Blocks(request).Where(block => block.GetProperty("type").GetString() == "text")
 			.Select(block => block.GetProperty("text").GetString())];
 		Assert.Equal(userText.Length == 0 ? [] : new[] { userText },
-			text.Where(value => value != EmbeddedAgentGuidance.SideConversationInstructions
-				&& !value!.StartsWith(EmbeddedAgentGuidance.Instructions, StringComparison.Ordinal)));
+			text.Where(value => value != EmbeddedAgentGuidance.SideConversationInstructions));
 	}
 }

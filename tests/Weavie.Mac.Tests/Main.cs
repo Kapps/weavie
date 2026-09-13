@@ -1,6 +1,5 @@
 using AppKit;
 using CoreGraphics;
-using Weavie.Core.Skills;
 using Weavie.Hosting;
 using Weavie.Mac.Hosting;
 
@@ -9,12 +8,6 @@ NSApplication.Init();
 if (args.Length == 2 && args[0] is "--owned-process-probe" or "--unisolated-process-probe") {
 	return Weavie.Mac.Tests.ProcessTreeProbe.Run(args[0], args[1]);
 }
-
-string skills = BundledSkills.Catalog();
-True(skills.Contains("report-weavie-bug", StringComparison.Ordinal), "bug skill is packaged in MonoBundle");
-True(skills.Contains("request-weavie-feature", StringComparison.Ordinal), "feature skill is packaged in MonoBundle");
-True(File.Exists(Path.Combine(AppContext.BaseDirectory, "skills", "references", "issue-reporting.md")),
-	"skill privacy reference is packaged in MonoBundle");
 
 var menu = new MacAppMenu();
 using var first = menu.CreateChannel();

@@ -158,7 +158,7 @@ public sealed partial class AcpAgentSession {
 				loadSession = sessionId is not null && _supportsLoad && !_supportsResume;
 				_sessionOpening = true;
 				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
-				_guidanceSent = false;
+				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
 
 			}
 		}

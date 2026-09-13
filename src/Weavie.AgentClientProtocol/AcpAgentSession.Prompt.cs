@@ -15,6 +15,7 @@ public sealed partial class AcpAgentSession {
 
 		var blocks = new List<object>();
 		var images = new List<SubmittedImage>();
+		bool includesGuidance = false;
 		if (submission.Text.Length > 0) {
 			blocks.Add(new { type = "text", text = submission.Text });
 		}
@@ -32,15 +33,13 @@ public sealed partial class AcpAgentSession {
 			});
 		}
 
-		bool includesGuidance;
-		lock (_gate) includesGuidance = !_guidanceSent;
-		if (includesGuidance) {
-			string guidance = EmbeddedAgentGuidance.Compose(_context.Runtime);
-			blocks.Add(_supportsEmbeddedContext
-				? AssistantContext("weavie://instructions", guidance)
-				: new { type = "text", text = guidance, annotations = new { audience = new[] { "assistant" } } });
-		}
 		if (_supportsEmbeddedContext) {
+			lock (_gate) includesGuidance = !_guidanceSent;
+			if (includesGuidance) {
+				blocks.Add(AssistantContext(
+					"weavie://instructions",
+					EmbeddedAgentGuidance.Compose(_context.Runtime)));
+			}
 			if (_context.Editor.Active is { } editor) {
 				string selection = $"Active file: {editor.FilePath}\n"
 					+ $"Language: {editor.LanguageId ?? "unknown"}\n"

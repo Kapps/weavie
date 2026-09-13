@@ -1,5 +1,3 @@
-using Weavie.Core.Skills;
-
 namespace Weavie.Core.Mcp;
 
 /// <summary>
@@ -56,6 +54,6 @@ public static class EmbeddedAgentGuidance {
 		string build = runtime.Managed
 			? $"{runtime.Build} (runner-managed worker)"
 			: $"{runtime.Build} (local dev build)";
-		return $"{Instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n\n{BundledSkills.Catalog()}\n";
+		return $"{Instructions}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n";
 	}
 }

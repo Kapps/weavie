@@ -82,7 +82,6 @@
   </Target>
 
   <Import Project="../MacPty.targets" />
-  <Import Project="../BundledSkills.targets" />
 
   <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
   <Import Project="..\HookRelay.targets" />

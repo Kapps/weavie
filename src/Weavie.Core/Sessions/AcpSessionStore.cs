@@ -121,7 +121,6 @@ public sealed class AcpSessionStore(string path) {
 						CREATE TABLE IF NOT EXISTS conversations (owner TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, id));
 						CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
 						CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
-						UPDATE conversations SET state = json_remove(state, '$.GuidanceSent') WHERE json_type(state, '$.GuidanceSent') IS NOT NULL;
 						""";
 					schema.ExecuteNonQuery();
 					_schemaReady = true;

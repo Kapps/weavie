@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.Mcp;
 
 namespace Weavie.FakeAcp;
 
@@ -451,9 +452,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
-		else if (text.StartsWith("read-weavie-skill ", StringComparison.Ordinal)) {
-			await ReadBundledSkillAsync(prompt, text["read-weavie-skill ".Length..], ct).ConfigureAwait(false);
-		} else if (text == "identify-session") Message($"session: {_sessionId}");
+		else if (text == "identify-session") Message($"session: {_sessionId}");
 		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
 		else if (text == "remove-commands") Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
@@ -1332,8 +1331,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	}
 
 	private static string PromptText(JsonElement prompt) => string.Concat(prompt.EnumerateArray()
-		.Where(block => AcpJson.OptionalString(block, "type") == "text" && !AssistantAudience(block))
-		.Select(block => AcpJson.OptionalString(block, "text")));
+		.Where(block => AcpJson.OptionalString(block, "type") == "text")
+		.Select(block => AcpJson.OptionalString(block, "text"))
+		.Where(text => text != EmbeddedAgentGuidance.SideConversationInstructions));
 
 	private static string? ResourceUri(JsonElement block) =>
 		block.TryGetProperty("resource", out var resource) ? AcpJson.OptionalString(resource, "uri") : null;

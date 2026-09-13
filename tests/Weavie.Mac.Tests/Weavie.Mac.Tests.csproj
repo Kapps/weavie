@@ -17,6 +17,5 @@
   </ItemGroup>
 
   <Import Project="../../src/MacPty.targets" />
-  <Import Project="../../src/BundledSkills.targets" />
 
 </Project>

@@ -16,8 +16,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Core.Tests" />
     <EmbeddedResource Include="Spelling/Resources/*" />
-    <Content Include="Skills/Bundled/**/*" Link="skills/%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../third-party/spelling/*" Link="third-party/spelling/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

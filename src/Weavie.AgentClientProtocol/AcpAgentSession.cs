@@ -110,6 +110,7 @@ public sealed partial class AcpAgentSession :
 		_log = log;
 		_role = role;
 		_turnTransitionGate = role is SideRole owned ? owned.Owner._turnTransitionGate : new Lock();
+		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
 		_connection = role is SideRole borrowed
 			? borrowed.Owner._connection

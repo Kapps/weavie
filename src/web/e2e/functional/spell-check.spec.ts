@@ -242,7 +242,7 @@ test("horizontal scrolling keeps long-line spelling requests within the viewport
   expect(Math.max(...checked().map((text) => text.length))).toBeLessThan(200);
 });
 
-test("US spelling suggestions are requested on demand and corrections support undo and keyboard", async ({
+test("spelling suggestions are requested on demand and corrections support undo and keyboard", async ({
   page,
   weavie,
 }) => {
@@ -252,7 +252,7 @@ test("US spelling suggestions are requested on demand and corrections support un
   const file = join(weavie.workspace, "notes.txt");
   await writeFile(file, "A mispelled word.\ncolor colour\n");
   await openFile(page, "notes.txt");
-  await expect(marks(page)).toHaveText(["mispelled", "colour"]);
+  await expect(marks(page)).toHaveText(["mispelled"]);
   expect(suggestions()).toHaveLength(0);
 
   await word(page, "mispelled").click({ button: "right" });
@@ -260,7 +260,7 @@ test("US spelling suggestions are requested on demand and corrections support un
   await expect(correction).toBeVisible();
   expect(suggestions()).toHaveLength(1);
   await correction.click();
-  await expect(marks(page)).toHaveText(["colour"]);
+  await expect(marks(page)).toHaveCount(0);
   await expect.poll(() => readFile(file, "utf8")).toBe("A misspelled word.\ncolor colour\n");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(word(page, "mispelled")).toBeVisible();
@@ -274,7 +274,7 @@ test("US spelling suggestions are requested on demand and corrections support un
   await page.keyboard.press("Home");
   await expect(correction).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(marks(page)).toHaveText(["colour"]);
+  await expect(marks(page)).toHaveCount(0);
   await expect.poll(() => readFile(file, "utf8")).toBe("A misspelled word.\ncolor colour\n");
 
   await page.keyboard.press("ControlOrMeta+z");
@@ -286,4 +286,26 @@ test("US spelling suggestions are requested on demand and corrections support un
   await correction.click();
   await expect(page.locator(".toast", { hasText: "The spelling target changed" })).toBeVisible();
   expect(await readFile(file, "utf8")).toBe("A changed word.\ncolor colour\n");
+});
+
+test("mixed English spellings and technical words remain valid while technical typos can be corrected", async ({
+  page,
+  weavie,
+}) => {
+  const file = join(weavie.workspace, "notes.txt");
+  const text = [
+    "color colour center centre organize organise",
+    "backend frontend middleware nullable serializer",
+    "codebase whitespace autocomplete observability",
+    "JSON async mutex OAuth JSONs APIs",
+    "middlewre prosetypoo",
+    "",
+  ].join("\n");
+  await writeFile(file, text);
+  await openFile(page, "notes.txt");
+  await expect(marks(page)).toHaveText(["middlewre", "prosetypoo"]);
+  await word(page, "middlewre").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^middleware(?:\s|$)/ }).click();
+  await expect(marks(page)).toHaveText(["prosetypoo"]);
+  await expect.poll(() => readFile(file, "utf8")).toBe(text.replace("middlewre", "middleware"));
 });

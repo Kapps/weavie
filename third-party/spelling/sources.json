@@ -1,0 +1,61 @@
+{
+  "english": {
+    "version": "2026.02.25",
+    "locales": {
+      "US": {
+        "sha256": "06ab5a2a12c29033f100988d3b0a5e53dcad40bf2473ccb78270619d1da99321"
+      },
+      "CA": {
+        "sha256": "b4b7bf4a7885de1c35fa1b3aa68317209afa58f04d60e8a07e124693485c59e3"
+      },
+      "GB": {
+        "sha256": "704a49438a3a9d4f11cd76db433a6b230b9ce8770ee13fa28700052c4517ddc1"
+      }
+    }
+  },
+  "technical": [
+    {
+      "name": "@cspell/dict-software-terms",
+      "version": "5.4.4",
+      "sha256": "5966d4e7871a9a85d6e5d9607785ce9a36141b0b1ec8d72ef6dff544ff49e38e",
+      "files": [
+        "dict/softwareTerms.txt.gz",
+        "dict/software-tools.txt",
+        "dict/webServices.txt",
+        "dict/computing-acronyms.txt"
+      ]
+    },
+    {
+      "name": "@cspell/dict-typescript",
+      "version": "3.2.3",
+      "sha256": "34982265c7f6dffe938e1b125d9534c1c67753aca63dd18d6545bc5265eb79c7",
+      "files": [
+        "dict/typescript.txt"
+      ]
+    },
+    {
+      "name": "@cspell/dict-csharp",
+      "version": "4.0.8",
+      "sha256": "e7f41f5c4278ea50366d8124154e3ee686950e640e91e6250f48324870bca3df",
+      "files": [
+        "dict/csharp.txt.gz"
+      ]
+    },
+    {
+      "name": "@cspell/dict-node",
+      "version": "5.0.9",
+      "sha256": "37f90a6b92b52ebb25f40ce94061ee19f0300a86301d8a259847734d81d09b32",
+      "files": [
+        "dict/node.txt"
+      ]
+    },
+    {
+      "name": "@cspell/dict-git",
+      "version": "3.1.0",
+      "sha256": "0c1d5922fdb54fcb1281c69a9967977f50f43a9bd06028708900098f8e6d7198",
+      "files": [
+        "dict/git-terms.txt"
+      ]
+    }
+  ]
+}

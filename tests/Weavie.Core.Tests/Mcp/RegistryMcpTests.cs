@@ -250,8 +250,16 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.True(response.RootElement.GetProperty("result").GetProperty("capabilities").TryGetProperty("prompts", out _));
 	}
 
-	[Fact]
-	public async Task RegistryMode_ListsAndGetsWorkspaceSetupPrompt() {
+	[Theory]
+	[InlineData("setup-workspace")]
+	[InlineData("report-bug")]
+	[InlineData("request-feature")]
+	public async Task RegistryMode_ListsAndGetsBundledPrompt(string name) {
+		var expected = name switch {
+			"report-bug" => IssueReportingPrompts.ReportBug,
+			"request-feature" => IssueReportingPrompts.RequestFeature,
+			_ => WorkspaceSetupPrompt.Prompt,
+		};
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
@@ -262,14 +270,15 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var list = await ReceiveAsync(ws);
 		var names = list.RootElement.GetProperty("result").GetProperty("prompts")
 			.EnumerateArray().Select(p => p.GetProperty("name").GetString()).ToList();
-		Assert.Contains("setup-workspace", names);
+		Assert.Contains(name, names);
 
-		await SendAsync(ws, Request(2, "prompts/get", "{\"name\":\"setup-workspace\"}"));
+		await SendAsync(ws, Request(2, "prompts/get", JsonSerializer.Serialize(new { name })));
 		using var get = await ReceiveAsync(ws);
-		string text = get.RootElement.GetProperty("result").GetProperty("messages")[0]
-			.GetProperty("content").GetProperty("text").GetString()!;
-		Assert.Contains("test.profile", text, StringComparison.Ordinal);
-		Assert.Contains("worktree.setupCommand", text, StringComparison.Ordinal);
+		var result = get.RootElement.GetProperty("result");
+		Assert.Equal(expected.Description, result.GetProperty("description").GetString());
+		var message = Assert.Single(result.GetProperty("messages").EnumerateArray());
+		Assert.Equal("user", message.GetProperty("role").GetString());
+		Assert.Equal(expected.Text, message.GetProperty("content").GetProperty("text").GetString());
 	}
 
 	[Fact]

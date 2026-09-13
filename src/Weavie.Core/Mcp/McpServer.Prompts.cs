@@ -21,8 +21,9 @@ public sealed record McpPrompt {
 
 // The prompts capability (registry mode only): prompts/list + prompts/get over the same JSON-RPC socket.
 public sealed partial class McpServer {
-	// The fixed Core prompt set advertised in registry mode. Currently just the workspace-setup prompt.
-	private static readonly IReadOnlyList<McpPrompt> RegistryPrompts = [WorkspaceSetupPrompt.Prompt];
+	private static readonly IReadOnlyList<McpPrompt> RegistryPrompts = [
+		WorkspaceSetupPrompt.Prompt, IssueReportingPrompts.ReportBug, IssueReportingPrompts.RequestFeature,
+	];
 
 	private string BuildPromptsListJson() {
 		using var stream = new MemoryStream();
@@ -33,7 +34,7 @@ public sealed partial class McpServer {
 				writer.WriteStartObject();
 				writer.WriteString("name", prompt.Name);
 				writer.WriteString("description", prompt.Description);
-				writer.WriteStartArray("arguments"); // no arguments; the prompt inspects the repo itself
+				writer.WriteStartArray("arguments");
 				writer.WriteEndArray();
 				writer.WriteEndObject();
 			}

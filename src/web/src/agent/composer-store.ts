@@ -82,8 +82,16 @@ export function removeComposerAttachment(session: ClientSession, id: string): vo
   }
 }
 
-export function submitAgentTurn(session: ClientSession, commandName: string | null): boolean {
-  const submission = prepareSubmission(session, stateFor(session).draft.trim(), commandName);
+export interface AgentInvocation {
+  kind: "providerCommand" | "mcpPrompt";
+  name: string;
+}
+
+export function submitAgentTurn(
+  session: ClientSession,
+  invocation: AgentInvocation | null,
+): boolean {
+  const submission = prepareSubmission(session, stateFor(session).draft.trim(), invocation);
   if (submission === null) return false;
   publishAgent(session, "submit", submission);
   return true;
@@ -107,9 +115,13 @@ export function submitAgentAside(session: ClientSession, prompt: string): boolea
   return true;
 }
 
-function prepareSubmission(session: ClientSession, prompt: string, commandName: string | null) {
+function prepareSubmission(
+  session: ClientSession,
+  prompt: string,
+  invocation: AgentInvocation | null,
+) {
   const state = stateFor(session);
-  const command = commandName !== null;
+  const command = invocation?.kind === "providerCommand";
   if (
     state.pendingSubmission !== null ||
     (!command && state.attachments.some((attachment) => attachment.status !== "ready"))
@@ -128,8 +140,8 @@ function prepareSubmission(session: ClientSession, prompt: string, commandName: 
   return {
     id,
     prompt,
-    kind: command ? "providerCommand" : "prompt",
-    commandName: commandName ?? "",
+    kind: invocation?.kind ?? "prompt",
+    commandName: invocation?.name ?? "",
     attachmentIds: command ? [] : state.attachments.map((attachment) => attachment.id),
   };
 }

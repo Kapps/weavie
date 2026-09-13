@@ -1,3 +1,5 @@
+using Weavie.Core.Mcp;
+
 namespace Weavie.Core.Agents;
 
 /// <summary>One selectable value for a provider-owned session configuration option.</summary>
@@ -50,6 +52,9 @@ public enum AgentSlashEntryKind {
 
 	/// <summary>A command from the provider's latest ACP command catalog.</summary>
 	ProviderCommand,
+
+	/// <summary>A bundled MCP prompt resolved by Weavie.</summary>
+	McpPrompt,
 }
 
 /// <summary>One typed slash-menu action.</summary>
@@ -115,13 +120,17 @@ public static class AgentControlCommands {
 		IReadOnlyList<AgentSlashEntry> providerCommands,
 		bool supportsSideConversations) {
 		ArgumentNullException.ThrowIfNull(providerCommands);
-		return [
+		AgentSlashEntry[] local = [
 			ClearConversation,
 			.. supportsSideConversations ? [AskAside] : Array.Empty<AgentSlashEntry>(),
-			.. providerCommands.Where(entry =>
-				!string.Equals(entry.Name, "clear", StringComparison.OrdinalIgnoreCase)
-				&& (!supportsSideConversations
-					|| !string.Equals(entry.Name, "btw", StringComparison.OrdinalIgnoreCase))),
+			.. McpPromptCatalog.All.Select(prompt => new AgentSlashEntry {
+				Id = "mcp:weavie:" + prompt.Name,
+				Name = prompt.Name,
+				Description = prompt.Description,
+				Kind = AgentSlashEntryKind.McpPrompt,
+			}),
 		];
+		var names = local.Select(entry => entry.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+		return [.. local, .. providerCommands.Where(entry => !names.Contains(entry.Name))];
 	}
 }

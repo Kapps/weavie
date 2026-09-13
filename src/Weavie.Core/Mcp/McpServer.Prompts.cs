@@ -3,27 +3,8 @@ using System.Text.Json;
 
 namespace Weavie.Core.Mcp;
 
-/// <summary>
-/// An MCP prompt the registry server advertises. Claude Code surfaces each as a
-/// <c>/mcp__weavie__&lt;name&gt;</c> slash command; invoking it fetches <see cref="Text"/> via
-/// <c>prompts/get</c> and injects it into the conversation — no server-initiated model call.
-/// </summary>
-public sealed record McpPrompt {
-	/// <summary>The prompt id, used in the slash command and <c>prompts/get</c>.</summary>
-	public required string Name { get; init; }
-
-	/// <summary>One-line human-facing description (shown in the slash-command list).</summary>
-	public required string Description { get; init; }
-
-	/// <summary>The instruction text injected as a single user message.</summary>
-	public required string Text { get; init; }
-}
-
 // The prompts capability (registry mode only): prompts/list + prompts/get over the same JSON-RPC socket.
 public sealed partial class McpServer {
-	// The fixed Core prompt set advertised in registry mode. Currently just the workspace-setup prompt.
-	private static readonly IReadOnlyList<McpPrompt> RegistryPrompts = [WorkspaceSetupPrompt.Prompt];
-
 	private string BuildPromptsListJson() {
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {

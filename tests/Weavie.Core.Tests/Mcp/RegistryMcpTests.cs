@@ -272,6 +272,30 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("worktree.setupCommand", text, StringComparison.Ordinal);
 	}
 
+	[Theory]
+	[InlineData("report-weavie-bug")]
+	[InlineData("request-weavie-feature")]
+	public async Task ReportingPromptsUseTheSharedCatalogAndIncludePublicationPrivacy(string name) {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+		await SendAsync(ws, Request(1, "prompts/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		Assert.Contains(list.RootElement.GetProperty("result").GetProperty("prompts").EnumerateArray(),
+			prompt => prompt.GetProperty("name").GetString() == name);
+		await SendAsync(ws, Request(2, "prompts/get", JsonSerializer.Serialize(new { name })));
+		using var get = await ReceiveAsync(ws);
+		var message = Assert.Single(get.RootElement.GetProperty("result").GetProperty("messages").EnumerateArray());
+		Assert.Equal("user", message.GetProperty("role").GetString());
+		string text = message.GetProperty("content").GetProperty("text").GetString()!;
+		Assert.Equal(McpPromptCatalog.Require(name).Text, text);
+		Assert.Contains("source code from non-public repositories", text, StringComparison.Ordinal);
+		Assert.Contains("before ANY external action", text, StringComparison.Ordinal);
+		Assert.Contains("approval of that concrete content before publishing", text, StringComparison.Ordinal);
+		Assert.Contains("--repo Kapps/weavie", text, StringComparison.Ordinal);
+	}
+
 	[Fact]
 	public async Task RegistryMode_GetUnknownPrompt_Errors() {
 		using var store = NewStore();

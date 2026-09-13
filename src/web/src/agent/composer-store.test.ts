@@ -126,6 +126,31 @@ describe("agent composer attachments", () => {
     });
   });
 
+  it("preserves MCP prompt identity and waits for attached images", async () => {
+    const session = owner("mcp-prompt", "slot-prompt");
+    const invocation = { kind: "mcpPrompt" as const, name: "report-weavie-bug" };
+    store.setComposerDraft(session, "/report-weavie-bug invented example");
+    store.captureAgentImagePaste(
+      pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
+      session,
+    );
+    expect(store.submitAgentTurn(session, invocation)).toBe(false);
+    await flushAsyncWork();
+    const attachmentId = bridge.posted.find(({ name }) => name === "uploadAttachment")!.payload.id;
+    deliver("mcp-prompt", "slot-prompt", "attachmentState", {
+      id: attachmentId,
+      status: "ready",
+      error: "",
+    });
+    expect(store.submitAgentTurn(session, invocation)).toBe(true);
+    expect(bridge.posted.find(({ name }) => name === "submit")?.payload).toMatchObject({
+      prompt: "/report-weavie-bug invented example",
+      kind: "mcpPrompt",
+      commandName: "report-weavie-bug",
+      attachmentIds: [attachmentId],
+    });
+  });
+
   it("clears only the acknowledged session after an accepted submission", () => {
     const kept = owner("remote-b", "slot-b");
     const sent = owner("remote-c", "slot-c");
@@ -147,13 +172,15 @@ describe("agent composer attachments", () => {
   });
 
   it.each([null, "compact"])("preserves edits across a held %s submission receipt", (command) => {
+    const invocation =
+      command === null ? null : { kind: "providerCommand" as const, name: command };
     const session = owner(`receipt-${command}`, "draft");
     store.setComposerDraft(session, "first");
-    expect(store.submitAgentTurn(session, command)).toBe(true);
+    expect(store.submitAgentTurn(session, invocation)).toBe(true);
     const first = bridge.posted.at(-1)!.payload.id;
     store.setComposerDraft(session, "second");
     store.setComposerDraft(session, "first");
-    expect(store.submitAgentTurn(session, command)).toBe(false);
+    expect(store.submitAgentTurn(session, invocation)).toBe(false);
     deliver(`receipt-${command}`, "draft", "submissionState", {
       id: first,
       attachmentIds: [],
@@ -162,7 +189,7 @@ describe("agent composer attachments", () => {
     });
     expect(store.composerState(session).draft).toBe("first");
     expect([...drafts.values()]).toEqual(["first"]);
-    expect(store.submitAgentTurn(session, command)).toBe(true);
+    expect(store.submitAgentTurn(session, invocation)).toBe(true);
     const second = bridge.posted.at(-1)!.payload.id;
     deliver(`receipt-${command}`, "draft", "submissionState", {
       id: first,
@@ -188,7 +215,7 @@ describe("agent composer attachments", () => {
     expect(store.captureAgentImagePaste(event, session)).toBe(true);
     await flushAsyncWork();
 
-    expect(store.submitAgentTurn(session, "compact")).toBe(true);
+    expect(store.submitAgentTurn(session, { kind: "providerCommand", name: "compact" })).toBe(true);
     const submission = bridge.posted.find(({ name }) => name === "submit");
     expect(submission?.payload).toMatchObject({
       prompt: "/compact",

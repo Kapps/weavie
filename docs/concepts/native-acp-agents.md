@@ -76,6 +76,13 @@ composer as the authoritative queue, so a deferred command is visible rather tha
 Interrupt cancels the running turn while preserving accepted submissions: queued commands and prompts run
 after cancellation settles, and pending steering responses retain their delivery ownership.
 
+Weavie's bundled MCP prompts share one Core catalog with the MCP server and appear in the native slash menu
+before the first turn. The host resolves the selected catalog identity and sends its instruction text through
+ordinary ACP prompting, followed by any user-supplied details. The composer and transcript retain the short
+invocation. These workflows wait for their own turn; they are never steered into ongoing work. Discovery does
+not depend on the provider advertising MCP prompts or scanning skill directories. This covers Weavie's bundled
+text prompts, not arbitrary external MCP prompt servers.
+
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 

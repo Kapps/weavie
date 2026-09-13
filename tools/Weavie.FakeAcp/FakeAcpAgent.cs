@@ -373,6 +373,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(
 			StatePath("prompts.log"),
 			$"{_sessionId}:{text}{Environment.NewLine}");
+		var mcpPrompt = McpPromptCatalog.All.FirstOrDefault(candidate => text.StartsWith(candidate.Text, StringComparison.Ordinal));
+		if (mcpPrompt is not null) {
+			Message($"Received Weavie MCP prompt: {mcpPrompt.Name}. Deterministic fixture acknowledgment only; no action or report submitted.");
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
 		if (text == "/compact") {
 			RequireIsolatedCommand(prompt, text);
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "compact-executed"), string.Empty);

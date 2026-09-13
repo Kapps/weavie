@@ -12,6 +12,7 @@ developer review each of the changes and make edits in a fully featured editor w
 - **Parallel development**: Weavie has first class support for sessions, so you can work on several features at a time in their own branches.
 - **Seamless remote/local sessions**: Each session can run either locally or remote, and the experience is identical between them. This includes hooks into Claude Code to make features like remote copy/paste, pasting images, URL opening, etc, all work just like they would locally.
 - **Keyboard first**: Most actions in weavie are keyboard first by design. UI elements are designed to get out of your way.
+- **Weavie reporting workflows**: Type `/` in a fresh native agent session to select `report-weavie-bug` or `request-weavie-feature`. The same workflows ship as MCP prompts on Weavie’s session-scoped server. They require sanitized reports and review before publication, and prohibit source code from non-public repositories. Nothing is installed into user or project skill directories.
 - **Context aware**: Weavie is an MCP server, and integrates with Claude directly. Claude know what file you're in, and what lines you selected. It can even edit weavie settings and themes — for example, you can ask Claude to make all semantic highlighting 20% darker.
 
 ## Current State

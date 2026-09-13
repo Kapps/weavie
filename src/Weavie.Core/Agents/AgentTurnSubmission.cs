@@ -19,6 +19,9 @@ public enum AgentTurnSubmissionKind {
 
 	/// <summary>One provider-advertised slash command.</summary>
 	ProviderCommand,
+
+	/// <summary>A bundled MCP prompt selected by the user.</summary>
+	McpPrompt,
 }
 
 /// <summary>An atomic structured-agent input: text and the exact staged images for the turn.</summary>
@@ -32,7 +35,7 @@ public sealed record AgentTurnSubmission {
 	/// <summary>Whether the text is an ordinary prompt or a provider-advertised command.</summary>
 	public required AgentTurnSubmissionKind Kind { get; init; }
 
-	/// <summary>The provider's exact advertised command name; empty for an ordinary prompt.</summary>
+	/// <summary>The exact provider command or bundled MCP prompt name; empty for an ordinary prompt.</summary>
 	public required string CommandName { get; init; }
 
 	/// <summary>The staged images submitted with the text.</summary>

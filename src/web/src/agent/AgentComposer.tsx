@@ -86,7 +86,11 @@ export function AgentComposer(props: {
       );
     }
     if (props.session === null || state.pendingSubmission !== null) return false;
-    if (action.kind === "command" && action.entry.commandId !== CommandIds.askAgentAside)
+    if (
+      action.kind === "command" &&
+      action.entry.kind !== "mcpPrompt" &&
+      action.entry.commandId !== CommandIds.askAgentAside
+    )
       return true;
     return (
       state.attachments.every((attachment) => attachment.status === "ready") &&
@@ -270,7 +274,10 @@ export function AgentComposer(props: {
       });
       setComposerDraft(session, "");
     } else {
-      const command = action.kind === "command" ? action.entry.name : null;
+      const command =
+        action.kind === "command" && action.entry.kind !== "weavieCommand"
+          ? { kind: action.entry.kind, name: action.entry.name }
+          : null;
       if (!submitAgentTurn(session, command)) return false;
     }
     setHistoryCursor(IDLE_CURSOR);

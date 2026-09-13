@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;
@@ -310,6 +311,10 @@ public sealed partial class AcpAgentSession {
 			}
 			return submission;
 		}
+		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
+			var prompt = McpPromptCatalog.Require(submission.CommandName);
+			return submission with { Text = CanonicalCommandText(submission.Text, prompt.Name) };
+		}
 		if (submission.Kind != AgentTurnSubmissionKind.ProviderCommand) {
 			throw new InvalidOperationException($"Unknown agent submission kind '{submission.Kind}'.");
 		}
@@ -317,7 +322,7 @@ public sealed partial class AcpAgentSession {
 			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
 		var command = ResolveProviderCommandLocked(submission.CommandName);
-		return submission with { Text = CanonicalCommandText(submission.Text, command) };
+		return submission with { Text = CanonicalCommandText(submission.Text, command.Name) };
 	}
 
 	private AgentSlashEntry ResolveProviderCommandLocked(string name) {
@@ -327,11 +332,11 @@ public sealed partial class AcpAgentSession {
 				$"{_definition.Name} no longer advertises the '/{name}' command.");
 	}
 
-	private static string CanonicalCommandText(string text, AgentSlashEntry command) {
-		string prefix = "/" + command.Name;
+	private static string CanonicalCommandText(string text, string name) {
+		string prefix = "/" + name;
 		if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
 			|| text.Length > prefix.Length && !char.IsWhiteSpace(text[prefix.Length])) {
-			throw new InvalidOperationException($"The provider command text does not invoke '/{command.Name}'.");
+			throw new InvalidOperationException($"The slash command text does not invoke '/{name}'.");
 		}
 		return prefix + text[prefix.Length..];
 	}

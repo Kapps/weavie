@@ -34,7 +34,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
       - id: matrix
         env:
-          FULL: ${{ inputs.full || false }}
+          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
         run: |
           python3 - <<'PYTHON'
           import json, os
@@ -224,6 +224,9 @@ jobs:
         with:
           name: desktop-bridge-${{ matrix.platform.name }}
           path: src/web/test-results
+
+      - name: Validate root directory deletion and rename
+        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug --filter FullyQualifiedName~RecursiveWorkspaceDirectoryWatchSetTests
 
       - name: Test macOS native process isolation
         if: matrix.platform.name == 'macos'

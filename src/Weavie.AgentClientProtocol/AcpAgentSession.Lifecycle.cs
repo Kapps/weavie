@@ -5,6 +5,8 @@ using Weavie.Core.Mcp;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
+	private bool IsUntouchedPrimary => _role is PrimaryRole && _turnNumber == 0;
+
 	/// <inheritdoc/>
 	public void Start() {
 		lock (_gate) {
@@ -79,6 +81,8 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				_activeGeneration = process.Generation;
 				_endpoint = null;
+				// An untouched primary has no conversation to resume; a side fork can have inherited history.
+				if (IsUntouchedPrimary) _sessionId = null;
 				_ready = false;
 				_promptActive = false;
 				_steering = false;

@@ -17,7 +17,7 @@ public sealed partial class AcpAgentSession {
 				submission = NormalizeSubmissionLocked(submission);
 				if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
 				reconnect = _runtimeFailed;
-				if (reconnect && _sessionId is not null && !_supportsLoad && !_supportsResume) {
+				if (reconnect && !IsUntouchedPrimary && _sessionId is not null && !_supportsLoad && !_supportsResume) {
 					throw new InvalidOperationException(
 						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}

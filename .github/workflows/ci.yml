@@ -34,7 +34,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
       - id: matrix
         env:
-          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
+          FULL: true
         run: |
           python3 - <<'PYTHON'
           import json, os

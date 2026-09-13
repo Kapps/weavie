@@ -26,7 +26,10 @@ function spellingRequests(page: Page): MessageEnvelope[] {
 
 async function addWord(page: Page, text: string, scope: "User" | "Project"): Promise<void> {
   await word(page, text).first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: `Add “${text}” to Dictionary` }).hover();
+  const dictionary = page.getByRole("menuitem", { name: `Add “${text}” to Dictionary` });
+  await expect(dictionary).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Loading suggestions…" })).toHaveCount(0);
+  await dictionary.hover();
   const action = page.getByRole("menuitem", { name: `${scope} Dictionary` });
   await expect(action).toHaveText(`${scope} Dictionary`);
   await action.click();

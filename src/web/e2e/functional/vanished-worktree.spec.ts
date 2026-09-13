@@ -1,4 +1,5 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { normalize } from "node:path";
 import type { WebSocket } from "@playwright/test";
 import { activeSessionSlot, awaitEditorReady, createSession } from "../harness/actions";
 import { writeFakeClaudeWrapper } from "../harness/fake-claude";
@@ -73,7 +74,7 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
     workspaceSlot,
   );
   await expect(page.locator(".toast .toast-msg", { hasText: "no longer exists" })).toHaveText(
-    `Session 'e2e/vanished-worktree' was closed: its worktree ${worktree} no longer exists.`,
+    `Session 'e2e/vanished-worktree' was closed: its worktree ${normalize(worktree)} no longer exists.`,
   );
   await expect(page.locator(".toast", { hasText: RAW_OBSERVER_ERRORS })).toHaveCount(0);
 

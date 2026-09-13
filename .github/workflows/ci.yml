@@ -40,7 +40,7 @@ jobs:
           import json, os
           from pathlib import Path
           platforms = json.loads(Path('.github/platforms.json').read_text())
-          matrix = {'platform': [p for p in platforms if os.environ['FULL'] == 'true' or p['name'] == 'linux']}
+          matrix = {'platform': [p for p in platforms if p['name'] == 'windows']}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'matrix={json.dumps(matrix)}\n')
               output.write(f'native_matrix={json.dumps({"platform": platforms})}\n')

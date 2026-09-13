@@ -126,9 +126,9 @@ public static class EditorSettings {
 		registry.Register(new SettingDefinition {
 			Key = SpellCheckLocale,
 			Kind = SettingKind.String,
-			Default = "en-US",
+			Default = "en",
 			Apply = ApplyMode.Live,
-			Description = "Spelling dictionary on this backend. Use weavie.spell.setLocale to download and select a locale; US English is bundled.",
+			Description = "Spelling dictionary on this backend. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; use weavie.spell.setLocale to download and select a regional dictionary or another language.",
 		});
 
 		registry.Register(new SettingDefinition {

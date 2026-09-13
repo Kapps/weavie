@@ -18,22 +18,42 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var http = new HttpClient(handler);
 		using var languages = new SpellLanguages(settings, http);
 		Assert.True(languages.Current.Check("color"));
-		Assert.False(languages.Current.Check("colour"));
-		handler.OnRequest = () => Assert.Equal("en-US", settings.RequireString(EditorSettings.SpellCheckLocale));
-		var result = await languages.SetLocaleAsync("{\"locale\":\"en-GB\"}", CancellationToken.None);
+		Assert.True(languages.Current.Check("colour"));
+		handler.OnRequest = () => Assert.Equal("en", settings.RequireString(EditorSettings.SpellCheckLocale));
+		var result = await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None);
 		Assert.True(result.Ok, result.Error);
 		Assert.True(languages.Current.Check("colour"));
 		Assert.False(languages.Current.Check("color"));
+		Assert.False(languages.Current.Check("middleware"));
 		Assert.Equal(3, handler.Requests.Count);
 		Assert.Equal("test license", File.ReadAllText(Directory.GetFiles(_directory.Path, "license", SearchOption.AllDirectories).Single()));
 		handler.OnRequest = () => throw new HttpRequestException("offline");
 		using var reloaded = CoreSettings.CreateStore(SettingsPath, enableWatcher: false);
 		using var offline = new SpellLanguages(reloaded, http);
 		Assert.True(offline.Current.Check("colour"));
-		Assert.True((await offline.SetLocaleAsync("{\"locale\":\"en-US\"}", CancellationToken.None)).Ok);
-		Assert.True((await offline.SetLocaleAsync("{\"locale\":\"en-GB\"}", CancellationToken.None)).Ok);
+		Assert.True((await offline.SetLocaleAsync("{\"locale\":\"en\"}", CancellationToken.None)).Ok);
+		Assert.True((await offline.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None)).Ok);
 		Assert.Equal(3, handler.Requests.Count);
 		Assert.Contains("colour", offline.Current.Suggest("colur"));
+	}
+
+	[Fact]
+	public async Task MixedEnglishWorksOfflineAndRegionalEnglishDownloadsFromUpstream() {
+		using var settings = CoreSettings.CreateStore(SettingsPath, enableWatcher: false);
+		using var handler = new DictionaryServer { OnRequest = () => throw new HttpRequestException("offline") };
+		using var http = new HttpClient(handler);
+		using var languages = new SpellLanguages(settings, http);
+		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"en\"}", CancellationToken.None)).Ok);
+		Assert.True(languages.Current.Check("middleware"));
+		Assert.True(languages.Current.Check("color"));
+		Assert.True(languages.Current.Check("colour"));
+		Assert.Empty(handler.Requests);
+		handler.OnRequest = () => { };
+		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"en-US\"}", CancellationToken.None)).Ok);
+		Assert.Equal(3, handler.Requests.Count);
+		Assert.All(handler.Requests, path => Assert.Contains("/dictionaries/en/", path));
+		Assert.Equal("en-US", settings.RequireString(EditorSettings.SpellCheckLocale));
+		Assert.True(languages.Current.Check("middleware"));
 	}
 
 	[Theory]
@@ -45,9 +65,9 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var handler = new DictionaryServer { FailedFile = failedFile, Empty = empty };
 		using var http = new HttpClient(handler);
 		using var languages = new SpellLanguages(settings, http);
-		var result = await languages.SetLocaleAsync("{\"locale\":\"en-GB\"}", CancellationToken.None);
+		var result = await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None);
 		Assert.False(result.Ok);
-		Assert.Equal("en-US", settings.RequireString(EditorSettings.SpellCheckLocale));
+		Assert.Equal("en", settings.RequireString(EditorSettings.SpellCheckLocale));
 		Assert.Empty(Directory.GetFiles(_directory.Path, "index.*", SearchOption.AllDirectories));
 		Assert.True(languages.Current.Check("color"));
 	}
@@ -59,11 +79,11 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var handler = new DictionaryServer { OnRequest = () => cancelled.Cancel() };
 		using var http = new HttpClient(handler);
 		using var languages = new SpellLanguages(settings, http);
-		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => languages.SetLocaleAsync("{\"locale\":\"en-GB\"}", cancelled.Token));
-		Assert.Equal("en-US", settings.RequireString(EditorSettings.SpellCheckLocale));
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => languages.SetLocaleAsync("{\"locale\":\"fr\"}", cancelled.Token));
+		Assert.Equal("en", settings.RequireString(EditorSettings.SpellCheckLocale));
 		Assert.Empty(Directory.GetFiles(_directory.Path, "index.*", SearchOption.AllDirectories));
 		handler.OnRequest = () => { };
-		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"en-GB\"}", CancellationToken.None)).Ok);
+		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None)).Ok);
 	}
 
 	[Fact]
@@ -72,7 +92,7 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var handler = new DictionaryServer { OnRequest = () => { if (!Directory.Exists(SettingsPath)) { File.Delete(SettingsPath); Directory.CreateDirectory(SettingsPath); } } };
 		using var http = new HttpClient(handler);
 		using var languages = new SpellLanguages(settings, http);
-		var result = await languages.SetLocaleAsync("{\"locale\":\"en-GB\"}", CancellationToken.None);
+		var result = await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None);
 		Assert.False(result.Ok);
 		Assert.True(languages.Current.Check("color"));
 		Assert.True(Directory.Exists(SettingsPath));
@@ -98,7 +118,7 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var languages = new SpellLanguages(settings, http);
 		var result = await languages.SetLocaleAsync(null, CancellationToken.None);
 		using var data = JsonDocument.Parse(result.DataJson!);
-		Assert.Equal(["en-US", "fr"], data.RootElement.GetProperty("locales").EnumerateArray().Select(value => value.GetString()));
+		Assert.Equal(["en", "en-US", "fr"], data.RootElement.GetProperty("locales").EnumerateArray().Select(value => value.GetString()));
 		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None)).Ok);
 		Assert.Empty(SpellChecker.Check(languages.Current, [new(1, 0, "e\u0301cole", false)], new HashSet<string>(), new HashSet<string>(), CancellationToken.None));
 	}

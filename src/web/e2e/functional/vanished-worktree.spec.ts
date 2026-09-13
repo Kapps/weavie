@@ -8,26 +8,15 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // the notice the user reads, and that a reconnect no longer replays the observer's raw git words — the bug was
 // a dead slot re-erroring on every connect. Transport-agnostic (HostCore owns it), so headless only.
 //
-// 2026-09-13 05:21 UTC: failed on two platforms in the same run —
-// https://github.com/Kapps/weavie/actions/runs/34738041881
-//   - macOS (e2e shard 5/6): `chips` never converged to 1 within the 30s timeout. Root cause: the non-Linux
-//     directory watch (RecursiveWorkspaceDirectoryWatchSet) is rooted directly at the worktree it watches, and
-//     a FileSystemWatcher does not reliably report that exact directory's own deletion (macOS FSEvents can
-//     drop the stream with no further event at all). No event meant SignalRefresh() never fired, so the
-//     session could sit "vanished" forever, not just past 30s. Fixed in WorkspaceDirectoryWatchSet.cs by also
-//     watching the parent directory for this one entry's removal, mirroring Linux's IN_DELETE_SELF handling
-//     (see RecursiveWorkspaceDirectoryWatchSetTests.cs).
-//   - Windows (e2e shard 6/6): the `rm(worktree, ...)` call below itself threw
-//     `EBUSY: resource busy or locked, rmdir '...'`, before any Weavie code ran. Root cause: the forked
-//     session's live "claude" PTY is launched with the worktree as its literal Win32 current directory
-//     (WindowsConPtyTerminal's CreateProcess `lpCurrentDirectory`), and Windows will not let anything —
-//     Weavie's own code included (see WorktreeManager's documented "brief Windows file lock" retries, which
-//     only apply once Weavie has already torn its own child down first) — remove a directory that is a live
-//     process's current directory. This is a real, deterministic OS constraint, not a transient race: as long
-//     as the forked session stays loaded, an external actor (a user in Explorer, this test) cannot fully
-//     remove its worktree on Windows. Making this scenario reproducible needs a design decision (e.g. not
-//     literally cwd-ing the agent PTY into the worktree on Windows) beyond a CI-triage fix — left for the repo
-//     owner; not patched with a retry/timeout here since the lock does not clear on its own while the session
+// 2026-09-13 05:21 UTC, https://github.com/Kapps/weavie/actions/runs/34738041881 — failed on two platforms:
+//   - macOS (shard 5/6): watcher missed the worktree's own deletion (FileSystemWatcher doesn't reliably
+//     report a watched directory's own removal), so the session never closed. Fixed: WorkspaceDirectoryWatchSet
+//     now also watches the parent for this entry's removal (see RecursiveWorkspaceDirectoryWatchSetTests.cs).
+//   - Windows (shard 6/6): `rm(worktree, ...)` itself threw EBUSY — the forked session's live PTY still had
+//     the worktree as its OS current directory, which Windows won't let anything remove while alive. Real,
+//     non-transient OS constraint, not fixed here: needs a design decision on not cwd-ing the agent PTY into
+//     a directory that must stay externally removable while the session runs. Left red pending that call
+//     rather than papered over with a retry/timeout (the lock never clears on its own while the session is live).
 //     is alive.
 const RAW_OBSERVER_ERRORS = /Git working directory does not exist|Couldn't load workspace files/;
 

@@ -157,7 +157,7 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 		Action<FileSystemEventArgs> deleted,
 		Action<string, string> renamed,
 		Action<Exception> error) {
-		_root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+		_root = PathIdentity.Normalize(root);
 		_rootParent = Path.GetDirectoryName(_root);
 		_rootName = Path.GetFileName(_root);
 		_created = created;
@@ -235,8 +235,9 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 		try {
 			watcher.EnableRaisingEvents = true;
 			_selfDeleteWatcher = watcher;
-		} catch {
+		} catch (Exception ex) {
 			watcher.Dispose();
+			_error(ex);
 		}
 	}
 

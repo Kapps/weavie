@@ -24,6 +24,7 @@ public sealed class SpellLanguagesTests : IDisposable {
 		Assert.True(result.Ok, result.Error);
 		Assert.True(languages.Current.Check("colour"));
 		Assert.False(languages.Current.Check("color"));
+		Assert.False(languages.Current.Check("middleware"));
 		Assert.Equal(3, handler.Requests.Count);
 		Assert.Equal("test license", File.ReadAllText(Directory.GetFiles(_directory.Path, "license", SearchOption.AllDirectories).Single()));
 		handler.OnRequest = () => throw new HttpRequestException("offline");
@@ -37,19 +38,22 @@ public sealed class SpellLanguagesTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task BundledRegionalSelectionsWorkOfflineAndKeepTheirOwnSpellings() {
+	public async Task MixedEnglishWorksOfflineAndRegionalEnglishDownloadsFromUpstream() {
 		using var settings = CoreSettings.CreateStore(SettingsPath, enableWatcher: false);
 		using var handler = new DictionaryServer { OnRequest = () => throw new HttpRequestException("offline") };
 		using var http = new HttpClient(handler);
 		using var languages = new SpellLanguages(settings, http);
-		foreach (string locale in SpellVocabulary.BundledLocales) {
-			Assert.True((await languages.SetLocaleAsync(JsonSerializer.Serialize(new { locale }), CancellationToken.None)).Ok);
-			Assert.True(languages.Current.Check("middleware"));
-			Assert.True(languages.Current.Check(locale == "en-US" ? "color" : "colour"));
-		}
-		Assert.False(SpellVocabulary.ForLocale("en-US").Check("colour"));
-		Assert.False(SpellVocabulary.ForLocale("en-GB").Check("traveler"));
+		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"en\"}", CancellationToken.None)).Ok);
+		Assert.True(languages.Current.Check("middleware"));
+		Assert.True(languages.Current.Check("color"));
+		Assert.True(languages.Current.Check("colour"));
 		Assert.Empty(handler.Requests);
+		handler.OnRequest = () => { };
+		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"en-US\"}", CancellationToken.None)).Ok);
+		Assert.Equal(3, handler.Requests.Count);
+		Assert.All(handler.Requests, path => Assert.Contains("/dictionaries/en/", path));
+		Assert.Equal("en-US", settings.RequireString(EditorSettings.SpellCheckLocale));
+		Assert.True(languages.Current.Check("middleware"));
 	}
 
 	[Theory]
@@ -114,7 +118,7 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var languages = new SpellLanguages(settings, http);
 		var result = await languages.SetLocaleAsync(null, CancellationToken.None);
 		using var data = JsonDocument.Parse(result.DataJson!);
-		Assert.Equal(["en", "en-CA", "en-GB", "en-US", "fr"], data.RootElement.GetProperty("locales").EnumerateArray().Select(value => value.GetString()));
+		Assert.Equal(["en", "en-US", "fr"], data.RootElement.GetProperty("locales").EnumerateArray().Select(value => value.GetString()));
 		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None)).Ok);
 		Assert.Empty(SpellChecker.Check(languages.Current, [new(1, 0, "e\u0301cole", false)], new HashSet<string>(), new HashSet<string>(), CancellationToken.None));
 	}

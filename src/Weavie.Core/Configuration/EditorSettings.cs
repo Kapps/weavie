@@ -128,7 +128,7 @@ public static class EditorSettings {
 			Kind = SettingKind.String,
 			Default = "en",
 			Apply = ApplyMode.Live,
-			Description = "Spelling dictionary on this backend. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Regional English dictionaries are bundled; use weavie.spell.setLocale to select or download another locale.",
+			Description = "Spelling dictionary on this backend. English (en) accepts US, Canadian, and British spellings plus technical vocabulary. Mixed English is bundled; use weavie.spell.setLocale to download and select a regional dictionary or another language.",
 		});
 
 		registry.Register(new SettingDefinition {

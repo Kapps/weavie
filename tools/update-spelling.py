@@ -23,6 +23,26 @@ def download(url):
         return response.read()
 
 
+def merge_english(sources):
+    rules = None
+    entries = set()
+    for locale, (aff, dic) in sources.items():
+        active = [line.strip() for line in aff.decode("utf-8").splitlines()
+                  if line.strip() and not line.lstrip().startswith("#")]
+        if rules is not None and rules != active:
+            raise ValueError(f"Cannot merge {locale}: English affix rules differ")
+        if any(line.split()[0] == "FORBIDDENWORD" for line in active):
+            raise ValueError(f"Cannot merge {locale}: forbidden words can override another region's accepted words")
+        rules = active
+        lines = dic.decode("utf-8").splitlines()
+        if not lines or not lines[0].isdigit() or int(lines[0]) != len(lines) - 1:
+            raise ValueError(f"Invalid dictionary entry count for {locale}")
+        entries.update(lines[1:])
+    if not rules or not entries:
+        raise ValueError("Cannot merge empty English dictionaries")
+    return ("\n".join(rules) + "\n").encode(), (f"{len(entries)}\n" + "\n".join(sorted(entries)) + "\n").encode()
+
+
 def import_dictionaries(update):
     manifest = json.loads(MANIFEST.read_text())
     if update:
@@ -46,15 +66,17 @@ def import_dictionaries(update):
         return data
 
     english = manifest["english"]
+    regional = {}
     for locale, source in english["locales"].items():
         stem = f"en_{locale}-large"
         archive = verified(
             f"https://github.com/en-wl/wordlist/releases/download/rel-{english['version']}/"
             f"hunspell-{stem}-{english['version']}.zip", source)
         with zipfile.ZipFile(io.BytesIO(archive)) as files:
-            for extension in ("aff", "dic"):
-                outputs[RESOURCES / f"{stem}.{extension}"] = files.read(f"{stem}.{extension}")
+            regional[locale] = (files.read(f"{stem}.aff"), files.read(f"{stem}.dic"))
             outputs[NOTICE / f"English-{locale}-LICENSE.txt"] = files.read(f"README_{stem}.txt")
+
+    outputs[RESOURCES / "en.aff"], outputs[RESOURCES / "en.dic"] = merge_english(regional)
 
     words = set()
     for package in manifest["technical"]:

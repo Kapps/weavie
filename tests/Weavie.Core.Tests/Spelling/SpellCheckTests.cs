@@ -13,7 +13,7 @@ public sealed class SpellCheckTests : IDisposable {
 
 	[Fact]
 	public void ChecksExactUtf16RangesAndUnionsDictionaries() {
-		var result = SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		var result = SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(4, 7, "😀 This isn't misspelled, but teh is. Weavie Frobulator https://zztypo.test `zzcode` user@zzmail.test", false)],
 			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
 			new HashSet<string>(["Frobulator"], StringComparer.OrdinalIgnoreCase),
@@ -23,7 +23,7 @@ public sealed class SpellCheckTests : IDisposable {
 
 	[Fact]
 	public void ChecksIdentifierWordsAtCamelAcronymUnderscoreAndDigitBoundaries() {
-		var result = SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		var result = SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(2, 4, "DiagnoasticId", true), new(3, 2, "HTTPDiagnoastic_count_mispelled2Value", true),
 			 new(4, 1, "DIAGNOASTIC_ID", true), new(5, 0, "DiagnosticId_HTTP_count2Value", true)],
 			Empty, Empty, CancellationToken.None);
@@ -35,7 +35,7 @@ public sealed class SpellCheckTests : IDisposable {
 
 	[Fact]
 	public void ProsePartsRespectCustomDictionariesAndSkipLinksAndInlineCode() {
-		var result = SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		var result = SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(1, 0, "WeavieFrobulatorCount", true), new(2, 0, "WeavieFrobulatorCount snake_case https://zztypo.test `zzcode`", false)],
 			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
 			new HashSet<string>(["frobulator"], StringComparer.OrdinalIgnoreCase), CancellationToken.None);
@@ -44,7 +44,7 @@ public sealed class SpellCheckTests : IDisposable {
 
 	[Fact]
 	public void ProseSplitsIdentifiersAndPreservesContractionsAndUtf16Offsets() {
-		var result = SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		var result = SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(3, 5, "😀 identifierName mispelledCount HTTPDiagnoastic snake_mispelled2Value isn't", false)],
 			Empty, Empty, CancellationToken.None);
 		Assert.Equal([
@@ -75,7 +75,7 @@ public sealed class SpellCheckTests : IDisposable {
 		dictionary.Add("Weávíe’s");
 		dictionary.Add("Wea\u0301vi\u0301e's");
 		Assert.Single(dictionary.Words);
-		Assert.Empty(SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		Assert.Empty(SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(1, 0, "Wea\u0301vi\u0301e’s Weávíe's", false)], dictionary.Words, Empty, CancellationToken.None));
 	}
 
@@ -95,7 +95,7 @@ public sealed class SpellCheckTests : IDisposable {
 	public void CancelledChecksDoNotReturnPartialResults() {
 		using var cancelled = new CancellationTokenSource();
 		cancelled.Cancel();
-		Assert.Throws<OperationCanceledException>(() => SpellChecker.Check(SpellVocabulary.ForLocale("en"),
+		Assert.Throws<OperationCanceledException>(() => SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(1, 0, "teh teh teh", false)], Empty, Empty, cancelled.Token));
 	}
 

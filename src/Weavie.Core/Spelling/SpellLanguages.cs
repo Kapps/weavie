@@ -19,12 +19,12 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	public SpellVocabulary Current {
 		get {
 			string locale = settings.RequireString(EditorSettings.SpellCheckLocale);
-			if (SpellVocabulary.IsBundled(locale)) return SpellVocabulary.ForLocale(locale);
+			if (locale == "en") return SpellVocabulary.English.Value;
 			lock (_gate) {
 				if (_loaded is { } cached && cached.Locale == locale) return cached.Words;
 				string path = LocalePath(locale);
 				if (!Directory.Exists(path)) throw new InvalidOperationException($"Spelling locale '{locale}' is not installed. Run Set Spelling Locale to download it.");
-				var words = Load(path);
+				var words = Load(path, locale);
 				_loaded = (locale, words);
 				return words;
 			}
@@ -42,13 +42,13 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 				using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
 				response.EnsureSuccessStatusCode();
 				var entries = await response.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
-				string[] locales = [.. entries.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()!).Concat(SpellVocabulary.BundledLocales).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+				string[] locales = [.. entries.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()!).Select(name => name == "en" ? "en-US" : name).Prepend("en").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 				return CommandResult.Success($"Current spelling locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}. Ask the agent to select a locale.", JsonSerializer.Serialize(new { locales }));
 			}
 			string locale = value.GetString() ?? throw new ArgumentException("Provide a locale code.");
 			string path = LocalePath(locale);
-			if (!SpellVocabulary.IsBundled(locale)) {
-				var words = Directory.Exists(path) ? Load(path) : await DownloadAsync(locale, path, ct).ConfigureAwait(false);
+			if (locale != "en") {
+				var words = Directory.Exists(path) ? Load(path, locale) : await DownloadAsync(locale, path, ct).ConfigureAwait(false);
 				lock (_gate) _loaded = (locale, words);
 			}
 			ct.ThrowIfCancellationRequested();
@@ -73,26 +73,27 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 		string staging = Path.Combine(_cache, Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(staging);
 		try {
+			string sourceLocale = locale == "en-US" ? "en" : locale;
 			foreach (string file in new[] { "index.aff", "index.dic", "license" }) {
-				using var response = await http.GetAsync($"https://raw.githubusercontent.com/wooorm/dictionaries/{Revision}/dictionaries/{locale}/{file}", HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+				using var response = await http.GetAsync($"https://raw.githubusercontent.com/wooorm/dictionaries/{Revision}/dictionaries/{sourceLocale}/{file}", HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 				if (response.StatusCode == System.Net.HttpStatusCode.NotFound) throw new ArgumentException($"No dictionary for '{locale}'. Run Set Spelling Locale without arguments to list available codes.");
 				response.EnsureSuccessStatusCode();
 				await using var output = File.Create(Path.Combine(staging, file));
 				await response.Content.CopyToAsync(output, ct).ConfigureAwait(false);
 			}
-			var words = Load(staging);
+			var words = Load(staging, locale);
 			ct.ThrowIfCancellationRequested();
-			try { Directory.Move(staging, path); } catch (IOException) when (Directory.Exists(path)) { return Load(path); }
+			try { Directory.Move(staging, path); } catch (IOException) when (Directory.Exists(path)) { return Load(path, locale); }
 			return words;
 		} finally {
 			if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
 		}
 	}
 
-	private static SpellVocabulary Load(string path) {
+	private static SpellVocabulary Load(string path, string locale) {
 		var words = WordList.CreateFromFiles(Path.Combine(path, "index.dic"), Path.Combine(path, "index.aff"));
 		if (words.RootCount == 0) throw new InvalidDataException("The downloaded spelling dictionary contains no words.");
-		return new(words);
+		return new(words, includeTechnicalWords: locale.StartsWith("en-", StringComparison.Ordinal));
 	}
 
 	[GeneratedRegex(@"\A[a-z]{2,3}(?:-[A-Za-z0-9]+)*\z", RegexOptions.NonBacktracking)]

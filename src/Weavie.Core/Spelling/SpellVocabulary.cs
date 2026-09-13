@@ -3,11 +3,8 @@ using WeCantSpell.Hunspell;
 
 namespace Weavie.Core.Spelling;
 
-/// <summary>An immutable selection of regional dictionaries and optional technical vocabulary.</summary>
+/// <summary>An immutable language dictionary with optional technical vocabulary.</summary>
 public sealed class SpellVocabulary {
-	private static readonly Lazy<WordList> EnglishUs = new(() => Load("en_US-large"));
-	private static readonly Lazy<WordList> EnglishCa = new(() => Load("en_CA-large"));
-	private static readonly Lazy<WordList> EnglishGb = new(() => Load("en_GB-large"));
 	private static readonly Lazy<TechnicalWords> Technical = new(() => {
 		using var stream = typeof(SpellVocabulary).Assembly.GetManifestResourceStream("Weavie.Core.Spelling.Resources.technical.dic")!;
 		using var reader = new StreamReader(stream);
@@ -17,35 +14,15 @@ public sealed class SpellVocabulary {
 		var suggestions = WordList.CreateFromWords(words);
 		return new(words.ToFrozenSet(StringComparer.OrdinalIgnoreCase), suggestions);
 	});
-	private static readonly FrozenDictionary<string, Lazy<SpellVocabulary>> Bundled =
-		new Dictionary<string, Lazy<SpellVocabulary>> {
-			["en"] = new(() => new([EnglishUs.Value, EnglishCa.Value, EnglishGb.Value], Technical.Value)),
-			["en-US"] = new(() => new([EnglishUs.Value], Technical.Value)),
-			["en-CA"] = new(() => new([EnglishCa.Value], Technical.Value)),
-			["en-GB"] = new(() => new([EnglishGb.Value], Technical.Value)),
-		}.ToFrozenDictionary();
+	internal static readonly Lazy<SpellVocabulary> English = new(() => new(Load("en"), includeTechnicalWords: true));
 	private readonly WordList[] _dictionaries;
 	private readonly FrozenSet<string> _technical;
 
-	private SpellVocabulary(WordList[] regional, TechnicalWords technical) {
-		_dictionaries = [.. regional, technical.Suggestions];
-		_technical = technical.Accepted;
+	/// <summary>Wraps a language dictionary, adding technical vocabulary for English selections.</summary>
+	public SpellVocabulary(WordList dictionary, bool includeTechnicalWords) {
+		_dictionaries = includeTechnicalWords ? [dictionary, Technical.Value.Suggestions] : [dictionary];
+		_technical = includeTechnicalWords ? Technical.Value.Accepted : [];
 	}
-
-	/// <summary>Wraps an installed non-English dictionary without adding English vocabulary.</summary>
-	public SpellVocabulary(WordList dictionary) {
-		_dictionaries = [dictionary];
-		_technical = [];
-	}
-
-	/// <summary>Locale codes available without downloading dictionaries.</summary>
-	public static IEnumerable<string> BundledLocales => Bundled.Keys.Order(StringComparer.Ordinal);
-
-	/// <summary>Whether a locale is bundled; this does not load its dictionaries.</summary>
-	public static bool IsBundled(string locale) => Bundled.ContainsKey(locale);
-
-	/// <summary>Loads a bundled vocabulary on its first background request.</summary>
-	public static SpellVocabulary ForLocale(string locale) => Bundled[locale].Value;
 
 	/// <summary>Accepts words recognized by any selected dictionary.</summary>
 	public bool Check(string word, CancellationToken ct) {

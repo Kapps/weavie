@@ -433,7 +433,6 @@ public static class CoreCommands {
 	/// <summary>Registers the built-in commands into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
-		IssueReportingCommands.Register(registry);
 		foreach (var (id, scope) in new[] { (SpellAddUser, "User"), (SpellAddProject, "Project") }) {
 			registry.Register(new CommandDefinition {
 				Id = id,

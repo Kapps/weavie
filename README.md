@@ -59,15 +59,6 @@ for manual version bumps and choosing a source build or commit.
 
 Please report any issues or feature requests by [creating an issue](https://github.com/Kapps/weavie/issues/new).
 
-Weavie also bundles **Report a Weavie Bug** and **Request a Weavie Feature** in the command palette,
-with customizable shortcuts shown alongside each command. They prefill your agent with reporting
-instructions; send the prompt to prepare a report. MCP clients that support prompts can invoke
-`/mcp__weavie__report-bug` or `/mcp__weavie__request-feature` directly.
-Both workflows exclude sensitive information, including source code from non-public repositories,
-and ask you to approve the exact sanitized report before publishing to the public tracker.
-Submission uses your agent's available authenticated GitHub tools or GitHub CLI; if it cannot submit,
-it explains the blocker and provides the sanitized draft for manual filing.
-
 Candidly, while weavie is open source, **pull requests (for features especially) are unlikely to be accepted**. I have a plan for how I want things done and where I want weavie to go, and weavie development has me more in an architect / tester / project manager role with Claude handling the implementation. Development has been extremely fast, and code writing is not the bottleneck. External PRs require a lot more careful review (especially for security), and I still have to perform the same roles as if Claude wrote it but with more manual testing. 
 
 ## License

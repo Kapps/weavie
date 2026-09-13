@@ -1,5 +1,7 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import type { WebSocket } from "@playwright/test";
 import { activeSessionSlot, awaitEditorReady, createSession } from "../harness/actions";
+import { writeFakeClaudeWrapper } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -7,24 +9,56 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // HostCoreVanishedWorktreeTests pins the close at the host seam; this pins the leg only a real page can show:
 // the notice the user reads, and that a reconnect no longer replays the observer's raw git words — the bug was
 // a dead slot re-erroring on every connect. Transport-agnostic (HostCore owns it), so headless only.
-//
-// 2026-09-13 05:21 UTC, https://github.com/Kapps/weavie/actions/runs/34738041881 — failed on two platforms:
-//   - macOS (shard 5/6): watcher missed the worktree's own deletion (FileSystemWatcher doesn't reliably
-//     report a watched directory's own removal), so the session never closed. Fixed: WorkspaceDirectoryWatchSet
-//     now also watches the parent for this entry's removal (see RecursiveWorkspaceDirectoryWatchSetTests.cs).
-//   - Windows (shard 6/6): `rm(worktree, ...)` itself threw EBUSY — the forked session's live PTY still had
-//     the worktree as its OS current directory, which Windows won't let anything remove while alive. Real,
-//     non-transient OS constraint, not fixed here: needs a design decision on not cwd-ing the agent PTY into
-//     a directory that must stay externally removable while the session runs. Left red pending that call
-//     rather than papered over with a retry/timeout (the lock never clears on its own while the session is live).
-//     is alive.
 const RAW_OBSERVER_ERRORS = /Git working directory does not exist|Couldn't load workspace files/;
 
+let socket: WebSocket;
+test.use({
+  preNavigate: {
+    run: async (page) => {
+      page.on("websocket", (connected) => {
+        socket = connected;
+      });
+    },
+  },
+});
+
 test("a worktree deleted outside Weavie closes its session, for good", async ({ page, weavie }) => {
+  // Keep the inert test agent outside the checkout so Windows permits external deletion.
+  const wrapper = await writeFakeClaudeWrapper(weavie.home);
+  const launch = await readFile(wrapper, "utf8");
+  await writeFile(
+    wrapper,
+    process.platform === "win32"
+      ? `@cd /d "${weavie.home}"\r\n${launch}`
+      : launch.replace("exec ", `cd '${weavie.home.replaceAll("'", "'\\''")}'\nexec `),
+  );
   const chips = page.locator(".session-chip");
   const workspaceSlot = await activeSessionSlot(page);
   await createSession(page, { branch: "e2e/vanished-worktree", provider: "claude" });
   await expect(chips).toHaveCount(2);
+  const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+  await shell.locator(".shell-tab-main").click();
+  let closeRequest: string;
+  socket.on("framesent", ({ payload }) => {
+    const message = JSON.parse(String(payload));
+    if (
+      message.kind === "request" &&
+      message.feature === "commands" &&
+      message.payload?.id === "weavie.terminal.close"
+    )
+      closeRequest = message.requestId;
+  });
+  const closed = socket.waitForEvent("framereceived", ({ payload }) => {
+    const message = JSON.parse(String(payload));
+    return (
+      message.kind === "response" &&
+      message.requestId === closeRequest &&
+      message.payload?.ok === true
+    );
+  });
+  await page.keyboard.press("ControlOrMeta+Shift+W");
+  await closed;
+  await expect(shell.locator(".shell-tab")).toHaveCount(0);
   const [worktree] = sessionWorktrees(weavie.workspace);
   if (worktree === undefined) {
     throw new Error("the forked session did not create a git worktree");

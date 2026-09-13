@@ -209,13 +209,13 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 			}
 
 			ArmSelfDeleteWatch();
+			if (!Directory.Exists(_root) && _rootParent is not null) {
+				_deleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, _rootParent, _rootName));
+			}
 		}
 	}
 
-	// A watcher rooted at the directory itself does not reliably report that exact directory's own deletion
-	// (macOS FSEvents can drop the stream with no further event; Windows invalidates the handle) — so a
-	// session whose worktree is removed out from under it can go undetected indefinitely. Watching the parent
-	// for this one entry's removal covers that gap, mirroring LinuxWorkspaceDirectoryWatchSet's IN_DELETE_SELF.
+	// A recursive watcher need not report its own root disappearing; observe that entry from its parent.
 	private void ArmSelfDeleteWatch() {
 		if (_selfDeleteWatcher is not null || string.IsNullOrEmpty(_rootName) || _rootParent is null || !Directory.Exists(_rootParent)) {
 			return;
@@ -227,6 +227,7 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 			Filter = _rootName,
 		};
 		watcher.Deleted += (_, e) => _deleted(e);
+		watcher.Error += (_, e) => _error(e.GetException());
 		watcher.Renamed += (_, e) => {
 			if (PathIdentity.Comparer.Equals(e.OldFullPath, _root)) {
 				_deleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, _rootParent, _rootName));

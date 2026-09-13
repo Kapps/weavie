@@ -1,65 +1,33 @@
-using System.Collections.Concurrent;
 using Weavie.Core.FileActivity;
 using Weavie.TestSupport;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>
-/// The non-Linux (macOS/Windows) directory watch strategy: a single recursive <see cref="FileSystemWatcher"/>
-/// rooted at the workspace directory. That primitive does not reliably report the watched directory's own
-/// deletion, so this set must also notice it externally, mirroring Linux's IN_DELETE_SELF handling.
-/// </summary>
-public sealed class RecursiveWorkspaceDirectoryWatchSetTests : IDisposable {
-	private readonly TempDirectory _dir = new("weavie-recursive-watch");
-	private readonly ConcurrentBag<FileSystemEventArgs> _deleted = [];
-
-	private RecursiveWorkspaceDirectoryWatchSet NewWatchSet(string root) =>
-		new(
+/// <summary>Reports removal of the recursive watch root through its parent directory.</summary>
+public sealed class RecursiveWorkspaceDirectoryWatchSetTests(ITestOutputHelper output) {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task ReportsRootRemoval(bool rename) {
+		using var directory = new TempDirectory("weavie-recursive-watch");
+		string root = directory.CreateDirectory("worktree");
+		var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var watchSet = new RecursiveWorkspaceDirectoryWatchSet(
 			root,
 			created: _ => { },
 			changed: _ => { },
-			deleted: e => _deleted.Add(e),
+			deleted: e => {
+				if (e.FullPath == root) removed.TrySetResult();
+			},
 			renamed: (_, _) => { },
-			error: _ => { });
-
-	private async Task<bool> WaitForAsync(Func<bool> predicate) {
-		for (int i = 0; i < 100; i++) {
-			if (predicate()) {
-				return true;
-			}
-
-			await Task.Delay(50);
-		}
-
-		return predicate();
-	}
-
-	[Fact]
-	public async Task ReportsTheWatchedDirectoryItsOwnDeletion() {
-		string root = _dir.CreateDirectory("worktree");
-		using var watchSet = NewWatchSet(root);
+			error: error => output.WriteLine(error.ToString()));
 		watchSet.EnsureWatching(root);
 
-		Directory.Delete(root, recursive: true);
+		if (rename) Directory.Move(root, directory.Combine("moved-away"));
+		else Directory.Delete(root, recursive: true);
 
-		Assert.True(
-			await WaitForAsync(() => _deleted.Any(e => string.Equals(e.FullPath, root, StringComparison.Ordinal))),
-			"expected the watched directory's own removal to be reported");
+		await removed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 	}
-
-	[Fact]
-	public async Task ReportsTheWatchedDirectoryBeingRenamedAway() {
-		string root = _dir.CreateDirectory("worktree");
-		using var watchSet = NewWatchSet(root);
-		watchSet.EnsureWatching(root);
-
-		Directory.Move(root, _dir.Combine("moved-away"));
-
-		Assert.True(
-			await WaitForAsync(() => _deleted.Any(e => string.Equals(e.FullPath, root, StringComparison.Ordinal))),
-			"expected the watched directory being renamed away to be reported as gone");
-	}
-
-	public void Dispose() => _dir.Dispose();
 }

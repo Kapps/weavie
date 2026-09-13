@@ -60,9 +60,11 @@ async function establishTouchEmulation(page: Page): Promise<void> {
   // Never detached: the emulation lasts only as long as the session that set it.
   const session = await page.context().newCDPSession(page);
   await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-  if (!(await page.evaluate(() => matchMedia("(pointer: coarse)").matches))) {
-    throw new Error("touch emulation did not take: the page reports a fine pointer");
-  }
+  await expect
+    .poll(() => page.evaluate(() => matchMedia("(pointer: coarse)").matches), {
+      message: "touch emulation must expose a coarse pointer",
+    })
+    .toBe(true);
   touchSessions.set(page, session);
 }
 

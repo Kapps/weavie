@@ -34,6 +34,7 @@ test("downward scrolling preserves file order when the focused review editor lea
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")

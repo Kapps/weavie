@@ -174,11 +174,10 @@ export type AgentSlashEntry =
       inputName: string | null;
     })
   | (AgentSlashEntryBase & {
-      kind: "providerCommand";
       commandId: null;
       inputHint: string | null;
       inputName: null;
-    });
+    } & ({ kind: "providerCommand" } | { kind: "mcpPrompt" }));
 
 export interface AgentControlState {
   ready: boolean;

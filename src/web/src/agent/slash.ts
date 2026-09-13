@@ -19,8 +19,8 @@ export function filterSlash(entries: readonly AgentSlashEntry[], query: string):
   return entries.filter((entry) => entry.name.toLowerCase().includes(needle)).slice(0, 8);
 }
 
-/** The exact currently-advertised provider command invoked by a draft, including drafts with arguments. */
-export function providerCommandForDraft(
+/** The exact provider command or bundled MCP prompt invoked by a draft. */
+export function agentInvocationForDraft(
   entries: readonly AgentSlashEntry[],
   draft: string,
 ): AgentSlashEntry | null {
@@ -31,7 +31,8 @@ export function providerCommandForDraft(
   return (
     entries.find(
       (entry) =>
-        entry.kind === "providerCommand" && entry.name.toLowerCase() === name.toLowerCase(),
+        (entry.kind === "providerCommand" || entry.kind === "mcpPrompt") &&
+        entry.name.toLowerCase() === name.toLowerCase(),
     ) ?? null
   );
 }
@@ -72,6 +73,6 @@ export function classifyAgentDraft(state: AgentControlState, draft: string): Age
   const local = weavieCommandForDraft(state.slash, draft);
   if (local !== null) return { kind: "command", entry: local };
   if (!state.ready && draft.trimStart().startsWith("/")) return { kind: "loading" };
-  const provider = providerCommandForDraft(state.slash, draft);
+  const provider = agentInvocationForDraft(state.slash, draft);
   return provider === null ? { kind: "prompt" } : { kind: "command", entry: provider };
 }

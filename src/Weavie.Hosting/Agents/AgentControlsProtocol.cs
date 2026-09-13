@@ -31,6 +31,7 @@ internal static class AgentControlsProtocol {
 					kind = entry.Kind switch {
 						AgentSlashEntryKind.WeavieCommand => "weavieCommand",
 						AgentSlashEntryKind.ProviderCommand => "providerCommand",
+						AgentSlashEntryKind.McpPrompt => "mcpPrompt",
 						_ => throw new InvalidOperationException($"Unknown slash entry kind '{entry.Kind}'."),
 					},
 					commandId = entry.CommandId,

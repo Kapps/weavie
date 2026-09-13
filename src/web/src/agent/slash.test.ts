@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentControlState, AgentSlashEntry } from "../bridge";
 import {
+  agentInvocationForDraft,
   classifyAgentDraft,
   filterSlash,
-  providerCommandForDraft,
   slashQuery,
   weavieCommandForDraft,
   weavieCommandInput,
@@ -53,18 +53,18 @@ describe("weavieCommandForDraft", () => {
   });
 });
 
-describe("providerCommandForDraft", () => {
+describe("agentInvocationForDraft", () => {
   const entries = [entry("compact"), entry("review")];
 
   it("matches an exact advertised command with optional arguments", () => {
-    expect(providerCommandForDraft(entries, "/COMPACT")?.name).toBe("compact");
-    expect(providerCommandForDraft(entries, "  /compact  ")?.name).toBe("compact");
-    expect(providerCommandForDraft(entries, "/review focus on tests")?.name).toBe("review");
+    expect(agentInvocationForDraft(entries, "/COMPACT")?.name).toBe("compact");
+    expect(agentInvocationForDraft(entries, "  /compact  ")?.name).toBe("compact");
+    expect(agentInvocationForDraft(entries, "/review focus on tests")?.name).toBe("review");
   });
 
   it("does not promote unknown or prefix text into a command", () => {
-    expect(providerCommandForDraft(entries, "/compactly")).toBeNull();
-    expect(providerCommandForDraft(entries, "explain /compact")).toBeNull();
+    expect(agentInvocationForDraft(entries, "/compactly")).toBeNull();
+    expect(agentInvocationForDraft(entries, "explain /compact")).toBeNull();
   });
 });
 
@@ -153,5 +153,19 @@ describe("classifyAgentDraft", () => {
     "/clear now",
   ])("keeps unsupported slash input literal after readiness: %s", (draft) => {
     expect(classifyAgentDraft(controls(true, [clear]), draft)).toEqual({ kind: "prompt" });
+  });
+});
+
+describe("MCP prompt invocation", () => {
+  const prompt: AgentSlashEntry = { ...entry("report-weavie-bug"), kind: "mcpPrompt" };
+  it("is discoverable before readiness and resolves arguments after initialization", () => {
+    expect(filterSlash([prompt], "bug")).toEqual([prompt]);
+    expect(
+      classifyAgentDraft({ ready: false, axes: [], slash: [prompt] }, "/report-weavie-bug"),
+    ).toEqual({ kind: "loading" });
+    expect(
+      classifyAgentDraft({ ready: true, axes: [], slash: [prompt] }, "/REPORT-WEAVIE-BUG details"),
+    ).toEqual({ kind: "command", entry: prompt });
+    expect(agentInvocationForDraft([prompt], "/report-weavie-bug-extra")).toBeNull();
   });
 });

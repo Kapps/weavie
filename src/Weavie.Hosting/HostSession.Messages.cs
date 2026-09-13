@@ -257,6 +257,7 @@ public sealed partial class HostSession {
 		var kind = message.Kind switch {
 			"prompt" => AgentTurnSubmissionKind.Prompt,
 			"providerCommand" => AgentTurnSubmissionKind.ProviderCommand,
+			"mcpPrompt" => AgentTurnSubmissionKind.McpPrompt,
 			_ => throw new InvalidOperationException("Agent submissions require a recognized semantic kind."),
 		};
 		if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {

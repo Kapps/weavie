@@ -8,7 +8,7 @@ public sealed partial class AcpAgentSession {
 		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
 			lock (_gate) {
 				var command = ResolveProviderCommandLocked(submission.CommandName);
-				string text = CanonicalCommandText(submission.Text, command);
+				string text = CanonicalCommandText(submission.Text, command.Name);
 				return new([new { type = "text", text }], []);
 			}
 		}
@@ -16,7 +16,12 @@ public sealed partial class AcpAgentSession {
 		var blocks = new List<object>();
 		var images = new List<SubmittedImage>();
 		bool includesGuidance = false;
-		if (submission.Text.Length > 0) {
+		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
+			var prompt = McpPromptCatalog.Require(submission.CommandName);
+			blocks.Add(new { type = "text", text = prompt.Text });
+			string details = submission.Text[(prompt.Name.Length + 1)..].Trim();
+			if (details.Length > 0) blocks.Add(new { type = "text", text = details });
+		} else if (submission.Text.Length > 0) {
 			blocks.Add(new { type = "text", text = submission.Text });
 		}
 		foreach (var attachment in submission.Attachments) {

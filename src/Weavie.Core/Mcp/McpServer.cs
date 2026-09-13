@@ -121,7 +121,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
 		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
-		_prompts = registryMode ? RegistryPrompts : [];
+		_prompts = registryMode ? McpPromptCatalog.All : [];
 		IdeName = ideName;
 	}
 

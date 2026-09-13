@@ -51,6 +51,7 @@ public sealed class AcpSideGuidanceTests {
 	[Fact]
 	public async Task RestoredAsidePreservesItsImageAndRoleWithoutDisplayingFlattenedProviderGuidance() {
 		await using var fixture = AcpAgentSessionFixture.CreateFlattenReplayAdapter("saved-primary");
+		AcpAgentSessionFixture.SeedSession(fixture.Sessions, "fake", fixture.Workspace, "saved-primary", 1);
 		var primary = Assert.Single(fixture.Sessions.ReadConversations("fake", fixture.Workspace));
 		var side = primary with {
 			ConversationId = "saved-aside",

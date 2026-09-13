@@ -59,7 +59,7 @@ public static class WorkspaceSetupPrompt {
 
 			When you finish, report exactly which settings you wrote and their values, note that they are stored
 			per-workspace in Weavie's own config outside the repo (so nothing is committed to source control), and
-			tell me I can re-run this setup any time with `/mcp__weavie__setup-workspace`.
+			tell me I can re-run this setup by selecting the `setup-workspace` MCP prompt again.
 			""",
 	};
 }

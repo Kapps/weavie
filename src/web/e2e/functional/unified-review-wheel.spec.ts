@@ -28,7 +28,7 @@ test.use({
   },
 });
 
-test("downward scrolling preserves file order when the focused review editor leaves the viewport", async ({
+test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
 }) => {
   await page.locator(".editor-empty-review").click();
@@ -75,4 +75,10 @@ test("downward scrolling preserves file order when the focused review editor lea
   for (let index = 1; index < firstVisible.length; index++) {
     expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
   }
+  const settledHeight = await scroller.evaluate((element) => element.scrollHeight);
+  for (let notch = 0; notch < 80; notch++) {
+    await page.mouse.wheel(0, -200);
+    expect(await scroller.evaluate((element) => element.scrollHeight)).toBe(settledHeight);
+  }
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
 });

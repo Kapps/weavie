@@ -131,4 +131,65 @@ describe("DiffComputer", () => {
     await expect(calculation).resolves.toMatchObject({ status: "failed" });
     expect(worker.models.every((model) => model.dispose.mock.calls.length === 1)).toBe(true);
   });
+
+  it("restores completed geometry synchronously after the previous editor is disposed", async () => {
+    worker.computeDiff.mockResolvedValue({ quitEarly: false, changes: [] });
+    const model = liveModel("file:///reviewed") as never;
+    const sources = { original: "before", claudeVersion: undefined, acceptedBaseline: undefined };
+    const first = new DiffComputer();
+    const result = await first.compute("file:///reviewed", sources, model);
+    first.dispose();
+    const remounted = new DiffComputer();
+    expect(remounted.compute("file:///reviewed", { ...sources }, model)).toBe(result);
+    expect(worker.computeDiff).toHaveBeenCalledOnce();
+    expect(worker.models).toHaveLength(1);
+    expect(worker.models[0]?.disposed).toBe(true);
+    remounted.dispose();
+  });
+
+  it.each([
+    "original",
+    "claudeVersion",
+    "acceptedBaseline",
+    "version",
+    "model",
+  ] as const)("recomputes remounted geometry when %s changes", async (changed) => {
+    worker.computeDiff.mockResolvedValue({ quitEarly: false, changes: [] });
+    let version = 1;
+    const model = { ...liveModel("file:///reviewed"), getVersionId: () => version };
+    const sources = { original: "before", claudeVersion: "agent", acceptedBaseline: "accepted" };
+    const first = new DiffComputer();
+    await first.compute("file:///reviewed", sources, model as never);
+    first.dispose();
+    worker.computeDiff.mockClear();
+    if (changed === "version") version++;
+    else if (changed !== "model") sources[changed] = "changed";
+    const remounted = new DiffComputer();
+    const calculation = remounted.compute(
+      "file:///reviewed",
+      sources,
+      (changed === "model" ? { ...model } : model) as never,
+    );
+    expect(calculation).toBeInstanceOf(Promise);
+    await expect(calculation).resolves.toMatchObject({ status: "ready" });
+    expect(worker.computeDiff).toHaveBeenCalled();
+    remounted.dispose();
+  });
+
+  it.each(["failed", "timed-out"])("does not reuse %s calculations on remount", async (status) => {
+    if (status === "failed") worker.computeDiff.mockRejectedValueOnce(new Error("worker failed"));
+    else worker.computeDiff.mockResolvedValueOnce({ quitEarly: true, changes: [] });
+    const model = liveModel("file:///reviewed") as never;
+    const sources = { original: "before", claudeVersion: undefined, acceptedBaseline: undefined };
+    const first = new DiffComputer();
+    await first.compute("file:///reviewed", sources, model);
+    first.dispose();
+    worker.computeDiff.mockResolvedValue({ quitEarly: false, changes: [] });
+    const remounted = new DiffComputer();
+    await expect(remounted.compute("file:///reviewed", sources, model)).resolves.toMatchObject({
+      status: "ready",
+    });
+    expect(worker.computeDiff).toHaveBeenCalledTimes(2);
+    remounted.dispose();
+  });
 });

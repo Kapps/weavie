@@ -39,6 +39,23 @@ interface ActiveSources {
     | undefined;
 }
 
+const completed = new WeakMap<
+  monaco.editor.ITextModel,
+  {
+    version: number;
+    sources: DiffSources;
+    result: Extract<DiffCalculation, { status: "ready" }>;
+  }
+>();
+
+function sameSources(left: DiffSources, right: DiffSources): boolean {
+  return (
+    left.original === right.original &&
+    left.claudeVersion === right.claudeVersion &&
+    left.acceptedBaseline === right.acceptedBaseline
+  );
+}
+
 let nextComputerId = 1;
 
 /** Computes review geometry in Monaco's existing editor worker. */
@@ -52,14 +69,21 @@ export class DiffComputer {
     uri: string,
     sources: DiffSources,
     liveModel: monaco.editor.ITextModel,
-  ): Promise<DiffCalculation> {
-    const active = this.activate(uri, sources);
+  ): DiffCalculation | Promise<DiffCalculation> {
     const version = liveModel.getVersionId();
+    const cached = completed.get(liveModel);
+    if (cached?.version === version && sameSources(cached.sources, sources)) return cached.result;
+    const active = this.activate(uri, sources);
     if (active.live?.model === liveModel && active.live.version === version) {
       return active.live.calculation;
     }
 
-    const calculation = this.track(active, this.computeActive(active, liveModel));
+    const calculation = this.track(active, this.computeActive(active, liveModel)).then((result) => {
+      if (result.status === "ready" && liveModel.getVersionId() === version) {
+        completed.set(liveModel, { version, sources: { ...sources }, result });
+      }
+      return result;
+    });
     active.live = { model: liveModel, version, calculation };
     return calculation;
   }
@@ -104,12 +128,7 @@ export class DiffComputer {
   }
 
   private matches(active: ActiveSources, uri: string, sources: DiffSources): boolean {
-    return (
-      active.uri === uri &&
-      active.values.original === sources.original &&
-      active.values.claudeVersion === sources.claudeVersion &&
-      active.values.acceptedBaseline === sources.acceptedBaseline
-    );
+    return active.uri === uri && sameSources(active.values, sources);
   }
 
   private createSourceModel(

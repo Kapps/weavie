@@ -227,6 +227,16 @@ test.describe("native wheel scrolling", () => {
             (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
           ),
         ).toBeLessThanOrEqual(1);
+        const fineMovement = await body.evaluate((element) => {
+          const previous = element.scrollTop;
+          for (let step = 0; step < 4; step++) {
+            element.dispatchEvent(
+              new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -0.25 }),
+            );
+          }
+          return element.scrollTop - previous;
+        });
+        expect(fineMovement, "fractional input must accumulate immediately").toBe(-1);
       } finally {
         await host.close();
       }

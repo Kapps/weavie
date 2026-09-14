@@ -1,10 +1,13 @@
-import { type JSX, Show } from "solid-js";
+import { type JSX, lazy, Show } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
 import { hasTextSelection } from "../commands/context";
-import { AgentPaneBody } from "./AgentPaneBody";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentWorkingStatus } from "./AgentWorkingStatus";
 import type { AgentPaneModel } from "./pane-store";
+
+const AgentPaneBody = lazy(() =>
+  import("./AgentPaneBody").then((module) => ({ default: module.AgentPaneBody })),
+);
 
 export function AgentPane(props: {
   inputProtocol: number;

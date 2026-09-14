@@ -642,7 +642,7 @@ test.describe("ACP composer", () => {
     await expect(write.locator(".agent-tool-output")).toHaveCount(0);
   });
 
-  test("a failed step shows why it failed without a click", async ({ page }) => {
+  test("a failed step hides its output until the user asks for it", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();
     publishPane(userMessage("run the failing command"));
@@ -661,6 +661,8 @@ test.describe("ACP composer", () => {
     const activity = page.locator(".agent-entry-activity");
     await activity.getByText("history", { exact: true }).click();
     const step = activity.locator(".agent-activity-step");
+    await expect(step.locator(".agent-tool-output")).toHaveCount(0);
+    await step.getByText("show output", { exact: true }).click();
     await expect(step.locator(".agent-tool-output")).toContainText("FAILURE_REASON");
     await step.getByText("hide output", { exact: true }).click();
     await expect(step.locator(".agent-tool-output")).toHaveCount(0);

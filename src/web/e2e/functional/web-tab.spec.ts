@@ -10,7 +10,7 @@ import {
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { persistedSessions } from "../harness/persisted-sessions";
+import { persistedActiveTabs } from "../harness/persisted-sessions";
 
 let server: Server;
 let origin: string;
@@ -196,7 +196,13 @@ test("restored inactive web tab stays dormant until activation", async ({ page, 
   await openUrl(page, url);
   await expect(activeFrame(page).locator("#load-count")).toHaveText("Page loads: 1");
   await openFile(page, "README.md");
-  await expect.poll(() => persistedSessions(weavie.home)).toContain(path);
+  // Flaked on macOS CI 2026-09-14 (github.com/Kapps/weavie/actions/runs/34803964387/job/103852560099): the
+  // persisted `active` field lands on its own debounced write, after (and separate from) the write that first
+  // puts this tab's path in `open` — so polling raw file content let `openUrl`'s write satisfy the poll before
+  // `openFile`'s active-tab correction reached disk, and the reload below raced ahead of it. Wait on `active`.
+  await expect
+    .poll(() => persistedActiveTabs(weavie.home))
+    .toContainEqual(expect.stringMatching(/README\.md$/));
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });

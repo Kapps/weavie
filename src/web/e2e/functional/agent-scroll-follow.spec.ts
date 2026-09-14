@@ -1,7 +1,7 @@
 import { awaitEditorReady, createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-test("composer resizing preserves following latest and a paused reading position", async ({
+test("precision scrolling and composer resizing preserve a paused reading position", async ({
   page,
 }) => {
   await awaitEditorReady(page);
@@ -33,6 +33,36 @@ test("composer resizing preserves following latest and a paused reading position
   await expect.poll(distanceFromBottom).toBeGreaterThan(500);
   const latest = surface.getByRole("button", { name: "Jump to latest", exact: true });
   await expect(latest).toBeVisible();
+  const precision = await body.evaluate(async (element) => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 160));
+    const start = element.scrollTop;
+    const scroll = (deltaY: number): number => {
+      element.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }));
+      return element.scrollTop;
+    };
+    const forward = Array.from({ length: 4 }, () => scroll(-0.25)).at(-1)!;
+    const reversed = Array.from({ length: 4 }, () => scroll(0.25)).at(-1)!;
+    const integer = Array.from({ length: 8 }, () => scroll(-1)).at(-1)!;
+    const largerInteger = Array.from({ length: 8 }, () => scroll(-2)).at(-1)!;
+    const gesture = scroll(-32.5);
+    await new Promise<void>((resolve) => setTimeout(resolve, 160));
+    return {
+      start,
+      forward,
+      reversed,
+      integer,
+      largerInteger,
+      gesture,
+      settled: element.scrollTop,
+    };
+  });
+  expect(precision.forward).toBe(precision.start - 1);
+  expect(precision.reversed).toBe(precision.start);
+  expect(precision.integer).toBe(precision.start - 8);
+  expect(precision.largerInteger).toBe(precision.integer - 16);
+  expect(Math.abs(precision.gesture - (precision.largerInteger - 32.5))).toBeLessThanOrEqual(0.5);
+  expect(precision.settled).toBe(precision.gesture);
+
   const anchor = await body.evaluate(async (element) => {
     let previous = element.scrollTop;
     let stationaryFrames = 0;

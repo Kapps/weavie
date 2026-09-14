@@ -1,3 +1,8 @@
+import {
+  type IMouseWheelEvent,
+  StandardWheelEvent,
+} from "@codingame/monaco-vscode-api/vscode/vs/base/browser/mouseEvent";
+import { MouseWheelClassifier } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/ui/scrollbar/scrollableElement";
 import { type Accessor, onCleanup, onMount } from "solid-js";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 
@@ -83,11 +88,27 @@ export function createAgentPaneWheel(
           ? element.clientHeight
           : 1;
     const delta = event.deltaY * unit;
+    const classifier = MouseWheelClassifier.INSTANCE;
+    classifier.acceptStandardWheelEvent(
+      new StandardWheelEvent(event as WheelEvent & IMouseWheelEvent),
+    );
+    const precisePixel =
+      event.deltaMode === WheelEvent.DOM_DELTA_PIXEL &&
+      (Math.abs(event.deltaY) <= 1 || !Number.isInteger(event.deltaY));
     event.preventDefault();
     onIntent();
-    if (!currentEditorOptions().smoothScrolling) {
-      cancel();
-      move(element, delta);
+    // Single-pixel and fractional input stay precise inside the classifier's near-integer tolerance.
+    if (
+      precisePixel ||
+      !classifier.isPhysicalMouseWheel() ||
+      !currentEditorOptions().smoothScrolling
+    ) {
+      let movement = delta;
+      if (frame !== null) {
+        if (Math.sign(delta) === Math.sign(remaining)) movement += remaining + fraction;
+        cancel();
+      }
+      move(element, movement);
       onSettled();
       return;
     }
@@ -103,9 +124,9 @@ export function createAgentPaneWheel(
     const element = body();
     if (element === undefined) return;
     const interrupt = (): void => {
-      if (frame === null) return;
+      const active = frame !== null;
       cancel();
-      onSettled();
+      if (active) onSettled();
     };
     const keydown = (event: KeyboardEvent): void => {
       if (event.target === element && !event.defaultPrevented && scrollingKeys.has(event.key))

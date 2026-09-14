@@ -1312,7 +1312,7 @@ export function createInlineDiff(
       return;
     }
     const version = model.getVersionId();
-    const calculation = await diffComputer.compute(
+    const computation = diffComputer.compute(
       uriString,
       {
         original: options.original,
@@ -1321,6 +1321,7 @@ export function createInlineDiff(
       },
       model,
     );
+    const calculation = computation instanceof Promise ? await computation : computation;
     if (
       disposed ||
       generation !== renderGeneration ||

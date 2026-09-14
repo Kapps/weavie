@@ -75,6 +75,11 @@ export function createReviewEditor(options: {
     editor,
   );
   const gaps = editor.createDecorationsCollection([]);
+  let constructing = true;
+  let disposed = false;
+  const publish = (): void => {
+    if (!disposed) options.onPainted();
+  };
   let height = 0;
   const measure = (): void => {
     const next = editor.getContentHeight();
@@ -120,7 +125,8 @@ export function createReviewEditor(options: {
         editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
         measure();
       });
-      options.onPainted();
+      if (constructing) queueMicrotask(publish);
+      else publish();
     },
   };
   const capture = (): TextLocation => {
@@ -156,12 +162,13 @@ export function createReviewEditor(options: {
     restore,
   });
   const inline = createInlineDiff(editor, presentation);
+  options.configure(inline, model.uri.toString(), options.diff);
+  measure();
+  constructing = false;
   const subscriptions = [
     editor.onDidContentSizeChange(measure),
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
   ];
-  measure();
-  options.configure(inline, model.uri.toString(), options.diff);
   return {
     capture,
     restore,
@@ -177,6 +184,7 @@ export function createReviewEditor(options: {
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
+      disposed = true;
       if (container.contains(document.activeElement)) {
         options.scroller.focus({ preventScroll: true });
       }

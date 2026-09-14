@@ -26,8 +26,10 @@ public sealed partial class HostCore {
 		// snapshot is already in hand, so the tab arrives titled and populated with no `loading` state to resolve.
 		// State (not a bare publish) so a reconnecting client replays it into the still-open tab. Claude's
 		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		session.State.Set("sources", LogsTarget, "document", new {
+		session.State.SetVersioned("sources", LogsTarget, "document", revision => new {
 			target = LogsTarget,
+			revision,
+			editId = string.Empty,
 			title = LogsTitle,
 			html = (_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
 				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Persistent logging error: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)

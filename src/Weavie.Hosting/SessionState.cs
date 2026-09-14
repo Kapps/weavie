@@ -19,13 +19,20 @@ internal sealed class SessionState {
 		string feature,
 		string key,
 		string name,
-		T payload) {
+		T payload) => SetVersioned(feature, key, name, _ => payload);
+
+	public void SetVersioned<T>(
+		string feature,
+		string key,
+		string name,
+		Func<long, T> payload) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(key);
 		ArgumentException.ThrowIfNullOrEmpty(name);
-		string json = JsonSerializer.Serialize(payload, JsonOptions);
 		lock (_gate) {
-			_entries[(feature, key)] = new Entry(++_sequence, name, json);
+			long revision = ++_sequence;
+			string json = JsonSerializer.Serialize(payload(revision), JsonOptions);
+			_entries[(feature, key)] = new Entry(revision, name, json);
 			_bus.Feature(feature).PublishJson(name, json);
 		}
 	}

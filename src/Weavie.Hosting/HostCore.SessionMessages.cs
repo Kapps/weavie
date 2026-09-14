@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
+using Weavie.Core.Sources;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -157,8 +158,11 @@ public sealed partial class HostCore {
 			DismissSourceTokenPrompt(session);
 			return Task.CompletedTask;
 		});
+		sources.HandleConcurrent<OpenTargetMessage, SourceDoc>(
+			"refresh",
+			(message, ct) => _sources.FetchAsync(message.Url, ct));
 		sources.Handle<SourceEditMessage>("saveEdit", (message, ct) =>
-			SaveSourceEditAsync(session, message.Target, message.OldText, message.NewText, ct));
+			SaveSourceEditAsync(session, message.Target, message.OldText, message.NewText, message.EditId, ct));
 	}
 
 	private void SyncSession(HostSession session, MessageTarget target) {
@@ -241,7 +245,7 @@ public sealed partial class HostCore {
 
 	private sealed record SaveSourceTokenMessage(string SourceId, string Token);
 
-	private sealed record SourceEditMessage(string Target, string OldText, string NewText);
+	private sealed record SourceEditMessage(string Target, string OldText, string NewText, string EditId);
 
 	private sealed class BoundSessionHost : ISessionHost {
 		private readonly HostCore _core;

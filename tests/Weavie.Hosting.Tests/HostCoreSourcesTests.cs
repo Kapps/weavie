@@ -140,6 +140,25 @@ public sealed class HostCoreSourcesTests {
 	}
 
 	[Fact]
+	public async Task SourceRefresh_ReturnsFreshContentWithoutReplacingTheDisplayedDocument() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri.Contains("/markdown")
+			? (HttpStatusCode.OK, """{ "markdown": "Remote change", "truncated": false, "unknown_block_ids": [] }""")
+			: (HttpStatusCode.OK, """{ "properties": {} }""");
+
+		var result = await host.SessionRequestAsync<JsonElement>(
+			host.SelectedSession,
+			"sources",
+			"refresh",
+			new { url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" });
+
+		Assert.Equal("Remote change", result.GetProperty("markdown").GetString());
+		Assert.Null(SourceEvent(host, "document"));
+		Assert.Null(SourceEvent(host, "loading"));
+	}
+
+	[Fact]
 	public async Task ReconnectReplaysTheSourceDocumentAndItsEditorTab() {
 		await using var host = await TestHost.StartAsync();
 		WriteToken(host, "ntn_secret");
@@ -277,6 +296,7 @@ public sealed class HostCoreSourcesTests {
 		// The refreshed doc comes from the PATCH response's markdown, keeping the store in sync with Notion.
 		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("Hello edited\nWorld", doc.GetProperty("markdown").GetString());
+		Assert.Equal("test-edit", doc.GetProperty("editId").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("notion", doc.GetProperty("sourceId").GetString());
 		// The PATCH itself: the markdown endpoint, authenticated, and EXACTLY one update_content op — no
@@ -373,7 +393,7 @@ public sealed class HostCoreSourcesTests {
 			host.SelectedSession,
 			"sources",
 			"saveEdit",
-			new { target, oldText, newText });
+			new { target, oldText, newText, editId = "test-edit" });
 
 	private static JsonElement? SourceEvent(TestHost host, string name) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "sources", name);

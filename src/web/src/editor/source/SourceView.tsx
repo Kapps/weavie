@@ -10,6 +10,7 @@ import HIGHLIGHT_CSS from "../preview/preview-highlight.css?raw";
 import { renderNotionMarkdown } from "./notion-markdown";
 import { SourceEditController } from "./source-edit";
 import { sanitizeSourceHtml } from "./source-html";
+import { watchSourceDoc } from "./source-refresh";
 import type { SourceDocEntry } from "./source-store";
 import { openSourceTarget } from "./source-store";
 import { SOURCE_STYLES } from "./source-styles";
@@ -56,6 +57,13 @@ export default function SourceView(props: {
       return;
     }
     body.append(headerNode(entry.title, entry.editedTime));
+    if (entry.refreshError !== undefined) {
+      const notice = document.createElement("div");
+      notice.className = "wv-incomplete";
+      notice.setAttribute("role", "status");
+      notice.textContent = `Couldn't refresh from Notion: ${entry.refreshError}`;
+      body.append(notice);
+    }
     const banner = incompleteBanner(entry.truncated, entry.unknownBlocks);
     if (banner !== undefined) {
       body.append(banner);
@@ -146,6 +154,7 @@ export default function SourceView(props: {
   };
 
   onMount(() => onCleanup(props.bind(host)));
+  onMount(() => onCleanup(watchSourceDoc(props.session, props.target())));
   onMount(() => host.addEventListener("click", onClick, { capture: true }));
   onCleanup(() => {
     host.removeEventListener("click", onClick, { capture: true });

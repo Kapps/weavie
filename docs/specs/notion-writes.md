@@ -55,9 +55,9 @@ flowchart LR
 
 - **Web** (`source-edit.ts`, the controller `SourceView` mounts): one edit at a time; commit disables the
   textarea (`Saving…`) until the host resolves it; blur with an *unchanged* draft cancels, a changed draft stays
-  (never a silent discard). An edit is bound to the exact markdown string it opened against — a same-string
-  re-render (theme switch) re-mounts the draft, a different string (the save's refresh) closes it and returns
-  focus to the block. A list item keeps its nested list visible while editing.
+  (never a silent discard). An edit is bound to the exact markdown string it opened against. The store protects that document
+  while a draft exists; only a successful save carrying the draft's edit ID clears it. Theme changes
+  re-mount the draft, and an acknowledged save returns focus to the block. A list item keeps its nested list visible while editing.
 - **Host** (`HostCore.Sources.cs` `SaveSourceEditAsync`): fire-and-forget like the fetch — every outcome
   resolves the block's saving state. Success re-posts `source-doc` from the PATCH response's full updated
   markdown (`PostSourceDoc`, shared with fetch); `SourceConflictException` → `source-edit-error {stale:true}`
@@ -65,6 +65,23 @@ flowchart LR
 - **Truncation flags ride beside the markdown**, never inside it: `SourceDoc(…, Truncated, UnknownBlocks)`
   renders as a web-side banner (`.wv-incomplete`), keeping the fetched markdown byte-exact for diffing.
   Truncated pages stay editable — `update_content` matches against the full page server-side.
+
+## Automatic refresh
+
+Displayed Notion documents refresh every 15 seconds and when the window regains focus or becomes visible.
+The view owns the refresh lifetime and permits one outstanding request. Hidden documents stop polling;
+returning to a cached document requests fresh content. The shared host's `sources.refresh` request reads
+Notion without publishing a loading state or replacing the displayed document.
+
+The session-owned store accepts a refresh only if the original document and edit epoch still match and no
+block editor is open. Opening and cancelling an edit invalidates an outstanding refresh too. Any draft,
+including a save in progress or a failed save, pauses refresh. Normal document/loading/error pushes also
+preserve drafts; save results and errors carry the exact edit ID. Refresh never writes to Notion, and
+existing exact-match writes continue to surface conflicts without discarding the draft.
+
+Unchanged responses preserve the rendered DOM. Refresh failures show beside the retained document and
+clear after a successful refresh. Host snapshots carry revisions, so reconnect replay cannot replace an already refreshed document
+with a previously observed snapshot. A fresh client restores the host snapshot and refreshes on display.
 
 ## Keyboard surface
 

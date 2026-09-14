@@ -84,6 +84,14 @@ function buildEditor(
     ...toMonacoOptions(editorOptions),
     ...overrides,
   });
+  // Linux PRIMARY paste runs on release, independently of Monaco's mousedown gesture.
+  const suppressMiddleClickPaste = (event: MouseEvent): void => {
+    if (event.button === 1 && editor.getOption(monaco.editor.EditorOption.scrollOnMiddleClick)) {
+      event.preventDefault();
+    }
+  };
+  container.addEventListener("mouseup", suppressMiddleClickPaste);
+  editor.onDidDispose(() => container.removeEventListener("mouseup", suppressMiddleClickPaste));
   const definitions = editor.getContribution<GotoDefinitionAtPositionEditorContribution>(
     GotoDefinitionAtPositionEditorContribution.ID,
   );
@@ -139,6 +147,8 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
     ),
     fastScrollSensitivity: o.fastScrollSensitivity,
     scrollOnMiddleClick: o.middleClickAutoscroll,
+    // Linux's primary-selection gesture takes precedence over Monaco's middle-click scrolling.
+    selectionClipboard: !o.middleClickAutoscroll,
     wordWrap: o.wordWrap,
     lineNumbers: o.lineNumbers,
     cursorBlinking: o.cursorBlinking,

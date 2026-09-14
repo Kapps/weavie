@@ -195,68 +195,96 @@ test("middle-click autoscrolls any scrollable surface, not just the transcript",
 // The editor's autoscroll is Monaco's own `scrollOnMiddleClick` contribution, wired to the same setting: its
 // viewport is not a native scrollable element, so the app-level gesture skips it (`.monaco-editor` owns the
 // middle button) and Monaco scrolls itself.
-test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
-  const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
-  const host = await MockHost.start({ distDir, sessions: [session] });
-  const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(error.message));
+test.describe("Linux editor middle click", () => {
+  test.use({
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/145.0.0.0 Safari/537.36",
+  });
+  test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
+    const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
+    const host = await MockHost.start({ distDir, sessions: [session] });
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  try {
-    host.files.set(
-      "/long.ts",
-      Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`).join("\n"),
-    );
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitUntilConnected();
-    host.publishSession(session.address, "editor", "openFile", {
-      path: "/long.ts",
-      line: 1,
-      preview: false,
-      scratch: false,
-    });
-
-    const editor = page.locator(".monaco-editor").first();
-    await expect(editor).toBeVisible();
-    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("line0 = 0");
-    expect(
-      await page.evaluate(() =>
-        Number.isFinite(
-          window.__WEAVIE_EDITOR__?.getRawOptions().mouseWheelScrollSensitivity ?? NaN,
+    try {
+      host.files.set(
+        "/long.ts",
+        Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`).join(
+          "\n",
         ),
-      ),
-    ).toBe(true);
-    const scrollTop = (): Promise<number> =>
-      page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop() ?? -1);
-    await expect.poll(scrollTop).toBe(0);
+      );
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishSession(session.address, "editor", "openFile", {
+        path: "/long.ts",
+        line: 1,
+        preview: false,
+        scratch: false,
+      });
 
-    const origin = await paneOrigin(editor);
+      const editor = page.locator(".monaco-editor").first();
+      await expect(editor).toBeVisible();
+      await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("line0 = 0");
+      expect(
+        await page.evaluate(() =>
+          Number.isFinite(
+            window.__WEAVIE_EDITOR__?.getRawOptions().mouseWheelScrollSensitivity ?? NaN,
+          ),
+        ),
+      ).toBe(true);
+      const scrollTop = (): Promise<number> =>
+        page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop() ?? -1);
+      await expect.poll(scrollTop).toBe(0);
 
-    // A middle click arms the scroll; moving away from the click point drives it, faster the further you go.
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(editor).toHaveClass(/scroll-editor-on-middle-click-editor/);
-    await page.mouse.move(origin.x, origin.y + 120);
-    await expect.poll(scrollTop).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        window.__WEAVIE_EDITOR__?.setSelection({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: 1,
+          endColumn: 7,
+        });
+      });
+      const snapshot = () =>
+        page.evaluate(() => ({
+          selection: window.__WEAVIE_EDITOR__?.getSelection(),
+          text: window.__WEAVIE_EDITOR__?.getValue(),
+        }));
+      const before = await snapshot();
+      const origin = await paneOrigin(editor);
 
-    // Any key ends the scroll, matching the transcript's Escape.
-    await page.keyboard.press("Escape");
-    await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+      // A middle click arms the scroll; moving away from the click point drives it, faster the further you go.
+      await page.mouse.click(origin.x, origin.y, { button: "middle" });
+      await expect(editor).toHaveClass(/scroll-editor-on-middle-click-editor/);
+      await page.mouse.move(origin.x, origin.y + 120);
+      await expect.poll(scrollTop).toBeGreaterThan(0);
 
-    host.publishHost(
-      "settings",
-      "editorOptions",
-      mockEditorOptions({ middleClickAutoscroll: false }),
-    );
-    await expect
-      .poll(() =>
-        page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().scrollOnMiddleClick),
-      )
-      .toBe(false);
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await host.close();
-  }
+      expect(await snapshot()).toEqual(before);
+
+      // Any key ends the scroll, matching the transcript's Escape.
+      await page.keyboard.press("Escape");
+      await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+
+      host.publishHost(
+        "settings",
+        "editorOptions",
+        mockEditorOptions({ middleClickAutoscroll: false }),
+      );
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().scrollOnMiddleClick),
+        )
+        .toBe(false);
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().selectionClipboard),
+        )
+        .toBe(true);
+      await page.mouse.click(origin.x, origin.y, { button: "middle" });
+      await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await host.close();
+    }
+  });
 });
 
 // The tab strip claims the middle button for close (`data-middle-click`). The app-level gesture sees the press

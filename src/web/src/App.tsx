@@ -1406,6 +1406,11 @@ export default function App(): JSX.Element {
       document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
     }
 
+    // The editor session store debounces its persisted-state push by 300ms; a reload or close inside that
+    // window kills the pending timer with the page, silently dropping the last local change (e.g. which tab
+    // is active). Flush it out synchronously on pagehide so a restore can never observe stale state.
+    window.addEventListener("pagehide", () => flushEditorSession());
+
     const offViewBinding = registerViewFeature((session) => {
       const cleanups = [
         session

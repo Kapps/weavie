@@ -286,3 +286,53 @@ function anchorDistance(element: HTMLElement, previous: { id: string; top: numbe
   if (row === undefined) throw new Error("Wheel notches lost the visible transcript anchor");
   return row.getBoundingClientRect().top - previous.top;
 }
+
+for (const preciseDelta of [-0.25, 0.25]) {
+  test(`precision input ${preciseDelta < 0 ? "preserves" : "reverses"} a pending wheel gesture`, async ({
+    page,
+  }) => {
+    const session = mockSession("precision-transition", "precision-transition", "acp");
+    const host = await MockHost.start({ distDir, sessions: [session] });
+    host.setAgentHistory(session.address, {
+      generation: 1,
+      batchSize: 5000,
+      messages: [
+        {
+          providerId: "acp",
+          type: "item-completed",
+          turnId: "t1",
+          itemId: "a1",
+          itemType: "agentMessage",
+          status: "completed",
+          text: `\`\`\`text\n${"A fully measured transcript line.\n".repeat(300)}\`\`\``,
+        },
+      ],
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      const body = page.locator(".agent-body");
+      await expect(body.locator("code")).toContainText("A fully measured transcript line.");
+      await body.evaluate((element) => {
+        element.scrollTop = element.scrollHeight / 2;
+      });
+      await page.waitForTimeout(200);
+      const movement = await body.evaluate(async (element, delta) => {
+        const initial = element.scrollTop;
+        for (const deltaY of [-120, delta]) {
+          element.dispatchEvent(
+            new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }),
+          );
+        }
+        const immediate = element.scrollTop - initial;
+        await new Promise<void>((resolve) => setTimeout(resolve, 160));
+        return { immediate, settled: element.scrollTop - initial };
+      }, preciseDelta);
+      const expected = preciseDelta < 0 ? -120 + preciseDelta : preciseDelta;
+      expect(Math.abs(movement.immediate - expected)).toBeLessThanOrEqual(0.5);
+      expect(movement.settled).toBe(movement.immediate);
+    } finally {
+      await host.close();
+    }
+  });
+}

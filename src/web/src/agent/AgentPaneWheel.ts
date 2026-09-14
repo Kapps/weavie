@@ -103,8 +103,12 @@ export function createAgentPaneWheel(
       !classifier.isPhysicalMouseWheel() ||
       !currentEditorOptions().smoothScrolling
     ) {
-      if (frame !== null) cancel();
-      move(element, delta);
+      let movement = delta;
+      if (frame !== null) {
+        if (Math.sign(delta) === Math.sign(remaining)) movement += remaining + fraction;
+        cancel();
+      }
+      move(element, movement);
       onSettled();
       return;
     }

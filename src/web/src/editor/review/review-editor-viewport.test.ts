@@ -28,7 +28,7 @@ function fixture() {
   const layoutInfo = { width: 716, contentWidth: 648, height: 568, verticalScrollbarWidth: 14 };
   const values = new Map<EditorOption, unknown>([
     [EditorOption.layoutInfo, layoutInfo],
-    [EditorOption.padding, { top: 6, bottom: 6 }],
+    [EditorOption.padding, { top: 6, bottom: 18 }],
     [EditorOption.lineHeight, 22],
     [EditorOption.smoothScrolling, false],
     [EditorOption.scrollBeyondLastLine, false],
@@ -37,7 +37,7 @@ function fixture() {
       {
         horizontal: ScrollbarVisibility.Auto,
         horizontalScrollbarSize: 12,
-        ignoreHorizontalScrollbarInContentHeight: false,
+        ignoreHorizontalScrollbarInContentHeight: true,
       },
     ],
     [EditorOption.wrappingInfo, { isViewportWrapping: false }],
@@ -153,11 +153,13 @@ describe("review viewport geometry ownership", () => {
     expect(current.editor.render).not.toHaveBeenCalled();
   });
 
-  it("does not turn Monaco's horizontal-scrollbar height clamp into an outer reveal", () => {
+  it("keeps content height stable when visible lines no longer need a horizontal scrollbar", () => {
     const current = fixture();
     const before = current.rootTop();
+    const height = current.view.getContentHeight();
     current.view.setMaxLineWidth(184);
-    expect(current.rootTop()).toBe(before - 12);
+    expect(current.view.getContentHeight()).toBe(height);
+    expect(current.rootTop()).toBe(before);
     expect(current.writes).toEqual([]);
   });
 

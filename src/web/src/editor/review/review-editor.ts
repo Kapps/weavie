@@ -53,6 +53,8 @@ export function createReviewEditor(options: {
   const mount = document.createElement("div");
   mount.className = "unified-review-editor-viewport";
   container.appendChild(mount);
+  const horizontalScrollbarSize =
+    monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const editor = createEmbeddedEditor(mount, model, {
     readOnly: !options.editable,
     scrollBeyondLastLine: false,
@@ -65,7 +67,9 @@ export function createReviewEditor(options: {
     folding: false,
     stickyScroll: { enabled: false },
     renderLineHighlightOnlyWhenFocus: true,
-    padding: { top: 6, bottom: 6 },
+    // Visible-line width changes while scrolling; scrollbar space must not change section height with it.
+    scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
+    padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
   }) as CollapsingEditor;
   const viewport = createReviewEditorViewport(
     container,

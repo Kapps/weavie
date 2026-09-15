@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
+import { transcriptGeometry } from "./harness/transcript-geometry";
 import { MockHost, mockSession } from "./mock-host";
 
 // Drives the native ACP composer in a real browser against the mock host: it renders the structured agent
@@ -314,29 +315,10 @@ test.describe("ACP composer", () => {
     await expect(statusLine).toBeVisible();
   }
 
-  // The app's own follow-to-bottom correction (AgentPaneScroll.onVirtualizerChange) chases convergence one
-  // requestAnimationFrame at a time as the virtualizer keeps mounting/measuring rows, so how many real frames
-  // it takes is unbounded under CI contention. Poll it frame-by-frame instead of racing it against a
-  // wall-clock `expect.poll` timeout, which flaked here: 2026-09-03,
-  // https://github.com/Kapps/weavie/actions/runs/33710321926/job/100508846088 ("Received: 47" after the full
-  // Windows 30s expect.timeout — one row's height still short of settling).
-  // Recurred on main CI 2026-09-04 04:51 UTC, same wait-vs-poll race, on both
-  // e2e (linux) / shard (1/6) (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914906521,
-  // "Received: 25") and e2e (macos) / shard (1/6)
-  // (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914932032, "Received: 25") — the fix
-  // below (PR #732) was open but not yet merged when this build ran; merging it applies the same fix here.
-  async function waitForBottom(page: Page, body: Locator): Promise<void> {
-    for (;;) {
-      const distance = await body.evaluate(
-        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
-      );
-      if (distance < 1) {
-        return;
-      }
-      await page.evaluate(
-        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-      );
-    }
+  async function waitForBottom(body: Locator): Promise<void> {
+    await expect
+      .poll(async () => (await body.evaluate(transcriptGeometry)).bottomDistance)
+      .toBeLessThan(1);
   }
 
   async function revealScrollNavigation(page: Page): Promise<void> {
@@ -583,18 +565,17 @@ test.describe("ACP composer", () => {
     );
     await expect(page.getByText("LATER_RESPONSE_END", { exact: false })).toBeAttached();
     const composer = page.locator("[data-agent-composer] textarea");
+    const body = page.locator(".agent-body");
     await composer.focus();
     await page.keyboard.press("Alt+ArrowDown");
-    await expect(disclosure).toHaveCount(1);
-    await expect
-      .poll(async () => {
-        const body = await page.locator(".agent-body").boundingBox();
-        const command = await disclosure.boundingBox();
-        return body !== null && command !== null && command.y + command.height <= body.y;
-      })
-      .toBe(true);
+    await waitForBottom(body);
+    await expect(disclosure).toHaveCount(0);
     await composer.focus();
     await page.keyboard.press("Alt+O");
+    await body.locator(":scope > .monaco-list").focus();
+    await page.keyboard.press("Home");
+    await expect(disclosure).toBeVisible();
+    await expect(toggle).toBeVisible();
     await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
   });
 
@@ -790,7 +771,7 @@ test.describe("ACP composer", () => {
     }
     await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 6");
     await expect(response).toHaveValue("Keep this answer");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
 
     await request.getByRole("button", { name: "Submit answers" }).hover();
     await page.mouse.wheel(0, -100_000);
@@ -798,7 +779,9 @@ test.describe("ACP composer", () => {
     await expect(body.locator(".agent-entry-text").first()).toContainText(
       "Read this earlier output before answering",
     );
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.offset))
+      .toBe(0);
     await expect(response).toBeFocused();
     await expect(response).toHaveValue("Keep this answer");
 
@@ -813,7 +796,9 @@ test.describe("ACP composer", () => {
     );
     await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 6");
     await expect(request).not.toBeInViewport();
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.offset))
+      .toBe(0);
 
     const freshSession = mockSession("cx-input-draft", "fresh-input", "acp");
     host.setSessions([agentSession, freshSession]);
@@ -826,22 +811,26 @@ test.describe("ACP composer", () => {
     const composer = page.locator("[data-agent-composer] textarea");
     await composer.focus();
     await page.keyboard.press("Alt+ArrowDown");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(request.getByRole("button", { name: "Submit answers" })).toBeInViewport();
     await composer.fill("line\n".repeat(12));
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(request.getByRole("button", { name: "Submit answers" })).toBeInViewport();
     await expect(page.locator(".agent-compose")).toBeInViewport();
     await expect(response).toHaveValue("Keep this answer");
     await composer.fill("");
     await body.hover();
     await page.mouse.wheel(0, -100_000);
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.offset))
+      .toBe(0);
 
     const pendingHeight = await request.evaluate(
       (element) => element.getBoundingClientRect().height,
     );
-    const pendingScrollHeight = await body.evaluate((element) => element.scrollHeight);
+    const pendingScrollHeight = await body
+      .evaluate(transcriptGeometry)
+      .then((geometry) => geometry.contentHeight);
     publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
     await expect(body.locator(".agent-input-request")).toHaveCount(0);
     await expect(request.locator(".agent-entry-status")).toHaveText("resolved");
@@ -849,15 +838,65 @@ test.describe("ACP composer", () => {
       (element) => element.getBoundingClientRect().height,
     );
     await expect
-      .poll(() => body.evaluate((element) => element.scrollHeight))
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.contentHeight))
       .toBeLessThanOrEqual(pendingScrollHeight - pendingHeight + resolvedHeight + 1);
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.offset))
+      .toBe(0);
     await composer.focus();
     await page.keyboard.press("Alt+ArrowDown");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(body.locator(".agent-virtual-row").last()).toContainText(
       "Another update while the user reads earlier output",
     );
+  });
+
+  test("a fresh conversation resumes following after the previous conversation was paused", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        itemId: "old-answer",
+        itemType: "agentMessage",
+        status: "completed",
+        text: `${"Earlier paragraph.\n\n".repeat(100)}Previous conversation end.`,
+      }),
+    );
+    const body = page.locator(".agent-body");
+    await expect(page.getByText("Previous conversation end.", { exact: true })).toBeVisible();
+    await waitForBottom(body);
+    await body.locator(":scope > .monaco-list").focus();
+    await page.keyboard.press("Home");
+    const latest = page.getByRole("button", { name: "Jump to latest", exact: true });
+    await expect(latest).toHaveCount(1);
+    await expect
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.offset))
+      .toBe(0);
+
+    host.setAgentHistory(agentSession.address, { generation: 1, messages: [], batchSize: 100 });
+    host.publishSession(agentSession.address, "agent", "paneReset", {});
+    await expect(page.locator(".agent-empty")).toBeVisible();
+    await expect(latest).toHaveCount(0);
+    const answer = {
+      type: "agent-message-delta",
+      turnId: "fresh-turn",
+      itemId: "fresh-answer",
+      itemType: "agentMessage",
+    };
+    publishPane(
+      paneMessage({
+        ...answer,
+        text: `${"Fresh paragraph.\n\n".repeat(100)}Fresh conversation end.`,
+      }),
+    );
+    await expect(page.getByText("Fresh conversation end.", { exact: true })).toBeVisible();
+    await waitForBottom(body);
+    publishPane(paneMessage({ ...answer, text: "\n\nStill following fresh output." }));
+    await expect(page.getByText("Still following fresh output.", { exact: true })).toBeInViewport();
+    await waitForBottom(body);
+    await expect(latest).toHaveCount(0);
   });
 
   test("multiple pending requests stay last and shortcuts answer the newest offscreen form", async ({
@@ -882,7 +921,7 @@ test.describe("ACP composer", () => {
       publishPane(userMessage(`Earlier output ${index}`));
     }
     const body = page.locator(".agent-body");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(body.locator(".agent-input-request")).toHaveCount(2);
     await expect(body.locator(".agent-input-request").nth(0)).toContainText("older");
     await expect(body.locator(".agent-input-request").nth(1)).toContainText("newer");
@@ -935,18 +974,21 @@ test.describe("ACP composer", () => {
       publishPane(userMessage(`Read earlier finding ${index}\nKeep this passage in place.`));
     }
     const body = page.locator(".agent-body");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await body.hover();
     await page.mouse.wheel(0, -1_400);
     await expect(body.locator(".agent-input-request").first()).not.toBeInViewport();
-    const anchor = await body.evaluate(async (element) => {
-      let previous = element.scrollTop;
-      let stationaryFrames = 0;
-      while (stationaryFrames < 2) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-        stationaryFrames = previous === element.scrollTop ? stationaryFrames + 1 : 0;
-        previous = element.scrollTop;
-      }
+    let previousOffset = (await body.evaluate(transcriptGeometry)).offset;
+    let stationaryFrames = 0;
+    while (stationaryFrames < 2) {
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))),
+      );
+      const { offset } = await body.evaluate(transcriptGeometry);
+      stationaryFrames = previousOffset === offset ? stationaryFrames + 1 : 0;
+      previousOffset = offset;
+    }
+    const anchor = await body.evaluate((element) => {
       const viewport = element.getBoundingClientRect();
       const row = [...element.querySelectorAll<HTMLElement>(".agent-virtual-row")].find(
         (candidate) => candidate.getBoundingClientRect().bottom > viewport.top,
@@ -1850,6 +1892,17 @@ test.describe("ACP composer", () => {
       "Write a prompt — / for commands and skills",
     );
     await expect(page.locator("[data-agent-composer]")).not.toContainText("prompt>");
+    const compactHeight = await empty.evaluate((element) => element.getBoundingClientRect().height);
+    const body = page.locator(".agent-body");
+    const bodyHeight = await body.evaluate((element) => element.clientHeight);
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: viewport.width, height: viewport.height + 400 });
+    await expect
+      .poll(() => body.evaluate((element) => element.clientHeight))
+      .toBeGreaterThan(bodyHeight);
+    await expect
+      .poll(() => empty.evaluate((element) => element.getBoundingClientRect().height))
+      .toBeCloseTo(compactHeight, 0);
     await page.screenshot({ path: join(shotsDir, "08-empty-state.png") });
   });
 
@@ -1936,7 +1989,7 @@ test.describe("ACP composer", () => {
     const navigation = page.locator(".agent-scroll-nav");
     const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
     const distanceFromBottom = (): Promise<number> =>
-      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+      body.evaluate(transcriptGeometry).then((geometry) => geometry.bottomDistance);
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(latestButton).toHaveCount(0);
 
@@ -1955,31 +2008,10 @@ test.describe("ACP composer", () => {
     await expectFollowingLatest();
 
     const scrollLinesFromBottom = async (lines: number): Promise<void> => {
-      // Following latest can snap back on virtualizer idle; observe the wheel movement before it does.
-      const movement = await body.evaluateHandle((element) => {
-        let furthest = 0;
-        const observe = (): void => {
-          furthest = Math.max(
-            furthest,
-            element.scrollHeight - element.scrollTop - element.clientHeight,
-          );
-        };
-        element.addEventListener("scroll", observe);
-        return {
-          distance: () => furthest,
-          dispose: () => element.removeEventListener("scroll", observe),
-        };
-      });
-      try {
-        const distance = await distanceFromBottom();
-        await page.mouse.wheel(0, distance - lineHeight * lines);
-        const furthest = (): Promise<number> => movement.evaluate((sample) => sample.distance());
-        await expect.poll(furthest).toBeGreaterThan(lineHeight * lines - 2);
-        await expect.poll(furthest).toBeLessThan(lineHeight * lines + 2);
-      } finally {
-        await movement.evaluate((sample) => sample.dispose());
-        await movement.dispose();
-      }
+      const distance = await distanceFromBottom();
+      await page.mouse.wheel(0, distance - lineHeight * lines);
+      await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
+      await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
     };
 
     await scrollLinesFromBottom(2.5);
@@ -2062,22 +2094,14 @@ test.describe("ACP composer", () => {
       hasText: "Explain the long result",
     });
 
-    await expect(agentTurnStart).toContainText("Opening update before the final response.");
-    await waitForBottom(page, body);
-    await expect
-      .poll(() =>
-        agentTurnStart.evaluate(
-          (element) =>
-            element.getBoundingClientRect().top -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeLessThan(0);
+    await expect(page.getByText("Paragraph 80.", { exact: true })).toBeVisible();
+    await waitForBottom(body);
+    await expect(agentTurnStart).not.toBeInViewport();
     await expect(turnButton).toHaveCount(0);
 
     await page.locator("[data-agent-composer] textarea").focus();
     await page.keyboard.press("Alt+ArrowUp");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(latestButton).toHaveCount(0);
 
     const continuation = "Followed output while the turn remains active.";
@@ -2092,11 +2116,11 @@ test.describe("ACP composer", () => {
       }),
     );
     await expect(page.getByText(continuation, { exact: true })).toBeVisible();
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await page.evaluate(() =>
       document.documentElement.style.setProperty("--terminal-font-size", "20px"),
     );
-    await waitForBottom(page, body);
+    await waitForBottom(body);
 
     publishPane(
       paneMessage({
@@ -2116,7 +2140,7 @@ test.describe("ACP composer", () => {
       "title",
       "Jump to the start of this agent turn (Alt+Up)",
     );
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect
       .poll(() =>
         body.evaluate((element) => {
@@ -2145,6 +2169,7 @@ test.describe("ACP composer", () => {
       .toBeLessThan(0.5);
 
     await turnButton.click();
+    await expect(agentTurnStart).toContainText("Opening update before the final response.");
     await expect
       .poll(() =>
         agentTurnStart.evaluate((element) => {
@@ -2156,15 +2181,7 @@ test.describe("ACP composer", () => {
         }),
       )
       .toBeLessThan(1);
-    await expect
-      .poll(() =>
-        prompt.evaluate(
-          (element) =>
-            element.getBoundingClientRect().bottom -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeLessThan(0);
+    await expect(prompt).not.toBeInViewport();
     await expect(turnButton).toHaveCount(0);
     await expect(latestButton).toHaveAttribute(
       "title",
@@ -2182,14 +2199,14 @@ test.describe("ACP composer", () => {
       .poll(() => scrollNavigationIconVerticalOffset(page, "Jump to latest"))
       .toBeLessThan(0.5);
 
-    await body.evaluate((element) => {
-      element.scrollTop += element.clientHeight;
-    });
+    await body.locator(":scope > .monaco-list").focus();
+    await expect(body.locator(":scope > .monaco-list")).toBeFocused();
+    await page.keyboard.press("PageDown");
     await expect(turnButton).toHaveCount(1);
     await expect(latestButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowDown");
-    await waitForBottom(page, body);
+    await waitForBottom(body);
     await expect(turnButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowUp");
@@ -2206,7 +2223,7 @@ test.describe("ACP composer", () => {
     await expect(page.locator(".agent-empty")).toBeVisible();
     await expect(latestButton).toHaveCount(0);
     await expect(turnButton).toHaveCount(0);
-    await waitForBottom(page, body);
+    await waitForBottom(body);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

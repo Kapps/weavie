@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { test } from "./harness/network-fixtures";
+import { transcriptGeometry } from "./harness/transcript-geometry";
 import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -64,14 +65,18 @@ test("middle-click autoscrolls the agent transcript and responds live", async ({
   const { host, body } = await openAutoscrollPane(page, "autoscroll");
 
   try {
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    const initialTop = await body.evaluate((element) => element.scrollTop);
+    await expect
+      .poll(async () => (await body.evaluate(transcriptGeometry)).offset)
+      .toBeGreaterThan(0);
+    const initialTop = (await body.evaluate(transcriptGeometry)).offset;
     const origin = await paneOrigin(body);
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).toHaveClass(/middle-click-autoscrolling/);
     await page.mouse.move(origin.x, origin.y - 100);
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeLessThan(initialTop);
+    await expect
+      .poll(async () => (await body.evaluate(transcriptGeometry)).offset)
+      .toBeLessThan(initialTop);
     await page.keyboard.press("Escape");
     await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
 

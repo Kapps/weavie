@@ -5,6 +5,7 @@ import { expect } from "@playwright/test";
 import { PIXEL_RED } from "./harness/git-workspace";
 import { test } from "./harness/network-fixtures";
 import { measureSessionSwitch, type SessionSwitchExpectation } from "./harness/session-switch";
+import { transcriptGeometry } from "./harness/transcript-geometry";
 import { MockHost, type MockSession, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -271,9 +272,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     await expect(page.getByText("FIRST_799", { exact: true })).toBeVisible({ timeout: 60_000 });
     expect(await rows.count()).toBeLessThan(40);
     await expect
-      .poll(() =>
-        body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
-      )
+      .poll(() => body.evaluate(transcriptGeometry).then((geometry) => geometry.bottomDistance))
       .toBeLessThanOrEqual(1);
 
     const measureSwitch = (label: string, marker: string): Promise<number> =>
@@ -289,10 +288,14 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
             const active = document.querySelector<HTMLButtonElement>(".session-chip.active");
             const body = document.querySelector<HTMLElement>(".agent-body");
             const rows = [...document.querySelectorAll<HTMLElement>(".agent-virtual-row")];
+            const transcript = body?.querySelector<HTMLElement>(".agent-transcript");
             return (
               active?.title.startsWith(`${target.label} —`) === true &&
               body !== null &&
-              body.scrollHeight - body.scrollTop - body.clientHeight <= 1 &&
+              transcript !== null &&
+              transcript !== undefined &&
+              transcript.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom <=
+                1 &&
               rows.length < 40 &&
               rows.some((row) => row.textContent?.includes(target.marker) === true)
             );
@@ -328,24 +331,25 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     });
     expect(Math.max(...measurements)).toBeLessThan(LONG_TRANSCRIPT_SWITCH_BUDGET_MS);
 
-    await body.evaluate((element) => {
-      element.scrollTop = element.scrollHeight * 0.45;
-    });
+    const geometry = await body.evaluate(transcriptGeometry);
+    await body.hover();
+    await page.mouse.wheel(0, geometry.contentHeight * 0.45 - geometry.offset);
     await expect(page.locator(".agent-scroll-nav-button")).toHaveCount(1);
     const viewportAnchor = () =>
       body.evaluate((element) => {
         const viewportTop = element.getBoundingClientRect().top;
+        const transcript = element.querySelector<HTMLElement>(".agent-transcript");
         const row = [...element.querySelectorAll<HTMLElement>(".agent-virtual-row")].find(
           (candidate) => candidate.getBoundingClientRect().bottom > viewportTop,
         );
-        if (row?.dataset.transcriptEntry === undefined) {
+        if (row?.dataset.transcriptEntry === undefined || transcript === null) {
           throw new Error("virtual viewport has no anchor row");
         }
         return {
           entryId: row.dataset.transcriptEntry,
-          height: element.scrollHeight,
+          height: transcript.getBoundingClientRect().height,
           offset: row.getBoundingClientRect().top - viewportTop,
-          top: element.scrollTop,
+          top: viewportTop - transcript.getBoundingClientRect().top,
         };
       });
     const settledViewportAnchor = async () => {

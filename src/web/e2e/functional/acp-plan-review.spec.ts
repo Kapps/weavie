@@ -1,5 +1,7 @@
 import { createAcpSession } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
+import { transcriptGeometry } from "../harness/transcript-geometry";
+import { revealTranscriptTarget } from "../harness/transcript-navigation";
 
 test.describe("ACP plan review with automatic tool approval", () => {
   test.use({
@@ -53,12 +55,50 @@ test.describe("ACP plan review with automatic tool approval", () => {
       await expect(implement).toBeInViewport({ ratio: 1 });
       await expect(revise).toBeInViewport({ ratio: 1 });
 
-      await surface.getByRole("button", { name: "Open plan" }).click();
+      const body = surface.locator(".agent-body");
+      const openPlan = surface.getByRole("button", { name: "Open plan" });
+      await revealTranscriptTarget(surface, openPlan);
+      await expect(openPlan).toBeInViewport({ ratio: 1 });
+      if (scenario.result === "allow") {
+        const viewport = body.locator(":scope > .monaco-list");
+        await viewport.focus();
+        await expect(viewport).toBeFocused();
+        await page.keyboard.press("End");
+        await expect
+          .poll(async () => Math.abs((await body.evaluate(transcriptGeometry)).bottomDistance))
+          .toBeLessThanOrEqual(1);
+        const lineHeight = await body.evaluate((element) =>
+          Number.parseFloat(getComputedStyle(element).lineHeight),
+        );
+        await body.hover({
+          position: { x: (await body.evaluate((element) => element.clientWidth)) - 12, y: 20 },
+        });
+        await page.mouse.wheel(0, -lineHeight);
+        await expect
+          .poll(async () =>
+            Math.abs((await body.evaluate(transcriptGeometry)).bottomDistance - lineHeight),
+          )
+          .toBeLessThanOrEqual(1);
+        await expect(
+          surface.getByRole("button", { name: "Jump to latest", exact: true }),
+        ).toHaveCount(0);
+        await expect(openPlan).toBeInViewport({ ratio: 1 });
+        const before = await openPlan.boundingBox();
+        if (before === null) throw new Error("Open plan has no pointer target");
+        await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+        await page.mouse.down();
+        await expect(openPlan).toBeFocused();
+        const after = await openPlan.boundingBox();
+        if (after === null) throw new Error("Open plan disappeared during pointer down");
+        expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+        await page.mouse.up();
+      } else {
+        await openPlan.click();
+      }
       const document = page.locator(".editor-plan .agent-markdown");
       await expect(document).toContainText("Detailed work plan");
       await expect(document).toContainText("Implementation step 12");
       await expect(document).toContainText("End of the complete work plan.");
-      const body = surface.locator(".agent-body");
       await body.hover({ position: { x: 4, y: 20 } });
       await page.mouse.wheel(0, -1000);
       const latest = surface.getByRole("button", { name: "Jump to latest", exact: true });

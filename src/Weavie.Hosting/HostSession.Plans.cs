@@ -1,3 +1,4 @@
+using Weavie.Core.Editor;
 using Weavie.Hosting.Agents;
 
 namespace Weavie.Hosting;
@@ -11,14 +12,33 @@ public sealed partial class HostSession {
 			OpenEditorOverlay(path, "plan");
 		});
 
+	private void SubscribeAgentPlanDocuments(EditorSession session) {
+		string[] paths = [.. session.Open.Where(tab => tab.Kind == "plan").Select(tab => tab.Path)
+			.Except(AgentPlanDocumentPaths(), StringComparer.Ordinal)];
+		if (paths.Length == 0) return;
+		Agent.WithPlanDocuments(plans => {
+			var documents = plans.ToDictionary(AgentPlanProtocol.Path, StringComparer.Ordinal);
+			foreach (string path in paths.Except(AgentPlanDocumentPaths(), StringComparer.Ordinal)) {
+				PublishAgentPlanDocument(path, documents);
+			}
+		});
+	}
+
 	private void UpdateAgentPlans(IReadOnlyList<AgentPlan> plans) {
 		var documents = plans.ToDictionary(AgentPlanProtocol.Path, StringComparer.Ordinal);
-		foreach (var tab in EditorSession.Open.Where(tab => tab.Kind == "plan")) {
-			if (documents.TryGetValue(tab.Path, out var plan)) {
-				State.Set("editor", tab.Path, "agentPlan", AgentPlanProtocol.Show(plan, tab.Path));
-			} else {
-				State.Set("editor", tab.Path, "agentPlanRemoved", new { path = tab.Path });
-			}
+		foreach (string path in AgentPlanDocumentPaths()) {
+			PublishAgentPlanDocument(path, documents);
+		}
+	}
+
+	private IEnumerable<string> AgentPlanDocumentPaths() =>
+		State.Keys("editor", "agentPlan").Concat(State.Keys("editor", "agentPlanRemoved"));
+
+	private void PublishAgentPlanDocument(string path, IReadOnlyDictionary<string, AgentPlan> documents) {
+		if (documents.TryGetValue(path, out var plan)) {
+			State.Set("editor", path, "agentPlan", AgentPlanProtocol.Show(plan, path));
+		} else {
+			State.Set("editor", path, "agentPlanRemoved", new { path });
 		}
 	}
 }

@@ -1,5 +1,4 @@
-import type { VirtualItem, Virtualizer } from "@tanstack/solid-virtual";
-import { For, type JSX, onCleanup, Show } from "solid-js";
+import { For, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -7,79 +6,46 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import type { AgentSectionLabel } from "./pane-store";
 
-export function AgentTranscript(props: {
+export function AgentTranscriptRow(props: {
   agentTurnStartId: string | null;
-  compact: boolean;
-  entries: AgentTranscriptEntry[];
-  entryForKey: (key: VirtualItem["key"]) => AgentTranscriptEntry;
+  entry: AgentTranscriptEntry;
+  index: number;
+  previous: AgentTranscriptEntry | undefined;
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
-  providerName: string;
   sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
   session: ClientSession;
-  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
   return (
-    <Show
-      when={props.entries.length > 0}
-      fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
+    <div
+      class="agent-virtual-row"
+      classList={{
+        "agent-virtual-row-assistant-pair":
+          props.entry.kind === "message" &&
+          props.entry.tone === "assistant" &&
+          props.previous?.kind === "message" &&
+          props.previous?.tone === "assistant",
+        "agent-virtual-row-first": props.index === 0,
+        "agent-virtual-row-user": props.entry.kind === "message" && props.entry.tone === "user",
+      }}
+      data-index={props.index}
+      data-agent-turn-output-start={props.entry.id === props.agentTurnStartId ? "" : undefined}
+      data-transcript-entry={props.entry.id}
     >
-      <div
-        class="agent-transcript"
-        data-agent-transcript
-        style={`height:${props.virtualizer.getTotalSize()}px`}
-      >
-        <For each={props.virtualizer.getVirtualItems().map((row) => row.key)}>
-          {(key) => {
-            const entry = props.entryForKey(key);
-            const virtualRow = () =>
-              props.virtualizer.getVirtualItems().find((row) => row.key === key)!;
-            const previous = (): AgentTranscriptEntry | undefined =>
-              props.entries[virtualRow().index - 1];
-            onCleanup(() => props.virtualizer.measureElement(null));
-            return (
-              <div
-                class="agent-virtual-row"
-                classList={{
-                  "agent-virtual-row-assistant-pair":
-                    entry.kind === "message" &&
-                    entry.tone === "assistant" &&
-                    previous()?.kind === "message" &&
-                    previous()?.tone === "assistant",
-                  "agent-virtual-row-first": virtualRow().index === 0,
-                  "agent-virtual-row-user": entry.kind === "message" && entry.tone === "user",
-                }}
-                data-index={virtualRow().index}
-                data-agent-turn-output-start={entry.id === props.agentTurnStartId ? "" : undefined}
-                data-transcript-entry={entry.id}
-                ref={(element) =>
-                  queueMicrotask(() => {
-                    if (element.isConnected) {
-                      props.virtualizer.measureElement(element);
-                    }
-                  })
-                }
-                style={`transform:translateY(${virtualRow().start}px)`}
-              >
-                <TranscriptEntry
-                  expandedDetails={props.expandedDetails}
-                  entry={entry}
-                  keyboardRequestKey={props.keyboardRequestKey}
-                  onDetailsToggle={props.onDetailsToggle}
-                  sectionLabel={props.sectionLabels.get(entry.id) ?? null}
-                  session={props.session}
-                />
-              </div>
-            );
-          }}
-        </For>
-      </div>
-    </Show>
+      <TranscriptEntry
+        expandedDetails={props.expandedDetails}
+        entry={props.entry}
+        keyboardRequestKey={props.keyboardRequestKey}
+        onDetailsToggle={props.onDetailsToggle}
+        sectionLabel={props.sectionLabels.get(props.entry.id) ?? null}
+        session={props.session}
+      />
+    </div>
   );
 }
 
-function EmptyState(props: { compact: boolean; providerName: string }): JSX.Element {
+export function AgentEmptyState(props: { compact: boolean; providerName: string }): JSX.Element {
   const hints = (): { key: string; text: string }[] =>
     [
       {

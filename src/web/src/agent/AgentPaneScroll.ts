@@ -1,253 +1,95 @@
-import type { Virtualizer } from "@tanstack/solid-virtual";
-import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
+import type { ScrollEvent } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
+import { type Accessor, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-
-const turnStartAlignmentTolerance = 1;
+import type { TranscriptViewport } from "./AgentTranscriptViewport";
 
 export function createAgentPaneScroll(
   session: ClientSession,
-  body: Accessor<HTMLDivElement | undefined>,
-  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
+  viewport: Accessor<TranscriptViewport | undefined>,
+  lineHeight: Accessor<number>,
   turnStartIndex: Accessor<number | null>,
   turnNavigable: Accessor<boolean>,
-  revision: Accessor<number>,
   initiallyFollowingLatest: boolean,
-  wheel: { cancel: () => void; isActive: () => boolean },
 ) {
-  let bottomCorrectionScheduled = false;
-  let anchorAtBottom = initiallyFollowingLatest;
-  let controllerScrolls: Array<{ top: number }> = [];
-  let scrollScheduled = false;
-  let viewportHeight = 0;
-  let viewportWidth = 0;
   const [followingLatest, setFollowingLatest] = createSignal(initiallyFollowingLatest);
   const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
-
-  const followThreshold = (): number => {
-    const element = body();
-    return element === undefined
-      ? 0
-      : Math.ceil(Number.parseFloat(getComputedStyle(element).lineHeight) * 3);
-  };
-
-  const isNearBottom = (): boolean => {
-    const element = body();
+  let navigating = false;
+  const nearBottom = (): boolean => {
+    const view = viewport();
     return (
-      element !== undefined &&
-      element.scrollHeight - element.scrollTop - element.clientHeight <= followThreshold()
+      view !== undefined && view.contentHeight() - view.height() - view.offset() <= lineHeight() * 3
     );
   };
-
-  const updateAgentTurnStartPosition = (): void => {
+  const updateTurnPosition = (): void => {
+    const view = viewport();
     const index = turnStartIndex();
-    if (index === null) {
-      setAgentTurnStartAbove(false);
-      return;
-    }
-    virtualizer.getTotalSize();
-    const start = virtualizer.measurementsCache[index]?.start;
-    // Sub-pixel tolerance: scrollOffset and the cached start can settle a fraction of a pixel
-    // apart (e.g. 745.671875 vs 746) even when the turn start is exactly at the viewport top,
-    // which without slack flips this above-the-fold long after a jump with nothing left to
-    // correct it.
     setAgentTurnStartAbove(
-      start !== undefined && start + turnStartAlignmentTolerance < (virtualizer.scrollOffset ?? 0),
+      turnNavigable() &&
+        view !== undefined &&
+        index !== null &&
+        view.itemTop(index) < view.offset(),
     );
   };
-
-  const noteControllerScroll = (top: number): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
+  const navigate = (offset: number, follow: boolean): boolean => {
+    const view = viewport();
+    if (view === undefined) return false;
+    const previous = view.offset();
+    setFollowingLatest(follow);
+    navigating = true;
+    try {
+      view.jumpTo(offset);
+    } finally {
+      navigating = false;
     }
-    const maximum = Math.max(element.scrollHeight - element.clientHeight, 0);
-    const assigned = { top: Math.min(Math.max(top, 0), maximum) };
-    controllerScrolls.push(assigned);
-    requestAnimationFrame(() => {
-      controllerScrolls = controllerScrolls.filter((candidate) => candidate !== assigned);
-    });
+    updateTurnPosition();
+    return view.offset() !== previous;
   };
-
-  const assign = (action: () => void, followsLatest: boolean): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
-    }
-    wheel.cancel();
-    setFollowingLatest(followsLatest);
-    anchorAtBottom = followsLatest;
-    action();
-    noteControllerScroll(element.scrollTop);
-    updateAgentTurnStartPosition();
-  };
-
-  const assignBottom = (): void =>
-    assign(() => {
-      const element = body();
-      if (element !== undefined) {
-        element.scrollTop = element.scrollHeight;
-      }
-    }, true);
-
-  const scrollToBottom = (): void => {
-    if (scrollScheduled) {
-      return;
-    }
-    scrollScheduled = true;
-    requestAnimationFrame(() => {
-      scrollScheduled = false;
-      if (followingLatest()) {
-        assignBottom();
-      }
-    });
-  };
-
-  const jumpToTurn = (): boolean => {
-    const index = turnStartIndex();
-    const element = body();
-    if (!turnNavigable() || index === null || element === undefined) {
-      return false;
-    }
-    const previous = element.scrollTop;
-    assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), false);
-    setAgentTurnStartAbove(false);
-    return Math.abs(element.scrollTop - previous) >= 1;
-  };
-
   const jumpToLatest = (): boolean => {
-    if (followingLatest() && isNearBottom()) {
-      return false;
-    }
-    assignBottom();
-    return true;
+    const view = viewport();
+    return view !== undefined && navigate(view.contentHeight(), true);
   };
-
-  const onViewportResize = (): void => {
-    const height = body()?.clientHeight ?? 0;
-    const width = body()?.clientWidth ?? 0;
-    if (height === viewportHeight && width === viewportWidth) return;
-    viewportHeight = height;
-    viewportWidth = width;
-    if (followingLatest()) assignBottom();
-  };
-
-  // Measurement anchoring also emits scroll events; every unowned scroll is the user's intent.
-  const onScroll = (): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
-    }
-    // A viewport resize can clamp scrollTop and emit scroll before ResizeObserver runs.
-    onViewportResize();
-    const assigned = controllerScrolls.findIndex(
-      (candidate) => Math.abs(candidate.top - element.scrollTop) < 1.5,
+  const jumpToTurn = (): boolean => {
+    const view = viewport();
+    const index = turnStartIndex();
+    return (
+      turnNavigable() &&
+      view !== undefined &&
+      index !== null &&
+      navigate(view.itemTop(index), false)
     );
-    if (assigned >= 0) {
-      controllerScrolls.splice(assigned, 1);
-    } else {
-      controllerScrolls = [];
-      anchorAtBottom = false;
-      setFollowingLatest(!wheel.isActive() && isNearBottom());
-    }
-    updateAgentTurnStartPosition();
   };
-
-  const onVirtualizerChange = (sync: boolean): void => {
-    if (anchorAtBottom && followingLatest() && !sync && !bottomCorrectionScheduled) {
-      bottomCorrectionScheduled = true;
-      requestAnimationFrame(() => {
-        bottomCorrectionScheduled = false;
-        const element = body();
-        if (
-          anchorAtBottom &&
-          followingLatest() &&
-          element !== undefined &&
-          element.scrollHeight - element.clientHeight - element.scrollTop > 1
-        ) {
-          assignBottom();
-        }
-      });
-    }
-    updateAgentTurnStartPosition();
-  };
-
-  createEffect(
-    on(
-      revision,
-      () => {
-        if (followingLatest()) {
-          scrollToBottom();
-        } else {
-          updateAgentTurnStartPosition();
-        }
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(turnNavigable, (navigable) => {
-      if (navigable) {
-        updateAgentTurnStartPosition();
-      } else {
-        setAgentTurnStartAbove(false);
-      }
-    }),
-  );
-
+  createEffect(updateTurnPosition);
   onMount(() => {
-    if (followingLatest()) {
-      scrollToBottom();
-    } else {
-      updateAgentTurnStartPosition();
-    }
-    const targetsSession = (target: ClientSession | null): boolean => target === session;
     const unregisterTurn = registerCommand(
       CommandIds.agentJumpToTurn,
-      (_args, context) => targetsSession(context.session) && jumpToTurn(),
+      (_args, context) => context.session === session && jumpToTurn(),
     );
     const unregisterLatest = registerCommand(
       CommandIds.agentJumpToLatest,
-      (_args, context) => targetsSession(context.session) && jumpToLatest(),
+      (_args, context) => context.session === session && jumpToLatest(),
     );
     onCleanup(() => {
       unregisterTurn();
       unregisterLatest();
     });
   });
-
   return {
-    agentTurnStartAbove,
     followingLatest,
-    followIfNearBottom: (): void => {
-      if (isNearBottom()) {
-        setFollowingLatest(true);
-      }
-    },
+    agentTurnStartAbove,
     jumpToLatest,
     jumpToTurn,
-    noteControllerScroll,
-    onScroll,
-    onWheelIntent: (): void => {
-      controllerScrolls = [];
-      anchorAtBottom = false;
-      setFollowingLatest(false);
+    followIfNearBottom: (): void => {
+      if (nearBottom()) setFollowingLatest(true);
     },
-    onWheelSettled: (): void => {
-      setFollowingLatest(isNearBottom());
-      updateAgentTurnStartPosition();
+    onWillScroll: (event: ScrollEvent): void => {
+      if (event.source === "position" && !navigating) setFollowingLatest(false);
     },
-    onViewportResize,
-    onVirtualizerChange,
-    restoreReadingPosition: (offset: number): void => {
-      const element = body();
-      if (!followingLatest() && element !== undefined && Math.abs(element.scrollTop - offset) > 1) {
-        element.scrollTop = offset;
-        noteControllerScroll(element.scrollTop);
-        updateAgentTurnStartPosition();
-      }
+    onDidScroll: (event: ScrollEvent): void => {
+      if (event.source === "position" && !navigating && !event.inSmoothScrolling)
+        setFollowingLatest(nearBottom());
+      updateTurnPosition();
     },
   };
 }

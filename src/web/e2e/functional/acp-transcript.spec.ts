@@ -6,6 +6,7 @@ import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 import { pastePng } from "../harness/pasted-image";
+import { collectTranscriptRows, revealTranscriptTarget } from "../harness/transcript-navigation";
 
 type PromptBlock = {
   type: string;
@@ -154,8 +155,18 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await expect(identity).toHaveCount(1);
   await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
   const conversationId = await aside.getAttribute("data-agent-aside");
-  const messages = surface.locator(".agent-entry-message .agent-entry-main");
-  const displayed = await messages.allTextContents();
+  const messages = ".agent-entry-message .agent-entry-main";
+  const displayed = await collectTranscriptRows(surface, messages);
+  const displayedText = displayed.flatMap((row) => row.texts).join("\n");
+  for (const hidden of [
+    reminder,
+    "data:image/",
+    "You are running embedded in Weavie",
+    "#selection",
+    "just plain text",
+  ]) {
+    expect(displayedText).not.toContain(hidden);
+  }
 
   await runCommand(page, "Unload Session");
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-transcript-context"]');
@@ -164,12 +175,14 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await unloaded.click();
 
   await expect(surface.getByRole("button", { name: "Model Alpha" })).toBeVisible();
-  await expect(aside).toHaveAttribute("data-agent-aside", conversationId!);
-  await expect.poll(() => messages.allTextContents()).toEqual(displayed);
+  await expect.poll(() => collectTranscriptRows(surface, messages)).toEqual(displayed);
+  await revealTranscriptTarget(surface, userText);
   await expect(userText).toHaveText(prompt);
   await expect(image).toHaveAttribute("src", ZOOM_IMAGE_SRC);
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(image).toHaveJSProperty("naturalHeight", 80);
+  await revealTranscriptTarget(surface, aside);
+  await expect(aside).toHaveAttribute("data-agent-aside", conversationId!);
   await expect(sideImage).toHaveAttribute("src", ZOOM_IMAGE_SRC);
   await expect(sideImage).toHaveJSProperty("naturalWidth", 200);
   await expect(sideImage).toHaveJSProperty("naturalHeight", 80);
@@ -182,6 +195,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   await composer.fill("hold");
   await composer.press("Enter");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+  await revealTranscriptTarget(surface, aside);
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   await reply.fill("identify-session");
   await reply.press("Enter");
@@ -190,15 +204,20 @@ test("reopened ACP transcript preserves images and clean history and resumes its
 
   await composer.fill("main advances independently");
   await composer.press("Enter");
-  await expect(surface).toContainText("steered: main advances independently");
-  await expect(aside).not.toContainText("main advances independently");
+  const mainResponse = surface.locator(".agent-virtual-row > .agent-entry-message", {
+    hasText: "steered: main advances independently",
+  });
   await expect(surface.locator(".agent-working")).toHaveCount(0);
+  await revealTranscriptTarget(surface, mainResponse);
+  await expect(mainResponse).toContainText("steered: main advances independently");
+  await revealTranscriptTarget(surface, aside);
+  await expect(aside).not.toContainText("main advances independently");
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   await reply.fill("side continues independently");
   await reply.press("Enter");
   await expect(aside).toContainText("echo: side continues independently");
-  const main = surface.locator(".agent-transcript > .agent-virtual-row > .agent-entry-message");
-  await expect(main.filter({ hasText: "side continues independently" })).toHaveCount(0);
+  const main = await collectTranscriptRows(surface, ":scope > .agent-entry-message");
+  expect(main.flatMap((row) => row.texts).join("\n")).not.toContain("side continues independently");
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
   await expect(surface).not.toContainText(reminder);
   const requests = await wirePrompts(statePath);

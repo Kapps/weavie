@@ -40,6 +40,9 @@ The viewport uses fractional coordinates throughout, including row measurements 
 visible ranges. Pending forms and the focused row remain mounted outside the visible range. A keyed
 update renders and measures surviving mounted rows before releasing retention; resolving an offscreen
 form therefore cannot leave its previous expanded height in the height map.
+Focus retention only changes which existing rows remain mounted; it does not request layout or
+follow-latest navigation. A browser regression caught an unchanged-geometry focus pass moving a button
+58.859375px between mouse-down and mouse-up, causing its click to land on the transcript background.
 
 Solid data reconciliation runs at its DOM commit boundary, outside the current reactive update batch.
 This lets the synchronous list renderer measure the DOM produced by its setters. This scheduling is
@@ -79,6 +82,8 @@ motion/geometry ownership explicit instead of relying on browser anchoring timin
 - `src/web/e2e/agent-composer.spec.ts` covers pending forms, reading position, following, navigation,
   and session switching. Geometry assertions read the rendered viewport rather than native
   `Element.scrollTop`.
+- Full-host history checks traverse the viewport with user input, verifying complete ordered row
+  identities, restored media, and independent side conversations across unmounting and session switches.
 - `src/web/e2e/middle-click-autoscroll.spec.ts` covers the shared gesture and nested surface ownership.
 
 Browser recordings and these end-to-end checks are required before shipping. Numerical model tests

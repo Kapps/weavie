@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
+import { collectTranscriptRows } from "../harness/transcript-navigation";
 
 test("native slash prompts are available before the first turn and expand only for the agent", async ({
   page,
@@ -41,7 +42,15 @@ test("native slash prompts are available before the first turn and expand only f
   );
   await expect(userMessages.last()).toHaveText("/setup-workspace");
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
-  await expect(userMessages).toHaveCount(3);
+  const history = await collectTranscriptRows(
+    surface,
+    ".agent-entry-message.agent-tone-user .agent-entry-text",
+  );
+  expect(history.flatMap((row) => row.texts)).toEqual([
+    "/report-weavie-bug",
+    request,
+    "/setup-workspace",
+  ]);
 
   const records = (
     await readFile(join(weavie.home, ".weavie", "fake-acp-state", "wire-prompts.jsonl"), "utf8")

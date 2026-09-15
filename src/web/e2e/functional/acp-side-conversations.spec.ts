@@ -2,6 +2,7 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { pastePng } from "../harness/pasted-image";
+import { collectTranscriptRows, revealTranscriptTarget } from "../harness/transcript-navigation";
 
 for (const { primaryRunning, prompt } of [
   { primaryRunning: false, prompt: "image" },
@@ -49,6 +50,8 @@ for (const { primaryRunning, prompt } of [
     }
     await submitAcpDraft(surface, "image");
     await expect(surface).toContainText("image=False");
+    await revealTranscriptTarget(surface, aside);
+    await expect(aside).toContainText(prompt ? "image=True" : "echo:");
     await expect(aside).not.toContainText("image=False");
     await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
   });
@@ -70,24 +73,27 @@ test("BTW stays at its creation point through later primary output, side replies
   await submitAcpDraft(surface, "primary continues after BTW");
   await expect(surface).toContainText("steered: primary continues after BTW");
   await expect(surface.locator(".agent-working")).toHaveCount(0);
-  const rows = surface.locator(".agent-transcript > .agent-virtual-row");
+  await revealTranscriptTarget(surface, aside);
+  const asideEntryId = await aside.evaluate((element) =>
+    element.closest(".agent-virtual-row")!.getAttribute("data-transcript-entry"),
+  );
   const expectCreationOrder = async (): Promise<void> => {
-    await expect
-      .poll(() =>
-        rows.evaluateAll((elements) =>
-          elements.flatMap((element) => {
-            if (element.querySelector(".agent-aside")) return ["BTW"];
-            if (element.textContent?.includes("steered: primary continues after BTW")) {
-              return ["later primary output"];
-            }
-            return [];
-          }),
-        ),
-      )
-      .toEqual(["BTW", "later primary output"]);
+    const rows = await collectTranscriptRows(
+      surface,
+      ".agent-aside, .agent-entry-message .agent-entry-main",
+    );
+    expect(
+      rows.flatMap((row) => {
+        if (row.entryId === asideEntryId) return ["BTW"];
+        if (row.texts.some((text) => text.includes("steered: primary continues after BTW")))
+          return ["later primary output"];
+        return [];
+      }),
+    ).toEqual(["BTW", "later primary output"]);
   };
   await expectCreationOrder();
 
+  await revealTranscriptTarget(surface, aside.getByRole("button", { name: "Reply", exact: true }));
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
   await reply.fill("one more side detail");
@@ -99,6 +105,7 @@ test("BTW stays at its creation point through later primary output, side replies
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-side-position"]');
   await expect(unloaded).toBeVisible();
   await unloaded.click();
+  await revealTranscriptTarget(surface, aside);
   await expect(aside).toHaveAttribute("data-agent-aside", conversationId!);
   await expect(aside).toContainText("echo: one more side detail");
   await expectCreationOrder();
@@ -112,28 +119,45 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
   await submitAcpDraft(surface, "/btw input");
-  const first = surface.locator(".agent-aside").nth(0);
-  await expect(first).toContainText("Choose a value");
+  const firstCreated = surface.locator(".agent-aside").first();
+  await expect(firstCreated).toContainText("Choose a value");
+  const firstId = await firstCreated.getAttribute("data-agent-aside");
+  const first = surface.locator(`[data-agent-aside=${JSON.stringify(firstId)}]`);
   await submitAcpDraft(surface, "/btw input");
-  const second = surface.locator(".agent-aside").nth(1);
-  await expect(second).toContainText("Choose a value");
+  const secondCreated = surface.locator(".agent-aside").nth(1);
+  await expect(secondCreated).toContainText("Choose a value");
+  const secondId = await secondCreated.getAttribute("data-agent-aside");
+  const second = surface.locator(`[data-agent-aside=${JSON.stringify(secondId)}]`);
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
+  await revealTranscriptTarget(surface, second.getByRole("radio", { name: "Two", exact: false }));
   await second.getByRole("radio", { name: "Two", exact: false }).check();
+  await revealTranscriptTarget(
+    surface,
+    second.getByRole("button", { name: "Submit answers", exact: true }),
+  );
   await second.getByRole("button", { name: "Submit answers", exact: true }).click();
   await expect(second).toContainText("input: two");
   await expect(first.getByRole("button", { name: "Submit answers", exact: true })).toBeVisible();
+  await revealTranscriptTarget(surface, second.getByRole("button", { name: "Reply", exact: true }));
   await second.getByRole("button", { name: "Reply", exact: true }).click();
   const secondReply = second.getByRole("textbox", { name: "Reply to BTW" });
   await secondReply.fill("identify-session");
   await secondReply.press("Enter");
   await expect(second).toContainText("session: fake-fork-fake-session-3");
 
+  await revealTranscriptTarget(surface, first.getByRole("radio", { name: "One", exact: false }));
   await first.getByRole("radio", { name: "One", exact: false }).check();
+  await revealTranscriptTarget(
+    surface,
+    first.getByRole("button", { name: "Submit answers", exact: true }),
+  );
   await first.getByRole("button", { name: "Submit answers", exact: true }).click();
   await expect(first).toContainText("input: one");
   await expect(first).not.toContainText("input: two");
+  await revealTranscriptTarget(surface, second);
   await expect(second).not.toContainText("input: one");
+  await revealTranscriptTarget(surface, first.getByRole("button", { name: "Reply", exact: true }));
   await first.getByRole("button", { name: "Reply", exact: true }).click();
   const firstReply = first.getByRole("textbox", { name: "Reply to BTW" });
   await firstReply.fill("identify-session");
@@ -141,8 +165,14 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await expect(first).toContainText("session: fake-fork-fake-session-2");
 
   await submitAcpDraft(surface, "finish primary independently");
+  await revealTranscriptTarget(
+    surface,
+    surface.getByText("steered: finish primary independently", { exact: true }),
+  );
   await expect(surface).toContainText("steered: finish primary independently");
+  await revealTranscriptTarget(surface, first);
   await expect(first).not.toContainText("steered:");
+  await revealTranscriptTarget(surface, second);
   await expect(second).not.toContainText("steered:");
   await expect(surface.locator(".agent-working")).toHaveCount(0);
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
@@ -160,12 +190,18 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   const activity = aside.locator(".agent-entry-activity").first();
   await activity.locator("summary").click();
   const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
+  await revealTranscriptTarget(surface, progress.getByText("show output", { exact: true }));
   await progress.getByText("show output", { exact: true }).click();
   await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+  await revealTranscriptTarget(surface, aside.getByRole("button", { name: "Reply", exact: true }));
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
   await reply.fill("draft belongs to this thread");
 
+  await revealTranscriptTarget(
+    surface,
+    aside.getByRole("button", { name: "Collapse BTW", exact: true }),
+  );
   await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
   await expect(reply).toBeHidden();
   await expect(progress).toBeHidden();
@@ -183,6 +219,7 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   await aside.getByRole("button", { name: "Expand BTW", exact: true }).click();
   await expect(reply).toHaveValue("draft belongs to this thread");
   await expect(activity.locator("details").first()).toHaveAttribute("open", "");
+  await revealTranscriptTarget(surface, progress.getByText("show output", { exact: true }));
   await progress.getByText("show output", { exact: true }).click();
   await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
 
@@ -190,9 +227,27 @@ test("BTW collapse and nested history expansion preserve per-thread state across
   await reply.press("Enter");
   await expect(aside).toContainText("agent terminal finished");
   const commandActivity = aside.locator(".agent-entry-activity").last();
+  await revealTranscriptTarget(surface, commandActivity.locator("summary"));
   await commandActivity.locator("summary").click();
   const command = commandActivity.locator(".agent-activity-step", { hasText: "echo hello" });
+  await revealTranscriptTarget(surface, command.getByText("show output", { exact: true }));
   await command.getByText("show output", { exact: true }).click();
   await expect(command.locator(".agent-tool-output")).toContainText("hello");
+  await revealTranscriptTarget(surface, progress.locator(".agent-tool-output"));
   await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+
+  await revealTranscriptTarget(surface, aside.getByRole("button", { name: "Reply", exact: true }));
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  await reply.fill("draft survives transcript virtualization");
+  const newerOutput = Array.from({ length: 80 }, (_, index) => `Unmount proof ${index}`).join("\n");
+  await submitAcpDraft(surface, newerOutput);
+  const viewport = surface.locator(".agent-body > .monaco-list");
+  await viewport.focus();
+  await viewport.press("End");
+  await expect(surface).toContainText("echo: Unmount proof 0");
+  await expect(aside).toHaveCount(0);
+  await revealTranscriptTarget(surface, aside);
+  await expect(reply).toHaveValue("draft survives transcript virtualization");
+  await expect(activity.locator("details").first()).toHaveAttribute("open", "");
+  await expect(commandActivity.locator("details").first()).toHaveAttribute("open", "");
 });

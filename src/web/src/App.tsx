@@ -137,7 +137,13 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
-import { activePath, activeTabFor, flushEditorSession, openTabs } from "./editor/session-store";
+import {
+  activePath,
+  activeTabFor,
+  flushAllEditorSessions,
+  flushEditorSession,
+  openTabs,
+} from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   dismissSourceTokenPrompt,
@@ -1405,6 +1411,10 @@ export default function App(): JSX.Element {
     if (document.visibilityState !== "visible") {
       document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
     }
+
+    // commit() debounces its push by 300ms per session; flush every loaded session before pagehide can kill
+    // the timer with it.
+    window.addEventListener("pagehide", () => flushAllEditorSessions());
 
     const offViewBinding = registerViewFeature((session) => {
       const cleanups = [

@@ -14,6 +14,7 @@ export interface SourceDocEntry {
   unknownBlocks: number;
   status: "loading" | "ready" | "error";
   message?: string;
+  refreshError?: string | undefined;
 }
 
 export interface SourceTokenPrompt {
@@ -30,6 +31,7 @@ export interface SourceEditError {
 }
 
 interface SourceEditState {
+  id: string;
   markdown: string;
   line: number;
   draft: string;
@@ -44,8 +46,62 @@ const edits = createSessionOwnedMap<string, SourceEditState>();
 const editErrorListeners = new Set<(error: SourceEditError) => void>();
 
 export const sourceEditState = edits.get;
-export const keepSourceEdit = edits.set;
-export const discardSourceEdit = edits.delete;
+const editEpochs = createSessionOwnedMap<string, number>();
+const documentRevisions = createSessionOwnedMap<string, number>();
+
+export function keepSourceEdit(
+  session: ClientSession,
+  target: string,
+  edit: SourceEditState,
+): void {
+  editEpochs.set(session, target, (editEpochs.get(session, target) ?? 0) + 1);
+  edits.set(session, target, edit);
+}
+
+export function discardSourceEdit(session: ClientSession, target: string): void {
+  editEpochs.set(session, target, (editEpochs.get(session, target) ?? 0) + 1);
+  edits.delete(session, target);
+}
+
+export async function refreshSourceDoc(
+  session: ClientSession,
+  target: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const previous = sourceDoc(session, target);
+  if (previous?.status !== "ready" || previous.markdown === undefined || edits.get(session, target))
+    return;
+  const epoch = editEpochs.get(session, target);
+  const canApply = (): boolean =>
+    !signal.aborted &&
+    !session.closed &&
+    sourceDoc(session, target) === previous &&
+    editEpochs.get(session, target) === epoch &&
+    edits.get(session, target) === undefined;
+  try {
+    const doc = await session
+      .feature("sources")
+      .request<
+        Pick<SourceDocEntry, "title" | "markdown" | "editedTime" | "truncated" | "unknownBlocks">,
+        { url: string }
+      >("refresh", { url: target }, signal);
+    if (!canApply()) return;
+    const next = { ...previous, ...doc, refreshError: undefined };
+    if (
+      Object.keys(next).some(
+        (key) => next[key as keyof SourceDocEntry] !== previous[key as keyof SourceDocEntry],
+      )
+    ) {
+      updateDocument(session, target, () => next);
+    }
+  } catch (error) {
+    if (canApply())
+      updateDocument(session, target, () => ({
+        ...previous,
+        refreshError: error instanceof Error ? error.message : String(error),
+      }));
+  }
+}
 
 function failSourceEdit(
   session: ClientSession,
@@ -108,7 +164,10 @@ export function saveSourceEdit(
   oldText: string,
   newText: string,
 ): void {
-  session.feature("sources").publish("saveEdit", { target, oldText, newText });
+  const edit = edits.get(session, target);
+  if (edit !== undefined) {
+    session.feature("sources").publish("saveEdit", { target, oldText, newText, editId: edit.id });
+  }
 }
 
 export function submitSourceToken(
@@ -132,6 +191,7 @@ registerSessionFeature((session) => {
     title: string;
     sourceId: string;
   }>("loading", ({ target, title, sourceId }) => {
+    if (edits.get(session, target) !== undefined) return;
     updateDocument(session, target, () => ({
       title,
       sourceId,
@@ -150,7 +210,17 @@ registerSessionFeature((session) => {
     editedTime: string;
     truncated?: boolean;
     unknownBlocks?: number;
+    editId: string;
+    revision: number;
   }>("document", (message) => {
+    // Reconnect replays the last host snapshot, which can predate a locally accepted refresh.
+    if (message.revision <= (documentRevisions.get(session, message.target) ?? 0)) return;
+    documentRevisions.set(session, message.target, message.revision);
+    const edit = edits.get(session, message.target);
+    if (edit !== undefined) {
+      if (!edit.saving || edit.id !== message.editId) return;
+      discardSourceEdit(session, message.target);
+    }
     updateDocument(session, message.target, () => ({
       title: message.title,
       sourceId: message.sourceId,
@@ -165,6 +235,7 @@ registerSessionFeature((session) => {
   const offError = source.on<{ target: string; message: string }>(
     "error",
     ({ target, message }) => {
+      if (edits.get(session, target) !== undefined) return;
       updateDocument(session, target, (previous) => ({
         title: previous?.title ?? "Notion",
         sourceId: previous?.sourceId ?? "",
@@ -180,7 +251,9 @@ registerSessionFeature((session) => {
     target: string;
     message: string;
     stale: boolean;
-  }>("editError", ({ target, message, stale }) => {
+    editId: string;
+  }>("editError", ({ target, message, stale, editId }) => {
+    if (edits.get(session, target)?.id !== editId) return;
     failSourceEdit(session, target, { message, stale });
     for (const listener of editErrorListeners) {
       listener({ session, target, message, stale });

@@ -130,16 +130,18 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		PostSourceDoc(session, target, sourceId, doc);
+		PostSourceDoc(session, target, sourceId, doc, string.Empty);
 	}
 
 	// The one session event for a fetched/updated SourceDoc — fetch and save both land here, so the web's
 	// store always sees the same shape (including the loss flags its banner renders).
-	private static void PostSourceDoc(HostSession session, string target, string sourceId, SourceDoc doc) =>
-		session.State.Set("sources", target, "document", new {
+	private static void PostSourceDoc(HostSession session, string target, string sourceId, SourceDoc doc, string editId) =>
+		session.State.SetVersioned("sources", target, "document", revision => new {
 			target,
 			title = doc.Title,
 			markdown = doc.Markdown,
+			editId,
+			revision,
 			editedTime = doc.EditedTime,
 			sourceId,
 			truncated = doc.Truncated,
@@ -158,27 +160,30 @@ public sealed partial class HostCore {
 		string target,
 		string oldStr,
 		string newStr,
+		string editId,
 		CancellationToken ct) {
 		try {
 			var doc = await _sources.UpdateAsync(target, oldStr, newStr, ct).ConfigureAwait(false);
 			// UpdateAsync just matched a source for this target, so a missing id is a real invariant break.
 			string sourceId = _sources.IdFor(target) ?? throw new InvalidOperationException($"No source claims '{target}'.");
-			PostSourceDoc(session, target, sourceId, doc);
+			PostSourceDoc(session, target, sourceId, doc, editId);
 		} catch (SourceConflictException ex) {
-			PostSourceEditError(session, target, ex.Message, stale: true);
+			PostSourceEditError(session, target, editId, ex.Message, stale: true);
 		} catch (Exception ex) {
-			PostSourceEditError(session, target, ex.Message, stale: false);
+			PostSourceEditError(session, target, editId, ex.Message, stale: false);
 		}
 	}
 
 	private static void PostSourceEditError(
 		HostSession session,
 		string target,
+		string editId,
 		string message,
 		bool stale) =>
 		session.Bus.Feature("sources").Publish("editError", new {
 			target,
 			message,
+			editId,
 			stale,
 		});
 

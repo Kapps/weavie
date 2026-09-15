@@ -11,6 +11,7 @@ namespace Weavie.Headless;
 /// </summary>
 internal sealed class FakeNotionSource : ISourceConnector {
 	private SourceDoc _doc; // mutable: UpdateAsync applies edits in-memory so a save round-trips like the real API
+	private readonly object _docLock = new();
 	private readonly bool _rejectEdits;
 	private readonly int _holdFetchAt;
 	private readonly bool _holdEdit;
@@ -56,10 +57,15 @@ internal sealed class FakeNotionSource : ISourceConnector {
 			: Task.FromException<string>(new InvalidOperationException("Notion rejected the token — use a valid personal access token."));
 
 	public async Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) {
+		SourceDoc snapshot;
+		lock (_docLock) {
+			ReadExternalChange();
+			snapshot = _doc;
+		}
 		if (Interlocked.Increment(ref _fetchCount) == _holdFetchAt) {
 			await WaitForReleaseAsync("fetch", ct).ConfigureAwait(false);
 		}
-		return _doc;
+		return snapshot;
 	}
 
 	// Enforces update_content's real contract — the op must match the document exactly once — and applies it to
@@ -68,14 +74,28 @@ internal sealed class FakeNotionSource : ISourceConnector {
 		if (_holdEdit) {
 			await WaitForReleaseAsync("edit", ct).ConfigureAwait(false);
 		}
-		int first = _doc.Markdown.IndexOf(oldStr, StringComparison.Ordinal);
-		bool matchesOnce = first >= 0 && _doc.Markdown.IndexOf(oldStr, first + 1, StringComparison.Ordinal) < 0;
-		if (_rejectEdits || !matchesOnce) {
-			throw new SourceConflictException("The page changed in Notion since it was fetched.");
-		}
+		lock (_docLock) {
+			ReadExternalChange();
+			int first = _doc.Markdown.IndexOf(oldStr, StringComparison.Ordinal);
+			bool matchesOnce = first >= 0 && _doc.Markdown.IndexOf(oldStr, first + 1, StringComparison.Ordinal) < 0;
+			if (_rejectEdits || !matchesOnce) {
+				throw new SourceConflictException("The page changed in Notion since it was fetched.");
+			}
 
-		_doc = _doc with { Markdown = string.Concat(_doc.Markdown.AsSpan(0, first), newStr, _doc.Markdown.AsSpan(first + oldStr.Length)) };
-		return _doc;
+			_doc = _doc with { Markdown = string.Concat(_doc.Markdown.AsSpan(0, first), newStr, _doc.Markdown.AsSpan(first + oldStr.Length)) };
+			return _doc;
+		}
+	}
+
+	// Consume each remote mutation once so later fetches retain successful local writes.
+	private void ReadExternalChange() {
+		string path = $"{_gateBase}.external.json";
+		if (!File.Exists(path)) {
+			return;
+		}
+		using var external = JsonDocument.Parse(File.ReadAllText(path));
+		_doc = _doc with { Markdown = Str(external.RootElement, "markdown") };
+		File.Delete(path);
 	}
 
 	private async Task WaitForReleaseAsync(string operation, CancellationToken ct) {

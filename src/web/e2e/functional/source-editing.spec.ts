@@ -198,7 +198,9 @@ test.describe("loading edits", () => {
 
     const gate = sourceGate(weavie.home, "fetch");
     await expect.poll(() => existsSync(gate.entered)).toBe(true);
-    await expect(source.locator(".wv-status")).toHaveText("Loading…");
+    await expect(source.locator(".wv-block-editor")).toHaveValue(
+      "Draft through a temporary loading state.",
+    );
     await writeFile(gate.release, "");
     await expect(source.locator(".wv-block-editor")).toHaveValue(
       "Draft through a temporary loading state.",

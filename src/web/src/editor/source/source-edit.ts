@@ -2,8 +2,7 @@
 // Click or Enter on a `.wv-editable` block swaps it for a textarea holding the block's markdown source
 // (notion-edit.blockSource); committing diffs the draft against the VERBATIM fetched markdown (buildUpdateOp)
 // and posts `source-save-edit` — the refreshed `source-doc` re-render closes the editor — and Escape cancels.
-// One block at a time. An edit is bound to the exact markdown it opened against: a re-render from the same
-// string (theme switch) re-mounts the editor with its draft; a different string closes it.
+// Drafts stay bound to their original markdown until explicitly cancelled or acknowledged by Notion.
 
 import type { ClientSession } from "../../bridge";
 import { formatKey } from "../../commands/keybindings";
@@ -29,6 +28,7 @@ export function activeSourceEditor(): SourceEditController | undefined {
 /** Drives the in-place block editor inside one SourceView's shadow root (one instance per mounted view). */
 export class SourceEditController {
   private markdown = "";
+  private editingLine: number | undefined;
   private content: HTMLElement | undefined;
   private focusedBlock: HTMLElement | undefined;
   private textarea: HTMLTextAreaElement | undefined;
@@ -41,21 +41,12 @@ export class SourceEditController {
     private readonly target: string,
   ) {}
 
-  /**
-   * Adopts a freshly rendered doc: decorates the editable blocks (tab stop + shortcut tooltip), re-mounts an
-   * in-progress edit when the markdown is the same string it opened against, and closes it when it isn't —
-   * including the refresh a successful save pushes, where focus returns to the edited block.
-   */
+  /** Adopts the document accepted by the store, retaining drafts and restoring focus after a save. */
   attach(content: HTMLElement, markdown: string): void {
     active = this;
     const edit = sourceEditState(this.session, this.target);
-    const sameDoc = edit?.markdown === markdown;
-    // The saved-edit refresh: new content arrived while our save was resolving.
-    const savedLine = edit !== undefined && !sameDoc && edit.saving ? edit.line : undefined;
+    const savedLine = edit === undefined ? this.editingLine : undefined;
     this.unmountEditor();
-    if (edit !== undefined && !sameDoc) {
-      discardSourceEdit(this.session, this.target);
-    }
     this.markdown = markdown;
     this.content = content;
     this.focusedBlock = undefined;
@@ -200,7 +191,7 @@ export class SourceEditController {
       this.closeAndRefocus(edit.line);
       return true;
     }
-    const op = buildUpdateOp(this.markdown, edit.line, edit.draft);
+    const op = buildUpdateOp(edit.markdown, edit.line, edit.draft);
     if (!op.ok) {
       this.showError({ message: op.reason, stale: false });
       return true;
@@ -262,6 +253,7 @@ export class SourceEditController {
     }
     const display = blockSource(this.markdown, line).display;
     keepSourceEdit(this.session, this.target, {
+      id: crypto.randomUUID(),
       markdown: this.markdown,
       line,
       draft: display,
@@ -279,6 +271,7 @@ export class SourceEditController {
     if (edit === undefined) {
       return;
     }
+    this.editingLine = edit.line;
     const doc = el.ownerDocument;
     const box = doc.createElement("div");
     box.className = edit.saving ? "wv-editor-box wv-saving" : "wv-editor-box";
@@ -384,6 +377,7 @@ export class SourceEditController {
   private unmountEditor(): void {
     this.restore?.();
     this.restore = undefined;
+    this.editingLine = undefined;
     this.textarea = undefined;
     this.hint = undefined;
     this.box = undefined;

@@ -53,6 +53,12 @@ test("curated Python and Rust keep their language ids and shared-scope highlight
 // (`editorScrollbar.ts`'s `onBrowserDesperateReveal`), leaving the editor pinned at its last line with every
 // other line absent from the DOM. That cost this suite six red CI runs before the cause was found, so both
 // halves are pinned here: the damage the container does, and that the helper's target cannot do it.
+//
+// Flake, 2026-09-14 (https://github.com/Kapps/weavie/actions/runs/34811783304/job/103874812999): the final
+// reload+reopen below started timing out once session persistence began reliably flushing before a reload —
+// it had been capturing that same pinned, past-the-content scroll as "where the user left off" all along, so
+// the freshly reopened editor now reliably restored to the exact same nothing-visible position. Fixed at the
+// capture site (`editor-host.ts`'s `scrollShowsRealContent`), not here.
 test("clicking into the editor never scrolls the file away", async ({ page }) => {
   await openFile(page, "hello.ts");
 

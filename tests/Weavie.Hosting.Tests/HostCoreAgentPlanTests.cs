@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
 using Weavie.Hosting.Agents;
 using Xunit;
@@ -42,6 +43,46 @@ public sealed class HostCoreAgentPlanTests {
 	}
 
 	[Theory]
+	[InlineData(FakeStructuredAgentProvider.PlanRevisionPrompt, "agentPlan")]
+	[InlineData(FakeStructuredAgentProvider.PlanRemovalPrompt, "agentPlanRemoved")]
+	public async Task StaleEditorSnapshot_DoesNotDropPlanDocumentUpdates(string prompt, string eventName) {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "stale-plan-tabs",
+			Base = "main",
+			AgentProviderId = "structured",
+		})).Ok);
+		var session = host.Session("stale-plan-tabs");
+		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
+		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "plan-1"));
+		var opened = session.EditorSession;
+		string path = Assert.Single(opened.Open).Path;
+		host.SessionEvent(session, "editor", "sessionChanged", new { session = EditorSession.Empty });
+		Assert.Empty(session.EditorSession.Open);
+		host.Bridge.Clear();
+
+		Submit(host, session, prompt);
+		var update = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", eventName));
+		Assert.Equal(path, update.GetProperty("path").GetString());
+		if (eventName == "agentPlan") {
+			Assert.Equal(FakeStructuredAgentProvider.RevisedPlanMarkdown, update.GetProperty("markdown").GetString());
+		}
+		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "openOverlay"));
+
+		host.SessionEvent(session, "editor", "sessionChanged", new { session = opened });
+		Assert.Equal(path, Assert.Single(session.EditorSession.Open).Path);
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
+		var replay = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", eventName));
+		Assert.Equal(path, replay.GetProperty("path").GetString());
+		if (eventName == "agentPlan") {
+			Assert.Equal(FakeStructuredAgentProvider.RevisedPlanMarkdown, replay.GetProperty("markdown").GetString());
+		} else {
+			Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
+		}
+	}
+
+	[Theory]
 	[InlineData(FakeStructuredAgentProvider.PlanRemovalPrompt)]
 	[InlineData(FakeStructuredAgentProvider.ResetPrompt)]
 	[InlineData(FakeStructuredAgentProvider.PlanRemovedReplayPrompt)]
@@ -68,6 +109,53 @@ public sealed class HostCoreAgentPlanTests {
 		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
 		Assert.Equal(path, Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlanRemoved"))
 			.GetProperty("path").GetString());
+	}
+
+	[Theory]
+	[InlineData(true, false)]
+	[InlineData(false, false)]
+	[InlineData(true, true)]
+	[InlineData(false, true)]
+	public async Task RestoredPlanTab_ReceivesProviderHistoryRegardlessOfRestoreOrder(bool restoreBeforeHistory, bool removed) {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "restored-plan-tabs",
+			Base = "main",
+			AgentProviderId = "structured",
+		})).Ok);
+		var session = host.Session("restored-plan-tabs");
+		string path = AgentPlanProtocol.Path(new AgentPlan(
+			AgentPaneIdentity.ItemKey("thread-fake", "turn-1", "plan-1")!, "Plan", FakeStructuredAgentProvider.PlanMarkdown));
+		var restored = new EditorSession {
+			Active = path,
+			Open = [new EditorSessionEntry { Path = path, Kind = "plan" }],
+		};
+		host.Bridge.Clear();
+		if (restoreBeforeHistory) {
+			session.EditorSession = restored;
+			Assert.Equal(path, Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlanRemoved"))
+				.GetProperty("path").GetString());
+			host.SessionEvent(session, "editor", "sessionChanged", new { session = EditorSession.Empty });
+			Assert.Empty(session.EditorSession.Open);
+		}
+
+		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
+		host.Bridge.Clear();
+		Submit(host, session, removed ? FakeStructuredAgentProvider.PlanRemovalPrompt : FakeStructuredAgentProvider.PlanRevisionPrompt);
+		if (!restoreBeforeHistory) session.EditorSession = restored;
+		string eventName = removed ? "agentPlanRemoved" : "agentPlan";
+		var update = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", eventName));
+		Assert.Equal(path, update.GetProperty("path").GetString());
+		if (!removed) Assert.Equal(FakeStructuredAgentProvider.RevisedPlanMarkdown, update.GetProperty("markdown").GetString());
+		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "openOverlay"));
+
+		host.SessionEvent(session, "editor", "sessionChanged", new { session = restored });
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
+		var replay = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", eventName));
+		Assert.Equal(path, replay.GetProperty("path").GetString());
+		if (!removed) Assert.Equal(FakeStructuredAgentProvider.RevisedPlanMarkdown, replay.GetProperty("markdown").GetString());
+		else Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
 	}
 
 	private static void Submit(TestHost host, HostSession session, string prompt) =>

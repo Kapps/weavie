@@ -446,6 +446,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				_editorSession = value;
 			}
 
+			SubscribeAgentPlanDocuments(value);
 			EditorSessionChanged?.Invoke(value);
 		}
 	}

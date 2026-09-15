@@ -38,6 +38,13 @@ internal sealed class SessionState {
 		}
 	}
 
+	public IReadOnlyList<string> Keys(string feature, string name) {
+		lock (_gate) {
+			return [.. _entries.Where(entry => entry.Key.Feature == feature && entry.Value.Name == name)
+				.Select(entry => entry.Key.Key)];
+		}
+	}
+
 	public void Replay(MessageTarget target) {
 		ArgumentNullException.ThrowIfNull(target);
 		lock (_gate) {

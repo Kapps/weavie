@@ -39,16 +39,20 @@ function declarations(tokens: SemanticTokens, provider: Provider): IdentifierRan
   return ranges;
 }
 
-/** Owns declaration metadata for the editor's current model, shared across viewport checks. */
-export function createSpellingTokens(changed: () => void) {
+const modelTokens = new WeakMap<monaco.editor.ITextModel, ModelTokens>();
+
+interface ModelTokens {
+  listeners: Set<() => void>;
+  read(): Promise<IdentifierRange[]>;
+}
+
+/** Declaration requests belong to the working model, so remounting an editor reuses them. */
+function tokensForModel(current: monaco.editor.ITextModel): ModelTokens {
+  const existing = modelTokens.get(current);
+  if (existing !== undefined) return existing;
   const features = StandaloneServices.get(ILanguageFeaturesService);
-  const registries = [
-    features.documentSemanticTokensProvider,
-    features.documentRangeSemanticTokensProvider,
-  ];
-  let model: monaco.editor.ITextModel | undefined;
+  const listeners = new Set<() => void>();
   let providers: Provider[] = [];
-  let modelSubscriptions: monaco.IDisposable[] = [];
   let providerSubscriptions: monaco.IDisposable[] = [];
   let pending: CancellationTokenSource | undefined;
   let cached: Promise<IdentifierRange[]> | undefined;
@@ -59,16 +63,14 @@ export function createSpellingTokens(changed: () => void) {
   };
   const refresh = (): void => {
     invalidate();
-    changed();
+    for (const listener of listeners) listener();
   };
   const bindProviders = (): void => {
     for (const subscription of providerSubscriptions) subscription.dispose();
     providers =
-      model === undefined
-        ? []
-        : (features.documentSemanticTokensProvider.orderedGroups(model)[0] ??
-          features.documentRangeSemanticTokensProvider.orderedGroups(model)[0] ??
-          []);
+      features.documentSemanticTokensProvider.orderedGroups(current)[0] ??
+      features.documentRangeSemanticTokensProvider.orderedGroups(current)[0] ??
+      [];
     providerSubscriptions = providers.flatMap((provider) =>
       provider.onDidChange === undefined ? [] : [provider.onDidChange(refresh)],
     );
@@ -76,36 +78,25 @@ export function createSpellingTokens(changed: () => void) {
   };
   const providerChanged = (): void => {
     bindProviders();
-    changed();
+    for (const listener of listeners) listener();
   };
-  const subscriptions = registries.map((registry) => registry.onDidChange(providerChanged));
-  const unbind = (): void => {
-    invalidate();
-    for (const subscription of [...modelSubscriptions, ...providerSubscriptions])
-      subscription.dispose();
-    modelSubscriptions = [];
-    providerSubscriptions = [];
-    model = undefined;
-    providers = [];
-  };
-  return {
-    async read(
-      current: monaco.editor.ITextModel,
-      ranges: SpellSpan[],
-      signal: AbortSignal,
-    ): Promise<IdentifierRange[]> {
-      signal.throwIfAborted();
-      if (model !== current) {
-        unbind();
-        model = current;
-        modelSubscriptions = [
-          current.onDidChangeContent(invalidate),
-          current.onDidChangeLanguage(providerChanged),
-          current.onWillDispose(unbind),
-        ];
-        bindProviders();
-      }
-      if (ranges.length === 0) return [];
+  const subscriptions = [
+    features.documentSemanticTokensProvider.onDidChange(providerChanged),
+    features.documentRangeSemanticTokensProvider.onDidChange(providerChanged),
+    current.onDidChangeContent(invalidate),
+    current.onDidChangeLanguage(providerChanged),
+    current.onWillDispose(() => {
+      invalidate();
+      for (const subscription of [...subscriptions, ...providerSubscriptions])
+        subscription.dispose();
+      listeners.clear();
+      modelTokens.delete(current);
+    }),
+  ];
+  bindProviders();
+  const result: ModelTokens = {
+    listeners,
+    read: () => {
       if (cached === undefined) {
         const source = new CancellationTokenSource();
         pending = source;
@@ -136,7 +127,32 @@ export function createSpellingTokens(changed: () => void) {
           if (cached === request) invalidate();
         });
       }
-      const tokens = await cached;
+      return cached;
+    },
+  };
+  modelTokens.set(current, result);
+  return result;
+}
+
+/** Each editor subscribes to its model's metadata and filters declarations to its viewport. */
+export function createSpellingTokens(changed: () => void) {
+  let currentTokens: ModelTokens | undefined;
+  const listener = (): void => changed();
+  return {
+    async read(
+      current: monaco.editor.ITextModel,
+      ranges: SpellSpan[],
+      signal: AbortSignal,
+    ): Promise<IdentifierRange[]> {
+      signal.throwIfAborted();
+      const next = tokensForModel(current);
+      if (currentTokens !== next) {
+        currentTokens?.listeners.delete(listener);
+        currentTokens = next;
+        currentTokens.listeners.add(listener);
+      }
+      if (ranges.length === 0) return [];
+      const tokens = await currentTokens.read();
       signal.throwIfAborted();
       const visible = new Map<number, SpellSpan[]>();
       for (const range of ranges) {
@@ -163,8 +179,8 @@ export function createSpellingTokens(changed: () => void) {
       );
     },
     dispose(): void {
-      unbind();
-      for (const subscription of subscriptions) subscription.dispose();
+      currentTokens?.listeners.delete(listener);
+      currentTokens = undefined;
     },
   };
 }

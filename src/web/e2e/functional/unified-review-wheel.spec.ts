@@ -3,10 +3,14 @@ import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
-const baseline = Array.from({ length: 1_000 }, (_, index) => `line ${index}`).join("\n");
+const source = Array.from(
+  { length: 7_000 },
+  (_, index) => `export const value${index} = ${index};`,
+);
+const baseline = source.join("\n");
 const paths = Array.from(
-  { length: 20 },
-  (_, index) => `wheel-${String(index).padStart(2, "0")}.txt`,
+  { length: 30 },
+  (_, index) => `wheel-${String(index).padStart(2, "0")}.ts`,
 );
 
 test.use({
@@ -19,10 +23,13 @@ test.use({
     steps: paths.flatMap((path, index) =>
       appliedEdit(
         path,
-        baseline.replace(
-          "line 500",
-          `changed ${index} ${"wide ".repeat(index % 3 === 0 ? 200 : 1)}`,
-        ),
+        source
+          .map((line, lineIndex) =>
+            lineIndex >= 3_500 && lineIndex < 3_550
+              ? `export const value${lineIndex} = "changed ${index} ${lineIndex} ${"wide ".repeat(index % 3 === 0 ? 200 : 1)}";`
+              : line,
+          )
+          .join("\n"),
       ),
     ),
   },
@@ -31,6 +38,8 @@ test.use({
 test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
 }) => {
+  test.slow();
+  await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
@@ -58,8 +67,8 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
     return samples;
   });
   await scroller.hover();
-  for (let notch = 0; notch < 80; notch++) {
-    await page.mouse.wheel(0, 200);
+  for (let notch = 0; notch < 200; notch++) {
+    await page.mouse.wheel(0, 400);
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -76,8 +85,8 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
     expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
   }
   const settledHeight = await scroller.evaluate((element) => element.scrollHeight);
-  for (let notch = 0; notch < 80; notch++) {
-    await page.mouse.wheel(0, -200);
+  for (let notch = 0; notch < 200; notch++) {
+    await page.mouse.wheel(0, -400);
     expect(await scroller.evaluate((element) => element.scrollHeight)).toBe(settledHeight);
   }
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);

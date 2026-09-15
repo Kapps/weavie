@@ -43,12 +43,16 @@ export function createReviewEditorViewport(
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(editor.getContentHeight(), viewport.height);
-      editor.layout({ width: container.clientWidth, height });
+      const height = Math.min(editor.getContentHeight(), container.clientHeight, viewport.height);
+      const width = container.clientWidth;
+      const previous = editor.getLayoutInfo();
+      const resized = previous.width !== width || previous.height !== height;
+      if (resized) editor.layout({ width, height });
       const top = projectedTop();
-      mount.style.top = `${top}px`;
-      editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
-      editor.render();
+      const moved = editor.getScrollTop() !== top;
+      if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
+      if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
+      if (resized || moved) editor.render();
     } finally {
       syncing = wasSyncing;
     }

@@ -153,7 +153,7 @@ export function UnifiedReview(props: {
     },
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
-    overscan: 6,
+    overscan: 1,
     useAnimationFrameWithResizeObserver: true,
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));

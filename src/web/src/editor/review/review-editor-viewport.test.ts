@@ -25,7 +25,7 @@ function fixture() {
       disconnect() {}
     },
   );
-  const layoutInfo = { contentWidth: 648, height: 568, verticalScrollbarWidth: 14 };
+  const layoutInfo = { width: 716, contentWidth: 648, height: 568, verticalScrollbarWidth: 14 };
   const values = new Map<EditorOption, unknown>([
     [EditorOption.layoutInfo, layoutInfo],
     [EditorOption.padding, { top: 6, bottom: 6 }],
@@ -62,7 +62,7 @@ function fixture() {
   let contentHeight = view.getContentHeight();
   let rootTop = view.getCurrentScrollTop();
   const writes: number[] = [];
-  const state = { duringLayout: () => {} };
+  const state = { duringLayout: () => {}, containerHeight: () => contentHeight };
   const scroller = {
     clientTop: 0,
     clientHeight: 606,
@@ -79,22 +79,24 @@ function fixture() {
   };
   const container = {
     get clientHeight() {
-      return contentHeight;
+      return state.containerHeight();
     },
     clientWidth: 716,
     getBoundingClientRect: () => ({ top: 38 - rootTop }),
   };
   const mount = { style: { top: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   const editor = {
-    layout: ({ height }: { height: number }) => {
+    layout: vi.fn(({ width, height }: { width: number; height: number }) => {
+      layoutInfo.width = width;
       layoutInfo.height = height;
       const changed: boolean[] = [];
       changed[EditorOption.layoutInfo] = true;
       view.onConfigurationChanged(new ConfigurationChangedEvent(changed));
       state.duringLayout();
-    },
+    }),
     getContentHeight: () => view.getContentHeight(),
     getScrollHeight: () => view.getScrollHeight(),
+    getScrollTop: () => view.getCurrentScrollTop(),
     getLayoutInfo: () => layoutInfo,
     setScrollTop: (top: number) => view.getScrollable().setScrollPositionNow({ scrollTop: top }),
     onDidScrollChange: view.onDidScroll,
@@ -125,10 +127,32 @@ function fixture() {
     writes,
     state,
     rootTop: () => rootTop,
+    editor,
+    container,
   };
 }
 
 describe("review viewport geometry ownership", () => {
+  it("keeps an unresolved editor inside its reserved section height", () => {
+    const current = fixture();
+    current.state.containerHeight = () => 150;
+    current.viewport.layout();
+    expect(current.editor.getLayoutInfo().height).toBe(150);
+    current.state.containerHeight = () => 900;
+    current.viewport.layout();
+    expect(current.editor.getLayoutInfo().height).toBe(568);
+  });
+
+  it("does not relayout or repaint unchanged editors on scroll frames", () => {
+    const current = fixture();
+    current.editor.layout.mockClear();
+    current.editor.render.mockClear();
+    current.viewport.layout();
+    current.viewport.layout();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.editor.render).not.toHaveBeenCalled();
+  });
+
   it("does not turn Monaco's horizontal-scrollbar height clamp into an outer reveal", () => {
     const current = fixture();
     const before = current.rootTop();
@@ -156,7 +180,7 @@ describe("review viewport geometry ownership", () => {
     expect(layout).not.toHaveBeenCalled();
     const frame = vi.mocked(requestAnimationFrame).mock.calls[0]![0];
     frame(0);
-    expect(layout).toHaveBeenCalledOnce();
+    expect(layout).not.toHaveBeenCalled();
   });
 
   it("projects the mount using geometry produced by the current editor layout", () => {
@@ -165,6 +189,7 @@ describe("review viewport geometry ownership", () => {
       current.state.duringLayout = () => {};
       current.view.setMaxLineWidth(184);
     };
+    current.container.clientWidth += 1;
     current.viewport.layout();
     expect(Number.parseFloat(current.mount.style.top)).toBe(current.rootTop());
     expect(current.view.getCurrentScrollTop()).toBe(current.rootTop());

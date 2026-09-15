@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { test } from "./harness/network-fixtures";
+import { transcriptGeometry } from "./harness/transcript-geometry";
 import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 // Scrolling back through history the pane has never measured used to stutter: the virtualizer answers each
@@ -67,46 +68,28 @@ test("scrolling back through never-measured history stays smooth", async ({ page
     const body = page.locator(".agent-body");
     await expect(body).toBeVisible();
     await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
-    await body.evaluate((element) => {
-      element.scrollTo({ top: element.scrollHeight });
-    });
+    host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling: false }));
+    await body.locator(":scope > .monaco-list").focus();
+    await expect(body.locator(":scope > .monaco-list")).toBeFocused();
+    await page.keyboard.press("End");
     await page.waitForTimeout(1000);
 
     // Scroll up one exact step per frame. Every tracked row must move by exactly that step: the pane owes
     // the reader the motion it was given, whatever it is re-measuring underneath.
     const measured = await body.evaluate(async (element: HTMLElement) => {
       const rate = 8;
-      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
-      if (descriptor?.get === undefined || descriptor.set === undefined) {
-        throw new Error("scrollTop is not an accessor");
-      }
-      const read = descriptor.get;
-      const write = descriptor.set;
+      const rowsContainer = element.querySelector<HTMLElement>(".monaco-list-rows");
+      if (rowsContainer === null) throw new Error("Transcript list geometry is unavailable");
+      const offset = () => -Number.parseFloat(rowsContainer.style.top);
+      let previousOffset = offset();
       let corrections = 0;
-      let stepping = false;
-      // Count every way the pane can move the scroll position, so the guard below stays about whether
-      // corrections happened at all rather than which API applies them.
-      Object.defineProperty(element, "scrollTop", {
-        configurable: true,
-        get(): number {
-          return read.call(this) as number;
-        },
-        set(value: number) {
-          if (!stepping) {
-            corrections += 1;
-          }
-          write.call(this, value);
-        },
-      });
-      const scrollTo = element.scrollTo.bind(element);
-      element.scrollTo = ((options: ScrollToOptions) => {
-        corrections += 1;
-        scrollTo(options);
-      }) as typeof element.scrollTo;
-      const deviations: number[] = [];
+      const deviations: { frame: number; id: string; delta: number; offset: number }[] = [];
       let previous: { id: string; top: number } | null = null;
       for (let frame = 0; frame < 500; frame++) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const currentOffset = offset();
+        if (frame > 0 && Math.abs(currentOffset - previousOffset + rate) > 0.01) corrections++;
+        previousOffset = currentOffset;
         const viewportTop = element.getBoundingClientRect().top;
         let highest: { id: string; top: number } | null = null;
         for (const row of document.querySelectorAll<HTMLElement>(".agent-virtual-row")) {
@@ -117,22 +100,32 @@ test("scrolling back through never-measured history stays smooth", async ({ page
           }
         }
         if (highest !== null && previous?.id === highest.id) {
-          deviations.push(highest.top - previous.top - rate);
+          deviations.push({
+            frame,
+            id: highest.id,
+            delta: highest.top - previous.top - rate,
+            offset: currentOffset,
+          });
         }
         previous = highest;
-        stepping = true;
-        element.scrollTop -= rate;
-        stepping = false;
+        element.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -rate, bubbles: true, cancelable: true }),
+        );
       }
       return {
         corrections,
-        stutters: deviations.filter((deviation) => Math.abs(deviation) > 2).length,
+        samples: deviations.length,
+        stutters: deviations.filter((deviation) => Math.abs(deviation.delta) > 2),
       };
     });
 
     // The corrections have to be real, or a pane that simply stopped compensating would pass.
     expect(measured.corrections).toBeGreaterThan(10);
-    expect(measured.stutters).toBe(0);
+    expect(
+      measured.samples,
+      "cold-history assertions require tracked visible anchors",
+    ).toBeGreaterThan(100);
+    expect(measured.stutters).toEqual([]);
   } finally {
     await host.close();
   }
@@ -167,7 +160,9 @@ test.describe("native wheel scrolling", () => {
         host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling }));
         const body = page.locator(".agent-body");
         await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
-        await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+        await body.locator(":scope > .monaco-list").focus();
+        await expect(body.locator(":scope > .monaco-list")).toBeFocused();
+        await page.keyboard.press("End");
         await page.waitForTimeout(500);
         await body.hover();
         const overlaps: number[] = [];
@@ -175,7 +170,7 @@ test.describe("native wheel scrolling", () => {
         const movingFrames: number[] = [];
         for (let notch = 0; notch < 32; notch++) {
           const anchor = await body.evaluate(readVisibleAnchor);
-          const sampling = body.evaluate(sampleWheelFrames);
+          const { result: sampling } = await beginWheelSample(body);
           await page.mouse.wheel(0, -120);
           const sample = await sampling;
           overlaps.push(sample.overlap);
@@ -183,7 +178,7 @@ test.describe("native wheel scrolling", () => {
           distances.push(await body.evaluate(anchorDistance, anchor));
         }
         const rapidAnchor = await body.evaluate(readVisibleAnchor);
-        const rapidSampling = body.evaluate(sampleWheelFrames);
+        const { result: rapidSampling } = await beginWheelSample(body);
         for (let notch = 0; notch < 3; notch++) await page.mouse.wheel(0, -120);
         overlaps.push((await rapidSampling).overlap);
         const rapidDistance = await body.evaluate(anchorDistance, rapidAnchor);
@@ -191,7 +186,7 @@ test.describe("native wheel scrolling", () => {
           Math.abs(rapidDistance - 360),
           "rapid notches must retain accumulated distance",
         ).toBeLessThanOrEqual(1);
-        const burstSampling = body.evaluate(sampleWheelFrames);
+        const { result: burstSampling } = await beginWheelSample(body);
         await page.mouse.wheel(0, -2000);
         overlaps.push((await burstSampling).overlap);
         expect(
@@ -222,19 +217,17 @@ test.describe("native wheel scrolling", () => {
         });
         await expect(latest).toBeHidden();
         await page.waitForTimeout(200);
-        expect(
-          await body.evaluate(
-            (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
-          ),
-        ).toBeLessThanOrEqual(1);
+        expect((await body.evaluate(transcriptGeometry)).bottomDistance).toBeLessThanOrEqual(1);
         const fineMovement = await body.evaluate((element) => {
-          const previous = element.scrollTop;
+          const container = element.querySelector<HTMLElement>(".monaco-list-rows");
+          if (container === null) throw new Error("Transcript list geometry is unavailable");
+          const previous = -Number.parseFloat(container.style.top);
           for (let step = 0; step < 4; step++) {
             element.dispatchEvent(
               new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -0.25 }),
             );
           }
-          return element.scrollTop - previous;
+          return -Number.parseFloat(container.style.top) - previous;
         });
         expect(fineMovement, "fractional input must accumulate immediately").toBe(-1);
       } finally {
@@ -244,17 +237,35 @@ test.describe("native wheel scrolling", () => {
   }
 });
 
+async function beginWheelSample(
+  body: Locator,
+): Promise<{ result: Promise<{ overlap: number; frames: number }> }> {
+  await body.evaluate((element) => {
+    delete element.dataset.wheelSampling;
+  });
+  const result = body.evaluate(sampleWheelFrames);
+  await expect(body).toHaveAttribute("data-wheel-sampling", "ready");
+  return { result };
+}
+
 async function sampleWheelFrames(
   element: HTMLElement,
 ): Promise<{ overlap: number; frames: number }> {
   let overlap = 0;
   const offsets = new Set<number>();
-  const start = performance.now();
-  while (performance.now() - start < 400) {
+  let lastWheel: number | null = null;
+  const onWheel = () => {
+    lastWheel = performance.now();
+  };
+  element.addEventListener("wheel", onWheel, { capture: true });
+  element.dataset.wheelSampling = "ready";
+  while (lastWheel === null || performance.now() - lastWheel < 400) {
     // ResizeObserver runs after animation callbacks but before paint; sample after rendering so
     // intermediate layout that never reaches the screen is not counted as a visible overlap.
     await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-    offsets.add(element.scrollTop);
+    const container = element.querySelector<HTMLElement>(".monaco-list-rows");
+    if (container === null) throw new Error("Transcript list geometry is unavailable");
+    offsets.add(-Number.parseFloat(container.style.top));
     const viewport = element.getBoundingClientRect();
     const rows = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row"))
       .map((row) => row.getBoundingClientRect())
@@ -264,6 +275,7 @@ async function sampleWheelFrames(
       overlap = Math.max(overlap, rows[index - 1]!.bottom - rows[index]!.top);
     }
   }
+  element.removeEventListener("wheel", onWheel, { capture: true });
   return { overlap, frames: offsets.size };
 }
 
@@ -313,20 +325,25 @@ for (const preciseDelta of [-0.25, 0.25]) {
       await host.waitUntilConnected();
       const body = page.locator(".agent-body");
       await expect(body.locator("code")).toContainText("A fully measured transcript line.");
-      await body.evaluate((element) => {
-        element.scrollTop = element.scrollHeight / 2;
-      });
+      await body.locator(":scope > .monaco-list").focus();
+      await expect(body.locator(":scope > .monaco-list")).toBeFocused();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("PageDown");
+      await page.keyboard.press("PageDown");
       await page.waitForTimeout(200);
       const movement = await body.evaluate(async (element, delta) => {
-        const initial = element.scrollTop;
+        const container = element.querySelector<HTMLElement>(".monaco-list-rows");
+        if (container === null) throw new Error("Transcript list geometry is unavailable");
+        const offset = () => -Number.parseFloat(container.style.top);
+        const initial = offset();
         for (const deltaY of [-120, delta]) {
           element.dispatchEvent(
             new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }),
           );
         }
-        const immediate = element.scrollTop - initial;
+        const immediate = offset() - initial;
         await new Promise<void>((resolve) => setTimeout(resolve, 160));
-        return { immediate, settled: element.scrollTop - initial };
+        return { immediate, settled: offset() - initial };
       }, preciseDelta);
       const expected = preciseDelta < 0 ? -120 + preciseDelta : preciseDelta;
       expect(Math.abs(movement.immediate - expected)).toBeLessThanOrEqual(0.5);

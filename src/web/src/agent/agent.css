@@ -109,7 +109,7 @@
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overflow-anchor: none;
   overscroll-behavior-x: none;
   padding: 0;
@@ -138,9 +138,7 @@
 }
 
 .agent-virtual-row {
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
   box-sizing: border-box;
   width: 100%;
   padding-top: 5px;
@@ -1486,4 +1484,20 @@ label.agent-input-choice:hover {
 .agent-slash-key {
   color: var(--dim);
   white-space: nowrap;
+}
+
+.agent-body > .monaco-list.mouse-support {
+  white-space: normal;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.agent-body > .monaco-list.mouse-support .agent-transcript > .monaco-list-row {
+  cursor: auto;
+}
+
+.agent-empty-slot > .agent-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }

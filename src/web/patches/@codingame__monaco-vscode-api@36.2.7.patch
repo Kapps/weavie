@@ -259,3 +259,1311 @@ index 9327b6ae5f6b11b57da2aaedde2198d21cb46421..00850e6ec17756ed475ec5f32bbfee9f
              const action = ( new DefinitionAction({
                  openToSide,
                  openInPeek: canPeek,
+diff --git a/vscode/src/vs/base/common/scrollable.js b/vscode/src/vs/base/common/scrollable.js
+--- a/vscode/src/vs/base/common/scrollable.js
++++ b/vscode/src/vs/base/common/scrollable.js
+@@ -69,6 +69,17 @@
+             useRawScrollPositions ? this.rawScrollTop : this.scrollTop
+         ));
+     }
++    withScrollGeometry(update, adjustment) {
++        return new ScrollState(
++            this._forceIntegerValues,
++            update.width ?? this.width,
++            update.scrollWidth ?? this.scrollWidth,
++            this.scrollLeft + adjustment.scrollLeft,
++            update.height ?? this.height,
++            update.scrollHeight ?? this.scrollHeight,
++            this.scrollTop + adjustment.scrollTop
++        );
++    }
+     withScrollPosition(update) {
+         return ( new ScrollState(
+             this._forceIntegerValues,
+@@ -80,7 +91,7 @@
+             (typeof update.scrollTop !== "undefined" ? update.scrollTop : this.rawScrollTop)
+         ));
+     }
+-    createScrollEvent(previous, inSmoothScrolling) {
++    createScrollEvent(previous, inSmoothScrolling, source) {
+         const widthChanged = (this.width !== previous.width);
+         const scrollWidthChanged = (this.scrollWidth !== previous.scrollWidth);
+         const scrollLeftChanged = (this.scrollLeft !== previous.scrollLeft);
+@@ -89,6 +100,7 @@
+         const scrollTopChanged = (this.scrollTop !== previous.scrollTop);
+         return {
+             inSmoothScrolling: inSmoothScrolling,
++            source,
+             oldWidth: previous.width,
+             oldScrollWidth: previous.scrollWidth,
+             oldScrollLeft: previous.scrollLeft,
+@@ -120,6 +132,7 @@
+         this._scheduleAtNextAnimationFrame = options.scheduleAtNextAnimationFrame;
+         this._state = ( new ScrollState(options.forceIntegerValues, 0, 0, 0, 0, 0, 0));
+         this._smoothScrolling = null;
++        this._publishedInSmoothScrolling = false;
+     }
+     dispose() {
+         if (this._smoothScrolling) {
+@@ -139,8 +152,16 @@
+     }
+     setScrollDimensions(dimensions, useRawScrollPositions) {
+         const newState = this._state.withScrollDimensions(dimensions, useRawScrollPositions);
+-        this._setState(newState, Boolean(this._smoothScrolling));
++        this._setState(newState, Boolean(this._smoothScrolling), "geometry");
+         this._smoothScrolling?.acceptScrollDimensions(this._state);
++    }
++    setScrollGeometry(dimensions, adjustment) {
++        const state = this._state.withScrollGeometry(dimensions, adjustment);
++        this._smoothScrolling?.acceptScrollGeometry(state, {
++            scrollLeft: state.rawScrollLeft - this._state.scrollLeft,
++            scrollTop: state.rawScrollTop - this._state.scrollTop
++        });
++        this._setState(state, Boolean(this._smoothScrolling), "geometry");
+     }
+     getFutureScrollPosition() {
+         if (this._smoothScrolling) {
+@@ -150,6 +171,15 @@
+     }
+     getCurrentScrollPosition() {
+         return this._state;
++    }
++    setScrollPositionFromInput(update, animate) {
++        const state = this._state;
++        const operation = this._smoothScrolling;
++        if (animate) this.setScrollPositionSmooth(update, false);
++        else this.setScrollPositionNow(update);
++        if (this._state === state && this._smoothScrolling === operation) {
++            this._onScroll.fire(this._state.createScrollEvent(this._state, Boolean(this._smoothScrolling), "position"));
++        }
+     }
+     setScrollPositionNow(update) {
+         const newState = this._state.withScrollPosition(update);
+@@ -157,7 +187,7 @@
+             this._smoothScrolling.dispose();
+             this._smoothScrolling = null;
+         }
+-        this._setState(newState, false);
++        this._setState(newState, false, "position");
+     }
+     setScrollPositionSmooth(update, reuseAnimation) {
+         if (this._smoothScrollDuration === 0) {
+@@ -196,6 +226,7 @@
+             this._smoothScrolling.animationFrameDisposable = null;
+             this._performSmoothScrolling();
+         });
++        this._setState(this._state, true, "position");
+     }
+     hasPendingScrollAnimation() {
+         return Boolean(this._smoothScrolling);
+@@ -204,15 +235,17 @@
+         if (!this._smoothScrolling) {
+             return;
+         }
+-        const update = this._smoothScrolling.tick();
++        const operation = this._smoothScrolling;
++        const update = operation.tick();
+         const newState = this._state.withScrollPosition(update);
+-        this._setState(newState, true);
+-        if (!this._smoothScrolling) {
++        if (update.isDone) {
++            operation.dispose();
++            this._smoothScrolling = null;
++            this._setState(newState, false, "position");
+             return;
+         }
+-        if (update.isDone) {
+-            this._smoothScrolling.dispose();
+-            this._smoothScrolling = null;
++        this._setState(newState, true, "position");
++        if (this._smoothScrolling !== operation) {
+             return;
+         }
+         this._smoothScrolling.animationFrameDisposable = this._scheduleAtNextAnimationFrame(() => {
+@@ -223,13 +256,14 @@
+             this._performSmoothScrolling();
+         });
+     }
+-    _setState(newState, inSmoothScrolling) {
++    _setState(newState, inSmoothScrolling, source) {
+         const oldState = this._state;
+-        if (oldState.equals(newState)) {
++        if (oldState.equals(newState) && this._publishedInSmoothScrolling === inSmoothScrolling) {
+             return;
+         }
+         this._state = newState;
+-        this._onScroll.fire(this._state.createScrollEvent(oldState, inSmoothScrolling));
++        this._publishedInSmoothScrolling = inSmoothScrolling;
++        this._onScroll.fire(this._state.createScrollEvent(oldState, inSmoothScrolling, source));
+     }
+ }
+ class SmoothScrollingUpdate {
+@@ -252,6 +286,22 @@
+         }
+         return b((completion - cut) / (1 - cut));
+     };
++}
++class ScrollAnimationCurve {
++    constructor(curve) {
++        this.curve = curve;
++        this.offset = 0;
++        this.minimum = -Infinity;
++        this.maximum = Infinity;
++    }
++    sample(completion) {
++        return Math.min(this.maximum, Math.max(this.minimum, this.curve(completion) + this.offset));
++    }
++    adjust(delta, maximum) {
++        this.offset += delta;
++        this.minimum = Math.min(maximum, Math.max(0, this.minimum + delta));
++        this.maximum = Math.min(maximum, Math.max(0, this.maximum + delta));
++    }
+ }
+ class SmoothScrollingOperation {
+     constructor(from, to, startTime, duration) {
+@@ -263,8 +313,8 @@
+         this._initAnimations();
+     }
+     _initAnimations() {
+-        this.scrollLeft = this._initAnimation(this.from.scrollLeft, this.to.scrollLeft, this.to.width);
+-        this.scrollTop = this._initAnimation(this.from.scrollTop, this.to.scrollTop, this.to.height);
++        this.scrollLeft = new ScrollAnimationCurve(this._initAnimation(this.from.scrollLeft, this.to.scrollLeft, this.to.width));
++        this.scrollTop = new ScrollAnimationCurve(this._initAnimation(this.from.scrollTop, this.to.scrollTop, this.to.height));
+     }
+     _initAnimation(from, to, viewportSize) {
+         const delta = Math.abs(from - to);
+@@ -287,6 +337,18 @@
+             this.animationFrameDisposable = null;
+         }
+     }
++    acceptScrollGeometry(state, adjustment) {
++        this.scrollLeft.adjust(adjustment.scrollLeft, Math.max(0, state.scrollWidth - state.width));
++        this.scrollTop.adjust(adjustment.scrollTop, Math.max(0, state.scrollHeight - state.height));
++        this.from = state.withScrollPosition({
++            scrollLeft: this.from.scrollLeft + adjustment.scrollLeft,
++            scrollTop: this.from.scrollTop + adjustment.scrollTop
++        });
++        this.to = state.withScrollPosition({
++            scrollLeft: this.to.scrollLeft + adjustment.scrollLeft,
++            scrollTop: this.to.scrollTop + adjustment.scrollTop
++        });
++    }
+     acceptScrollDimensions(state) {
+         this.to = state.withScrollPosition(this.to);
+         this._initAnimations();
+@@ -297,8 +359,8 @@
+     _tick(now) {
+         const completion = (now - this.startTime) / this.duration;
+         if (completion < 1) {
+-            const newScrollLeft = this.scrollLeft(completion);
+-            const newScrollTop = this.scrollTop(completion);
++            const newScrollLeft = this.scrollLeft.sample(completion);
++            const newScrollTop = this.scrollTop.sample(completion);
+             return ( new SmoothScrollingUpdate(newScrollLeft, newScrollTop, false));
+         }
+         return ( new SmoothScrollingUpdate(this.to.scrollLeft, this.to.scrollTop, true));
+diff --git a/vscode/src/vs/base/browser/ui/list/listView.js b/vscode/src/vs/base/browser/ui/list/listView.js
+--- a/vscode/src/vs/base/browser/ui/list/listView.js
++++ b/vscode/src/vs/base/browser/ui/list/listView.js
+@@ -172,16 +172,16 @@
+                 this.measureItemWidth(item);
+             }
+             this.updateScrollWidth();
+-            this.scrollableElement.setScrollDimensions({
++            this.scrollable.setScrollGeometry({
+                 width: getContentWidth(this.domNode)
+-            });
++            }, { scrollLeft: 0, scrollTop: 0 });
+             this.rowsContainer.style.width = `${Math.max(this.scrollWidth || 0, this.renderWidth)}px`;
+         } else {
+             this.scrollableElementWidthDelayer.cancel();
+-            this.scrollableElement.setScrollDimensions({
++            this.scrollable.setScrollGeometry({
+                 width: this.renderWidth,
+                 scrollWidth: this.renderWidth
+-            });
++            }, { scrollLeft: 0, scrollTop: 0 });
+             this.rowsContainer.style.width = "";
+             this.domNode.style.removeProperty("--list-scroll-right-offset");
+         }
+@@ -211,6 +211,15 @@
+             throw ( new Error("Horizontal scrolling and dynamic heights not supported simultaneously"));
+         }
+         this.items = [];
++        this.geometrySuspended = 0;
++        this.focusedItem = undefined;
++        this.focusRetentionChanged = false;
++        this.endAffinity = options.endAffinity ?? (() => false);
++        this.retainedIndices = new Set();
++        this.rowUpdateDepth = 0;
++        this.pendingRetainedIndices = undefined;
++        this.disposalRequested = false;
++        this.disposed = false;
+         this.itemId = 0;
+         this.rangeMap = this.createRangeMap(options.paddingTop ?? 0);
+         for (const renderer of renderers) {
+@@ -239,13 +248,17 @@
+             this.rowsContainer.style.overflow = "hidden";
+             this.rowsContainer.style.contain = "strict";
+         }
+-        this.disposables.add(Gesture.addTarget(this.rowsContainer));
++        this.nativeTouchContent = Boolean(options.touchGesturePolicy);
++        this.disposables.add(options.touchGesturePolicy
++            ? Gesture.addTargetWithPolicy(this.rowsContainer, options.touchGesturePolicy)
++            : Gesture.addTarget(this.rowsContainer));
+         this.scrollable = this.disposables.add(( new Scrollable({
+-            forceIntegerValues: true,
++            forceIntegerValues: false,
+             smoothScrollDuration: (options.smoothScrolling ?? false) ? 125 : 0,
+             scheduleAtNextAnimationFrame: cb => scheduleAtNextAnimationFrame(getWindow(this.domNode), cb)
+         })));
+         this.scrollableElement = this.disposables.add(( new SmoothScrollableElement(this.rowsContainer, {
++            handleMouseWheel: options.handleMouseWheel,
+             alwaysConsumeMouseWheel: options.alwaysConsumeMouseWheel ?? DefaultOptions.alwaysConsumeMouseWheel,
+             horizontal: ScrollbarVisibility.Auto,
+             vertical: options.verticalScrollMode ?? DefaultOptions.verticalScrollMode,
+@@ -256,6 +269,8 @@
+         }, this.scrollable)));
+         this.domNode.appendChild(this.scrollableElement.getDomNode());
+         container.appendChild(this.domNode);
++        this.disposables.add(addDisposableListener(this.domNode, "focusin", event => this.retainFocusedElement(event.target)));
++        this.disposables.add(addDisposableListener(this.domNode, "focusout", event => this.retainFocusedElement(event.relatedTarget)));
+         this.scrollableElement.onScroll(this.onScroll, this, this.disposables);
+         this.disposables.add(
+             addDisposableListener(this.rowsContainer, EventType.Change, e => this.onTouchChange(e))
+@@ -317,9 +332,9 @@
+     updateOptions(options) {
+         if (options.paddingBottom !== undefined) {
+             this.paddingBottom = options.paddingBottom;
+-            this.scrollableElement.setScrollDimensions({
++            this.scrollable.setScrollGeometry({
+                 scrollHeight: this.scrollHeight
+-            });
++            }, { scrollLeft: 0, scrollTop: 0 });
+         }
+         if (options.smoothScrolling !== undefined) {
+             this.scrollable.setSmoothScrollDuration(options.smoothScrolling ? 125 : 0);
+@@ -413,8 +428,7 @@
+             undefined,
+             true
+         );
+-        this.setScrollTop(this.lastRenderTop);
+-        this.eventuallyUpdateScrollDimensions();
++        this.updateScrollGeometry(heightDiff, true);
+         if (this.supportDynamicHeights) {
+             this._rerender(this.lastRenderTop, this.lastRenderHeight);
+         } else {
+@@ -436,42 +450,36 @@
+             this._onDidChangeContentHeight.fire(this.contentHeight);
+         }
+     }
+-    _splice(start, deleteCount, elements = []) {
+-        const previousRenderRange = this.getRenderRange(this.lastRenderTop, this.lastRenderHeight);
+-        const deleteRange = {
+-            start,
+-            end: start + deleteCount
+-        };
+-        const removeRange = Range.intersect(previousRenderRange, deleteRange);
+-        const rowsToDispose = ( new Map());
+-        for (let i = removeRange.end - 1; i >= removeRange.start; i--) {
+-            const item = this.items[i];
+-            item.dragStartDisposable.dispose();
+-            item.checkedDisposable.dispose();
+-            if (item.row) {
+-                let rows = rowsToDispose.get(item.templateId);
+-                if (!rows) {
+-                    rows = [];
+-                    rowsToDispose.set(item.templateId, rows);
+-                }
+-                const renderer = this.renderers.get(item.templateId);
+-                if (renderer && renderer.disposeElement) {
+-                    renderer.disposeElement(item.element, i, item.row.templateData, {
+-                        height: item.size
+-                    });
+-                }
+-                rows.unshift(item.row);
+-            }
+-            item.row = null;
+-            item.stale = true;
+-        }
+-        const previousRestRange = {
+-            start: start + deleteCount,
+-            end: this.items.length
+-        };
+-        const previousRenderedRestRange = Range.intersect(previousRestRange, previousRenderRange);
+-        const previousUnrenderedRestRanges = Range.relativeComplement(previousRestRange, previousRenderRange);
+-        const inserted = ( elements.map(element => ({
++    _splice(...args) {
++        return this.withRowUpdate(() => this._spliceRows(...args));
++    }
++    _spliceRows(start, deleteCount, elements = []) {
++        deleteCount = Math.max(0, Math.min(deleteCount, this.items.length - start));
++        const previous = this.getMountedIndices();
++        const delta = elements.length - deleteCount;
++        const survive = index => index < start || index >= start + deleteCount;
++        const shifted = index => index < start ? index : index + delta;
++        let deleted;
++        this.cache.transact(() => {
++            for (let index = start; index < start + deleteCount; index++) {
++                this.removeItemFromDOM(index, false);
++            }
++        const inserted = elements.map(element => this.createItem(element));
++            this.rangeMap.splice(start, deleteCount, inserted);
++            deleted = splice(this.items, start, deleteCount, inserted);
++            this.retainedIndices = new Set([...this.retainedIndices].filter(survive).map(shifted));
++            if (this.pendingRetainedIndices !== undefined) {
++                this.pendingRetainedIndices = new Set([...this.pendingRetainedIndices].filter(survive).map(shifted));
++            }
++            const next = this.getRenderIndices(this.getRenderRange(this.lastRenderTop, this.lastRenderHeight));
++            this.updateRenderedIndices(previous.filter(survive).map(shifted), next, true, false);
++        });
++        this.eventuallyUpdateScrollDimensions();
++        if (this.supportDynamicHeights) this._rerender(this.scrollTop, this.renderHeight);
++        return deleted.map(item => item.element);
++    }
++    createItem(element) {
++        return {
+             id: String(this.itemId++),
+             element,
+             templateId: this.virtualDelegate.getTemplateId(element),
+@@ -485,67 +493,187 @@
+             dragStartDisposable: Disposable.None,
+             checkedDisposable: Disposable.None,
+             stale: false
+-        })));
+-        let deleted;
+-        if (start === 0 && deleteCount >= this.items.length) {
+-            this.rangeMap = this.createRangeMap(this.rangeMap.paddingTop);
+-            this.rangeMap.splice(0, 0, inserted);
+-            deleted = this.items;
+-            this.items = inserted;
+-        } else {
+-            this.rangeMap.splice(start, deleteCount, inserted);
+-            deleted = splice(this.items, start, deleteCount, inserted);
+-        }
+-        const delta = elements.length - deleteCount;
+-        const renderRange = this.getRenderRange(this.lastRenderTop, this.lastRenderHeight);
+-        const renderedRestRange = shift(previousRenderedRestRange, delta);
+-        const updateRange = Range.intersect(renderRange, renderedRestRange);
+-        for (let i = updateRange.start; i < updateRange.end; i++) {
+-            this.updateItemInDOM(this.items[i], i);
+-        }
+-        const removeRanges = Range.relativeComplement(renderedRestRange, renderRange);
+-        for (const range of removeRanges) {
+-            for (let i = range.start; i < range.end; i++) {
+-                this.removeItemFromDOM(i);
+-            }
+-        }
+-        const unrenderedRestRanges = ( previousUnrenderedRestRanges.map(r => shift(r, delta)));
+-        const elementsRange = {
+-            start,
+-            end: start + elements.length
+         };
+-        const insertRanges = ( [elementsRange, ...unrenderedRestRanges].map(r => Range.intersect(renderRange, r))).reverse();
+-        for (const range of insertRanges) {
+-            for (let i = range.end - 1; i >= range.start; i--) {
+-                const item = this.items[i];
+-                const rows = rowsToDispose.get(item.templateId);
+-                const row = rows?.pop();
+-                this.insertItemInDOM(i, row);
+-            }
+-        }
+-        for (const rows of ( rowsToDispose.values())) {
+-            for (const row of rows) {
+-                this.cache.release(row);
+-            }
+-        }
+-        this.eventuallyUpdateScrollDimensions();
+-        if (this.supportDynamicHeights) {
+-            this._rerender(this.scrollTop, this.renderHeight);
+-        }
+-        return ( deleted.map(i => i.element));
+-    }
+-    eventuallyUpdateScrollDimensions() {
++    }
++    setElements(elements, retainedKeys, keyOf) {
++        return this.withRowUpdate(() => this.setKeyedElements(elements, retainedKeys, keyOf));
++    }
++    setKeyedElements(elements, retainedKeys, keyOf) {
++        const previousItems = this.items;
++        const selectedItems = this.currentSelectionBounds
++            ? [previousItems[this.currentSelectionBounds.start], previousItems[this.currentSelectionBounds.end]]
++            : undefined;
++        const previousByKey = new Map(previousItems.map(item => [keyOf(item.element), item]));
++        const keys = elements.map(keyOf);
++        if (new Set(keys).size !== keys.length) throw new Error("Duplicate list item key");
++        const nextKeys = new Set(keys);
++        const nextTemplates = new Map(elements.map((element, index) => [keys[index], this.virtualDelegate.getTemplateId(element)]));
++        const current = this.scrollTop;
++        const first = this.indexAt(current);
++        let anchorIndex = first;
++        while (anchorIndex < previousItems.length && !nextKeys.has(keyOf(previousItems[anchorIndex].element))) anchorIndex++;
++        if (anchorIndex === previousItems.length) {
++            anchorIndex = Math.min(first - 1, previousItems.length - 1);
++            while (anchorIndex >= 0 && !nextKeys.has(keyOf(previousItems[anchorIndex].element))) anchorIndex--;
++        }
++        const anchor = previousItems[anchorIndex];
++        const anchorKey = anchor ? keyOf(anchor.element) : undefined;
++        const screenOffset = anchor ? this.elementTop(anchorIndex) - current : 0;
++        const active = getActiveElement();
++        const previousMounted = new Set(previousItems.filter(item => item.row));
++        this.geometrySuspended++;
++        try {
++            this.cache.transact(() => {
++                for (let index = 0; index < previousItems.length; index++) {
++                    const item = previousItems[index];
++                    if (!nextKeys.has(keyOf(item.element)) || nextTemplates.get(keyOf(item.element)) !== item.templateId) this.removeItemFromDOM(index, false);
++                }
++                const pendingItems = this.pendingRetainedIndices === undefined ? undefined
++                    : new Set([...this.pendingRetainedIndices].map(index => previousItems[index]));
++                this.items = elements.map((element, index) => {
++                    const previous = previousByKey.get(keys[index]);
++                    const item = previous?.templateId === nextTemplates.get(keys[index]) ? previous : this.createItem(element);
++                    if (item.element !== element || previousItems[index] !== item) {
++                        item.hasDynamicHeight = !!this.virtualDelegate.hasDynamicHeight && this.virtualDelegate.hasDynamicHeight(element);
++                        if (!item.hasDynamicHeight) item.size = this.virtualDelegate.getHeight(element);
++                        item.lastDynamicHeightWidth = undefined;
++                        item.width = undefined;
++                    }
++                    item.element = element;
++                    return item;
++                });
++                for (let index = 0; index < this.items.length; index++) {
++                    const item = this.items[index];
++                    if (!previousMounted.has(item)) continue;
++                    this.renderers.get(item.templateId).renderElement(item.element, index, item.row.templateData, { height: item.size });
++                    if (this.supportDynamicHeights) this.probeDynamicHeight(index);
++                    if (this.horizontalScrolling) this.measureItemWidth(item);
++                }
++                this.rangeMap.splice(0, this.rangeMap.count, this.items);
++                if (selectedItems) {
++                    const [start, end] = selectedItems.map(item => this.items.indexOf(item));
++                    this.currentSelectionBounds = start < 0 || end < 0 ? undefined
++                        : { start: Math.min(start, end), end: Math.max(start, end) };
++                }
++                const retained = new Set(retainedKeys);
++                this.retainedIndices = new Set(this.items.flatMap((item, index) => retained.has(keys[index]) ? [index] : []));
++                if (pendingItems !== undefined) this.pendingRetainedIndices = new Set(this.items.flatMap((item, index) => pendingItems.has(item) ? [index] : []));
++                const previous = this.items.flatMap((item, index) => previousMounted.has(item) ? [index] : []);
++                const next = this.getRenderIndices(this.getRenderRange(current, this.renderHeight));
++                this.updateRenderedIndices(previous, next, true, false);
++                this.reorderMountedRows(active);
++            });
++            if (this.supportDynamicHeights) this._rerender(current, this.renderHeight);
++        } finally {
++            this.geometrySuspended--;
++        }
++        const nextAnchorIndex = anchor ? keys.indexOf(anchorKey) : -1;
++        const target = nextAnchorIndex < 0 ? 0 : this.elementTop(nextAnchorIndex) - screenOffset;
++        this.updateScrollGeometry(target - current, true);
++        if (this.horizontalScrolling) this.updateScrollWidth();
++        this._onDidChangeContentHeight.fire(this.contentHeight);
++    }
++    reorderMountedRows(active) {
++        let reference = null;
++        for (let index = this.items.length - 1; index >= 0; index--) {
++            const node = this.items[index].row?.domNode;
++            if (!node) continue;
++            if (!node.contains(active) && node.nextElementSibling !== reference) this.rowsContainer.insertBefore(node, reference);
++            reference = node;
++        }
++    }
++    withRowUpdate(action) {
++        if (this.disposalRequested) return;
++        const outer = this.rowUpdateDepth++ === 0;
++        try {
++            const result = action();
++            if (outer) {
++                while (!this.disposalRequested && (this.pendingRetainedIndices !== undefined || this.focusRetentionChanged)) {
++                    const range = this.getRenderRange(this.lastRenderTop, this.lastRenderHeight);
++                    if (this.pendingRetainedIndices !== undefined) this.retainedIndices = this.pendingRetainedIndices;
++                    this.pendingRetainedIndices = undefined;
++                    this.focusRetentionChanged = false;
++                    this.reconcileRenderedIndices(this.getRenderIndices(range), true, false);
++                    if (this.supportDynamicHeights) this._rerender(this.scrollTop, this.renderHeight);
++                }
++            }
++            return result;
++        } finally {
++            this.rowUpdateDepth--;
++            if (outer && this.disposalRequested) this.finishDisposal();
++        }
++    }
++    retainFocusedElement(element) {
++        if (this.disposalRequested) return;
++        const item = element ? this.items.find(item => item.row?.domNode.contains(element)) : undefined;
++        if (item === this.focusedItem) return;
++        this.focusedItem = item;
++        this.focusRetentionChanged = true;
++        if (this.rowUpdateDepth === 0) this.withRowUpdate(() => {});
++    }
++    setRetainedIndices(indices) {
++        if (this.disposalRequested) return;
++        for (const index of indices) {
++            if (!Number.isInteger(index) || index < 0 || index >= this.items.length) {
++                throw new RangeError(`Invalid retained row index: ${index}`);
++            }
++        }
++        const next = new Set(indices);
++        const effective = this.pendingRetainedIndices ?? this.retainedIndices;
++        if (next.size === effective.size && [...next].every(index => effective.has(index))) return;
++        this.pendingRetainedIndices = next;
++        if (this.rowUpdateDepth === 0) this.withRowUpdate(() => {});
++    }
++    getRenderIndices(range) {
++        const indices = new Set(this.retainedIndices);
++        const focusedIndex = this.focusedItem ? this.items.indexOf(this.focusedItem) : -1;
++        if (focusedIndex >= 0) indices.add(focusedIndex);
++        for (let index = range.start; index < range.end; index++) indices.add(index);
++        return [...indices].sort((left, right) => left - right);
++    }
++    getMountedIndices() {
++        const indices = [];
++        for (const node of this.rowsContainer.children) {
++            const index = Number(node.getAttribute("data-index"));
++            if (this.items[index]?.row?.domNode === node) indices.push(index);
++        }
++        return indices;
++    }
++    reconcileRenderedIndices(next, update, onScroll) {
++        this.cache.transact(() => this.updateRenderedIndices(this.getMountedIndices(), next, update, onScroll));
++    }
++    updateRenderedIndices(previous, next, update, onScroll) {
++        const previousSet = new Set(previous);
++        const nextSet = new Set(next);
++            for (const index of previous) {
++                if (!nextSet.has(index)) this.removeItemFromDOM(index, onScroll);
++                else if (update) this.updateItemInDOM(this.items[index], index);
++            }
++            for (let position = next.length - 1; position >= 0; position--) {
++                const index = next[position];
++                if (!previousSet.has(index)) this.insertItemInDOM(index);
++            }
++    }
++    nextMountedRow(index) {
++        for (const node of this.rowsContainer.children) {
++            const candidate = Number(node.getAttribute("data-index"));
++            if (candidate > index && this.items[candidate]?.row?.domNode === node) return node;
++        }
++        return null;
++    }
++    updateScrollGeometry(adjustment, followEnd) {
+         this._scrollHeight = this.contentHeight;
+         this.rowsContainer.style.height = `${this._scrollHeight}px`;
+-        if (!this.scrollableElementUpdateDisposable) {
+-            this.scrollableElementUpdateDisposable = scheduleAtNextAnimationFrame(getWindow(this.domNode), () => {
+-                this.scrollableElement.setScrollDimensions({
+-                    scrollHeight: this.scrollHeight
+-                });
+-                this.updateScrollWidth();
+-                this.scrollableElementUpdateDisposable = null;
+-            });
+-        }
++        if (this.geometrySuspended > 0) return;
++        if (followEnd && this.endAffinity()) adjustment = Math.max(0, this.scrollHeight - this.renderHeight) - this.scrollTop;
++        this.scrollable.setScrollGeometry({ scrollHeight: this.scrollHeight }, {
++            scrollLeft: 0,
++            scrollTop: adjustment
++        });
++    }
++    eventuallyUpdateScrollDimensions() {
++        this.updateScrollGeometry(0, true);
++        this.updateScrollWidth();
+     }
+     eventuallyUpdateScrollWidth() {
+         if (!this.horizontalScrolling) {
+@@ -565,9 +693,9 @@
+             }
+         }
+         this.scrollWidth = scrollWidth;
+-        this.scrollableElement.setScrollDimensions({
++        if (this.geometrySuspended === 0) this.scrollable.setScrollGeometry({
+             scrollWidth: scrollWidth === 0 ? 0 : (scrollWidth + 10)
+-        });
++        }, { scrollLeft: 0, scrollTop: 0 });
+         this._onDidChangeContentWidth.fire(this.scrollWidth);
+     }
+     updateWidth(index) {
+@@ -578,9 +706,9 @@
+         this.measureItemWidth(item);
+         if (typeof item.width !== "undefined" && item.width > this.scrollWidth) {
+             this.scrollWidth = item.width;
+-            this.scrollableElement.setScrollDimensions({
++            if (this.geometrySuspended === 0) this.scrollable.setScrollGeometry({
+                 scrollWidth: this.scrollWidth + 10
+-            });
++            }, { scrollLeft: 0, scrollTop: 0 });
+             this._onDidChangeContentWidth.fire(this.scrollWidth);
+         }
+     }
+@@ -597,6 +725,7 @@
+         return this.items.length;
+     }
+     get renderHeight() {
++        if (this.layoutHeight !== undefined) return this.layoutHeight;
+         const scrollDimensions = this.scrollableElement.getScrollDimensions();
+         return scrollDimensions.height;
+     }
+@@ -643,32 +772,51 @@
+         return this.rangeMap.indexAfter(position);
+     }
+     layout(height, width) {
+-        const scrollDimensions = {
+-            height: typeof height === "number" ? height : getContentHeight(this.domNode)
+-        };
++        const current = this.scrollTop;
++        const anchorIndex = this.indexAt(current);
++        const anchor = this.items[anchorIndex];
++        const screenOffset = anchor ? this.elementTop(anchorIndex) - current : 0;
++        const nextHeight = typeof height === "number" ? height : getContentHeight(this.domNode);
++        const dimensions = { height: nextHeight };
++        if (this.horizontalScrolling) {
++            dimensions.width = typeof width === "number" ? width : getContentWidth(this.domNode);
++        }
+         if (this.scrollableElementUpdateDisposable) {
+             this.scrollableElementUpdateDisposable.dispose();
+             this.scrollableElementUpdateDisposable = null;
+-            scrollDimensions.scrollHeight = this.scrollHeight;
+-        }
+-        this.scrollableElement.setScrollDimensions(scrollDimensions);
+-        if (typeof width !== "undefined") {
+-            this.renderWidth = width;
+-            if (this.supportDynamicHeights) {
+-                this._rerender(this.scrollTop, this.renderHeight);
+-            }
+-        }
++        }
++        this.layoutHeight = nextHeight;
++        this.geometrySuspended++;
++        try {
++            this.withRowUpdate(() => {
++                if (typeof width !== "undefined") this.renderWidth = width;
++                if (this.supportDynamicHeights) this._rerender(current, nextHeight);
++            });
++        } finally {
++            this.geometrySuspended--;
++            this.layoutHeight = undefined;
++        }
++        this._scrollHeight = this.contentHeight;
++        this.rowsContainer.style.height = `${this._scrollHeight}px`;
++        dimensions.scrollHeight = this.scrollHeight;
+         if (this.horizontalScrolling) {
+-            this.scrollableElement.setScrollDimensions({
+-                width: typeof width === "number" ? width : getContentWidth(this.domNode)
+-            });
++            dimensions.scrollWidth = this.scrollWidth === 0 ? 0 : this.scrollWidth + 10;
++        }
++        const nextAnchorIndex = anchor ? this.items.indexOf(anchor) : -1;
++        const target = this.endAffinity() ? Math.max(0, this.scrollHeight - nextHeight)
++            : nextAnchorIndex < 0 ? current : this.elementTop(nextAnchorIndex) - screenOffset;
++        this.scrollable.setScrollGeometry(dimensions, { scrollLeft: 0, scrollTop: target - current });
++        if (this.horizontalScrolling) {
+             const scrollPos = this.scrollableElement.getScrollPosition();
+             const scrollDims = this.scrollableElement.getScrollDimensions();
+             const rightOffset = Math.max(0, scrollDims.scrollWidth - scrollPos.scrollLeft - this.renderWidth);
+             this.domNode.style.setProperty("--list-scroll-right-offset", `${Math.max(rightOffset - 12, 0)}px`);
+         }
+     }
+-    render(
++    render(...args) {
++        return this.withRowUpdate(() => this.renderRows(...args));
++    }
++    renderRows(
+         previousRenderRange,
+         renderTop,
+         renderHeight,
+@@ -678,26 +826,11 @@
+         onScroll = false
+     ) {
+         const renderRange = this.getRenderRange(renderTop, renderHeight);
+-        const rangesToInsert = Range.relativeComplement(renderRange, previousRenderRange).reverse();
+-        const rangesToRemove = Range.relativeComplement(previousRenderRange, renderRange);
+-        if (updateItemsInDOM) {
+-            const rangesToUpdate = Range.intersect(previousRenderRange, renderRange);
+-            for (let i = rangesToUpdate.start; i < rangesToUpdate.end; i++) {
+-                this.updateItemInDOM(this.items[i], i);
+-            }
+-        }
+-        this.cache.transact(() => {
+-            for (const range of rangesToRemove) {
+-                for (let i = range.start; i < range.end; i++) {
+-                    this.removeItemFromDOM(i, onScroll);
+-                }
+-            }
+-            for (const range of rangesToInsert) {
+-                for (let i = range.end - 1; i >= range.start; i--) {
+-                    this.insertItemInDOM(i);
+-                }
+-            }
+-        });
++        this.reconcileRenderedIndices(
++            this.getRenderIndices(renderRange),
++            updateItemsInDOM,
++            onScroll
++        );
+         if (renderLeft !== undefined) {
+             this.rowsContainer.style.left = `-${renderLeft}px`;
+         }
+@@ -722,6 +855,7 @@
+                 item.stale ||= result.isReusingConnectedDomNode;
+             }
+         }
++        if (this.nativeTouchContent) item.row.domNode.style.touchAction = "auto";
+         const role = this.accessibilityProvider.getRole(item.element) || "listitem";
+         item.row.domNode.setAttribute("role", role);
+         const checked = this.accessibilityProvider.isChecked(item.element);
+@@ -734,7 +868,7 @@
+             item.checkedDisposable = checked.onDidChange(() => update(checked.value));
+         }
+         if (item.stale || !item.row.domNode.parentElement) {
+-            const referenceNode = this.items.at(index + 1)?.row?.domNode ?? null;
++            const referenceNode = this.nextMountedRow(index);
+             if (item.row.domNode.parentElement !== this.rowsContainer || item.row.domNode.nextElementSibling !== referenceNode) {
+                 this.rowsContainer.insertBefore(item.row.domNode, referenceNode);
+             }
+@@ -819,6 +953,13 @@
+             this.eventuallyUpdateScrollWidth();
+         }
+     }
++    scrollBy(delta, animate) {
++        if (delta === 0) return;
++        const current = this.scrollable.getCurrentScrollPosition().scrollTop;
++        const future = this.scrollable.getFutureScrollPosition().scrollTop;
++        const base = Math.sign(delta) === Math.sign(future - current) ? future : current;
++        this.scrollable.setScrollPositionFromInput({ scrollTop: base + delta }, animate);
++    }
+     getScrollTop() {
+         const scrollPosition = this.scrollableElement.getScrollPosition();
+         return scrollPosition.scrollTop;
+@@ -827,14 +968,31 @@
+         if (this.scrollableElementUpdateDisposable) {
+             this.scrollableElementUpdateDisposable.dispose();
+             this.scrollableElementUpdateDisposable = null;
+-            this.scrollableElement.setScrollDimensions({
++            this.scrollable.setScrollGeometry({
+                 scrollHeight: this.scrollHeight
+-            });
+-        }
+-        this.scrollableElement.setScrollPosition({
+-            scrollTop,
+-            reuseAnimation
++            }, { scrollLeft: 0, scrollTop: 0 });
++        }
++        this.withNavigationAnchor(scrollTop, () => {
++            this.scrollableElement.setScrollPosition({ scrollTop, reuseAnimation });
+         });
++    }
++    setScrollTopFromInput(scrollTop) {
++        this.withNavigationAnchor(scrollTop, () => {
++            this.scrollable.setScrollPositionFromInput({ scrollTop }, false);
++        });
++    }
++    withNavigationAnchor(scrollTop, action) {
++        const previousAnchor = this.navigationAnchor;
++        const target = this.scrollable.validateScrollPosition({ scrollTop }).scrollTop;
++        this.navigationAnchor = {
++            item: this.items[this.indexAt(target)],
++            atEnd: scrollTop > target
++        };
++        try {
++            return action();
++        } finally {
++            this.navigationAnchor = previousAnchor;
++        }
+     }
+     getScrollLeft() {
+         const scrollPosition = this.scrollableElement.getScrollPosition();
+@@ -844,9 +1002,9 @@
+         if (this.scrollableElementUpdateDisposable) {
+             this.scrollableElementUpdateDisposable.dispose();
+             this.scrollableElementUpdateDisposable = null;
+-            this.scrollableElement.setScrollDimensions({
++            this.scrollable.setScrollGeometry({
+                 scrollWidth: this.scrollWidth
+-            });
++            }, { scrollLeft: 0, scrollTop: 0 });
+         }
+         this.scrollableElement.setScrollPosition({
+             scrollLeft
+@@ -938,6 +1096,13 @@
+     }
+     onScroll(e) {
+         try {
++            const previousVisible = this.getVisibleRange(this.lastRenderTop, this.lastRenderHeight);
++            const previousItem = this.navigationAnchor?.item ?? this.items[previousVisible.start];
++            const followsEnd = e.source === "geometry" && this.endAffinity()
++                && e.scrollTop === Math.max(0, e.scrollHeight - e.height);
++            const motionAnchor = previousItem
++                ? { item: previousItem, top: this.elementTop(this.items.indexOf(previousItem)), atEnd: this.navigationAnchor?.atEnd === true || followsEnd }
++                : undefined;
+             const previousRenderRange = this.getRenderRange(this.lastRenderTop, this.lastRenderHeight);
+             this.render(
+                 previousRenderRange,
+@@ -949,7 +1114,7 @@
+                 true
+             );
+             if (this.supportDynamicHeights) {
+-                this._rerender(e.scrollTop, e.height, e.inSmoothScrolling);
++                this._rerender(e.scrollTop, e.height, e.inSmoothScrolling, motionAnchor);
+             }
+         } catch (err) {
+             console.error("Got bad scroll event:", e);
+@@ -959,7 +1124,7 @@
+     onTouchChange(event) {
+         event.preventDefault();
+         event.stopPropagation();
+-        this.scrollTop -= event.translationY;
++        this.scrollBy(-event.translationY, false);
+     }
+     onDragStart(element, uri, event) {
+         if (!event.dataTransfer) {
+@@ -1197,9 +1362,9 @@
+         const diff = this.dragOverMouseY - viewTop;
+         const upperLimit = this.renderHeight - 35;
+         if (diff < 35) {
+-            this.scrollTop += Math.max(-14, Math.floor(0.3 * (diff - 35)));
++            this.scrollBy(Math.max(-14, Math.floor(0.3 * (diff - 35))), false);
+         } else if (diff > upperLimit) {
+-            this.scrollTop += Math.min(14, Math.floor(0.3 * (diff - upperLimit)));
++            this.scrollBy(Math.min(14, Math.floor(0.3 * (diff - upperLimit))), false);
+         }
+     }
+     teardownDragAndDropScrollTopAnimation() {
+@@ -1233,9 +1398,13 @@
+         return undefined;
+     }
+     getVisibleRange(renderTop, renderHeight) {
++        const start = this.rangeMap.indexAt(renderTop);
++        if (renderHeight === 0) return { start, end: start };
++        const bottom = renderTop + renderHeight;
++        const end = this.rangeMap.indexAt(bottom);
+         return {
+-            start: this.rangeMap.indexAt(renderTop),
+-            end: this.rangeMap.indexAfter(renderTop + renderHeight - 1)
++            start,
++            end: end >= this.rangeMap.count || this.rangeMap.positionAt(end) >= bottom ? end : end + 1
+         };
+     }
+     getRenderRange(renderTop, renderHeight) {
+@@ -1247,57 +1416,50 @@
+         }
+         return range;
+     }
+-    _rerender(renderTop, renderHeight, inSmoothScrolling) {
++    _rerender(...args) {
++        return this.withRowUpdate(() => this.rerenderRows(...args));
++    }
++    rerenderRows(renderTop, renderHeight, inSmoothScrolling, motionAnchor) {
+         const previousRenderRange = this.getRenderRange(renderTop, renderHeight);
+         let anchorElementIndex;
+         let anchorElementTopDelta;
+-        if (renderTop === this.elementTop(previousRenderRange.start)) {
++        if (motionAnchor && this.items.includes(motionAnchor.item)) {
++            anchorElementIndex = this.items.indexOf(motionAnchor.item);
++            anchorElementTopDelta = motionAnchor.top - renderTop;
++        } else if (renderTop === this.elementTop(previousRenderRange.start)) {
+             anchorElementIndex = previousRenderRange.start;
+             anchorElementTopDelta = 0;
+         } else if (previousRenderRange.end - previousRenderRange.start > 1) {
+             anchorElementIndex = previousRenderRange.start + 1;
+             anchorElementTopDelta = this.elementTop(anchorElementIndex) - renderTop;
+-        }
+-        let heightDiff = 0;
++        } else if (previousRenderRange.start < previousRenderRange.end) {
++            anchorElementIndex = previousRenderRange.start;
++            anchorElementTopDelta = this.elementTop(anchorElementIndex) - renderTop;
++        }
++        let measuredRenderTop = renderTop;
+         while (true) {
+-            const renderRange = this.getRenderRange(renderTop, renderHeight);
++            const renderRange = this.getRenderRange(measuredRenderTop, renderHeight);
+             let didChange = false;
+-            for (let i = renderRange.start; i < renderRange.end; i++) {
++            for (const i of this.getRenderIndices(renderRange)) {
+                 const diff = this.probeDynamicHeight(i);
+                 if (diff !== 0) {
+                     this.rangeMap.splice(i, 1, [this.items[i]]);
+                 }
+-                heightDiff += diff;
+                 didChange = didChange || diff !== 0;
+             }
++            measuredRenderTop = motionAnchor?.atEnd
++                ? Math.max(0, this.contentHeight + this.scrollHeight - this._scrollHeight - renderHeight)
++                : typeof anchorElementIndex === "number"
++                ? this.elementTop(anchorElementIndex) - anchorElementTopDelta
++                : renderTop;
+             if (!didChange) {
+-                if (heightDiff !== 0) {
+-                    this.eventuallyUpdateScrollDimensions();
+-                }
+-                const unrenderRanges = Range.relativeComplement(previousRenderRange, renderRange);
+-                for (const range of unrenderRanges) {
+-                    for (let i = range.start; i < range.end; i++) {
+-                        if (this.items[i].row) {
+-                            this.removeItemFromDOM(i);
+-                        }
+-                    }
+-                }
+-                const renderRanges = Range.relativeComplement(renderRange, previousRenderRange).reverse();
+-                for (const range of renderRanges) {
+-                    for (let i = range.end - 1; i >= range.start; i--) {
+-                        this.insertItemInDOM(i);
+-                    }
+-                }
+-                for (let i = renderRange.start; i < renderRange.end; i++) {
+-                    if (this.items[i].row) {
+-                        this.updateItemInDOM(this.items[i], i);
+-                    }
+-                }
+-                if (typeof anchorElementIndex === "number") {
+-                    const deltaScrollTop = this.scrollable.getFutureScrollPosition().scrollTop - renderTop;
+-                    const newScrollTop = this.elementTop(anchorElementIndex) - anchorElementTopDelta + deltaScrollTop;
+-                    this.setScrollTop(newScrollTop, inSmoothScrolling);
+-                }
++                this.reconcileRenderedIndices(
++                    this.getRenderIndices(renderRange),
++                    true,
++                    false
++                );
++                const adjustment = measuredRenderTop - renderTop;
++                this.updateScrollGeometry(adjustment, motionAnchor === undefined);
+                 this._onDidChangeContentHeight.fire(this.contentHeight);
+                 return;
+             }
+@@ -1327,7 +1489,7 @@
+         const size = item.size;
+         if (item.row) {
+             item.row.domNode.style.height = "";
+-            item.size = item.row.domNode.offsetHeight;
++            item.size = item.row.domNode.getBoundingClientRect().height;
+             if (item.size === 0) {
+                 if (!isAncestor(item.row.domNode, getWindow(item.row.domNode).document.body)) {
+                     console.warn(
+@@ -1355,7 +1517,7 @@
+             throw ( new BugIndicatingError("Missing renderer for templateId: " + item.templateId));
+         }
+         renderer.renderElement(item.element, index, row.templateData);
+-        item.size = row.domNode.offsetHeight;
++        item.size = row.domNode.getBoundingClientRect().height;
+         renderer.disposeElement?.(item.element, index, row.templateData);
+         item.lastDynamicHeightWidth = this.renderWidth;
+         this.publishDynamicHeight(item);
+@@ -1372,6 +1534,18 @@
+         return `${this.domId}_${index}`;
+     }
+     dispose() {
++        if (this.disposalRequested) return;
++        this.disposalRequested = true;
++        if (this.rowUpdateDepth === 0) this.finishDisposal();
++    }
++    finishDisposal() {
++        if (this.disposed) return;
++        this.disposed = true;
++        this.pendingRetainedIndices = undefined;
++        this.retainedIndices.clear();
++        this.disposeRows();
++    }
++    disposeRows() {
+         for (const item of this.items) {
+             item.dragStartDisposable.dispose();
+             item.checkedDisposable.dispose();
+diff --git a/vscode/src/vs/base/browser/touch.js b/vscode/src/vs/base/browser/touch.js
+--- a/vscode/src/vs/base/browser/touch.js
++++ b/vscode/src/vs/base/browser/touch.js
+@@ -30,6 +30,7 @@
+         this.dispatched = false;
+         this.targets = ( new LinkedList());
+         this.ignoreTargets = ( new LinkedList());
++        this.targetPolicies = new Map();
+         this.activeTouches = {};
+         this.handle = null;
+         this._lastSetTapCountTime = 0;
+@@ -47,6 +48,7 @@
+             disposables.add(
+                 addDisposableListener(window.document, "touchend", e => this.onTouchEnd(window, e))
+             );
++            disposables.add(addDisposableListener(window.document, "touchcancel", e => this.onTouchCancel(e)));
+             disposables.add(
+                 addDisposableListener(window.document, "touchmove", e => this.onTouchMove(e), {
+                     passive: false
+@@ -67,6 +69,15 @@
+         const remove = Gesture.INSTANCE.targets.push(element);
+         return toDisposable(remove);
+     }
++    static addTargetWithPolicy(element, policy) {
++        const registration = Gesture.addTarget(element);
++        if (!Gesture.INSTANCE) return registration;
++        Gesture.INSTANCE.targetPolicies.set(element, policy);
++        return toDisposable(() => {
++            Gesture.INSTANCE.targetPolicies.delete(element);
++            registration.dispose();
++        });
++    }
+     static ignoreTarget(element) {
+         if (!Gesture.isTouchDevice()) {
+             return Disposable.None;
+@@ -92,6 +103,9 @@
+     }
+     onTouchStart(e) {
+         const timestamp = Date.now();
++        if (e.touches.length !== 1) {
++            for (const data of Object.values(this.activeTouches)) if (data.policyTarget) data.owner = null;
++        }
+         if (this.handle) {
+             this.handle.dispose();
+             this.handle = null;
+@@ -108,6 +122,13 @@
+                 rollingPageX: [touch.pageX],
+                 rollingPageY: [touch.pageY]
+             };
++            const data = this.activeTouches[touch.identifier];
++            const closest = this.getGestureTargets(touch.target)[0];
++            if (closest && this.targetPolicies.has(closest)) {
++                data.policyTarget = closest;
++                if (e.touches.length !== 1) data.owner = null;
++                continue;
++            }
+             const evt = this.newGestureEvent(EventType.Start, touch.target);
+             evt.pageX = touch.pageX;
+             evt.pageY = touch.pageY;
+@@ -118,6 +139,9 @@
+             e.stopPropagation();
+             this.dispatched = false;
+         }
++    }
++    onTouchCancel(e) {
++        for (const touch of e.changedTouches) delete this.activeTouches[touch.identifier];
+     }
+     onTouchEnd(targetWindow, e) {
+         const timestamp = Date.now();
+@@ -129,6 +153,14 @@
+                 continue;
+             }
+             const data = this.activeTouches[touch.identifier], holdTime = Date.now() - data.initialTimeStamp;
++            if (data.policyTarget) {
++                if (data.owner && this.targetPolicies.has(data.owner)) {
++                    if (activeTouchCount === 1) this.startInertia(targetWindow, data, timestamp, [data.owner]);
++                    this.dispatched = true;
++                }
++                delete this.activeTouches[touch.identifier];
++                continue;
++            }
+             if (holdTime < Gesture.HOLD_DELAY && Math.abs(data.initialPageX - data.rollingPageX.at(-1)) < 30 && Math.abs(data.initialPageY - data.rollingPageY.at(-1)) < 30) {
+                 const evt = this.newGestureEvent(EventType.Tap, data.initialTarget);
+                 evt.pageX = data.rollingPageX.at(-1);
+@@ -140,19 +172,8 @@
+                 evt.pageY = data.rollingPageY.at(-1);
+                 this.dispatchEvent(evt);
+             } else if (activeTouchCount === 1) {
+-                const finalX = data.rollingPageX.at(-1);
+-                const finalY = data.rollingPageY.at(-1);
+-                const deltaT = data.rollingTimestamps.at(-1) - data.rollingTimestamps[0];
+-                const deltaX = finalX - data.rollingPageX[0];
+-                const deltaY = finalY - data.rollingPageY[0];
+-                const dispatchTo = [...this.targets].filter(t => data.initialTarget instanceof Node && t.contains(data.initialTarget));
+-                this.inertia(targetWindow, dispatchTo, timestamp,
+-                Math.abs(deltaX) / deltaT,
+-                deltaX > 0 ? 1 : -1,
+-                finalX,
+-                Math.abs(deltaY) / deltaT,
+-                deltaY > 0 ? 1 : -1,
+-                finalY);
++                this.startInertia(targetWindow, data, timestamp,
++                    this.getGestureTargets(data.initialTarget).filter(target => !this.targetPolicies.has(target)));
+             }
+             this.dispatchEvent(this.newGestureEvent(EventType.End, data.initialTarget));
+             delete this.activeTouches[touch.identifier];
+@@ -184,30 +205,35 @@
+         } else if (event.type === EventType.Change || event.type === EventType.Contextmenu) {
+             this._lastSetTapCountTime = 0;
+         }
+-        if (event.initialTarget instanceof Node) {
+-            for (const ignoreTarget of this.ignoreTargets) {
+-                if (ignoreTarget.contains(event.initialTarget)) {
+-                    return;
+-                }
+-            }
+-            const targets = [];
+-            for (const target of this.targets) {
+-                if (target.contains(event.initialTarget)) {
+-                    let depth = 0;
+-                    let now = event.initialTarget;
+-                    while (now && now !== target) {
+-                        depth++;
+-                        now = now.parentElement;
+-                    }
+-                    targets.push([depth, target]);
+-                }
+-            }
+-            targets.sort((a, b) => a[0] - b[0]);
+-            for (const [_, target] of targets) {
+-                target.dispatchEvent(event);
+-                this.dispatched = true;
+-            }
+-        }
++        for (const target of this.getGestureTargets(event.initialTarget)) {
++            if (this.targetPolicies.has(target)) continue;
++            target.dispatchEvent(event);
++            this.dispatched = true;
++        }
++    }
++    getGestureTargets(initialTarget) {
++        if (!(initialTarget instanceof Node)) return [];
++        for (const ignored of this.ignoreTargets) if (ignored.contains(initialTarget)) return [];
++        const targets = [];
++        for (const target of this.targets) {
++            if (!target.contains(initialTarget)) continue;
++            let depth = 0;
++            for (let node = initialTarget; node && node !== target; node = node.parentElement) depth++;
++            targets.push([depth, target]);
++        }
++        targets.sort((left, right) => left[0] - right[0]);
++        return targets.map(([, target]) => target);
++    }
++    startInertia(targetWindow, data, timestamp, targets) {
++        const deltaT = data.rollingTimestamps.at(-1) - data.rollingTimestamps[0];
++        if (targets.length === 0 || deltaT <= 0) return;
++        const finalX = data.rollingPageX.at(-1);
++        const finalY = data.rollingPageY.at(-1);
++        const deltaX = finalX - data.rollingPageX[0];
++        const deltaY = finalY - data.rollingPageY[0];
++        this.inertia(targetWindow, targets, timestamp,
++            Math.abs(deltaX) / deltaT, deltaX > 0 ? 1 : -1, finalX,
++            Math.abs(deltaY) / deltaT, deltaY > 0 ? 1 : -1, finalY);
+     }
+     inertia(targetWindow, dispatchTo, t1, vX, dirX, x, vY, dirY, y) {
+         this.handle = scheduleAtNextAnimationFrame(targetWindow, () => {
+@@ -228,11 +254,12 @@
+             const evt = this.newGestureEvent(EventType.Change);
+             evt.translationX = delta_pos_x;
+             evt.translationY = delta_pos_y;
+-            dispatchTo.forEach(d => d.dispatchEvent(evt));
+-            if (!stopped) {
++            const liveTargets = dispatchTo.filter(target => [...this.targets].includes(target));
++            liveTargets.forEach(target => target.dispatchEvent(evt));
++            if (!stopped && liveTargets.length > 0) {
+                 this.inertia(
+                     targetWindow,
+-                    dispatchTo,
++                    liveTargets,
+                     now,
+                     vX,
+                     dirX,
+@@ -258,7 +285,21 @@
+             evt.translationY = touch.pageY - data.rollingPageY.at(-1);
+             evt.pageX = touch.pageX;
+             evt.pageY = touch.pageY;
+-            this.dispatchEvent(evt);
++            if (data.policyTarget) {
++                if (e.touches.length !== 1 || !this.targetPolicies.has(data.policyTarget)) data.owner = null;
++                if (data.owner === undefined && (evt.translationX !== 0 || evt.translationY !== 0)) {
++                    const policy = this.targetPolicies.get(data.policyTarget);
++                    data.owner = e.cancelable && policy(data.initialTarget,
++                        touch.pageX - data.initialPageX, touch.pageY - data.initialPageY)
++                        ? data.policyTarget : null;
++                }
++                if (data.owner) {
++                    data.owner.dispatchEvent(evt);
++                    this.dispatched = true;
++                }
++            } else {
++                this.dispatchEvent(evt);
++            }
+             if (data.rollingPageX.length > 3) {
+                 data.rollingPageX.shift();
+                 data.rollingPageY.shift();
+diff --git a/vscode/src/vs/base/browser/touch.d.ts b/vscode/src/vs/base/browser/touch.d.ts
+--- a/vscode/src/vs/base/browser/touch.d.ts
++++ b/vscode/src/vs/base/browser/touch.d.ts
+@@ -27,6 +27,8 @@
+     private static readonly CLEAR_TAP_COUNT_TIME;
+     private constructor();
+     static addTarget(element: HTMLElement): IDisposable;
++    /** Preserves native taps and assigns scrolling ownership on the first touch movement. */
++    static addTargetWithPolicy(element: HTMLElement, policy: (initialTarget: EventTarget, deltaX: number, deltaY: number) => boolean): IDisposable;
+     static ignoreTarget(element: HTMLElement): IDisposable;
+     /**
+      * Whether the device is able to represent touch events.
+diff --git a/vscode/src/vs/base/common/scrollable.d.ts b/vscode/src/vs/base/common/scrollable.d.ts
+--- a/vscode/src/vs/base/common/scrollable.d.ts
++++ b/vscode/src/vs/base/common/scrollable.d.ts
+@@ -6,6 +6,7 @@
+     Visible = 3
+ }
+ export interface ScrollEvent {
++    readonly source: "geometry" | "position";
+     inSmoothScrolling: boolean;
+     oldWidth: number;
+     oldScrollWidth: number;
+@@ -40,8 +41,9 @@
+     constructor(_forceIntegerValues: boolean, width: number, scrollWidth: number, scrollLeft: number, height: number, scrollHeight: number, scrollTop: number);
+     equals(other: ScrollState): boolean;
+     withScrollDimensions(update: INewScrollDimensions, useRawScrollPositions: boolean): ScrollState;
++    withScrollGeometry(update: INewScrollDimensions, adjustment: IScrollPosition): ScrollState;
+     withScrollPosition(update: INewScrollPosition): ScrollState;
+-    createScrollEvent(previous: ScrollState, inSmoothScrolling: boolean): ScrollEvent;
++    createScrollEvent(previous: ScrollState, inSmoothScrolling: boolean, source: ScrollEvent["source"]): ScrollEvent;
+ }
+ export interface IScrollDimensions {
+     readonly width: number;
+@@ -97,6 +99,8 @@
+     validateScrollPosition(scrollPosition: INewScrollPosition): IScrollPosition;
+     getScrollDimensions(): IScrollDimensions;
+     setScrollDimensions(dimensions: INewScrollDimensions, useRawScrollPositions: boolean): void;
++    /** Translates current and unfinished motion together while committing new content geometry. */
++    setScrollGeometry(dimensions: INewScrollDimensions, adjustment: IScrollPosition): void;
+     /**
+      * Returns the final scroll position that the instance will have once the smooth scroll animation concludes.
+      * If no scroll animation is occurring, it will return the current scroll position instead.
+@@ -107,6 +111,8 @@
+      * Note: This result might be an intermediate scroll position, as there might be an ongoing smooth scroll animation.
+      */
+     getCurrentScrollPosition(): IScrollPosition;
++    /** Reports user intent even when the requested position is unchanged at a scroll boundary. */
++    setScrollPositionFromInput(update: INewScrollPosition, animate: boolean): void;
+     setScrollPositionNow(update: INewScrollPosition): void;
+     setScrollPositionSmooth(update: INewScrollPosition, reuseAnimation?: boolean): void;
+     hasPendingScrollAnimation(): boolean;
+diff --git a/vscode/src/vs/base/browser/ui/list/listView.d.ts b/vscode/src/vs/base/browser/ui/list/listView.d.ts
+--- a/vscode/src/vs/base/browser/ui/list/listView.d.ts
++++ b/vscode/src/vs/base/browser/ui/list/listView.d.ts
+@@ -35,6 +35,9 @@
+     readonly paddingBottom?: number;
+ }
+ export interface IListViewOptions<T> extends IListViewOptionsUpdate {
++    readonly touchGesturePolicy?: (initialTarget: EventTarget, deltaX: number, deltaY: number) => boolean;
++    readonly handleMouseWheel?: boolean;
++    readonly endAffinity?: () => boolean;
+     readonly dnd?: IListViewDragAndDrop<T>;
+     readonly useShadows?: boolean;
+     readonly verticalScrollMode?: ScrollbarVisibility;
+@@ -111,6 +114,14 @@
+     indexAt(position: number): number;
+     indexAfter(position: number): number;
+     updateOptions(options: IListViewOptionsUpdate): void;
++    /** Navigates to an absolute input target while publishing intent even at a clamped boundary. */
++    setScrollTopFromInput(scrollTop: number): void;
++    /** Reconciles keyed elements and geometry while retaining mounted identity and the reading anchor. */
++    setElements(elements: readonly T[], retainedKeys: readonly string[], keyOf: (element: T) => string): void;
++    /** Retains these rows outside the visible range; indices follow surviving items through splices. */
++    setRetainedIndices(indices: readonly number[]): void;
++    /** Applies relative input, preserving same-direction unfinished motion. */
++    scrollBy(delta: number, animate: boolean): void;
+     getScrollTop(): number;
+     setScrollTop(scrollTop: number, reuseAnimation?: boolean): void;
+     getScrollLeft(): number;
+@@ -218,6 +229,14 @@
+     private measureItemWidth;
+     private updateItemInDOM;
+     private removeItemFromDOM;
++    /** Navigates to an absolute input target while publishing intent even at a clamped boundary. */
++    setScrollTopFromInput(scrollTop: number): void;
++    /** Reconciles keyed elements and geometry while retaining mounted identity and the reading anchor. */
++    setElements(elements: readonly T[], retainedKeys: readonly string[], keyOf: (element: T) => string): void;
++    /** Retains these rows outside the visible range; indices follow surviving items through splices. */
++    setRetainedIndices(indices: readonly number[]): void;
++    /** Applies relative input, preserving same-direction unfinished motion. */
++    scrollBy(delta: number, animate: boolean): void;
+     getScrollTop(): number;
+     setScrollTop(scrollTop: number, reuseAnimation?: boolean): void;
+     getScrollLeft(): number;

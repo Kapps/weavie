@@ -1,33 +1,24 @@
-import { createVirtualizer, type VirtualItem } from "@tanstack/solid-virtual";
 import { ArrowDown, ArrowUp } from "lucide-solid";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  type JSX,
-  on,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, type JSX, on, onCleanup, Show } from "solid-js";
 import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import { scrollVirtualElement } from "../virtual-scroll";
 import { AgentComposer } from "./AgentComposer";
-import { estimateEntrySize } from "./AgentPaneEstimate";
-import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
-import { createAgentPaneWheel } from "./AgentPaneWheel";
-import { AgentTranscript } from "./AgentTranscript";
+import { AgentEmptyState } from "./AgentTranscript";
+import {
+  createTranscriptViewport,
+  type TranscriptPosition,
+  type TranscriptViewport,
+} from "./AgentTranscriptViewport";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
   expandedDetails: ReadonlySet<string>;
   followingLatest: boolean;
   generation: number;
-  measurements: VirtualItem[];
-  offset: number;
+  measurements: ReadonlyMap<string, number>;
+  position: TranscriptPosition | null;
   revision: number;
   width: number;
 }
@@ -75,11 +66,11 @@ export function AgentPaneBody(props: {
   providerName: string;
 }): JSX.Element {
   let body: HTMLDivElement | undefined;
-  let virtualizerChanged = (_sync: boolean): void => {};
-  let virtualizerScroll = (_top: number): void => {};
+  const [viewport, setViewport] = createSignal<TranscriptViewport>();
   const stored = viewports.get(props.model);
   const saved = stored?.generation === props.model.generation() ? stored : undefined;
-  const savedMeasurements = saved?.revision === props.model.revision() ? saved.measurements : [];
+  const savedMeasurements =
+    saved?.revision === props.model.revision() ? saved.measurements : new Map<string, number>();
   for (const id of saved?.expandedDetails ?? []) {
     props.model.setActivityExpanded(id, true);
   }
@@ -87,13 +78,13 @@ export function AgentPaneBody(props: {
     saved?.expandedDetails ?? new Set(),
   );
   const [scrollEdgeHovered, setScrollEdgeHovered] = createSignal(false);
-  const [scrollbarInlineSize, setScrollbarInlineSize] = createSignal(0);
   const [touchNavigationActive, setTouchNavigationActive] = createSignal(false);
   createEffect(
     on(
       props.model.generation,
       () => {
         setExpandedDetails(new Set<string>());
+        scroll.jumpToLatest();
       },
       { defer: true },
     ),
@@ -101,78 +92,43 @@ export function AgentPaneBody(props: {
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
-  const layout = createAgentPaneLayout(props.model, () => body);
-  const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-    get count() {
-      return layout.count();
-    },
-    get getItemKey() {
-      return layout.itemKey();
-    },
-    get rangeExtractor() {
-      return layout.rangeExtractor();
-    },
-    getScrollElement: () => body ?? null,
-    estimateSize: (index) => estimateEntrySize(props.model.entries[index]),
-    anchorTo: "end",
-    initialMeasurementsCache: savedMeasurements,
-    initialOffset: saved?.offset ?? 0,
-    measureElement: (element): number => element.getBoundingClientRect().height,
-    onChange: (_instance, sync) => virtualizerChanged(sync),
-    overscan: 4,
-    scrollToFn: (offset, options, instance) => {
-      virtualizerScroll(scrollVirtualElement(offset, options, instance, () => {}));
-    },
-  });
-  const wheel = createAgentPaneWheel(
-    () => body,
-    () => scroll.onWheelIntent(),
-    () => scroll.onWheelSettled(),
-  );
   const scroll = createAgentPaneScroll(
     props.model.session,
-    () => body,
-    virtualizer,
+    viewport,
+    () => (body === undefined ? 0 : Number.parseFloat(getComputedStyle(body).lineHeight)),
     props.model.agentTurnStartIndex,
     turnNavigable,
-    props.model.revision,
     saved?.followingLatest ?? true,
-    wheel,
   );
-  virtualizerChanged = scroll.onVirtualizerChange;
-  virtualizerScroll = scroll.noteControllerScroll;
-  layout.observe(virtualizer, scroll);
-
+  createTranscriptViewport({
+    body: () => body,
+    model: props.model,
+    expandedDetails,
+    followingLatest: scroll.followingLatest,
+    initialPosition: saved?.position ?? null,
+    initialMeasurements: savedMeasurements,
+    initialWidth: saved?.width ?? 0,
+    onDispose: (view) => {
+      viewports.set(props.model, {
+        expandedDetails: new Set(expandedDetails()),
+        followingLatest: scroll.followingLatest(),
+        generation: props.model.generation(),
+        measurements: view.snapshot(),
+        position: view.readingPosition(),
+        revision: props.model.revision(),
+        width: body?.clientWidth ?? 0,
+      });
+    },
+    onReady: setViewport,
+    onWillScroll: scroll.onWillScroll,
+    onDidScroll: scroll.onDidScroll,
+    onDetailsToggle: (entryId, open) => {
+      props.model.setActivityExpanded(entryId, open);
+      setExpandedDetails((current) => toggleMember(current, entryId, open));
+    },
+  });
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
-  onMount(() => {
-    const element = body;
-    if (element === undefined) {
-      return;
-    }
-    if (saved !== undefined && saved.width !== element.clientWidth) {
-      virtualizer.measure();
-    }
-    const onViewportResize = (): void => {
-      setScrollbarInlineSize(element.offsetWidth - element.clientWidth);
-      scroll.onViewportResize();
-    };
-    onViewportResize();
-    const observer = new ResizeObserver(onViewportResize);
-    observer.observe(element);
-    onCleanup(() => observer.disconnect());
-  });
-  onCleanup(() => {
-    viewports.set(props.model, {
-      expandedDetails: new Set(expandedDetails()),
-      followingLatest: scroll.followingLatest(),
-      generation: props.model.generation(),
-      measurements: virtualizer.takeSnapshot(),
-      offset: body?.scrollTop ?? 0,
-      revision: props.model.revision(),
-      width: body?.clientWidth ?? 0,
-    });
-  });
 
   const updateScrollEdgeHover = (event: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -194,24 +150,12 @@ export function AgentPaneBody(props: {
           onPointerDown={revealTouchNavigation}
           onPointerLeave={() => setScrollEdgeHovered(false)}
           onPointerMove={updateScrollEdgeHover}
-          onScroll={scroll.onScroll}
         >
-          <AgentTranscript
-            agentTurnStartId={props.model.agentTurnStartId()}
-            compact={props.compact}
-            entries={props.model.entries}
-            entryForKey={layout.entryForKey}
-            expandedDetails={expandedDetails()}
-            keyboardRequestKey={props.model.keyboardRequestKey()}
-            onDetailsToggle={(entryId, open) => {
-              props.model.setActivityExpanded(entryId, open);
-              setExpandedDetails((current) => toggleMember(current, entryId, open));
-            }}
-            providerName={props.providerName}
-            sectionLabels={props.model.sectionLabels()}
-            session={props.model.session}
-            virtualizer={virtualizer}
-          />
+          <div class="agent-empty-slot">
+            <Show when={props.model.entries.length === 0}>
+              <AgentEmptyState compact={props.compact} providerName={props.providerName} />
+            </Show>
+          </div>
         </div>
         <div
           class="agent-scroll-nav"
@@ -220,8 +164,7 @@ export function AgentPaneBody(props: {
             "agent-scroll-nav-touch-active": touchNavigationActive(),
           }}
           style={`right: ${
-            Math.max(scrollbarInlineSize(), scrollNavigationOverlayScrollbarClearance) +
-            scrollNavigationScrollbarGap
+            scrollNavigationOverlayScrollbarClearance + scrollNavigationScrollbarGap
           }px`}
         >
           <Show when={turnNavigable() && scroll.agentTurnStartAbove()}>

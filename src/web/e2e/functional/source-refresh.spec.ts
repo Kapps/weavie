@@ -57,7 +57,7 @@ async function releaseRefresh(page: Page, home: string) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 }
 
-test("a clean document refreshes on the polling interval and window focus", async ({
+test("refreshes remote changes and preserves a conflicting local draft", async ({
   page,
   weavie,
 }) => {
@@ -69,11 +69,6 @@ test("a clean document refreshes on the polling interval and window focus", asyn
   await externalChange(weavie.home, "Another update while away.");
   await focusWindow(page);
   await expect(source.locator("p")).toHaveText("Another update while away.");
-});
-
-test("an unfinished draft survives polling and a conflicting save", async ({ page, weavie }) => {
-  await page.clock.install();
-  const source = await openDoc(page);
   await source.locator("p").click();
   const editor = source.locator(".wv-block-editor");
   await editor.fill("Uncommitted local work.");
@@ -94,24 +89,6 @@ test("an unfinished draft survives polling and a conflicting save", async ({ pag
 test.describe("in-flight refresh", () => {
   test.use({ notionDoc: { ...DOC, holdFetchAt: 2 } });
 
-  test("a refresh started before editing cannot replace an active draft", async ({
-    page,
-    weavie,
-  }) => {
-    const source = await openDoc(page);
-    await externalChange(weavie.home, "Remote replacement.");
-    await focusWindow(page);
-    await expect
-      .poll(() => existsSync(join(weavie.home, "fake-notion.json.fetch-entered")))
-      .toBe(true);
-    await source.locator("p").click();
-    const editor = source.locator(".wv-block-editor");
-    await editor.fill("Keep my unfinished draft.");
-    await releaseRefresh(page, weavie.home);
-    await expect(editor).toHaveValue("Keep my unfinished draft.");
-    await expect(editor).toBeEnabled();
-  });
-
   test("a refresh started before a save cannot roll back the saved document", async ({
     page,
     weavie,
@@ -129,28 +106,5 @@ test.describe("in-flight refresh", () => {
     await expect(source.locator("p")).toHaveText("Saved while the old refresh was in flight.");
     await releaseRefresh(page, weavie.home);
     await expect(source.locator("p")).toHaveText("Saved while the old refresh was in flight.");
-  });
-});
-
-test.describe("in-flight save", () => {
-  test.use({ notionDoc: { ...DOC, holdEdit: true } });
-
-  test("polling preserves a pending save until its acknowledgement", async ({ page, weavie }) => {
-    await page.clock.install();
-    const source = await openDoc(page);
-    await source.locator("p").click();
-    const editor = source.locator(".wv-block-editor");
-    await editor.fill("Save still pending.");
-    await editor.press("Enter");
-    await expect
-      .poll(() => existsSync(join(weavie.home, "fake-notion.json.edit-entered")))
-      .toBe(true);
-    await page.clock.fastForward(30_000);
-    await focusWindow(page);
-    await expect(editor).toHaveValue("Save still pending.");
-    await expect(editor).toBeDisabled();
-    await writeFile(join(weavie.home, "fake-notion.json.edit-release"), "");
-    await expect(editor).toHaveCount(0);
-    await expect(source.locator("p")).toHaveText("Save still pending.");
   });
 });

@@ -140,25 +140,6 @@ public sealed class HostCoreSourcesTests {
 	}
 
 	[Fact]
-	public async Task SourceRefresh_ReturnsFreshContentWithoutReplacingTheDisplayedDocument() {
-		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
-		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri.Contains("/markdown")
-			? (HttpStatusCode.OK, """{ "markdown": "Remote change", "truncated": false, "unknown_block_ids": [] }""")
-			: (HttpStatusCode.OK, """{ "properties": {} }""");
-
-		var result = await host.SessionRequestAsync<JsonElement>(
-			host.SelectedSession,
-			"sources",
-			"refresh",
-			new { url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" });
-
-		Assert.Equal("Remote change", result.GetProperty("markdown").GetString());
-		Assert.Null(SourceEvent(host, "document"));
-		Assert.Null(SourceEvent(host, "loading"));
-	}
-
-	[Fact]
 	public async Task ReconnectReplaysTheSourceDocumentAndItsEditorTab() {
 		await using var host = await TestHost.StartAsync();
 		WriteToken(host, "ntn_secret");

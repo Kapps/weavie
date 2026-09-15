@@ -16,10 +16,14 @@ public sealed partial class HostCore {
 
 	private void PushRefLinkBase(HostSession session, Messaging.MessageTarget target) {
 		_ = session.Background.Run(async ct => {
-			var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
-			string? prefix = repo is null ? null : _pullRequests.RefUrlBase(repo);
+			string? prefix = await session.ResolveRefLinkPrefixAsync(ResolveRefLinkPrefixAsync, ct).ConfigureAwait(false);
 			ct.ThrowIfCancellationRequested();
 			target.Feature("git").Publish("refLinkBase", new { prefix });
 		});
+	}
+
+	private async Task<string?> ResolveRefLinkPrefixAsync(CancellationToken ct) {
+		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
+		return repo is null ? null : _pullRequests.RefUrlBase(repo);
 	}
 }

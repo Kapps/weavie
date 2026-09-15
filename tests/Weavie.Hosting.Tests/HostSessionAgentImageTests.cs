@@ -84,6 +84,28 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		Assert.Equal(0, structured.Interruptions);
 	}
 
+	[Fact]
+	public async Task ResolveRefLinkPrefixAsync_ResolvesOnce_AcrossRepeatedCalls() {
+		var structured = new RecordingStructuredSession();
+		var commandRegistry = CoreCommands.CreateRegistry();
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+		await using var session = CreateSession(structured, settings, commandRegistry);
+		int resolveCalls = 0;
+		Task<string?> Resolve(CancellationToken ct) {
+			Interlocked.Increment(ref resolveCalls);
+			return Task.FromResult<string?>("https://github.com/acme/demo/pull/");
+		}
+
+		string?[] concurrent = await Task.WhenAll(
+			session.ResolveRefLinkPrefixAsync(Resolve, CancellationToken.None),
+			session.ResolveRefLinkPrefixAsync(Resolve, CancellationToken.None));
+		string? later = await session.ResolveRefLinkPrefixAsync(Resolve, CancellationToken.None);
+
+		Assert.Equal(1, resolveCalls);
+		Assert.All(concurrent, prefix => Assert.Equal("https://github.com/acme/demo/pull/", prefix));
+		Assert.Equal("https://github.com/acme/demo/pull/", later);
+	}
+
 	private static AgentTurnSubmission Input(
 		string text,
 		params AgentInputAttachment[] attachments) =>

@@ -39,6 +39,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
+	private Task<string?>? _refLinkPrefix;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
@@ -371,6 +372,20 @@ public sealed partial class HostSession : IAsyncDisposable {
 		if (Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
 			throw new InvalidOperationException("Pull request status is already attached.");
 		}
+	}
+
+	/// <summary>
+	/// Resolves this session's ref-link prefix at most once: the origin remote a worktree points at cannot
+	/// change without a restart, so every resync (a reconnect, a page reload) replays the first resolve's
+	/// result instead of spawning another <c>git</c> process for the same answer.
+	/// </summary>
+	internal Task<string?> ResolveRefLinkPrefixAsync(Func<CancellationToken, Task<string?>> resolve, CancellationToken ct) {
+		if (Volatile.Read(ref _refLinkPrefix) is { } cached) {
+			return cached;
+		}
+
+		var task = resolve(ct);
+		return Interlocked.CompareExchange(ref _refLinkPrefix, task, null) ?? task;
 	}
 
 	internal SessionState State { get; }

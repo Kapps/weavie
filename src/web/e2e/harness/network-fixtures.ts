@@ -19,14 +19,21 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
     async ({ context }, use, testInfo) => {
       const failures: string[] = [];
       let snapshot: Promise<void> | undefined;
-      // Flake (Windows only): 2026-09-09 16:18 UTC, run
-      // https://github.com/Kapps/weavie/actions/runs/34374758357/job/102546252324 —
-      // `palette-focus-gated.spec.ts` hit ERR_NO_BUFFER_SPACE on a loopback asset GET during page load.
-      // The captured windows-network.txt rules out ephemeral-port exhaustion (98 total TCP rows against a
-      // 16384-port dynamic range); the host log shows ~20 git.exe subprocesses spawned by the host within
-      // the same instant, at workspace open. Not confirmed as the trigger — this is the first sample since
-      // the capture above was added — but it's the only correlated resource spike in the log and worth
-      // checking first if this recurs.
+      // Flake (Windows only), confirmed mechanism as of 2026-09-15 15:07 UTC, run
+      // https://github.com/Kapps/weavie/actions/runs/34986302881 (shards 3/6 job 104440525077 —
+      // `editing.spec.ts` — and 6/6 job 104440525131 — `web-tab.spec.ts`): both hit
+      // ERR_NO_BUFFER_SPACE/ERR_ABORTED on loopback asset GETs exactly when HostCore opens or resyncs a
+      // session. This occurrence's windows-network.txt again rules out ephemeral-port exhaustion (92 rows
+      // against a 16384-port range) and again shows a tight burst of ~20 `git.exe` children in the host log
+      // at that same instant — reproduced deterministically on Linux too (not Windows-specific in cause; a
+      // fresh Weavie.Headless against a trivial one-commit repo spawns the same ~20 `git` processes on
+      // open), so this is a Weavie-side burst of concurrent process creation that Windows' CreateProcess
+      // cost turns into a visible loopback failure. One confirmed duplicate is fixed: `PushRefLinkBase` (see
+      // `HostCore.RefLinks.cs`) re-resolved the origin remote via a fresh `git config` on every session sync
+      // instead of caching it, so every reconnect/reload re-added it to the burst; `HostSession` now resolves
+      // it once and replays the cached value. The remaining ~18 come from otherwise-legitimate per-feature
+      // git status/PR status/workspace-inventory calls that already run once each per sync — reducing that
+      // further needs consolidating those call sites, not another retry or cap here.
       const onRequestFailed = (request: Request): void => {
         const error = request.failure()?.errorText ?? "unknown";
         failures.push(`${new Date().toISOString()} ${request.method()} ${request.url()} ${error}`);
@@ -83,10 +90,10 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
         await snapshot;
       }
       if (snapshot !== undefined) {
-        // Recurred on Windows CI 2026-09-09 16:07 UTC (run 34374758357, shard 4/6, mid palette-focus-gated.spec.ts)
-        // and 2026-09-09 06:07 UTC (run 34317635773). Investigated: no single test triggers it — it hits whatever
-        // test is running when the runner's TCP port pool is exhausted. windows-network.txt above captures the
-        // diagnostic; no root cause identified yet from available data, so no fix applied here.
+        // Hits whatever test is running when HostCore's session-open/resync git burst (see the comment on
+        // `networkDiagnostics` above) lands at the same instant as the page's own asset requests — not a
+        // property of any one spec. windows-network.txt above still captures the diagnostic for the next
+        // occurrence, to check whether the remaining burst size (see above) keeps producing this.
         throw new Error(`Browser socket allocation failed:\n${failures.join("\n")}`);
       }
     },

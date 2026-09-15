@@ -1890,6 +1890,17 @@ test.describe("ACP composer", () => {
       "Write a prompt — / for commands and skills",
     );
     await expect(page.locator("[data-agent-composer]")).not.toContainText("prompt>");
+    const compactHeight = await empty.evaluate((element) => element.getBoundingClientRect().height);
+    const body = page.locator(".agent-body");
+    const bodyHeight = await body.evaluate((element) => element.clientHeight);
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: viewport.width, height: viewport.height + 400 });
+    await expect
+      .poll(() => body.evaluate((element) => element.clientHeight))
+      .toBeGreaterThan(bodyHeight);
+    await expect
+      .poll(() => empty.evaluate((element) => element.getBoundingClientRect().height))
+      .toBeCloseTo(compactHeight, 0);
     await page.screenshot({ path: join(shotsDir, "08-empty-state.png") });
   });
 

@@ -1498,6 +1498,6 @@ label.agent-input-choice:hover {
 
 .agent-empty-slot > .agent-empty {
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto;
   z-index: 1;
 }

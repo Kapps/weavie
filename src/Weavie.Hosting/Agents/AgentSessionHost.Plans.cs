@@ -5,6 +5,11 @@ namespace Weavie.Hosting.Agents;
 public sealed partial class AgentSessionHost {
 	internal event Action<IReadOnlyList<AgentPlan>>? PlanDocumentsChanged;
 
+	internal void WithPlanDocuments(Action<IReadOnlyList<AgentPlan>> publish) {
+		ArgumentNullException.ThrowIfNull(publish);
+		lock (_paneGate) publish(PlanDocumentsLocked());
+	}
+
 	internal bool WithCompletedPlan(string threadId, string turnId, string itemId, Action<AgentPlan> publish) {
 		ArgumentNullException.ThrowIfNull(publish);
 		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) return false;
@@ -25,6 +30,8 @@ public sealed partial class AgentSessionHost {
 		return new AgentPlan(key, "Plan", message.Text);
 	}
 
-	private void PublishPlanDocumentsLocked() => PlanDocumentsChanged?.Invoke(
-		[.. _paneMessages.Select(CompletedPlanLocked).OfType<AgentPlan>()]);
+	private IReadOnlyList<AgentPlan> PlanDocumentsLocked() =>
+		[.. _paneMessages.Select(CompletedPlanLocked).OfType<AgentPlan>()];
+
+	private void PublishPlanDocumentsLocked() => PlanDocumentsChanged?.Invoke(PlanDocumentsLocked());
 }

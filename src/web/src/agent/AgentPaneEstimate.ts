@@ -6,27 +6,14 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 const proseColumns = 96;
 const proseLineHeight = 27;
 const monoLineHeight = 18;
-const estimates = new WeakMap<AgentTranscriptEntry, number>();
-
-export function invalidateEntrySize(entry: AgentTranscriptEntry): void {
-  estimates.delete(entry);
-  for (const child of entry.asideEntries ?? []) invalidateEntrySize(child);
-}
-
-// Called for every unmeasured row on each measurement pass, so the per-entry result is memoized.
 export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): number {
   if (entry === undefined) {
     return 48;
-  }
-  const cached = estimates.get(entry);
-  if (cached !== undefined) {
-    return cached;
   }
   const prose = entry.kind === "message" && entry.tone === "assistant";
   if (entry.kind === "aside") {
     const size =
       76 + (entry.asideEntries ?? []).reduce((sum, child) => sum + estimateEntrySize(child), 0);
-    estimates.set(entry, size);
     return size;
   }
   const size =
@@ -38,7 +25,6 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
         ? markdownHeight(entry.text)
         : preformattedHeight(entry.text)) +
     (entry.detailCount > 0 ? monoLineHeight : 0);
-  estimates.set(entry, size);
   return size;
 }
 

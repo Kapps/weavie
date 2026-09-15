@@ -15,9 +15,31 @@ const OWNS_MIDDLE_CLICK =
   ".monaco-editor,.xterm,[data-middle-click]";
 const SCROLLABLE = /^(auto|scroll|overlay)$/;
 
+export interface ScrollAxisTarget {
+  canScroll: () => boolean;
+  scrollBy: (delta: number) => void;
+}
+export interface ScrollTarget {
+  x: ScrollAxisTarget | null;
+  y: ScrollAxisTarget | null;
+}
+const scrollTargets = new WeakMap<Element, ScrollTarget>();
+
+export function registerScrollTarget(element: Element, target: ScrollTarget): () => void {
+  scrollTargets.set(element, target);
+  return () => {
+    if (scrollTargets.get(element) === target) scrollTargets.delete(element);
+  };
+}
+
+interface AxisSurface {
+  element: Element;
+  scrollBy: (delta: number) => void;
+  isConnected: () => boolean;
+}
 interface Surface {
-  x: Element | null;
-  y: Element | null;
+  x: AxisSurface | null;
+  y: AxisSurface | null;
 }
 
 // The nearest ancestor that can actually scroll, per axis — so a drag down scrolls the pane even when the
@@ -26,11 +48,34 @@ interface Surface {
 function surfaceAt(target: Element): Surface | null {
   const surface: Surface = { x: null, y: null };
   for (let node: Element | null = target; node !== null; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    surface.x ??=
-      SCROLLABLE.test(style.overflowX) && node.scrollWidth - node.clientWidth > 1 ? node : null;
-    surface.y ??=
-      SCROLLABLE.test(style.overflowY) && node.scrollHeight - node.clientHeight > 1 ? node : null;
+    const element = node;
+    const registered = scrollTargets.get(element);
+    const style = getComputedStyle(element);
+    for (const axis of ["x", "y"] as const) {
+      if (surface[axis] !== null) continue;
+      const owned = registered?.[axis];
+      if (owned !== undefined && owned !== null) {
+        if (owned.canScroll())
+          surface[axis] = {
+            element,
+            scrollBy: owned.scrollBy,
+            isConnected: () => element.isConnected && scrollTargets.get(element) === registered,
+          };
+      } else if (
+        axis === "x"
+          ? SCROLLABLE.test(style.overflowX) && element.scrollWidth - element.clientWidth > 1
+          : SCROLLABLE.test(style.overflowY) && element.scrollHeight - element.clientHeight > 1
+      ) {
+        surface[axis] = {
+          element,
+          scrollBy: (delta) => {
+            if (axis === "x") element.scrollLeft += delta;
+            else element.scrollTop += delta;
+          },
+          isConnected: () => element.isConnected,
+        };
+      }
+    }
     if (surface.x !== null && surface.y !== null) {
       break;
     }
@@ -57,12 +102,17 @@ export function installMiddleClickAutoscroll(): () => void {
     held = null;
     marker?.remove();
     marker = null;
-    surface?.x?.classList.remove("middle-click-autoscrolling");
-    surface?.y?.classList.remove("middle-click-autoscrolling");
+    surface?.x?.element.classList.remove("middle-click-autoscrolling");
+    surface?.y?.element.classList.remove("middle-click-autoscrolling");
     surface = null;
   };
   const animate = (time: number): void => {
-    if (surface === null || !currentEditorOptions().middleClickAutoscroll) {
+    if (
+      surface === null ||
+      !currentEditorOptions().middleClickAutoscroll ||
+      (surface.x !== null && !surface.x.isConnected()) ||
+      (surface.y !== null && !surface.y.isConnected())
+    ) {
       stop();
       return;
     }
@@ -71,10 +121,10 @@ export function installMiddleClickAutoscroll(): () => void {
         (Math.sign(distance) * Math.max(Math.abs(distance) - DEAD_ZONE, 0) * (time - lastFrame)) /
         32;
       if (surface.y !== null) {
-        surface.y.scrollTop += step(pointerY - originY);
+        surface.y.scrollBy(step(pointerY - originY));
       }
       if (surface.x !== null) {
-        surface.x.scrollLeft += step(pointerX - originX);
+        surface.x.scrollBy(step(pointerX - originX));
       }
     }
     lastFrame = time;
@@ -147,8 +197,8 @@ export function installMiddleClickAutoscroll(): () => void {
     marker.className = "middle-click-autoscroll-origin";
     marker.style.left = `${event.clientX}px`;
     marker.style.top = `${event.clientY}px`;
-    found.x?.classList.add("middle-click-autoscrolling");
-    found.y?.classList.add("middle-click-autoscrolling");
+    found.x?.element.classList.add("middle-click-autoscrolling");
+    found.y?.element.classList.add("middle-click-autoscrolling");
     frame = requestAnimationFrame(animate);
   };
   const onMouseMove = (event: MouseEvent): void => {

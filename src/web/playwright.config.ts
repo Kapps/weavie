@@ -59,6 +59,7 @@ export default defineConfig({
         "middle-click-autoscroll.spec.ts",
         "new-session-paste.spec.ts",
         "agent-composer.spec.ts",
+        "agent-touch.spec.ts",
         "runner-connect.spec.ts",
         "session-switch-performance.spec.ts",
         "process-tree.spec.ts",

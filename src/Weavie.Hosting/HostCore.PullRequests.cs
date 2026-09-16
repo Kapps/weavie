@@ -7,6 +7,8 @@ using Weavie.Core.Sessions;
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
+	private readonly KeyedResolveOnceCache<string, RepoRef?> _remoteRepoCache = new();
+
 	private async Task<PullRequestWire[]> ListPullRequestsAsync(
 		string query,
 		CancellationToken ct) {
@@ -237,7 +239,15 @@ public sealed partial class HostCore {
 	private Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) =>
 		ResolveRemoteRepoAsync("origin", ct);
 
-	private async Task<RepoRef?> ResolveRemoteRepoAsync(string remote, CancellationToken ct) {
+	/// <summary>
+	/// Resolves a remote to its repo, cached for the workspace's lifetime: every worktree shares one
+	/// <c>.git/config</c>, and a remote can't change without a restart, so every session's sync and every
+	/// PR-status poll would otherwise re-spawn <c>git config</c> for the exact same answer.
+	/// </summary>
+	private Task<RepoRef?> ResolveRemoteRepoAsync(string remote, CancellationToken ct) =>
+		_remoteRepoCache.GetOrResolveAsync(remote, _ => ResolveRemoteRepoCoreAsync(remote, ct));
+
+	private async Task<RepoRef?> ResolveRemoteRepoCoreAsync(string remote, CancellationToken ct) {
 		try {
 			string? url = await new GitService()
 				.GetRemoteUrlAsync(WorkspaceRoot, remote, ct)

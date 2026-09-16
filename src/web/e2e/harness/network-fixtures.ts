@@ -19,6 +19,21 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
     async ({ context }, use, testInfo) => {
       const failures: string[] = [];
       let snapshot: Promise<void> | undefined;
+      // Recurred 2026-09-16 02:15 UTC, run
+      // https://github.com/Kapps/weavie/actions/runs/35046360832/job/104637811609 (shard 6/6,
+      // `mobile.spec.ts` — "Claude Code accepts back swipes beside the screen edge, never on it") — same
+      // ERR_NO_BUFFER_SPACE signature, on the commit this fix's own PR was still stacked on top of (the
+      // ref-link caching below hadn't landed on `main` yet). Went further than the diagnostic-only prior
+      // occurrences: `HostCore` was also re-resolving the `origin`/`upstream` remote from scratch on every
+      // `PullRequestStatusMonitor` poll (every 30s per open session, not just at boot) and re-running
+      // `git rev-parse --abbrev-ref HEAD` on every poll despite git-status already resolving the same branch
+      // on the same cadence. Both are now cached/reused (`HostCore.PullRequests.cs`'s `_remoteRepoCache`,
+      // `HostCore.PullRequestStatus.cs` reusing `session.GitStatus.Latest?.Branch`), on top of the one-time
+      // ref-link fix below — cutting the steady-state spawn rate, not just the boot burst. The remaining
+      // git-status (`status`, `diff --numstat`, untracked `ls-files`) and workspace-inventory spawns are
+      // each already single-purpose and once-per-sync; consolidating those further needs a different data
+      // source (e.g. computing diff stats without a second `git` process), not another call-site cache.
+      //
       // Flake (Windows only), confirmed mechanism as of 2026-09-15 15:07 UTC, run
       // https://github.com/Kapps/weavie/actions/runs/34986302881 (shards 3/6 job 104440525077 —
       // `editing.spec.ts` — and 6/6 job 104440525131 — `web-tab.spec.ts`): both hit

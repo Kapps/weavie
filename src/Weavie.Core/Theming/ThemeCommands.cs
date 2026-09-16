@@ -12,7 +12,7 @@ public delegate Task<string?> VsixFilePicker(CancellationToken ct);
 
 /// <summary>
 /// Wires the Core handlers for the theme verb commands in <see cref="CoreCommands"/> (install /
-/// install-from-file / select / cycle-mode / undo-override / reset) — palette/keybinding/<c>runCommand</c>
+/// install-from-file / cycle-mode / undo-override / reset) — palette/keybinding/<c>runCommand</c>
 /// reachable, while override editors and queries stay MCP tools. Appearance lives in the <c>theme.*</c> settings;
 /// per-color tweaks in <see cref="ThemeOverridesStore"/>; install via <see cref="OpenVsxThemeInstaller"/>.
 /// </summary>
@@ -35,8 +35,6 @@ public static class ThemeCommands {
 			InstallFromOpenVsxAsync(argsJson, settings, ct));
 		dispatcher.RegisterHandler(CoreCommands.InstallThemeFromFile, (argsJson, ct) =>
 			InstallFromFileAsync(argsJson, settings, pickVsixFile, ct));
-		dispatcher.RegisterHandler(CoreCommands.SelectTheme, (argsJson, _) =>
-			Task.FromResult(SelectTheme(argsJson, settings)));
 		dispatcher.RegisterHandler(CoreCommands.CycleThemeMode, (_, _) =>
 			Task.FromResult(CycleMode(settings)));
 		dispatcher.RegisterHandler(CoreCommands.UndoThemeOverride, (_, _) =>
@@ -96,7 +94,8 @@ public static class ThemeCommands {
 		}
 	}
 
-	private static CommandResult SelectTheme(string? argsJson, SettingsStore settings) {
+	/// <summary>Selects a built-in or installed theme and persists its polarity and identity.</summary>
+	public static CommandResult SelectTheme(string? argsJson, SettingsStore settings) {
 		string? id;
 		using (var args = ParseArgs(argsJson)) {
 			id = GetString(args, "id");

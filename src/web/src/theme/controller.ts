@@ -100,6 +100,31 @@ let state: ThemeState = (() => {
   return computeState(injected);
 })();
 
+let preview: Slot | null = null;
+const displayedSlot = (): Slot => preview ?? activeSlot(state);
+
+/** The saved active theme, independent of a picker preview. */
+export const currentThemeId = (): string => activeSlot(state).id;
+
+/** Owns one transient preview; disposing restores the latest host appearance. */
+export function beginThemePreview(): { show: (slot: ThemeSlot) => void; dispose: () => void } {
+  let disposed = false;
+  return {
+    show(slot) {
+      if (disposed) return;
+      const base = slot.theme ?? BUILTIN_THEMES[slot.id];
+      if (base === undefined) throw new Error(`No theme data for ${slot.id}`);
+      preview = resolveSlot(slot, base);
+      reapplyActive();
+    },
+    dispose() {
+      disposed = true;
+      preview = null;
+      reapplyActive();
+    },
+  };
+}
+
 const xtermSubscribers = new Set<(theme: XtermTheme) => void>();
 const monacoSubscribers = new Set<(update: MonacoThemeUpdate) => void>();
 const previewSubscribers = new Set<() => void>();
@@ -107,7 +132,7 @@ const previewSubscribers = new Set<() => void>();
 function monacoUpdate(): MonacoThemeUpdate {
   // Id bumped per change because a registered-extension theme can't be mutated in place; a fresh id forces
   // a clean re-register + setTheme.
-  const slot = activeSlot(state);
+  const slot = displayedSlot();
   return {
     // Monaco settingsId must be a clean token ('#', '/', '.', spaces break lookup) and unique per change.
     id: `weavie-theme-${slot.id.replace(/[^a-zA-Z0-9]+/g, "-")}-${version}`,
@@ -117,7 +142,7 @@ function monacoUpdate(): MonacoThemeUpdate {
 
 /** The xterm ITheme for the active theme — read this when creating a terminal. */
 export function currentXtermTheme(): XtermTheme {
-  return paletteToXtermTheme(activeSlot(state).resolved.colors);
+  return paletteToXtermTheme(displayedSlot().resolved.colors);
 }
 
 /** The Monaco theme to register+apply — read this once the editor services are initialized. */
@@ -155,7 +180,7 @@ export function onPreviewThemeChanged(handler: () => void): () => void {
 
 /** Applies the active theme to Weavie's chrome (CSS vars + color-scheme). Call once the DOM is mounted; idempotent. */
 export function applyChromeTheme(): void {
-  const slot = activeSlot(state);
+  const slot = displayedSlot();
   applyColorsToCssVars(slot.resolved.colors);
   deriveChromeVars(slot.resolved.colors);
   const background = slot.resolved.colors["editor.background"];
@@ -166,7 +191,7 @@ export function applyChromeTheme(): void {
   }
   // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
   // the active polarity; mirror it onto data-theme-type so polarity-specific CSS can target it.
-  const polarity = slot.base.type === "light" ? "light" : "dark";
+  const polarity = slot.base.type === "light" || slot.base.type === "hcLight" ? "light" : "dark";
   document.documentElement.style.colorScheme = polarity;
   document.documentElement.dataset.themeType = polarity;
 }
@@ -175,7 +200,7 @@ export function applyChromeTheme(): void {
 function reapplyActive(): void {
   version += 1;
   applyChromeTheme();
-  const xterm = paletteToXtermTheme(activeSlot(state).resolved.colors);
+  const xterm = paletteToXtermTheme(displayedSlot().resolved.colors);
   for (const handler of xtermSubscribers) {
     handler(xterm);
   }

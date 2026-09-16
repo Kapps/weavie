@@ -26,7 +26,12 @@ test.use({
         source
           .map((line, lineIndex) =>
             lineIndex >= 3_500 && lineIndex < 3_550
-              ? `export const value${lineIndex} = "changed ${index} ${lineIndex} ${"wide ".repeat(index % 3 === 0 ? 200 : 1)}";`
+              ? // File 0 is excluded from the "wide" set: it's the one file whose first paint gates the
+                // parked→active toolbar flip below (see that assertion's comment), so giving it the same
+                // 1,000+ char lines as the wide files would add unnecessary diff-worker cost to exactly
+                // the critical path that assertion's timeout has to cover. Shifted to `=== 1` to keep the
+                // same wide-file count (10 of 30) and full scroll-order coverage.
+                `export const value${lineIndex} = "changed ${index} ${lineIndex} ${"wide ".repeat(index % 3 === 1 ? 200 : 1)}";`
               : line,
           )
           .join("\n"),

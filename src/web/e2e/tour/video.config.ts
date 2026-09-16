@@ -21,6 +21,9 @@ export default defineConfig({
     viewport: { width: 1280, height: 800 },
     video: "on",
     trace: "retain-on-failure",
+    // Same override the main config and capture.mjs honor: run on a preinstalled Chromium (e.g. a
+    // sandbox's /opt/pw-browsers) instead of the version-pinned download. Unset in normal use.
+    launchOptions: { executablePath: process.env.WEAVIE_CHROMIUM || undefined },
   },
   // No device preset: its "Windows" userAgent flips Monaco/vscode to backslash paths (matches the functional
   // headless project). Named "video" so the harness treats it as headless transport, not remote.

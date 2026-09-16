@@ -98,7 +98,6 @@ public sealed class WorktreeManager {
 	/// </summary>
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
-		string? defaultBranch = await _git.ResolveDefaultBranchAsync(_repositoryRoot, ct).ConfigureAwait(false);
 		string normalizedRoot = PathIdentity.Normalize(_repositoryRoot);
 
 		var result = new List<WorktreeStatus>();
@@ -114,12 +113,6 @@ public sealed class WorktreeManager {
 			bool isPrimary = PathIdentity.Comparer.Equals(normalized, normalizedRoot);
 			bool isManaged = record is not null || (!isPrimary && IsWithinWorktreesDir(normalized));
 			bool exists = !worktree.IsPrunable;
-			bool isDirty = exists && !isPrimary && await _git.HasUncommittedChangesAsync(worktree.Path, ct).ConfigureAwait(false);
-			bool isMerged = exists && !isPrimary
-				&& worktree.Branch is { } branch
-				&& defaultBranch is { } target
-				&& !string.Equals(branch, target, StringComparison.Ordinal)
-				&& await _git.IsBranchMergedAsync(_repositoryRoot, branch, target, ct).ConfigureAwait(false);
 
 			result.Add(new WorktreeStatus {
 				Path = worktree.Path,
@@ -129,8 +122,6 @@ public sealed class WorktreeManager {
 				IsManaged = isManaged,
 				IsPrimary = isPrimary,
 				Exists = exists,
-				IsDirty = isDirty,
-				IsMerged = isMerged,
 				CreatedAtUtc = record?.CreatedAtUtc,
 			});
 		}
@@ -148,8 +139,6 @@ public sealed class WorktreeManager {
 				IsManaged = true,
 				IsPrimary = false,
 				Exists = false,
-				IsDirty = false,
-				IsMerged = false,
 				CreatedAtUtc = record.CreatedAtUtc,
 			});
 		}

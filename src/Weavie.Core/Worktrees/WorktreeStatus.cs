@@ -26,12 +26,6 @@ public sealed record WorktreeStatus {
 	/// <summary>True when the worktree's working directory is present and known to git.</summary>
 	public required bool Exists { get; init; }
 
-	/// <summary>True when the worktree has uncommitted changes (tracked or untracked).</summary>
-	public required bool IsDirty { get; init; }
-
-	/// <summary>True when the worktree's branch is fully merged into the repository's default branch.</summary>
-	public required bool IsMerged { get; init; }
-
 	/// <summary>When Weavie created the worktree (UTC), when known.</summary>
 	public DateTimeOffset? CreatedAtUtc { get; init; }
 
@@ -40,7 +34,4 @@ public sealed record WorktreeStatus {
 
 	/// <summary>A worktree git reports outside Weavie's managed directory with no ownership record.</summary>
 	public bool IsUntracked => !IsManaged && !IsPrimary && Exists;
-
-	/// <summary>Removable without losing work: present, not the primary checkout, clean, and fully merged.</summary>
-	public bool IsSafeToRemove => Exists && !IsPrimary && !IsDirty && IsMerged;
 }

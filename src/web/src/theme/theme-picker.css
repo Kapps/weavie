@@ -1,4 +1,4 @@
-.theme-picker {
+.confirm-dialog.theme-picker {
   width: min(620px, 94vw);
   max-width: 620px;
   margin: 48px auto auto;
@@ -88,8 +88,8 @@
 
 .modal-backdrop:has(.theme-picker) {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .theme-picker-list button[aria-selected="true"],
 .theme-picker-list button[aria-selected="true"] small {

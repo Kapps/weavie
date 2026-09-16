@@ -15,6 +15,7 @@ test("theme picker previews with the keyboard, cancels, and persists acceptance"
   const picker = page.getByRole("dialog", { name: "Select Color Theme" });
   const filter = picker.getByRole("combobox");
   await expect(filter).toBeFocused();
+  await expect(page.locator(".modal-backdrop")).toHaveCSS("backdrop-filter", "none");
   await expect(picker.getByRole("option", { selected: true })).toContainText("Weavie Light");
   await filter.press("ArrowUp");
   await expect(appearance).toHaveAttribute("data-theme-type", "dark");

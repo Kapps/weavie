@@ -1,0 +1,97 @@
+.theme-picker {
+  width: min(620px, 94vw);
+  max-width: 620px;
+  margin: 48px auto auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font: var(--font-chrome-size) var(--font-chrome-family);
+}
+.theme-picker-header,
+.theme-picker-footer,
+.theme-picker-sources {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-picker-header {
+  justify-content: space-between;
+}
+.theme-picker-header > span,
+.theme-picker small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+.theme-picker button,
+.theme-picker input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+}
+.theme-picker input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.theme-picker button {
+  cursor: pointer;
+}
+.theme-picker button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.theme-picker button[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+.theme-picker-list {
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.theme-picker-list button {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  text-align: left;
+  border-color: transparent;
+  flex-shrink: 0;
+}
+.theme-picker-list button[aria-selected="true"] {
+  background: var(--list-active-bg);
+  border-color: var(--accent);
+}
+.theme-description {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.theme-picker-footer > small {
+  flex: 1;
+}
+.theme-picker-error {
+  color: var(--bad);
+  margin: 0;
+}
+.theme-picker-back {
+  align-self: flex-start;
+}
+.theme-picker p {
+  font-size: var(--font-metadata-size);
+}
+
+.modal-backdrop:has(.theme-picker) {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-picker-list button[aria-selected="true"],
+.theme-picker-list button[aria-selected="true"] small {
+  color: var(--list-active-fg);
+}

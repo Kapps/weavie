@@ -9,6 +9,15 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 
+vi.mock("./review-editor-input", () => ({
+  createReviewEditorInput: ({ schedule }: { schedule: () => void }) => ({
+    revealCursor: vi.fn(),
+    isCursorVisible: () => false,
+    scrollChanged: schedule,
+    dispose: vi.fn(),
+  }),
+}));
+
 vi.mock("../monaco-setup", () => ({ monaco: { editor: { ScrollType: { Immediate: 1 } } } }));
 
 function fixture() {
@@ -25,7 +34,13 @@ function fixture() {
       disconnect() {}
     },
   );
-  const layoutInfo = { width: 716, contentWidth: 648, height: 568, verticalScrollbarWidth: 14 };
+  const layoutInfo = {
+    width: 716,
+    contentWidth: 648,
+    height: 568,
+    verticalScrollbarWidth: 14,
+    horizontalScrollbarHeight: 12,
+  };
   const values = new Map<EditorOption, unknown>([
     [EditorOption.layoutInfo, layoutInfo],
     [EditorOption.padding, { top: 6, bottom: 18 }],
@@ -71,7 +86,7 @@ function fixture() {
     },
     set scrollTop(top: number) {
       writes.push(top);
-      rootTop = Math.max(0, Math.min(top, contentHeight - layoutInfo.height));
+      rootTop = Math.max(0, Math.min(top, contentHeight - 568));
     },
     getBoundingClientRect: () => ({ top: 0 }),
     addEventListener: vi.fn(),
@@ -84,7 +99,11 @@ function fixture() {
     clientWidth: 716,
     getBoundingClientRect: () => ({ top: 38 - rootTop }),
   };
-  const mount = { style: { top: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+  const mount = {
+    style: { top: "", setProperty: vi.fn() },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
   const editor = {
     layout: vi.fn(({ width, height }: { width: number; height: number }) => {
       layoutInfo.width = width;
@@ -112,7 +131,7 @@ function fixture() {
   // Monaco publishes its clamped scroll before this DOM height mirror receives content-size changes.
   const content = view.onDidContentSizeChange(() => {
     contentHeight = view.getContentHeight();
-    rootTop = Math.min(rootTop, contentHeight - layoutInfo.height);
+    rootTop = Math.min(rootTop, contentHeight - 568);
   });
   onTestFinished(() => {
     viewport.dispose();
@@ -129,6 +148,10 @@ function fixture() {
     rootTop: () => rootTop,
     editor,
     container,
+    scrollTo: (top: number) => {
+      scroller.scrollTop = top;
+      viewport.layout();
+    },
   };
 }
 
@@ -140,7 +163,7 @@ describe("review viewport geometry ownership", () => {
     expect(current.editor.getLayoutInfo().height).toBe(150);
     current.state.containerHeight = () => 900;
     current.viewport.layout();
-    expect(current.editor.getLayoutInfo().height).toBe(568);
+    expect(current.editor.getLayoutInfo().height).toBe(900);
   });
 
   it("does not relayout or repaint unchanged editors on scroll frames", () => {
@@ -163,29 +186,45 @@ describe("review viewport geometry ownership", () => {
     expect(current.writes).toEqual([]);
   });
 
-  it("still reveals genuine editor movement through the outer scroller", () => {
+  it("keeps nearby lines painted without moving Monaco during small forward and reverse scrolls", () => {
     const current = fixture();
-    const destination = current.view.getCurrentScrollTop() - 100;
-    current.view.getScrollable().setScrollPositionNow({ scrollTop: destination });
-    expect(current.rootTop()).toBe(destination);
-    expect(current.writes).toEqual([destination]);
+    current.scrollTo(10_000);
+    const top = current.view.getCurrentScrollTop();
+    expect(current.editor.getLayoutInfo().height).toBe(568 * 3);
+    current.editor.layout.mockClear();
+    current.editor.render.mockClear();
+    current.scrollTo(10_100);
+    current.scrollTo(9_900);
+    expect(current.view.getCurrentScrollTop()).toBe(top);
+    expect(Number.parseFloat(current.mount.style.top)).toBe(top);
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.editor.render).not.toHaveBeenCalled();
   });
 
-  it("positions a reveal immediately without reentering Monaco layout", () => {
+  it("refills the render window before the visible screen reaches its edge", () => {
     const current = fixture();
-    const layout = vi.fn();
-    current.state.duringLayout = layout;
-    const destination = current.view.getCurrentScrollTop() - 100;
-    current.view.getScrollable().setScrollPositionNow({ scrollTop: destination });
-    expect(current.rootTop()).toBe(destination);
-    expect(Number.parseFloat(current.mount.style.top)).toBe(destination);
-    expect(layout).not.toHaveBeenCalled();
-    const frame = vi.mocked(requestAnimationFrame).mock.calls[0]![0];
+    current.scrollTo(10_000);
+    const top = current.view.getCurrentScrollTop();
+    current.scrollTo(10_600);
+    expect(current.view.getCurrentScrollTop()).toBeGreaterThan(top);
+    expect(current.view.getCurrentScrollTop()).toBe(10_600 - 568);
+    expect(current.rootTop()).toBe(10_600);
+    expect(Number.parseFloat(current.mount.style.top)).toBe(current.view.getCurrentScrollTop());
+  });
+
+  it("restores the owned render window after Monaco requests an internal scroll", () => {
+    const current = fixture();
+    current.scrollTo(10_000);
+    const top = current.view.getCurrentScrollTop();
+    current.view.getScrollable().setScrollPositionNow({ scrollTop: top - 100 });
+    expect(current.rootTop()).toBe(10_000);
+    const frame = vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0];
     frame(0);
-    expect(layout).not.toHaveBeenCalled();
+    expect(current.view.getCurrentScrollTop()).toBe(top);
+    expect(Number.parseFloat(current.mount.style.top)).toBe(top);
   });
 
-  it("projects the mount using geometry produced by the current editor layout", () => {
+  it("recomputes the bounded window after a resize", () => {
     const current = fixture();
     current.state.duringLayout = () => {
       current.state.duringLayout = () => {};
@@ -193,7 +232,7 @@ describe("review viewport geometry ownership", () => {
     };
     current.container.clientWidth += 1;
     current.viewport.layout();
-    expect(Number.parseFloat(current.mount.style.top)).toBe(current.rootTop());
-    expect(current.view.getCurrentScrollTop()).toBe(current.rootTop());
+    expect(current.view.getCurrentScrollTop()).toBe(current.view.getScrollHeight() - 568 * 3);
+    expect(Number.parseFloat(current.mount.style.top)).toBe(current.view.getCurrentScrollTop());
   });
 });

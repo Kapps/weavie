@@ -1,6 +1,7 @@
 import { monaco } from "../monaco-setup";
+import { createReviewEditorInput } from "./review-editor-input";
 
-/** Keeps Monaco's rendered window inside a full-height section owned by the review scroller. */
+/** Keeps a bounded buffer of painted lines inside a full-height section owned by the review scroller. */
 export function createReviewEditorViewport(
   container: HTMLElement,
   mount: HTMLElement,
@@ -16,6 +17,8 @@ export function createReviewEditorViewport(
 } {
   let frame: number | undefined;
   let syncing = false;
+  let windowTop = 0;
+  let scrollbarOffset = Number.NaN;
 
   const bounds = (): { top: number; height: number } => {
     const style = getComputedStyle(scroller);
@@ -27,32 +30,46 @@ export function createReviewEditorViewport(
     };
   };
 
-  const projectedTop = (): number =>
-    Math.floor(
-      Math.max(
-        0,
-        Math.min(
-          bounds().top - container.getBoundingClientRect().top,
-          editor.getScrollHeight() - editor.getLayoutInfo().height,
-        ),
-      ),
-    );
-
   const layout = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(editor.getContentHeight(), container.clientHeight, viewport.height);
+      const height = Math.min(
+        editor.getContentHeight(),
+        container.clientHeight,
+        viewport.height * 3,
+      );
       const width = container.clientWidth;
       const previous = editor.getLayoutInfo();
       const resized = previous.width !== width || previous.height !== height;
       if (resized) editor.layout({ width, height });
-      const top = projectedTop();
+      const containerTop = container.getBoundingClientRect().top;
+      const visibleTop = Math.max(0, viewport.top - containerTop);
+      const maximumTop = Math.max(0, editor.getScrollHeight() - height);
+      // Refill before the visible page reaches an edge; small reversals keep the same painted lines.
+      const runway = viewport.height / 2;
+      if (
+        resized ||
+        windowTop > maximumTop ||
+        visibleTop < windowTop + runway ||
+        visibleTop + viewport.height > windowTop + height - runway
+      ) {
+        windowTop = Math.floor(Math.max(0, Math.min(visibleTop - viewport.height, maximumTop)));
+      }
+      const top = windowTop;
       const moved = editor.getScrollTop() !== top;
       if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
       if (resized || moved) editor.render();
+      const offset = Math.max(
+        editor.getLayoutInfo().horizontalScrollbarHeight - height,
+        Math.min(0, viewport.top + viewport.height - containerTop - top - height),
+      );
+      if (scrollbarOffset !== offset) {
+        scrollbarOffset = offset;
+        mount.style.setProperty("--review-scrollbar-offset", `${offset}px`);
+      }
     } finally {
       syncing = wasSyncing;
     }
@@ -74,12 +91,17 @@ export function createReviewEditorViewport(
     scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
     layout();
   };
-  // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
+  const input = createReviewEditorInput({
+    editor,
+    container,
+    scroller,
+    bounds,
+    isSyncing: () => syncing,
+    schedule,
+  });
   const scroll = editor.onDidScrollChange((event) => {
-    if (!syncing && event.scrollTopChanged && event.scrollTop !== projectedTop()) {
-      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
-      mount.style.top = `${projectedTop()}px`;
-      schedule();
+    if (!syncing && event.scrollTopChanged && !event.scrollHeightChanged) {
+      input.scrollChanged(event.scrollTop, windowTop);
     }
   });
   const wheel = (event: WheelEvent): void => {
@@ -118,13 +140,15 @@ export function createReviewEditorViewport(
     reveal,
     update: (change) => {
       const wasSyncing = syncing;
+      const keepCursorVisible = !wasSyncing && input.isCursorVisible();
       syncing = true;
       try {
         change();
-        layout();
       } finally {
         syncing = wasSyncing;
       }
+      if (keepCursorVisible) input.revealCursor();
+      layout();
     },
     dispose: () => {
       if (frame !== undefined) {
@@ -134,6 +158,7 @@ export function createReviewEditorViewport(
       scroller.removeEventListener("scroll", schedule);
       mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
+      input.dispose();
     },
   };
 }

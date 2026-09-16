@@ -226,6 +226,7 @@
 }
 
 .unified-review-diffs {
+  --review-scroll-padding: 1em;
   position: relative;
   height: 100%;
   min-width: 0;
@@ -234,7 +235,7 @@
   width: 100%;
   max-width: 100rem;
   margin: 0 auto;
-  padding: 1em;
+  padding: var(--review-scroll-padding);
 }
 
 .unified-review-virtual-list {
@@ -262,6 +263,17 @@
   padding: 0.45em 0.65em;
   border-bottom: 1px solid var(--border);
   background: var(--bar);
+}
+
+.unified-review-file-header::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: var(--review-scroll-padding);
+  background: var(--bg);
+  pointer-events: none;
 }
 
 .unified-review-file-name {
@@ -338,6 +350,14 @@
   > .monaco-scrollable-element
   > .scrollbar.vertical {
   display: none;
+}
+
+.unified-review-editor-viewport
+  > .monaco-editor
+  > .overflow-guard
+  > .monaco-scrollable-element
+  > .scrollbar.horizontal {
+  transform: translateY(var(--review-scrollbar-offset));
 }
 
 /* Round the last section corners on Monaco's own clip layer — never on an ancestor, which would trap the

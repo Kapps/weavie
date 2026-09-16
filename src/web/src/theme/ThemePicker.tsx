@@ -2,7 +2,7 @@ import { For, onCleanup, Show } from "solid-js";
 import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
 import { createThemePicker } from "./picker-model";
-import { SELECT_THEME, themePickerOpen } from "./picker-state";
+import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
 import "./theme-picker.css";
 
 export function ThemePicker() {
@@ -18,6 +18,8 @@ function Picker() {
     savedId,
     query,
     setQuery,
+    sortBy,
+    setSortBy,
     registry,
     extensions,
     variants,
@@ -47,6 +49,7 @@ function Picker() {
       event.stopPropagation();
       close();
     }
+    if (event.target instanceof HTMLSelectElement) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
@@ -131,6 +134,19 @@ function Picker() {
         aria-controls="theme-options"
         aria-activedescendant={count() ? `theme-option-${selected()}` : undefined}
       />
+      <Show when={isSearch()}>
+        <label class="theme-picker-sort">
+          Sort by
+          <select
+            aria-label="Sort Open VSX themes"
+            value={sortBy()}
+            onChange={(event) => setSortBy(event.currentTarget.value as ThemeSearchOrder)}
+          >
+            <option value="downloadCount">Most downloaded</option>
+            <option value="relevance">Relevance</option>
+          </select>
+        </label>
+      </Show>
       <div class="theme-picker-list" id="theme-options" role="listbox" aria-label="Color themes">
         <Show
           when={isSearch()}
@@ -178,10 +194,20 @@ function Picker() {
                 }}
               >
                 <span>{extension.displayName ?? extension.name}</span>
-                <small>
-                  {extension.namespace} · {extension.version}
-                </small>
+                <small>v{extension.version}</small>
                 <small class="theme-description">{extension.description}</small>
+                <small class="theme-extension-details">
+                  Publisher: {extension.namespace} · {extension.downloadCount.toLocaleString()}{" "}
+                  downloads
+                  {" · "}
+                  {extension.averageRating == null
+                    ? "Rating unavailable"
+                    : `★ ${extension.averageRating.toFixed(1)} / 5`}
+                  {" · "}
+                  {extension.reviewCount == null
+                    ? "Review count unavailable"
+                    : `${extension.reviewCount.toLocaleString()} ${extension.reviewCount === 1 ? "review" : "reviews"}`}
+                </small>
               </button>
             )}
           </For>

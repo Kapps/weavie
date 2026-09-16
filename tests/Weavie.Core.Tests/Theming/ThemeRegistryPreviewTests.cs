@@ -30,6 +30,18 @@ public sealed class ThemeRegistryPreviewTests {
 		Assert.Equal(indexBefore, File.Exists(OpenVsxThemeInstaller.IndexPath) ? File.ReadAllText(OpenVsxThemeInstaller.IndexPath) : null);
 	}
 
+	[Fact]
+	public async Task Search_ForwardsDownloadOrderAndPage_WithEscapedQuery() {
+		using var handler = new RegistryHandler([]);
+		using var http = new HttpClient(handler);
+		var installer = new OpenVsxThemeInstaller(http, "https://registry.test");
+
+		await installer.SearchAsync("blue & gold", 20, "downloadCount", CancellationToken.None);
+
+		Assert.Equal("/api/-/search?category=Themes&size=20&offset=20&sortBy=downloadCount&sortOrder=desc&query=blue%20%26%20gold",
+			Assert.Single(handler.Requests));
+	}
+
 	[Theory]
 	[InlineData("../outside")]
 	[InlineData("..")]
@@ -69,7 +81,7 @@ public sealed class ThemeRegistryPreviewTests {
 		public List<string> Requests { get; } = [];
 		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
 			string path = request.RequestUri!.AbsolutePath;
-			Requests.Add(path);
+			Requests.Add(request.RequestUri.PathAndQuery);
 			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
 				Content = path.EndsWith(".vsix", StringComparison.Ordinal)
 					? new ByteArrayContent(package)

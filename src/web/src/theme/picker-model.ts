@@ -9,6 +9,7 @@ import {
   setThemePickerOpen,
   type ThemeChoice,
   type ThemePreview,
+  type ThemeSearchOrder,
   themeRequest,
 } from "./picker-state";
 
@@ -18,6 +19,7 @@ export function createThemePicker() {
   const lifetime = new AbortController();
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
   const [query, setQuery] = createSignal("");
+  const [sortBy, setSortBy] = createSignal<ThemeSearchOrder>("downloadCount");
   const [registry, setRegistry] = createSignal(false);
   const [extensions, setExtensions] = createSignal<ExtensionChoice[]>([]);
   const [variants, setVariants] = createSignal<ThemePreview[] | null>(null);
@@ -80,7 +82,7 @@ export function createThemePicker() {
     try {
       const result = await themeRequest<SearchResults>(
         "search",
-        { query: query(), offset },
+        { query: query(), offset, sortBy: sortBy() },
         searchAbort.signal,
       );
       if (generation !== searchGeneration || lifetime.signal.aborted) return;
@@ -96,6 +98,7 @@ export function createThemePicker() {
   createEffect(() => {
     const remote = isSearch();
     query();
+    sortBy();
     choices();
     const initial =
       !registry() && query() === ""
@@ -175,6 +178,8 @@ export function createThemePicker() {
     savedId,
     query,
     setQuery,
+    sortBy,
+    setSortBy,
     registry,
     extensions,
     variants,

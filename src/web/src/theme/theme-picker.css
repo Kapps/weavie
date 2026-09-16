@@ -24,7 +24,8 @@
   font-size: var(--font-metadata-size);
 }
 .theme-picker button,
-.theme-picker input {
+.theme-picker input,
+.theme-picker select {
   font: inherit;
   color: var(--fg);
   background: var(--bar);
@@ -94,4 +95,16 @@
 .theme-picker-list button[aria-selected="true"],
 .theme-picker-list button[aria-selected="true"] small {
   color: var(--list-active-fg);
+}
+
+.theme-picker-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+.theme-extension-details {
+  width: 100%;
+  line-height: 1.5;
 }

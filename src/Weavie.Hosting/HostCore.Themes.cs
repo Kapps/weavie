@@ -14,7 +14,7 @@ public sealed partial class HostCore {
 		themes.HandleConcurrent<ThemeSearchRequest, JsonElement>("search", async (message, ct) => {
 			using var http = new HttpClient();
 			return await new OpenVsxThemeInstaller(http, OpenVsxThemeInstaller.DefaultRegistry)
-				.SearchAsync(message.Query, message.Offset, ct).ConfigureAwait(false);
+				.SearchAsync(message.Query, message.Offset, message.SortBy, ct).ConfigureAwait(false);
 		});
 		themes.HandleConcurrent<ThemeExtensionRequest, IReadOnlyList<ThemePreview>>("previewExtension", async (message, ct) => {
 			using var http = new HttpClient();
@@ -24,6 +24,6 @@ public sealed partial class HostCore {
 	}
 
 	private sealed record ThemeIdRequest(string Id);
-	private sealed record ThemeSearchRequest(string Query, int Offset);
+	private sealed record ThemeSearchRequest(string Query, int Offset, string SortBy);
 	private sealed record ThemeExtensionRequest(string Namespace, string Name, string Version);
 }

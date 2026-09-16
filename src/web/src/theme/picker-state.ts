@@ -27,7 +27,11 @@ export interface ExtensionChoice {
   version: string;
   displayName?: string;
   description: string;
+  downloadCount: number;
+  averageRating?: number;
+  reviewCount?: number;
 }
+export type ThemeSearchOrder = "downloadCount" | "relevance";
 export interface SearchResults {
   extensions: ExtensionChoice[];
   offset: number;

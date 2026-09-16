@@ -4,10 +4,13 @@ namespace Weavie.Core.Theming;
 
 public sealed partial class OpenVsxThemeInstaller {
 	/// <summary>Searches a page of color-theme extensions in the registry.</summary>
-	public async Task<JsonElement> SearchAsync(string query, int offset, CancellationToken ct) {
+	public async Task<JsonElement> SearchAsync(string query, int offset, string sortBy, CancellationToken ct) {
 		ArgumentOutOfRangeException.ThrowIfNegative(offset);
+		if (sortBy is not "downloadCount" and not "relevance") {
+			throw new ArgumentException("Unknown theme search order.", nameof(sortBy));
+		}
 		string json = await _http.GetStringAsync(
-			$"{_registry}/api/-/search?category=Themes&size=20&offset={offset}&query={Uri.EscapeDataString(query)}", ct).ConfigureAwait(false);
+			$"{_registry}/api/-/search?category=Themes&size=20&offset={offset}&sortBy={sortBy}&sortOrder=desc&query={Uri.EscapeDataString(query)}", ct).ConfigureAwait(false);
 		using var document = JsonDocument.Parse(json);
 		return document.RootElement.Clone();
 	}

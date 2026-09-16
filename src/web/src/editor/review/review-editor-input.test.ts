@@ -107,10 +107,11 @@ describe("review editor visible-page input", () => {
     expect(current.scroller.scrollTop).toBe(220);
   });
 
-  it("uses a reveal request instead of its resulting internal scroll delta", async () => {
+  it("reveals synchronously for history capture and ignores its resulting internal scroll delta", async () => {
     const current = fixture();
     current.state.caretTop = 650;
     const reveal = current.cursorChanged();
+    expect(current.scroller.scrollTop).toBe(282);
     current.input.scrollChanged(900, 200);
     await reveal;
     expect(current.scroller.scrollTop).toBe(282);

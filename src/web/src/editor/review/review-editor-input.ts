@@ -100,10 +100,7 @@ export function createReviewEditorInput(options: {
     queueMicrotask(() => {
       queued = false;
       if (disposed) return;
-      if (requested != null) {
-        const offset = container.getBoundingClientRect().top;
-        revealRange(offset + requested.top, offset + requested.bottom, requested.type);
-      } else if (requested === undefined) {
+      if (requested === undefined) {
         scroller.scrollTop += scrollDelta;
       }
       requested = undefined;
@@ -131,6 +128,10 @@ export function createReviewEditorInput(options: {
       if (requested.bottom - requested.top > visibleHeight()) {
         if (event.range === null) requested = null;
         else requested.type = VerticalRevealType.Top;
+      }
+      if (requested !== null) {
+        const offset = container.getBoundingClientRect().top;
+        revealRange(offset + requested.top, offset + requested.bottom, requested.type);
       }
       enqueue();
       return false;

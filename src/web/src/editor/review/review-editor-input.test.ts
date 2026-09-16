@@ -52,6 +52,7 @@ function fixture() {
     onDidChangeModel: () => ({ dispose }),
   };
   const schedule = vi.fn();
+  const renderReveal = vi.fn();
   const input = createReviewEditorInput({
     editor: editor as unknown as MonacoEditor.IStandaloneCodeEditor,
     container: {
@@ -61,6 +62,7 @@ function fixture() {
     bounds: () => ({ top: 100, height: 400 }),
     isSyncing: () => state.syncing,
     schedule,
+    renderReveal,
   });
   return {
     state,
@@ -68,6 +70,7 @@ function fixture() {
     input,
     editor,
     schedule,
+    renderReveal,
     dispose,
     cursorChanged,
     request: (event: ViewRevealRangeRequestEvent) => handler.onRevealRangeRequest(event),
@@ -112,6 +115,7 @@ describe("review editor visible-page input", () => {
     current.state.caretTop = 650;
     const reveal = current.cursorChanged();
     expect(current.scroller.scrollTop).toBe(282);
+    expect(current.renderReveal).toHaveBeenCalledOnce();
     current.input.scrollChanged(900, 200);
     await reveal;
     expect(current.scroller.scrollTop).toBe(282);

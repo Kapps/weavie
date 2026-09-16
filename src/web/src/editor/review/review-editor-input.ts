@@ -16,6 +16,7 @@ export function createReviewEditorInput(options: {
   bounds: () => { top: number; height: number };
   isSyncing: () => boolean;
   schedule: () => void;
+  renderReveal: () => void;
 }): {
   revealCursor(): void;
   isCursorVisible(): boolean;
@@ -132,6 +133,7 @@ export function createReviewEditorInput(options: {
       if (requested !== null) {
         const offset = container.getBoundingClientRect().top;
         revealRange(offset + requested.top, offset + requested.bottom, requested.type);
+        options.renderReveal();
       }
       enqueue();
       return false;

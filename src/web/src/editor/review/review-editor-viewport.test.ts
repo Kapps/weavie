@@ -7,15 +7,16 @@ import {
 import { ViewLayout } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/viewLayout/viewLayout";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { createReviewEditorInput } from "./review-editor-input";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 
 vi.mock("./review-editor-input", () => ({
-  createReviewEditorInput: ({ schedule }: { schedule: () => void }) => ({
+  createReviewEditorInput: vi.fn(({ schedule }: { schedule: () => void }) => ({
     revealCursor: vi.fn(),
     isCursorVisible: () => false,
     scrollChanged: schedule,
     dispose: vi.fn(),
-  }),
+  })),
 }));
 
 vi.mock("../monaco-setup", () => ({ monaco: { editor: { ScrollType: { Immediate: 1 } } } }));
@@ -156,6 +157,15 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("flushes pending caret rendering for reveals even when the buffered mount does not move", () => {
+    const current = fixture();
+    current.editor.layout.mockClear();
+    current.editor.render.mockClear();
+    vi.mocked(createReviewEditorInput).mock.calls.at(-1)![0].renderReveal();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.editor.render).toHaveBeenCalledOnce();
+  });
+
   it("keeps an unresolved editor inside its reserved section height", () => {
     const current = fixture();
     current.state.containerHeight = () => 150;

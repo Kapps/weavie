@@ -274,6 +274,13 @@ test("document symbols preview, cancel and commit against the originating review
       ]);
     await input.press(action === "cancel" ? "Escape" : "Enter");
     if (action === "cancel") await expect.poll(() => reviewState(page)).toEqual(departure);
+    else {
+      await expect(
+        page.locator(".unified-review-file .view-line", {
+          hasText: /export\sconst\svalue0\s=\s0;/,
+        }),
+      ).toBeInViewport();
+    }
   }
   await expect(page.locator(".unified-review")).toBeVisible();
   await runCommand(page, "Go Back");

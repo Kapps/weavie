@@ -98,6 +98,16 @@ export function createReviewEditorViewport(
     bounds,
     isSyncing: () => syncing,
     schedule,
+    renderReveal: () => {
+      const wasSyncing = syncing;
+      syncing = true;
+      try {
+        layout();
+        editor.render();
+      } finally {
+        syncing = wasSyncing;
+      }
+    },
   });
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged && !event.scrollHeightChanged) {

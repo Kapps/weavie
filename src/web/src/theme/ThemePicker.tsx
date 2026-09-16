@@ -21,7 +21,7 @@ function Picker() {
     registry,
     extensions,
     variants,
-    setVariants,
+    backToResults,
     total,
     selected,
     error,
@@ -108,7 +108,10 @@ function Picker() {
           type="button"
           class="theme-picker-back"
           disabled={saving()}
-          onClick={() => setVariants(null)}
+          onClick={() => {
+            backToResults();
+            input.focus();
+          }}
         >
           ← Back to results
         </button>
@@ -122,7 +125,6 @@ function Picker() {
         placeholder={isSearch() ? "Search Open VSX themes…" : "Type to filter themes…"}
         value={query()}
         disabled={saving()}
-        readOnly={variants() !== null}
         onInput={(e) => setQuery(e.currentTarget.value)}
         role="combobox"
         aria-expanded="true"

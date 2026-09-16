@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { ThemeSlot } from "../bridge";
 import { beginThemePreview, currentThemeId } from "./controller";
 import {
@@ -30,13 +30,12 @@ export function createThemePicker() {
   const [saving, setSaving] = createSignal(false);
   let previewGeneration = 0;
   let searchGeneration = 0;
+  let registryQuery = "";
   let searchAbort = new AbortController();
-  const choices = createMemo(
-    () =>
-      variants()?.map((v) => v.choice) ??
-      catalog().filter((t) =>
-        `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
-      ),
+  const choices = createMemo(() =>
+    (variants()?.map((v) => v.choice) ?? catalog()).filter((t) =>
+      `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
+    ),
   );
   const isSearch = () => registry() && variants() === null;
   const count = () => (isSearch() ? extensions().length : choices().length);
@@ -128,6 +127,7 @@ export function createThemePicker() {
     if (isSearch()) {
       const extension = extensions()[selected()];
       if (extension === undefined) return;
+      registryQuery = query();
       setPackageLoading(true);
       const generation = ++previewGeneration;
       try {
@@ -136,7 +136,12 @@ export function createThemePicker() {
           extension,
           lifetime.signal,
         );
-        if (generation === previewGeneration && !lifetime.signal.aborted) setVariants(result);
+        if (generation === previewGeneration && !lifetime.signal.aborted) {
+          batch(() => {
+            setQuery("");
+            setVariants(result);
+          });
+        }
       } catch (e) {
         if (generation === previewGeneration) fail(e);
       } finally {
@@ -173,7 +178,11 @@ export function createThemePicker() {
     registry,
     extensions,
     variants,
-    setVariants,
+    backToResults: () =>
+      batch(() => {
+        setQuery(registryQuery);
+        setVariants(null);
+      }),
     total,
     selected,
     error,

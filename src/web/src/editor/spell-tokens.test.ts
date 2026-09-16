@@ -72,7 +72,7 @@ function fixture() {
   } as unknown as monaco.editor.ITextModel;
   const changed = vi.fn();
   const source = createSpellingTokens(changed);
-  disposables.push(source);
+  disposables.push(source, { dispose: disposed.fire });
   const ranges = [{ line: 1, offset: 0, text: " ".repeat(80), identifier: false }];
   const signal = new AbortController().signal;
   return {
@@ -191,6 +191,9 @@ it("disposal removes subscriptions and aborts pending metadata", async () => {
   const f = fixture();
   await f.source.read(f.model, f.ranges, f.signal);
   f.source.dispose();
+  f.refreshed.fire();
+  expect(f.changed).not.toHaveBeenCalled();
+  f.disposed.fire();
   expect(f.content.listeners.size).toBe(0);
   expect(f.refreshed.listeners.size).toBe(0);
   expect(f.registered.listeners.size).toBe(0);
@@ -222,4 +225,78 @@ it("does not guess declarations when the provider has no declaration metadata", 
   ]);
   f.provide.mockResolvedValue({ data: new Uint32Array([0, 6, 9, 0, 1]) });
   expect(await f.source.read(f.model, f.ranges, f.signal)).toEqual([]);
+});
+
+it("shares an in-flight request across editors and retains metadata after remount", async () => {
+  const f = fixture();
+  let resolve!: (value: { data: Uint32Array }) => void;
+  f.provide.mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const secondChanged = vi.fn();
+  const second = createSpellingTokens(secondChanged);
+  disposables.push(second);
+  const firstRead = f.source.read(f.model, f.ranges, f.signal);
+  const secondRead = second.read(f.model, f.ranges, f.signal);
+  f.source.dispose();
+  expect(f.provide.mock.calls[0]![2].isCancellationRequested).toBe(false);
+  resolve({ data: new Uint32Array([0, 6, 9, 0, 2]) });
+  expect(await firstRead).toEqual(await secondRead);
+  second.dispose();
+  const remounted = createSpellingTokens(vi.fn());
+  disposables.push(remounted);
+  expect(await remounted.read(f.model, f.ranges, f.signal)).toEqual([
+    { line: 1, startIndex: 6, endIndex: 15 },
+  ]);
+  expect(f.provide).toHaveBeenCalledTimes(1);
+  f.refreshed.fire();
+  expect(f.changed).not.toHaveBeenCalled();
+  expect(secondChanged).not.toHaveBeenCalled();
+});
+
+it("shares invalidation among live editors without keeping a switched editor subscribed", async () => {
+  const f = fixture();
+  const secondChanged = vi.fn();
+  const second = createSpellingTokens(secondChanged);
+  disposables.push(second);
+  await f.source.read(f.model, f.ranges, f.signal);
+  await second.read(f.model, f.ranges, f.signal);
+  f.refreshed.fire();
+  expect(f.changed).toHaveBeenCalledTimes(1);
+  expect(secondChanged).toHaveBeenCalledTimes(1);
+  await Promise.all([
+    f.source.read(f.model, f.ranges, f.signal),
+    second.read(f.model, f.ranges, f.signal),
+  ]);
+  expect(f.provide).toHaveBeenCalledTimes(2);
+  const other = fixture();
+  await second.read(other.model, other.ranges, other.signal);
+  f.refreshed.fire();
+  expect(f.changed).toHaveBeenCalledTimes(2);
+  expect(secondChanged).toHaveBeenCalledTimes(1);
+});
+
+it("cancels shared work at model disposal and releases late provider results", async () => {
+  const f = fixture();
+  let resolve!: (value: { resultId: string; data: Uint32Array }) => void;
+  f.provide.mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const result = f.source.read(f.model, f.ranges, f.signal);
+  const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
+  f.source.dispose();
+  f.disposed.fire();
+  expect(f.provide.mock.calls[0]![2].isCancellationRequested).toBe(true);
+  resolve({ resultId: "disposed", data: new Uint32Array() });
+  await rejected;
+  expect(f.release).toHaveBeenCalledWith("disposed");
+  expect(f.content.listeners.size).toBe(0);
+  expect(f.registered.listeners.size).toBe(0);
+  expect(f.refreshed.listeners.size).toBe(0);
 });

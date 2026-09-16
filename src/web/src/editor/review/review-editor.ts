@@ -53,6 +53,8 @@ export function createReviewEditor(options: {
   const mount = document.createElement("div");
   mount.className = "unified-review-editor-viewport";
   container.appendChild(mount);
+  const horizontalScrollbarSize =
+    monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const editor = createEmbeddedEditor(mount, model, {
     readOnly: !options.editable,
     scrollBeyondLastLine: false,
@@ -65,7 +67,9 @@ export function createReviewEditor(options: {
     folding: false,
     stickyScroll: { enabled: false },
     renderLineHighlightOnlyWhenFocus: true,
-    padding: { top: 6, bottom: 6 },
+    // Visible-line width changes while scrolling; scrollbar space must not change section height with it.
+    scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
+    padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
   }) as CollapsingEditor;
   const viewport = createReviewEditorViewport(
     container,
@@ -80,14 +84,16 @@ export function createReviewEditor(options: {
   const publish = (): void => {
     if (!disposed) options.onPainted();
   };
+  let geometryReady = !options.diff.baselineExists;
   let height = 0;
   const measure = (): void => {
+    if (!geometryReady) return;
     const next = editor.getContentHeight();
     if (height === next) return;
     height = next;
     container.style.height = `${next}px`;
     viewport.layout();
-    options.onHeight(next);
+    options.onHeight(height);
   };
   const revealLine = (line: number): void => {
     options.onReveal();
@@ -123,6 +129,7 @@ export function createReviewEditor(options: {
         const collapsed = collapseUnchanged(markers, model.getLineCount());
         gaps.set(collapsed.gapMarkers);
         editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+        geometryReady = true;
         measure();
       });
       if (constructing) queueMicrotask(publish);
@@ -162,11 +169,12 @@ export function createReviewEditor(options: {
     restore,
   });
   const inline = createInlineDiff(editor, presentation);
+  const contentSize = editor.onDidContentSizeChange(measure);
   options.configure(inline, model.uri.toString(), options.diff);
   measure();
   constructing = false;
   const subscriptions = [
-    editor.onDidContentSizeChange(measure),
+    contentSize,
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
   ];
   return {

@@ -33,6 +33,7 @@ import { DocumentSemanticTokensFeature } from "@codingame/monaco-vscode-api/vsco
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
 // Generic editor worker for most services; the dedicated TextMate worker (label "TextMateWorker") handles
 // background tokenization. `monaco-editor` is aliased to the vscode editor-api (see package.json).
+import { editor } from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { log } from "../bridge";
 import { notify } from "../notify/notify";
@@ -99,6 +100,11 @@ async function doInit(): Promise<void> {
     ...getNotificationServiceOverride(),
     ...getClipboardServiceOverride(),
   });
+
+  // Font metrics are global: loading a font remeasures all editors once, regardless of mounted sections.
+  const remeasure = (): void => editor.remeasureFonts();
+  void document.fonts.ready.then(remeasure);
+  document.fonts.addEventListener("loadingdone", remeasure);
 
   // Construct the semantic-tokens feature (see its import note); its disposables hook long-lived services, so
   // it stays alive without us holding it.

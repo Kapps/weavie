@@ -7,7 +7,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// <see cref="WorktreeManager"/> orchestration and its classification of every worktree against the
-/// registry: managed/primary/orphan/untracked, dirty/merged, the dirty-removal guard, and reconcile
+/// registry: managed/primary/orphan/untracked, the dirty-removal guard, and reconcile
 /// pruning. Uses a <see cref="FakeGitService"/> for deterministic logic without a real repository.
 /// </summary>
 public sealed class WorktreeManagerTests : IDisposable {
@@ -142,16 +142,15 @@ public sealed class WorktreeManagerTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task List_ClassifiesManagedPrimaryDirtyMergedOrphanUntracked() {
+	public async Task List_ClassifiesOwnershipWithoutProbingWorkingTrees() {
 		var (manager, registry, git) = NewManager();
 
-		// Managed, clean, merged -> safe to remove.
+		// Managed worktrees appear without inspecting their contents.
 		string donePath = Path.Combine(WorktreesDir, "done");
 		git.Worktrees.Add(new GitWorktree { Path = donePath, Branch = "done", Head = "d1" });
 		registry.Add(new WorktreeRecord { Branch = "done", Path = donePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
-		git.MergedBranches.Add("done");
 
-		// Managed, dirty, unmerged -> not safe.
+		// Discovery includes dirty worktrees.
 		string wipPath = Path.Combine(WorktreesDir, "wip");
 		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
 		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
@@ -168,18 +167,13 @@ public sealed class WorktreeManagerTests : IDisposable {
 		var list = await manager.ListAsync();
 
 		var primary = list.Single(s => s.IsPrimary);
-		Assert.False(primary.IsSafeToRemove);
+		Assert.Equal(RepoRoot, primary.Path);
 
 		var done = list.Single(s => s.Branch == "done");
 		Assert.True(done.IsManaged);
-		Assert.True(done.IsMerged);
-		Assert.False(done.IsDirty);
-		Assert.True(done.IsSafeToRemove);
 
 		var wip = list.Single(s => s.Branch == "wip");
-		Assert.True(wip.IsDirty);
-		Assert.False(wip.IsMerged);
-		Assert.False(wip.IsSafeToRemove);
+		Assert.True(wip.IsManaged);
 
 		var external = list.Single(s => s.Branch == "external");
 		Assert.True(external.IsUntracked);
@@ -188,6 +182,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		var gone = list.Single(s => s.Branch == "gone");
 		Assert.True(gone.IsOrphan);
 		Assert.False(gone.Exists);
+		Assert.Empty(git.DirtyProbes);
 	}
 
 	[Fact]
@@ -218,8 +213,6 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		var stale = list.Single(s => s.Branch == "stale");
 		Assert.False(stale.Exists);
-		Assert.False(stale.IsDirty);
-		Assert.False(stale.IsMerged);
 		Assert.Equal(0, (await manager.ReconcileAsync()).OrphansPruned);
 		Assert.Equal(0, (await manager.ReconcileAsync()).OrphansPruned);
 	}
@@ -249,6 +242,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		Assert.Contains(git.Worktrees, w => w.Branch == "wip");
 		Assert.NotNull(registry.FindByBranch("wip"));
+		Assert.Equal([wipPath], git.DirtyProbes);
 	}
 
 	[Fact]
@@ -374,6 +368,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		Assert.Equal(1, report.Untracked);
 		Assert.Null(registry.FindByBranch("gone"));
 		Assert.DoesNotContain(report.Statuses, s => s.Branch == "gone");
+		Assert.Empty(git.DirtyProbes);
 	}
 
 	[Fact]
@@ -484,7 +479,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		if (OperatingSystem.IsWindows()) return;
 		var (manager, _, git) = NewManager();
 		// A distinct checkout whose path differs from the repo root only in case was reported as the primary
-		// one, which suppresses its dirty and merged probes and blocks removing it.
+		// one, which hides it from the session rail.
 		string shouty = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "REPO");
 		git.Worktrees.Add(new GitWorktree { Path = shouty, Branch = "feature", Head = "b" });
 
@@ -523,7 +518,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		}
 	}
 
-	/// <summary>An in-memory <see cref="IGitService"/> with controllable branches, worktrees, dirty paths, and merge state.</summary>
+	/// <summary>An in-memory <see cref="IGitService"/> with controllable branches, worktrees, and dirty paths.</summary>
 	private sealed class FakeGitService : IGitService {
 		public HashSet<string> Branches { get; } = new(StringComparer.Ordinal);
 
@@ -533,7 +528,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		public HashSet<string> DirtyProbeFailures { get; } = new(StringComparer.Ordinal);
 
-		public HashSet<string> MergedBranches { get; } = new(StringComparer.Ordinal);
+		public List<string> DirtyProbes { get; } = [];
 
 		public string? DefaultBranch { get; set; }
 
@@ -585,7 +580,8 @@ public sealed class WorktreeManagerTests : IDisposable {
 		public Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
 
-		public Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) => Task.FromResult(DefaultBranch);
+		public Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) =>
+			throw new InvalidOperationException("Worktree discovery must not resolve the default branch.");
 
 		public Task<IReadOnlyList<GitWorktree>> ListWorktreesAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<GitWorktree>>([.. Worktrees]);
@@ -624,6 +620,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		}
 
 		public Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) {
+			DirtyProbes.Add(worktreeDirectory);
 			if (DirtyProbeFailures.Any(p => PathEquals(p, worktreeDirectory))) {
 				return Task.FromException<bool>(new GitException("dirty probe should not run"));
 			}
@@ -644,9 +641,6 @@ public sealed class WorktreeManagerTests : IDisposable {
 					: WorktreeChangeState.Clean,
 				[],
 				[]));
-
-		public Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default) =>
-			Task.FromResult(MergedBranches.Contains(branch));
 
 		public Task DeleteBranchAsync(string repositoryDirectory, string branch, bool force, CancellationToken ct = default) {
 			Branches.Remove(branch);

@@ -126,6 +126,15 @@ test.describe("durable applied review", () => {
       .toBe(2);
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
 
+    // Flake (Windows only): 2026-09-16 06:01 UTC, run
+    // https://github.com/Kapps/weavie/actions/runs/35061852210/job/104684318747 — this click hit the 60s
+    // test timeout retrying against a connection-lost toast that kept reappearing over the click target.
+    // Mechanism: bridge.ts's WebSocketTransport reset its reconnect backoff to 500ms on every successful
+    // socket open, even when the app-level `hello` handshake right after failed (e.g. the just-restarted
+    // host still restoring durable review state) — so a host that keeps accepting the socket but not
+    // answering hello got hammered every 500ms forever instead of backing off, holding the "Lost
+    // connection… Reconnecting" toast (and whatever else fails while disconnected) over the UI far longer
+    // than a real backoff would. Fixed in bridge.ts: the backoff only resets once hello actually succeeds.
     await section(page, "hello.ts").locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await runCommand(page, "Undo Revert (Review)");

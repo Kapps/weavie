@@ -43,7 +43,19 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
-  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
+  // Flake (macOS only): 2026-09-16 06:01 UTC, run
+  // https://github.com/Kapps/weavie/actions/runs/35061852210/job/104684242015 — this assertion hit the
+  // 30s macOS/Windows default (config's per-platform `expect.timeout`) with the toolbar stuck on the
+  // parked "press ↓ to start" text. Root cause: the parked→active toolbar flip is gated on file 1's
+  // review editor actually painting (inline-diff.ts's `presentation.painted`), which needs Monaco's
+  // shared editor-worker diff computation for a 7,000-line file (plus the virtualizer's overscanned
+  // file 2 competing for the same worker) — real, one-time work that measured ~340ms locally but scaled
+  // to ~4.7s under a synthetic 20x CPU slowdown (Emulation.setCPUThrottlingRate), well past linear for
+  // this fixture's several 1,000+ char lines. This is the heaviest review fixture in the suite; a loaded
+  // shared macOS/Windows runner can plausibly push that first paint past 30s. Widened only this assertion.
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`, {
+    timeout: 60_000,
+  });
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")

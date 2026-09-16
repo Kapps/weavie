@@ -694,12 +694,14 @@ class WebSocketTransport implements BridgeTransport {
     const socket = new WebSocket(url);
     this.socket = socket;
     socket.onopen = (): void => {
-      this.reconnectDelayMs = 500;
       this.opened = true;
       void hostConnection(this.backendId)
         ?.connect()
         .then(() => {
           if (this.socket === socket) {
+            // Reset the backoff only once hello actually answers — resetting it on the raw socket open let
+            // a host that accepts the connection but never answers hello get hammered every 500ms forever.
+            this.reconnectDelayMs = 500;
             setBackendPhase(this.backendId, "online");
             clearNotification(connectionNotificationKey(this.backendId));
           }

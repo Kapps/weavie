@@ -1,6 +1,6 @@
 # weavie
 
-Weavie is an agentic code editor that weaves Claude Code (or Codex), terminal sessions, and full code editing into one workflow.
+Weavie is an agentic code editor that weaves Claude Code, Codex, or other ACP agents, terminal sessions, and full code editing into one workflow.
 
 It's designed for a terminal-first development flow where the agent handles the bulk of the changes, but you as a
 developer review each of the changes and make edits in a fully featured editor without breaking your flow.
@@ -12,14 +12,14 @@ developer review each of the changes and make edits in a fully featured editor w
 - **Parallel development**: Weavie has first class support for sessions, so you can work on several features at a time in their own branches.
 - **Seamless remote/local sessions**: Each session can run either locally or remote, and the experience is identical between them. This includes hooks into Claude Code to make features like remote copy/paste, pasting images, URL opening, etc, all work just like they would locally.
 - **Keyboard first**: Most actions in weavie are keyboard first by design. UI elements are designed to get out of your way.
-- **Context aware**: Weavie is an MCP server, and integrates with Claude directly. Claude know what file you're in, and what lines you selected. It can even edit weavie settings and themes — for example, you can ask Claude to make all semantic highlighting 20% darker.
+- **Context aware**: Weavie is an MCP server, so your agent can see what file you're in and what lines you selected. It can even edit weavie settings and themes — for example, you can ask it to make all semantic highlighting 20% darker.
 
 ## Current State
 
 At this point, weavie is my daily driver and has been what I've used to develop the product.
 There are limitations though:
 - C#, JS/TS, Go, Python, and Rust have built-in editor, LSP, workspace-setup, and test support.
-- Claude Code (embedded TUI) and Codex (custom UI) are the only supported agents.
+- Claude Code runs in an embedded terminal UI. Codex and other ACP agents use weavie's native chat UI; available features depend on the agent.
 - No plugin support — you can install vsix themes, but that's all.
 - Linux client support is untested. Headless support as a remote runner is supported, but I haven't tested running the weavie client itself on a Linux machine.
 - Most Git features only support Github currently.
@@ -31,7 +31,24 @@ There are limitations though:
 
 1. Download the [latest stable release](https://github.com/Kapps/weavie/releases/latest) for your OS.
 2. On Linux, install GTK 3 and WebKitGTK 4.1 version 2.42 or newer.
-3. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
+3. Run it and open your repo. If running tests or creating a worktree doesn't work out of the box, ask your agent to configure it for your repo.
+
+### Make It Yours
+
+- **Run a command**: Open the command palette with `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) by default. Type a command's name and press Enter.
+- **Set a theme**: Run **Select Color Theme…** from the palette. For more themes, run **Install Theme from Open VSX** or **Install Theme from File…** for a downloaded VSIX.
+- **Ask your agent**: Try "What can I do in weavie?", "How do I run tests?", or "Make the editor font bigger." It can look up commands and settings, explain them, and change them for you.
+
+### Use Codex or Another ACP Agent
+
+ACP (Agent Client Protocol) lets different agents work in weavie's native chat UI.
+
+1. Run **Manage ACP Agents…** from the command palette.
+2. Find Codex or another agent in the registry and install it. Some agents need Node.js or uv installed on the machine running the session.
+3. Create a new session and choose that agent in the agent picker. Follow its sign-in prompts if needed.
+
+To switch an existing session, right-click it and choose **Recreate with…**. Your files and edits stay, but the agent starts a fresh conversation.
+Choose **Claude Code** in the agent picker if you prefer its terminal UI.
 
 ### Remote Runner Setup
 **Remote setup must use a VPN or Tailscale. DO NOT expose the headless server to the internet.** There's authentication, but aside from the authentication the remote code hasn't been properly looked at.

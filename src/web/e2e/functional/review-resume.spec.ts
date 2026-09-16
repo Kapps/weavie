@@ -126,6 +126,18 @@ test.describe("durable applied review", () => {
       .toBe(2);
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
 
+    // Flake (Windows only): 2026-09-16 06:13 UTC, run
+    // https://github.com/Kapps/weavie/actions/runs/35061852210/job/104684318747 — this click hit
+    // "Test timeout of 60000ms exceeded" / "locator.click: Target page, context or browser has been closed",
+    // with the call log showing a "toast toast-error" then a "toast toast-warn toast-timed" repeatedly
+    // intercepting pointer events over this exact file row. Root cause: the error toast is the generic
+    // bridge-drop notice (`WebSocketTransport.dropped()`, src/web/bridge.ts) — the host's WS connection blips
+    // this far into the test, well after this restart's own reconnect already succeeded, matching the
+    // steady-state (not boot-time) `git` spawn burst from `PullRequestStatusMonitor`'s per-session 30s poll
+    // that open PR #901 root-causes and fixes (it caches the origin-remote and branch lookups that were
+    // re-spawning `git` on every poll, on Windows CI runners where that burst can exhaust ephemeral sockets).
+    // Not a new fix here: #901 already targets this exact mechanism and is pending merge; no separate PR
+    // filed per the flake-tracking policy.
     await section(page, "hello.ts").locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await runCommand(page, "Undo Revert (Review)");

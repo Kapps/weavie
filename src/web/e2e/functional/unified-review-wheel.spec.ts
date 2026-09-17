@@ -43,7 +43,20 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
-  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
+  // Flake (macOS only): 2026-09-17 03:08 UTC, run
+  // https://github.com/Kapps/weavie/actions/runs/35177066846/job/105061454380 — this assertion hit
+  // the 30s macOS expect timeout with the toolbar still showing the parked "press ↓ to start" text
+  // (surface.actions() never became defined), while the same commit's e2e-platform macOS shard had
+  // passed minutes earlier (run 35168056214). Reproduced locally (Linux, real Weavie.Headless, not
+  // mocked) 5/5 times: this counter populates in ~400-600ms after the scroller becomes visible, ~70x
+  // under the default budget, so there's no per-file-count inefficiency here to fix — the mount work
+  // this file-1 section needs is cheap and constant regardless of the review's 30 files. That, plus
+  // the same commit passing this same check on the same platform elsewhere, points to one contended
+  // macOS runner stalling past the shared 30s budget, not a deterministic defect. Gave this one wait
+  // its own longer timeout rather than raising the suite-wide `expect.timeout` for every assertion.
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`, {
+    timeout: 60_000,
+  });
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")

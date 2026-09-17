@@ -3,16 +3,12 @@ using System.Globalization;
 
 namespace Weavie.Hosting;
 
-internal sealed class StartupTiming(bool enabled, string workspace, Action<string> log) {
+internal sealed class StartupTiming(string workspace, Action<string> log) {
 	private readonly long _started = Stopwatch.GetTimestamp();
 
-	public bool Enabled { get; } = enabled;
+	public IDisposable Measure(string phase) => new Phase(this, phase);
 
-	public IDisposable Measure(string phase) => Enabled ? new Phase(this, phase) : DisabledPhase.Instance;
-
-	public void Mark(string phase) {
-		if (Enabled) Write(phase);
-	}
+	public void Mark(string phase) => Write(phase);
 
 	private void Write(string message) => log(string.Create(CultureInfo.InvariantCulture,
 		$"[startup/host] +{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0}ms {message} (workspace={workspace})"));
@@ -32,8 +28,4 @@ internal sealed class StartupTiming(bool enabled, string workspace, Action<strin
 			$"end {_name}: {Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0}ms"));
 	}
 
-	private sealed class DisabledPhase : IDisposable {
-		public static DisabledPhase Instance { get; } = new();
-		public void Dispose() { }
-	}
 }

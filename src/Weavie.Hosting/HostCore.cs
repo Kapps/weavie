@@ -92,7 +92,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
 	private readonly SemaphoreSlim _sessionLifecycle = new(1, 1);
-	internal StartupTiming StartupTiming { get; private set; } = new(false, string.Empty, _ => { });
+	internal StartupTiming StartupTiming { get; }
 	private Task? _startTask;
 	private Task? _disposeTask;
 
@@ -194,6 +194,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_sources = services.Sources;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
+		StartupTiming = new(Id.Value, _logBuffer.Append);
 
 		// Back per-workspace settings (worktree.setupCommand, test.profile) from the workspace's out-of-repo overlay.
 		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
@@ -270,8 +271,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	}
 
 	private async Task StartCoreAsync() {
-		StartupTiming = new(_settings.RequireBool(CoreSettings.DiagnosticsStartupTiming), Id.Value, _logBuffer.Append);
-		using var startup = StartupTiming.Measure("backend startup (origin)");
+		using var startup = StartupTiming.Measure("backend startup");
 		_shellMenu = new ShellMenuController(_platform.MenuActions);
 		using (StartupTiming.Measure("HTTP server")) {
 			await _http.StartAsync().ConfigureAwait(false);
@@ -341,7 +341,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		using var timing = StartupTiming.Measure("page bootstrap");
 		return
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
-			+ $"window.__WEAVIE_STARTUP_TIMING__ = {JsonSerializer.Serialize(StartupTiming.Enabled)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ $"window.__WEAVIE_AGENT__ = {BuildAgentDefaults()};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"

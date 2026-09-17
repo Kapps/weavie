@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Weavie.Core.Configuration;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -11,24 +10,17 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreLogsTests {
-	[Theory]
-	[InlineData(false)]
-	[InlineData(true)]
-	public async Task StartupTiming_IsOptInAndVisibleInViewLogs(bool enabled) {
+	[Fact]
+	public async Task StartupTiming_IsVisibleInViewLogsByDefault() {
 		await using var host = TestHost.CreateUnstarted();
-		host.Settings.Set(CoreSettings.DiagnosticsStartupTiming, JsonSerializer.SerializeToElement(enabled));
 		await host.Core.StartAsync();
 		await host.ConnectAsync();
 
-		Assert.Contains($"window.__WEAVIE_STARTUP_TIMING__ = {enabled.ToString().ToLowerInvariant()};", host.Core.BuildBootstrap());
+		host.Core.BuildBootstrap();
 		var result = await host.InvokeClientCommandAsync("weavie.view.logs", new { });
 		Assert.True(result.Ok, result.Error);
 		var document = host.Bridge.LastEvent(host.SelectedSession.Address, "sources", "document");
 		string html = document!.Value.GetProperty("html").GetString()!;
-		if (!enabled) {
-			Assert.DoesNotContain("[startup/host", html);
-			return;
-		}
 
 		Assert.Contains($"(workspace={host.Core.Id.Value})", html);
 		Assert.Contains("begin worktree discovery", html);

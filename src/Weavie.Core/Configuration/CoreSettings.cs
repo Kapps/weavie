@@ -34,9 +34,6 @@ public static class CoreSettings {
 	/// <summary>The worktree teardown command setting.</summary>
 	public const string WorktreeTeardownCommand = "worktree.teardownCommand";
 
-	/// <summary>The startup timing diagnostics setting.</summary>
-	public const string DiagnosticsStartupTiming = "diagnostics.startupTiming";
-
 	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics).</summary>
 	public static SettingsRegistry CreateRegistry() {
 		var registry = new SettingsRegistry();
@@ -223,16 +220,6 @@ public static class CoreSettings {
 		CorrectionsSettings.Register(registry);
 		MessageSettings.Register(registry);
 
-		registry.Register(new SettingDefinition {
-			Key = DiagnosticsStartupTiming,
-			Kind = SettingKind.Bool,
-			Description = "Record backend startup, session restoration, and UI phase timings in View Logs. "
-				+ "Off by default; enable before restarting to diagnose launch latency.",
-			Aliases = ["startup timing", "launch timing", "boot timing", "startup profiling"],
-			// Captured during launch, so a change takes effect on the next start.
-			Apply = ApplyMode.RestartRequired,
-			Default = false,
-		});
 	}
 
 	/// <summary>

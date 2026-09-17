@@ -119,7 +119,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			() => false,
 			(_, accept) => accept(),
 			(_, _) => { },
-			new StartupTiming(false, "test", _ => { }));
+			new StartupTiming("test", _ => { }));
 		session.ActivateOwnedRuntimeAndMessages();
 		return session;
 	}

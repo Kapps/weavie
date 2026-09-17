@@ -107,7 +107,11 @@ const displayedSlot = (): Slot => preview ?? activeSlot(state);
 export const currentThemeId = (): string => activeSlot(state).id;
 
 /** Owns one transient preview; disposing restores the latest host appearance. */
-export function beginThemePreview(): { show: (slot: ThemeSlot) => void; dispose: () => void } {
+export function beginThemePreview(): {
+  show: (slot: ThemeSlot) => void;
+  clear: () => void;
+  dispose: () => void;
+} {
   let disposed = false;
   return {
     show(slot) {
@@ -115,6 +119,11 @@ export function beginThemePreview(): { show: (slot: ThemeSlot) => void; dispose:
       const base = slot.theme ?? BUILTIN_THEMES[slot.id];
       if (base === undefined) throw new Error(`No theme data for ${slot.id}`);
       preview = resolveSlot(slot, base);
+      reapplyActive();
+    },
+    clear() {
+      if (disposed) return;
+      preview = null;
       reapplyActive();
     },
     dispose() {

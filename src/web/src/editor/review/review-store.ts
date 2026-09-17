@@ -198,7 +198,11 @@ export function createReviewStore(
     });
   };
 
-  const ensureEntry = (state: MutableReviewBoard, path: string): ReviewEntry => {
+  const ensureEntry = (
+    state: MutableReviewBoard,
+    path: string,
+    collapsed: boolean,
+  ): ReviewEntry => {
     const key = normalizePath(path);
     const existing = state.entries.get(key);
     if (existing !== undefined) {
@@ -209,7 +213,7 @@ export function createReviewStore(
       diff: null,
       comments: null,
       pending: null,
-      collapsed: false,
+      collapsed,
       signature: "",
       reviewedAt: null,
       view: null,
@@ -259,7 +263,7 @@ export function createReviewStore(
   const restore = (session: ClientSession, resume: ReviewResume): void => {
     const state = board(session);
     for (const [path, saved] of Object.entries(resume.files)) {
-      Object.assign(ensureEntry(state, path), saved);
+      Object.assign(ensureEntry(state, path, saved.collapsed), saved);
     }
     publish(session, state);
   };
@@ -276,7 +280,9 @@ export function createReviewStore(
         state.entries.delete(key);
       }
     }
-    state.files = files.map((file) => attachView(ensureEntry(state, file.path), file));
+    state.files = files.map((file) =>
+      attachView(ensureEntry(state, file.path, !file.currentExists), file),
+    );
     state.label = label;
     state.added = files.reduce((total, file) => total + file.added, 0);
     state.removed = files.reduce((total, file) => total + file.removed, 0);
@@ -287,7 +293,7 @@ export function createReviewStore(
 
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
-    const entry = ensureEntry(state, diff.path);
+    const entry = ensureEntry(state, diff.path, !diff.currentExists);
     const pending = diff.baseline !== diff.current || diff.baselineExists !== diff.currentExists;
     entry.diff =
       diff.acceptedBaseline === diff.current &&
@@ -318,7 +324,7 @@ export function createReviewStore(
 
   const setComments = (session: ClientSession, comments: ReviewComments): SessionReviewBoard => {
     const state = board(session);
-    const entry = ensureEntry(state, comments.path);
+    const entry = ensureEntry(state, comments.path, false);
     entry.comments = comments;
     entry.touch?.();
     return state;

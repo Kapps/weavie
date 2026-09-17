@@ -47,6 +47,31 @@ function session(): ClientSession {
 }
 
 describe("review store", () => {
+  it("starts deletions collapsed while preserving expansion across pushes and resume", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      const deleted = { ...firstFile, currentExists: false };
+      const deletion = diff(deleted, "removed content", "");
+      store.setFiles(client, [deleted], "vs HEAD");
+      store.setDiff(client, deletion);
+      expect(store.board(client).files[0]!.collapsed()).toBe(true);
+      expect(store.board(client).files[0]!.pending()).toBe(true);
+      store.setFileCollapsed(client, deleted.path, false);
+      store.setFiles(client, [deleted], "vs HEAD");
+      store.setDiff(client, deletion);
+      expect(store.board(client).files[0]!.collapsed()).toBe(false);
+      const restored = createReviewStore(() => {});
+      const freshClient = session();
+      restored.restore(freshClient, saved.at(-1)!);
+      restored.setFiles(freshClient, [deleted], "vs HEAD");
+      restored.setDiff(freshClient, deletion);
+      expect(restored.board(freshClient).files[0]!.collapsed()).toBe(false);
+      dispose();
+    });
+  });
+
   it("persists an empty authoritative board while another session is selected", () => {
     createRoot((dispose) => {
       const saved: ReviewResume[] = [];

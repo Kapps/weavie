@@ -550,6 +550,8 @@ export function createInlineDiff(
       getPosition: () => ({
         position: { lineNumber: line, column: model.getLineMaxColumn(line) },
         preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+        // Model-to-view conversion needs Right to include text injected at the anchor.
+        positionAffinity: monaco.editor.PositionAffinity.Right,
       }),
     };
   };

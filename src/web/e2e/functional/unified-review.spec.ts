@@ -385,7 +385,7 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
   });
 });
 
-test("a cold deleted file renders from its review snapshot instead of reading the missing path", async ({
+test("a deleted file starts collapsed and expands its review snapshot", async ({
   page,
   weavie,
 }) => {
@@ -397,6 +397,11 @@ test("a cold deleted file renders from its review snapshot instead of reading th
   await cue.click();
 
   const notes = sectionFor(page, "notes.txt");
+  const toggle = notes.locator(".unified-review-file-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(notes.locator(".monaco-editor")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(notes.locator(".monaco-editor")).toBeVisible();
   await expect(notes.locator(".weavie-inline-removed").first()).toBeVisible();
   await expect(notes.locator(".unified-review-notice", { hasText: "Couldn't open" })).toHaveCount(

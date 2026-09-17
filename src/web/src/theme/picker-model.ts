@@ -1,6 +1,6 @@
 import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { ThemeSlot } from "../bridge";
-import { beginThemePreview, currentThemeId } from "./controller";
+import { beginThemePreview, currentThemeId, currentThemeType } from "./controller";
 import {
   type ExtensionChoice,
   installTheme,
@@ -13,8 +13,11 @@ import {
   themeRequest,
 } from "./picker-state";
 
+export type ThemeFilter = "light" | "dark" | "all";
+
 export function createThemePicker() {
   const savedId = currentThemeId();
+  const [mode, setMode] = createSignal<ThemeFilter>(currentThemeType());
   const preview = beginThemePreview();
   const lifetime = new AbortController();
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
@@ -35,8 +38,10 @@ export function createThemePicker() {
   let registryQuery = "";
   let searchAbort = new AbortController();
   const choices = createMemo(() =>
-    (variants()?.map((v) => v.choice) ?? catalog()).filter((t) =>
-      `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
+    (variants()?.map((v) => v.choice) ?? catalog()).filter(
+      (t) =>
+        (mode() === "all" || t.type === mode()) &&
+        `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
     ),
   );
   const isSearch = () => registry() && variants() === null;
@@ -176,6 +181,8 @@ export function createThemePicker() {
 
   return {
     savedId,
+    mode,
+    setMode,
     query,
     setQuery,
     sortBy,

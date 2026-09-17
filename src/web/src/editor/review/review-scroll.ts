@@ -4,6 +4,10 @@ import {
   Scrollable,
   ScrollbarVisibility,
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
+import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+
+// Match Monaco's ViewLayout animation duration.
+const SMOOTH_SCROLL_MS = 125;
 
 /** One scroll position drives file placement and Monaco viewports before the browser paints. */
 export interface ReviewScroll {
@@ -20,11 +24,14 @@ export interface ReviewScroll {
 export function createReviewScroll(element: HTMLElement, content: HTMLElement): ReviewScroll {
   const state = new Scrollable({
     forceIntegerValues: false,
-    smoothScrollDuration: 0,
+    smoothScrollDuration: currentEditorOptions().smoothScrolling ? SMOOTH_SCROLL_MS : 0,
     scheduleAtNextAnimationFrame: (callback) => {
       const frame = requestAnimationFrame(callback);
       return { dispose: () => cancelAnimationFrame(frame) };
     },
+  });
+  const offOptions = onEditorOptionsChanged((options) => {
+    state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
   });
   // The logical extent stays fixed while the painted list moves inside it.
   const extent = document.createElement("div");
@@ -37,7 +44,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       horizontal: ScrollbarVisibility.Hidden,
       useShadows: false,
       alwaysConsumeMouseWheel: true,
-      mouseWheelSmoothScroll: false,
+      mouseWheelSmoothScroll: true,
     },
     state,
   );
@@ -164,6 +171,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     wheel: (event) =>
       scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
     dispose: () => {
+      offOptions();
       observer.disconnect();
       subscription.dispose();
       element.removeEventListener("keydown", keydown);

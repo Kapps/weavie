@@ -67,15 +67,47 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
     return samples;
   });
   await scroller.hover();
-  for (let notch = 0; notch < 200; notch++) {
-    await page.mouse.wheel(0, 400);
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-  }
+  // Flake (macOS only): 2026-09-16 02:14 UTC, run
+  // https://github.com/Kapps/weavie/actions/runs/35046360832/job/104637538434 — this test hit
+  // "Test timeout of 180000ms exceeded" / "Target page, context or browser has been closed" on the
+  // release e2e's macOS leg. Root cause: each wheel notch is a real CDP round trip, and the wide-line
+  // files' word-wrapped content pushes total scroll height past 70,000px, so a 400px notch kept this
+  // test scrolling ~370 times total (~68s locally on Linux, leaving only ~24% headroom under the 90s
+  // Linux "slow" budget — comfortably over budget on a slower/shared macOS runner). Fix: widened the
+  // notch to 1,000px, which still stays safely under the shortest un-widened file's rendered height
+  // (~1,076px from 56 collapsed-context lines) so no file's viewport window can be jumped clean over,
+  // while roughly halving the round trips (measured ~44s locally, 4/4 runs green).
+  const notchSize = 1000;
+  const maxNotches = 200;
+  // A stall must hold for several consecutive notches before the loop calls the scroller settled: the
+  // virtualizer only refines an item's estimated height once it is actually scrolled to, so scrollTop
+  // can sit still for a single notch while a newly-mounted file's real geometry lands, then resume
+  // moving on the next.
+  const settleStreak = 3;
+  const untilSettled = async (
+    delta: number,
+    afterNotch?: (state: { top: number; height: number }) => void,
+  ): Promise<void> => {
+    let top = -1;
+    let stalled = 0;
+    for (let notch = 0; notch < maxNotches && stalled < settleStreak; notch++) {
+      await page.mouse.wheel(0, delta);
+      const state = await scroller.evaluate(
+        (element) =>
+          new Promise<{ top: number; height: number }>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() =>
+                resolve({ top: element.scrollTop, height: element.scrollHeight }),
+              ),
+            ),
+          ),
+      );
+      afterNotch?.(state);
+      stalled = state.top === top ? stalled + 1 : 0;
+      top = state.top;
+    }
+  };
+  await untilSettled(notchSize);
   await expect(scroller).toBeFocused();
   const samples = await observation.jsonValue();
   const visited = [...new Set(samples.flat())].sort((a, b) => a - b);
@@ -85,9 +117,6 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
     expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
   }
   const settledHeight = await scroller.evaluate((element) => element.scrollHeight);
-  for (let notch = 0; notch < 200; notch++) {
-    await page.mouse.wheel(0, -400);
-    expect(await scroller.evaluate((element) => element.scrollHeight)).toBe(settledHeight);
-  }
+  await untilSettled(-notchSize, (state) => expect(state.height).toBe(settledHeight));
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
 });

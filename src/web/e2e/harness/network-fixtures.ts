@@ -87,6 +87,14 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
         // and 2026-09-09 06:07 UTC (run 34317635773). Investigated: no single test triggers it — it hits whatever
         // test is running when the runner's TCP port pool is exhausted. windows-network.txt above captures the
         // diagnostic; no root cause identified yet from available data, so no fix applied here.
+        // Recurred again 2026-09-15 15:07 UTC (run 34986302881, shard 3/6, editing.spec.ts) — see open PR #900
+        // (ruled out ephemeral-port exhaustion and the chrome-headless-shell process count as leads; confirmed
+        // the ~20 git.exe-spawn-burst-at-boot correlation across every sample so far) and open PR #901 (found and
+        // fixed a real duplicate: HostCore.PushRefLinkBase re-ran `git config --get remote.origin.url` from
+        // scratch on every SyncSession with no caching; now memoized). Recurred again 2026-09-16 02:15 UTC
+        // (run 35046360832, shard 6/6, mobile.spec.ts:579 "Claude Code accepts back swipes beside the screen
+        // edge, never on it") — same signature, no new diagnostic beyond what #900/#901 already captured;
+        // not re-investigated here since #901's fix (pending merge) already targets this exact spawn burst.
         throw new Error(`Browser socket allocation failed:\n${failures.join("\n")}`);
       }
     },

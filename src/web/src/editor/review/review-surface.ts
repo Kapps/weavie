@@ -32,7 +32,8 @@ export function createReviewSurface(surface: {
   active(): boolean;
   signal: AbortSignal;
   clear(): void;
-  scroller(): HTMLElement;
+  getScrollTop(): number;
+  setScrollTop(top: number): void;
   files(): ReviewFileView[];
   currentIndex(): number;
   select(index: number, path: string, line: number): void;
@@ -175,7 +176,7 @@ export function createReviewSurface(surface: {
       const location =
         activeSection()?.capture() ??
         (file === undefined ? null : { path: file.summary().path, line: file.summary().line });
-      return { state: { location, scrollTop: surface.scroller().scrollTop }, text: location };
+      return { state: { location, scrollTop: surface.getScrollTop() }, text: location };
     },
     restore: async (placement, signal) => {
       signal.throwIfAborted();
@@ -195,7 +196,7 @@ export function createReviewSurface(surface: {
           notify("warn", "This saved location is no longer in the review.");
         }
       } else if (saved !== null) {
-        surface.scroller().scrollTop = saved.scrollTop;
+        surface.setScrollTop(saved.scrollTop);
       }
       signal.throwIfAborted();
     },

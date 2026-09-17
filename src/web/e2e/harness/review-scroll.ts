@@ -2,10 +2,14 @@ import type { Page } from "@playwright/test";
 
 export async function reviewScroll(page: Page): Promise<{ top: number; maximum: number }> {
   const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
-  return scrollbar.evaluate((element) => ({
+  return scrollbar.evaluate(readReviewScroll);
+}
+
+export function readReviewScroll(element: Element): { top: number; maximum: number } {
+  return {
     top: Number(element.getAttribute("aria-valuenow")),
     maximum: Number(element.getAttribute("aria-valuemax")),
-  }));
+  };
 }
 
 export async function scrollReview(page: Page, target: "start" | "middle" | "end"): Promise<void> {

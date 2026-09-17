@@ -30,7 +30,7 @@ public sealed class HostCoreLogsTests {
 			return;
 		}
 
-		Assert.Contains($"[startup/host workspace={host.Core.Id.Value}]", html);
+		Assert.Contains($"(workspace={host.Core.Id.Value})", html);
 		Assert.Contains("begin worktree discovery", html);
 		Assert.Contains("end worktree discovery:", html);
 		Assert.Contains("review restore and disk reconciliation:", html);

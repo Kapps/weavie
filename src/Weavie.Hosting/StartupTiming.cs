@@ -15,7 +15,7 @@ internal sealed class StartupTiming(bool enabled, string workspace, Action<strin
 	}
 
 	private void Write(string message) => log(string.Create(CultureInfo.InvariantCulture,
-		$"[startup/host workspace={workspace}] +{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0}ms {message}"));
+		$"[startup/host] +{Stopwatch.GetElapsedTime(_started).TotalMilliseconds:F0}ms {message} (workspace={workspace})"));
 
 	private sealed class Phase : IDisposable {
 		private readonly StartupTiming _owner;

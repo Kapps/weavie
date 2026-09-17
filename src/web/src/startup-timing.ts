@@ -2,7 +2,7 @@ import { hostConnection, LOCAL_BACKEND_ID, log } from "./bridge";
 
 const enabled = window.__WEAVIE_STARTUP_TIMING__ === true;
 const pending: string[] = [];
-const connection = hostConnection(LOCAL_BACKEND_ID);
+const connection = enabled ? hostConnection(LOCAL_BACKEND_ID) : undefined;
 
 function flush(): void {
   if (connection?.currentHello == null) {

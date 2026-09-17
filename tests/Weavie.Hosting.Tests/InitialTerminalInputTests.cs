@@ -118,7 +118,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			() => false,
 			(_, accept) => accept(),
-			(_, _) => { });
+			(_, _) => { },
+			new StartupTiming(false, "test", _ => { }));
 		session.ActivateOwnedRuntimeAndMessages();
 		return session;
 	}

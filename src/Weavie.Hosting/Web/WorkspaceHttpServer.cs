@@ -235,6 +235,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	}
 
 	private async Task ServeIndexAsync(HttpContext context) {
+		using var timing = _core.StartupTiming.Measure("serve UI document");
 		context.Response.ContentType = "text/html; charset=utf-8";
 		context.Response.Headers["Referrer-Policy"] = "no-referrer";
 		string indexPath = Path.Combine(_options.WebRoot, "index.html");

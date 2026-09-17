@@ -85,10 +85,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// bootstrap, and navigates (Weavie.Hosting.Web.WebAppLauncher).
 		_bridge.Attach(_webView);
 
-		string indexQuery = _app.Settings.RequireBool(CoreSettings.DiagnosticsStartupTiming)
-			? "?startuptiming=1"
-			: string.Empty;
-		var launcher = new WebAppLauncher(this, _core, indexQuery);
+		var launcher = new WebAppLauncher(this, _core);
 
 #if DEBUG
 		// In Debug the host owns a Vite dev server for hot-module reload. If it can't come up, DevWebBringUp renders

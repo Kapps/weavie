@@ -226,8 +226,8 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = DiagnosticsStartupTiming,
 			Kind = SettingKind.Bool,
-			Description = "Log startup phase timings (window→navigate on the host, navigate→shell→editor "
-				+ "in the web app) to the console. Off by default; for diagnosing launch latency.",
+			Description = "Record backend startup, session restoration, and UI phase timings in View Logs. "
+				+ "Off by default; enable before restarting to diagnose launch latency.",
 			Aliases = ["startup timing", "launch timing", "boot timing", "startup profiling"],
 			// Captured during launch, so a change takes effect on the next start.
 			Apply = ApplyMode.RestartRequired,

@@ -34,6 +34,7 @@ interface Window {
   __WEAVIE_BRIDGE_WS__?: string;
   /** Authenticated HTTP endpoint used directly by image/video elements for streamed workspace media. */
   __WEAVIE_RESOURCE_BASE__?: string;
+  __WEAVIE_STARTUP_TIMING__?: boolean;
   /** Custom-chrome config injected by the Windows host; drives the web title bar. */
   __WEAVIE_SHELL__?: WeavieShellConfig;
   /** Recents injected by the host for the standalone welcome window (welcome.html). */

@@ -78,7 +78,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		HostRuntimeInfo runtime,
 		Func<bool> inputFrozen,
 		Action<bool, Action> acceptTerminalInput,
-		Action<int, int> shellResized) {
+		Action<int, int> shellResized,
+		StartupTiming startupTiming) {
 		ArgumentNullException.ThrowIfNull(endpoint);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -103,7 +104,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 		var fileSystem = new LocalFileSystem();
 		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
 		SecureFile.CreateDirectory(reviewDirectory);
-		var reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "state.db"));
+		ReviewPersistence reviewPersistence;
+		using (startupTiming.Measure($"session {endpoint.Address.Slot}: review database")) {
+			reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "state.db"));
+		}
 
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));
@@ -121,6 +125,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(Inventory, Tagged("[files]"), watcherDebounceMs: 250);
 		try {
+			using var timing = startupTiming.Measure($"session {endpoint.Address.Slot}: review restore and disk reconciliation");
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
 				reviewPersistence);

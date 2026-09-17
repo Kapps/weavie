@@ -1,3 +1,5 @@
+import { mark } from "./startup-timing";
+
 // Controls the pre-JS splash (the #splash element from index.html), held until the app is genuinely ready
 // then dropped, so the user sees a single dark → app reveal rather than placeholder flashes.
 
@@ -23,6 +25,7 @@ export function dismissSplash(): void {
     return;
   }
   dismissed = true;
+  mark("splash-dismissed");
   document.getElementById("splash")?.remove();
   const pending = [...listeners];
   listeners.clear();

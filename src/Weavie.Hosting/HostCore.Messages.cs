@@ -14,6 +14,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void WireHostMessages() {
 		WireSystemNotificationMessages();
+		WireThemeMessages();
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse<HelloRequest, HostHello>(

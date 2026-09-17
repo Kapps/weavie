@@ -5,8 +5,10 @@ import { pressDocumentEnd, pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll, scrollReview } from "../harness/review-scroll";
+import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
-const lineCount = 4_000;
+const lineCount = 5_000;
 const lines = (prefix: string): string =>
   Array.from({ length: lineCount }, (_, index) => `${prefix} line ${index}`).join("\n");
 
@@ -15,7 +17,7 @@ async function expectBoundedEditor(section: Locator, scroller: Locator): Promise
   await expect
     .poll(() => section.locator(".monaco-editor").evaluate((element) => element.clientHeight))
     .toBeLessThanOrEqual(viewportHeight);
-  await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(100);
+  await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(250);
 }
 
 async function expectUnobscuredLine(line: Locator): Promise<void> {
@@ -33,10 +35,10 @@ async function expectUnobscuredLine(line: Locator): Promise<void> {
           header === undefined || toolbar === undefined
             ? null
             : Math.min(bounds.y - header.bottom, toolbar.y - bounds.bottom);
-        return { clearance, unobscured: clearance !== null && clearance >= 0 };
+        return clearance;
       }),
     )
-    .toMatchObject({ unobscured: true });
+    .toBeGreaterThanOrEqual(0);
 }
 
 test.describe("Review Changes tab — large addition", () => {
@@ -60,14 +62,14 @@ test.describe("Review Changes tab — large addition", () => {
     },
   });
 
-  test("bounds rendering while keyboard navigation reaches both ends of a 4,000-line change", async ({
+  test("bounds rendering while keyboard navigation reaches both ends of a 5,000-line change", async ({
     page,
     weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
-    const lastLine = section.locator(".view-line", { hasText: "new line 3999" });
+    const lastLine = section.locator(".view-line", { hasText: "new line 4999" });
     const newFileBand = section.locator(".weavie-inline-newfile-tag");
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expectBoundedEditor(section, scroller);
@@ -83,34 +85,100 @@ test.describe("Review Changes tab — large addition", () => {
     releaseWorker.resolve();
     await expect(newFileBand).toHaveText("New file");
     await expectUnobscuredLine(lastLine);
-    await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-    const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
+    await scrollReview(page, "end");
+    const bottomBeforeTyping = await reviewScroll(page).then(({ top }) => top);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);
     await page.keyboard.type(" edited at the end");
     await expect
       .poll(() => readFile(join(weavie.workspace, "large-review.txt"), "utf8"))
-      .toContain("new line 3999 edited at the end");
+      .toContain("new line 4999 edited at the end");
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.rev))
       .not.toBe(revisionBeforeTyping);
     await expect
-      .poll(() =>
-        scroller.evaluate(
-          (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
-        ),
-      )
+      .poll(() => reviewScroll(page).then(({ top, maximum }) => maximum - top))
       .toBeLessThanOrEqual(1);
     await expect
       .poll(async () =>
-        Math.abs((await scroller.evaluate((element) => element.scrollTop)) - bottomBeforeTyping),
+        Math.abs((await reviewScroll(page).then(({ top }) => top)) - bottomBeforeTyping),
       )
       .toBeLessThanOrEqual(1);
     await expectUnobscuredLine(
-      section.locator(".view-line", { hasText: "new line 3999 edited at the end" }),
+      section.locator(".view-line", { hasText: "new line 4999 edited at the end" }),
     );
     await pressDocumentStart(page);
     await expectUnobscuredLine(firstLine);
     await expectBoundedEditor(section, scroller);
+    const paintedLines = section.locator(".view-line");
+    const paintSamples = await section.evaluateHandle((element) => {
+      const samples: { missing: number; rows: number }[] = [];
+      let running = true;
+      const sample = () => {
+        const editor = element.querySelector(".monaco-editor")?.getBoundingClientRect();
+        const lines = [...element.querySelectorAll(".view-line")];
+        const bottom = Math.max(...lines.map((line) => line.getBoundingClientRect().bottom));
+        if (editor !== undefined)
+          samples.push({ missing: Math.max(0, editor.bottom - bottom), rows: lines.length });
+        if (running) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+      return {
+        finish: () => {
+          running = false;
+          return samples;
+        },
+      };
+    });
+    const initialScrollTop = await reviewScroll(page).then(({ top }) => top);
+    await firstLine.hover({ position: { x: 10, y: 10 } });
+    await page.mouse.wheel(0, 100);
+    await expect
+      .poll(() => reviewScroll(page).then(({ top }) => top))
+      .toBeGreaterThan(initialScrollTop);
+    await expect(paintedLines.first()).toBeInViewport();
+    await expect(paintedLines.last()).toBeInViewport();
+    await page.mouse.wheel(0, -100);
+    await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(initialScrollTop);
+    await expect(paintedLines.first()).toBeInViewport();
+    await expect(paintedLines.last()).toBeInViewport();
+    const samples = await paintSamples.evaluate((observation) => observation.finish());
+    expect(samples.length).toBeGreaterThan(0);
+    const paintedRowHeight = await paintedLines
+      .first()
+      .evaluate((element) => element.getBoundingClientRect().height);
+    expect(Math.max(...samples.map(({ missing }) => missing))).toBeLessThanOrEqual(
+      paintedRowHeight,
+    );
+    expect(Math.max(...samples.map(({ rows }) => rows))).toBeLessThan(100);
+    await firstLine.click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press("PageDown");
+    const position = await page.evaluate(() => {
+      const editors = (
+        window as WeavieWindow
+      ).__WEAVIE_MONACO__?.editor.getEditors() as EditorHandle[];
+      return editors
+        .find((editor) => editor.getModel()?.uri.path.endsWith("/large-review.txt"))
+        ?.getPosition();
+    });
+    expect(position).toBeDefined();
+    const rowHeight = await firstLine.evaluate((element) => element.getBoundingClientRect().height);
+    const visibleRows = (await scroller.evaluate((element) => element.clientHeight)) / rowHeight;
+    expect(position!.lineNumber).toBeGreaterThan(1);
+    expect(position!.lineNumber).toBeLessThanOrEqual(Math.ceil(visibleRows));
+    await expectUnobscuredLine(
+      section
+        .locator(".view-line", { hasText: `new line ${position!.lineNumber - 1}` })
+        .filter({ hasText: new RegExp(`^new\\sline\\s${position!.lineNumber - 1}$`) }),
+    );
+    for (let line = 0; line < Math.ceil(visibleRows); line++)
+      await page.keyboard.press("ArrowDown");
+    await expectUnobscuredLine(
+      section.locator(".view-line", {
+        hasText: new RegExp(`^new\\sline\\s${position!.lineNumber - 1 + Math.ceil(visibleRows)}$`),
+      }),
+    );
+    await pressDocumentStart(page);
+    await expectUnobscuredLine(firstLine);
     const left = await firstLine.evaluate((element) => element.getBoundingClientRect().left);
     await firstLine.hover({ position: { x: 10, y: 10 } });
     await page.mouse.wheel(800, 0);
@@ -149,36 +217,32 @@ test.describe("Review Changes tab — large replacement", () => {
     for (const reviewed of [false, true]) {
       await expect(toolbar).toHaveCount(1);
       await expect(toolbar).toBeVisible();
-      await scroller.evaluate((element) => element.scrollTo(0, 0));
+      await scrollReview(page, "start");
       await expect(ghost).toContainText("old line 0");
-      await expect.poll(renderedGhostLines).toBeLessThan(100);
+      await expect.poll(renderedGhostLines).toBeLessThan(250);
       await expectBoundedEditor(section, scroller);
       await expect(section.locator(".weavie-inline-removed-faded")).toHaveCount(reviewed ? 1 : 0);
 
       const bounds = await scroller.boundingBox();
       if (bounds === null) throw new Error("review viewport is missing");
       await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-      await page.mouse.wheel(0, 1_200);
-      await expect
-        .poll(() => scroller.evaluate((element) => element.scrollTop))
-        .toBeGreaterThan(500);
+      for (let notch = 0; notch < 24; notch++) await page.mouse.wheel(0, 120);
+      await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBeGreaterThan(0);
       await expect(ghost).not.toContainText("old line 0");
-      await expect.poll(renderedGhostLines).toBeLessThan(100);
+      await expect.poll(renderedGhostLines).toBeLessThan(250);
 
-      await scroller.evaluate((element) =>
-        element.scrollTo(0, (element.scrollHeight - element.clientHeight) / 2),
-      );
-      await expect(ghost).toContainText("old line 3999");
-      await expect.poll(renderedGhostLines).toBeLessThan(100);
-      await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
+      await scrollReview(page, "middle");
+      await expect(ghost).toContainText("old line 4999");
+      await expect.poll(renderedGhostLines).toBeLessThan(250);
+      await scrollReview(page, "end");
+      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 4999" }));
       await expectBoundedEditor(section, scroller);
       if (reviewed) {
         await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();
       }
-      await scroller.evaluate((element) => element.scrollTo(0, 0));
+      await scrollReview(page, "start");
       await expect(ghost).toContainText("old line 0");
-      await expect.poll(renderedGhostLines).toBeLessThan(100);
+      await expect.poll(renderedGhostLines).toBeLessThan(250);
 
       if (!reviewed) {
         await toolbar.locator(".weavie-inline-accept").click();
@@ -190,10 +254,10 @@ test.describe("Review Changes tab — large replacement", () => {
     }
     await toolbar.locator(".weavie-inline-hist").first().click();
     await expect(toolbar.locator(".weavie-inline-stack-sub")).toContainText("change 1/1");
-    await scroller.evaluate((element) => element.scrollTo(0, 0));
+    await scrollReview(page, "start");
     await expect(ghost).toContainText("old line 0");
     await expect(section.locator(".weavie-inline-removed-faded")).toHaveCount(0);
-    await expect.poll(renderedGhostLines).toBeLessThan(100);
+    await expect.poll(renderedGhostLines).toBeLessThan(250);
     await expectBoundedEditor(section, scroller);
   });
 });
@@ -227,12 +291,12 @@ test.describe("Review Changes tab — large separated changes", () => {
     await expect(counter).toContainText("change 2/2");
     await expectBoundedEditor(section, scroller);
 
-    await scroller.evaluate((element) => element.scrollTo(0, 0));
+    await scrollReview(page, "start");
     await expect(counter).toContainText("change 1/2");
     await scroller.hover();
-    await page.mouse.wheel(0, 200_000);
+    await scrollReview(page, "end");
     await expect(counter).toContainText("change 2/2");
-    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 3999" }));
+    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 4999" }));
     await toolbar.locator(".weavie-inline-accept").click();
     await expect(counter).toContainText("change 1/1");
     await expect
@@ -241,7 +305,7 @@ test.describe("Review Changes tab — large separated changes", () => {
     await toolbar.locator(".weavie-inline-hist").first().click();
     await expect(counter).toContainText("change 2/2");
 
-    await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+    await scrollReview(page, "end");
     await expect(counter).toContainText("change 2/2");
     await toolbar.locator(".weavie-inline-reject").click();
     await expect

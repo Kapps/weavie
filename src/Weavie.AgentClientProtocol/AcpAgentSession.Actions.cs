@@ -321,8 +321,9 @@ public sealed partial class AcpAgentSession {
 		if (submission.Attachments.Count != 0) {
 			throw new InvalidOperationException("Provider commands cannot include attachments.");
 		}
-		var command = ResolveProviderCommandLocked(submission.CommandName);
-		return submission with { Text = CanonicalCommandText(submission.Text, command.Name) };
+		if (submission.CommandName.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
+		if (_ready) ResolveProviderCommandLocked(submission.CommandName);
+		return submission with { Text = CanonicalCommandText(submission.Text, submission.CommandName) };
 	}
 
 	private AgentSlashEntry ResolveProviderCommandLocked(string name) {

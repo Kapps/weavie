@@ -11,7 +11,7 @@ namespace Weavie.Core.Theming;
 /// <c>package.json</c>); this unzips it, reads <c>contributes.themes[]</c>, and records selectable themes in
 /// <c>~/.weavie/themes/index.json</c>. Raw theme JSON is the lossless source of truth; the web converts at load.
 /// </summary>
-public sealed class OpenVsxThemeInstaller {
+public sealed partial class OpenVsxThemeInstaller {
 	/// <summary>Default public Open VSX registry base URL.</summary>
 	public const string DefaultRegistry = "https://open-vsx.org";
 	private const string IndexFileName = "index.json";
@@ -39,24 +39,7 @@ public sealed class OpenVsxThemeInstaller {
 	/// <param name="version">Specific version, or null for the latest.</param>
 	/// <param name="ct">Cancellation token.</param>
 	public async Task<IReadOnlyList<InstalledTheme>> InstallAsync(string ns, string name, string? version, CancellationToken ct) {
-		ArgumentException.ThrowIfNullOrEmpty(ns);
-		ArgumentException.ThrowIfNullOrEmpty(name);
-
-		string metaUrl = version is null
-			? $"{_registry}/api/{ns}/{name}"
-			: $"{_registry}/api/{ns}/{name}/{version}";
-		string metadata = await _http.GetStringAsync(metaUrl, ct).ConfigureAwait(false);
-		var (downloadUrl, resolvedVersion) = ParseMetadata(metadata);
-		if (downloadUrl is null || resolvedVersion is null) {
-			throw new InvalidOperationException($"Open VSX metadata for {ns}.{name} has no .vsix download.");
-		}
-
-		if (!IsTrustedDownloadUrl(downloadUrl)) {
-			throw new InvalidOperationException(
-				$"Open VSX returned an untrusted .vsix URL for {ns}.{name} ('{downloadUrl}'); expected https on the registry host.");
-		}
-
-		byte[] vsix = await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false);
+		var (vsix, resolvedVersion) = await DownloadAsync(ns, name, version, ct).ConfigureAwait(false);
 		return await ExtractAndIndexAsync(ns, name, resolvedVersion, vsix, ct).ConfigureAwait(false);
 	}
 
@@ -176,26 +159,30 @@ public sealed class OpenVsxThemeInstaller {
 	// contributed themes, and return them.
 	private static async Task<IReadOnlyList<InstalledTheme>> ExtractAndIndexAsync(
 		string ns, string name, string version, byte[] vsix, CancellationToken ct) {
+		ValidateCoordinate(ns);
+		ValidateCoordinate(name);
+		ValidateCoordinate(version);
 		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{version}");
 		if (Directory.Exists(extractDir)) {
 			Directory.Delete(extractDir, recursive: true);
 		}
 
-		Directory.CreateDirectory(extractDir);
-		using (var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read)) {
-			archive.ExtractToDirectory(extractDir); // .NET guards against zip-slip path traversal
-		}
-
-		// .vsix lays the extension out under "extension/"; theme paths in the manifest are relative to it.
-		string extensionDir = Path.Combine(extractDir, "extension");
-		string manifestPath = Path.Combine(extensionDir, "package.json");
-		var contributions = ParseThemeContributions(await File.ReadAllTextAsync(manifestPath, ct).ConfigureAwait(false), extensionDir);
-
-		var installed = contributions
-			.Select(c => new InstalledTheme($"{ns}.{name}/{c.Label}", c.Label, c.UiTheme, ns, name, version, c.Path))
-			.ToList();
+		var installed = await ExtractAsync(ns, name, version, vsix, extractDir, ct).ConfigureAwait(false);
 		MergeIntoIndex(ns, name, installed);
 		return installed;
+	}
+
+	private static async Task<IReadOnlyList<InstalledTheme>> ExtractAsync(
+		string ns, string name, string version, byte[] vsix, string extractDir, CancellationToken ct) {
+		Directory.CreateDirectory(extractDir);
+		using (var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read)) {
+			archive.ExtractToDirectory(extractDir);
+		}
+		string extensionDir = Path.Combine(extractDir, "extension");
+		var contributions = ParseThemeContributions(
+			await File.ReadAllTextAsync(Path.Combine(extensionDir, "package.json"), ct).ConfigureAwait(false), extensionDir);
+		return contributions.Select(c => new InstalledTheme(
+			$"{ns}.{name}/{c.Label}", c.Label, c.UiTheme, ns, name, version, c.Path)).ToArray();
 	}
 
 	// Reads package.json straight out of the .vsix ZIP, so a local-file install can learn the extension's

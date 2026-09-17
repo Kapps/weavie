@@ -37,21 +37,46 @@ public static class ThemeJson {
 		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
+	/// <summary>Builds a preview slot, failing visibly when an installed theme cannot be loaded.</summary>
+	public static JsonElement PreviewSlot(string id, ThemeOverridesStore overrides) {
+		var installed = OpenVsxThemeInstaller.ListInstalled().FirstOrDefault(t => t.Id == id);
+		if (installed is null && !BuiltInThemes.Contains(id)) {
+			throw new InvalidOperationException($"Unknown theme '{id}'.");
+		}
+		return BuildSlot(id, installed is null ? null : LoadInstalled(installed), overrides);
+	}
+
+	internal static JsonElement BuildSlot(string id, JsonObject? theme, ThemeOverridesStore overrides) {
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartObject();
+			writer.WriteString("id", id);
+			writer.WritePropertyName("ops");
+			WriteOps(writer, overrides.Get(id));
+			if (theme is not null) {
+				writer.WritePropertyName("theme");
+				theme.WriteTo(writer);
+			}
+			writer.WriteEndObject();
+		}
+		using var document = JsonDocument.Parse(stream.ToArray());
+		return document.RootElement.Clone();
+	}
+
+	internal static JsonObject LoadInstalled(InstalledTheme theme) {
+		var json = new ThemeJsonLoader(new LocalFileSystem()).LoadMerged(theme.Path);
+		json["type"] = theme.UiTheme switch { "vs" => "light", "hc-light" => "hcLight", "hc-black" => "hc", _ => "dark" };
+		json["name"] ??= theme.Label;
+		json["colors"] ??= new JsonObject();
+		json["tokenColors"] ??= new JsonArray();
+		return json;
+	}
+
 	// Writes one polarity slot: { id, ops, theme? }. Theme JSON is shipped only for installed themes.
 	private static void WriteSlot(
 		Utf8JsonWriter writer, string name, string id, ThemeOverridesStore overrides, Action<string>? log) {
 		writer.WritePropertyName(name);
-		writer.WriteStartObject();
-		writer.WriteString("id", id);
-		writer.WritePropertyName("ops");
-		WriteOps(writer, overrides.Get(id));
-		var themeJson = ResolveInstalledThemeJson(id, log);
-		if (themeJson is not null) {
-			writer.WritePropertyName("theme");
-			themeJson.WriteTo(writer);
-		}
-
-		writer.WriteEndObject();
+		BuildSlot(id, ResolveInstalledThemeJson(id, log), overrides).WriteTo(writer);
 	}
 
 	// Serializes the override op list to the web's OverrideOp shape (kind-discriminated), by hand for
@@ -102,7 +127,7 @@ public static class ThemeJson {
 		}
 
 		try {
-			return new ThemeJsonLoader(new LocalFileSystem()).LoadMerged(installed.Path);
+			return LoadInstalled(installed);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException) {
 			log?.Invoke($"[theme] could not load installed theme '{id}' from {installed.Path}: {ex.Message}; falling back to the built-in default.");
 			return null;

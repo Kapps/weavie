@@ -30,7 +30,9 @@ public sealed class ThemeCommandsTests : IDisposable {
 	}
 
 	private Task<CommandResult> Run(string id, string? argsJson = null) =>
-		_dispatcher.InvokeAsync(id, argsJson, CancellationToken.None);
+		id == CoreCommands.SelectTheme
+			? Task.FromResult(ThemeCommands.SelectTheme(argsJson, _settings))
+			: _dispatcher.InvokeAsync(id, argsJson, CancellationToken.None);
 
 	[Fact]
 	public async Task Select_DarkBuiltIn_SetsDarkSlotAndMode() {

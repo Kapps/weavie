@@ -12,6 +12,7 @@ import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
+import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff } from "./review-store";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
@@ -36,14 +37,13 @@ export function createReviewEditor(options: {
   tab: TabOwner;
   scope: ReviewScopeState;
   container: HTMLElement;
-  scroller: HTMLElement;
+  scroller: ReviewScroll;
   header: HTMLElement;
   model: monaco.editor.ITextModel;
   editable: boolean;
   diff: ReviewFileDiff;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
-  onReveal: () => void;
   configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onHeight: (height: number) => void;
   onPainted: () => void;
@@ -96,7 +96,6 @@ export function createReviewEditor(options: {
     options.onHeight(height);
   };
   const revealLine = (line: number): void => {
-    options.onReveal();
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
     viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
   };
@@ -194,7 +193,7 @@ export function createReviewEditor(options: {
     dispose: () => {
       disposed = true;
       if (container.contains(document.activeElement)) {
-        options.scroller.focus({ preventScroll: true });
+        options.scroller.element.focus({ preventScroll: true });
       }
       binding.dispose();
       for (const subscription of subscriptions) subscription.dispose();

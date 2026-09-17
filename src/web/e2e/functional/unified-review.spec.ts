@@ -4,6 +4,7 @@ import type { Locator, Page } from "@playwright/test";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll, scrollReview } from "../harness/review-scroll";
 import type { WeavieWindow } from "../harness/weavie-window";
 
 const HELLO =
@@ -129,7 +130,7 @@ test.describe("Review Changes tab", () => {
     await expect(notes.locator(".monaco-editor")).toHaveCount(0);
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
 
-    await overview.locator(".unified-review-diffs").evaluate((element) => element.scrollTo(0, 0));
+    await scrollReview(page, "start");
     await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
     await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
@@ -340,12 +341,9 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     const counter = overview.locator(".weavie-inline-stack-sub");
     await expect(counter).toContainText("change 1/30");
 
-    const scroller = overview.locator(".unified-review-diffs");
-    const offset = (): Promise<number> => scroller.evaluate((element) => element.scrollTop);
+    const offset = (): Promise<number> => reviewScroll(page).then(({ top }) => top);
     // The section has to be taller than the viewport, or a step would have nowhere to move.
-    await expect
-      .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
-      .toBeGreaterThan(0);
+    await expect.poll(() => reviewScroll(page).then(({ maximum }) => maximum)).toBeGreaterThan(0);
     const initialOffset = await offset();
 
     for (const change of [2, 3, 4]) {
@@ -372,13 +370,9 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     await expect(counter).toContainText("change 1/30");
     const scroller = overview.locator(".unified-review-diffs");
     await scroller.hover();
-    await page.mouse.wheel(0, 60000);
+    await scrollReview(page, "end");
     await expect
-      .poll(() =>
-        scroller.evaluate(
-          (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
-        ),
-      )
+      .poll(() => reviewScroll(page).then(({ top, maximum }) => maximum - top))
       .toBeLessThanOrEqual(1);
     await expect(counter).not.toContainText("change 1/30");
     const selected = Number((await counter.innerText()).match(/change (\d+)\/30/)?.[1]);
@@ -446,6 +440,9 @@ test.describe("Review Changes tab — large file set", () => {
     const targetLink = overview.locator(".unified-review-tree-row.file", { hasText: targetName });
     await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(fileCount);
 
+    await overview.locator(".unified-review-tree-row.file").first().focus();
+    await page.keyboard.press("End");
+    await expect(targetLink).toBeInViewport();
     await targetLink.click();
     const targetSection = sectionFor(page, targetName);
     await expect(targetSection).toBeVisible({ timeout: 15_000 });

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll } from "../harness/review-scroll";
 
 const source = Array.from(
   { length: 7_000 },
@@ -61,6 +62,7 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`, {
     timeout: 60_000,
   });
+  await page.locator(".unified-review-tree-row.file").first().click();
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")
@@ -79,12 +81,19 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
         .map((section) => Number(section.dataset.index));
       samples.push(files);
     };
-    element.addEventListener("scroll", sample);
+    const observer = new MutationObserver(sample);
+    observer.observe(element, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-valuenow"],
+    });
     sample();
     return samples;
   });
   await scroller.hover();
-  for (let notch = 0; notch < 200; notch++) {
+  // Monaco normalizes wheel notches; its native Alt modifier accelerates this long traversal.
+  await page.keyboard.down("Alt");
+  while ((await reviewScroll(page)).top < (await reviewScroll(page)).maximum) {
     await page.mouse.wheel(0, 400);
     await page.evaluate(
       () =>
@@ -101,10 +110,19 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   for (let index = 1; index < firstVisible.length; index++) {
     expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
   }
-  const settledHeight = await scroller.evaluate((element) => element.scrollHeight);
-  for (let notch = 0; notch < 200; notch++) {
+  const settledHeight = await reviewScroll(page).then(({ maximum }) => maximum);
+  while ((await reviewScroll(page)).top > 0) {
     await page.mouse.wheel(0, -400);
-    expect(await scroller.evaluate((element) => element.scrollHeight)).toBe(settledHeight);
+    expect(await reviewScroll(page).then(({ maximum }) => maximum)).toBe(settledHeight);
   }
-  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
+  await page.keyboard.up("Alt");
+  await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(0);
+  const rows = page.locator(".unified-review-tree-row.file");
+  await rows.first().focus();
+  await page.keyboard.press("End");
+  await expect(rows.last()).toBeFocused();
+  await expect(rows.last()).toBeInViewport();
+  await page.keyboard.press("Home");
+  await expect(rows.first()).toBeFocused();
+  await expect(rows.first()).toBeInViewport();
 });

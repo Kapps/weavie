@@ -36,7 +36,15 @@ import {
   recallNext,
   recallPrevious,
 } from "./prompt-history";
-import { classifyAgentDraft, filterSlash, slashQuery, weavieCommandInput } from "./slash";
+import {
+  classifyAgentDraft,
+  classifyAgentSubmission,
+  filterSlash,
+  invocationForAction,
+  slashCompletionScope,
+  slashQuery,
+  weavieCommandInput,
+} from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
 import type { PendingRequestKind } from "./turn-progress";
 
@@ -74,9 +82,12 @@ export function AgentComposer(props: {
   const draftAction = createMemo(() =>
     classifyAgentDraft(agentControlState(props.session), composer().draft),
   );
+  const submissionAction = createMemo(() =>
+    classifyAgentSubmission(agentControlState(props.session), composer().draft),
+  );
 
   const canSubmit = createMemo(() => {
-    const action = draftAction();
+    const action = submissionAction();
     if (action.kind === "loading") return false;
     const state = composer();
     if (props.inputProtocol < 2) {
@@ -106,12 +117,13 @@ export function AgentComposer(props: {
   });
 
   const [slashDismissed, setSlashDismissed] = createSignal(false);
-  const slashText = createMemo(() => slashQuery(composer().draft));
+  const slashScope = createMemo(() =>
+    slashCompletionScope(agentControlState(props.session).slash, composer().draft),
+  );
+  const slashText = createMemo(() => slashQuery(slashScope().draft));
   const slashEntries = createMemo(() => {
     const query = slashText();
-    return query === null || slashDismissed()
-      ? []
-      : filterSlash(agentControlState(props.session).slash, query);
+    return query === null || slashDismissed() ? [] : filterSlash(slashScope().entries, query);
   });
   // A draft that's no longer a slash command clears any prior dismissal, so the next "/" reopens the menu.
   createEffect(() => {
@@ -144,7 +156,7 @@ export function AgentComposer(props: {
         placeCaretAfterDraftUpdate(draft, draft.length);
       }
     } else {
-      const draft = `/${entry.name}${entry.inputHint === null ? "" : " "}`;
+      const draft = `${slashScope().prefix}/${entry.name}${entry.inputHint === null ? "" : " "}`;
       setComposerDraft(session, draft);
       if (execute) submit();
       else placeCaretAfterDraftUpdate(draft, draft.length);
@@ -239,7 +251,13 @@ export function AgentComposer(props: {
     if (weavieCommand?.kind === "weavieCommand") {
       const input = weavieCommandInput(weavieCommand, composer().draft);
       if (weavieCommand.commandId === CommandIds.askAgentAside) {
-        if (!submitAgentAside(session, input ?? "")) return false;
+        const inner = submissionAction();
+        if (inner.kind === "loading") return true;
+        if (inner.kind === "command" && inner.entry.kind === "weavieCommand") {
+          setComposerError(session, `/${inner.entry.name} cannot run in a side conversation.`);
+          return true;
+        }
+        if (!submitAgentAside(session, input ?? "", invocationForAction(inner))) return false;
         setHistoryCursor(IDLE_CURSOR);
         props.onSubmitted();
         return true;
@@ -274,11 +292,7 @@ export function AgentComposer(props: {
       });
       setComposerDraft(session, "");
     } else {
-      const command =
-        action.kind === "command" && action.entry.kind !== "weavieCommand"
-          ? { kind: action.entry.kind, name: action.entry.name }
-          : null;
-      if (!submitAgentTurn(session, command)) return false;
+      if (!submitAgentTurn(session, invocationForAction(action))) return false;
     }
     setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();

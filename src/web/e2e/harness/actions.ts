@@ -158,6 +158,13 @@ export async function runCommand(page: Page, title: string): Promise<void> {
   await expect(box).not.toHaveClass(/\bopen\b/);
 }
 
+export async function dismissAutomaticInferenceOffer(page: Page): Promise<void> {
+  const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
+  await expect(offer).toBeVisible();
+  await offer.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(offer).toHaveCount(0);
+}
+
 export async function allowAutomaticInference(page: Page): Promise<void> {
   const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
   await expect(offer).toBeVisible();

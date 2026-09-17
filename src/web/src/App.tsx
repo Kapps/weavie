@@ -156,6 +156,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "./files/session-files";
+import { ThemePicker } from "./theme/ThemePicker";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
 import { paneOrder } from "./layout/geometry";
@@ -2018,6 +2019,7 @@ export default function App(): JSX.Element {
             .publish("dismiss", { id, forever })
         }
       />
+      <ThemePicker />
       <Show when={updateRestarting()}>
         <UpdateOverlay />
       </Show>

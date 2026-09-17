@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
-import { reviewScroll } from "../harness/review-scroll";
+import { readReviewScroll, reviewScroll } from "../harness/review-scroll";
 
 const source = Array.from(
   { length: 7_000 },
@@ -76,7 +76,13 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await scroller.hover();
   // Monaco normalizes wheel notches; its native Alt modifier accelerates this long traversal.
   await page.keyboard.down("Alt");
-  while ((await reviewScroll(page)).top < (await reviewScroll(page)).maximum) {
+  const scrollbar = await page
+    .getByRole("scrollbar", { name: "Review scroll position" })
+    .elementHandle();
+  if (scrollbar === null) throw new Error("Review scrollbar is missing");
+  const position = () => scrollbar.evaluate(readReviewScroll);
+  let scroll = await position();
+  while (scroll.top < scroll.maximum) {
     await page.mouse.wheel(0, 400);
     await page.evaluate(
       () =>
@@ -84,20 +90,22 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
+    scroll = await position();
   }
   await expect(scroller).toBeFocused();
   const samples = await observation.jsonValue();
   const visited = [...new Set(samples.flat())].sort((a, b) => a - b);
   expect(visited).toEqual(paths.map((_, index) => index + 1));
   const firstVisible = samples.flatMap((sample) => sample.slice(0, 1));
-  for (let index = 1; index < firstVisible.length; index++) {
-    expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
-  }
-  const settledHeight = await reviewScroll(page).then(({ maximum }) => maximum);
-  while ((await reviewScroll(page)).top > 0) {
+  expect(firstVisible).toEqual([...firstVisible].sort((a, b) => a - b));
+  const settledHeight = scroll.maximum;
+  const reverseHeights = new Set<number>();
+  while (scroll.top > 0) {
     await page.mouse.wheel(0, -400);
-    expect(await reviewScroll(page).then(({ maximum }) => maximum)).toBe(settledHeight);
+    scroll = await position();
+    reverseHeights.add(scroll.maximum);
   }
+  expect([...reverseHeights]).toEqual([settledHeight]);
   await page.keyboard.up("Alt");
   await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(0);
   const rows = page.locator(".unified-review-tree-row.file");

@@ -83,6 +83,10 @@ invocation. These workflows wait for their own turn; they are never steered into
 not depend on the provider advertising MCP prompts or scanning skill directories. This covers Weavie's bundled
 text prompts, not arbitrary external MCP prompt servers.
 
+`/btw /` completes provider commands and MCP prompts for a side conversation. The same typed submission
+executes through the fork's normal prompt path, validated against its own command catalog. Main-conversation
+actions such as `/clear` are excluded from this nested command surface.
+
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 

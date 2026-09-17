@@ -240,10 +240,10 @@ describe("agent composer attachments", () => {
       pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
       session,
     );
-    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
     await flushAsyncWork();
     const attachmentId = store.composerState(session).attachments[0]!.id;
-    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
     expect(bridge.invokeCommand).not.toHaveBeenCalled();
     deliver("remote-aside", "slot-aside", "attachmentState", {
       id: attachmentId,
@@ -251,12 +251,14 @@ describe("agent composer attachments", () => {
       error: "",
     });
     bridge.invokeCommand.mockResolvedValueOnce({ ok: false, error: "Fork unavailable" });
-    expect(store.submitAgentAside(session, "describe it")).toBe(true);
-    expect(store.submitAgentAside(session, "describe it")).toBe(false);
+    expect(store.submitAgentAside(session, "describe it", null)).toBe(true);
+    expect(store.submitAgentAside(session, "describe it", null)).toBe(false);
     expect(store.composerState(session).draft).toBe("/btw describe it");
     store.setComposerDraft(session, "edited while opening");
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
       question: "describe it",
+      kind: "prompt",
+      commandName: "",
       submissionId: expect.any(String),
       attachmentIds: [attachmentId],
     });
@@ -271,7 +273,7 @@ describe("agent composer attachments", () => {
     const other = owner("remote-aside", "other-slot");
     store.setComposerDraft(other, "keep this draft");
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
-    expect(store.submitAgentAside(session, "describe it")).toBe(true);
+    expect(store.submitAgentAside(session, "describe it", null)).toBe(true);
     store.setComposerDraft(session, "next question");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([2])], { type: "image/png" })),
@@ -288,10 +290,29 @@ describe("agent composer attachments", () => {
     expect(store.composerState(other).draft).toBe("keep this draft");
   });
 
+  it.each([
+    "providerCommand",
+    "mcpPrompt",
+  ] as const)("preserves %s identity in a fork submission", async (kind) => {
+    const session = owner("aside-command", kind);
+    store.setComposerDraft(session, "/btw /review details");
+    bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
+    expect(store.submitAgentAside(session, "/review details", { kind, name: "review" })).toBe(true);
+    expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
+      question: "/review details",
+      kind,
+      commandName: "review",
+      submissionId: expect.any(String),
+      attachmentIds: [],
+    });
+    await flushAsyncWork();
+    expect(store.composerState(session).draft).toBe("");
+  });
+
   it("accepts an image-only aside and rejects an empty aside", async () => {
     const session = owner("image-only", "aside");
     store.setComposerDraft(session, "/btw");
-    expect(store.submitAgentAside(session, "")).toBe(false);
+    expect(store.submitAgentAside(session, "", null)).toBe(false);
     expect(store.composerState(session).error).toContain("attach an image");
     store.captureAgentImagePaste(
       pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" })),
@@ -305,11 +326,13 @@ describe("agent composer attachments", () => {
       error: "",
     });
     bridge.invokeCommand.mockResolvedValueOnce({ ok: true });
-    expect(store.submitAgentAside(session, "")).toBe(true);
+    expect(store.submitAgentAside(session, "", null)).toBe(true);
     await flushAsyncWork();
     expect(store.composerState(session).attachments).toHaveLength(0);
     expect(bridge.invokeCommand).toHaveBeenCalledWith(session, "weavie.agent.askAside", {
       question: "",
+      kind: "prompt",
+      commandName: "",
       submissionId: expect.any(String),
       attachmentIds: [attachmentId],
     });

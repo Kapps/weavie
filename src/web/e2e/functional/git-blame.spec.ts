@@ -327,14 +327,25 @@ test("a long change leaves the popover's history on screen", async ({ page }) =>
 });
 
 test.describe("review blame", () => {
-  test.use({ fakeScript: { steps: appliedEdit("notes.txt", "changed text\n") } });
+  const baseline = "first note\nsecond\nthird\nfourth\nfifth\nlast note\n";
+  test.use({
+    workspaceSeed: {
+      run: (workspace) => commitFile(workspace, "notes.txt", baseline, "review baseline"),
+    },
+    fakeScript: {
+      steps: appliedEdit(
+        "notes.txt",
+        baseline.replace("first note", "changed note").replace("last note", "changed last note"),
+      ),
+    },
+  });
   test("review actions stay beside blame without overlapping, including after keep", async ({
     page,
   }) => {
     await awaitReviewSet(page, ["notes.txt"]);
     await openFile(page, "notes.txt");
     const blame = page.locator(".weavie-blame");
-    const pending = page.locator(".weavie-inline-pending-tag");
+    const pending = page.locator(".weavie-inline-pending-tag").first();
     await expect(blame).toBeVisible();
     await expect(pending).toBeVisible();
     const gap = (selector: string) =>
@@ -346,6 +357,9 @@ test.describe("review blame", () => {
       }, selector);
     await expect.poll(() => gap(".weavie-inline-pending-tag")).toBeGreaterThanOrEqual(0);
     await pending.locator(".weavie-inline-pending-keep").click();
+    await page
+      .locator(".view-line", { hasText: "changed note" })
+      .click({ position: { x: 4, y: 4 } });
     await expect(page.locator(".weavie-inline-accepted-tag")).toBeVisible();
     await expect.poll(() => gap(".weavie-inline-accepted-tag")).toBeGreaterThanOrEqual(0);
   });

@@ -4,6 +4,7 @@ import { keyHint } from "../commands/key-hint";
 import { createThemePicker } from "./picker-model";
 import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
 import { ThemeChoiceList } from "./ThemeChoiceList";
+import { ThemeExtensionDetails } from "./ThemeExtensionDetails";
 import { ThemeVariants } from "./ThemeVariants";
 import "./theme-picker.css";
 
@@ -181,18 +182,7 @@ function Picker() {
                     <span>{extension.displayName ?? extension.name}</span>
                     <small>v{extension.version}</small>
                     <small class="theme-description">{extension.description}</small>
-                    <small class="theme-extension-details">
-                      Publisher: {extension.namespace} · {extension.downloadCount.toLocaleString()}{" "}
-                      downloads
-                      {" · "}
-                      {extension.averageRating == null
-                        ? "Rating unavailable"
-                        : `★ ${extension.averageRating.toFixed(1)} / 5`}
-                      {" · "}
-                      {extension.reviewCount == null
-                        ? "Review count unavailable"
-                        : `${extension.reviewCount.toLocaleString()} ${extension.reviewCount === 1 ? "review" : "reviews"}`}
-                    </small>
+                    <ThemeExtensionDetails extension={extension} />
                   </button>
                 )}
               </For>
@@ -202,7 +192,9 @@ function Picker() {
             </div>
           </Show>
           <Show when={m.searchLoading()}>
-            <p role="status">Loading themes…</p>
+            <p role="status">
+              Loading themes… Temporary connection failures are retried automatically.
+            </p>
           </Show>
           <Show when={m.registry() && m.extensions().length < m.total()}>
             <button
@@ -224,6 +216,11 @@ function Picker() {
           />
         </Show>
       </div>
+      <Show when={m.saving() && m.registry()}>
+        <p role="status">
+          Downloading theme… Temporary connection failures are retried automatically.
+        </p>
+      </Show>
       <Show when={m.error()}>
         <p class="theme-picker-error" role="alert">
           {m.error()}

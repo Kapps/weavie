@@ -74,7 +74,8 @@ test("registry shows publisher and community metadata and resets pages when sort
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("Publisher: example-author");
   await expect(rows.first()).toContainText("12,345 downloads");
-  await expect(rows.first()).toContainText("★ 4.8 / 5");
+  await expect(rows.first()).toContainText("4.8 / 5");
+  await expect(rows.first().locator("svg.theme-rating-star")).toBeVisible();
   await expect(rows.first()).toContainText("12 reviews");
   await picker.getByRole("button", { name: "Load more (1 of 2)" }).click();
   await expect(rows).toHaveCount(2);

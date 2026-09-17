@@ -82,7 +82,9 @@ test.describe("pending registry search", () => {
     await runCommand(page, "Select Color Theme…");
     const picker = page.getByRole("dialog", { name: "Select Color Theme" });
     await picker.getByRole("button", { name: "Open VSX", exact: true }).click();
-    await expect(picker.getByRole("status")).toHaveText("Loading themes…");
+    await expect(picker.getByRole("status")).toHaveText(
+      "Loading themes… Temporary connection failures are retried automatically.",
+    );
     await picker.getByRole("button", { name: "Installed", exact: true }).click();
     await expect(picker.getByRole("status")).toHaveCount(0);
     await expect(picker.getByRole("button", { name: "Apply", exact: true })).toBeEnabled();

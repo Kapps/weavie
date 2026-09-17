@@ -24,7 +24,9 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
               </button>
             </div>
             <Show when={m.packageLoading()}>
-              <p role="status">Loading variants…</p>
+              <p role="status">
+                Loading variants… Temporary connection failures are retried automatically.
+              </p>
             </Show>
             <Show when={m.packageError()}>
               <p class="theme-picker-error" role="alert">

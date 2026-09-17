@@ -257,7 +257,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
-			["availableCommands"] = new JsonArray(
+			["availableCommands"] = _fakeMode == "side-no-commands" && sessionId.StartsWith("fake-fork-", StringComparison.Ordinal)
+				? [] : new JsonArray(
 				new JsonObject {
 					["name"] = "compact",
 					["description"] = "Compact the fake transcript.",

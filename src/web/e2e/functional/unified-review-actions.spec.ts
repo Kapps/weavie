@@ -169,6 +169,7 @@ test.describe("deleted review snapshots", () => {
     const section = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
     });
+    await section.locator(".unified-review-file-toggle").click();
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await section
       .locator(".view-line")

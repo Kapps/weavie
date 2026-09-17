@@ -77,6 +77,7 @@ test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ p
   // The prompt takes any commit-ish; HEAD^ is the seed commit here.
   const prompt = page.locator(".session-prompt");
   await expect(prompt).toBeVisible();
+  await expect(prompt.locator(".session-prompt-input")).toHaveValue("");
   await prompt.locator(".session-prompt-input").fill("HEAD^");
   await prompt.locator(".session-prompt-input").press("Enter");
 
@@ -120,4 +121,77 @@ test("a ref with no changes answers with a toast, not an empty navigator", async
     timeout: 30_000,
   });
   await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+});
+
+for (const branch of ["main", "release"]) {
+  test(`Diff Against… defaults to origin/${branch}`, async ({ page, weavie }) => {
+    git(weavie.workspace, "update-ref", `refs/remotes/origin/${branch}`, "HEAD");
+    git(
+      weavie.workspace,
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      `refs/remotes/origin/${branch}`,
+    );
+    await writeFile(join(weavie.workspace, "notes.txt"), "changed on feature branch\n");
+    await runCommand(page, "Diff Against…");
+    const input = page.getByRole("combobox", { name: "Ref to diff against" });
+    await expect(input).toHaveValue(`origin/${branch}`);
+    await input.press("Enter");
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`vs origin/${branch}`);
+    await expect(page.locator(".weavie-inline-pending-keep")).toBeVisible();
+  });
+}
+
+test.describe("delayed diff refs", () => {
+  let release: PromiseWithResolvers<() => void>;
+  let received: PromiseWithResolvers<void>;
+  test.use({
+    preNavigate: {
+      async run(page) {
+        release = Promise.withResolvers<() => void>();
+        received = Promise.withResolvers<void>();
+        page.on("websocket", (socket) =>
+          socket.on("framereceived", ({ payload }) => {
+            const message = JSON.parse(payload.toString());
+            if (
+              message.feature === "files" &&
+              message.name === "refs" &&
+              message.kind === "response"
+            )
+              received.resolve();
+          }),
+        );
+        await page.routeWebSocket("**/*", (socket) => {
+          const server = socket.connectToServer();
+          server.onMessage((data) => {
+            const message = JSON.parse(data.toString());
+            if (
+              message.feature === "files" &&
+              message.name === "refs" &&
+              message.kind === "response"
+            ) {
+              release.resolve(() => socket.send(data));
+            } else socket.send(data);
+          });
+        });
+      },
+    },
+  });
+  test("late default branch never overwrites a ref the user typed then cleared", async ({
+    page,
+    weavie,
+  }) => {
+    git(weavie.workspace, "update-ref", "refs/remotes/origin/main", "HEAD");
+    git(weavie.workspace, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    await runCommand(page, "Diff Against…");
+    const input = page.getByRole("combobox", { name: "Ref to diff against" });
+    await input.fill("HEAD~2");
+    await input.clear();
+    (await release.promise)();
+    await received.promise;
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    await expect(input).toHaveValue("");
+  });
 });

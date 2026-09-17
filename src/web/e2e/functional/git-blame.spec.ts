@@ -4,6 +4,8 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { openFile, pressDocumentEnd, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { awaitReviewSet } from "../harness/navigator";
+import { appliedEdit } from "../harness/review";
 import type { EditorHandle, ModelHandle, WeavieWindow } from "../harness/weavie-window";
 
 // Writes and commits one file in the harness workspace, so a test can build the blame shape it needs.
@@ -322,4 +324,29 @@ test("a long change leaves the popover's history on screen", async ({ page }) =>
   expect(geometry.entry.bottom).toBeLessThanOrEqual(geometry.panel.bottom);
   expect(geometry.entry.height).toBeGreaterThan(10);
   expect(geometry.panel.bottom).toBeLessThanOrEqual(geometry.viewport);
+});
+
+test.describe("review blame", () => {
+  test.use({ fakeScript: { steps: appliedEdit("notes.txt", "changed text\n") } });
+  test("review actions stay beside blame without overlapping, including after keep", async ({
+    page,
+  }) => {
+    await awaitReviewSet(page, ["notes.txt"]);
+    await openFile(page, "notes.txt");
+    const blame = page.locator(".weavie-blame");
+    const pending = page.locator(".weavie-inline-pending-tag");
+    await expect(blame).toBeVisible();
+    await expect(pending).toBeVisible();
+    const gap = (selector: string) =>
+      page.evaluate((selector) => {
+        const label = document.querySelector(".weavie-blame");
+        const actions = document.querySelector(selector);
+        if (!label || !actions) throw new Error("Missing blame or review actions");
+        return actions.getBoundingClientRect().left - label.getBoundingClientRect().right;
+      }, selector);
+    await expect.poll(() => gap(".weavie-inline-pending-tag")).toBeGreaterThanOrEqual(0);
+    await pending.locator(".weavie-inline-pending-keep").click();
+    await expect(page.locator(".weavie-inline-accepted-tag")).toBeVisible();
+    await expect.poll(() => gap(".weavie-inline-accepted-tag")).toBeGreaterThanOrEqual(0);
+  });
 });

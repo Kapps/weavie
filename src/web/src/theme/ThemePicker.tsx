@@ -1,7 +1,7 @@
 import { For, onCleanup, Show } from "solid-js";
 import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
-import { createThemePicker } from "./picker-model";
+import { createThemePicker, type ThemeFilter } from "./picker-model";
 import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
 import "./theme-picker.css";
 
@@ -16,6 +16,8 @@ export function ThemePicker() {
 function Picker() {
   const {
     savedId,
+    mode,
+    setMode,
     query,
     setQuery,
     sortBy,
@@ -134,6 +136,21 @@ function Picker() {
         aria-controls="theme-options"
         aria-activedescendant={count() ? `theme-option-${selected()}` : undefined}
       />
+      <Show when={!isSearch()}>
+        <label class="theme-picker-sort">
+          Appearance
+          <select
+            aria-label="Theme appearance"
+            value={mode()}
+            disabled={saving()}
+            onChange={(event) => setMode(event.currentTarget.value as ThemeFilter)}
+          >
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="all">All themes</option>
+          </select>
+        </label>
+      </Show>
       <Show when={isSearch()}>
         <label class="theme-picker-sort">
           Sort by

@@ -91,7 +91,16 @@ test("package variants preserve registry position and support hover and keyboard
   const filter = picker.getByRole("combobox", { name: "Filter theme variants" });
   await expect(filter).toBeFocused();
   const choices = picker.getByRole("listbox", { name: "Theme variants", exact: true });
+  const appearance = picker.getByLabel("Theme appearance");
+  await expect(appearance).toHaveValue("light");
+  await expect(choices.getByRole("option")).toHaveCount(1);
+  await expect(choices).toContainText("ocean-12 light");
+  await appearance.selectOption("dark");
+  await expect(choices.getByRole("option")).toHaveCount(1);
+  await expect(choices).toContainText("ocean-12 dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
+  await appearance.selectOption("all");
+  await expect(choices.getByRole("option")).toHaveCount(2);
   await choices.getByRole("option", { name: /ocean-12 light/ }).hover();
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
   await choices.getByRole("option", { name: /ocean-12 dark/ }).hover();
@@ -130,6 +139,7 @@ test("obsolete package responses cannot replace another package or reopen a dism
   await results.getByRole("option").nth(1).click();
   await release("ocean-1");
   const choices = picker.getByRole("listbox", { name: "Theme variants", exact: true });
+  await picker.getByLabel("Theme appearance").selectOption("all");
   await expect(choices).toContainText("ocean-1 dark");
   await release("ocean-0");
   await choices.getByRole("option", { name: /ocean-1 light/ }).hover();

@@ -8,9 +8,6 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void AskAside(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
-		if (submission.Kind != AgentTurnSubmissionKind.Prompt || submission.CommandName.Length != 0) {
-			throw new ArgumentException("A side question must be an ordinary prompt.", nameof(submission));
-		}
 		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
 			throw new ArgumentException("Write a side question or attach an image.", nameof(submission));
 		}
@@ -19,6 +16,7 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
 				EnsureSideConversationSupport();
+				submission = NormalizeSubmissionLocked(submission);
 				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, submission.Text);
 				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
 				_sideRuntimes.Add(conversation.ConversationId, runtime);

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import type { ThemeSlot } from "../bridge";
-import { beginThemePreview, currentThemeId } from "./controller";
+import { beginThemePreview, currentThemeId, currentThemeType } from "./controller";
 import {
   type ExtensionChoice,
   installTheme,
@@ -13,8 +13,11 @@ import {
   themeRequest,
 } from "./picker-state";
 
+export type ThemeFilter = "light" | "dark" | "all";
+
 export function createThemePicker() {
   const savedId = currentThemeId();
+  const [mode, setMode] = createSignal<ThemeFilter>(currentThemeType());
   const preview = beginThemePreview();
   const lifetime = new AbortController();
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
@@ -37,12 +40,18 @@ export function createThemePicker() {
   let searchAbort = new AbortController();
   let packageAbort = new AbortController();
   const choices = createMemo(() =>
-    catalog().filter((t) =>
-      `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
+    catalog().filter(
+      (t) =>
+        (mode() === "all" || t.type === mode()) &&
+        `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
     ),
   );
   const variantChoices = createMemo(() =>
-    variants().filter((v) => v.choice.label.toLowerCase().includes(variantQuery().toLowerCase())),
+    variants().filter(
+      (v) =>
+        (mode() === "all" || v.choice.type === mode()) &&
+        v.choice.label.toLowerCase().includes(variantQuery().toLowerCase()),
+    ),
   );
   const count = () => (registry() ? extensions().length : choices().length);
   const fail = (e: unknown) => {
@@ -202,6 +211,8 @@ export function createThemePicker() {
 
   return {
     savedId,
+    mode,
+    setMode,
     query,
     setQuery,
     sortBy,

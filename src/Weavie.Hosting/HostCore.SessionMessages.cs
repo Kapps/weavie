@@ -108,7 +108,7 @@ public sealed partial class HostCore {
 		});
 
 		var files = session.Bus.Feature("files");
-		files.Handle<EmptySessionMessage, string[]>(
+		files.Handle<EmptySessionMessage, DiffRefsResult>(
 			"refs",
 			(_, ct) => ListRefsAsync(session, ct));
 		files.Handle<EmptySessionMessage>("refreshIndex", (_, _) => {

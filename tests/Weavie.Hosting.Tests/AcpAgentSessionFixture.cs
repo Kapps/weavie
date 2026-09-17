@@ -196,6 +196,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_FAKE_ACP_MODE"] = "flatten-replay" },
 		allowAllPermissions: true, persistedSessionId, failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateWithoutForkCommands() => Create(
+		"fake", "ACP with distinct fork commands", ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_FAKE_ACP_MODE"] = "side-no-commands" },
+		allowAllPermissions: true, persistedSessionId: null, failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateResumeOnlyAdapter(string persistedSessionId, long turnNumber) {
 		var fixture = Create(
 			"fake",

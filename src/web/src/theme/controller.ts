@@ -103,6 +103,9 @@ let state: ThemeState = (() => {
 let preview: Slot | null = null;
 const displayedSlot = (): Slot => preview ?? activeSlot(state);
 
+/** The resolved appearance mode, including the system preference. */
+export const currentThemeType = (): "light" | "dark" => (isDark(state.mode) ? "dark" : "light");
+
 /** The saved active theme, independent of a picker preview. */
 export const currentThemeId = (): string => activeSlot(state).id;
 

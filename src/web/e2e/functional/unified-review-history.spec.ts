@@ -11,6 +11,7 @@ import {
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 const sourceName = "z-review.ts";
@@ -29,7 +30,7 @@ test.use({
 });
 
 async function reviewState(page: Page): Promise<{ selections: unknown; scrollTop: number }> {
-  return page.evaluate((name) => {
+  const selections = await page.evaluate((name) => {
     const editors = (window as WeavieWindow).__WEAVIE_MONACO__?.editor.getEditors() as
       | EditorHandle[]
       | undefined;
@@ -40,8 +41,9 @@ async function reviewState(page: Page): Promise<{ selections: unknown; scrollTop
     );
     const scroller = document.querySelector(".unified-review-diffs");
     if (editor === undefined || scroller === null) throw new Error("Review is not mounted");
-    return { selections: editor.getSelections(), scrollTop: scroller.scrollTop };
+    return editor.getSelections();
   }, sourceName);
+  return { selections, scrollTop: (await reviewScroll(page)).top };
 }
 
 async function prepareDeparture(page: Page): Promise<void> {
@@ -274,6 +276,13 @@ test("document symbols preview, cancel and commit against the originating review
       ]);
     await input.press(action === "cancel" ? "Escape" : "Enter");
     if (action === "cancel") await expect.poll(() => reviewState(page)).toEqual(departure);
+    else {
+      await expect(
+        page.locator(".unified-review-file .view-line", {
+          hasText: /export\sconst\svalue0\s=\s0;/,
+        }),
+      ).toBeInViewport();
+    }
   }
   await expect(page.locator(".unified-review")).toBeVisible();
   await runCommand(page, "Go Back");

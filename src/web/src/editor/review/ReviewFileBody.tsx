@@ -12,22 +12,22 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
+import type { ReviewScroll } from "./review-scroll";
 import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileBody(props: {
   session: ClientSession;
   tab: TabOwner;
-  position: string;
+  onEditor(editor: ReviewEditor | undefined): void;
   header: () => HTMLElement;
   scope: ReviewScopeState;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
-  onReveal: () => void;
   onCursor: (line: number) => void;
   file: Accessor<ReviewFileView>;
-  scroller: () => HTMLElement;
+  scroller: () => ReviewScroll;
   editorHeight: () => number;
   onEditorHeight: (height: number) => void;
   measure: () => void;
@@ -45,11 +45,6 @@ export function ReviewFileBody(props: {
   let resolution = 0;
   let dropped = false;
 
-  createEffect(() => {
-    void props.position;
-    mounted()?.layout();
-  });
-
   // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
@@ -62,6 +57,7 @@ export function ReviewFileBody(props: {
     live.dispose();
     live = undefined;
     setMounted(undefined);
+    props.onEditor(undefined);
     liveExists = undefined;
   };
   createEffect(() => {
@@ -129,10 +125,10 @@ export function ReviewFileBody(props: {
             active: props.active,
             toolbarHost: () => (props.active() ? props.toolbarHost() : null),
             configure: props.configureDiff,
-            onReveal: props.onReveal,
             onCursor: props.onCursor,
           });
           setMounted(live);
+          props.onEditor(live);
         });
       },
       (error: unknown) => {

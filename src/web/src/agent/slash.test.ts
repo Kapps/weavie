@@ -3,7 +3,10 @@ import type { AgentControlState, AgentSlashEntry } from "../bridge";
 import {
   agentInvocationForDraft,
   classifyAgentDraft,
+  classifyAgentSubmission,
   filterSlash,
+  invocationForAction,
+  slashCompletionScope,
   slashQuery,
   weavieCommandForDraft,
   weavieCommandInput,
@@ -38,6 +41,49 @@ const btw: AgentSlashEntry = {
   inputHint: "question",
   inputName: "question",
 };
+
+describe("side command completion", () => {
+  const prompt: AgentSlashEntry = { ...entry("report-weavie-bug"), kind: "mcpPrompt" };
+  const entries = [clear, btw, entry("review"), prompt];
+
+  it.each(["/btw /", "  /BTW   /", "/btw\n  /"])("completes the inner command in %s", (draft) => {
+    const scope = slashCompletionScope(entries, draft);
+    expect(slashQuery(scope.draft)).toBe("");
+    expect(scope.entries).toEqual([entries[2], prompt]);
+    expect(`${scope.prefix}/report-weavie-bug`).toBe(`${draft}report-weavie-bug`);
+  });
+
+  it("uses the normal classifier and preserves command arguments", () => {
+    const scope = slashCompletionScope(entries, "/btw /report-weavie-bug invented details");
+    expect(scope.draft).toBe("/report-weavie-bug invented details");
+    expect(slashQuery(scope.draft)).toBeNull();
+    expect(
+      invocationForAction(
+        classifyAgentDraft({ ready: true, axes: [], slash: [...scope.entries] }, scope.draft),
+      ),
+    ).toEqual({ kind: "mcpPrompt", name: "report-weavie-bug" });
+  });
+
+  it("uses the inner command kind for submission readiness", () => {
+    const state = { ready: true, axes: [], slash: entries };
+    expect(classifyAgentSubmission(state, "/btw /review tests")).toEqual(
+      classifyAgentDraft(state, "/review tests"),
+    );
+    expect(classifyAgentSubmission(state, "/btw /report-weavie-bug")).toEqual(
+      classifyAgentDraft(state, "/report-weavie-bug"),
+    );
+    expect(classifyAgentSubmission(state, "/btw /clear")).toEqual({
+      kind: "command",
+      entry: clear,
+    });
+  });
+
+  it("keeps ordinary questions and unsupported outer commands literal", () => {
+    expect(slashQuery(slashCompletionScope(entries, "/btw explain /review").draft)).toBeNull();
+    expect(slashCompletionScope([clear], "/btw /").prefix).toBe("");
+    expect(slashCompletionScope(entries, "/btw-extra /").prefix).toBe("");
+  });
+});
 
 describe("weavieCommandForDraft", () => {
   it("matches only an exact client-owned slash action", () => {

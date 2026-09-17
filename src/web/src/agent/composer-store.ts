@@ -97,12 +97,18 @@ export function submitAgentTurn(
   return true;
 }
 
-export function submitAgentAside(session: ClientSession, prompt: string): boolean {
-  const submission = prepareSubmission(session, prompt, null);
+export function submitAgentAside(
+  session: ClientSession,
+  prompt: string,
+  invocation: AgentInvocation | null,
+): boolean {
+  const submission = prepareSubmission(session, prompt, invocation);
   if (submission === null) return false;
   void invokeCommandInSession(session, CommandIds.askAgentAside, {
     question: submission.prompt,
     submissionId: submission.id,
+    kind: submission.kind,
+    commandName: submission.commandName,
     attachmentIds: submission.attachmentIds,
   }).then((result) =>
     settleSubmission(session, {

@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import type { ThemePickerModel } from "./picker-model";
+import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
 import { ThemeChoiceList } from "./ThemeChoiceList";
 
 export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => void }) {
@@ -48,6 +49,7 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
                 disabled={m.saving()}
                 onInput={(event) => m.setVariantQuery(event.currentTarget.value)}
               />
+              <ThemeAppearanceSelect model={m} />
               <ThemeChoiceList
                 id="theme-variants"
                 label="Theme variants"

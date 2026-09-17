@@ -1,5 +1,14 @@
 import { ChevronDown, ChevronRight } from "lucide-solid";
-import { type Accessor, createEffect, For, type JSX, Show } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
@@ -8,6 +17,8 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
+import type { ReviewEditor } from "./review-editor";
+import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
@@ -17,7 +28,7 @@ export function ReviewFileSection(props: {
   scope: ReviewScopeState;
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
-  scroller: () => HTMLElement;
+  scroller: () => ReviewScroll;
   editorHeight: () => number;
   onEditorHeight: (height: number) => void;
   index: number;
@@ -26,7 +37,6 @@ export function ReviewFileSection(props: {
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
-  onReveal: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
   style: string;
@@ -38,6 +48,28 @@ export function ReviewFileSection(props: {
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
+  const layoutHeader = (): void => {
+    const viewport = props.scroller().viewport;
+    const top = viewport.getBoundingClientRect().top;
+    const offset = Math.max(
+      0,
+      Math.min(
+        top - article!.getBoundingClientRect().top - article!.clientTop,
+        article!.clientHeight - header.offsetHeight,
+      ),
+    );
+    header.style.top = `${offset}px`;
+  };
+  const [editor, setEditor] = createSignal<ReviewEditor>();
+  createEffect(() => {
+    const position = props.style;
+    const current = editor();
+    if (article !== undefined) {
+      article.style.cssText = position;
+      layoutHeader();
+      current?.layout();
+    }
+  });
   const remeasure = (): void => {
     if (article !== undefined) {
       props.measure(article);
@@ -46,6 +78,17 @@ export function ReviewFileSection(props: {
   createEffect(() => {
     void collapsed();
     queueMicrotask(remeasure);
+  });
+
+  onMount(() => {
+    const unsubscribe = props.scroller().onScroll(layoutHeader);
+    const observer = new ResizeObserver(layoutHeader);
+    observer.observe(article!);
+    layoutHeader();
+    onCleanup(() => {
+      unsubscribe();
+      observer.disconnect();
+    });
   });
 
   return (
@@ -60,7 +103,6 @@ export function ReviewFileSection(props: {
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);
       }}
-      style={props.style}
     >
       <header class="unified-review-file-header" ref={header}>
         <button
@@ -131,7 +173,7 @@ export function ReviewFileSection(props: {
           <ReviewFileBody
             session={props.session}
             tab={props.tab}
-            position={props.style}
+            onEditor={setEditor}
             header={() => header}
             scroller={props.scroller}
             editorHeight={props.editorHeight}
@@ -144,7 +186,6 @@ export function ReviewFileSection(props: {
             active={props.active}
             toolbarHost={props.toolbarHost}
             configureDiff={props.configureDiff}
-            onReveal={props.onReveal}
             onCursor={props.onFocus}
           />
           <For each={props.file().diff()?.rejected}>

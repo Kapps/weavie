@@ -551,11 +551,10 @@ export function requestBranchPreview(
       );
 }
 
-export function requestDiffRefs(backendId: string): Promise<string[]> {
-  const session = selectedForBackend(backendId);
-  return session === undefined
-    ? Promise.reject(new Error("No live session is available."))
-    : session.feature("files").request("refs", {});
+export function requestDiffRefs(
+  session: ClientSession,
+): Promise<{ refs: string[]; defaultRef: string | null }> {
+  return session.feature("files").request("refs", {});
 }
 
 export function requestPullRequests(backendId: string, query: string): Promise<PullRequestInfo[]> {

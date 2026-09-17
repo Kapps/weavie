@@ -130,7 +130,7 @@
 }
 
 .unified-review-files-header {
-  position: sticky;
+  position: relative;
   top: 0;
   z-index: 2;
   justify-content: space-between;
@@ -226,19 +226,29 @@
 }
 
 .unified-review-diffs {
+  --review-scroll-padding: 1em;
   position: relative;
   height: 100%;
   min-width: 0;
-  overflow: auto;
-  overflow-anchor: none;
+  overflow: clip;
   width: 100%;
   max-width: 100rem;
   margin: 0 auto;
-  padding: 1em;
+  padding: var(--review-scroll-padding);
+}
+
+.unified-review-diffs > .monaco-scrollable-element {
+  width: 100%;
+  height: 100%;
+}
+
+.unified-review-scroll-extent {
+  position: relative;
 }
 
 .unified-review-virtual-list {
-  position: relative;
+  position: absolute;
+  height: 100%;
   width: 100%;
 }
 
@@ -254,7 +264,7 @@
 }
 
 .unified-review-file-header {
-  position: sticky;
+  position: relative;
   top: 0;
   border-radius: 6px 6px 0 0;
   z-index: 2;
@@ -262,6 +272,17 @@
   padding: 0.45em 0.65em;
   border-bottom: 1px solid var(--border);
   background: var(--bar);
+}
+
+.unified-review-file-header::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: var(--review-scroll-padding);
+  background: var(--bg);
+  pointer-events: none;
 }
 
 .unified-review-file-name {

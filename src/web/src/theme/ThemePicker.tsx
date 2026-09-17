@@ -3,6 +3,7 @@ import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
 import { createThemePicker } from "./picker-model";
 import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
+import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
 import { ThemeChoiceList } from "./ThemeChoiceList";
 import { ThemeExtensionDetails } from "./ThemeExtensionDetails";
 import { ThemeVariants } from "./ThemeVariants";
@@ -131,6 +132,9 @@ function Picker() {
             aria-controls="theme-options"
             aria-activedescendant={m.count() ? `theme-options-${m.selected()}` : undefined}
           />
+          <Show when={!m.registry()}>
+            <ThemeAppearanceSelect model={m} />
+          </Show>
           <Show when={m.registry()}>
             <label class="theme-picker-sort">
               Sort by

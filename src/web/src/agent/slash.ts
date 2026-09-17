@@ -1,9 +1,18 @@
-// The slash-menu trigger: the composer draft is a slash command while it starts with "/" and holds no
-// whitespace yet (still typing the command name); once a space begins the prompt, the menu closes. Kept
-// caret-free and pure so it's trivially testable and provider-agnostic — it filters whatever entries the
-// capability interface supplied.
-
 import type { AgentControlState, AgentSlashEntry } from "../bridge";
+import { CommandIds } from "../commands/types";
+
+/** The command input and entries at the selected conversation destination. */
+export function slashCompletionScope(entries: readonly AgentSlashEntry[], draft: string) {
+  const command = weavieCommandForDraft(entries, draft);
+  const prefix =
+    command?.commandId === CommandIds.askAgentAside ? (/^\s*\/\S+\s+/.exec(draft)?.[0] ?? "") : "";
+  return {
+    prefix,
+    draft: draft.slice(prefix.length),
+    entries:
+      prefix.length > 0 ? entries.filter((entry) => entry.kind !== "weavieCommand") : entries,
+  };
+}
 
 /** The query after the leading slash, or null when the draft isn't a slash command. */
 export function slashQuery(draft: string): string | null {
@@ -68,6 +77,13 @@ export type AgentDraft =
   | { kind: "prompt" | "loading" }
   | { kind: "command"; entry: AgentSlashEntry };
 
+/** The agent-owned invocation shared by primary and forked submissions. */
+export function invocationForAction(action: AgentDraft) {
+  return action.kind === "command" && action.entry.kind !== "weavieCommand"
+    ? { kind: action.entry.kind, name: action.entry.name }
+    : null;
+}
+
 /** Resolves slash input only after its provider catalog is known; local actions remain available. */
 export function classifyAgentDraft(state: AgentControlState, draft: string): AgentDraft {
   const local = weavieCommandForDraft(state.slash, draft);
@@ -75,4 +91,12 @@ export function classifyAgentDraft(state: AgentControlState, draft: string): Age
   if (!state.ready && draft.trimStart().startsWith("/")) return { kind: "loading" };
   const provider = agentInvocationForDraft(state.slash, draft);
   return provider === null ? { kind: "prompt" } : { kind: "command", entry: provider };
+}
+
+/** Resolves the submitted input after an optional side-conversation destination. */
+export function classifyAgentSubmission(state: AgentControlState, draft: string): AgentDraft {
+  const action = classifyAgentDraft(state, draft);
+  return action.kind === "command" && action.entry.commandId === CommandIds.askAgentAside
+    ? classifyAgentDraft(state, weavieCommandInput(action.entry, draft) ?? "")
+    : action;
 }

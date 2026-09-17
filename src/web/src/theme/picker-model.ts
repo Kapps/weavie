@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import type { ThemeSlot } from "../bridge";
 import { beginThemePreview, currentThemeId, currentThemeType } from "./controller";
 import {
@@ -25,27 +25,35 @@ export function createThemePicker() {
   const [sortBy, setSortBy] = createSignal<ThemeSearchOrder>("downloadCount");
   const [registry, setRegistry] = createSignal(false);
   const [extensions, setExtensions] = createSignal<ExtensionChoice[]>([]);
-  const [variants, setVariants] = createSignal<ThemePreview[] | null>(null);
   const [total, setTotal] = createSignal(0);
   const [selected, setSelected] = createSignal(0);
   const [error, setError] = createSignal("");
   const [searchLoading, setSearchLoading] = createSignal(false);
-  const [packageLoading, setPackageLoading] = createSignal(false);
-  const loading = () => searchLoading() || packageLoading();
   const [saving, setSaving] = createSignal(false);
+  const [activeExtension, setActiveExtension] = createSignal<ExtensionChoice | null>(null);
+  const [variants, setVariants] = createSignal<ThemePreview[]>([]);
+  const [variantQuery, setVariantQuery] = createSignal("");
+  const [variantSelected, setVariantSelected] = createSignal(0);
+  const [packageLoading, setPackageLoading] = createSignal(false);
+  const [packageError, setPackageError] = createSignal("");
   let previewGeneration = 0;
-  let searchGeneration = 0;
-  let registryQuery = "";
   let searchAbort = new AbortController();
+  let packageAbort = new AbortController();
   const choices = createMemo(() =>
-    (variants()?.map((v) => v.choice) ?? catalog()).filter(
+    catalog().filter(
       (t) =>
         (mode() === "all" || t.type === mode()) &&
         `${t.label} ${t.namespace ?? ""}`.toLowerCase().includes(query().toLowerCase()),
     ),
   );
-  const isSearch = () => registry() && variants() === null;
-  const count = () => (isSearch() ? extensions().length : choices().length);
+  const variantChoices = createMemo(() =>
+    variants().filter(
+      (v) =>
+        (mode() === "all" || v.choice.type === mode()) &&
+        v.choice.label.toLowerCase().includes(variantQuery().toLowerCase()),
+    ),
+  );
+  const count = () => (registry() ? extensions().length : choices().length);
   const fail = (e: unknown) => {
     if (!lifetime.signal.aborted) setError(String(e));
   };
@@ -53,115 +61,130 @@ export function createThemePicker() {
     if (!saving()) setThemePickerOpen(false);
   };
 
+  function closeVariants() {
+    packageAbort.abort();
+    setActiveExtension(null);
+    setVariants([]);
+    setVariantQuery("");
+    setPackageLoading(false);
+    setPackageError("");
+    previewGeneration++;
+    preview.clear();
+  }
+
   onCleanup(() => {
     lifetime.abort();
     searchAbort.abort();
+    packageAbort.abort();
     previewGeneration++;
     preview.dispose();
   });
   void themeRequest<ThemeChoice[]>("list", {}, lifetime.signal).then(setCatalog).catch(fail);
 
   async function highlight(index: number) {
+    if (saving()) return;
     setSelected(index);
+    if (registry()) return;
     const generation = ++previewGeneration;
-    if (isSearch()) {
-      setPackageLoading(false);
-      return;
-    }
     const choice = choices()[index];
     if (choice === undefined) return;
     setError("");
     try {
-      const slot =
-        variants()?.find((v) => v.choice.id === choice.id)?.slot ??
-        (await themeRequest<ThemeSlot>("preview", { id: choice.id }, lifetime.signal));
+      const slot = await themeRequest<ThemeSlot>("preview", { id: choice.id }, lifetime.signal);
       if (generation === previewGeneration && !lifetime.signal.aborted) preview.show(slot);
     } catch (e) {
       if (generation === previewGeneration) fail(e);
     }
   }
 
-  async function search(offset: number, generation: number) {
+  function highlightVariant(index: number) {
+    if (saving()) return;
+    setVariantSelected(index);
+    const variant = variantChoices()[index];
+    if (variant !== undefined) preview.show(variant.slot);
+  }
+
+  async function search(offset: number, signal: AbortSignal) {
     setSearchLoading(true);
     setError("");
     try {
       const result = await themeRequest<SearchResults>(
         "search",
         { query: query(), offset, sortBy: sortBy() },
-        searchAbort.signal,
+        signal,
       );
-      if (generation !== searchGeneration || lifetime.signal.aborted) return;
+      if (signal.aborted || lifetime.signal.aborted) return;
       setExtensions(offset === 0 ? result.extensions : [...extensions(), ...result.extensions]);
       setTotal(result.totalSize);
     } catch (e) {
-      if (generation === searchGeneration) fail(e);
+      if (!signal.aborted) fail(e);
     } finally {
-      if (generation === searchGeneration) setSearchLoading(false);
+      if (!signal.aborted) setSearchLoading(false);
     }
   }
 
-  createEffect(() => {
-    const remote = isSearch();
-    query();
-    sortBy();
-    choices();
-    const initial =
-      !registry() && query() === ""
-        ? Math.max(
-            0,
-            choices().findIndex((choice) => choice.id === savedId),
-          )
-        : 0;
-    setSelected(initial);
-    previewGeneration++;
-    searchAbort.abort();
-    searchAbort = new AbortController();
-    const generation = ++searchGeneration;
-    setSearchLoading(false);
-    setPackageLoading(false);
-    if (remote) {
+  createEffect(
+    on([registry, query, sortBy], ([remote]) => {
+      closeVariants();
+      searchAbort.abort();
+      searchAbort = new AbortController();
+      setSearchLoading(false);
+      setSelected(0);
+      setError("");
+      if (!remote) return;
       setExtensions([]);
       setTotal(0);
-      const timer = setTimeout(() => void search(0, generation), 250);
+      const signal = searchAbort.signal;
+      const timer = setTimeout(() => void search(0, signal), 250);
       onCleanup(() => clearTimeout(timer));
-    } else {
-      void highlight(initial);
-    }
-  });
+    }),
+  );
 
-  async function accept() {
-    if (loading() || saving()) return;
-    setError("");
-    if (isSearch()) {
-      const extension = extensions()[selected()];
-      if (extension === undefined) return;
-      registryQuery = query();
-      setPackageLoading(true);
-      const generation = ++previewGeneration;
-      try {
-        const result = await themeRequest<ThemePreview[]>(
-          "previewExtension",
-          extension,
-          lifetime.signal,
-        );
-        if (generation === previewGeneration && !lifetime.signal.aborted) {
-          batch(() => {
-            setQuery("");
-            setVariants(result);
-          });
-        }
-      } catch (e) {
-        if (generation === previewGeneration) fail(e);
-      } finally {
-        if (generation === previewGeneration && !lifetime.signal.aborted) setPackageLoading(false);
-      }
-      return;
-    }
-    const choice = choices()[selected()];
-    if (choice === undefined) return;
-    setSaving(true);
+  createEffect(
+    on([registry, choices], ([remote, items]) => {
+      if (remote) return;
+      const initial =
+        query() === ""
+          ? Math.max(
+              0,
+              items.findIndex((c) => c.id === savedId),
+            )
+          : 0;
+      void highlight(initial);
+    }),
+  );
+  createEffect(on(variantChoices, () => highlightVariant(0)));
+
+  async function openExtension(index: number) {
+    if (saving()) return false;
+    const extension = extensions()[index];
+    if (extension === undefined) return false;
+    closeVariants();
+    setSelected(index);
+    setActiveExtension(extension);
+    setPackageLoading(true);
+    packageAbort = new AbortController();
+    const signal = packageAbort.signal;
     try {
-      if (variants() !== null) await installTheme(choice);
+      const result = await themeRequest<ThemePreview[]>("previewExtension", extension, signal);
+      if (!signal.aborted && !lifetime.signal.aborted) {
+        setVariants(result);
+        return true;
+      }
+    } catch (e) {
+      if (!signal.aborted && !lifetime.signal.aborted) setPackageError(String(e));
+    } finally {
+      if (!signal.aborted) setPackageLoading(false);
+    }
+    return false;
+  }
+
+  async function apply(choice: ThemeChoice, install: boolean) {
+    if (saving()) return;
+    setSaving(true);
+    setError("");
+    try {
+      if (install) await installTheme(choice);
       await selectTheme(choice.id, lifetime.signal);
       setThemePickerOpen(false);
     } catch (e) {
@@ -171,12 +194,19 @@ export function createThemePicker() {
     }
   }
 
+  async function accept() {
+    const choice = choices()[selected()];
+    if (choice !== undefined) await apply(choice, false);
+  }
+  async function acceptVariant() {
+    const variant = variantChoices()[variantSelected()];
+    if (variant !== undefined) await apply(variant.choice, true);
+  }
+
   function switchSource(remote: boolean) {
     if (saving()) return;
-    setVariants(null);
     setRegistry(remote);
     setQuery("");
-    setError("");
   }
 
   return {
@@ -189,24 +219,31 @@ export function createThemePicker() {
     setSortBy,
     registry,
     extensions,
-    variants,
-    backToResults: () =>
-      batch(() => {
-        setQuery(registryQuery);
-        setVariants(null);
-      }),
     total,
     selected,
     error,
-    loading,
+    searchLoading,
     saving,
     choices,
-    isSearch,
     count,
     close,
     highlight,
     accept,
     switchSource,
-    loadMore: () => search(extensions().length, searchGeneration),
+    activeExtension,
+    variants,
+    variantQuery,
+    setVariantQuery,
+    variantSelected,
+    variantChoices,
+    packageLoading,
+    packageError,
+    highlightVariant,
+    acceptVariant,
+    openExtension,
+    closeVariants,
+    loadMore: () => search(extensions().length, searchAbort.signal),
   };
 }
+
+export type ThemePickerModel = ReturnType<typeof createThemePicker>;

@@ -401,11 +401,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
-		else if (text == "delayed-background") {
+		else if (text == "held-background") {
 			StartBackground();
 			_ = Task.Run(async () => {
-				await Task.Delay(TimeSpan.FromMilliseconds(200)).ConfigureAwait(false);
-				Message("delayed background finished");
+				string release = Path.Combine(Environment.CurrentDirectory, "release-background");
+				while (!File.Exists(release)) await Task.Delay(10, ct).ConfigureAwait(false);
+				Message("held background finished");
 				FinishBackground();
 			});
 		} else if (text == "finish-background") FinishBackground();

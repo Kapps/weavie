@@ -9,8 +9,9 @@ public sealed partial class OpenVsxThemeInstaller {
 		if (sortBy is not "downloadCount" and not "relevance") {
 			throw new ArgumentException("Unknown theme search order.", nameof(sortBy));
 		}
-		string json = await _http.GetStringAsync(
+		using var response = await GetRegistryAsync(
 			$"{_registry}/api/-/search?category=Themes&size=20&offset={offset}&sortBy={sortBy}&sortOrder=desc&query={Uri.EscapeDataString(query)}", ct).ConfigureAwait(false);
+		string json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		using var document = JsonDocument.Parse(json);
 		return document.RootElement.Clone();
 	}
@@ -41,7 +42,8 @@ public sealed partial class OpenVsxThemeInstaller {
 		if (version is not null) ValidateCoordinate(version);
 		string url = $"{_registry}/api/{Uri.EscapeDataString(ns)}/{Uri.EscapeDataString(name)}";
 		if (version is not null) url += $"/{Uri.EscapeDataString(version)}";
-		string metadata = await _http.GetStringAsync(url, ct).ConfigureAwait(false);
+		using var metadataResponse = await GetRegistryAsync(url, ct).ConfigureAwait(false);
+		string metadata = await metadataResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		var (downloadUrl, resolvedVersion) = ParseMetadata(metadata);
 		if (downloadUrl is null || resolvedVersion is null) {
 			throw new InvalidOperationException($"Open VSX metadata for {ns}.{name} has no .vsix download.");
@@ -50,7 +52,8 @@ public sealed partial class OpenVsxThemeInstaller {
 		if (!IsTrustedDownloadUrl(downloadUrl)) {
 			throw new InvalidOperationException($"Open VSX returned an untrusted .vsix URL for {ns}.{name}.");
 		}
-		return (await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false), resolvedVersion);
+		using var packageResponse = await GetRegistryAsync(downloadUrl, ct).ConfigureAwait(false);
+		return (await packageResponse.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false), resolvedVersion);
 	}
 
 	private static void ValidateCoordinate(string value) {

@@ -279,12 +279,13 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
-		fixture.AskAside("delayed-background");
+		fixture.AskAside("held-background");
 		var turn = await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.ConversationId is not null);
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-background"), string.Empty);
 		var answer = await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-completed" && message.Text == "delayed background finished");
+			message.Type == "item-completed" && message.Text == "held background finished");
 		await Wait.UntilAsync(() => fixture.Events.Status.Status == SessionStatus.Idle);
 
 		Assert.Equal(turn.ConversationId, answer.ConversationId);

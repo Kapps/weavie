@@ -80,9 +80,6 @@
   color: var(--bad);
   margin: 0;
 }
-.theme-picker-back {
-  align-self: flex-start;
-}
 .theme-picker p {
   font-size: var(--font-metadata-size);
 }
@@ -107,4 +104,77 @@
 .theme-extension-details {
   width: 100%;
   line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.theme-extension-details > span {
+  white-space: nowrap;
+}
+.theme-extension-details .theme-publisher {
+  color: color-mix(in srgb, var(--accent) 60%, var(--fg));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.theme-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.theme-rating-star {
+  color: var(--warn);
+  fill: currentColor;
+  stroke: var(--fg);
+  stroke-width: 1;
+  flex-shrink: 0;
+}
+.theme-picker-list button[aria-selected="true"] .theme-rating-star {
+  stroke: var(--list-active-fg);
+}
+.theme-extension-details .theme-downloads {
+  color: var(--fg);
+}
+.theme-picker-list button[aria-selected="true"] .theme-extension-details > span {
+  color: inherit;
+}
+
+.confirm-dialog.theme-picker-registry {
+  width: min(980px, calc(100vw - 64px));
+  max-width: 980px;
+}
+.theme-picker-body {
+  min-width: 0;
+}
+.theme-picker-registry .theme-picker-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.theme-picker-results,
+.theme-picker-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.theme-picker-variants {
+  border-left: 1px solid var(--border);
+  padding-left: 16px;
+}
+.theme-picker-variants .theme-picker-list {
+  max-height: 280px;
+}
+.theme-picker-variants .theme-picker-header strong {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .theme-picker-registry .theme-picker-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .theme-picker-variants {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding: 12px 0 0;
+  }
 }

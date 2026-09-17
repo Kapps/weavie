@@ -1,6 +1,5 @@
 using Microsoft.Web.WebView2.Core;
 using Weavie.Core;
-using Weavie.Core.Configuration;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
 

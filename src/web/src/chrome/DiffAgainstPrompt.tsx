@@ -15,17 +15,18 @@ export function DiffAgainstPrompt(props: {
   const [branches, setBranches] = createSignal<string[]>([]);
 
   const [error, setError] = createSignal("");
-  let edited = false;
+  const [defaultRef, setDefaultRef] = createSignal<string | null>(null);
   void requestDiffRefs(props.session)
     .then((result) => {
       setBranches(result.refs);
-      if (!edited && result.defaultRef !== null) setRef(result.defaultRef);
+      setDefaultRef(result.defaultRef);
     })
     .catch((error: unknown) => setError(String(error)));
 
   const pick = (name: string): void => {
-    if (name.length > 0) {
-      props.onPick(name);
+    const target = name.trim() || defaultRef();
+    if (target !== null) {
+      props.onPick(target);
     }
   };
 
@@ -41,14 +42,11 @@ export function DiffAgainstPrompt(props: {
       <div class="session-prompt-field">
         <BranchTypeahead
           idPrefix="diff-against"
-          placeholder="branch, tag, or commit (e.g. origin/main, HEAD~2)"
+          placeholder={defaultRef() ?? "branch, tag, or commit (e.g. origin/main, HEAD~2)"}
           ariaLabel="Ref to diff against"
           branches={branches()}
           value={ref()}
-          setValue={(value) => {
-            edited = true;
-            setRef(value);
-          }}
+          setValue={setRef}
           onSubmit={(text) => pick(text)}
           onCancel={() => props.onCancel()}
         />
@@ -59,8 +57,9 @@ export function DiffAgainstPrompt(props: {
         <PromptButton
           label="Diff"
           shortcut="Enter"
-          title={`Diff against ${ref().trim().length > 0 ? ref().trim() : "the typed ref"} (Enter)`}
+          title={`Diff against ${ref().trim() || defaultRef() || "the typed ref"} (Enter)`}
           onClick={() => pick(ref().trim())}
+          disabled={!ref().trim() && defaultRef() === null}
           primary
         />
       </PromptActions>

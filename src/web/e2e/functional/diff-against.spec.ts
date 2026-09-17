@@ -78,6 +78,9 @@ test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ p
   const prompt = page.locator(".session-prompt");
   await expect(prompt).toBeVisible();
   await expect(prompt.locator(".session-prompt-input")).toHaveValue("");
+  await expect(prompt.getByRole("button", { name: /^Diff/ })).toBeDisabled();
+  await prompt.locator(".session-prompt-input").press("Enter");
+  await expect(prompt).toBeVisible();
   await prompt.locator(".session-prompt-input").fill("HEAD^");
   await prompt.locator(".session-prompt-input").press("Enter");
 
@@ -135,8 +138,13 @@ for (const branch of ["main", "release"]) {
     await writeFile(join(weavie.workspace, "notes.txt"), "changed on feature branch\n");
     await runCommand(page, "Diff Against…");
     const input = page.getByRole("combobox", { name: "Ref to diff against" });
-    await expect(input).toHaveValue(`origin/${branch}`);
-    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    await expect(input).toHaveAttribute("placeholder", `origin/${branch}`);
+    if (branch === "main") await input.press("Enter");
+    else {
+      await input.fill("   ");
+      await page.getByRole("button", { name: /^Diff/ }).click();
+    }
     await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`vs origin/${branch}`);
     await expect(page.locator(".weavie-inline-pending-keep")).toBeVisible();
   });
@@ -144,23 +152,10 @@ for (const branch of ["main", "release"]) {
 
 test.describe("delayed diff refs", () => {
   let release: PromiseWithResolvers<() => void>;
-  let received: PromiseWithResolvers<void>;
   test.use({
     preNavigate: {
       async run(page) {
         release = Promise.withResolvers<() => void>();
-        received = Promise.withResolvers<void>();
-        page.on("websocket", (socket) =>
-          socket.on("framereceived", ({ payload }) => {
-            const message = JSON.parse(payload.toString());
-            if (
-              message.feature === "files" &&
-              message.name === "refs" &&
-              message.kind === "response"
-            )
-              received.resolve();
-          }),
-        );
         await page.routeWebSocket("**/*", (socket) => {
           const server = socket.connectToServer();
           server.onMessage((data) => {
@@ -188,10 +183,11 @@ test.describe("delayed diff refs", () => {
     await input.fill("HEAD~2");
     await input.clear();
     (await release.promise)();
-    await received.promise;
-    await page.evaluate(
-      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-    );
+    await expect(input).toHaveAttribute("placeholder", "origin/main");
     await expect(input).toHaveValue("");
+    await input.press("Enter");
+    await expect(
+      page.locator(".toast", { hasText: "No changes against 'origin/main'" }),
+    ).toBeVisible();
   });
 });

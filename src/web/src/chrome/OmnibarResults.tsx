@@ -66,6 +66,7 @@ export function OmnibarResults(props: {
 }): JSX.Element {
   // mousedown fires before the input's focusout closes the popover, so every row activates on it.
   const press = (index: number, run: () => void) => (event: MouseEvent) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     props.onSelect(index);
     run();

@@ -7,6 +7,17 @@ export function modalSubmitKeys(
   onDismiss: () => void,
 ): (event: KeyboardEvent) => void {
   return (event) => {
+    if (event.isComposing || event.defaultPrevented) return;
+    // Focused controls own Enter; the dialog shortcut only submits from a text field or its body.
+    if (
+      event.key === "Enter" &&
+      event.target instanceof Element &&
+      event.target.closest(
+        "button, a[href], select, textarea, input[type=checkbox], input[type=radio]",
+      )
+    ) {
+      return;
+    }
     const action =
       event.key === "Enter" ? onSubmit : event.key === "Escape" ? onDismiss : undefined;
     if (action !== undefined) {

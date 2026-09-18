@@ -74,9 +74,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
   });
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    // Arrows/Enter drive the result list only from the query input — in a glob field they're plain text
-    // editing (Enter is a natural "apply", not "open the selected match").
-    if ((e.target as HTMLElement).classList.contains("search-glob")) {
+    if (e.target !== input || e.isComposing || e.defaultPrevented) {
       return;
     }
 
@@ -215,6 +213,7 @@ export function SearchPanel(props: { visible: boolean }): JSX.Element {
                           data-selected={index() === s.selected()}
                           classList={{ selected: index() === s.selected() }}
                           onMouseDown={(e) => {
+                            if (e.button !== 0) return;
                             e.preventDefault();
                             selectMatch(index());
                             openSelected();

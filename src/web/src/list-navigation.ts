@@ -79,6 +79,7 @@ export function createListNavigation(options: ListNavigationOptions): ListNaviga
   };
 
   const onKeyDown = (event: KeyboardEvent): boolean => {
+    if (event.isComposing || event.defaultPrevented) return false;
     const delta = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (delta !== 0) {
       // An empty list still swallows the key, but must not record a move: the row the list fills in with

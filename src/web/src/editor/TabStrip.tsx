@@ -10,8 +10,8 @@ import {
   Show,
 } from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
-import { formatKey } from "../commands/keybindings";
-import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";
+import { liveKeyHint } from "../commands/keys-live";
+import { captureCommandRunnerFor, dispatchCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import type { ClientSession } from "../messaging/host-connection";
 import { isDirtyPath } from "./dirty-store";
@@ -111,12 +111,8 @@ export function TabStrip(props: {
     const session = props.session();
     return path !== null && session !== null && isPreviewMode(session, path);
   });
-  // Tooltip: the verb + the live shortcut from the command catalog (never hardcoded).
-  const toggleTitle = (): string => {
-    const keys = findCommand(CommandIds.toggleEditorPreview)?.keys ?? [];
-    const suffix = keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
-    return (previewing() ? "Show source" : "Show preview") + suffix;
-  };
+  const toggleTitle = (): string =>
+    (previewing() ? "Show source" : "Show preview") + liveKeyHint(CommandIds.toggleEditorPreview);
 
   // The scrollable tab track: chevron buttons drive it (the native scrollbar is hidden). `overflow` gates the
   // buttons' visibility and dims the one with nothing further to reveal.
@@ -266,7 +262,11 @@ export function TabStrip(props: {
                 <button
                   type="button"
                   class="editor-tab-close pane-tab-close"
-                  title={view.pinned ? "Unpin" : "Close"}
+                  title={
+                    view.pinned
+                      ? `Unpin${liveKeyHint(CommandIds.togglePinTab)}`
+                      : `Close${liveKeyHint(CommandIds.closeTab)}`
+                  }
                   onClick={() => {
                     if (view.pinned) {
                       actions(view.path)?.togglePin();

@@ -543,6 +543,7 @@ export function Omnibar(props: {
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.isComposing || e.defaultPrevented) return;
     if (nav.onKeyDown(e)) {
       return;
     }

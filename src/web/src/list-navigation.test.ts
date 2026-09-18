@@ -98,6 +98,23 @@ describe("nextIndex", () => {
 });
 
 describe("createListNavigation", () => {
+  it("leaves composing and already handled keys with their owner", () => {
+    const nav = navigation(3, {});
+    for (const key of ["ArrowDown", "ArrowUp", "Enter", "Escape"]) {
+      for (const field of ["isComposing", "defaultPrevented"]) {
+        const press = pressed(key);
+        Object.defineProperty(press.event, field, { value: true });
+        expect(nav.onKeyDown(press.event)).toBe(false);
+        expect(press.prevented()).toBe(false);
+        expect(press.stopped()).toBe(false);
+      }
+    }
+    expect(nav.index()).toBe(0);
+    expect(nav.accepted).toEqual([]);
+    expect(nav.dismissals()).toBe(0);
+    expect(nav.revealed).toEqual([]);
+  });
+
   it("moves the highlight and swallows the arrow keys", () => {
     const nav = navigation(3, {});
     const down = pressed("ArrowDown");

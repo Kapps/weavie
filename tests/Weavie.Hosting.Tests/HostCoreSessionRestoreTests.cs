@@ -423,8 +423,28 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True((await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
 			new { id = "branch-a" })).Ok);
+		await host.SessionRequestAsync<JsonElement>(host.Session("branch-a"), "lifecycle", "sync", new { });
 
 		Assert.Equal(branchFile, RestoredActive(host, host.Session("branch-a")));
+	}
+
+	[Fact]
+	public async Task NewSessionCanSyncInsideItsFirstCatalogDelivery() {
+		await using var host = await TestHost.StartAsync();
+		bool synced = false;
+		host.Bridge.Broadcasted += message => {
+			if (!MessageEnvelope.TryParse(message.Json, out var envelope)
+				|| envelope is not { Feature: "sessions", Name: "catalog" }
+				|| !envelope.Payload.EnumerateArray().Any(entry => entry.GetProperty("id").GetString() == "branch-a")) {
+				return;
+			}
+			var reply = host.SessionRequestAsync<JsonElement>(host.Session("branch-a"), "lifecycle", "sync", new { })
+				.GetAwaiter().GetResult();
+			synced = reply.GetProperty("ok").GetBoolean();
+		};
+
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		Assert.True(synced);
 	}
 
 	[Fact]

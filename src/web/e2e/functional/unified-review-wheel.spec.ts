@@ -38,14 +38,20 @@ test.use({
 
 test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
+  weavie,
 }) => {
   test.slow();
+  await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
+  await page.reload();
   await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
-  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
+    `${paths.length} files · press ↓ to start`,
+  );
   await page.locator(".unified-review-tree-row.file").first().click();
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")
@@ -116,4 +122,5 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await page.keyboard.press("Home");
   await expect(rows.first()).toBeFocused();
   await expect(rows.first()).toBeInViewport();
+  expect(weavie.log()).not.toContain("dropped a page connection");
 });

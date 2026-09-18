@@ -18,6 +18,7 @@ internal sealed partial class WebSocketHostBridge {
 	}
 
 	private sealed class PendingMessage(OutboundMessage message) {
+		public TaskCompletionSource Sent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private int _index;
 		private IReadOnlyList<ChunkRange>? _ranges;
 
@@ -79,21 +80,42 @@ internal sealed partial class WebSocketHostBridge {
 					|| message.Weight > characterCapacity - _characters) {
 					return false;
 				}
-				bool addedRoute = false;
-				if (!_pending.TryGetValue(message.Route, out var queue)) {
-					queue = new Queue<PendingMessage>();
-					_pending.Add(message.Route, queue);
-					_routes.Enqueue(message.Route);
-					addedRoute = true;
-				}
-				queue.Enqueue(new PendingMessage(message));
-				_messages++;
-				_characters += message.Weight;
-				if (addedRoute) {
-					PulseLocked();
-				}
+				EnqueueLocked(message.Route, new PendingMessage(message));
 				return true;
 			}
+		}
+
+		public async Task WriteAsync(OutboundMessage message, CancellationToken cancellationToken) {
+			cancellationToken.ThrowIfCancellationRequested();
+			PendingMessage pending;
+			while (true) {
+				Task changed;
+				lock (_gate) {
+					if (_closed) return;
+					if (_messages < capacity && message.Weight <= characterCapacity - _characters) {
+						pending = new PendingMessage(message);
+						EnqueueLocked(message.Route, pending);
+						break;
+					}
+					changed = _changed.Task;
+				}
+				await changed.WaitAsync(cancellationToken).ConfigureAwait(false);
+			}
+			await pending.Sent.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+		}
+
+		private void EnqueueLocked(WebMessageRoute route, PendingMessage pending) {
+			bool addedRoute = false;
+			if (!_pending.TryGetValue(route, out var queue)) {
+				queue = new Queue<PendingMessage>();
+				_pending.Add(route, queue);
+				_routes.Enqueue(route);
+				addedRoute = true;
+			}
+			queue.Enqueue(pending);
+			_messages++;
+			_characters += pending.Weight;
+			if (addedRoute) PulseLocked();
 		}
 
 		public async ValueTask<OutboundTurn?> NextAsync() {
@@ -127,6 +149,7 @@ internal sealed partial class WebSocketHostBridge {
 				var queue = _pending[turn.Route];
 				if (turn.CompletesMessage) {
 					var completed = queue.Dequeue();
+					completed.Sent.TrySetResult();
 					_messages--;
 					_characters -= completed.Weight;
 					if (completed.UsesLargeLane) {
@@ -145,6 +168,7 @@ internal sealed partial class WebSocketHostBridge {
 		public void Complete() {
 			lock (_gate) {
 				_closed = true;
+				foreach (var pending in _pending.Values.SelectMany(queue => queue)) pending.Sent.TrySetResult();
 				PulseLocked();
 			}
 		}

@@ -250,7 +250,7 @@ public sealed partial class HostCore {
 		};
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
-		ActivateSessionRuntimeAndMessages(session);
+		session.ActivateOwnedRuntimeAndMessages();
 		PushSessionList();
 		PersistSessionState();
 	}
@@ -390,12 +390,6 @@ public sealed partial class HostCore {
 	private void PushSessionList() =>
 		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
 
-	private void ActivateSessionRuntimeAndMessages(HostSession session) {
-		SyncSession(session, session.Bus.BroadcastTarget);
-		LogStartup($"session {session.SlotId}: state replayed");
-		session.ActivateOwnedRuntimeAndMessages();
-	}
-
 	private SessionCatalogEntry[] BuildSessionCatalog() =>
 		_sessions?.Slots
 			.OrderByDescending(slot => slot.Loaded)
@@ -519,10 +513,11 @@ public sealed partial class HostCore {
 			if (session.Changes.Review is { PrNumber: > 0 } review) {
 				_ = session.Background.Run(async ct => {
 					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-					PostForSession(session, () => {
+					await session.ReviewPublication.RunAsync(async () => {
 						if (ReferenceEquals(ActiveReview(session), review))
-							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
-					});
+							foreach (var change in session.Changes.TurnChanges())
+								await PushReviewFileToWebAsync(session, change.Path, session.Bus.BroadcastTarget, ct).ConfigureAwait(false);
+					}, ct).ConfigureAwait(false);
 				});
 			}
 			_mediaRoutes.Register(session.Incarnation);
@@ -573,8 +568,8 @@ public sealed partial class HostCore {
 		try {
 			LoadSlot(slot);
 			var session = slot.Session!;
+			session.ActivateOwnedRuntimeAndMessages();
 			PushSessionList();
-			ActivateSessionRuntimeAndMessages(session);
 			PersistSessionState();
 			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
@@ -1236,11 +1231,11 @@ public sealed partial class HostCore {
 					ShellTerminals = shellTerminals,
 				};
 				sessions.Add(slot);
-				PushSessionList();
 				if (input is not null) {
 					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
-				ActivateSessionRuntimeAndMessages(slot.Session);
+				slot.Session.ActivateOwnedRuntimeAndMessages();
+				PushSessionList();
 				PersistSessionState();
 
 				result.SetResult(CommandResult.Success(

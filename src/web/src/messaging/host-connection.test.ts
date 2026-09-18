@@ -111,6 +111,31 @@ function harness(initialHello: HostHello) {
 }
 
 describe("HostConnection session ownership", () => {
+  it("syncs each newly catalogued session exactly once", async () => {
+    const primary = address("primary", "one");
+    const background = address("background", "two");
+    const host = harness(hello("host-one", [entry("primary", primary)]));
+    await host.connection.connect();
+    const catalog: MessageEnvelope = {
+      scope: "host",
+      session: null,
+      kind: "event",
+      requestId: null,
+      feature: "sessions",
+      name: "catalog",
+      payload: [entry("primary", primary), entry("background", background)],
+      error: null,
+    };
+    host.connection.receive(catalog);
+    host.connection.receive(catalog);
+    await vi.waitFor(() =>
+      expect(
+        host.sent.filter((message) => message.name === "sync").map((message) => message.session),
+      ).toEqual([primary, background]),
+    );
+    expect(host.errors).toEqual([]);
+  });
+
   it("buffers exact-session events until the hello catalog creates their owner", async () => {
     const primary = address("primary", "one");
     const host = harness(hello("host-one", [entry("primary", primary)]));

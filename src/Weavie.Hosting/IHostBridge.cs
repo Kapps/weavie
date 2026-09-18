@@ -80,6 +80,20 @@ public interface IWebTransportHub {
 	/// <summary>Pushes an event to every attached page.</summary>
 	void Broadcast(WebTransportMessage message);
 
+	/// <summary>Publishes to attached pages while awaiting transport capacity.</summary>
+	Task BroadcastAsync(WebTransportMessage message, CancellationToken cancellationToken) {
+		cancellationToken.ThrowIfCancellationRequested();
+		Broadcast(message);
+		return Task.CompletedTask;
+	}
+
 	/// <summary>Pushes a response to one exact attached page.</summary>
 	void Send(WebPeer peer, WebTransportMessage message);
+
+	/// <summary>Publishes to one page while awaiting transport capacity.</summary>
+	Task SendAsync(WebPeer peer, WebTransportMessage message, CancellationToken cancellationToken) {
+		cancellationToken.ThrowIfCancellationRequested();
+		Send(peer, message);
+		return Task.CompletedTask;
+	}
 }

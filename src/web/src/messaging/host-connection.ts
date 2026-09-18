@@ -260,6 +260,7 @@ export class HostConnection {
   }
 
   private applyCatalog(catalog: SessionCatalogEntry[]): void {
+    const added: ClientSession[] = [];
     const live = new Set(
       catalog.flatMap((entry) => (entry.address === null ? [] : [this.addressKey(entry.address)])),
     );
@@ -277,12 +278,14 @@ export class HostConnection {
       if (!this.sessionsByAddress.has(key)) {
         const session = new ClientSession(this, entry.address);
         this.sessionsByAddress.set(key, session);
+        added.push(session);
       }
     }
     this.catalog = catalog;
     this.publishCatalog();
     if (this.transportReady) {
       this.flushSessionMessages();
+      for (const session of added) session.sync();
     }
   }
 

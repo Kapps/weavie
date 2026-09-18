@@ -43,7 +43,7 @@ public sealed class SessionMessageBusTests {
 			(peer, message) => replies.Enqueue((peer, message.Json)),
 			_ => { });
 		var address = new SessionAddress("a", "a1");
-		await using var bus = new SessionMessageBus(address, _ => { }, (peer, message) =>
+		await using var bus = TestMessageBus.Create(address, _ => { }, (peer, message) =>
 			replies.Enqueue((peer, message.Json)), _ => { });
 		router.Add(bus);
 		int value = 0;
@@ -72,7 +72,7 @@ public sealed class SessionMessageBusTests {
 	public async Task ReusedSlotCannotReceiveAnOldIncarnationRequest() {
 		var replies = new ConcurrentQueue<string>();
 		var router = new SessionMessageRouter((_, message) => replies.Enqueue(message.Json), _ => { });
-		await using var current = new SessionMessageBus(
+		await using var current = TestMessageBus.Create(
 			new SessionAddress("main", "new"),
 			_ => { },
 			(_, message) => replies.Enqueue(message.Json),
@@ -102,7 +102,7 @@ public sealed class SessionMessageBusTests {
 	public async Task DifferentFeaturesRunInParallelWhileOneFeatureRemainsSerialized() {
 		var router = new SessionMessageRouter((_, _) => { }, _ => { });
 		var address = new SessionAddress("a", "a1");
-		await using var bus = new SessionMessageBus(address, _ => { }, (_, _) => { }, _ => { });
+		await using var bus = TestMessageBus.Create(address, _ => { }, (_, _) => { }, _ => { });
 		router.Add(bus);
 		var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -147,7 +147,7 @@ public sealed class SessionMessageBusTests {
 	public async Task SerializedHandlersShareTheirFeatureLane() {
 		var address = new SessionAddress("a", "a1");
 		var router = new SessionMessageRouter((_, _) => { }, _ => { });
-		await using var bus = new SessionMessageBus(address, _ => { }, (_, _) => { }, _ => { });
+		await using var bus = TestMessageBus.Create(address, _ => { }, (_, _) => { }, _ => { });
 		router.Add(bus);
 		var order = new ConcurrentQueue<string>();
 		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -289,7 +289,7 @@ public sealed class SessionMessageBusTests {
 		var router = new SessionMessageRouter(
 			(peer, message) => replies.Enqueue((peer, message.Json)),
 			_ => { });
-		await using var bus = new SessionMessageBus(
+		await using var bus = TestMessageBus.Create(
 			address,
 			_ => { },
 			(peer, message) => replies.Enqueue((peer, message.Json)),
@@ -318,7 +318,7 @@ public sealed class SessionMessageBusTests {
 	public async Task CancellationMustMatchTheOriginalFeatureAndName() {
 		var address = new SessionAddress("a", "a1");
 		var router = new SessionMessageRouter((_, _) => { }, _ => { });
-		await using var bus = new SessionMessageBus(address, _ => { }, (_, _) => { }, _ => { });
+		await using var bus = TestMessageBus.Create(address, _ => { }, (_, _) => { }, _ => { });
 		router.Add(bus);
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -360,7 +360,7 @@ public sealed class SessionMessageBusTests {
 		var replies = new ConcurrentQueue<string>();
 		var address = new SessionAddress("a", "a1");
 		var router = new SessionMessageRouter((_, message) => replies.Enqueue(message.Json), _ => { });
-		await using var bus = new SessionMessageBus(
+		await using var bus = TestMessageBus.Create(
 			address,
 			_ => { },
 			(_, message) => replies.Enqueue(message.Json),
@@ -591,7 +591,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public void DurableStateReplayIsUnicastToTheRequestingPeer() {
 		var bridge = new FakeHostBridge();
-		var bus = new SessionMessageBus(
+		var bus = TestMessageBus.Create(
 			new SessionAddress("a", "a1"),
 			bridge.Broadcast,
 			bridge.Send,

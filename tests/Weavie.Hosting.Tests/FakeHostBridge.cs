@@ -17,6 +17,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 
 	public event Action<WebPeer, string>? MessageReceived;
 	public event Action<WebPeer>? PeerDisconnected;
+	public event Action<WebTransportMessage>? Broadcasted;
 
 	public Func<MessageEnvelope, FakeWebResponse?>? RequestResponder { get; set; }
 
@@ -28,6 +29,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 			_broadcasts.Add(message.Json);
 			_posted.Add(message.Json);
 		}
+		Broadcasted?.Invoke(message);
 	}
 
 	public void Send(WebPeer peer, WebTransportMessage message) {
@@ -149,7 +151,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 
 	/// <summary>Creates one session-owned feature channel that publishes into this transport.</summary>
 	public MessageFeatureChannel SessionFeature(string feature) {
-		var bus = new SessionMessageBus(
+		var bus = TestMessageBus.Create(
 			new SessionAddress("test", Guid.NewGuid().ToString("n")),
 			Broadcast,
 			Send,

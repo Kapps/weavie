@@ -1595,6 +1595,10 @@ test.describe("ACP composer", () => {
 
       const first = page.getByRole("button", { name: /^Model / });
       const last = page.getByRole("button", { name: /^Mode / });
+      // Fractional text widths must stay fully visible at the browser's integer scroll limit.
+      await last.evaluate((element) => {
+        element.style.width = `${Math.floor(element.getBoundingClientRect().width) + 0.375}px`;
+      });
       await first.focus();
       await page.keyboard.press("Tab");
       await page.keyboard.press("Tab");
@@ -1610,6 +1614,7 @@ test.describe("ACP composer", () => {
         value: "plan",
       });
 
+      await last.evaluate((element) => element.style.removeProperty("width"));
       await page.setViewportSize({ width: 1600, height: 900 });
       publishControls(controls);
       await expect

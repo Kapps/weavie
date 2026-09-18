@@ -387,6 +387,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider through this session's files feature.</summary>
 	public FileProviderService FileProvider { get; }
 
+	internal ReviewPublication ReviewPublication { get; } = new();
+
 	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
 	public SessionFileActivity FileActivity { get; }
 

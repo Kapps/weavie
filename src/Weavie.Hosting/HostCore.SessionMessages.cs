@@ -12,9 +12,9 @@ public sealed partial class HostCore {
 		var lifecycle = session.Bus.Feature("lifecycle");
 		lifecycle.HandleOwned<SessionSyncRequest, SessionSyncResult>(
 			"sync",
-			(_, peer, _) => {
-				SyncSession(session, peer.Target);
-				return Task.FromResult(new SessionSyncResult(true));
+			async (_, peer, ct) => {
+				await SyncSessionAsync(session, peer.Target, ct).ConfigureAwait(false);
+				return new SessionSyncResult(true);
 			});
 
 		session.Bus.Feature("commands").HandleKeyedAfterResponse<CommandRequest, CommandWireResult>(
@@ -55,46 +55,31 @@ public sealed partial class HostCore {
 		});
 
 		var review = session.Bus.Feature("review");
-		review.Handle<EmptySessionMessage>("close", (_, _) => {
-			RunReviewAction(session, () => CloseReview(session));
-			return Task.CompletedTask;
-		});
-		review.Handle<EmptySessionMessage>("accept", (_, _) => {
-			RunReviewAction(session, () => CloseReview(session));
-			return Task.CompletedTask;
-		});
-		review.Handle<EmptySessionMessage>("revertAll", (_, _) => {
-			UndoTurn(session);
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("revertHunk", (message, _) => {
-			RejectHunk(session, message);
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("keepHunk", (message, _) => {
-			RunReviewAction(session, () => KeepHunk(session, message));
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("unkeepHunk", (message, _) => {
-			RunReviewAction(session, () => UnkeepHunk(session, message));
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("revertFile", (message, _) => {
+		review.Handle<EmptySessionMessage>("close", (_, ct) => session.ReviewPublication.RunAsync(
+			() => RunReviewActionAsync(session, () => CloseReviewAsync(session)), ct));
+		review.Handle<EmptySessionMessage>("accept", (_, ct) => session.ReviewPublication.RunAsync(
+			() => RunReviewActionAsync(session, () => CloseReviewAsync(session)), ct));
+		review.Handle<EmptySessionMessage>("revertAll", (_, ct) => session.ReviewPublication.RunAsync(
+			() => UndoTurnAsync(session), ct));
+		review.Handle<JsonElement>("revertHunk", (message, ct) => session.ReviewPublication.RunAsync(
+			() => RejectHunkAsync(session, message), ct));
+		review.Handle<JsonElement>("keepHunk", (message, ct) => session.ReviewPublication.RunAsync(
+			() => RunReviewActionAsync(session, () => KeepHunkAsync(session, message)), ct));
+		review.Handle<JsonElement>("unkeepHunk", (message, ct) => session.ReviewPublication.RunAsync(
+			() => RunReviewActionAsync(session, () => UnkeepHunkAsync(session, message)), ct));
+		review.Handle<JsonElement>("revertFile", (message, ct) => session.ReviewPublication.RunAsync(() => {
 			RevertFile(session, message);
 			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("keepFile", (message, _) => {
-			RunReviewAction(session, () => KeepFile(session, message));
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement, ReviewHistoryLocation?>("undo", (message, _) =>
-			Task.FromResult(ReviewUndo(session, message)));
-		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, _) =>
-			Task.FromResult(ReviewRedo(session)));
-		review.Handle<FilePathMessage>("showFile", (message, _) => {
-			PushReviewFileToWeb(session, message.Path);
-			return Task.CompletedTask;
-		});
+		}, ct));
+		review.Handle<JsonElement>("keepFile", (message, ct) => session.ReviewPublication.RunAsync(
+			() => RunReviewActionAsync(session, () => KeepFileAsync(session, message)), ct));
+		review.Handle<JsonElement, ReviewHistoryLocation?>("undo", (message, ct) => session.ReviewPublication.RunAsync(
+			() => ReviewUndoAsync(session, message), ct));
+		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, ct) => session.ReviewPublication.RunAsync(
+			() => ReviewRedoAsync(session), ct));
+		review.Handle<FilePathMessage>("showFile", (message, ct) => session.ReviewPublication.RunAsync(
+			() => PushReviewFileToWebAsync(session, message.Path, session.Bus.BroadcastTarget, ct), ct));
+
 		review.Handle<DiffAgainstMessage>("diffAgainst", (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
 		review.Handle<ReviewCommentRequest, CommandWireResult>(
@@ -165,14 +150,14 @@ public sealed partial class HostCore {
 			SaveSourceEditAsync(session, message.Target, message.OldText, message.NewText, message.EditId, ct));
 	}
 
-	private void SyncSession(HostSession session, MessageTarget target) {
+	private async Task SyncSessionAsync(HostSession session, MessageTarget target, CancellationToken ct) {
 		session.Agent.ReplayState(target.Feature("agent"));
 		session.ReplayEditor(target.Feature("editor"), line => Log(line));
 		session.ReplayWorkspaceFailures(target);
 		session.State.Replay(target);
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);
-		PushReviewStateToWeb(session, target);
+		await session.ReviewPublication.RunAsync(() => PushReviewStateToWebAsync(session, target, ct), ct).ConfigureAwait(false);
 		session.DiffPresenter.Replay(target.Feature("editor"));
 		PushFileIndexToWeb(session, true, target);
 		PushGitStatus(session, target);

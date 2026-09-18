@@ -10,14 +10,12 @@ namespace Weavie.Headless;
 /// The <see cref="IWebTransportHub"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
 /// ordinary browser is the client. A worker can have more than one page connected at once (a second tab, or a
 /// remote agent that loops back to the same worker), so every push is broadcast to <b>all</b> connections. Each
-/// connection owns one bounded route-aware outbox, so one slow or dead peer can never stall the others or grow
-/// memory without bound. A connection that fills that outbox is dropped loudly.
+/// connection owns one bounded route-aware outbox. Bulk publishers await delivery; synchronous event producers
+/// cannot grow its memory without bound. A synchronous publication that overfills the outbox drops the peer.
 /// Pushes with no page connected are dropped, never buffered (each page requests fresh state when it connects).
 /// </summary>
 internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocketBridge {
-	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
-	// burst (a loopback page drains in microseconds), low enough to bound memory and fail fast. A dropped page's
-	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
+	// Bulk producers await delivery instead of turning a healthy burst into an outbox overflow.
 	private const int OutboxCapacity = 512;
 	private const int OutboxCharacterCapacity = 16 * 1024 * 1024;
 
@@ -60,6 +58,19 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 		if (!connection.Outbox.TryWrite(Outbound(message))) {
 			Drop(connection, "outbound queue full — page not keeping up");
 		}
+	}
+
+	/// <inheritdoc/>
+	public Task BroadcastAsync(WebTransportMessage message, CancellationToken cancellationToken) {
+		var outbound = Outbound(message);
+		return Task.WhenAll(_connections.Keys.Select(connection =>
+			connection.Outbox.WriteAsync(outbound, cancellationToken)));
+	}
+
+	/// <inheritdoc/>
+	public Task SendAsync(WebPeer peer, WebTransportMessage message, CancellationToken cancellationToken) {
+		var connection = _connections.Keys.FirstOrDefault(candidate => candidate.Peer == peer);
+		return connection is null ? Task.CompletedTask : connection.Outbox.WriteAsync(Outbound(message), cancellationToken);
 	}
 
 	/// <summary>

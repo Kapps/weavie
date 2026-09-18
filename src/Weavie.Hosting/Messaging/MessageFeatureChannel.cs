@@ -89,6 +89,10 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	/// <summary>Publishes an already-serialized JSON payload to every page attached to this feature's owner.</summary>
 	public void PublishJson(string name, string payloadJson) => _bus.PublishJson(_feature, name, payloadJson);
+
+	/// <summary>Publishes serialized JSON while awaiting transport capacity.</summary>
+	public Task PublishJsonAsync(string name, string payloadJson, CancellationToken ct) =>
+		_bus.PublishJsonAsync(_feature, name, payloadJson, ct);
 }
 
 internal sealed record ResponseWithCompletion<T>(T Payload, Func<CancellationToken, Task> AfterResponse);
@@ -97,6 +101,8 @@ internal interface IMessageFeatureTarget {
 	void Publish<T>(string name, T payload);
 
 	void PublishJson(string name, string payloadJson);
+
+	Task PublishJsonAsync(string name, string payloadJson, CancellationToken ct);
 }
 
 internal sealed class MessagePeer {
@@ -153,6 +159,11 @@ internal sealed class MessageTargetFeature : IMessageFeatureTarget {
 			_bus.PublishJson(_feature, name, payloadJson);
 		}
 	}
+	public Task PublishJsonAsync(string name, string payloadJson, CancellationToken ct) =>
+		_peer is { } peer
+			? _bus.PublishJsonToAsync(peer, _feature, name, payloadJson, ct)
+			: _bus.PublishJsonAsync(_feature, name, payloadJson, ct);
+
 }
 
 internal sealed class SessionMessageBus : MessageBus {
@@ -160,11 +171,15 @@ internal sealed class SessionMessageBus : MessageBus {
 		SessionAddress address,
 		Action<WebTransportMessage> broadcast,
 		Action<WebPeer, WebTransportMessage> sendToPeer,
+		Func<WebTransportMessage, CancellationToken, Task> broadcastAsync,
+		Func<WebPeer, WebTransportMessage, CancellationToken, Task> sendToPeerAsync,
 		Action<string> log)
 		: this(
 			address,
 			broadcast,
 			sendToPeer,
+			broadcastAsync,
+			sendToPeerAsync,
 			new DiagnosticWorker(log)) {
 	}
 
@@ -172,11 +187,15 @@ internal sealed class SessionMessageBus : MessageBus {
 		SessionAddress address,
 		Action<WebTransportMessage> broadcast,
 		Action<WebPeer, WebTransportMessage> sendToPeer,
+		Func<WebTransportMessage, CancellationToken, Task> broadcastAsync,
+		Func<WebPeer, WebTransportMessage, CancellationToken, Task> sendToPeerAsync,
 		DiagnosticWorker diagnostics)
 		: this(
 			address,
 			broadcast,
 			sendToPeer,
+			broadcastAsync,
+			sendToPeerAsync,
 			diagnostics,
 			new MessageOperationRegistry(
 				sendToPeer,
@@ -189,6 +208,8 @@ internal sealed class SessionMessageBus : MessageBus {
 		SessionAddress address,
 		Action<WebTransportMessage> broadcast,
 		Action<WebPeer, WebTransportMessage> sendToPeer,
+		Func<WebTransportMessage, CancellationToken, Task> broadcastAsync,
+		Func<WebPeer, WebTransportMessage, CancellationToken, Task> sendToPeerAsync,
 		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(
@@ -196,6 +217,8 @@ internal sealed class SessionMessageBus : MessageBus {
 			address,
 			broadcast,
 			sendToPeer,
+			broadcastAsync,
+			sendToPeerAsync,
 			diagnostics,
 			ThreadPoolMessageHandlerExecutor.Instance,
 			operations) {
@@ -209,6 +232,8 @@ internal sealed class HostMessageBus : MessageBus {
 		IUiDispatcher dispatcher,
 		Action<WebTransportMessage> broadcast,
 		Action<WebPeer, WebTransportMessage> sendToPeer,
+		Func<WebTransportMessage, CancellationToken, Task> broadcastAsync,
+		Func<WebPeer, WebTransportMessage, CancellationToken, Task> sendToPeerAsync,
 		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(
@@ -216,6 +241,8 @@ internal sealed class HostMessageBus : MessageBus {
 			null,
 			broadcast,
 			sendToPeer,
+			broadcastAsync,
+			sendToPeerAsync,
 			diagnostics,
 			new UiMessageHandlerExecutor(dispatcher),
 			operations) {

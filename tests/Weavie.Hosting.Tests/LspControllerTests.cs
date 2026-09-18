@@ -23,7 +23,7 @@ public sealed class LspControllerTests {
 	private static LanguageServerDescriptor? Resolve(string selector) => selector == "fake" ? FakeRecipe : null;
 
 	private static SessionMessageBus NewBus(FakeHostBridge bridge) =>
-		new(
+		TestMessageBus.Create(
 			new SessionAddress("lsp-test", Guid.NewGuid().ToString("n")),
 			bridge.Broadcast,
 			bridge.Send,
@@ -197,7 +197,7 @@ public sealed class LspControllerTests {
 				Candidates = [new("weavie-no-such-language-server-xyz", [])],
 			},
 			_ => { });
-		var bus = new SessionMessageBus(
+		var bus = TestMessageBus.Create(
 			new SessionAddress("lsp-test", Guid.NewGuid().ToString("n")),
 			bridge.Broadcast,
 			bridge.Send,

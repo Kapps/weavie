@@ -26,7 +26,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 		_transport = transport;
 		Diagnostics = new DiagnosticWorker(log);
 		_operations = new MessageOperationRegistry(transport.Send, Diagnostics, policy, time);
-		Host = new HostMessageBus(dispatcher, transport.Broadcast, transport.Send, Diagnostics, _operations);
+		Host = new HostMessageBus(dispatcher, transport.Broadcast, transport.Send, transport.BroadcastAsync, transport.SendAsync, Diagnostics, _operations);
 		_sessions = new SessionMessageRouter(transport.Send, Diagnostics);
 	}
 
@@ -39,7 +39,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	public SessionEndpoint OpenSession(SessionAddress address) {
 		ArgumentNullException.ThrowIfNull(address);
 		var transport = new SessionTransportGate(_transport);
-		var bus = new SessionMessageBus(address, transport.Broadcast, transport.Send, Diagnostics, _operations);
+		var bus = new SessionMessageBus(address, transport.Broadcast, transport.Send, transport.BroadcastAsync, transport.SendAsync, Diagnostics, _operations);
 		return new SessionEndpoint(this, bus, transport);
 	}
 

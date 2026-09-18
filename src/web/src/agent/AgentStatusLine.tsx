@@ -84,7 +84,26 @@ export function AgentStatusLine(props: {
       }
     >
       <div class="agent-status-line" classList={{ "agent-status-line-compact": props.compact }}>
-        <div class="agent-status-scroll">
+        <div
+          class="agent-status-scroll"
+          onFocusIn={(event) => {
+            if (event.target instanceof HTMLElement) {
+              event.target.scrollIntoView({ block: "nearest", inline: "nearest" });
+            }
+          }}
+          onWheel={(event) => {
+            const bar = event.currentTarget;
+            if (event.ctrlKey || event.deltaX !== 0 || bar.scrollWidth <= bar.clientWidth) return;
+            const unit =
+              event.deltaMode === WheelEvent.DOM_DELTA_LINE
+                ? bar.clientHeight
+                : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+                  ? bar.clientWidth
+                  : 1;
+            bar.scrollLeft += event.deltaY * unit;
+            event.preventDefault();
+          }}
+        >
           <AgentUsageIndicator session={props.session} />
           <Show when={hasDiff()}>
             <button
@@ -115,9 +134,9 @@ export function AgentStatusLine(props: {
                 type="button"
                 class="agent-status-segment agent-status-axis"
                 title={axisTitle(axis)}
+                aria-label={`${axis.label} ${axis.valueLabel}`}
                 onClick={() => toggleControlPicker(axis.id)}
               >
-                <span class="agent-status-key">{axis.label}</span>
                 <span class="agent-status-value">{axis.valueLabel}</span>
               </button>
             )}

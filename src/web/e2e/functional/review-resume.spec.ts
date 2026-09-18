@@ -148,6 +148,17 @@ test.describe("durable applied review", () => {
     // answering hello got hammered every 500ms forever instead of backing off, holding the "Lost
     // connection… Reconnecting" toast (and whatever else fails while disconnected) over the UI far longer
     // than a real backoff would. Fixed in bridge.ts: the backoff only resets once hello actually succeeds.
+    //
+    // Flake (Linux): 2026-09-18 00:27 UTC, run
+    // https://github.com/Kapps/weavie/actions/runs/35291302625/job/105435169070 — recurred with a
+    // different toast this time: `.toast-warn.toast-timed` intercepted the same click for 30s. Trace
+    // showed a stream of distinct "typescript language intelligence is unavailable" toasts (this sandbox
+    // has no tsserver on PATH), one per TypeScript file reopened after the restart. Mechanism:
+    // language-client-pool.ts's give-up path called `notify("warn", …)` without the `key` argument its
+    // sibling reconnect/give-up-error calls already pass, so each file's failed connect attempt stacked a
+    // fresh toast instead of replacing the live one for that (session, server) pair. Fixed in
+    // language-client-pool.ts: that call now passes `key` too, so repeated failures for the same server
+    // collapse into one refreshed toast instead of piling up over the click target.
     await section(page, "hello.ts").locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await runCommand(page, "Undo Revert (Review)");

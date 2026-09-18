@@ -250,8 +250,7 @@ public sealed partial class HostCore {
 		};
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
-		session.ActivateOwnedRuntimeAndMessages();
-		PushSessionList();
+		session.ActivateOwnedRuntimeAndMessages(PushSessionList);
 		PersistSessionState();
 	}
 
@@ -568,8 +567,7 @@ public sealed partial class HostCore {
 		try {
 			LoadSlot(slot);
 			var session = slot.Session!;
-			session.ActivateOwnedRuntimeAndMessages();
-			PushSessionList();
+			session.ActivateOwnedRuntimeAndMessages(PushSessionList);
 			PersistSessionState();
 			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
@@ -1234,8 +1232,7 @@ public sealed partial class HostCore {
 				if (input is not null) {
 					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
-				slot.Session.ActivateOwnedRuntimeAndMessages();
-				PushSessionList();
+				slot.Session.ActivateOwnedRuntimeAndMessages(PushSessionList);
 				PersistSessionState();
 
 				result.SetResult(CommandResult.Success(

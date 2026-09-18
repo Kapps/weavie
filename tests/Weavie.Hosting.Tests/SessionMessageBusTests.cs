@@ -201,7 +201,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var afterResponseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -409,7 +409,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var peer = new WebPeer("page-a");
 		await router.RouteAsync(
 			peer,
@@ -448,7 +448,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		await router.RouteAsync(
 			WebPeer.Native,
 			MessageEnvelope.SessionEvent(
@@ -518,7 +518,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var first = new WebPeer("page-a");
 		var second = new WebPeer("page-b");
 		await router.RouteAsync(
@@ -617,8 +617,8 @@ public sealed class SessionMessageBusTests {
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var first = router.OpenSession(new SessionAddress("a", "a1"));
 		await using var second = router.OpenSession(new SessionAddress("b", "b1"));
-		first.Activate();
-		second.Activate();
+		first.Activate(() => { });
+		second.Activate(() => { });
 		var peer = new WebPeer("page");
 		await router.RouteAsync(
 			peer,
@@ -649,7 +649,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var peer = new WebPeer("page");
 		await router.RouteAsync(
 			peer,
@@ -693,7 +693,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var peer = new WebPeer("page");
 		await router.RouteAsync(
 			peer,
@@ -724,7 +724,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").Handle<Increment, Counter>(
 			"wait",
@@ -770,7 +770,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		Task? quiesce = null;
 		bool completedInsideHandler = true;
 		using var handler = endpoint.Bus.Feature("dummy").Handle<Increment, Counter>(
@@ -799,7 +799,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
 			"close",
@@ -832,7 +832,7 @@ public sealed class SessionMessageBusTests {
 		var dispatcher = new SerialUiDispatcher(_ => { });
 		await using var router = new HostMessageRouter(transport, dispatcher, _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
 			"close",
@@ -864,7 +864,7 @@ public sealed class SessionMessageBusTests {
 		var dispatcher = new ManualUiDispatcher(paused: true);
 		await using var router = new HostMessageRouter(transport, dispatcher, _ => { });
 		var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		bool enteredUi = false;
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
 			"close",
@@ -899,7 +899,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var afterResponseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var allowSelfQuiescence = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
@@ -937,7 +937,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterEvent<Increment>(
 			"close",
@@ -964,7 +964,7 @@ public sealed class SessionMessageBusTests {
 		};
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), logs.Enqueue);
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
 			"close",
@@ -1001,7 +1001,7 @@ public sealed class SessionMessageBusTests {
 			new InlineUiDispatcher(),
 			_ => throw new InvalidOperationException("diagnostic sink failed"));
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		using var handler = endpoint.Bus.Feature("dummy").Handle<Increment>(
 			"fail",
 			(_, _) => throw new InvalidOperationException("handler failed"));
@@ -1029,10 +1029,16 @@ public sealed class SessionMessageBusTests {
 		feature.Publish("second", new Counter(2));
 
 		Assert.Empty(transport.Broadcasts);
-		endpoint.Activate();
-		Assert.Equal(2, transport.Broadcasts.Count);
-		Assert.True(MessageEnvelope.TryParse(transport.Broadcasts[0], out var first));
-		Assert.True(MessageEnvelope.TryParse(transport.Broadcasts[1], out var second));
+		endpoint.Activate(() => {
+			Assert.Empty(transport.Broadcasts);
+			router.Host.Feature("sessions").Publish("catalog", new[] { endpoint.Address });
+			Assert.Single(transport.Broadcasts);
+		});
+		Assert.Equal(3, transport.Broadcasts.Count);
+		Assert.True(MessageEnvelope.TryParse(transport.Broadcasts[0], out var catalog));
+		Assert.Equal("catalog", catalog!.Name);
+		Assert.True(MessageEnvelope.TryParse(transport.Broadcasts[1], out var first));
+		Assert.True(MessageEnvelope.TryParse(transport.Broadcasts[2], out var second));
 		Assert.Equal("first", first!.Name);
 		Assert.Equal("second", second!.Name);
 	}

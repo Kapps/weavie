@@ -17,7 +17,7 @@ public sealed class MessagePublicationTests {
 		Assert.False(publication.IsCompleted);
 		Assert.False(transport.Deliveries.Reader.TryRead(out _));
 
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		var broadcast = await transport.Deliveries.Reader.ReadAsync();
 		Assert.Null(broadcast.Peer);
 		Assert.False(publication.IsCompleted);
@@ -45,7 +45,7 @@ public sealed class MessagePublicationTests {
 		var transport = new ControlledTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("session", "incarnation"));
-		if (activated) endpoint.Activate();
+		if (activated) endpoint.Activate(() => { });
 		var publication = endpoint.Bus.Feature("review").PublishJsonAsync("diff", "{}", CancellationToken.None);
 		if (activated) await transport.Deliveries.Reader.ReadAsync();
 		Assert.False(publication.IsCompleted);

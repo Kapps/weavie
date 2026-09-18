@@ -164,7 +164,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 		var router = new HostMessageRouter(this, new InlineUiDispatcher(), _ => { });
 		var endpoint = router.OpenSession(
 			new SessionAddress("test", Guid.NewGuid().ToString("n")));
-		endpoint.Activate();
+		endpoint.Activate(() => { });
 		router.RouteAsync(
 		WebPeer.Native,
 			MessageEnvelope.SessionEvent(

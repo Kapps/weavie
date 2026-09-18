@@ -230,7 +230,8 @@ internal sealed class SessionEndpoint : IAsyncDisposable {
 
 	public SessionView View { get; }
 
-	public void Activate() {
+	public void Activate(Action publishCatalog) {
+		ArgumentNullException.ThrowIfNull(publishCatalog);
 		lock (_lifecycle) {
 			ObjectDisposedException.ThrowIf(_detached, this);
 			if (_active) {
@@ -239,6 +240,7 @@ internal sealed class SessionEndpoint : IAsyncDisposable {
 
 			_router.AttachSession(Bus);
 			try {
+				publishCatalog();
 				_transport.Activate();
 				_active = true;
 			} catch {

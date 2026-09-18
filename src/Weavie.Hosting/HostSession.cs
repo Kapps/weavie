@@ -273,10 +273,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The session-owned message bus.</summary>
 	internal SessionMessageBus Bus => _endpoint.Bus;
 
-	/// <summary>Starts this session's structured runtime and advertises its bus after its exact address enters
-	/// the host catalog.</summary>
-	internal void ActivateOwnedRuntimeAndMessages() {
-		_endpoint.Activate();
+	/// <summary>Registers this endpoint, advertises its address, then releases publications and starts its runtime.</summary>
+	internal void ActivateOwnedRuntimeAndMessages(Action publishCatalog) {
+		_endpoint.Activate(publishCatalog);
 		_ = Background.Run(RunWorkspaceObservationAsync);
 		Agent.Structured?.Start();
 	}

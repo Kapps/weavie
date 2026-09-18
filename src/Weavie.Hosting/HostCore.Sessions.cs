@@ -392,6 +392,7 @@ public sealed partial class HostCore {
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		SyncSession(session, session.Bus.BroadcastTarget);
+		LogStartup($"session {session.SlotId}: state replayed");
 		session.ActivateOwnedRuntimeAndMessages();
 	}
 
@@ -470,6 +471,7 @@ public sealed partial class HostCore {
 		string agentProviderId,
 		string slotId,
 		IReadOnlyList<string> shellTerminals) {
+		LogStartup($"session {slotId}: constructing");
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
@@ -524,6 +526,7 @@ public sealed partial class HostCore {
 				});
 			}
 			_mediaRoutes.Register(session.Incarnation);
+			LogStartup($"session {slotId}: constructed");
 			return session;
 		} catch (Exception creationError) {
 			try {
@@ -577,6 +580,7 @@ public sealed partial class HostCore {
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
 			session.Claude?.EnsureStarted();
 			session.Shells.EnsureStarted();
+			LogStartup($"session {slot.Id}: terminals started");
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}

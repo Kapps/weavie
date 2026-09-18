@@ -260,6 +260,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)
 			: bootstrap + html;
 		await context.Response.WriteAsync(html).ConfigureAwait(false);
+		_core.LogStartup("UI document sent");
 	}
 
 	private static string NormalizeOrigin(string bound, string requestedBind) {

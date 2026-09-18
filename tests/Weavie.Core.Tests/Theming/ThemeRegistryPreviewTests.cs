@@ -8,10 +8,12 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 public sealed class ThemeRegistryPreviewTests {
-	[Fact]
-	public async Task Preview_ResolvesJsoncAndPolarity_WithoutInstalling() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task Preview_ResolvesJsoncAndPolarity_WithoutInstalling(bool transientFailures) {
 		byte[] package = Package();
-		using var handler = new RegistryHandler(package);
+		using var handler = new RegistryHandler(package, transientFailures);
 		using var http = new HttpClient(handler);
 		var installer = new OpenVsxThemeInstaller(http, "https://registry.test");
 		using var directory = new TempDirectory("theme-preview-test");
@@ -20,6 +22,7 @@ public sealed class ThemeRegistryPreviewTests {
 
 		var previews = await installer.PreviewAsync("publisher", "themes", "1.2.3", overrides, CancellationToken.None);
 
+		Assert.Equal(transientFailures ? 4 : 2, handler.Requests.Count);
 		Assert.Equal(2, previews.Count);
 		Assert.Equal("light", previews[0].Choice.Type);
 		Assert.Equal("light", previews[0].Slot.GetProperty("theme").GetProperty("type").GetString());
@@ -32,7 +35,7 @@ public sealed class ThemeRegistryPreviewTests {
 
 	[Fact]
 	public async Task Search_ForwardsDownloadOrderAndPage_WithEscapedQuery() {
-		using var handler = new RegistryHandler([]);
+		using var handler = new RegistryHandler([], false);
 		using var http = new HttpClient(handler);
 		var installer = new OpenVsxThemeInstaller(http, "https://registry.test");
 
@@ -47,7 +50,7 @@ public sealed class ThemeRegistryPreviewTests {
 	[InlineData("..")]
 	[InlineData("x/y")]
 	public async Task Install_RejectsUnsafeCoordinates_BeforeNetwork(string name) {
-		using var handler = new RegistryHandler([]);
+		using var handler = new RegistryHandler([], false);
 		using var http = new HttpClient(handler);
 		var installer = new OpenVsxThemeInstaller(http, "https://registry.test");
 		await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync("publisher", name, "1", CancellationToken.None));
@@ -77,11 +80,13 @@ public sealed class ThemeRegistryPreviewTests {
 		writer.Write(content);
 	}
 
-	private sealed class RegistryHandler(byte[] package) : HttpMessageHandler {
+	private sealed class RegistryHandler(byte[] package, bool transientFailures) : HttpMessageHandler {
 		public List<string> Requests { get; } = [];
 		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
 			string path = request.RequestUri!.AbsolutePath;
+			bool fail = transientFailures && !Requests.Contains(request.RequestUri.PathAndQuery);
 			Requests.Add(request.RequestUri.PathAndQuery);
+			if (fail) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
 				Content = path.EndsWith(".vsix", StringComparison.Ordinal)
 					? new ByteArrayContent(package)

@@ -3,6 +3,10 @@ import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
 import { createThemePicker } from "./picker-model";
 import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
+import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
+import { ThemeChoiceList } from "./ThemeChoiceList";
+import { ThemeExtensionDetails } from "./ThemeExtensionDetails";
+import { ThemeVariants } from "./ThemeVariants";
 import "./theme-picker.css";
 
 export function ThemePicker() {
@@ -14,66 +18,71 @@ export function ThemePicker() {
 }
 
 function Picker() {
-  const {
-    savedId,
-    query,
-    setQuery,
-    sortBy,
-    setSortBy,
-    registry,
-    extensions,
-    variants,
-    backToResults,
-    total,
-    selected,
-    error,
-    loading,
-    saving,
-    choices,
-    isSearch,
-    count,
-    close,
-    highlight,
-    accept,
-    switchSource,
-    loadMore,
-  } = createThemePicker();
+  const m = createThemePicker();
   const focusBefore = document.activeElement;
   let input!: HTMLInputElement;
   onCleanup(() => {
     if (focusBefore instanceof HTMLElement && focusBefore.isConnected) focusBefore.focus();
   });
+  const focusResult = () => document.getElementById(`theme-options-${m.selected()}`)?.focus();
+  async function openExtension(index: number) {
+    const source = document.activeElement;
+    const opened = await m.openExtension(index);
+    if (opened && m.selected() === index && document.activeElement === source) {
+      document.getElementById("theme-variant-filter")?.focus();
+    }
+  }
+  const accept = () => (m.registry() ? openExtension(m.selected()) : m.accept());
   function keys(event: KeyboardEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      m.close();
+      return;
     }
-    if (event.target instanceof HTMLSelectElement) return;
+    if (event.target instanceof HTMLSelectElement || m.saving()) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const inVariants = target?.closest('[data-theme-pane="variants"]') !== null && target !== null;
+    const count = inVariants ? m.variantChoices().length : m.count();
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
-      if (saving() || count() === 0) return;
-      const index = (selected() + (event.key === "ArrowDown" ? 1 : -1) + count()) % count();
-      void highlight(index);
-      document.getElementById(`theme-option-${index}`)?.scrollIntoView({ block: "nearest" });
+      if (count === 0) return;
+      const selected = inVariants ? m.variantSelected() : m.selected();
+      const index = (selected + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+      if (inVariants) m.highlightVariant(index);
+      else void m.highlight(index);
+      document
+        .getElementById(`${inVariants ? "theme-variants" : "theme-options"}-${index}`)
+        ?.scrollIntoView({ block: "nearest" });
     }
     if (
-      event.key === "Enter" &&
-      (event.target === input ||
-        (event.target instanceof HTMLElement && event.target.getAttribute("role") === "option"))
+      event.key === "ArrowLeft" &&
+      inVariants &&
+      (target?.getAttribute("role") === "option" ||
+        (target instanceof HTMLInputElement && target.value === ""))
     ) {
       event.preventDefault();
       event.stopPropagation();
-      void accept();
+      focusResult();
+    }
+    const option = target?.getAttribute("role") === "option";
+    if (
+      (event.key === "Enter" && (target instanceof HTMLInputElement || option)) ||
+      (event.key === "ArrowRight" && !inVariants && m.registry() && option)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (inVariants) void m.acceptVariant();
+      else void accept();
     }
   }
 
   return (
     <ModalShell
       labelledBy="theme-picker-title"
-      class="theme-picker"
-      onDismiss={close}
+      class={`theme-picker${m.registry() ? " theme-picker-registry" : ""}`}
+      onDismiss={m.close}
       onKeyDown={keys}
     >
       <div class="theme-picker-header">
@@ -85,10 +94,10 @@ function Picker() {
       <div class="theme-picker-sources">
         <button
           type="button"
-          aria-pressed={!registry()}
-          disabled={saving()}
+          aria-pressed={!m.registry()}
+          disabled={m.saving()}
           onClick={() => {
-            switchSource(false);
+            m.switchSource(false);
             input.focus();
           }}
         >
@@ -96,161 +105,146 @@ function Picker() {
         </button>
         <button
           type="button"
-          aria-pressed={registry()}
-          disabled={saving()}
+          aria-pressed={m.registry()}
+          disabled={m.saving()}
           onClick={() => {
-            switchSource(true);
+            m.switchSource(true);
             input.focus();
           }}
         >
           Open VSX
         </button>
       </div>
-      <Show when={variants() !== null}>
-        <button
-          type="button"
-          class="theme-picker-back"
-          disabled={saving()}
-          onClick={() => {
-            backToResults();
-            input.focus();
-          }}
-        >
-          ← Back to results
-        </button>
-      </Show>
-      <input
-        ref={(el) => {
-          input = el;
-          queueMicrotask(() => el.focus());
-        }}
-        aria-label={isSearch() ? "Search Open VSX themes" : "Filter themes"}
-        placeholder={isSearch() ? "Search Open VSX themes…" : "Type to filter themes…"}
-        value={query()}
-        disabled={saving()}
-        onInput={(e) => setQuery(e.currentTarget.value)}
-        role="combobox"
-        aria-expanded="true"
-        aria-controls="theme-options"
-        aria-activedescendant={count() ? `theme-option-${selected()}` : undefined}
-      />
-      <Show when={isSearch()}>
-        <label class="theme-picker-sort">
-          Sort by
-          <select
-            aria-label="Sort Open VSX themes"
-            value={sortBy()}
-            onChange={(event) => setSortBy(event.currentTarget.value as ThemeSearchOrder)}
-          >
-            <option value="downloadCount">Most downloaded</option>
-            <option value="relevance">Relevance</option>
-          </select>
-        </label>
-      </Show>
-      <div class="theme-picker-list" id="theme-options" role="listbox" aria-label="Color themes">
-        <Show
-          when={isSearch()}
-          fallback={
-            <For each={choices()}>
-              {(choice, index) => (
-                <button
-                  type="button"
-                  role="option"
-                  id={`theme-option-${index()}`}
-                  aria-selected={selected() === index()}
-                  disabled={saving()}
-                  onPointerMove={() => {
-                    if (selected() !== index()) void highlight(index());
-                  }}
-                  onFocus={() => void highlight(index())}
-                  onClick={() => {
-                    void highlight(index());
-                    void accept();
-                  }}
-                >
-                  <span>
-                    {choice.label}
-                    {choice.id === savedId ? " ✓" : ""}
-                  </span>
-                  <small>
-                    {choice.type} · {choice.namespace ?? "Built-in"}
-                  </small>
-                </button>
-              )}
-            </For>
-          }
-        >
-          <For each={extensions()}>
-            {(extension, index) => (
-              <button
-                type="button"
-                role="option"
-                id={`theme-option-${index()}`}
-                aria-selected={selected() === index()}
-                onFocus={() => void highlight(index())}
-                onClick={() => {
-                  void highlight(index());
-                  void accept();
-                }}
+      <div class="theme-picker-body">
+        <section class="theme-picker-results" aria-label="Theme results">
+          <input
+            ref={(el) => {
+              input = el;
+              queueMicrotask(() => el.focus());
+            }}
+            aria-label={m.registry() ? "Search Open VSX themes" : "Filter themes"}
+            placeholder={m.registry() ? "Search Open VSX themes…" : "Type to filter themes…"}
+            value={m.query()}
+            disabled={m.saving()}
+            onInput={(e) => m.setQuery(e.currentTarget.value)}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="theme-options"
+            aria-activedescendant={m.count() ? `theme-options-${m.selected()}` : undefined}
+          />
+          <Show when={!m.registry()}>
+            <ThemeAppearanceSelect model={m} />
+          </Show>
+          <Show when={m.registry()}>
+            <label class="theme-picker-sort">
+              Sort by
+              <select
+                aria-label="Sort Open VSX themes"
+                value={m.sortBy()}
+                disabled={m.saving()}
+                onChange={(event) => m.setSortBy(event.currentTarget.value as ThemeSearchOrder)}
               >
-                <span>{extension.displayName ?? extension.name}</span>
-                <small>v{extension.version}</small>
-                <small class="theme-description">{extension.description}</small>
-                <small class="theme-extension-details">
-                  Publisher: {extension.namespace} · {extension.downloadCount.toLocaleString()}{" "}
-                  downloads
-                  {" · "}
-                  {extension.averageRating == null
-                    ? "Rating unavailable"
-                    : `★ ${extension.averageRating.toFixed(1)} / 5`}
-                  {" · "}
-                  {extension.reviewCount == null
-                    ? "Review count unavailable"
-                    : `${extension.reviewCount.toLocaleString()} ${extension.reviewCount === 1 ? "review" : "reviews"}`}
-                </small>
-              </button>
-            )}
-          </For>
-        </Show>
-        <Show when={!loading() && count() === 0}>
-          <p>No themes found.</p>
+                <option value="downloadCount">Most downloaded</option>
+                <option value="relevance">Relevance</option>
+              </select>
+            </label>
+          </Show>
+          <Show
+            when={m.registry()}
+            fallback={
+              <ThemeChoiceList
+                id="theme-options"
+                label="Color themes"
+                choices={m.choices()}
+                selected={m.selected()}
+                savedId={m.savedId}
+                disabled={m.saving()}
+                onPreview={(index) => void m.highlight(index)}
+                onApply={() => void m.accept()}
+              />
+            }
+          >
+            <div
+              class="theme-picker-list"
+              id="theme-options"
+              role="listbox"
+              aria-label="Color themes"
+            >
+              <For each={m.extensions()}>
+                {(extension, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    id={`theme-options-${index()}`}
+                    aria-selected={m.selected() === index()}
+                    disabled={m.saving()}
+                    aria-controls="theme-variants"
+                    title="Preview variants (Enter or →)"
+                    onFocus={() => void m.highlight(index())}
+                    onClick={() => void openExtension(index())}
+                  >
+                    <span>{extension.displayName ?? extension.name}</span>
+                    <small>v{extension.version}</small>
+                    <small class="theme-description">{extension.description}</small>
+                    <ThemeExtensionDetails extension={extension} />
+                  </button>
+                )}
+              </For>
+              <Show when={!m.searchLoading() && m.count() === 0}>
+                <p>No themes found.</p>
+              </Show>
+            </div>
+          </Show>
+          <Show when={m.searchLoading()}>
+            <p role="status">
+              Loading themes… Temporary connection failures are retried automatically.
+            </p>
+          </Show>
+          <Show when={m.registry() && m.extensions().length < m.total()}>
+            <button
+              type="button"
+              disabled={m.searchLoading() || m.saving()}
+              onClick={() => void m.loadMore()}
+            >
+              Load more ({m.extensions().length} of {m.total()})
+            </button>
+          </Show>
+        </section>
+        <Show when={m.registry()}>
+          <ThemeVariants
+            model={m}
+            onClose={() => {
+              m.closeVariants();
+              focusResult();
+            }}
+          />
         </Show>
       </div>
-      <Show when={error()}>
-        <p class="theme-picker-error" role="alert">
-          {error()}
+      <Show when={m.saving() && m.registry()}>
+        <p role="status">
+          Downloading theme… Temporary connection failures are retried automatically.
         </p>
       </Show>
-      <Show when={loading()}>
-        <p role="status">Loading themes…</p>
-      </Show>
-      <Show when={isSearch() && extensions().length < total()}>
-        <button type="button" disabled={loading()} onClick={() => void loadMore()}>
-          Load more ({extensions().length} of {total()})
-        </button>
+      <Show when={m.error()}>
+        <p class="theme-picker-error" role="alert">
+          {m.error()}
+        </p>
       </Show>
       <div class="theme-picker-footer">
         <small>
-          {isSearch()
-            ? "Choose an extension to preview its themes"
+          {m.registry()
+            ? "↑ ↓ Browse · Enter or → Open variants · Esc Cancel"
             : "↑ ↓ Preview · Enter Apply · Esc Cancel"}
         </small>
-        <button type="button" disabled={saving()} onClick={close}>
+        <button type="button" disabled={m.saving()} onClick={m.close}>
           Cancel
         </button>
         <button
           type="button"
-          class="theme-picker-apply"
-          disabled={loading() || saving() || count() === 0}
+          disabled={m.saving() || m.count() === 0}
           onClick={() => void accept()}
         >
-          {saving()
-            ? "Applying…"
-            : isSearch()
-              ? "Preview themes"
-              : variants() !== null
-                ? "Install & Apply"
-                : "Apply"}
+          {m.saving() ? "Applying…" : m.registry() ? "Preview themes" : "Apply"}
         </button>
       </div>
     </ModalShell>

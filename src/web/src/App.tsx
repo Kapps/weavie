@@ -1945,6 +1945,7 @@ export default function App(): JSX.Element {
       <Show when={diffAgainstOwner()} keyed>
         {(session) => (
           <DiffAgainstPrompt
+            session={session}
             onPick={(ref) => {
               setDiffAgainstOwner(null);
               session.feature("review").publish("diffAgainst", { reference: ref });

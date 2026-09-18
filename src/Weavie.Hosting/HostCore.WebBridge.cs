@@ -646,15 +646,14 @@ public sealed partial class HostCore {
 		return branches;
 	}
 
-	private async Task<string[]> ListRefsAsync(HostSession session, CancellationToken ct) {
-		string[] refs = [];
-		try {
-			refs = [.. await new GitService().ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)];
-		} catch (GitException ex) {
-			Log($"[weavie] list-refs failed: {ex.Message}");
-		}
+	private sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
 
-		return refs;
+	private async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) {
+		var git = new GitService();
+		string[] refs = [.. await git.ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)];
+		string? branch = await git.ResolveDefaultBranchAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
+		string? remote = branch is null ? null : $"origin/{branch}";
+		return new(refs, remote is not null && refs.Contains(remote) ? remote : null);
 	}
 
 	private async Task<CommandResult> InvokeCommandAsync(

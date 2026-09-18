@@ -124,8 +124,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			() => false,
 			(_, accept) => accept(),
-			(_, _) => { },
-			new StartupTiming("test", _ => { }));
+			(_, _) => { });
 		session.ActivateOwnedRuntimeAndMessages();
 		return session;
 	}

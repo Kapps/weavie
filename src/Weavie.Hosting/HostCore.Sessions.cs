@@ -146,7 +146,6 @@ public sealed partial class HostCore {
 	/// <summary>One git probe (instance reused downstream) for the rail label + worktree manager, so is-repo isn't
 	/// run twice. Returns <c>IsRepo=false</c> when git is missing — the workspace still opens.</summary>
 	private async Task<(GitService Git, bool IsRepo)> ProbeGitAsync() {
-		using var timing = StartupTiming.Measure("Git repository probe");
 		var git = new GitService();
 		try {
 			return (git, await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false));
@@ -392,12 +391,9 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
-		using (StartupTiming.Measure($"session {session.SlotId}: initial state and review replay")) {
-			SyncSession(session, session.Bus.BroadcastTarget);
-		}
-		using (StartupTiming.Measure($"session {session.SlotId}: runtime activation")) {
-			session.ActivateOwnedRuntimeAndMessages();
-		}
+		SyncSession(session, session.Bus.BroadcastTarget);
+		LogStartup($"session {session.SlotId}: state replayed");
+		session.ActivateOwnedRuntimeAndMessages();
 	}
 
 	private SessionCatalogEntry[] BuildSessionCatalog() =>
@@ -437,7 +433,6 @@ public sealed partial class HostCore {
 		bool WorkspaceCheckout);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
-		using var timing = StartupTiming.Measure("Git branch lookup");
 		try {
 			if (isRepo) {
 				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(false);
@@ -476,7 +471,7 @@ public sealed partial class HostCore {
 		string agentProviderId,
 		string slotId,
 		IReadOnlyList<string> shellTerminals) {
-		using var timing = StartupTiming.Measure($"session {slotId}: construction and wiring");
+		LogStartup($"session {slotId}: constructing");
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
@@ -512,8 +507,7 @@ public sealed partial class HostCore {
 				_runtime,
 				() => _drainInputFrozen,
 				(userInitiated, accept) => TryAcceptInput(session!.SlotId, userInitiated, accept),
-				_sessionStore.RecordShellSize,
-				StartupTiming);
+				_sessionStore.RecordShellSize);
 
 			// Seed every shell's pre-spawn size from the last real terminal size so a background-restored child is born at
 			// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
@@ -532,6 +526,7 @@ public sealed partial class HostCore {
 				});
 			}
 			_mediaRoutes.Register(session.Incarnation);
+			LogStartup($"session {slotId}: constructed");
 			return session;
 		} catch (Exception creationError) {
 			try {
@@ -583,12 +578,9 @@ public sealed partial class HostCore {
 			PersistSessionState();
 			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
-			using (StartupTiming.Measure($"session {slot.Id}: agent terminal launch")) {
-				session.Claude?.EnsureStarted();
-			}
-			using (StartupTiming.Measure($"session {slot.Id}: shell terminal launch")) {
-				session.Shells.EnsureStarted();
-			}
+			session.Claude?.EnsureStarted();
+			session.Shells.EnsureStarted();
+			LogStartup($"session {slot.Id}: terminals started");
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}

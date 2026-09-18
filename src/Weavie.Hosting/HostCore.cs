@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using Weavie.AcpDistribution;
@@ -92,7 +93,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
 	private readonly SemaphoreSlim _sessionLifecycle = new(1, 1);
-	internal StartupTiming StartupTiming { get; }
+	private readonly Stopwatch _startupClock = Stopwatch.StartNew();
 	private Task? _startTask;
 	private Task? _disposeTask;
 
@@ -194,7 +195,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_sources = services.Sources;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
-		StartupTiming = new(Id.Value, _logBuffer.Append);
 
 		// Back per-workspace settings (worktree.setupCommand, test.profile) from the workspace's out-of-repo overlay.
 		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
@@ -270,12 +270,14 @@ public sealed partial class HostCore : IAsyncDisposable {
 		}
 	}
 
+	internal void LogStartup(string phase) =>
+		_logBuffer.Append($"[startup/host] {phase} +{_startupClock.ElapsedMilliseconds}ms (workspace={Id.Value})");
+
 	private async Task StartCoreAsync() {
-		using var startup = StartupTiming.Measure("backend startup");
+		LogStartup("backend starting");
 		_shellMenu = new ShellMenuController(_platform.MenuActions);
-		using (StartupTiming.Measure("HTTP server")) {
-			await _http.StartAsync().ConfigureAwait(false);
-		}
+		await _http.StartAsync().ConfigureAwait(false);
+		LogStartup("HTTP server ready");
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
 		CrashReporter.Install(line => Log($"[crash] {line}"), _lastCrashFile);
@@ -292,16 +294,18 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// session can't exhaust it mid-switch, and import the login-shell environment so spawned children (LSP
 		// servers, git) resolve as from a terminal. Both no-op on Windows and when nothing needs raising.
 		PosixFileLimit.RaiseToHardLimit(line => Log($"[fd] {line}"));
-		using (StartupTiming.Measure("login-shell environment")) {
-			_environmentImportFailure = await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
-		}
+		_environmentImportFailure =
+			await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
+		LogStartup("shell environment imported");
 
 		_bridge.MessageReceived += OnWebMessage;
 		_bridge.PeerDisconnected += OnWebPeerDisconnected;
 
 		// One git probe shared by the rail label and the worktree manager (was two redundant is-repo calls).
 		var (git, isRepo) = await ProbeGitAsync().ConfigureAwait(false);
+		LogStartup("Git probe finished");
 		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(git, isRepo).ConfigureAwait(false);
+		LogStartup("branch resolved");
 
 		// Frameless title-bar controls exist only when the platform exposes native window primitives. File-menu
 		// actions use their separate required adapter, so a native-frame host can still render the web app bar.
@@ -313,19 +317,17 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// session on the workspace checkout.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
-		using (StartupTiming.Measure("worktree discovery")) {
-			await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
-		}
-		using (StartupTiming.Measure("restore sessions")) {
-			RestoreSessionState();
-		}
+		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
+		LogStartup("worktrees discovered");
+		RestoreSessionState();
+		LogStartup("sessions restored");
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
 		InitSuggestions();
 
 		WireReactions();
 		_http.MarkReady();
-		StartupTiming.Mark("backend ready");
+		LogStartup("backend ready");
 	}
 
 	/// <summary>Waits for this workspace server to be stopped (the Headless process lifetime).</summary>
@@ -338,7 +340,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public string BuildBootstrap() => BuildBootstrap(new Uri(_http.MediaBaseUrl).PathAndQuery);
 
 	private string BuildBootstrap(string resourceBase) {
-		using var timing = StartupTiming.Measure("page bootstrap");
 		return
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))

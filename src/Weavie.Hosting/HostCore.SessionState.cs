@@ -60,7 +60,6 @@ public sealed partial class HostCore {
 			// One session that can no longer load — a provider the user has since removed, a worktree that moved —
 			// leaves that slot dormant and tells the user at hello. It never takes the whole host down with it.
 			try {
-				using var timing = StartupTiming.Measure($"session {slot.Id}: restore");
 				LoadSlotInBackground(slot);
 			} catch (Exception error) {
 				_sessionStartupNotices.Add(
@@ -72,7 +71,6 @@ public sealed partial class HostCore {
 		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
 		// workspace with no available agent provider still opens, with its other sessions and the reason why.
 		try {
-			using var timing = StartupTiming.Measure("ensure workspace session");
 			EnsureWorkspaceSession();
 		} catch (Exception error) {
 			_sessionStartupNotices.Add(

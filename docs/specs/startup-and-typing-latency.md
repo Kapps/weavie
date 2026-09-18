@@ -24,8 +24,9 @@ to cut them. Findings are traced to `file:line` and, where measured, backed by a
 
 ## How this was measured
 
-Startup phase timings are always recorded in **View Logs**. Host entries show phase durations and
-elapsed time since workspace host construction, including backend initialization and session restoration.
+Startup phase timings are always recorded in **View Logs**. Host entries show elapsed time since
+workspace host construction at backend and session initialization milestones. Differences between marks
+show where startup time is spent.
 Web entries show `[startup/web] <phase> +<ms>` relative to navigation and are queued until the host
 connection is ready. No diagnostic setting or extra restart is needed.
 

@@ -11,28 +11,6 @@ namespace Weavie.Hosting.Tests;
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreLogsTests {
 	[Fact]
-	public async Task StartupTiming_IsVisibleInViewLogsByDefault() {
-		await using var host = TestHost.CreateUnstarted();
-		await host.Core.StartAsync();
-		await host.ConnectAsync();
-
-		host.Core.BuildBootstrap();
-		var result = await host.InvokeClientCommandAsync("weavie.view.logs", new { });
-		Assert.True(result.Ok, result.Error);
-		var document = host.Bridge.LastEvent(host.SelectedSession.Address, "sources", "document");
-		string html = document!.Value.GetProperty("html").GetString()!;
-
-		Assert.Contains($"(workspace={host.Core.Id.Value})", html);
-		Assert.Contains("begin worktree discovery", html);
-		Assert.Contains("end worktree discovery:", html);
-		Assert.Contains("review restore and disk reconciliation:", html);
-		Assert.Contains("initial state and review replay:", html);
-		Assert.Contains("end restore sessions:", html);
-		Assert.Contains("backend ready", html);
-		Assert.Contains("end page bootstrap:", html);
-	}
-
-	[Fact]
 	public async Task ViewLogs_OpensTheTabAndFillsItWithEscapedHtml() {
 		await using var host = await TestHost.StartAsync();
 		host.LogBuffer.Append("boot ok <tag> & done");

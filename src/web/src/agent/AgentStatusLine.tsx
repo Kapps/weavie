@@ -87,8 +87,17 @@ export function AgentStatusLine(props: {
         <div
           class="agent-status-scroll"
           onFocusIn={(event) => {
-            if (event.target instanceof HTMLElement) {
-              event.target.scrollIntoView({ block: "nearest", inline: "nearest" });
+            if (!(event.target instanceof HTMLElement)) return;
+            // Native scrollIntoView can leave the target a fraction of a pixel outside the
+            // container on some platforms; compute the exact delta and round up so it always
+            // lands fully in view.
+            const container = event.currentTarget;
+            const containerRect = container.getBoundingClientRect();
+            const targetRect = event.target.getBoundingClientRect();
+            if (targetRect.left < containerRect.left) {
+              container.scrollLeft -= Math.ceil(containerRect.left - targetRect.left);
+            } else if (targetRect.right > containerRect.right) {
+              container.scrollLeft += Math.ceil(targetRect.right - containerRect.right);
             }
           }}
           onWheel={(event) => {

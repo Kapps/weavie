@@ -1152,6 +1152,9 @@ label.agent-input-choice:hover {
   align-items: baseline;
   gap: 2px;
   min-width: 0;
+  /* Sub-pixel flex layout can round a child's right edge past the container's integer clientWidth;
+     this slack keeps the last segment fully scrollable into view regardless of that rounding. */
+  padding-right: 2px;
 }
 
 .agent-status-scroll > * {

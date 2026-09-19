@@ -56,6 +56,28 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
+	public void TurnDiff_OmitsAcceptedAnchorWhenItMatchesTheBaseline() {
+		// Until anything is kept, the anchor equals the baseline: sending it again would double the wire cost of
+		// every file in the turn for no new information (a real defect for a turn touching many large files — see
+		// WebSocketHostBridge's per-connection outbox). The client already treats a missing anchor as "== baseline".
+		var change = new FileChange {
+			Path = "/w/dir/a.cs",
+			AcceptedBaselineText = "before",
+			AcceptedBaselineExists = true,
+			BaselineText = "before",
+			BaselineExists = true,
+			CurrentText = "after",
+			CurrentExists = true,
+		};
+
+		var root = Parse(ChangeMessages.TurnDiff(change));
+
+		Assert.Equal(JsonValueKind.Null, root.GetProperty("acceptedBaseline").ValueKind);
+		Assert.Equal(JsonValueKind.Null, root.GetProperty("acceptedBaselineExists").ValueKind);
+		Assert.Equal("before", root.GetProperty("baseline").GetString());
+	}
+
+	[Fact]
 	public void TurnReset_IsEmptyPayload() {
 		var root = Parse(ChangeMessages.TurnReset());
 		Assert.Empty(root.EnumerateObject());

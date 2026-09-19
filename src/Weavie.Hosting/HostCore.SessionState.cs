@@ -26,7 +26,7 @@ public sealed partial class HostCore {
 		_sessionStore.Save(sessions);
 	}
 
-	private void RestoreSessionState() {
+	private async Task RestoreSessionStateAsync() {
 		if (_sessions is null) {
 			return;
 		}
@@ -56,17 +56,10 @@ public sealed partial class HostCore {
 			}
 		}
 
-		foreach (var slot in toLoad) {
-			// One session that can no longer load — a provider the user has since removed, a worktree that moved —
-			// leaves that slot dormant and tells the user at hello. It never takes the whole host down with it.
-			try {
-				LoadSlotInBackground(slot);
-			} catch (Exception error) {
-				_sessionStartupNotices.Add(
-					("error", $"Couldn't restore the session '{slot.Label}': {Innermost(error).Message}"));
-				Log($"[sessions] restoring '{slot.Label}' failed: {error}");
-			}
-		}
+		// Native UI loops may not be running yet; publish serially without dispatching to them.
+		var publicationGate = new Lock();
+		await Task.WhenAll(toLoad.Distinct().Select(slot => Task.Run(() => RestoreSlot(slot, publicationGate))))
+			.ConfigureAwait(false);
 
 		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
 		// workspace with no available agent provider still opens, with its other sessions and the reason why.
@@ -76,6 +69,31 @@ public sealed partial class HostCore {
 			_sessionStartupNotices.Add(
 				("error", $"Couldn't open a session on this workspace's own checkout: {Innermost(error).Message}"));
 			Log($"[sessions] ensuring the workspace-checkout session failed: {error}");
+		}
+	}
+
+	private void RestoreSlot(SessionSlot slot, Lock publicationGate) {
+		HostSession? session = null;
+		try {
+			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id, slot.ShellTerminals);
+			RestoreSlotEditor(session, slot);
+			ReplaySession(session);
+
+			lock (publicationGate) {
+				slot.Session = session;
+				PushSessionList();
+				session.ActivateOwnedRuntimeAndMessages();
+				PersistSessionState();
+			}
+
+			StartSessionTerminals(session);
+		} catch (Exception error) {
+			lock (publicationGate) {
+				var failure = RollbackSessionLoad(slot, session, removeSlot: false, error);
+				_sessionStartupNotices.Add(
+					("error", $"Couldn't restore the session '{slot.Label}': {Innermost(failure).Message}"));
+				Log($"[sessions] restoring '{slot.Label}' failed: {failure}");
+			}
 		}
 	}
 

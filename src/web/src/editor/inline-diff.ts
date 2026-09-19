@@ -184,6 +184,8 @@ export interface InlineDiff {
 /** The parked-navigator summary: how many files are pending review, and how to step into the first change. */
 export interface ParkedReview {
   fileCount: number;
+  /** 1-based position of the file the navigator will step into next. */
+  fileIndex: number;
   /** Names the review in the parked subtitle ("PR #12", "vs main"); absent for the post-turn set. */
   label?: string;
   stepIn: () => void;

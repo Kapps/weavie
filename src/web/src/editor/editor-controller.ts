@@ -745,6 +745,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       files.length > 0
         ? {
             fileCount: files.length,
+            fileIndex: 1,
             ...(label !== "" ? { label } : {}),
             stepIn,
             nextFile: stepIn,

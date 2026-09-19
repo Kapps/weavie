@@ -11,6 +11,7 @@ import { isFileTab, matchesTab, tabKind, tabResourceKey } from "./tab-entry";
 import { TabOwner } from "./tab-owner";
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
+const liveStates = new Set<OwnedEditorSession>();
 
 function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {
   const pinned = open.filter((entry) => entry.pinned);
@@ -400,6 +401,7 @@ class OwnedEditorSession {
 registerSessionFeature((owner) => {
   const state = new OwnedEditorSession(owner);
   states.set(owner, state);
+  liveStates.add(state);
   const off = owner.state.editor.subscribe((session) => {
     if (session !== null) {
       state.restore(session);
@@ -409,6 +411,7 @@ registerSessionFeature((owner) => {
     off();
     state.closeState();
     states.delete(owner);
+    liveStates.delete(state);
   };
 });
 
@@ -496,6 +499,13 @@ export function flushEditorSession(): void {
 
 export function flushEditorSessionFor(owner: ClientSession): void {
   stateFor(owner)?.flush();
+}
+
+// A backgrounded session keeps processing its own file/editor traffic (see session-message-bus.md) and can
+// carry its own pending debounce independent of which session is selected, so a full teardown must drain all
+// of them, not just the selected one.
+export function flushAllEditorSessions(): void {
+  for (const state of liveStates) state.flush();
 }
 
 export function openTab(

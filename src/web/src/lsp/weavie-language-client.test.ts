@@ -52,6 +52,9 @@ vi.mock("vscode-languageclient/browser.js", () => ({
   },
 }));
 vi.mock("vscode-languageclient");
+vi.mock("./shared-semantic-tokens-feature", () => ({
+  SharedSemanticTokensFeature: class {},
+}));
 
 import { setNotifySink } from "../notify/notify";
 import { SessionExecuteCommandFeature } from "./session-execute-command-feature";
@@ -174,7 +177,7 @@ describe("Weavie language client notifications", () => {
   it("replaces the upstream process-global execute-command feature", () => {
     createWeavieLanguageClient(clientOptions, commandNamespace, modelWorkspaceUri as never);
 
-    expect(runtime.features).toHaveLength(1);
+    expect(runtime.features).toHaveLength(2);
     expect(runtime.features[0]).toBeInstanceOf(SessionExecuteCommandFeature);
     expect(
       (runtime.features[0] as { registrationType: { method: string } }).registrationType.method,

@@ -2,11 +2,7 @@
 // `initialize`, so no workbench/layout renders — the editor-service override delegates file-opening to the
 // `openEditor` callback below, keeping weavie in full control of its editors.
 
-import {
-  IInstantiationService,
-  initialize,
-  StandaloneServices,
-} from "@codingame/monaco-vscode-api";
+import { initialize } from "@codingame/monaco-vscode-api";
 import getEditorServiceOverride, {
   type OpenEditor,
 } from "@codingame/monaco-vscode-editor-service-override";
@@ -26,10 +22,8 @@ import "@codingame/monaco-vscode-go-default-extension";
 import "@codingame/monaco-vscode-python-default-extension";
 import "@codingame/monaco-vscode-rust-default-extension";
 
-// Semantic-highlighting consumer. The feature that paints LSP tokens is normally built by a workbench
-// contribution on `onWillCreateCodeEditor`, which never fires for a standalone editor — so we construct it
-// ourselves in doInit(), else the provider is registered but never consumed.
-import { DocumentSemanticTokensFeature } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
+// Registered once by Monaco's editor-feature lifecycle.
+import "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
 // Generic editor worker for most services; the dedicated TextMate worker (label "TextMateWorker") handles
 // background tokenization. `monaco-editor` is aliased to the vscode editor-api (see package.json).
@@ -105,10 +99,6 @@ async function doInit(): Promise<void> {
   const remeasure = (): void => editor.remeasureFonts();
   void document.fonts.ready.then(remeasure);
   document.fonts.addEventListener("loadingdone", remeasure);
-
-  // Construct the semantic-tokens feature (see its import note); its disposables hook long-lived services, so
-  // it stays alive without us holding it.
-  StandaloneServices.get(IInstantiationService).createInstance(DocumentSemanticTokensFeature);
 
   // Apply the active theme before any editor exists, so the first paint isn't a flash of the default light
   // theme. The theme is registered as an extension (see monaco-theme.ts); await it, then track live changes.

@@ -36,6 +36,10 @@ test.use({
   },
 });
 
+// Flaked on main, 2026-09-19 (https://github.com/Kapps/weavie/actions/runs/35426672477/job/105854092604):
+// the toolbar showed "file 1/30" before any file was clicked. UnifiedReview.tsx's visibleFile() aliased
+// "nothing selected" (-1) to file 0, letting a virtualizer-overscan-mounted file-0 editor register as the
+// active selection. Fixed by keeping -1 distinct from an explicit selection of file 0.
 test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
   weavie,

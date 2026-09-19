@@ -21,6 +21,11 @@ export const makeButton = (
   button.className = className;
   button.textContent = label;
   button.title = title;
+  // A mousedown would otherwise focus the button, firing this file's onFocusIn as if the user had
+  // navigated into it — reselecting an unselected file mid-click, which can race a destructive re-render
+  // against the click's own action. These are click shortcuts for actions reachable by chord; they don't
+  // need to take focus themselves.
+  button.addEventListener("mousedown", (event) => event.preventDefault());
   button.addEventListener("click", () => onClick());
   return button;
 };

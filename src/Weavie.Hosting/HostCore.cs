@@ -319,7 +319,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_sessions = new SessionManager(_worktrees);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		LogStartup("worktrees discovered");
-		RestoreSessionState();
+		await RunSessionLifecycleAsync(RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
 		LogStartup("sessions restored");
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.

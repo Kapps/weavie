@@ -547,11 +547,15 @@ public sealed partial class HostCore {
 				slot.AgentProviderId,
 				slot.Id,
 				slot.ShellTerminals);
-			slot.Session.DisplayLabel = slot.Label;
-			slot.Session.EditorSession = slot.EditorSession;
-			slot.Session.Scratch.GarbageCollect(
-				slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
+			RestoreSlotEditor(slot.Session, slot);
 		}
+	}
+
+	private static void RestoreSlotEditor(HostSession session, SessionSlot slot) {
+		session.DisplayLabel = slot.Label;
+		session.EditorSession = slot.EditorSession;
+		session.Scratch.GarbageCollect(
+			slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 	}
 
 	/// <summary>
@@ -569,22 +573,25 @@ public sealed partial class HostCore {
 			var session = slot.Session!;
 			session.ActivateOwnedRuntimeAndMessages(PushSessionList);
 			PersistSessionState();
-			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
-			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
-			session.Claude?.EnsureStarted();
-			session.Shells.EnsureStarted();
-			LogStartup($"session {slot.Id}: terminals started");
+			StartSessionTerminals(session);
 		} catch (Exception error) {
-			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
+			throw RollbackSessionLoad(slot, slot.Session, removeSlot: false, error: error);
 		}
+	}
+
+	private void StartSessionTerminals(HostSession session) {
+		session.Claude?.EnsureStarted();
+		session.Shells.EnsureStarted();
+		LogStartup($"session {session.SlotId}: terminals started");
 	}
 
 	private Exception RollbackSessionLoad(
 		SessionSlot slot,
+		HostSession? session,
 		bool removeSlot,
 		Exception error) {
 		var failures = new List<Exception> { error };
-		if (slot.Session is { } session) {
+		if (session is not null) {
 			try {
 				session.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			} catch (Exception cleanupError) {
@@ -1241,7 +1248,7 @@ public sealed partial class HostCore {
 			} catch (Exception ex) {
 				result.SetException(slot is null
 					? ex
-					: RollbackSessionLoad(slot, removeSlot: true, error: ex));
+					: RollbackSessionLoad(slot, slot.Session, removeSlot: true, error: ex));
 			}
 		});
 		return result.Task;

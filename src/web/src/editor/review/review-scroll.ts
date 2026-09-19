@@ -1,3 +1,7 @@
+import {
+  getWindow,
+  scheduleAtNextAnimationFrame,
+} from "@codingame/monaco-vscode-api/vscode/vs/base/browser/dom";
 import type { IMouseWheelEvent } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/mouseEvent";
 import { SmoothScrollableElement } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/ui/scrollbar/scrollableElement";
 import {
@@ -25,10 +29,9 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const state = new Scrollable({
     forceIntegerValues: false,
     smoothScrollDuration: currentEditorOptions().smoothScrolling ? SMOOTH_SCROLL_MS : 0,
-    scheduleAtNextAnimationFrame: (callback) => {
-      const frame = requestAnimationFrame(callback);
-      return { dispose: () => cancelAnimationFrame(frame) };
-    },
+    // Monaco can paint the updated editor viewports in this same animation frame.
+    scheduleAtNextAnimationFrame: (callback) =>
+      scheduleAtNextAnimationFrame(getWindow(element), callback),
   });
   const offOptions = onEditorOptionsChanged((options) => {
     state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);

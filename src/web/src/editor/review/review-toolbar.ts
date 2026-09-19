@@ -2,6 +2,14 @@ import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 import type { ParkedReview, ReviewHistoryState } from "../inline-diff";
 
+/** A shared host has one toolbar even while its owning editor changes. */
+export function mountReviewToolbar(host: HTMLElement, toolbar: HTMLElement): void {
+  const previous = host.querySelector<HTMLElement>(":scope > .weavie-inline-toolbar");
+  if (previous === toolbar) return;
+  if (previous === null) host.appendChild(toolbar);
+  else previous.replaceWith(toolbar);
+}
+
 export const makeButton = (
   className: string,
   label: string,

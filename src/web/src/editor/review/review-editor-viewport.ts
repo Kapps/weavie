@@ -44,7 +44,8 @@ export function createReviewEditorViewport(
       const width = container.clientWidth;
       const previous = editor.getLayoutInfo();
       const resized = previous.width !== width || previous.height !== height;
-      if (resized) editor.layout({ width, height });
+      // Let Monaco coordinate rendering after both the size and scroll position are updated.
+      if (resized) editor.layout({ width, height }, true);
       const moved = editor.getScrollTop() !== top;
       if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);

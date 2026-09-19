@@ -2,16 +2,24 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Hosting;
+using ZstdSharp;
 
 namespace Weavie.Headless;
 
 internal sealed partial class WebSocketHostBridge {
 	internal const int MaxWireMessageBytes = 768 * 1024;
-	private const int ChunkPayloadCharacters = 64 * 1024;
+	private const int ChunkPayloadBytes = 64 * 1024;
 	private const int RawMessageCharacters = MaxWireMessageBytes / 3;
 	private static readonly JsonSerializerOptions ChunkJsonOptions = new(JsonSerializerDefaults.Web);
 
 	private sealed record OutboundMessage(WebMessageRoute Route, string Json, string Id) {
+		private readonly Lazy<byte[]> _compressed = new(() => {
+			using var compressor = new Compressor(3);
+			return compressor.Wrap(Encoding.UTF8.GetBytes(Json)).ToArray();
+		});
+
+		public byte[] Compressed => _compressed.Value;
+
 		public bool UsesLargeLane => Json.Length > RawMessageCharacters;
 
 		public int Weight => Math.Min(Json.Length, OutboxCharacterCapacity);
@@ -20,10 +28,10 @@ internal sealed partial class WebSocketHostBridge {
 	private sealed class PendingMessage(OutboundMessage message) {
 		public TaskCompletionSource Sent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private int _index;
-		private IReadOnlyList<ChunkRange>? _ranges;
+		private int _count;
 
 		public bool Complete => message.UsesLargeLane
-			? _ranges is not null && _index == _ranges.Count
+			? _count > 0 && _index == _count
 			: _index == 1;
 
 		public bool UsesLargeLane => message.UsesLargeLane;
@@ -36,30 +44,14 @@ internal sealed partial class WebSocketHostBridge {
 				return Encoding.UTF8.GetBytes(message.Json);
 			}
 
-			_ranges ??= ChunkRanges(message.Json);
-			var range = _ranges[_index];
-			var characters = message.Json.AsSpan(range.Offset, range.Length);
-			byte[] payload = new byte[Encoding.UTF8.GetByteCount(characters)];
-			Encoding.UTF8.GetBytes(characters, payload);
+			byte[] compressed = message.Compressed;
+			_count = (compressed.Length + ChunkPayloadBytes - 1) / ChunkPayloadBytes;
+			int offset = _index * ChunkPayloadBytes;
 			return JsonSerializer.SerializeToUtf8Bytes(new ChunkWire(new ChunkBody(
 				message.Id,
 				_index++,
-				_ranges.Count,
-				Convert.ToBase64String(payload))), ChunkJsonOptions);
-		}
-
-		private static IReadOnlyList<ChunkRange> ChunkRanges(string json) {
-			var ranges = new List<ChunkRange>((json.Length + ChunkPayloadCharacters - 1) / ChunkPayloadCharacters);
-			int offset = 0;
-			while (offset < json.Length) {
-				int length = Math.Min(ChunkPayloadCharacters, json.Length - offset);
-				if (offset + length < json.Length && char.IsHighSurrogate(json[offset + length - 1])) {
-					length--;
-				}
-				ranges.Add(new ChunkRange(offset, length));
-				offset += length;
-			}
-			return ranges;
+				_count,
+				Convert.ToBase64String(compressed, offset, Math.Min(ChunkPayloadBytes, compressed.Length - offset)))), ChunkJsonOptions);
 		}
 	}
 
@@ -121,6 +113,8 @@ internal sealed partial class WebSocketHostBridge {
 		public async ValueTask<OutboundTurn?> NextAsync() {
 			while (true) {
 				Task changed;
+				PendingMessage? selected = null;
+				WebMessageRoute selectedRoute = default;
 				lock (_gate) {
 					int candidates = _routes.Count;
 					while (candidates-- > 0 && _routes.TryDequeue(out var route)) {
@@ -132,13 +126,18 @@ internal sealed partial class WebSocketHostBridge {
 						if (message.UsesLargeLane) {
 							_largeRoute = route;
 						}
-						byte[] bytes = message.Next();
-						return new OutboundTurn(route, bytes, message.Complete);
+						selected = message;
+						selectedRoute = route;
+						break;
 					}
-					if (_closed) {
+					if (selected is null && _closed) {
 						return null;
 					}
 					changed = _changed.Task;
+				}
+				if (selected is not null) {
+					byte[] bytes = selected.Next();
+					return new OutboundTurn(selectedRoute, bytes, selected.Complete);
 				}
 				await changed.ConfigureAwait(false);
 			}
@@ -187,8 +186,6 @@ internal sealed partial class WebSocketHostBridge {
 		WebMessageRoute Route,
 		byte[] Bytes,
 		bool CompletesMessage);
-
-	private sealed record ChunkRange(int Offset, int Length);
 
 	private sealed record ChunkWire(
 		[property: JsonPropertyName("$weavieChunk")] ChunkBody Chunk);

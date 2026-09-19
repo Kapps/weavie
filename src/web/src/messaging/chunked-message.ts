@@ -1,3 +1,5 @@
+import { decompress } from "fzstd";
+
 interface WireChunk {
   id: string;
   index: number;
@@ -47,7 +49,7 @@ export class ChunkedMessageReceiver {
       offset += part.length;
     }
     this.pending.delete(chunk.id);
-    return new TextDecoder("utf-8", { fatal: true }).decode(joined);
+    return new TextDecoder("utf-8", { fatal: true }).decode(decompress(joined));
   }
 
   reset(): void {

@@ -38,6 +38,7 @@
     "@xterm/xterm": "6.1.0-beta.288",
     "dompurify": "3.4.13",
     "fzf": "^0.5.2",
+    "fzstd": "0.1.1",
     "highlight.js": "^11.11.1",
     "linguist-languages": "9.4.0",
     "lucide-solid": "^1.23.0",

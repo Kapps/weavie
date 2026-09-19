@@ -123,7 +123,11 @@ use the host's lifecycle gate. This keeps an unrelated command responsive while 
 on a process, network call, or recursive filesystem operation without racing related state mutations.
 
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
-and round-robins lazily encoded oversized-message chunks with small messages from other routes. One
+and round-robins lazily encoded oversized-message chunks with small messages from other routes. Large
+host-to-browser bodies are UTF-8 JSON compressed with zstd level 3, once per broadcast, before slicing
+into 64 KiB compressed chunks carried as base64 in `$weavieChunk`. The browser reassembles and
+synchronously decompresses each body before dispatch. Small messages remain plain JSON. Compression
+runs outside the outbox lock; queue accounting uses the original JSON size. One
 connection carries at most one partial oversized body while that interleaving is active, and its
 outbox is bounded by logical count and a retained-character budget. One body may exceed that budget,
 but its saturated weight makes it the outbox's only retained message. A large response therefore

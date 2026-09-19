@@ -99,17 +99,23 @@ public sealed class MessageOperationSupervisionTests {
 		}
 	}
 
+	// Flaked on main PR CI, 2026-09-19 (https://github.com/Kapps/weavie/actions/runs/35438963957/job/105886361718):
+	// "entered.Task.WaitAsync(2s)" timed out. Unlike its sibling tests, this one drove the router's real
+	// deadline watchdog with TimeProvider.System, so a CPU-starved CI runner could let the real 40ms/150ms
+	// timers fire and fence the endpoint before the handler ever got scheduled to run. Fixed by switching to
+	// ManualTimeProvider and advancing it explicitly, like the other tests in this file already do.
 	[Fact]
 	public async Task TimedOutHandlerIsDiagnosedSettledAndFencesItsEndpoint() {
 		var transport = new RecordingTransport();
 		var logs = new ConcurrentQueue<string>();
+		var time = new ManualTimeProvider();
 		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(150));
 		await using var router = new HostMessageRouter(
 			transport,
 			new InlineUiDispatcher(),
 			logs.Enqueue,
 			policy,
-			TimeProvider.System);
+			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i2"));
 		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -130,6 +136,7 @@ public sealed class MessageOperationSupervisionTests {
 
 		var dispatch = router.RouteAsync(new WebPeer("page"), request.ToJson());
 		await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+		time.Advance(policy.Deadline);
 		await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
 
 		// The timeout settles the operation and writes its response on the supervision path, which can outlive

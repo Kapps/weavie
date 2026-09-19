@@ -67,12 +67,16 @@ export function UnifiedReview(props: {
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   // -1 means nothing is selected yet — distinct from file 0 being selected. Conflating the two let an
   // editor that had merely mounted (e.g. under virtualizer overscan) masquerade as the user's selection.
-  const visibleFile = (): number =>
-    props
-      .overview()
-      .files.findIndex(
-        (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-      );
+  // A review with exactly one file has no ambiguity about which file the user means, so it counts as
+  // selected from the start — computed here rather than written into selectedPath on mount, so there's
+  // no separate "becomes active" transition after the file's editor has already mounted.
+  const visibleFile = (): number => {
+    const overviewFiles = props.overview().files;
+    const index = overviewFiles.findIndex(
+      (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
+    );
+    return index === -1 && overviewFiles.length === 1 ? 0 : index;
+  };
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };

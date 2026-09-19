@@ -104,6 +104,10 @@ vi.mock("../editor/session-uri", () => ({
   protocolUri: (session: FakeSession, value: string) => fakeUri(session, new URL(value).pathname),
 }));
 
+vi.mock("./shared-semantic-tokens-feature", () => ({
+  SharedSemanticTokensFeature: class {},
+}));
+
 vi.mock("monaco-editor", () => ({
   editor: {
     getModels: () => runtime.models,

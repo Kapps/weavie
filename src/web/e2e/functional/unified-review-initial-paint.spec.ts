@@ -27,14 +27,14 @@ test.use({
   },
 });
 
-test("a pending diff never sizes a small change to its entire 7,000-line source", async ({
-  page,
-}) => {
+test("a pending diff shows a bounded loading surface until geometry is ready", async ({ page }) => {
   await page.locator(".editor-empty-review").click();
   const section = page.locator(".unified-review-file");
-  await expect(section.locator(".monaco-editor")).toBeVisible();
+  await expect(section.locator(".monaco-editor")).toBeAttached();
   await workerRequested.promise;
   try {
+    await expect(section.locator(".monaco-editor")).toBeHidden();
+    await expect(section.locator(".unified-review-notice")).toHaveText("Calculating diff…");
     const viewport = await page.locator(".unified-review-diffs").evaluate((el) => el.clientHeight);
     expect(await section.evaluate((el) => el.clientHeight)).toBeLessThan(viewport);
   } finally {

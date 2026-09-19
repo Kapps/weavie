@@ -8,60 +8,59 @@ namespace Weavie.Headless;
 
 internal sealed partial class WebSocketHostBridge {
 	internal const int MaxWireMessageBytes = 768 * 1024;
-	private const int ChunkPayloadBytes = 64 * 1024;
+	private const int ChunkPayloadCharacters = 64 * 1024;
 	private const int RawMessageCharacters = MaxWireMessageBytes / 3;
 	private static readonly JsonSerializerOptions ChunkJsonOptions = new(JsonSerializerDefaults.Web);
 
-	private sealed record OutboundMessage(WebMessageRoute Route, string Json, string Id) {
-		private readonly Lazy<byte[]> _compressed = new(() => {
-			using var compressor = new Compressor(3);
-			return compressor.Wrap(Encoding.UTF8.GetBytes(Json)).ToArray();
-		});
+	private sealed record OutboundMessage(WebMessageRoute Route, byte[][] Frames) {
+		public bool UsesLargeLane => Frames.Length > 1;
 
-		public byte[] Compressed => _compressed.Value;
-
-		public bool UsesLargeLane => Json.Length > RawMessageCharacters;
-
-		public int Weight => Math.Min(Json.Length, OutboxCharacterCapacity);
+		public int Weight => Math.Min(Frames.Sum(frame => frame.Length), OutboxByteCapacity);
 	}
 
 	private sealed class PendingMessage(OutboundMessage message) {
-		public TaskCompletionSource Sent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private int _index;
-		private int _count;
 
-		public bool Complete => message.UsesLargeLane
-			? _count > 0 && _index == _count
-			: _index == 1;
+		public bool Complete => _index == message.Frames.Length;
 
 		public bool UsesLargeLane => message.UsesLargeLane;
 
 		public int Weight => message.Weight;
 
-		public byte[] Next() {
-			if (!message.UsesLargeLane) {
-				_index = 1;
-				return Encoding.UTF8.GetBytes(message.Json);
-			}
-
-			byte[] compressed = message.Compressed;
-			_count = (compressed.Length + ChunkPayloadBytes - 1) / ChunkPayloadBytes;
-			int offset = _index * ChunkPayloadBytes;
-			return JsonSerializer.SerializeToUtf8Bytes(new ChunkWire(new ChunkBody(
-				message.Id,
-				_index++,
-				_count,
-				Convert.ToBase64String(compressed, offset, Math.Min(ChunkPayloadBytes, compressed.Length - offset)))), ChunkJsonOptions);
-		}
+		public byte[] Next() => message.Frames[_index++];
 	}
 
-	private sealed class FairOutbox(int capacity, int characterCapacity) {
+	private static byte[][] EncodeFrames(string json, string id) {
+		using var compressor = new Compressor(3);
+		if (json.Length <= RawMessageCharacters) {
+			return [compressor.Wrap(Encoding.UTF8.GetBytes(json)).ToArray()];
+		}
+
+		var ranges = new List<ChunkRange>();
+		for (int offset = 0; offset < json.Length;) {
+			int length = Math.Min(ChunkPayloadCharacters, json.Length - offset);
+			if (offset + length < json.Length && char.IsHighSurrogate(json[offset + length - 1])) length--;
+			ranges.Add(new ChunkRange(offset, length));
+			offset += length;
+		}
+
+		return [.. ranges.Select((range, index) => {
+			var characters = json.AsSpan(range.Offset, range.Length);
+			byte[] payload = new byte[Encoding.UTF8.GetByteCount(characters)];
+			Encoding.UTF8.GetBytes(characters, payload);
+			byte[] wire = JsonSerializer.SerializeToUtf8Bytes(new ChunkWire(new ChunkBody(
+				id, index, ranges.Count, Convert.ToBase64String(payload))), ChunkJsonOptions);
+			return compressor.Wrap(wire).ToArray();
+		})];
+	}
+
+	private sealed class FairOutbox(int capacity, int byteCapacity) {
 		private readonly object _gate = new();
 		private readonly Dictionary<WebMessageRoute, Queue<PendingMessage>> _pending = [];
 		private readonly Queue<WebMessageRoute> _routes = [];
 		private TaskCompletionSource _changed = NewSignal();
 		private WebMessageRoute? _largeRoute;
-		private int _characters;
+		private int _bytes;
 		private bool _closed;
 		private int _messages;
 
@@ -69,52 +68,29 @@ internal sealed partial class WebSocketHostBridge {
 			lock (_gate) {
 				if (_closed
 					|| _messages >= capacity
-					|| message.Weight > characterCapacity - _characters) {
+					|| message.Weight > byteCapacity - _bytes) {
 					return false;
 				}
-				EnqueueLocked(message.Route, new PendingMessage(message));
+				bool addedRoute = false;
+				if (!_pending.TryGetValue(message.Route, out var queue)) {
+					queue = new Queue<PendingMessage>();
+					_pending.Add(message.Route, queue);
+					_routes.Enqueue(message.Route);
+					addedRoute = true;
+				}
+				queue.Enqueue(new PendingMessage(message));
+				_messages++;
+				_bytes += message.Weight;
+				if (addedRoute) {
+					PulseLocked();
+				}
 				return true;
 			}
-		}
-
-		public async Task WriteAsync(OutboundMessage message, CancellationToken cancellationToken) {
-			cancellationToken.ThrowIfCancellationRequested();
-			PendingMessage pending;
-			while (true) {
-				Task changed;
-				lock (_gate) {
-					if (_closed) return;
-					if (_messages < capacity && message.Weight <= characterCapacity - _characters) {
-						pending = new PendingMessage(message);
-						EnqueueLocked(message.Route, pending);
-						break;
-					}
-					changed = _changed.Task;
-				}
-				await changed.WaitAsync(cancellationToken).ConfigureAwait(false);
-			}
-			await pending.Sent.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-		}
-
-		private void EnqueueLocked(WebMessageRoute route, PendingMessage pending) {
-			bool addedRoute = false;
-			if (!_pending.TryGetValue(route, out var queue)) {
-				queue = new Queue<PendingMessage>();
-				_pending.Add(route, queue);
-				_routes.Enqueue(route);
-				addedRoute = true;
-			}
-			queue.Enqueue(pending);
-			_messages++;
-			_characters += pending.Weight;
-			if (addedRoute) PulseLocked();
 		}
 
 		public async ValueTask<OutboundTurn?> NextAsync() {
 			while (true) {
 				Task changed;
-				PendingMessage? selected = null;
-				WebMessageRoute selectedRoute = default;
 				lock (_gate) {
 					int candidates = _routes.Count;
 					while (candidates-- > 0 && _routes.TryDequeue(out var route)) {
@@ -126,18 +102,13 @@ internal sealed partial class WebSocketHostBridge {
 						if (message.UsesLargeLane) {
 							_largeRoute = route;
 						}
-						selected = message;
-						selectedRoute = route;
-						break;
+						byte[] bytes = message.Next();
+						return new OutboundTurn(route, bytes, message.Complete);
 					}
-					if (selected is null && _closed) {
+					if (_closed) {
 						return null;
 					}
 					changed = _changed.Task;
-				}
-				if (selected is not null) {
-					byte[] bytes = selected.Next();
-					return new OutboundTurn(selectedRoute, bytes, selected.Complete);
 				}
 				await changed.ConfigureAwait(false);
 			}
@@ -148,9 +119,8 @@ internal sealed partial class WebSocketHostBridge {
 				var queue = _pending[turn.Route];
 				if (turn.CompletesMessage) {
 					var completed = queue.Dequeue();
-					completed.Sent.TrySetResult();
 					_messages--;
-					_characters -= completed.Weight;
+					_bytes -= completed.Weight;
 					if (completed.UsesLargeLane) {
 						_largeRoute = null;
 					}
@@ -167,7 +137,6 @@ internal sealed partial class WebSocketHostBridge {
 		public void Complete() {
 			lock (_gate) {
 				_closed = true;
-				foreach (var pending in _pending.Values.SelectMany(queue => queue)) pending.Sent.TrySetResult();
 				PulseLocked();
 			}
 		}
@@ -186,6 +155,8 @@ internal sealed partial class WebSocketHostBridge {
 		WebMessageRoute Route,
 		byte[] Bytes,
 		bool CompletesMessage);
+
+	private sealed record ChunkRange(int Offset, int Length);
 
 	private sealed record ChunkWire(
 		[property: JsonPropertyName("$weavieChunk")] ChunkBody Chunk);

@@ -273,9 +273,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The session-owned message bus.</summary>
 	internal SessionMessageBus Bus => _endpoint.Bus;
 
-	/// <summary>Registers this endpoint, advertises its address, then releases publications and starts its runtime.</summary>
-	internal void ActivateOwnedRuntimeAndMessages(Action publishCatalog) {
-		_endpoint.Activate(publishCatalog);
+	/// <summary>Starts this session's structured runtime and advertises its bus after its exact address enters
+	/// the host catalog.</summary>
+	internal void ActivateOwnedRuntimeAndMessages() {
+		_endpoint.Activate();
 		_ = Background.Run(RunWorkspaceObservationAsync);
 		Agent.Structured?.Start();
 	}
@@ -385,8 +386,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider through this session's files feature.</summary>
 	public FileProviderService FileProvider { get; }
-
-	internal ReviewPublication ReviewPublication { get; } = new();
 
 	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
 	public SessionFileActivity FileActivity { get; }

@@ -125,7 +125,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			() => false,
 			(_, accept) => accept(),
 			(_, _) => { });
-		session.ActivateOwnedRuntimeAndMessages(() => { });
+		session.ActivateOwnedRuntimeAndMessages();
 		return session;
 	}
 

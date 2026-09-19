@@ -1,8 +1,32 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { createAcpSession } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
 import { oversizedPng, pastePng } from "../harness/pasted-image";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
+
+const pasteMessages = new WeakMap<Page, unknown[]>();
+test.use({
+  preNavigate: {
+    run: async (page) => {
+      const messages: unknown[] = [];
+      pasteMessages.set(page, messages);
+      page.on("websocket", (socket) => {
+        socket.on("framesent", ({ payload }) => {
+          const message = JSON.parse(decodeTestWebSocketMessage(payload));
+          if (
+            message.scope === "session" &&
+            message.feature === "terminal.agent" &&
+            message.name === "pasteImage"
+          ) {
+            messages.push(message);
+          }
+        });
+      });
+    },
+  },
+});
 
 // Remote image paste into the claude pane. The deterministic C# tests inject `terminal.agent/pasteImage`
 // straight into HostCore, so they never exercise the ONE link that lives only in the browser: a real DOM
@@ -85,46 +109,11 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
   // The claude pane must be mounted (its capture-phase paste listener is attached on mount).
   await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .term')).toBeVisible();
 
-  // Spy on the outbound bridge socket so we can see exactly which host-bound messages the paste produces —
-  // isolating the browser capture from its downstream host effect. `send` is on the prototype, so patching it
-  // after the socket opened still intercepts every send.
-  await page.evaluate(() => {
-    (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__ = [];
-    const original = WebSocket.prototype.send;
-    WebSocket.prototype.send = function (
-      data: string | ArrayBufferLike | Blob | ArrayBufferView,
-    ): void {
-      if (typeof data === "string") {
-        const message = JSON.parse(data) as {
-          scope?: string;
-          feature?: string;
-          name?: string;
-        };
-        if (
-          message.scope === "session" &&
-          message.feature === "terminal.agent" &&
-          message.name === "pasteImage"
-        ) {
-          (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(message);
-        }
-      }
-      original.call(this, data as string);
-    };
-  });
-
   await pasteInto(page, { kind: "image", b64: PNG_B64, mime: "image/png" });
 
   // Encoding finishes asynchronously before the owned session event is published.
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.length,
-      ),
-    )
-    .toBe(1);
-  const msgs = await page.evaluate(
-    () => (window as unknown as { __PASTE_MSGS__: Array<Record<string, string>> }).__PASTE_MSGS__,
-  );
+  await expect.poll(() => pasteMessages.get(page)!.length).toBe(1);
+  const msgs = pasteMessages.get(page)!;
   expect(msgs).toHaveLength(1);
   expect(msgs[0]).toMatchObject({
     scope: "session",
@@ -147,37 +136,11 @@ test("a text-only paste on the claude pane never publishes pasteImage (falls thr
 }) => {
   await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .term')).toBeVisible();
 
-  await page.evaluate(() => {
-    (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__ = [];
-    const original = WebSocket.prototype.send;
-    WebSocket.prototype.send = function (
-      data: string | ArrayBufferLike | Blob | ArrayBufferView,
-    ): void {
-      if (typeof data === "string") {
-        const message = JSON.parse(data) as {
-          scope?: string;
-          feature?: string;
-          name?: string;
-        };
-        if (
-          message.scope === "session" &&
-          message.feature === "terminal.agent" &&
-          message.name === "pasteImage"
-        ) {
-          (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(message);
-        }
-      }
-      original.call(this, data as string);
-    };
-  });
-
   await pasteInto(page, { kind: "text", text: "just some pasted text" });
 
   // The image predicate rejected the text item: no host-bound image message, and nothing written on disk.
   await page.waitForTimeout(1000);
-  const msgs = await page.evaluate(
-    () => (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__,
-  );
+  const msgs = pasteMessages.get(page)!;
   expect(msgs).toHaveLength(0);
   expect(pastedPngs(weavie.home)).toHaveLength(0);
 });

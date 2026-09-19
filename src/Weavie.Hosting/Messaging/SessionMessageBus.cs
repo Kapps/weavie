@@ -8,8 +8,6 @@ internal partial class MessageBus : IAsyncDisposable {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private static readonly Func<MessagePeer, bool> AdmitEveryPeer = static _ => true;
 	private readonly Action<WebTransportMessage> _broadcast;
-	private readonly Func<WebTransportMessage, CancellationToken, Task> _broadcastAsync;
-	private readonly Func<WebPeer, WebTransportMessage, CancellationToken, Task> _sendToPeerAsync;
 	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 	private readonly IMessageHandlerExecutor _handlerExecutor;
@@ -35,8 +33,6 @@ internal partial class MessageBus : IAsyncDisposable {
 		SessionAddress? address,
 		Action<WebTransportMessage> broadcast,
 		Action<WebPeer, WebTransportMessage> sendToPeer,
-		Func<WebTransportMessage, CancellationToken, Task> broadcastAsync,
-		Func<WebPeer, WebTransportMessage, CancellationToken, Task> sendToPeerAsync,
 		DiagnosticWorker diagnostics,
 		IMessageHandlerExecutor handlerExecutor,
 		MessageOperationRegistry operations) {
@@ -48,16 +44,12 @@ internal partial class MessageBus : IAsyncDisposable {
 
 		ArgumentNullException.ThrowIfNull(broadcast);
 		ArgumentNullException.ThrowIfNull(sendToPeer);
-		ArgumentNullException.ThrowIfNull(broadcastAsync);
-		ArgumentNullException.ThrowIfNull(sendToPeerAsync);
 		ArgumentNullException.ThrowIfNull(diagnostics);
 		ArgumentNullException.ThrowIfNull(handlerExecutor);
 		ArgumentNullException.ThrowIfNull(operations);
 		Scope = scope;
 		Address = address;
 		_broadcast = broadcast;
-		_broadcastAsync = broadcastAsync;
-		_sendToPeerAsync = sendToPeerAsync;
 		_sendToPeer = sendToPeer;
 		_diagnostics = diagnostics;
 		_handlerExecutor = handlerExecutor;
@@ -319,6 +311,64 @@ internal partial class MessageBus : IAsyncDisposable {
 				return NoResponse.Value;
 			},
 			execution);
+	}
+
+	internal void Publish<T>(string feature, string name, T payload) {
+		ArgumentException.ThrowIfNullOrEmpty(feature);
+		ArgumentException.ThrowIfNullOrEmpty(name);
+		ThrowIfClosed();
+		var envelope = MessageEnvelope.Event(
+			Scope,
+			Address,
+			feature,
+			name,
+			JsonSerializer.SerializeToElement(payload, JsonOptions));
+		_broadcast(envelope.ToTransportMessage());
+	}
+
+	internal void PublishJson(string feature, string name, string payloadJson) {
+		ArgumentException.ThrowIfNullOrEmpty(feature);
+		ArgumentException.ThrowIfNullOrEmpty(name);
+		ArgumentException.ThrowIfNullOrEmpty(payloadJson);
+		ThrowIfClosed();
+		using var document = JsonDocument.Parse(payloadJson);
+		var envelope = MessageEnvelope.Event(
+			Scope,
+			Address,
+			feature,
+			name,
+			document.RootElement.Clone());
+		_broadcast(envelope.ToTransportMessage());
+	}
+
+	internal void PublishTo<T>(WebPeer peer, string feature, string name, T payload) {
+		ArgumentException.ThrowIfNullOrEmpty(feature);
+		ArgumentException.ThrowIfNullOrEmpty(name);
+		ThrowIfClosed();
+		_sendToPeer(
+			peer,
+			MessageEnvelope.Event(
+				Scope,
+				Address,
+				feature,
+				name,
+				JsonSerializer.SerializeToElement(payload, JsonOptions)).ToTransportMessage());
+	}
+
+	internal void PublishJsonTo(WebPeer peer, string feature, string name, string payloadJson) {
+		ArgumentException.ThrowIfNullOrEmpty(feature);
+		ArgumentException.ThrowIfNullOrEmpty(name);
+		ArgumentException.ThrowIfNullOrEmpty(payloadJson);
+		ThrowIfClosed();
+		using var document = JsonDocument.Parse(payloadJson);
+		_sendToPeer(
+			peer,
+			MessageEnvelope.Event(
+				Scope,
+				Address,
+				feature,
+				name,
+				document.RootElement.Clone()).ToTransportMessage());
 	}
 
 	internal Task DispatchAsync(WebPeer peer, MessageEnvelope envelope) {

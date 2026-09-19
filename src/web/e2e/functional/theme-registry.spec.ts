@@ -2,6 +2,7 @@ import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import type { ExtensionChoice, ThemeSearchOrder } from "../../src/theme/picker-state";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 type Search = { query: string; offset: number; sortBy: ThemeSearchOrder };
 let requests: Search[];
@@ -33,7 +34,7 @@ test.use({
       await page.routeWebSocket("**/*", (socket) => {
         const server = socket.connectToServer();
         socket.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           if (
             message.kind !== "request" ||
             message.feature !== "themes" ||
@@ -46,15 +47,17 @@ test.use({
           requests.push(request);
           const first = request.sortBy === "downloadCount" ? 0 : 1;
           socket.send(
-            JSON.stringify({
-              ...message,
-              kind: "response",
-              payload: {
-                extensions: [themes[(first + request.offset) % themes.length]],
-                offset: request.offset,
-                totalSize: themes.length,
-              },
-            }),
+            encodeTestWebSocketMessage(
+              JSON.stringify({
+                ...message,
+                kind: "response",
+                payload: {
+                  extensions: [themes[(first + request.offset) % themes.length]],
+                  offset: request.offset,
+                  totalSize: themes.length,
+                },
+              }),
+            ),
           );
         });
       });

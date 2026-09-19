@@ -262,13 +262,14 @@ public sealed partial class HostCore {
 	/// client, so without this a page that connects after the changes landed — a reload, or a slow first connect —
 	/// shows no review surface after a reconnect. A no-op when nothing is pending.
 	/// </summary>
-	private async Task PushReviewStateToWebAsync(HostSession session, MessageTarget target, CancellationToken ct) {
+	private void PushReviewStateToWeb(HostSession session, MessageTarget target) {
 		var changes = session.Changes.TurnChanges();
-		PushReviewHistoryToWeb(session, target);
 		PushTurnChangesToWeb(session, target);
 		foreach (var change in changes) {
-			await PushReviewFileToWebAsync(session, change.Path, target, ct).ConfigureAwait(false);
+			PushReviewFileToWeb(session, change.Path, target);
 		}
+
+		PushReviewHistoryToWeb(session, target);
 	}
 
 	/// <summary>Pushes a live refresh so VSCode reloads the non-dirty model from disk.</summary>
@@ -300,23 +301,27 @@ public sealed partial class HostCore {
 	/// Pushes one file's per-turn diff so the page renders it inline. Driven by the change tracker (which records
 	/// edits in every mode), so the inline markers are the review surface in default mode too.
 	/// </summary>
-	private static Task PushTurnDiffToWebAsync(HostSession session, string path) =>
-		PushTurnDiffToWebAsync(session, path, session.Bus.BroadcastTarget, CancellationToken.None);
+	private static void PushTurnDiffToWeb(HostSession session, string path) =>
+		PushTurnDiffToWeb(session, path, session.Bus.BroadcastTarget);
 
-	private static Task PushTurnDiffToWebAsync(HostSession session, string path, MessageTarget target, CancellationToken ct) =>
-		session.Changes.GetTurn(path) is { } turn
-			? target.Feature("review").PublishJsonAsync("diff", ChangeMessages.TurnDiff(turn), ct)
-			: Task.CompletedTask;
+	private static void PushTurnDiffToWeb(
+		HostSession session,
+		string path,
+		MessageTarget target) {
+		if (session.Changes.GetTurn(path) is { } turn) {
+			target.Feature("review").PublishJson("diff", ChangeMessages.TurnDiff(turn));
+		}
+	}
 
-	private async Task RunReviewActionAsync(HostSession session, Func<Task> action) {
-		try { await action().ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+	private void RunReviewAction(HostSession session, Action action) {
+		try { action(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "error", $"Couldn't save your review: {ex.Message}");
 		}
 	}
 
-	private async Task CloseReviewAsync(HostSession session) {
+	private void CloseReview(HostSession session) {
 		session.Changes.CloseReview();
-		await PushReviewActionToWebAsync(session, []).ConfigureAwait(false);
+		PushReviewActionToWeb(session, []);
 	}
 
 	/// <summary>
@@ -324,9 +329,9 @@ public sealed partial class HostCore {
 	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by
 	/// per-hunk/per-file/whole-set reverts); the host only owns the editor pushes.
 	/// </summary>
-	private async Task UndoTurnAsync(HostSession session) {
+	private void UndoTurn(HostSession session) {
 		try {
-			await ApplyHistoryResultAsync(session, session.Changes.RevertAll()).ConfigureAwait(false);
+			ApplyHistoryResult(session, session.Changes.RevertAll());
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "warn", $"Couldn't revert all changes: {ex.Message}");
 		}
@@ -336,21 +341,21 @@ public sealed partial class HostCore {
 	/// Undoes a review action: <c>kind</c> "keep"/"revert" drives the type-split chords, an absent kind the
 	/// toolbar's generic Undo. A blocked undo (a newer edit moved the file) toasts; otherwise the editor refreshes.
 	/// </summary>
-	private async Task<ReviewHistoryLocation?> ReviewUndoAsync(HostSession session, JsonElement root) {
+	private ReviewHistoryLocation? ReviewUndo(HostSession session, JsonElement root) {
 		string? kind = root.GetStringOrNull("kind");
 		var result = kind switch {
 			"keep" => session.Changes.UndoLastKeep(),
 			"revert" => session.Changes.UndoLastRevert(),
 			_ => session.Changes.UndoLast(),
 		};
-		await HandleHistoryAsync(session, result).ConfigureAwait(false);
+		HandleHistory(session, result);
 		return HistoryChangeLocation(session, result);
 	}
 
 	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
-	private async Task<ReviewHistoryLocation?> ReviewRedoAsync(HostSession session) {
+	private ReviewHistoryLocation? ReviewRedo(HostSession session) {
 		var result = session.Changes.Redo();
-		await HandleHistoryAsync(session, result).ConfigureAwait(false);
+		HandleHistory(session, result);
 		return HistoryChangeLocation(session, result);
 	}
 
@@ -371,11 +376,11 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Applies an undo/redo outcome: a blocked result (a newer edit is in the way) toasts and re-pushes
-	/// availability; an action that ran refreshes each affected file and the review set via <see cref="ApplyHistoryResultAsync"/>.
+	/// availability; an action that ran refreshes each affected file and the review set via <see cref="ApplyHistoryResult"/>.
 	/// </summary>
-	private async Task HandleHistoryAsync(HostSession session, ReviewHistoryResult result) {
+	private void HandleHistory(HostSession session, ReviewHistoryResult result) {
 		if (result.Acted) {
-			await ApplyHistoryResultAsync(session, result).ConfigureAwait(false);
+			ApplyHistoryResult(session, result);
 			return;
 		}
 
@@ -393,19 +398,19 @@ public sealed partial class HostCore {
 	/// reads canUndoKeep synchronously, with no retry) silently no-ops forever. See diff-review.spec.ts's
 	/// "keeping a hunk drops only it from the diff; undo brings it back".
 	/// </summary>
-	private async Task ApplyHistoryResultAsync(HostSession session, ReviewHistoryResult result) {
+	private void ApplyHistoryResult(HostSession session, ReviewHistoryResult result) {
 		if (result.TouchedDisk) {
 			return;
 		}
 
-		await PushReviewActionToWebAsync(session, result.Paths).ConfigureAwait(false);
+		PushReviewActionToWeb(session, result.Paths);
 	}
 
-	private async Task PushReviewActionToWebAsync(HostSession session, IReadOnlyList<string> paths) {
+	private void PushReviewActionToWeb(HostSession session, IReadOnlyList<string> paths) {
 		PushReviewHistoryToWeb(session);
 		if (session.Changes.TurnChanges().Count > 0) {
 			foreach (string path in paths) {
-				if (session.Changes.GetTurn(path) is not null) await PushTurnDiffToWebAsync(session, path).ConfigureAwait(false);
+				if (session.Changes.GetTurn(path) is not null) PushTurnDiffToWeb(session, path);
 			}
 		}
 		PushTurnChangesToWeb(session);
@@ -427,7 +432,7 @@ public sealed partial class HostCore {
 	/// Core splices its own baseline lines back in (never the message's). A guard mismatch (a parallel edit moved
 	/// the file) aborts without writing and re-emits a fresh diff; reverting a created file's last hunk deletes it.
 	/// </summary>
-	private async Task RejectHunkAsync(HostSession session, JsonElement root) {
+	private void RejectHunk(HostSession session, JsonElement root) {
 		string path = root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 		if (string.IsNullOrEmpty(path)) {
 			return;
@@ -441,7 +446,7 @@ public sealed partial class HostCore {
 			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
 			if (outcome == RevertHunkOutcome.GuardMismatch) {
 				Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-				await PushTurnDiffToWebAsync(session, path).ConfigureAwait(false);
+				PushTurnDiffToWeb(session, path);
 				return;
 			}
 
@@ -451,7 +456,7 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Reverts one file to its review baseline on disk — the file-scoped analogue of <see cref="UndoTurnAsync"/>,
+	/// Reverts one file to its review baseline on disk — the file-scoped analogue of <see cref="UndoTurn"/>,
 	/// sharing <see cref="SessionChangeTracker.RevertFile"/>. Refreshes the editor and re-emits the review set so
 	/// the now-clean file leaves the ← / → walk.
 	/// </summary>
@@ -473,7 +478,7 @@ public sealed partial class HostCore {
 	/// diff for good and survives session switches. The web sends the same line ranges + <c>guardText</c> as a
 	/// revert; a guard mismatch (a parallel edit moved the file) re-emits a fresh diff without advancing.
 	/// </summary>
-	private async Task KeepHunkAsync(HostSession session, JsonElement root) {
+	private void KeepHunk(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
 			return;
@@ -485,35 +490,35 @@ public sealed partial class HostCore {
 
 		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
 			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			await PushTurnDiffToWebAsync(session, path).ConfigureAwait(false);
+			PushTurnDiffToWeb(session, path);
 			return;
 		}
 
-		await PushReviewActionToWebAsync(session, [path]).ConfigureAwait(false);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>
 	/// Keeps a whole file: advances its review baseline to current (no disk write) so it leaves the review set for
 	/// good — the file-scoped analogue of keep-all, sharing <see cref="SessionChangeTracker.KeepFile"/>.
 	/// </summary>
-	private async Task KeepFileAsync(HostSession session, JsonElement root) {
+	private void KeepFile(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
 			return;
 		}
 
 		session.Changes.KeepFile(path);
-		await PushReviewActionToWebAsync(session, [path]).ConfigureAwait(false);
+		PushReviewActionToWeb(session, [path]);
 	}
 
 	/// <summary>
 	/// Un-keeps a single faded (accepted) hunk: Core splices its accepted-anchor lines back into the review
-	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunkAsync"/>; the web sends the
+	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunk"/>; the web sends the
 	/// accepted-anchor + review-baseline ranges and both sides' guard snapshots (a mismatch — a concurrent keep
 	/// moved the baseline, or a turn boundary committed the anchor — re-emits a fresh diff without un-keeping).
 	/// No disk write.
 	/// </summary>
-	private async Task UnkeepHunkAsync(HostSession session, JsonElement root) {
+	private void UnkeepHunk(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
 			return;
@@ -526,11 +531,11 @@ public sealed partial class HostCore {
 
 		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
 			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			await PushTurnDiffToWebAsync(session, path).ConfigureAwait(false);
+			PushTurnDiffToWeb(session, path);
 			return;
 		}
 
-		await PushTurnDiffToWebAsync(session, path).ConfigureAwait(false);
+		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
 	}
 

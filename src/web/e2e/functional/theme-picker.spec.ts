@@ -1,5 +1,6 @@
 import { openCommandPalette, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 test("theme picker previews with the keyboard, cancels, and persists acceptance", async ({
   page,
@@ -79,7 +80,7 @@ test.describe("pending registry search", () => {
         await page.routeWebSocket("**/*", (socket) => {
           const server = socket.connectToServer();
           socket.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (message.feature === "themes" && message.name === "search") return;
             server.send(data);
           });

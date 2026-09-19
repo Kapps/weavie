@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
+using ZstdSharp;
 
 namespace Weavie.Headless;
 
@@ -10,14 +11,16 @@ namespace Weavie.Headless;
 /// The <see cref="IWebTransportHub"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
 /// ordinary browser is the client. A worker can have more than one page connected at once (a second tab, or a
 /// remote agent that loops back to the same worker), so every push is broadcast to <b>all</b> connections. Each
-/// connection owns one bounded route-aware outbox. Bulk publishers await delivery; synchronous event producers
-/// cannot grow its memory without bound. A synchronous publication that overfills the outbox drops the peer.
+/// connection owns one bounded route-aware outbox, so one slow or dead peer can never stall the others or grow
+/// memory without bound. A connection that fills that outbox is dropped loudly.
 /// Pushes with no page connected are dropped, never buffered (each page requests fresh state when it connects).
 /// </summary>
 internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocketBridge {
-	// Bulk producers await delivery instead of turning a healthy burst into an outbox overflow.
+	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
+	// burst (a loopback page drains in microseconds), low enough to bound memory and fail fast. A dropped page's
+	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
 	private const int OutboxCapacity = 512;
-	private const int OutboxCharacterCapacity = 16 * 1024 * 1024;
+	private const int OutboxByteCapacity = 16 * 1024 * 1024;
 
 	private readonly ConcurrentDictionary<Connection, byte> _connections = new();
 	private long _chunkSequence;
@@ -60,19 +63,6 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 		}
 	}
 
-	/// <inheritdoc/>
-	public Task BroadcastAsync(WebTransportMessage message, CancellationToken cancellationToken) {
-		var outbound = Outbound(message);
-		return Task.WhenAll(_connections.Keys.Select(connection =>
-			connection.Outbox.WriteAsync(outbound, cancellationToken)));
-	}
-
-	/// <inheritdoc/>
-	public Task SendAsync(WebPeer peer, WebTransportMessage message, CancellationToken cancellationToken) {
-		var connection = _connections.Keys.FirstOrDefault(candidate => candidate.Peer == peer);
-		return connection is null ? Task.CompletedTask : connection.Outbox.WriteAsync(Outbound(message), cancellationToken);
-	}
-
 	/// <summary>
 	/// Drives one page connection: registers it, starts its dedicated send loop, then reads frames until it
 	/// disconnects, raising <see cref="MessageReceived"/> for each complete text message. On exit it deregisters
@@ -83,7 +73,9 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 		_connections.TryAdd(connection, 0);
 		var sendLoop = SendLoopAsync(connection);
 		byte[] buffer = new byte[64 * 1024];
-		var message = new MemoryStream();
+		using var message = new MemoryStream();
+		using var decompressor = new Decompressor();
+		var utf8 = new UTF8Encoding(false, true);
 		try {
 			while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested) {
 				WebSocketReceiveResult result;
@@ -97,12 +89,15 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 					break;
 				}
 
+				if (result.MessageType != WebSocketMessageType.Binary) {
+					throw new InvalidDataException("The WebSocket transport requires zstd binary messages.");
+				}
 				message.Write(buffer, 0, result.Count);
 				if (!result.EndOfMessage) {
 					continue;
 				}
 
-				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+				string json = utf8.GetString(decompressor.Unwrap(message.GetBuffer().AsSpan(0, (int)message.Length)));
 				message.SetLength(0);
 				MessageReceived?.Invoke(connection.Peer, json);
 			}
@@ -134,7 +129,7 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 				await connection.Socket
 					.SendAsync(
 						turn.Bytes,
-						WebSocketMessageType.Text,
+						WebSocketMessageType.Binary,
 						endOfMessage: true,
 						CancellationToken.None)
 					.ConfigureAwait(false);
@@ -147,8 +142,8 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 
 	private OutboundMessage Outbound(WebTransportMessage message) => new(
 		message.Route,
-		message.Json,
-		Interlocked.Increment(ref _chunkSequence).ToString(System.Globalization.CultureInfo.InvariantCulture));
+		EncodeFrames(message.Json,
+			Interlocked.Increment(ref _chunkSequence).ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
 	/// <summary>Forcibly removes a connection (dead or hopelessly slow) and aborts it so both its loops unwind.</summary>
 	private void Drop(Connection connection, string reason) {
@@ -170,7 +165,7 @@ internal sealed partial class WebSocketHostBridge : IWebTransportHub, IWorkspace
 		public Connection(WebSocket socket) {
 			Socket = socket;
 			Peer = new WebPeer(Guid.NewGuid().ToString("n"));
-			Outbox = new FairOutbox(OutboxCapacity, OutboxCharacterCapacity);
+			Outbox = new FairOutbox(OutboxCapacity, OutboxByteCapacity);
 		}
 
 		public WebSocket Socket { get; }

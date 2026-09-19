@@ -111,7 +111,7 @@ public sealed class MessageOperationSupervisionTests {
 			policy,
 			TimeProvider.System);
 		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i2"));
-		endpoint.Activate(() => { });
+		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty, Result>(
@@ -179,7 +179,7 @@ public sealed class MessageOperationSupervisionTests {
 			policy,
 			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
-		endpoint.Activate(() => { });
+		endpoint.Activate();
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty>(
 			"sync",
 			async (_, _) => {
@@ -221,7 +221,7 @@ public sealed class MessageOperationSupervisionTests {
 			policy,
 			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
-		endpoint.Activate(() => { });
+		endpoint.Activate();
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").HandleAfterResponse<Empty, Result>(
 			"finish",

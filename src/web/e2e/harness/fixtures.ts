@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { type CDPSession, expect, type Page } from "@playwright/test";
+import { initWebSocketCodec } from "../../src/messaging/websocket-codec";
 import { dismissAutomaticInferenceOffer } from "./actions";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { test as base } from "./network-fixtures";
@@ -110,6 +111,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       use,
       testInfo,
     ) => {
+      await initWebSocketCodec();
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.

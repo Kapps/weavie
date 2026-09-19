@@ -211,11 +211,10 @@ public sealed partial class HostCore {
 		}
 
 		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-		await session.ReviewPublication.RunAsync(async () => {
-			if (ReferenceEquals(ActiveReview(session), review)) {
-				await PushReviewFileToWebAsync(session, request.Path, session.Bus.BroadcastTarget, ct).ConfigureAwait(false);
-			}
-		}, ct).ConfigureAwait(false);
+		if (ReferenceEquals(ActiveReview(session), review)) {
+			PushReviewCommentsToWeb(session, review, request.Path);
+			PushTurnDiffToWeb(session, request.Path);
+		}
 
 		return CommandResult.Success();
 	}

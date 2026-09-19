@@ -18,7 +18,7 @@ public sealed class McpDiffPresenterTests {
 	private static (McpDiffPresenter presenter, FakeHostBridge bridge) NewPresenter(
 		out MessageTargetFeature replayTarget) {
 		var bridge = new FakeHostBridge();
-		var bus = TestMessageBus.Create(
+		var bus = new SessionMessageBus(
 			new SessionAddress("test", Guid.NewGuid().ToString("n")),
 			bridge.Broadcast,
 			bridge.Send,

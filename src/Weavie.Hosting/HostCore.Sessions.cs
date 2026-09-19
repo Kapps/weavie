@@ -250,7 +250,8 @@ public sealed partial class HostCore {
 		};
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
-		session.ActivateOwnedRuntimeAndMessages(PushSessionList);
+		ActivateSessionRuntimeAndMessages(session);
+		PushSessionList();
 		PersistSessionState();
 	}
 
@@ -389,6 +390,16 @@ public sealed partial class HostCore {
 	private void PushSessionList() =>
 		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
 
+	private void ActivateSessionRuntimeAndMessages(HostSession session) {
+		ReplaySession(session);
+		session.ActivateOwnedRuntimeAndMessages();
+	}
+
+	private void ReplaySession(HostSession session) {
+		SyncSession(session, session.Bus.BroadcastTarget);
+		LogStartup($"session {session.SlotId}: state replayed");
+	}
+
 	private SessionCatalogEntry[] BuildSessionCatalog() =>
 		_sessions?.Slots
 			.OrderByDescending(slot => slot.Loaded)
@@ -512,11 +523,10 @@ public sealed partial class HostCore {
 			if (session.Changes.Review is { PrNumber: > 0 } review) {
 				_ = session.Background.Run(async ct => {
 					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-					await session.ReviewPublication.RunAsync(async () => {
+					PostForSession(session, () => {
 						if (ReferenceEquals(ActiveReview(session), review))
-							foreach (var change in session.Changes.TurnChanges())
-								await PushReviewFileToWebAsync(session, change.Path, session.Bus.BroadcastTarget, ct).ConfigureAwait(false);
-					}, ct).ConfigureAwait(false);
+							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
+					});
 				});
 			}
 			_mediaRoutes.Register(session.Incarnation);
@@ -571,7 +581,8 @@ public sealed partial class HostCore {
 		try {
 			LoadSlot(slot);
 			var session = slot.Session!;
-			session.ActivateOwnedRuntimeAndMessages(PushSessionList);
+			PushSessionList();
+			ActivateSessionRuntimeAndMessages(session);
 			PersistSessionState();
 			StartSessionTerminals(session);
 		} catch (Exception error) {
@@ -1236,10 +1247,11 @@ public sealed partial class HostCore {
 					ShellTerminals = shellTerminals,
 				};
 				sessions.Add(slot);
+				PushSessionList();
 				if (input is not null) {
 					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
-				slot.Session.ActivateOwnedRuntimeAndMessages(PushSessionList);
+				ActivateSessionRuntimeAndMessages(slot.Session);
 				PersistSessionState();
 
 				result.SetResult(CommandResult.Success(

@@ -12,6 +12,39 @@ namespace Weavie.Headless.Tests;
 // synchronous push burst fills the 512-deep outbox faster than it drains, and the worker aborts the client.
 public sealed class OutboxFloodTests {
 	[Fact]
+	public async Task CompressedLargeBurstFitsWhileOnePeerIsStalled() {
+		var bridge = new WebSocketHostBridge();
+		var slow = new StalledSendSocket();
+		var healthy = new StalledSendSocket();
+		healthy.ReleaseSends();
+		var slowServe = bridge.ServeAsync(slow, CancellationToken.None);
+		var healthyServe = bridge.ServeAsync(healthy, CancellationToken.None);
+		const int count = 30;
+		string payload = new('a', 700_000);
+		try {
+			for (int index = 0; index < count; index++) {
+				bridge.Broadcast(new WebTransportMessage(new WebMessageRoute("", "", "review"), payload));
+			}
+			bridge.Broadcast(new WebTransportMessage(new WebMessageRoute("", "", "review"), "done"));
+			await healthy.Done.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Equal(WebSocketState.Open, slow.State);
+			Assert.False(slow.Done.Task.IsCompleted);
+			Assert.Equal(count, healthy.Messages.Where(json => json != "done").Select(json => {
+				using var document = JsonDocument.Parse(json);
+				return document.RootElement.GetProperty("$weavieChunk").GetProperty("id").GetString();
+			}).Distinct().Count());
+			Assert.True(healthy.WireBytes < count * payload.Length / 10);
+			slow.ReleaseSends();
+			await slow.Done.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Equal(healthy.Messages.ToArray(), slow.Messages.ToArray());
+		} finally {
+			slow.Abort();
+			healthy.Abort();
+			await Task.WhenAll(slowServe, healthyServe);
+		}
+	}
+
+	[Fact]
 	public async Task A_burst_larger_than_the_outbox_drops_a_slow_but_alive_connection() {
 		var bridge = new WebSocketHostBridge();
 		var socket = new StalledSendSocket();
@@ -37,79 +70,6 @@ public sealed class OutboxFloodTests {
 		await serve.WaitAsync(TimeSpan.FromSeconds(5));
 	}
 
-	[Fact]
-	public async Task AwaitedLargeBurstDrainsWithoutDroppingThePeer() {
-		var bridge = new WebSocketHostBridge();
-		var socket = new StalledSendSocket();
-		using var stopping = new CancellationTokenSource();
-		var serve = bridge.ServeAsync(socket, stopping.Token);
-		const int count = 30;
-		string payload = new('a', 700_000);
-		async Task PublishAsync() {
-			for (int index = 0; index < count; index++) {
-				await bridge.BroadcastAsync(Message("review", payload), CancellationToken.None);
-			}
-		}
-
-		var published = PublishAsync();
-		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
-		Assert.False(published.IsCompleted);
-		Assert.Equal(WebSocketState.Open, socket.State);
-		socket.ReleaseSends();
-		await published.WaitAsync(TimeSpan.FromSeconds(5));
-		Assert.Equal(count, socket.Messages.Select(json => {
-			using var document = JsonDocument.Parse(json);
-			return document.RootElement.GetProperty("$weavieChunk").GetProperty("id").GetString();
-		}).Distinct().Count());
-		Assert.Equal(WebSocketState.Open, socket.State);
-		await stopping.CancelAsync();
-		await serve;
-	}
-
-	[Fact]
-	public async Task AwaitedPublicationWaitsForCapacityAndPreservesRouteOrder() {
-		var bridge = new WebSocketHostBridge();
-		var socket = new StalledSendSocket();
-		using var stopping = new CancellationTokenSource();
-		var serve = bridge.ServeAsync(socket, stopping.Token);
-		for (int index = 0; index < 512; index++) bridge.Broadcast(Message("review", index.ToString()));
-		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
-		var published = bridge.BroadcastAsync(Message("review", "last"), CancellationToken.None);
-		Assert.False(published.IsCompleted);
-		Assert.Equal(WebSocketState.Open, socket.State);
-		socket.ReleaseSends();
-		await published.WaitAsync(TimeSpan.FromSeconds(5));
-		Assert.Equal(Enumerable.Range(0, 512).Select(index => index.ToString()).Append("last"), socket.Messages);
-		await stopping.CancelAsync();
-		await serve;
-	}
-
-	[Fact]
-	public async Task DisconnectReleasesAwaitedPublication() {
-		var bridge = new WebSocketHostBridge();
-		var socket = new StalledSendSocket();
-		var serve = bridge.ServeAsync(socket, CancellationToken.None);
-		var published = bridge.BroadcastAsync(Message("review", "payload"), CancellationToken.None);
-		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
-		socket.Abort();
-		await published.WaitAsync(TimeSpan.FromSeconds(5));
-		await serve.WaitAsync(TimeSpan.FromSeconds(5));
-	}
-
-	[Fact]
-	public async Task CancellationReleasesAwaitedPublication() {
-		var bridge = new WebSocketHostBridge();
-		var socket = new StalledSendSocket();
-		using var cancellation = new CancellationTokenSource();
-		var serve = bridge.ServeAsync(socket, CancellationToken.None);
-		var published = bridge.BroadcastAsync(Message("review", "payload"), cancellation.Token);
-		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
-		await cancellation.CancelAsync();
-		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => published);
-		socket.Abort();
-		await serve.WaitAsync(TimeSpan.FromSeconds(5));
-	}
-
 	private static WebTransportMessage Message(string feature, string json) =>
 		new(new WebMessageRoute(string.Empty, string.Empty, feature), json);
 
@@ -120,8 +80,9 @@ public sealed class OutboxFloodTests {
 		private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly CancellationTokenSource _receiveGate = new();
 		private int _sends;
-
 		public List<string> Messages { get; } = [];
+		public int WireBytes { get; private set; }
+		public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		public SemaphoreSlim FirstSendStarted { get; } = new(0);
 		public SemaphoreSlim Aborted { get; } = new(0);
@@ -138,7 +99,10 @@ public sealed class OutboxFloodTests {
 			}
 
 			await _release.Task.WaitAsync(cancellationToken);
-			Messages.Add(Encoding.UTF8.GetString(buffer));
+			string json = Encoding.UTF8.GetString(TestWebSocketCodec.Decode(buffer.AsSpan()));
+			Messages.Add(json);
+			WireBytes += buffer.Count;
+			if (json == "done") Done.TrySetResult();
 		}
 
 		public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken) {

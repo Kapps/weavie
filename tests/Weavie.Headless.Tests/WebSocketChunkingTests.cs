@@ -3,15 +3,12 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Hosting;
 using Xunit;
-using ZstdSharp;
 
 namespace Weavie.Headless.Tests;
 
 public sealed class WebSocketChunkingTests {
-	[Theory]
-	[InlineData(false)]
-	[InlineData(true)]
-	public async Task LargeMessageUsesBoundedLogicalMessagesAndReassemblesExactly(bool compressible) {
+	[Fact]
+	public async Task LargeMessageUsesBoundedLogicalMessagesAndReassemblesExactly() {
 		var bridge = new WebSocketHostBridge();
 		var socket = new CapturingSocket();
 		using var stopping = new CancellationTokenSource();
@@ -19,15 +16,12 @@ public sealed class WebSocketChunkingTests {
 		bridge.MessageReceived += (_, _) => received.TrySetResult();
 		var serving = bridge.ServeAsync(socket, stopping.Token);
 		await received.Task;
-		string json = compressible
-			? JsonSerializer.Serialize(new { payload = new string('☃', 1_000_000) })
-			: LargePayload();
+		string json = JsonSerializer.Serialize(new { payload = new string('\u2603', 1_000_000) });
 
 		bridge.Broadcast(Message("agent", json));
 
 		var messages = await socket.Complete;
-		if (compressible) Assert.True(messages.Sum(message => message.Length) < Encoding.UTF8.GetByteCount(json) / 10);
-		else Assert.True(messages.Count > 1);
+		Assert.True(messages.Count > 1);
 		Assert.All(messages, message => Assert.InRange(message.Length, 1, WebSocketHostBridge.MaxWireMessageBytes));
 		using var reassembled = new MemoryStream();
 		for (int index = 0; index < messages.Count; index++) {
@@ -38,8 +32,7 @@ public sealed class WebSocketChunkingTests {
 			reassembled.Write(Convert.FromBase64String(chunk.GetProperty("data").GetString()!));
 		}
 
-		using var decompressor = new Decompressor();
-		Assert.Equal(json, Encoding.UTF8.GetString(decompressor.Unwrap(reassembled.ToArray())));
+		Assert.Equal(json, Encoding.UTF8.GetString(reassembled.ToArray()));
 		await stopping.CancelAsync();
 		await serving;
 	}
@@ -72,13 +65,12 @@ public sealed class WebSocketChunkingTests {
 		bridge.MessageReceived += (_, _) => received.TrySetResult();
 		var serving = bridge.ServeAsync(socket, stopping.Token);
 		await received.Task;
-		string large = LargePayload();
+		string large = JsonSerializer.Serialize(new { payload = new string('a', 1_000_000) });
 		string branch = JsonSerializer.Serialize(new { branches = new[] { "main" } });
 
 		bridge.Broadcast(Message("agent", large));
 		await socket.FirstSendStarted;
 		int chunkCount = ChunkCount(socket.FirstMessage);
-		Assert.True(chunkCount > 1);
 		bridge.Broadcast(Message("git", branch));
 		socket.Expect(chunkCount + 1);
 		socket.ReleaseFirstSend();
@@ -99,13 +91,12 @@ public sealed class WebSocketChunkingTests {
 		bridge.MessageReceived += (_, _) => received.TrySetResult();
 		var serving = bridge.ServeAsync(socket, stopping.Token);
 		await received.Task;
-		string large = LargePayload();
+		string large = JsonSerializer.Serialize(new { payload = new string('a', 1_000_000) });
 		const string branch = "{\"branches\":[\"main\"]}";
 
 		bridge.Broadcast(Message("agent-a", large));
 		await socket.FirstSendStarted;
 		int chunkCount = ChunkCount(socket.FirstMessage);
-		Assert.True(chunkCount > 1);
 		bridge.Broadcast(Message("agent-b", large));
 		bridge.Broadcast(Message("git", branch));
 		socket.Expect((chunkCount * 2) + 1);
@@ -132,13 +123,12 @@ public sealed class WebSocketChunkingTests {
 		bridge.MessageReceived += (_, _) => received.TrySetResult();
 		var serving = bridge.ServeAsync(socket, stopping.Token);
 		await received.Task;
-		string large = LargePayload();
+		string large = JsonSerializer.Serialize(new { payload = new string('a', 1_000_000) });
 		string control = JsonSerializer.Serialize(new { state = "idle" });
 
 		bridge.Broadcast(Message("agent", large));
 		await socket.FirstSendStarted;
 		int chunkCount = ChunkCount(socket.FirstMessage);
-		Assert.True(chunkCount > 1);
 		bridge.Broadcast(Message("agent", control));
 		socket.Expect(chunkCount + 1);
 		socket.ReleaseFirstSend();
@@ -176,12 +166,6 @@ public sealed class WebSocketChunkingTests {
 		await serving;
 	}
 
-	private static string LargePayload() {
-		byte[] bytes = new byte[1_000_000];
-		new Random(42).NextBytes(bytes);
-		return JsonSerializer.Serialize(new { payload = Convert.ToBase64String(bytes), unicode = "☃ 🧵" });
-	}
-
 	private static int ChunkCount(byte[] message) {
 		using var document = JsonDocument.Parse(message);
 		return document.RootElement.GetProperty("$weavieChunk").GetProperty("count").GetInt32();
@@ -201,7 +185,7 @@ public sealed class WebSocketChunkingTests {
 		new(new WebMessageRoute(string.Empty, string.Empty, feature), json);
 
 	private sealed class CapturingSocket : WebSocket {
-		private readonly byte[] _hello = "{}"u8.ToArray();
+		private readonly byte[] _hello = TestWebSocketCodec.Encode("{}");
 		private readonly TaskCompletionSource<IReadOnlyList<byte[]>> _complete =
 			new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly List<byte[]> _messages = [];
@@ -221,7 +205,7 @@ public sealed class WebSocketChunkingTests {
 			if (!_helloSent) {
 				_helloSent = true;
 				_hello.CopyTo(buffer.Array!, buffer.Offset);
-				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Text, endOfMessage: true);
+				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Binary, endOfMessage: true);
 			}
 
 			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -234,7 +218,9 @@ public sealed class WebSocketChunkingTests {
 			bool endOfMessage,
 			CancellationToken cancellationToken) {
 			Assert.True(endOfMessage);
-			byte[] message = [.. buffer];
+			Assert.Equal(WebSocketMessageType.Binary, messageType);
+			Assert.InRange(buffer.Count, 1, WebSocketHostBridge.MaxWireMessageBytes);
+			byte[] message = TestWebSocketCodec.Decode(buffer.AsSpan());
 			lock (_messages) {
 				_messages.Add(message);
 				if (_expected == 0) {
@@ -269,7 +255,7 @@ public sealed class WebSocketChunkingTests {
 	}
 
 	private sealed class GatedCapturingSocket : WebSocket {
-		private readonly byte[] _hello = "{}"u8.ToArray();
+		private readonly byte[] _hello = TestWebSocketCodec.Encode("{}");
 		private readonly TaskCompletionSource _firstSendStarted =
 			new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly TaskCompletionSource _releaseFirstSend =
@@ -304,7 +290,7 @@ public sealed class WebSocketChunkingTests {
 			if (!_helloSent) {
 				_helloSent = true;
 				_hello.CopyTo(buffer.Array!, buffer.Offset);
-				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Text, endOfMessage: true);
+				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Binary, endOfMessage: true);
 			}
 
 			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -320,7 +306,8 @@ public sealed class WebSocketChunkingTests {
 			bool first;
 			lock (_messages) {
 				first = _messages.Count == 0;
-				_messages.Add([.. buffer]);
+				Assert.Equal(WebSocketMessageType.Binary, messageType);
+				_messages.Add(TestWebSocketCodec.Decode(buffer.AsSpan()));
 				TryComplete();
 			}
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 let sent: MessageEnvelope[];
 let heldDirectory: string;
@@ -42,7 +43,7 @@ test.use({
         const server = socket.connectToServer();
         let heldRequest: string | null = null;
         socket.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           sent.push(message);
           if (
             message.feature === "files" &&
@@ -55,7 +56,7 @@ test.use({
           server.send(data);
         });
         server.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           if (heldRequest !== null && message.requestId === heldRequest) {
             const requestId = heldRequest;
             heldRequest = null;

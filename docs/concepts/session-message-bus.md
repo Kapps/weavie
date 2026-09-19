@@ -92,14 +92,11 @@ delivery attempt.
 ## Lifecycle
 
 The connection hello returns the complete catalog and exact addresses before session traffic is
-admitted. Activating a new host endpoint registers inbound routing, publishes its catalog entry,
-then releases construction-time publications and starts its runtime. A catalog observer can therefore
-request state immediately. Each new `ClientSession` installs its feature listeners before requesting
-`lifecycle.sync`; initial connection and reconnect use the same snapshot path.
-
-Bulk review publishers await bounded transport capacity outside the UI dispatcher. The session's review
-publication gate orders snapshot capture and delivery with live updates and review actions, so a paused
-snapshot cannot overtake newer state. Session quiescence cancels blocked publications.
+admitted. A newly built host endpoint buffers its bounded initial snapshot and construction-time
+frames until its address has been published in the catalog, then activates and flushes them in
+order. The new `ClientSession` consumes that snapshot without issuing a racing sync. Sessions that
+were already live when a page connects explicitly sync after hello; reconnect traffic is held until
+the replacement catalog validates its exact address.
 
 Session shutdown has two phases:
 

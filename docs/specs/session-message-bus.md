@@ -42,13 +42,13 @@ Routing uses the envelope metadata only. Payloads contain domain data, never dup
 - `ViewBindings`, keyed by transport peer, page epoch, and exact session.
 
 `HostSession` owns its `SessionEndpoint`, feature handlers, controllers, and `SessionTaskScope`.
-Construction may publish, but the endpoint's transport gate holds those frames. Activation registers
-inbound routing, publishes the exact address through its catalog callback, then releases held frames
-and starts the structured runtime. A catalog observer can immediately request `lifecycle.sync`; its
-responses await activation rather than racing endpoint registration. The new `ClientSession` installs
-feature listeners before requesting its snapshot. The endpoint quiesces/removes itself before disposing
-its resources.
-
+Construction may publish, but the endpoint's transport gate holds those frames. Before activation,
+the host publishes the session's bounded initial snapshot into that gate. It first publishes the
+exact address in the catalog, starts any structured agent runtime, then activates the endpoint,
+registers it with the router, and flushes the snapshot and any construction-time frames in publication
+order. A `ClientSession` created by that catalog consumes the gated snapshot; it does not issue a
+competing sync that could overtake a later live event. The endpoint quiesces/removes itself before
+disposing its resources.
 
 `HostConnection` owns the client host bus and a map of exact addresses to `ClientSession`. A catalog
 entry creates or closes those objects. `registerSessionFeature` installs a feature on every live
@@ -91,10 +91,7 @@ second error reply. Deferred teardown runs after the reply attempt, so an invoki
 or delete itself without either deadlocking its own dispatch or surviving solely because its peer
 disconnected. Reconnect restoration uses a bounded state snapshot through `lifecycle.sync` plus
 feature-owned pull protocols for unbounded data such as agent history. The sync snapshot is unicast
-to the requesting peer; connecting one page never replays stale snapshots through already-live pages. Bulk
-review publication is awaitable: bounded WebSocket queues backpressure the producer through completion
-of each logical message. A session-owned gate serializes review snapshot capture/delivery, live projections,
-and review actions. These waits run outside the UI dispatcher and observe bus lifetime cancellation.
+to the requesting peer; connecting one page never replays stale snapshots through already-live pages.
 
 ## Ordering
 
@@ -123,13 +120,13 @@ use the host's lifecycle gate. This keeps an unrelated command responsive while 
 on a process, network call, or recursive filesystem operation without racing related state mutations.
 
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
-and round-robins lazily encoded oversized-message chunks with small messages from other routes. Large
-host-to-browser bodies are UTF-8 JSON compressed with zstd level 3, once per broadcast, before slicing
-into 64 KiB compressed chunks carried as base64 in `$weavieChunk`. The browser reassembles and
-synchronously decompresses each body before dispatch. Small messages remain plain JSON. Compression
-runs outside the outbox lock; queue accounting uses the original JSON size. One
+and round-robins oversized-message chunks with small messages from other routes. Every WebSocket
+message in both directions is an independent zstd frame carried as binary; native WebView bridges
+remain in-process JSON. Outbound frames are encoded once before queue admission, shared across peers,
+and retained as compressed bytes. Queue weight counts those bytes, not the original JSON. Browser
+codec initialization completes before connecting, and decoding stays synchronous to preserve order. One
 connection carries at most one partial oversized body while that interleaving is active, and its
-outbox is bounded by logical count and a retained-character budget. One body may exceed that budget,
+outbox is bounded by logical count and a retained-byte budget. One body may exceed that budget,
 but its saturated weight makes it the outbox's only retained message. A large response therefore
 cannot prevent an unrelated feature or session from receiving its next message or multiply receiver
 memory across many partial large bodies.
@@ -195,9 +192,8 @@ catalogs, and host state. The client does not route session frames until hello c
 their exact owners. Frames that arrive early during connect or reconnect are buffered by address;
 an unrelated catalog update cannot discard them, while a catalog entry for the same slot with a
 different incarnation proves them stale. Sessions already live when hello completes receive
-`lifecycle.sync`. For later loads, the endpoint is registered before catalog publication, and each new client
-session requests its own snapshot after installing listeners. Catalog publication precedes releasing
-construction-time frames; the transport preserves ordering within each route.
+`lifecycle.sync`. For later loads, the host's endpoint activation gate guarantees that the catalog
+frame precedes the new session's bounded initial snapshot and every later live frame.
 
 Once hello is authoritative, a frame for an unknown address waits only behind catalog work already
 admitted on the host bus. If that work does not create the exact owner, the frame is discarded; it
@@ -222,10 +218,8 @@ same slot has a different incarnation and a new object.
 - peer loss during reply neither retries a mutation nor prevents endpoint quiescence;
 - detach/displacement cancels only the affected view request;
 - native reload replaces the page generation and settles its pending view request;
-- publications made during construction wait for catalog publication and preserve route order;
-- a catalog observer can immediately sync a new session after its feature listeners are installed;
-- large review snapshots and live updates await bounded transport capacity without interleaving stale state;
-- session quiescence cancels blocked publications;
+- publications made during construction wait for catalog activation and preserve order;
+- a new session's gated initial snapshot precedes its live events without a competing client sync;
 - a fresh structured-agent session starts on endpoint activation and accepts its first turn without a view switch;
 - quiesce tracks already-admitted handlers and permits final owned events;
 - reconnect validates addresses before releasing early traffic;

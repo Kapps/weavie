@@ -3,6 +3,11 @@ import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { canonicalFsPath } from "../../src/editor/fs-path";
 import {
+  decodeWebSocketMessage,
+  encodeWebSocketMessage,
+  initWebSocketCodec,
+} from "../../src/messaging/websocket-codec";
+import {
   activeSessionSlot,
   createSession,
   openFile,
@@ -30,25 +35,29 @@ async function selectedSessionAddress(
   endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
   endpoint.pathname = "/weavie-bridge";
   endpoint.search = new URLSearchParams({ token }).toString();
+  await initWebSocketCodec();
   const socket = new WebSocket(endpoint);
+  socket.binaryType = "arraybuffer";
   return new Promise<SessionAddress>((resolve, reject) => {
     socket.on("error", reject);
     socket.on("open", () => {
       socket.send(
-        JSON.stringify({
-          scope: "host",
-          session: null,
-          kind: "request",
-          requestId: "media-test-hello",
-          feature: "connection",
-          name: "hello",
-          payload: {},
-          error: null,
-        }),
+        encodeWebSocketMessage(
+          JSON.stringify({
+            scope: "host",
+            session: null,
+            kind: "request",
+            requestId: "media-test-hello",
+            feature: "connection",
+            name: "hello",
+            payload: {},
+            error: null,
+          }),
+        ),
       );
     });
     socket.on("message", (data) => {
-      const envelope = JSON.parse(data.toString()) as {
+      const envelope = JSON.parse(decodeWebSocketMessage(new Uint8Array(data as ArrayBuffer))) as {
         kind?: string;
         requestId?: string;
         payload?: { sessions?: { id: string; address: SessionAddress | null }[] };

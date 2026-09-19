@@ -4,6 +4,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import { awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 // Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
 // and Alt+F12 peeks at the cursor. The definition provider is mocked through __WEAVIE_MONACO__ (the harness
@@ -198,7 +199,7 @@ test.describe("unopened definitions", () => {
           const server = socket.connectToServer();
           let requestId: string | undefined;
           socket.onMessage((data) => {
-            const message = JSON.parse(data.toString()) as MessageEnvelope;
+            const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
             if (
               message.feature === "files" &&
               message.name === "read" &&
@@ -209,7 +210,7 @@ test.describe("unopened definitions", () => {
             server.send(data);
           });
           server.onMessage((data) => {
-            const message = JSON.parse(data.toString()) as MessageEnvelope;
+            const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
             if (requestId !== undefined && message.requestId === requestId) {
               releaseRead = () => socket.send(data);
             } else socket.send(data);

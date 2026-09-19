@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 test.use({ inference: "success", automaticInference: true });
 
@@ -14,10 +15,10 @@ for (const failedConfirmation of [false, true]) {
           await page.routeWebSocket("**/*", (socket) => {
             const server = socket.connectToServer();
             socket.onMessage((data) => {
-              const message = JSON.parse(data.toString());
+              const message = JSON.parse(decodeTestWebSocketMessage(data));
               if (message.kind === "response" && message.feature === "revise") {
                 message.error = "editor confirmation failed";
-                server.send(JSON.stringify(message));
+                server.send(encodeTestWebSocketMessage(JSON.stringify(message)));
               } else {
                 server.send(data);
               }

@@ -4,7 +4,6 @@ internal sealed class SessionTransportGate {
 	private readonly object _gate = new();
 	private readonly IWebTransportHub _transport;
 	private readonly List<PendingSend> _pending = [];
-	private readonly TaskCompletionSource<bool> _activation = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private bool _active;
 	private bool _closed;
 
@@ -23,25 +22,6 @@ internal sealed class SessionTransportGate {
 		Send(new PendingSend(peer, message));
 	}
 
-	public Task BroadcastAsync(WebTransportMessage message, CancellationToken ct) =>
-		DeliverAsync(new PendingSend(null, message), ct);
-
-	public Task SendAsync(WebPeer peer, WebTransportMessage message, CancellationToken ct) =>
-		DeliverAsync(new PendingSend(peer, message), ct);
-
-	private async Task DeliverAsync(PendingSend pending, CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(pending.Message);
-		ObjectDisposedException.ThrowIf(!await _activation.Task.WaitAsync(ct).ConfigureAwait(false), this);
-		Task delivery;
-		lock (_gate) {
-			ObjectDisposedException.ThrowIf(_closed, this);
-			delivery = pending.Peer is { } peer
-				? _transport.SendAsync(peer, pending.Message, ct)
-				: _transport.BroadcastAsync(pending.Message, ct);
-		}
-		await delivery.ConfigureAwait(false);
-	}
-
 	public void Activate() {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_closed, this);
@@ -55,7 +35,6 @@ internal sealed class SessionTransportGate {
 
 			_pending.Clear();
 			_active = true;
-			_activation.TrySetResult(true);
 		}
 	}
 
@@ -63,7 +42,6 @@ internal sealed class SessionTransportGate {
 		lock (_gate) {
 			_closed = true;
 			_pending.Clear();
-			_activation.TrySetResult(false);
 		}
 	}
 

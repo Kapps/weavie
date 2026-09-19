@@ -101,23 +101,23 @@ public sealed partial class HostCore {
 		}
 
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
-		await session.ReviewPublication.RunAsync(async () => {
+		await _ui.InvokeAsync(() => {
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
 			if (!session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray(), request))
-				return;
+				return Task.CompletedTask;
 
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
 			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
-				await PushReviewFileToWebAsync(session, path, session.Bus.BroadcastTarget, ct).ConfigureAwait(false);
+				PushReviewFileToWeb(session, path);
 			if (resuming || seeds.Count == 0) {
-				return;
+				return Task.CompletedTask;
 			}
 
 			var firstSeed = seeds.FirstOrDefault(seed => seed.Current.Exists);
 			if (firstSeed == default) {
-				return;
+				return Task.CompletedTask;
 			}
 
 			string first = firstSeed.Absolute;
@@ -125,8 +125,8 @@ public sealed partial class HostCore {
 				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
 				: null;
 			session.FileOpener.Open(first, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
-			await PushReviewFileToWebAsync(session, first, session.Bus.BroadcastTarget, ct).ConfigureAwait(false);
-			return;
+			PushReviewFileToWeb(session, first);
+			return Task.CompletedTask;
 		}, ct).ConfigureAwait(false);
 	}
 
@@ -153,15 +153,18 @@ public sealed partial class HostCore {
 	/// so the file shows with its Comment affordance + threads. Used at arm (the opened first file) and on each
 	/// <c>get-turn-diff</c> step-in. On a plain turn (no active review) it's just the diff.
 	/// </summary>
-	private async Task PushReviewFileToWebAsync(
+	private void PushReviewFileToWeb(HostSession session, string absolutePath) =>
+		PushReviewFileToWeb(session, absolutePath, session.Bus.BroadcastTarget);
+
+	private void PushReviewFileToWeb(
 		HostSession session,
 		string absolutePath,
-		MessageTarget target,
-		CancellationToken ct) {
+		MessageTarget target) {
 		if (ActiveReview(session) is { } review) {
 			PushReviewCommentsToWeb(review, absolutePath, target);
 		}
-		await PushTurnDiffToWebAsync(session, absolutePath, target, ct).ConfigureAwait(false);
+
+		PushTurnDiffToWeb(session, absolutePath, target);
 	}
 
 	/// <summary>

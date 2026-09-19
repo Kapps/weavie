@@ -77,10 +77,12 @@ public sealed partial class HostCore {
 		try {
 			session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id, slot.ShellTerminals);
 			RestoreSlotEditor(session, slot);
+			ReplaySession(session);
 
 			lock (publicationGate) {
 				slot.Session = session;
-				session.ActivateOwnedRuntimeAndMessages(PushSessionList);
+				PushSessionList();
+				session.ActivateOwnedRuntimeAndMessages();
 				PersistSessionState();
 			}
 

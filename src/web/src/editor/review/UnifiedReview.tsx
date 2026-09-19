@@ -375,7 +375,7 @@ export function UnifiedReview(props: {
                                 setVisibleFile(item().index - 1);
                                 props.changed();
                               }}
-                              style={`top:${item().start}px`}
+                              top={item().start}
                             />
                           )}
                         </Show>

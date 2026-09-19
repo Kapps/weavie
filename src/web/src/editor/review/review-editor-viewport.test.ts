@@ -74,6 +74,7 @@ function fixture() {
     containerHeight: () => contentHeight,
     containerOffset: 38,
   };
+  const measure = vi.fn();
   const scroller = {
     clientTop: 0,
     clientHeight: 606,
@@ -90,10 +91,14 @@ function fixture() {
   };
   const container = {
     get clientHeight() {
+      measure();
       return state.containerHeight();
     },
     clientWidth: 716,
-    getBoundingClientRect: () => ({ top: state.containerOffset - rootTop }),
+    getBoundingClientRect: () => {
+      measure();
+      return { top: state.containerOffset - rootTop };
+    },
   };
   const mount = {
     style: { top: "", setProperty: vi.fn() },
@@ -165,6 +170,7 @@ function fixture() {
     rootTop: () => rootTop,
     editor,
     container,
+    measure,
     scrollTo: (top: number) => {
       owner.setScrollTop(top);
     },
@@ -186,16 +192,18 @@ describe("review viewport geometry ownership", () => {
   it("sizes a partly visible file to the physical viewport intersection", () => {
     const current = fixture();
     current.state.containerOffset = 238;
+    current.viewport.layout();
     current.scrollTo(0);
     expect(current.editor.getLayoutInfo().height).toBe(362);
     current.scrollTo(200);
     expect(current.editor.getLayoutInfo().height).toBe(562);
     current.state.containerOffset = 700;
+    current.viewport.layout();
     current.scrollTo(0);
     expect(current.editor.getLayoutInfo().height).toBe(0);
   });
 
-  it("does not relayout or repaint unchanged editors on scroll frames", () => {
+  it("does not resize or repaint editors when measured dimensions are unchanged", () => {
     const current = fixture();
     current.editor.layout.mockClear();
     current.editor.render.mockClear();
@@ -215,30 +223,35 @@ describe("review viewport geometry ownership", () => {
     expect(current.writes).toEqual([]);
   });
 
-  it("updates bounded editor geometry synchronously with the shared scroll position", () => {
+  it("updates scroll geometry synchronously without measuring the DOM", () => {
     const current = fixture();
     current.scrollTo(10_000);
     expect(current.editor.getLayoutInfo().height).toBe(562);
     current.editor.layout.mockClear();
+    current.measure.mockClear();
     for (const top of [10_100, 9_900, 30_000]) {
       current.scrollTo(top);
       expect(current.view.getCurrentScrollTop()).toBe(top);
       expect(Number.parseFloat(current.mount.style.top)).toBe(top);
     }
     expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.measure).not.toHaveBeenCalled();
   });
 
   it("routes native editor navigation back through the shared scroll owner", () => {
     const current = fixture();
     current.scrollTo(10_000);
+    current.measure.mockClear();
     current.view.getScrollable().setScrollPositionNow({ scrollTop: 9_900 });
     expect(current.rootTop()).toBe(9_900);
     expect(Number.parseFloat(current.mount.style.top)).toBe(9_900);
+    expect(current.measure).not.toHaveBeenCalled();
   });
 
   it("preserves fractional section offsets across native scroll roundtrips", () => {
     const current = fixture();
     current.state.containerOffset = 38.25;
+    current.viewport.layout();
     current.scrollTo(10_000.25);
     current.view.getScrollable().setScrollPositionNow({ scrollTop: 10_022 });
     expect(current.rootTop()).toBe(10_022.25);

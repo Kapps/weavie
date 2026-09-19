@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 const content = Array.from({ length: 5_000 }, (_, index) => `new line ${index}`).join("\n");
@@ -123,4 +124,28 @@ test("wheel animation paints Monaco text at the current review position", async 
     Math.max(...offsets.map(Math.abs)),
     "painted text agrees with Monaco's current scroll geometry",
   ).toBeLessThanOrEqual(1);
+});
+
+test("scrolling a remounted review preserves its diff paint", async ({ page }) => {
+  await page.locator(".editor-empty-review").click();
+  const section = page.locator(".unified-review-file");
+  const editor = section.locator(".monaco-editor");
+  await expect(editor).toBeVisible();
+  const toggle = section.locator(".unified-review-file-toggle");
+  await toggle.click();
+  await expect(editor).toHaveCount(0);
+  await toggle.click();
+  await expect(editor).toBeVisible();
+  const band = await section.locator(".weavie-inline-newfile").elementHandle();
+  expect(band).not.toBeNull();
+  await editor.hover();
+  const before = (await reviewScroll(page)).top;
+  for (let index = 0; index < 10; index++) {
+    await page.mouse.wheel(0, 120);
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  }
+  expect((await reviewScroll(page)).top).toBeGreaterThan(before);
+  expect(await band!.evaluate((element) => element.isConnected)).toBe(true);
 });

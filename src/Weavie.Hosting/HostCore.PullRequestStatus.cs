@@ -35,9 +35,10 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		string? branch = null;
 		try {
-			branch = await new GitService()
-				.GetCurrentBranchAsync(session.WorkspaceRoot, ct)
-				.ConfigureAwait(false);
+			// Git-status already resolves the branch on the same cadence; reuse it instead of spawning
+			// another `git rev-parse` every poll, falling back only before its first resolve has landed.
+			branch = session.GitStatus.Latest?.Branch
+				?? await new GitService().GetCurrentBranchAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
 			if (branch is null || await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } headRepo) {
 				return new PullRequestStatusSnapshot(branch, null, null);
 			}

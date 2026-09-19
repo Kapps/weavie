@@ -1,7 +1,7 @@
 using System.Net.WebSockets;
-using System.Text;
 using Weavie.Hosting;
 using Xunit;
+using ZstdSharp;
 
 namespace Weavie.Headless.Tests;
 
@@ -12,14 +12,32 @@ public sealed class PageLifecycleTests {
 		WebPeer? disconnected = null;
 		bridge.PeerDisconnected += peer => disconnected = peer;
 
-		await bridge.ServeAsync(new MessageThenCloseSocket(), CancellationToken.None);
+		await bridge.ServeAsync(new MessageThenCloseSocket(TestWebSocketCodec.Encode("{}"), WebSocketMessageType.Binary), CancellationToken.None);
 
 		Assert.NotNull(disconnected);
 	}
 
-	private sealed class MessageThenCloseSocket : WebSocket {
-		private readonly byte[] _message = Encoding.UTF8.GetBytes(
-			"""{"scope":"host","kind":"event","feature":"diagnostics","name":"log","payload":{"level":"info","message":"hi"}}""");
+	[Fact]
+	public async Task CorruptFrameReleasesItsPeer() {
+		var bridge = new WebSocketHostBridge();
+		WebPeer? disconnected = null;
+		bridge.PeerDisconnected += peer => disconnected = peer;
+		await Assert.ThrowsAsync<ZstdException>(() => bridge.ServeAsync(
+			new MessageThenCloseSocket([1, 2, 3], WebSocketMessageType.Binary), CancellationToken.None));
+		Assert.NotNull(disconnected);
+	}
+
+	[Fact]
+	public async Task TextFrameIsRejectedAndReleasesItsPeer() {
+		var bridge = new WebSocketHostBridge();
+		WebPeer? disconnected = null;
+		bridge.PeerDisconnected += peer => disconnected = peer;
+		await Assert.ThrowsAsync<InvalidDataException>(() => bridge.ServeAsync(
+			new MessageThenCloseSocket("{}"u8.ToArray(), WebSocketMessageType.Text), CancellationToken.None));
+		Assert.NotNull(disconnected);
+	}
+
+	private sealed class MessageThenCloseSocket(byte[] message, WebSocketMessageType type) : WebSocket {
 		private int _receiveCount;
 
 		public override WebSocketState State { get; } = WebSocketState.Open;
@@ -31,9 +49,9 @@ public sealed class PageLifecycleTests {
 			ArraySegment<byte> buffer,
 			CancellationToken cancellationToken) {
 			if (Interlocked.Increment(ref _receiveCount) == 1) {
-				_message.AsSpan().CopyTo(buffer.AsSpan());
+				message.AsSpan().CopyTo(buffer.AsSpan());
 				return Task.FromResult(new WebSocketReceiveResult(
-					_message.Length, WebSocketMessageType.Text, endOfMessage: true));
+					message.Length, type, endOfMessage: true));
 			}
 
 			return Task.FromResult(new WebSocketReceiveResult(

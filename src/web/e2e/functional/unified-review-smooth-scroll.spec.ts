@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 const content = Array.from({ length: 5_000 }, (_, index) => `new line ${index}`).join("\n");
 
@@ -74,4 +75,52 @@ test("wheel animation follows the live smooth scrolling setting in an existing r
     else expect(new Set(frames).size).toBe(2);
     expect(await mountedEditor!.evaluate((element) => element.isConnected)).toBe(true);
   }
+});
+
+test("wheel animation paints Monaco text at the current review position", async ({ page }) => {
+  await page.locator(".editor-empty-review").click();
+  const editor = page.locator(".unified-review-file .monaco-editor");
+  await expect(editor).toBeVisible();
+  await editor.hover();
+  const observation = await page.evaluateHandle(() => {
+    const monaco = (window as unknown as WeavieWindow).__WEAVIE_MONACO__!;
+    const editor = monaco.editor.getEditors().find((candidate) => {
+      const node = (candidate as EditorHandle).getDomNode();
+      return (node as HTMLElement | null)?.closest(".unified-review-file");
+    }) as EditorHandle & { getTopForLineNumber(lineNumber: number): number };
+    const offsets: number[] = [];
+    let frame = 0;
+    const sample = () => {
+      const node = editor.getDomNode() as HTMLElement;
+      const line = node.querySelector<HTMLElement>(".view-line");
+      const number = line?.textContent?.match(/new\sline\s(\d+)/)?.[1];
+      if (line && number !== undefined) {
+        const top = editor.getTopForLineNumber(Number(number) + 1) - editor.getScrollTop();
+        offsets.push(line.getBoundingClientRect().top - node.getBoundingClientRect().top - top);
+      }
+      frame = requestAnimationFrame(sample);
+    };
+    frame = requestAnimationFrame(sample);
+    return {
+      finish: () => {
+        cancelAnimationFrame(frame);
+        return offsets;
+      },
+    };
+  });
+  for (let index = 0; index < 25; index++) {
+    await page.mouse.wheel(0, 120);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+  const offsets = await observation.evaluate((sample) => sample.finish());
+  expect(offsets.length).toBeGreaterThan(25);
+  expect(
+    Math.max(...offsets.map(Math.abs)),
+    "painted text agrees with Monaco's current scroll geometry",
+  ).toBeLessThanOrEqual(1);
 });

@@ -1,13 +1,14 @@
-// Startup phase marks, gated on the ?startuptiming query flag the host adds when `diagnostics.startupTiming`
-// is on. Each mark logs ms-since-navigation to the host console so a launch can be timed end to end.
+import { hostConnection, LOCAL_BACKEND_ID, log } from "./bridge";
 
-import { log } from "./bridge";
+const pending: string[] = [];
+const connection = hostConnection(LOCAL_BACKEND_ID);
+connection?.onHello(() => {
+  for (const message of pending.splice(0)) log("info", message);
+});
 
-const ENABLED = new URLSearchParams(location.search).has("startuptiming");
-
-/** Logs a startup phase mark (ms since page navigation) to the host console when timing is enabled. */
+/** Captures navigation-relative timings, retaining early marks until the host connects. */
 export function mark(phase: string): void {
-  if (ENABLED) {
-    log("info", `[startup/web] ${phase} +${performance.now().toFixed(0)}ms`);
-  }
+  const message = `[startup/web] ${phase} +${performance.now().toFixed(0)}ms since navigation`;
+  if (connection?.currentHello) log("info", message);
+  else pending.push(message);
 }

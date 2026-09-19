@@ -22,6 +22,7 @@ import {
   createParkedNavigation,
   createParkedToolbar,
   makeButton,
+  mountReviewToolbar,
   withShortcut,
 } from "./review/review-toolbar";
 import { sessionFileUri } from "./session-uri";
@@ -301,10 +302,7 @@ export function createInlineDiff(
     toolbarNode = next;
     if (next !== undefined) {
       const host = presentation.toolbarHost();
-      if (host !== null) {
-        if (previous?.parentElement === host) previous.replaceWith(next);
-        else host.appendChild(next);
-      }
+      if (host !== null) mountReviewToolbar(host, next);
     }
     previous?.remove();
   };
@@ -1659,7 +1657,7 @@ export function createInlineDiff(
       if (toolbarNode !== undefined) {
         const mount = presentation.toolbarHost();
         if (mount === null) toolbarNode.remove();
-        else if (toolbarNode.parentElement !== mount) mount.appendChild(toolbarNode);
+        else mountReviewToolbar(mount, toolbarNode);
       }
       syncDiffContext();
       renderCounter();

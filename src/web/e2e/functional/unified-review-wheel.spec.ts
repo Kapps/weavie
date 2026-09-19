@@ -43,12 +43,19 @@ test.use({
 
 test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
+  weavie,
 }) => {
   test.slow();
+  await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
+  await page.reload();
   await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
+    `${paths.length} files · press ↓ to start`,
+  );
+  await page.locator(".unified-review-tree-row.file").first().click();
   // Flake (macOS only): 2026-09-16 06:01 UTC, run
   // https://github.com/Kapps/weavie/actions/runs/35061852210/job/104684242015 — this assertion hit the
   // 30s macOS/Windows default (config's per-platform `expect.timeout`) with the toolbar stuck on the
@@ -59,10 +66,11 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   // to ~4.7s under a synthetic 20x CPU slowdown (Emulation.setCPUThrottlingRate), well past linear for
   // this fixture's several 1,000+ char lines. This is the heaviest review fixture in the suite; a loaded
   // shared macOS/Windows runner can plausibly push that first paint past 30s. Widened only this assertion.
+  // The gate itself moved from before this file-row click to after it when PR #922 reordered the parked
+  // state's own assertion ahead of the click, but the underlying first-paint wait is the same.
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`, {
     timeout: 60_000,
   });
-  await page.locator(".unified-review-tree-row.file").first().click();
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
     .locator(".view-line")
@@ -133,4 +141,5 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await page.keyboard.press("Home");
   await expect(rows.first()).toBeFocused();
   await expect(rows.first()).toBeInViewport();
+  expect(weavie.log()).not.toContain("dropped a page connection");
 });

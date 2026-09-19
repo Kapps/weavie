@@ -8,6 +8,8 @@ const env = vi.hoisted(() => ({
 }));
 
 vi.mock("../bridge", () => ({
+  LOCAL_BACKEND_ID: "local",
+  hostConnection: () => undefined,
   clientSessionAt: () => null,
   isBrowserHostedShell: () => false,
   log: () => {},

@@ -31,7 +31,7 @@ import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
-import { createParkedNavigation, createParkedToolbar } from "./review-toolbar";
+import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
@@ -277,7 +277,7 @@ export function UnifiedReview(props: {
       },
       overview.history,
     );
-    toolbarHost?.appendChild(controls.bar);
+    if (toolbarHost !== undefined) mountReviewToolbar(toolbarHost, controls.bar);
     onCleanup(() => controls.bar.remove());
   });
 

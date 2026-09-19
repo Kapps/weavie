@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Hosting.Web;
 using Xunit;
+using ZstdSharp;
 
 namespace Weavie.Remote.Tests;
 
@@ -225,8 +226,8 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 
 		string firstHello = HelloEnvelope("hello-first");
 		string secondHello = HelloEnvelope("hello-second");
-		await SendTextAsync(first, firstHello, cts.Token);
-		await SendTextAsync(second, secondHello, cts.Token);
+		await SendEnvelopeAsync(first, firstHello, cts.Token);
+		await SendEnvelopeAsync(second, secondHello, cts.Token);
 		var firstResponse = await ReceiveEnvelopeAsync(
 			first,
 			root => IsEnvelope(root, "host", "response", "connection", "hello", "hello-first"),
@@ -239,7 +240,7 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		// A valid layout edit is a host request. The LayoutStore change publishes layout.state, which must reach
 		// both physical peers even though only the second issued the mutation.
 		var layoutRoot = firstResponse.GetProperty("payload").GetProperty("layout").GetProperty("root").Clone();
-		await SendTextAsync(
+		await SendEnvelopeAsync(
 			second,
 			JsonSerializer.Serialize(new {
 				scope = "host",
@@ -269,8 +270,10 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		return socket;
 	}
 
-	private static Task SendTextAsync(ClientWebSocket socket, string json, CancellationToken ct) =>
-		socket.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, endOfMessage: true, ct);
+	private static async Task SendEnvelopeAsync(ClientWebSocket socket, string json, CancellationToken ct) {
+		using var compressor = new Compressor(3);
+		await socket.SendAsync(compressor.Wrap(Encoding.UTF8.GetBytes(json)).ToArray(), WebSocketMessageType.Binary, endOfMessage: true, ct);
+	}
 
 	private static string HelloEnvelope(string requestId) =>
 		JsonSerializer.Serialize(new {
@@ -316,8 +319,10 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 				continue;
 			}
 
+			Assert.Equal(WebSocketMessageType.Binary, result.MessageType);
+			using var decompressor = new Decompressor();
 			using var document = JsonDocument.Parse(
-				new ReadOnlyMemory<byte>(message.GetBuffer(), 0, (int)message.Length));
+				decompressor.Unwrap(message.GetBuffer().AsSpan(0, (int)message.Length)).ToArray());
 			message.SetLength(0);
 			if (matches(document.RootElement)) {
 				return document.RootElement.Clone();

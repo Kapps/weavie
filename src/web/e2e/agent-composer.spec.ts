@@ -372,10 +372,11 @@ test.describe("ACP composer", () => {
     await test.step("status line reflects all provider axes", async () => {
       const segments = page.locator(".agent-status-segment");
       await expect(segments).toHaveCount(4);
-      await expect(segments.nth(0)).toContainText("ModelGPT-5.5");
-      await expect(segments.nth(1)).toContainText("ReasoningMedium");
-      await expect(segments.nth(2)).toContainText("FastOff");
-      await expect(segments.nth(3)).toContainText("ModeDefault");
+      await expect(segments).toHaveText(["GPT-5.5", "Medium", "Off", "Default"]);
+      await expect(segments.nth(0)).toHaveAccessibleName("Model GPT-5.5");
+      await expect(segments.nth(1)).toHaveAccessibleName("Reasoning Medium");
+      await expect(segments.nth(2)).toHaveAccessibleName("Fast Off");
+      await expect(segments.nth(3)).toHaveAccessibleName("Mode Default");
       await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
       await page
         .locator(".agent-compose")
@@ -384,7 +385,7 @@ test.describe("ACP composer", () => {
 
     await test.step("model selection sends the provider value", async () => {
       const checkpoint = host.received.length;
-      await page.locator(".agent-status-segment", { hasText: "Model" }).click();
+      await page.getByRole("button", { name: /^Model / }).click();
       const picker = page.locator(".agent-control-picker");
       await expect(picker).toBeVisible();
       await expect(picker.locator(".agent-control-option")).toHaveCount(2);
@@ -400,7 +401,7 @@ test.describe("ACP composer", () => {
 
     await test.step("reasoning selection sends the thought level", async () => {
       const checkpoint = host.received.length;
-      await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
+      await page.getByRole("button", { name: /^Reasoning / }).click();
       const sub = page.locator(".agent-control-picker .agent-control-option");
       await expect(sub).toHaveCount(3);
       await page.screenshot({ path: join(shotsDir, "02b-effort-submenu.png") });
@@ -415,7 +416,7 @@ test.describe("ACP composer", () => {
 
     await test.step("boolean selection reflects the host acknowledgement", async () => {
       const checkpoint = host.received.length;
-      await page.locator(".agent-status-segment", { hasText: "Fast" }).click();
+      await page.getByRole("button", { name: /^Fast / }).click();
       const fastItems = page.locator(".agent-control-picker .agent-control-option");
       await expect(fastItems).toHaveCount(2);
       await fastItems.filter({ hasText: "On" }).click();
@@ -424,7 +425,7 @@ test.describe("ACP composer", () => {
       expect(set).toMatchObject({ axis: "fast", value: "true" });
 
       publishControls(fastOnControls);
-      await expect(page.locator(".agent-status-segment", { hasText: "Fast" })).toContainText("On");
+      await expect(page.getByRole("button", { name: /^Fast / })).toContainText("On");
       await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
     });
   });
@@ -676,7 +677,7 @@ test.describe("ACP composer", () => {
     const textarea = page.locator("[data-agent-composer] textarea");
     const run = page.locator("[data-agent-composer] button[type='submit']");
     await expect(run).toBeDisabled();
-    const model = page.locator(".agent-status-segment", { hasText: "Model" });
+    const model = page.getByRole("button", { name: /^Model / });
     await model.focus();
     await run.click({ force: true });
     await expect(textarea).toBeFocused();
@@ -1561,10 +1562,79 @@ test.describe("ACP composer", () => {
     ).toContainText("Results");
   });
 
+  for (const width of [900, 390]) {
+    test(`overflowing controls scroll and stay keyboard reachable at ${width}px`, async ({
+      page,
+    }) => {
+      await mountAgent(page);
+      await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true");
+      await page.setViewportSize({ width, height: 800 });
+      if (width < 760) await page.getByRole("button", { name: "Agent", exact: true }).click();
+      publishControls({
+        state: {
+          ...controls.state,
+          axes: controls.state.axes.map((axis) => ({
+            ...axis,
+            valueLabel: `${axis.valueLabel} — provider-specific configuration`,
+          })),
+        },
+      });
+      const bar = page.locator(".agent-status-scroll");
+      await expect
+        .poll(() => bar.evaluate((element) => element.scrollWidth - element.clientWidth))
+        .toBeGreaterThan(0);
+      await bar.hover();
+      await page.mouse.wheel(150, 0);
+      await expect.poll(() => bar.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+      const horizontalPosition = await bar.evaluate((element) => element.scrollLeft);
+      await bar.hover();
+      await page.mouse.wheel(0, 150);
+      await expect
+        .poll(() => bar.evaluate((element) => element.scrollLeft))
+        .toBeGreaterThan(horizontalPosition);
+
+      const first = page.getByRole("button", { name: /^Model / });
+      const last = page.getByRole("button", { name: /^Mode / });
+      // Fractional text widths must stay fully visible at the browser's integer scroll limit.
+      await last.evaluate((element) => {
+        element.style.width = `${Math.floor(element.getBoundingClientRect().width) + 0.375}px`;
+      });
+      await first.focus();
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Tab");
+      await expect(last).toBeFocused();
+      await expect(last).toBeInViewport({ ratio: 1 });
+      await page.keyboard.press("Enter");
+      const option = page.getByRole("option", { name: "Plan", exact: true });
+      await expect(option).toBeInViewport({ ratio: 1 });
+      await option.click();
+      expect(await waitForAgentPayload("setControl")).toMatchObject({
+        axis: "mode",
+        value: "plan",
+      });
+
+      await last.evaluate((element) => element.style.removeProperty("width"));
+      await page.setViewportSize({ width: 1600, height: 900 });
+      publishControls(controls);
+      await expect
+        .poll(() => bar.evaluate((element) => element.scrollWidth - element.clientWidth))
+        .toBe(0);
+      const buttons = bar.locator(".agent-status-axis");
+      await expect(buttons).toHaveCount(4);
+      expect(
+        await buttons.evaluateAll(
+          (elements) =>
+            new Set(elements.map((element) => element.getBoundingClientRect().top)).size,
+        ),
+      ).toBe(1);
+    });
+  }
+
   test("a control picker is dismissed by clicking away or its own segment", async ({ page }) => {
     await mountAgent(page);
 
-    const model = page.locator(".agent-status-segment", { hasText: "Model" });
+    const model = page.getByRole("button", { name: /^Model / });
     const picker = page.locator(".agent-control-picker");
     await model.click();
     await expect(picker).toBeVisible();
@@ -1582,7 +1652,7 @@ test.describe("ACP composer", () => {
 
     // Another axis's segment switches the picker instead of leaving the first one open.
     await model.click();
-    await page.locator(".agent-status-segment", { hasText: "Fast" }).click();
+    await page.getByRole("button", { name: /^Fast / }).click();
     await expect(picker).toHaveCount(1);
     await expect(picker).toContainText("Fast");
     expect(lastAgentPayload("setControl")).toBeUndefined();
@@ -1592,7 +1662,7 @@ test.describe("ACP composer", () => {
     await mountAgent(page);
 
     await test.step("reasoning highlight survives", async () => {
-      await page.locator(".agent-status-segment", { hasText: "Reasoning" }).click();
+      await page.getByRole("button", { name: /^Reasoning / }).click();
       await page.keyboard.press("ArrowDown");
       const high = page.locator(".agent-control-option", { hasText: "High" });
       await expect(high).toHaveClass(/active/);
@@ -1603,7 +1673,7 @@ test.describe("ACP composer", () => {
     await page.keyboard.press("Escape");
 
     await test.step("model highlight survives and selects the highlighted value", async () => {
-      await page.locator(".agent-status-segment", { hasText: "Model" }).click();
+      await page.getByRole("button", { name: /^Model / }).click();
       const options = page.locator(".agent-control-picker .agent-control-option");
       await expect(options.nth(0)).toHaveClass(/active/); // seeded on the current value
       await page.keyboard.press("ArrowDown");

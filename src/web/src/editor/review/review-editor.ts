@@ -50,9 +50,13 @@ export function createReviewEditor(options: {
   onCursor: (line: number) => void;
 }): ReviewEditor {
   const { container, model } = options;
+  const loading = document.createElement("div");
+  loading.className = "unified-review-notice";
+  loading.textContent = "Calculating diff…";
   const mount = document.createElement("div");
   mount.className = "unified-review-editor-viewport";
-  container.appendChild(mount);
+  mount.style.visibility = "hidden";
+  container.append(loading, mount);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const editor = createEmbeddedEditor(mount, model, {
@@ -84,7 +88,7 @@ export function createReviewEditor(options: {
   const publish = (): void => {
     if (!disposed) options.onPainted();
   };
-  let geometryReady = !options.diff.baselineExists;
+  let geometryReady = false;
   let height = 0;
   const measure = (): void => {
     if (!geometryReady) return;
@@ -124,6 +128,7 @@ export function createReviewEditor(options: {
       return first;
     },
     painted: (markers) => {
+      const initialPaint = !geometryReady;
       viewport.update(() => {
         const collapsed = collapseUnchanged(markers, model.getLineCount());
         gaps.set(collapsed.gapMarkers);
@@ -131,6 +136,11 @@ export function createReviewEditor(options: {
         geometryReady = true;
         measure();
       });
+      if (initialPaint) {
+        loading.remove();
+        editor.render(true);
+        mount.style.removeProperty("visibility");
+      }
       if (constructing) queueMicrotask(publish);
       else publish();
     },
@@ -201,6 +211,7 @@ export function createReviewEditor(options: {
       inline.dispose();
       gaps.clear();
       editor.dispose();
+      loading.remove();
       mount.remove();
     },
   };

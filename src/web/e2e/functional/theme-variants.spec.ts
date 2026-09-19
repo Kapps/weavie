@@ -2,6 +2,7 @@ import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import type { ThemePreview } from "../../src/theme/picker-state";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const packages = Array.from({ length: 16 }, (_, index) => ({
   namespace: "example-author",
@@ -36,9 +37,11 @@ test.use({
       await page.routeWebSocket("**/*", (socket) => {
         const server = socket.connectToServer();
         socket.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           const reply = (payload: unknown) =>
-            socket.send(JSON.stringify({ ...message, kind: "response", payload }));
+            socket.send(
+              encodeTestWebSocketMessage(JSON.stringify({ ...message, kind: "response", payload })),
+            );
           if (message.kind === "request" && message.feature === "themes") {
             if (message.name === "search") {
               searches++;

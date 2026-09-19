@@ -71,20 +71,24 @@ test.describe("Review Changes tab — large addition", () => {
     const scroller = page.locator(".unified-review-diffs");
     const lastLine = section.locator(".view-line", { hasText: "new line 4999" });
     const newFileBand = section.locator(".weavie-inline-newfile-tag");
+    await expect(section.locator(".monaco-editor")).toBeAttached();
+    await workerRequested.promise;
+    try {
+      await expect(section.locator(".monaco-editor")).toBeHidden();
+      await expect(section.locator(".unified-review-notice")).toHaveText("Calculating diff…");
+    } finally {
+      releaseWorker.resolve();
+    }
     await expect(section.locator(".monaco-editor")).toBeVisible();
+    await expect(newFileBand).toHaveText("New file");
     await expectBoundedEditor(section, scroller);
     await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await pressDocumentEnd(page);
-    await workerRequested.promise;
     await expectUnobscuredLine(lastLine);
     await expectBoundedEditor(section, scroller);
-    await expect(newFileBand).toHaveCount(0);
-    releaseWorker.resolve();
-    await expect(newFileBand).toHaveText("New file");
-    await expectUnobscuredLine(lastLine);
     await scrollReview(page, "end");
     const bottomBeforeTyping = await reviewScroll(page).then(({ top }) => top);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);

@@ -13,6 +13,7 @@ import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const prReplies = new WeakMap<Page, MessageEnvelope[]>();
 
@@ -195,7 +196,7 @@ test.describe("durable pull-request review", () => {
         prReplies.set(page, replies);
         page.on("websocket", (socket) =>
           socket.on("framereceived", (frame) => {
-            const message = parseEnvelope(frame.payload.toString());
+            const message = parseEnvelope(decodeTestWebSocketMessage(frame.payload));
             if (
               message?.kind === "response" &&
               message.feature === "pullRequests" &&

@@ -28,7 +28,15 @@ internal static class LspFake {
 			switch (method) {
 				case "initialize":
 					await RespondAsync(output, message.GetProperty("id"), new JsonObject {
-						["capabilities"] = new JsonObject(),
+						["capabilities"] = new JsonObject {
+							["semanticTokensProvider"] = new JsonObject {
+								["legend"] = new JsonObject {
+									["tokenTypes"] = new JsonArray("variable"),
+									["tokenModifiers"] = new JsonArray("declaration"),
+								},
+								["full"] = true,
+							},
+						},
 					}).ConfigureAwait(false);
 					break;
 				case "initialized":
@@ -40,6 +48,14 @@ internal static class LspFake {
 					break;
 				case "textDocument/definition":
 					await DefineAsync(output, message, opened).ConfigureAwait(false);
+					break;
+				case "textDocument/semanticTokens/full":
+					await File.AppendAllTextAsync(".fake-lsp-semantic-requests",
+						message.GetProperty("params").GetProperty("textDocument").GetProperty("uri").GetString()
+						+ Environment.NewLine).ConfigureAwait(false);
+					await RespondAsync(output, message.GetProperty("id"), new JsonObject {
+						["data"] = new JsonArray(0, 0, 1, 0, 1),
+					}).ConfigureAwait(false);
 					break;
 			}
 		}

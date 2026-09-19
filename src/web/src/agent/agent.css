@@ -1144,17 +1144,28 @@ label.agent-input-choice:hover {
 }
 
 .agent-status-scroll {
+  flex: 1;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
+  /* Keep focus outlines and fractional-width controls inside the integer scroll extent. */
+  padding: 2px;
+  scroll-padding-inline: 2px;
+}
+
+.agent-status-scroll > * {
+  flex-shrink: 0;
 }
 
 .agent-status-segment {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  padding: 0 var(--agent-control-inline-padding);
+  padding: 0 3px;
   border: 0;
   border-radius: 3px;
   background: transparent;
@@ -1191,12 +1202,6 @@ label.agent-input-choice:hover {
 
 .agent-status-unavailable:hover {
   background: transparent;
-}
-
-.agent-status-key {
-  color: color-mix(in srgb, var(--dim) 82%, transparent);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .agent-status-value {

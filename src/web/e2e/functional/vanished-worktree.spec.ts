@@ -5,6 +5,7 @@ import { activeSessionSlot, awaitEditorReady, createSession } from "../harness/a
 import { writeFakeClaudeWrapper } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 // A session's working directory deleted outside Weavie (a worktree removed in a terminal) ends that session.
 // HostCoreVanishedWorktreeTests pins the close at the host seam; this pins the leg only a real page can show:
@@ -41,7 +42,7 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
   await shell.locator(".shell-tab-main").click();
   let closeRequest: string;
   socket.on("framesent", ({ payload }) => {
-    const message = JSON.parse(String(payload));
+    const message = JSON.parse(decodeTestWebSocketMessage(payload));
     if (
       message.kind === "request" &&
       message.feature === "commands" &&
@@ -50,7 +51,7 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
       closeRequest = message.requestId;
   });
   const closed = socket.waitForEvent("framereceived", ({ payload }) => {
-    const message = JSON.parse(String(payload));
+    const message = JSON.parse(decodeTestWebSocketMessage(payload));
     return (
       message.kind === "response" &&
       message.requestId === closeRequest &&

@@ -8,18 +8,14 @@ namespace Weavie.Hosting.Web;
 public sealed class WebAppLauncher {
 	private readonly IWebSurface _surface;
 	private readonly HostCore _core;
-	private readonly string _indexQuery;
 
 	/// <param name="surface">The host's native WebView operations.</param>
 	/// <param name="core">The shared core whose backend + bootstrap this brings up.</param>
-	/// <param name="indexQuery">Query string appended to <c>/index.html</c> (e.g. <c>?startuptiming=1</c>), or empty.</param>
-	public WebAppLauncher(IWebSurface surface, HostCore core, string indexQuery) {
+	public WebAppLauncher(IWebSurface surface, HostCore core) {
 		ArgumentNullException.ThrowIfNull(surface);
 		ArgumentNullException.ThrowIfNull(core);
-		ArgumentNullException.ThrowIfNull(indexQuery);
 		_surface = surface;
 		_core = core;
-		_indexQuery = indexQuery;
 	}
 
 	/// <summary>Brings the app up against <paramref name="origin"/>: backend, bootstrap injection, then navigation.</summary>
@@ -29,14 +25,15 @@ public sealed class WebAppLauncher {
 		// No ConfigureAwait juggling: the surface marshals each call to its own UI thread, so this flow is
 		// thread-agnostic and the awaits can stay off the captured context.
 		await _core.StartAsync().ConfigureAwait(false);
-		string documentUrl = $"{origin}/index.html{_indexQuery}";
+		_core.LogStartup("requesting UI navigation");
+		string documentUrl = $"{origin}/index.html";
 		await _surface.LoadAsync(documentUrl, _core.BuildCrossOriginBootstrap()).ConfigureAwait(false);
 	}
 
 	/// <summary>Brings the app up from the shared workspace HTTP server's bundled document.</summary>
 	public async Task LaunchBundleAsync() {
 		await _core.StartAsync().ConfigureAwait(false);
-		string suffix = string.IsNullOrEmpty(_indexQuery) ? string.Empty : "&" + _indexQuery.TrimStart('?');
-		await _surface.LoadAsync(_core.WorkspaceNativePageUrl + suffix, string.Empty).ConfigureAwait(false);
+		_core.LogStartup("requesting UI navigation");
+		await _surface.LoadAsync(_core.WorkspaceNativePageUrl, string.Empty).ConfigureAwait(false);
 	}
 }

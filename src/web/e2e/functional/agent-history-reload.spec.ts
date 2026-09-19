@@ -1,4 +1,9 @@
 import type { WebSocketRoute } from "@playwright/test";
+import {
+  decodeWebSocketMessage,
+  encodeWebSocketMessage,
+  initWebSocketCodec,
+} from "../../src/messaging/websocket-codec";
 import { activeSessionSlot, createSession, openCommandPalette } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
@@ -14,18 +19,37 @@ test("bundled native bridge restores history from the host resource bootstrap", 
   await expect(transcript).toContainText("echo: restore this native conversation");
 
   // Emulate the desktop message-handler seam, retaining the real host's bundled HTML bootstrap.
+  await initWebSocketCodec();
+  await page.exposeFunction("__weavieTestEncode", (message: string) =>
+    Array.from(encodeWebSocketMessage(message)),
+  );
+  await page.exposeFunction("__weavieTestDecode", (bytes: number[]) =>
+    decodeWebSocketMessage(new Uint8Array(bytes)),
+  );
   await page.addInitScript(() => {
+    const codec = window as typeof window & {
+      __weavieTestEncode: (message: string) => Promise<number[]>;
+      __weavieTestDecode: (bytes: number[]) => Promise<string>;
+    };
     const endpoint = new URL("/weavie-bridge", window.location.href);
     endpoint.protocol = "ws:";
     const socket = new WebSocket(endpoint);
-    const pending: string[] = [];
-    socket.onopen = () => {
-      for (const message of pending.splice(0)) socket.send(message);
+    socket.binaryType = "arraybuffer";
+    const opened = new Promise<void>((resolve) => {
+      socket.onopen = () => resolve();
+    });
+    let sending = opened;
+    let receiving = Promise.resolve();
+    socket.onmessage = (event) => {
+      receiving = receiving.then(async () => {
+        const message = await codec.__weavieTestDecode(Array.from(new Uint8Array(event.data)));
+        window.__weavieReceive?.(message);
+      });
     };
-    socket.onmessage = (event) => window.__weavieReceive?.(event.data);
     window.__weaviePostMessage = (message: string) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(message);
-      else pending.push(message);
+      sending = sending.then(async () => {
+        socket.send(new Uint8Array(await codec.__weavieTestEncode(message)));
+      });
     };
   });
   const history = page.waitForResponse((response) => {

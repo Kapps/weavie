@@ -184,6 +184,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
       notify(
         "warn",
         `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
+        key,
       );
     }
   };

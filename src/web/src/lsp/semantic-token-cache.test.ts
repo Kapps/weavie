@@ -103,7 +103,7 @@ describe("semantic request ownership", () => {
     expect(full).toHaveBeenCalledTimes(5);
   });
 
-  it("shares only identical ranges for range-only requests and invalidates on refresh", async () => {
+  it("shares concurrent identical ranges without retaining completed viewport results", async () => {
     const { cache, document, range } = fixture();
     const first = { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } } as Range;
     const second = { ...first, end: { line: 20, character: 0 } } as Range;
@@ -113,7 +113,6 @@ describe("semantic request ownership", () => {
     ]);
     await cache.readRange(document, second, CancellationToken.None);
     expect(range).toHaveBeenCalledTimes(2);
-    cache.refresh();
     await cache.readRange(document, first, CancellationToken.None);
     expect(range).toHaveBeenCalledTimes(3);
   });

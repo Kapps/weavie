@@ -119,11 +119,13 @@ export class SemanticTokenCache {
           Promise.resolve(
             this.providers.range!.provideDocumentRangeSemanticTokens(document, range, source),
           ),
-        () => {
-          state.ranges.delete(key);
-        },
+        () => {},
       );
-      state.ranges.set(key, request);
+      const current = request;
+      current.result = current.result.finally(() => {
+        if (state.ranges.get(key) === current) state.ranges.delete(key);
+      });
+      state.ranges.set(key, current);
     }
     return waitFor(request, token);
   }

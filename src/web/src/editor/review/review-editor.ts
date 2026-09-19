@@ -89,6 +89,7 @@ export function createReviewEditor(options: {
     if (!disposed) options.onPainted();
   };
   let geometryReady = false;
+  let pendingRestore: TextLocation | undefined;
   let height = 0;
   const measure = (): void => {
     if (!geometryReady) return;
@@ -140,6 +141,11 @@ export function createReviewEditor(options: {
         loading.remove();
         editor.render(true);
         mount.style.removeProperty("visibility");
+        if (pendingRestore !== undefined) {
+          const location = pendingRestore;
+          pendingRestore = undefined;
+          applyRestore(location);
+        }
       }
       if (constructing) queueMicrotask(publish);
       else publish();
@@ -160,7 +166,7 @@ export function createReviewEditor(options: {
       },
     };
   };
-  const restore = (location: TextLocation): void => {
+  const applyRestore = (location: TextLocation): void => {
     viewport.update(() => {
       if (location.viewState != null) editor.restoreViewState(location.viewState);
       else editor.setPosition({ lineNumber: location.line, column: 1 });
@@ -168,6 +174,15 @@ export function createReviewEditor(options: {
     const anchor = location.anchor;
     if (anchor === undefined) revealLine(location.line);
     else viewport.reveal(editor.getTopForLineNumber(anchor.line) + anchor.offset);
+  };
+  // Before the first paint, hidden areas aren't collapsed and the container isn't sized yet, so line tops and
+  // viewport bounds are still moving — apply the location once that initial geometry lands instead.
+  const restore = (location: TextLocation): void => {
+    if (!geometryReady) {
+      pendingRestore = location;
+      return;
+    }
+    applyRestore(location);
   };
   const binding = connectTextEditor({
     session: options.session,

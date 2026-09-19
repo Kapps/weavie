@@ -9,6 +9,7 @@ import {
   pressDocumentStart,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const marks = (page: Page) => page.locator(".view-lines .weavie-misspelling");
 const word = (page: Page, text: string) => marks(page).filter({ hasText: text });
@@ -17,7 +18,7 @@ function spellingRequests(page: Page): MessageEnvelope[] {
   const requests: MessageEnvelope[] = [];
   page.on("websocket", (socket) => {
     socket.on("framesent", ({ payload }) => {
-      const message = typeof payload === "string" ? parseEnvelope(payload) : null;
+      const message = parseEnvelope(decodeTestWebSocketMessage(payload));
       if (message?.kind === "request" && message.feature === "spelling") requests.push(message);
     });
   });

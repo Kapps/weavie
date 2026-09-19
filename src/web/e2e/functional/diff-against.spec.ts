@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { walkToChangedFile } from "../harness/navigator";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 // The "diff against" journey: review the working tree against a ref through the same accept/reject inline-diff
 // engine a turn uses — no forge, no new session, just git, with full Keep/Revert. See docs/specs/diff-against.md.
@@ -159,7 +160,7 @@ test.describe("delayed diff refs", () => {
         await page.routeWebSocket("**/*", (socket) => {
           const server = socket.connectToServer();
           server.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (
               message.feature === "files" &&
               message.name === "refs" &&

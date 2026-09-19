@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using Weavie.Hosting;
 using Xunit;
 
@@ -9,6 +11,39 @@ namespace Weavie.Headless.Tests;
 // microseconds so this never fires; over a real WSS link (or here, a deliberately stalled send) a large
 // synchronous push burst fills the 512-deep outbox faster than it drains, and the worker aborts the client.
 public sealed class OutboxFloodTests {
+	[Fact]
+	public async Task CompressedLargeBurstFitsWhileOnePeerIsStalled() {
+		var bridge = new WebSocketHostBridge();
+		var slow = new StalledSendSocket();
+		var healthy = new StalledSendSocket();
+		healthy.ReleaseSends();
+		var slowServe = bridge.ServeAsync(slow, CancellationToken.None);
+		var healthyServe = bridge.ServeAsync(healthy, CancellationToken.None);
+		const int count = 30;
+		string payload = new('a', 700_000);
+		try {
+			for (int index = 0; index < count; index++) {
+				bridge.Broadcast(new WebTransportMessage(new WebMessageRoute("", "", "review"), payload));
+			}
+			bridge.Broadcast(new WebTransportMessage(new WebMessageRoute("", "", "review"), "done"));
+			await healthy.Done.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Equal(WebSocketState.Open, slow.State);
+			Assert.False(slow.Done.Task.IsCompleted);
+			Assert.Equal(count, healthy.Messages.Where(json => json != "done").Select(json => {
+				using var document = JsonDocument.Parse(json);
+				return document.RootElement.GetProperty("$weavieChunk").GetProperty("id").GetString();
+			}).Distinct().Count());
+			Assert.True(healthy.WireBytes < count * payload.Length / 10);
+			slow.ReleaseSends();
+			await slow.Done.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Equal(healthy.Messages.ToArray(), slow.Messages.ToArray());
+		} finally {
+			slow.Abort();
+			healthy.Abort();
+			await Task.WhenAll(slowServe, healthyServe);
+		}
+	}
+
 	[Fact]
 	public async Task A_burst_larger_than_the_outbox_drops_a_slow_but_alive_connection() {
 		var bridge = new WebSocketHostBridge();
@@ -45,6 +80,9 @@ public sealed class OutboxFloodTests {
 		private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly CancellationTokenSource _receiveGate = new();
 		private int _sends;
+		public List<string> Messages { get; } = [];
+		public int WireBytes { get; private set; }
+		public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		public SemaphoreSlim FirstSendStarted { get; } = new(0);
 		public SemaphoreSlim Aborted { get; } = new(0);
@@ -61,6 +99,10 @@ public sealed class OutboxFloodTests {
 			}
 
 			await _release.Task.WaitAsync(cancellationToken);
+			string json = Encoding.UTF8.GetString(TestWebSocketCodec.Decode(buffer.AsSpan()));
+			Messages.Add(json);
+			WireBytes += buffer.Count;
+			if (json == "done") Done.TrySetResult();
 		}
 
 		public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken) {

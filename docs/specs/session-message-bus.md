@@ -120,9 +120,13 @@ use the host's lifecycle gate. This keeps an unrelated command responsive while 
 on a process, network call, or recursive filesystem operation without racing related state mutations.
 
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
-and round-robins lazily encoded oversized-message chunks with small messages from other routes. One
+and round-robins oversized-message chunks with small messages from other routes. Every WebSocket
+message in both directions is an independent zstd frame carried as binary; native WebView bridges
+remain in-process JSON. Outbound frames are encoded once before queue admission, shared across peers,
+and retained as compressed bytes. Queue weight counts those bytes, not the original JSON. Browser
+codec initialization completes before connecting, and decoding stays synchronous to preserve order. One
 connection carries at most one partial oversized body while that interleaving is active, and its
-outbox is bounded by logical count and a retained-character budget. One body may exceed that budget,
+outbox is bounded by logical count and a retained-byte budget. One body may exceed that budget,
 but its saturated weight makes it the outbox's only retained message. A large response therefore
 cannot prevent an unrelated feature or session from receiving its next message or multiply receiver
 memory across many partial large bodies.

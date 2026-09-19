@@ -185,7 +185,7 @@ public sealed class WebSocketChunkingTests {
 		new(new WebMessageRoute(string.Empty, string.Empty, feature), json);
 
 	private sealed class CapturingSocket : WebSocket {
-		private readonly byte[] _hello = "{}"u8.ToArray();
+		private readonly byte[] _hello = TestWebSocketCodec.Encode("{}");
 		private readonly TaskCompletionSource<IReadOnlyList<byte[]>> _complete =
 			new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly List<byte[]> _messages = [];
@@ -205,7 +205,7 @@ public sealed class WebSocketChunkingTests {
 			if (!_helloSent) {
 				_helloSent = true;
 				_hello.CopyTo(buffer.Array!, buffer.Offset);
-				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Text, endOfMessage: true);
+				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Binary, endOfMessage: true);
 			}
 
 			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -218,7 +218,9 @@ public sealed class WebSocketChunkingTests {
 			bool endOfMessage,
 			CancellationToken cancellationToken) {
 			Assert.True(endOfMessage);
-			byte[] message = [.. buffer];
+			Assert.Equal(WebSocketMessageType.Binary, messageType);
+			Assert.InRange(buffer.Count, 1, WebSocketHostBridge.MaxWireMessageBytes);
+			byte[] message = TestWebSocketCodec.Decode(buffer.AsSpan());
 			lock (_messages) {
 				_messages.Add(message);
 				if (_expected == 0) {
@@ -253,7 +255,7 @@ public sealed class WebSocketChunkingTests {
 	}
 
 	private sealed class GatedCapturingSocket : WebSocket {
-		private readonly byte[] _hello = "{}"u8.ToArray();
+		private readonly byte[] _hello = TestWebSocketCodec.Encode("{}");
 		private readonly TaskCompletionSource _firstSendStarted =
 			new(TaskCreationOptions.RunContinuationsAsynchronously);
 		private readonly TaskCompletionSource _releaseFirstSend =
@@ -288,7 +290,7 @@ public sealed class WebSocketChunkingTests {
 			if (!_helloSent) {
 				_helloSent = true;
 				_hello.CopyTo(buffer.Array!, buffer.Offset);
-				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Text, endOfMessage: true);
+				return new WebSocketReceiveResult(_hello.Length, WebSocketMessageType.Binary, endOfMessage: true);
 			}
 
 			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -304,7 +306,8 @@ public sealed class WebSocketChunkingTests {
 			bool first;
 			lock (_messages) {
 				first = _messages.Count == 0;
-				_messages.Add([.. buffer]);
+				Assert.Equal(WebSocketMessageType.Binary, messageType);
+				_messages.Add(TestWebSocketCodec.Decode(buffer.AsSpan()));
 				TryComplete();
 			}
 

@@ -22,6 +22,7 @@
     <PackageVersion Include="Tomlyn" Version="0.20.0" />
     <PackageVersion Include="WeCantSpell.Hunspell" Version="7.0.1" />
     <PackageVersion Include="SharpCompress" Version="0.50.4" />
+    <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>
 
   <ItemGroup>

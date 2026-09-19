@@ -1152,6 +1152,9 @@ label.agent-input-choice:hover {
   align-items: baseline;
   gap: 2px;
   min-width: 0;
+  /* Keep focus outlines and fractional-width controls inside the integer scroll extent. */
+  padding: 2px;
+  scroll-padding-inline: 2px;
 }
 
 .agent-status-scroll > * {

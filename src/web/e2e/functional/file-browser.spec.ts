@@ -2,6 +2,7 @@ import { mkdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { awaitEditorReady, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 test("Filter Files opens on first use, searches collapsed paths and preserves the tree", async ({
   page,
@@ -145,7 +146,7 @@ test.describe("file request completion", () => {
           const server = socket.connectToServer();
           const listings = new Set<string>();
           socket.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (
               message.feature === "files" &&
               message.name === "listDirectory" &&
@@ -155,7 +156,7 @@ test.describe("file request completion", () => {
             server.send(data);
           });
           server.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (
               message.feature === "files" &&
               message.name === "index" &&
@@ -167,7 +168,7 @@ test.describe("file request completion", () => {
               message.error = `Cannot list directory: ${failingDirectory}`;
               listingError = message.error;
               failedListings += 1;
-              socket.send(JSON.stringify(message));
+              socket.send(encodeTestWebSocketMessage(JSON.stringify(message)));
             } else socket.send(data);
           });
         });

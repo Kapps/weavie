@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test as base, type Request } from "@playwright/test";
+import { test as base, chromium, type Request } from "@playwright/test";
 
 export const test = base.extend<{ networkDiagnostics: undefined }>({
   launchOptions: async ({ launchOptions }, use, workerInfo) => {
@@ -10,23 +10,31 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
       `network-worker-${workerInfo.workerIndex}`,
     );
     await mkdir(directory, { recursive: true });
+    const args = [...(launchOptions.args ?? [])];
+    if (process.platform === "win32") {
+      // Read Playwright's actual switches: Chromium replaces, rather than merges, duplicate flags.
+      const browser = await chromium.launchServer(launchOptions);
+      try {
+        const prefix = "--disable-features=";
+        const disabled = browser.process().spawnargs.findLast((arg) => arg.startsWith(prefix));
+        if (disabled === undefined) throw new Error("Chromium's disabled features were not found");
+        // SO_RANDOMIZE_PORT fails healthy loopback connects with WSAENOBUFS on Windows.
+        // Native allocator comparison: https://github.com/Kapps/weavie/actions/runs/35303116423
+        args.push(`${disabled},TcpPortRandomizationWin`);
+      } finally {
+        await browser.close();
+      }
+    }
     await use({
       ...launchOptions,
-      args: [...(launchOptions.args ?? []), `--log-net-log=${join(directory, "netlog.json")}`],
+      args: [...args, `--log-net-log=${join(directory, "netlog.json")}`],
     });
   },
   networkDiagnostics: [
     async ({ context }, use, testInfo) => {
       const failures: string[] = [];
       let snapshot: Promise<void> | undefined;
-      // Flake (Windows only): 2026-09-09 16:18 UTC, run
-      // https://github.com/Kapps/weavie/actions/runs/34374758357/job/102546252324 —
-      // `palette-focus-gated.spec.ts` hit ERR_NO_BUFFER_SPACE on a loopback asset GET during page load.
-      // The captured windows-network.txt rules out ephemeral-port exhaustion (98 total TCP rows against a
-      // 16384-port dynamic range); the host log shows ~20 git.exe subprocesses spawned by the host within
-      // the same instant, at workspace open. Not confirmed as the trigger — this is the first sample since
-      // the capture above was added — but it's the only correlated resource spike in the log and worth
-      // checking first if this recurs.
+      // Capture allocation failures before teardown changes the socket and process state.
       const onRequestFailed = (request: Request): void => {
         const error = request.failure()?.errorText ?? "unknown";
         failures.push(`${new Date().toISOString()} ${request.method()} ${request.url()} ${error}`);
@@ -83,10 +91,6 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
         await snapshot;
       }
       if (snapshot !== undefined) {
-        // Recurred on Windows CI 2026-09-09 16:07 UTC (run 34374758357, shard 4/6, mid palette-focus-gated.spec.ts)
-        // and 2026-09-09 06:07 UTC (run 34317635773). Investigated: no single test triggers it — it hits whatever
-        // test is running when the runner's TCP port pool is exhausted. windows-network.txt above captures the
-        // diagnostic; no root cause identified yet from available data, so no fix applied here.
         throw new Error(`Browser socket allocation failed:\n${failures.join("\n")}`);
       }
     },

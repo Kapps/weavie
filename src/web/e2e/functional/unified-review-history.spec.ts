@@ -176,7 +176,25 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
 test("same-file definition opens the file and restores the review departure in both directions", async ({
   page,
 }) => {
+  const geometry = await page.evaluateHandle(() => {
+    const state = { maximumToolbars: 0 };
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    Object.defineProperty(Element.prototype, "clientHeight", {
+      ...descriptor,
+      get(this: Element) {
+        if (this.matches(".unified-review-diffs > .monaco-scrollable-element")) {
+          state.maximumToolbars = Math.max(
+            state.maximumToolbars,
+            document.querySelectorAll(".unified-review-controls > .weavie-inline-toolbar").length,
+          );
+        }
+        return descriptor.get!.call(this);
+      },
+    });
+    return state;
+  });
   await prepareDeparture(page);
+  expect(await geometry.evaluate((state) => state.maximumToolbars)).toBe(1);
   await registerDefinition(page, sourceName, sourceName, false);
   const departure = await reviewState(page);
   await page.keyboard.press("F12");
@@ -185,6 +203,7 @@ test("same-file definition opens the file and restores the review departure in b
   await runCommand(page, "Go Back");
   await expect(page.locator(".unified-review")).toBeVisible();
   await expect.poll(() => reviewState(page)).toEqual(departure);
+  expect(await geometry.evaluate((state) => state.maximumToolbars)).toBe(1);
   await runCommand(page, "Go Forward");
   await expect(page.locator(".unified-review")).toHaveCount(0);
   await expectRevealed(page, sourceName, 1);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const URL = "https://www.notion.so/Refresh-Doc-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d";
 const DOC = { title: "Refresh Doc", markdown: "Original paragraph." };
@@ -16,8 +17,7 @@ test.use({
       replies.set(page, 0);
       page.on("websocket", (socket) => {
         socket.on("framereceived", ({ payload }) => {
-          if (typeof payload !== "string" || !payload.startsWith("{")) return;
-          const message = JSON.parse(payload);
+          const message = JSON.parse(decodeTestWebSocketMessage(payload));
           if (
             message.feature === "sources" &&
             message.name === "refresh" &&

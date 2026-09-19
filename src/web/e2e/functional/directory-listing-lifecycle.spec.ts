@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MessageEnvelope } from "../../src/messaging/message-envelope";
+import { decodeWebSocketMessage } from "../../src/messaging/websocket-codec";
 import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 let sent: MessageEnvelope[];
 let heldDirectory: string;
@@ -15,8 +17,9 @@ test.use({
       heldDirectory = "";
       releaseListing = undefined;
       const received = new Set<string>();
-      await page.exposeFunction("listingResponseReceived", (requestId: string) => {
-        received.add(requestId);
+      await page.exposeFunction("listingResponseReceived", (bytes: number[]) => {
+        const message = JSON.parse(decodeWebSocketMessage(new Uint8Array(bytes)));
+        if (message.kind === "response") received.add(message.requestId);
       });
       await page.addInitScript(() => {
         const Original = window.WebSocket;
@@ -24,16 +27,13 @@ test.use({
           constructor(...args: ConstructorParameters<typeof WebSocket>) {
             super(...args);
             this.addEventListener("message", (event) => {
-              const message = JSON.parse(event.data);
-              if (message.kind === "response") {
-                setTimeout(() => {
-                  void (
-                    window as unknown as {
-                      listingResponseReceived: (requestId: string) => Promise<void>;
-                    }
-                  ).listingResponseReceived(message.requestId);
-                }, 0);
-              }
+              setTimeout(() => {
+                void (
+                  window as unknown as {
+                    listingResponseReceived: (bytes: number[]) => Promise<void>;
+                  }
+                ).listingResponseReceived(Array.from(new Uint8Array(event.data)));
+              }, 0);
             });
           }
         };
@@ -42,7 +42,7 @@ test.use({
         const server = socket.connectToServer();
         let heldRequest: string | null = null;
         socket.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           sent.push(message);
           if (
             message.feature === "files" &&
@@ -55,7 +55,7 @@ test.use({
           server.send(data);
         });
         server.onMessage((data) => {
-          const message = JSON.parse(data.toString()) as MessageEnvelope;
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
           if (heldRequest !== null && message.requestId === heldRequest) {
             const requestId = heldRequest;
             heldRequest = null;

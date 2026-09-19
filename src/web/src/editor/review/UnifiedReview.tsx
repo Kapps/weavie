@@ -65,15 +65,14 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  // -1 means nothing is selected yet — distinct from file 0 being selected. Conflating the two let an
+  // editor that had merely mounted (e.g. under virtualizer overscan) masquerade as the user's selection.
   const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
-    );
+    props
+      .overview()
+      .files.findIndex(
+        (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
+      );
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -213,6 +212,8 @@ export function UnifiedReview(props: {
   const summary = () => {
     const overview = props.overview();
     const index = visibleFile();
+    // Parked navigation (nothing selected) starts from file 0, same as an explicit selection of it.
+    const from = index < 0 ? 0 : index;
     const reveal = (index: number): void => {
       const file = overview.files[index]?.summary();
       if (file !== undefined) surface.reveal(file.path, file.line);
@@ -220,9 +221,9 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
-      nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      stepIn: () => reveal(from),
+      nextFile: () => reveal((from + 1) % overview.files.length),
+      prevFile: () => reveal((from - 1 + overview.files.length) % overview.files.length),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {

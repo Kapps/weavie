@@ -5,6 +5,11 @@ import { type WebSocket, WebSocketServer } from "ws";
 import { basename } from "../src/editor/fs-path";
 import { DEFAULT_EDITOR_OPTIONS } from "../src/editor-options-defaults";
 import type { EditorOptionsSpec } from "../src/messaging/protocol-types";
+import {
+  decodeWebSocketMessage,
+  encodeWebSocketMessage,
+  initWebSocketCodec,
+} from "../src/messaging/websocket-codec";
 
 export interface SessionAddress {
   slot: string;
@@ -197,6 +202,7 @@ export class MockHost {
   }
 
   static async start(options: MockHostOptions): Promise<MockHost> {
+    await initWebSocketCodec();
     const host = new MockHost(
       options.distDir,
       options.files ?? {},
@@ -477,7 +483,10 @@ export class MockHost {
 
   private onConnection(socket: WebSocket): void {
     this.socket = socket;
-    socket.on("message", (data) => this.onMessage(String(data)));
+    socket.binaryType = "arraybuffer";
+    socket.on("message", (data) =>
+      this.onMessage(decodeWebSocketMessage(new Uint8Array(data as ArrayBuffer))),
+    );
   }
 
   private onMessage(raw: string): void {
@@ -682,7 +691,7 @@ export class MockHost {
     if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
       throw new Error("mock host has no connected page");
     }
-    this.socket.send(data);
+    this.socket.send(encodeWebSocketMessage(data));
   }
 
   private addressKey(address: SessionAddress): string {

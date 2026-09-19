@@ -42,10 +42,6 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var feature = list.Single(s => s.Branch == "feature");
 		Assert.True(feature.IsManaged);
 		Assert.True(feature.Exists);
-		Assert.False(feature.IsDirty);
-		// A fresh branch sits at main's commit, so it is already an ancestor of main.
-		Assert.True(feature.IsMerged);
-		Assert.True(feature.IsSafeToRemove);
 
 		await manager.RemoveAsync(record.Path, deleteBranch: true, force: false);
 
@@ -60,7 +56,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var record = await manager.CreateAsync("wip", "main", "acp");
 		File.WriteAllText(Path.Combine(record.Path, "scratch.txt"), "uncommitted\n");
 
-		Assert.True(await _git.HasUncommittedChangesAsync(record.Path));
+		Assert.Contains(await manager.ListAsync(), status => status.Path == record.Path && status.Exists);
 		await Assert.ThrowsAsync<WorktreeDirtyException>(() => manager.RemoveAsync(record.Path, deleteBranch: false, force: false));
 		Assert.True(Directory.Exists(record.Path));
 

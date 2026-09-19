@@ -2,10 +2,17 @@
 // live-reapply surfaces). Each VS Code color id becomes a `--weavie-<dotted-key-as-dashes>` var on :root
 // (e.g. `var(--weavie-statusBar-background)`). Idempotent.
 
+const appliedKeys = new Set<string>();
+
 /** Sets a `--weavie-*` CSS variable on :root for each color id in `colors`. */
 export function applyColorsToCssVars(colors: Readonly<Record<string, string>>): void {
   const root = document.documentElement;
+  for (const key of appliedKeys) {
+    if (!(key in colors)) root.style.removeProperty(cssVarName(key));
+  }
+  appliedKeys.clear();
   for (const [key, value] of Object.entries(colors)) {
+    appliedKeys.add(key);
     root.style.setProperty(cssVarName(key), value);
   }
 }

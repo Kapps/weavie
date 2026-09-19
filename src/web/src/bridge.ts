@@ -7,6 +7,11 @@ import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type { BackendEndpoint, BackendInfo, PullRequestInfo } from "./messaging/protocol-types";
 import { SelectionSequencer } from "./messaging/selection-sequencer";
+import {
+  decodeWebSocketMessage,
+  encodeWebSocketMessage,
+  initWebSocketCodec,
+} from "./messaging/websocket-codec";
 import { clearNotification, notify } from "./notify/notify";
 
 export { ClientSession, HostConnection } from "./messaging/host-connection";
@@ -551,11 +556,10 @@ export function requestBranchPreview(
       );
 }
 
-export function requestDiffRefs(backendId: string): Promise<string[]> {
-  const session = selectedForBackend(backendId);
-  return session === undefined
-    ? Promise.reject(new Error("No live session is available."))
-    : session.feature("files").request("refs", {});
+export function requestDiffRefs(
+  session: ClientSession,
+): Promise<{ refs: string[]; defaultRef: string | null }> {
+  return session.feature("files").request("refs", {});
 }
 
 export function requestPullRequests(backendId: string, query: string): Promise<PullRequestInfo[]> {
@@ -663,7 +667,7 @@ class WebSocketTransport implements BridgeTransport {
     if (this.socket?.readyState !== WebSocket.OPEN) {
       throw new Error(`${this.label} is not connected.`);
     }
-    this.socket.send(json);
+    this.socket.send(encodeWebSocketMessage(json));
   }
 
   dispose(): void {
@@ -678,12 +682,15 @@ class WebSocketTransport implements BridgeTransport {
   }
 
   private connect(): void {
-    void this.resolveEndpoint().then(
-      (endpoint) => {
+    void Promise.all([this.resolveEndpoint(), initWebSocketCodec()]).then(
+      ([endpoint]) => {
         setResourceBase(this.backendId, endpoint.resourceBase);
         this.open(endpoint.bridgeUrl);
       },
-      () => this.dropped(),
+      (error) => {
+        reportError(this.backendId, error);
+        this.dropped();
+      },
     );
   }
 
@@ -692,6 +699,7 @@ class WebSocketTransport implements BridgeTransport {
       return;
     }
     const socket = new WebSocket(url);
+    socket.binaryType = "arraybuffer";
     this.socket = socket;
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
@@ -707,9 +715,12 @@ class WebSocketTransport implements BridgeTransport {
         .catch(() => socket.close());
     };
     socket.onmessage = (event: MessageEvent): void => {
-      if (this.socket === socket && typeof event.data === "string") {
+      if (this.socket === socket) {
         try {
-          const complete = this.messages.ingest(event.data);
+          if (!(event.data instanceof ArrayBuffer)) {
+            throw new Error("The WebSocket transport requires zstd binary messages.");
+          }
+          const complete = this.messages.ingest(decodeWebSocketMessage(new Uint8Array(event.data)));
           if (complete !== null) {
             receiveRaw(this.backendId, complete);
           }

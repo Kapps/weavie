@@ -11,6 +11,7 @@ import {
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
 const sourceName = "z-review.ts";
@@ -29,7 +30,7 @@ test.use({
 });
 
 async function reviewState(page: Page): Promise<{ selections: unknown; scrollTop: number }> {
-  return page.evaluate((name) => {
+  const selections = await page.evaluate((name) => {
     const editors = (window as WeavieWindow).__WEAVIE_MONACO__?.editor.getEditors() as
       | EditorHandle[]
       | undefined;
@@ -40,8 +41,9 @@ async function reviewState(page: Page): Promise<{ selections: unknown; scrollTop
     );
     const scroller = document.querySelector(".unified-review-diffs");
     if (editor === undefined || scroller === null) throw new Error("Review is not mounted");
-    return { selections: editor.getSelections(), scrollTop: scroller.scrollTop };
+    return editor.getSelections();
   }, sourceName);
+  return { selections, scrollTop: (await reviewScroll(page)).top };
 }
 
 async function prepareDeparture(page: Page): Promise<void> {
@@ -174,7 +176,25 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
 test("same-file definition opens the file and restores the review departure in both directions", async ({
   page,
 }) => {
+  const geometry = await page.evaluateHandle(() => {
+    const state = { maximumToolbars: 0 };
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    Object.defineProperty(Element.prototype, "clientHeight", {
+      ...descriptor,
+      get(this: Element) {
+        if (this.matches(".unified-review-diffs > .monaco-scrollable-element")) {
+          state.maximumToolbars = Math.max(
+            state.maximumToolbars,
+            document.querySelectorAll(".unified-review-controls > .weavie-inline-toolbar").length,
+          );
+        }
+        return descriptor.get!.call(this);
+      },
+    });
+    return state;
+  });
   await prepareDeparture(page);
+  expect(await geometry.evaluate((state) => state.maximumToolbars)).toBe(1);
   await registerDefinition(page, sourceName, sourceName, false);
   const departure = await reviewState(page);
   await page.keyboard.press("F12");
@@ -183,6 +203,7 @@ test("same-file definition opens the file and restores the review departure in b
   await runCommand(page, "Go Back");
   await expect(page.locator(".unified-review")).toBeVisible();
   await expect.poll(() => reviewState(page)).toEqual(departure);
+  expect(await geometry.evaluate((state) => state.maximumToolbars)).toBe(1);
   await runCommand(page, "Go Forward");
   await expect(page.locator(".unified-review")).toHaveCount(0);
   await expectRevealed(page, sourceName, 1);
@@ -274,6 +295,13 @@ test("document symbols preview, cancel and commit against the originating review
       ]);
     await input.press(action === "cancel" ? "Escape" : "Enter");
     if (action === "cancel") await expect.poll(() => reviewState(page)).toEqual(departure);
+    else {
+      await expect(
+        page.locator(".unified-review-file .view-line", {
+          hasText: /export\sconst\svalue0\s=\s0;/,
+        }),
+      ).toBeInViewport();
+    }
   }
   await expect(page.locator(".unified-review")).toBeVisible();
   await runCommand(page, "Go Back");

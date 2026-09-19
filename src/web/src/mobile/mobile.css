@@ -200,25 +200,6 @@
     font-size: var(--font-hint-size);
   }
 
-  .app.compact .agent-status-line-compact .agent-status-scroll {
-    min-width: 0;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .app.compact .agent-status-line-compact .agent-status-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .app.compact .agent-status-line-compact .agent-status-key {
-    display: none;
-  }
-
-  .app.compact .agent-status-line-compact .agent-status-segment {
-    padding-inline: 3px;
-  }
-
   .app.compact .agent-status-line-compact .agent-model-picker,
   .app.compact .agent-status-line-compact .agent-control-picker {
     top: calc(100% + 4px);

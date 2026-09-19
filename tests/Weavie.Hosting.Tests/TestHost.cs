@@ -34,6 +34,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly TempDirectory _temp;
 	public AcpSessionStore AcpSessions => _services.AcpSessions;
+	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
 
 	private readonly HostServices _services;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
@@ -551,7 +552,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>
 	/// Simulates a worker restart and lets tests mutate persisted state after shutdown, before the fresh core starts.
 	/// </summary>
-	public async Task RestartAsync(Action beforeRestart) {
+	public Task RestartAsync(Action beforeRestart) => RestartAsync(beforeRestart, _ => { });
+
+	public async Task RestartAsync(Action beforeRestart, Action<TestPlatform> configurePlatform) {
 		ArgumentNullException.ThrowIfNull(beforeRestart);
 		await Core.DisposeAsync().ConfigureAwait(false);
 		beforeRestart();
@@ -559,6 +562,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		_requestSequence = 0;
 		_selectedSlot = string.Empty;
 		Platform = new TestPlatform(Bridge);
+		configurePlatform(Platform);
 		Core = new HostCore(
 			Platform,
 			_services,
@@ -731,21 +735,27 @@ internal sealed class TestPlatform : IHostPlatform {
 
 /// <summary>A launcher whose terminals never spawn — sessions construct fine, but no real claude/shell runs.</summary>
 internal sealed class NoopPtyLauncher : IPtyLauncher {
+	private readonly Lock _gate = new();
+	private readonly List<NoopTerminal> _created = [];
 	/// <summary>Every terminal handed out, in creation order — lets a test script one (e.g. its foreground-job flag).</summary>
-	public List<NoopTerminal> Created { get; } = [];
+	public IReadOnlyList<NoopTerminal> Created { get { lock (_gate) return [.. _created]; } }
+	public Action<AgentLaunch> Resolving { get; set; } = _ => { };
 
 	public ITerminal CreateTerminal() {
 		var terminal = new NoopTerminal();
-		Created.Add(terminal);
+		lock (_gate) _created.Add(terminal);
 		return terminal;
 	}
 
-	public PtyLaunch Resolve(AgentLaunch launch) => new() {
-		Command = launch.Command,
-		Arguments = launch.Arguments,
-		RemoveEnvironment = launch.RemoveEnvironment,
-		Environment = launch.Environment,
-	};
+	public PtyLaunch Resolve(AgentLaunch launch) {
+		Resolving(launch);
+		return new() {
+			Command = launch.Command,
+			Arguments = launch.Arguments,
+			RemoveEnvironment = launch.RemoveEnvironment,
+			Environment = launch.Environment,
+		};
+	}
 }
 
 /// <summary>An <see cref="ITerminal"/> that does nothing — the child is never actually launched in tests.</summary>

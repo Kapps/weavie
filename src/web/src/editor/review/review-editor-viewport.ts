@@ -1,10 +1,11 @@
 import { monaco } from "../monaco-setup";
+import type { ReviewScroll } from "./review-scroll";
 
 /** Keeps Monaco's rendered window inside a full-height section owned by the review scroller. */
 export function createReviewEditorViewport(
   container: HTMLElement,
   mount: HTMLElement,
-  scroller: HTMLElement,
+  scrollOwner: ReviewScroll,
   header: HTMLElement,
   editor: monaco.editor.IStandaloneCodeEditor,
 ): {
@@ -14,72 +15,59 @@ export function createReviewEditorViewport(
   update(change: () => void): void;
   dispose(): void;
 } {
-  let frame: number | undefined;
+  const scroller = scrollOwner.viewport;
   let syncing = false;
 
   const bounds = (): { top: number; height: number } => {
-    const style = getComputedStyle(scroller);
-    const paddingTop = Number.parseFloat(style.paddingTop);
-    const inset = paddingTop + header.offsetHeight;
+    const headerHeight = header.getBoundingClientRect().height;
     return {
-      top: scroller.getBoundingClientRect().top + scroller.clientTop + inset,
-      height: Math.max(0, scroller.clientHeight - inset),
+      top: scroller.getBoundingClientRect().top + headerHeight,
+      height: Math.max(0, scroller.clientHeight - headerHeight),
     };
   };
-
-  const projectedTop = (): number =>
-    Math.floor(
-      Math.max(
-        0,
-        Math.min(
-          bounds().top - container.getBoundingClientRect().top,
-          editor.getScrollHeight() - editor.getLayoutInfo().height,
-        ),
-      ),
-    );
 
   const layout = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
       const viewport = bounds();
-      const height = Math.min(editor.getContentHeight(), container.clientHeight, viewport.height);
+      const containerTop = container.getBoundingClientRect().top;
+      const contentHeight = Math.min(editor.getContentHeight(), container.clientHeight);
+      const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top - containerTop)));
+      const height = Math.max(
+        0,
+        Math.floor(
+          Math.min(viewport.top + viewport.height, containerTop + contentHeight) -
+            (containerTop + top),
+        ),
+      );
       const width = container.clientWidth;
       const previous = editor.getLayoutInfo();
       const resized = previous.width !== width || previous.height !== height;
-      if (resized) editor.layout({ width, height });
-      const top = projectedTop();
+      // Let Monaco coordinate rendering after both the size and scroll position are updated.
+      if (resized) editor.layout({ width, height }, true);
       const moved = editor.getScrollTop() !== top;
       if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
-      if (resized || moved) editor.render();
     } finally {
       syncing = wasSyncing;
     }
   };
-  const schedule = (): void => {
-    if (frame === undefined) {
-      frame = requestAnimationFrame(() => {
-        frame = undefined;
-        layout();
-      });
-    }
-  };
-  const observer = new ResizeObserver(schedule);
+  const observer = new ResizeObserver(layout);
   observer.observe(scroller);
   observer.observe(container);
   observer.observe(header);
-  scroller.addEventListener("scroll", schedule, { passive: true });
+  const unsubscribe = scrollOwner.onScroll(layout);
   const reveal = (top: number): void => {
-    scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
+    scrollOwner.setScrollTop(
+      scrollOwner.getScrollTop() + container.getBoundingClientRect().top - bounds().top + top,
+    );
     layout();
   };
-  // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
+  // Native editor navigation feeds the same scroll owner as wheel and scrollbar input.
   const scroll = editor.onDidScrollChange((event) => {
-    if (!syncing && event.scrollTopChanged && event.scrollTop !== projectedTop()) {
-      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
-      mount.style.top = `${projectedTop()}px`;
-      schedule();
+    if (!syncing && event.scrollTopChanged && !event.scrollHeightChanged) {
+      reveal(event.scrollTop);
     }
   });
   const wheel = (event: WheelEvent): void => {
@@ -97,6 +85,7 @@ export function createReviewEditorViewport(
     event.stopPropagation();
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
     if (horizontal === 0) {
+      scrollOwner.wheel(event);
       return;
     }
     const unit =
@@ -108,6 +97,8 @@ export function createReviewEditorViewport(
     editor.setScrollLeft(editor.getScrollLeft() + horizontal * unit);
     if (event.shiftKey || event.deltaY === 0) {
       event.preventDefault();
+    } else {
+      scrollOwner.wheel(event);
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
@@ -127,11 +118,8 @@ export function createReviewEditorViewport(
       }
     },
     dispose: () => {
-      if (frame !== undefined) {
-        cancelAnimationFrame(frame);
-      }
       observer.disconnect();
-      scroller.removeEventListener("scroll", schedule);
+      unsubscribe();
       mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
     },

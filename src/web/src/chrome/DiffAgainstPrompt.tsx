@@ -1,5 +1,5 @@
 import { createSignal, type JSX } from "solid-js";
-import { activeBackendId, requestDiffRefs } from "../bridge";
+import { type ClientSession, requestDiffRefs } from "../bridge";
 import { BranchTypeahead } from "./BranchTypeahead";
 import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
 
@@ -7,17 +7,26 @@ import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
 // session's local and remote-tracking branches (main, origin/main), or any typed commit-ish (a tag, a SHA,
 // HEAD~2). Enter diffs, Esc cancels.
 export function DiffAgainstPrompt(props: {
+  session: ClientSession;
   onPick: (ref: string) => void;
   onCancel: () => void;
 }): JSX.Element {
   const [ref, setRef] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
 
-  void requestDiffRefs(activeBackendId()).then(setBranches);
+  const [error, setError] = createSignal("");
+  const [defaultRef, setDefaultRef] = createSignal<string | null>(null);
+  void requestDiffRefs(props.session)
+    .then((result) => {
+      setBranches(result.refs);
+      setDefaultRef(result.defaultRef);
+    })
+    .catch((error: unknown) => setError(String(error)));
 
   const pick = (name: string): void => {
-    if (name.length > 0) {
-      props.onPick(name);
+    const target = name.trim() || defaultRef();
+    if (target !== null) {
+      props.onPick(target);
     }
   };
 
@@ -33,7 +42,7 @@ export function DiffAgainstPrompt(props: {
       <div class="session-prompt-field">
         <BranchTypeahead
           idPrefix="diff-against"
-          placeholder="branch, tag, or commit (e.g. main, HEAD~2)"
+          placeholder={defaultRef() ?? "branch, tag, or commit (e.g. origin/main, HEAD~2)"}
           ariaLabel="Ref to diff against"
           branches={branches()}
           value={ref()}
@@ -42,13 +51,15 @@ export function DiffAgainstPrompt(props: {
           onCancel={() => props.onCancel()}
         />
       </div>
+      <div role="alert">{error()}</div>
       <PromptActions>
         <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
         <PromptButton
           label="Diff"
           shortcut="Enter"
-          title={`Diff against ${ref().trim().length > 0 ? ref().trim() : "the typed ref"} (Enter)`}
+          title={`Diff against ${ref().trim() || defaultRef() || "the typed ref"} (Enter)`}
           onClick={() => pick(ref().trim())}
+          disabled={!ref().trim() && defaultRef() === null}
           primary
         />
       </PromptActions>

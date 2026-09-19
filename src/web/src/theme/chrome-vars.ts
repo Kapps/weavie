@@ -17,6 +17,8 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   const set = (name: string, value: string | undefined): void => {
     if (value !== undefined) {
       root.style.setProperty(name, value);
+    } else {
+      root.style.removeProperty(name);
     }
   };
 

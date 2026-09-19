@@ -19,7 +19,6 @@ import {
   pathTreeDirectoryKeys,
   visiblePathTreeRows,
 } from "../../files/path-tree";
-import { scrollVirtualElement } from "../../virtual-scroll";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
@@ -29,9 +28,10 @@ import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
+import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
-import { createParkedNavigation, createParkedToolbar } from "./review-toolbar";
+import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
@@ -60,10 +60,10 @@ export function UnifiedReview(props: {
   let scroller: HTMLElement | undefined;
   let virtualList: HTMLDivElement | undefined;
   let toolbarHost: HTMLElement | undefined;
+  const [scroll, setScroll] = createSignal<ReviewScroll>();
   const sizeVirtualList = (height: number): void => {
-    if (virtualList !== undefined) virtualList.style.height = `${height}px`;
+    scroll()?.setContentHeight(height);
   };
-  let programmaticSelection = true;
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const visibleFile = (): number =>
     Math.max(
@@ -143,13 +143,19 @@ export function UnifiedReview(props: {
       const path = files()[index - 1]?.summary().path;
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
-    getScrollElement: () => scroller ?? null,
+    getScrollElement: () => scroll()?.viewport ?? null,
+    observeElementOffset: (_instance, callback) => {
+      const owner = scroll()!;
+      callback(owner.getScrollTop(), false);
+      return owner.onScroll(() => callback(owner.getScrollTop(), false));
+    },
     gap: 20,
     scrollToFn: (offset, options, instance) => {
-      // TanStack requests resize corrections before notifying Solid of the new scroll range.
-      return scrollVirtualElement(offset, options, instance, () =>
-        sizeVirtualList(instance.getTotalSize()),
-      );
+      const owner = scroll()!;
+      const top =
+        options.adjustments === undefined ? offset : owner.getScrollTop() + options.adjustments;
+      sizeVirtualList(instance.getTotalSize());
+      owner.setScrollTop(top);
     },
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
@@ -186,13 +192,13 @@ export function UnifiedReview(props: {
     active: () => selectedSession() === props.session && activeTabFor(props.session) === props.tab,
     signal: props.tab.signal,
     clear: props.clear,
-    scroller: () => scroller!,
+    getScrollTop: () => scroll()!.getScrollTop(),
+    setScrollTop: (top) => scroll()!.setScrollTop(top),
     focus: () => scroller?.focus(),
     changed,
     files,
     currentIndex: visibleFile,
     select: (index) => {
-      programmaticSelection = true;
       setVisibleFile(index);
       props.changed();
     },
@@ -271,16 +277,30 @@ export function UnifiedReview(props: {
       },
       overview.history,
     );
-    toolbarHost?.appendChild(controls.bar);
+    if (toolbarHost !== undefined) mountReviewToolbar(toolbarHost, controls.bar);
     onCleanup(() => controls.bar.remove());
   });
 
   const followViewport = (): void => {
-    programmaticSelection = false;
     surface.takeControl();
   };
   onMount(() => {
     const element = scroller!;
+    const owner = createReviewScroll(element, virtualList!);
+    setScroll(owner);
+    sizeVirtualList(virtualizer.getTotalSize());
+    const changedScroll = owner.onScroll((userInitiated) => {
+      if (userInitiated) {
+        const row = virtualizer.getVirtualItemForOffset(owner.getScrollTop());
+        if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
+      }
+      surface.refresh();
+      props.changed();
+    });
+    onCleanup(() => {
+      changedScroll();
+      owner.dispose();
+    });
     for (const event of ["keydown", "pointerdown", "wheel"]) {
       element.addEventListener(event, followViewport, true);
       onCleanup(() => element.removeEventListener(event, followViewport, true));
@@ -305,19 +325,7 @@ export function UnifiedReview(props: {
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
 
-      <main
-        class="unified-review-diffs"
-        ref={scroller}
-        tabIndex={-1}
-        onScroll={() => {
-          if (!programmaticSelection) {
-            const row = virtualizer.getVirtualItemForOffset(scroller!.scrollTop);
-            if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
-          }
-          surface.refresh();
-          props.changed();
-        }}
-      >
+      <main class="unified-review-diffs" ref={scroller} tabIndex={-1}>
         <div
           class="unified-review-virtual-list"
           ref={(element) => {
@@ -344,7 +352,7 @@ export function UnifiedReview(props: {
                             <ReviewFileSection
                               session={props.session}
                               tab={props.tab}
-                              scroller={() => scroller!}
+                              scroller={() => scroll()!}
                               editorHeight={() => editorHeight(view())}
                               onEditorHeight={(height) => editorHeights.set(view(), height)}
                               scope={props.scope}
@@ -359,9 +367,6 @@ export function UnifiedReview(props: {
                                   surface.reveal(file.path, line),
                                 )
                               }
-                              onReveal={() => {
-                                programmaticSelection = true;
-                              }}
                               openCopy={(diff) =>
                                 copies.open(diff.path, diff.current, diff.currentExists)
                               }

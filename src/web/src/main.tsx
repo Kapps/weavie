@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import App from "./App";
 import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./bridge";
 import { installNavigationGuard } from "./navigation";
+import { onSplashDismissed } from "./splash";
 import { mark } from "./startup-timing";
 import { openUrlExternal } from "./terminal/terminal-links";
 import "./fonts.css";
@@ -41,6 +42,7 @@ import "./mobile/mobile.css";
 import "./mobile/session-inbox.css";
 
 mark("module-eval");
+onSplashDismissed(() => mark("splash-dismissed"));
 
 const root = document.getElementById("root");
 if (root === null) {

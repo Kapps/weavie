@@ -360,7 +360,7 @@ public static class CoreCommands {
 	/// <summary>Installs a color theme from a local <c>.vsix</c> file (arg <c>path</c>, or a native picker if omitted).</summary>
 	public const string InstallThemeFromFile = "weavie.theme.installFromFile";
 
-	/// <summary>Switches the theme for a polarity and flips the mode to match (arg <c>id</c>).</summary>
+	/// <summary>Opens the color theme picker, or selects a theme directly with an <c>id</c>.</summary>
 	public const string SelectTheme = "weavie.theme.select";
 
 	/// <summary>Cycles the appearance mode system → light → dark → system.</summary>
@@ -843,7 +843,7 @@ public static class CoreCommands {
 			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
 			Aliases = ["btw", "ask aside", "side question"],
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"}}",
+			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"kind\":{\"type\":\"string\",\"enum\":[\"prompt\",\"providerCommand\",\"mcpPrompt\"],\"description\":\"Submission type; ordinary prompt when omitted\"},\"commandName\":{\"type\":\"string\",\"description\":\"Exact catalog name for a command invocation\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1870,8 +1870,7 @@ public static class CoreCommands {
 		});
 
 		// Theme verb actions (handlers wired in Core by ThemeCommands); the data-shaped override editors +
-		// queries stay MCP tools. install/select carry args with no meaningful no-arg palette row, so they're
-		// keybinding/runCommand-only; install-from-file is palette-visible (no args → native .vsix picker).
+		// queries stay MCP tools. The web theme selector provides interactive preview and registry browsing.
 		registry.Register(new CommandDefinition {
 			Id = InstallTheme,
 			SharedExecutionLane = ThemeExecutionLane,
@@ -1902,17 +1901,13 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = SelectTheme,
-			SharedExecutionLane = ThemeExecutionLane,
-			Title = "Select Theme",
-			RunsIn = CommandLocation.Core,
+			Title = "Select Color Theme…",
+			RunsIn = CommandLocation.Web,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
-			Description = "Switch to a color theme. 'id' must be a built-in or installed theme id (use the listThemes "
-				+ "tool to see them; never guess). A light theme is stored as your light theme and a dark theme as "
-				+ "your dark theme, and the appearance mode flips to match so it shows immediately. Overrides are "
-				+ "remembered per theme.",
-			Aliases = ["select theme", "switch theme", "change theme", "set theme", "use theme", "activate theme"],
-			ShowInPalette = false,
+			Description = "Browse color themes with live preview, or pass an installed theme 'id' to select it directly. Search Open VSX to preview and install more themes.",
+			Aliases = ["select theme", "switch theme", "change theme", "color theme", "appearance", "open vsx"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+shift+t" }],
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
 		});
 

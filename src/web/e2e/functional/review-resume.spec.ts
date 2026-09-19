@@ -2,12 +2,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { type MessageEnvelope, parseEnvelope } from "../../src/messaging/message-envelope";
-import { openCommandPalette, openFile, runCommand } from "../harness/actions";
+import {
+  dismissAutomaticInferenceOffer,
+  openCommandPalette,
+  openFile,
+  runCommand,
+} from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const prReplies = new WeakMap<Page, MessageEnvelope[]>();
 
@@ -110,6 +116,14 @@ test.describe("durable applied review", () => {
     expect(connect.status()).toBe(302);
     await page.goto(weavie.url);
     await expect(page.locator("#splash")).toHaveCount(0);
+    // The harness terminates the previous process, so acknowledge its recovered exit evidence.
+    const restartNotice = page.getByRole("alert").filter({
+      hasText: "Weavie's previous run ended unexpectedly:",
+    });
+    await expect(restartNotice).toContainText("last-exit.previous.log");
+    await restartNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await expect(page.locator(".toast-error")).toHaveCount(0);
+    await dismissAutomaticInferenceOffer(page);
     await expect(page.locator(".unified-review")).toBeVisible();
     await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
@@ -162,7 +176,7 @@ test.describe("durable pull-request review", () => {
         prReplies.set(page, replies);
         page.on("websocket", (socket) =>
           socket.on("framereceived", (frame) => {
-            const message = parseEnvelope(frame.payload.toString());
+            const message = parseEnvelope(decodeTestWebSocketMessage(frame.payload));
             if (
               message?.kind === "response" &&
               message.feature === "pullRequests" &&

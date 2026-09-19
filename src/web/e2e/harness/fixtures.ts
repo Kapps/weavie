@@ -1,5 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { type CDPSession, expect, type Page } from "@playwright/test";
+import { initWebSocketCodec } from "../../src/messaging/websocket-codec";
+import { dismissAutomaticInferenceOffer } from "./actions";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { test as base } from "./network-fixtures";
 import { fakeAcpProgram, programExists } from "./test-programs";
@@ -109,6 +111,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       use,
       testInfo,
     ) => {
+      await initWebSocketCodec();
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
@@ -305,12 +308,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
         }
         if (dismissInferenceOffer && !automaticInference) {
-          const offer = page.locator(".toast", {
-            hasText: "Let Weavie use automatic inference",
-          });
-          await expect(offer).toBeVisible();
-          await offer.getByRole("button", { name: "Dismiss" }).click();
-          await expect(offer).toHaveCount(0);
+          await dismissAutomaticInferenceOffer(page);
         }
       } catch (error) {
         // Playwright records setup failures only after the fixture unwinds, so testInfo still says "passed" here.

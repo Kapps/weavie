@@ -24,14 +24,13 @@ to cut them. Findings are traced to `file:line` and, where measured, backed by a
 
 ## How this was measured
 
-`diagnostics.startupTiming` (off by default) appends `?startuptiming=1` to the index URL; the web then
-logs `[startup/web] <phase> +<ms>` marks relative to navigation (`src/web/src/startup-timing.ts`).
-Turn it on to time a real launch end to end.
+Startup phase timings are always recorded in **View Logs**. Host entries show elapsed time since
+workspace host construction at backend and session initialization milestones. Differences between marks
+show where startup time is spent.
+Web entries show `[startup/web] <phase> +<ms>` relative to navigation and are queued until the host
+connection is ready. No diagnostic setting or extra restart is needed.
 
-**Measurement gap:** those marks are relative to *navigation*, so they cannot see the entire
-pre-navigation host cost — process bootstrap, WebView2 environment creation, and `HostCore.StartAsync`
-— which is where a large part of the 2 s lives. There is no host-side equivalent. Adding a
-host-side phase log (gated on the same setting) is a prerequisite for trusting any host-side number.
+Process initialization before workspace host construction remains outside these measurements.
 
 ---
 
@@ -219,7 +218,7 @@ clearly worth it.
 | 3 | **DONE** — Overlap WebView2 env creation with `HostCore.StartAsync` (idempotent + Release kickoff) | `WorkspaceWindow.WebView.cs`, `HostCore.cs` | Medium | Done; runtime check wanted |
 | 4 | **DONE (dedupe)** — one shared git probe; reconcile-defer skipped (race) | `HostCore.cs`, `HostCore.Sessions.cs` | Low–med | Low |
 | 5 | Parallelize/defer non-critical AppController store loads — **recommend holding** | `AppController.cs` | Low (tens of ms) | Med (ordering) |
-| 6 | Host-side startup timing marks (measurement) | host bootstrap, gated on `diagnostics.startupTiming` | Enables trusting host numbers | Low |
+| 6 | Host-side startup timing marks (measurement) | host bootstrap, always recorded in View Logs | Enables trusting host numbers | Low |
 | 7 | Output via `PostWebMessageAsString` instead of `ExecuteScriptAsync` (throughput) | `HostBridge.cs`, `WebBridgeScript.cs`, `bridge.ts` | Med under flood; not typing latency | Medium |
 
 #1–#4 are done on this branch (build/tsc/biome/vitest green; the two host changes and the splash change

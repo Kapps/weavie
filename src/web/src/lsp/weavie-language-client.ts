@@ -15,6 +15,7 @@ import {
   ImplementationRequest,
   type MessageSignature,
   ReferencesRequest,
+  SemanticTokensRegistrationType,
   State,
   TypeDefinitionRequest,
   TypeHierarchyPrepareRequest,
@@ -34,6 +35,7 @@ import {
   SessionCommandScope,
   SessionExecuteCommandFeature,
 } from "./session-execute-command-feature";
+import { SharedSemanticTokensFeature } from "./shared-semantic-tokens-feature";
 
 interface TransportLanguageClientOptions {
   name: string;
@@ -86,6 +88,7 @@ class WeavieLanguageClient extends BaseLanguageClient {
         scopeDocumentSelector(baseConverter.asDocumentSelector(selector), modelWorkspaceUri),
     };
     super.registerFeature(new SessionExecuteCommandFeature(this, commandScope));
+    super.registerFeature(new SharedSemanticTokensFeature(this));
   }
 
   protected override createMessageTransports(_encoding: string): Promise<MessageTransports> {
@@ -99,7 +102,8 @@ class WeavieLanguageClient extends BaseLanguageClient {
   override registerFeature(feature: Parameters<BaseLanguageClient["registerFeature"]>[0]): void {
     if (
       "registrationType" in feature &&
-      feature.registrationType.method === ExecuteCommandRequest.method
+      (feature.registrationType.method === ExecuteCommandRequest.method ||
+        feature.registrationType.method === SemanticTokensRegistrationType.method)
     ) {
       return;
     }

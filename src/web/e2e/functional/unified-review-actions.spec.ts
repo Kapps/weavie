@@ -12,6 +12,7 @@ import {
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const source = "review-actions.ts";
 const content =
@@ -105,7 +106,7 @@ test.describe("pending review revision ownership", () => {
         await page.routeWebSocket("**/*", (socket) => {
           const server = socket.connectToServer();
           server.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (message.feature === "revise") {
               if (message.kind === "cancel") canceled = true;
               if (requested && message.name === "state" && message.payload.regions.length === 0)
@@ -114,7 +115,7 @@ test.describe("pending review revision ownership", () => {
             socket.send(data);
           });
           socket.onMessage((data) => {
-            const message = JSON.parse(data.toString());
+            const message = JSON.parse(decodeTestWebSocketMessage(data));
             if (message.kind === "response" && message.feature === "revise") {
               requested = true;
               confirmation.resolve(() => server.send(data));
@@ -169,6 +170,7 @@ test.describe("deleted review snapshots", () => {
     const section = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
     });
+    await section.locator(".unified-review-file-toggle").click();
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await section
       .locator(".view-line")

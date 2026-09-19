@@ -323,19 +323,6 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default) {
-		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
-		ArgumentException.ThrowIfNullOrEmpty(branch);
-		ArgumentException.ThrowIfNullOrEmpty(into);
-		var result = await RunAsync(repositoryDirectory, ["merge-base", "--is-ancestor", branch, into], ct).ConfigureAwait(false);
-		return result.ExitCode switch {
-			0 => true,
-			1 => false,
-			_ => throw new GitException($"git merge-base --is-ancestor {branch} {into} failed (exit {result.ExitCode}): {result.StdErr.Trim()}"),
-		};
-	}
-
-	/// <inheritdoc/>
 	public async Task DeleteBranchAsync(string repositoryDirectory, string branch, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(branch);

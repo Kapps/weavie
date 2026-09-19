@@ -22,6 +22,7 @@ import {
   createParkedNavigation,
   createParkedToolbar,
   makeButton,
+  mountReviewToolbar,
   withShortcut,
 } from "./review/review-toolbar";
 import { sessionFileUri } from "./session-uri";
@@ -301,10 +302,7 @@ export function createInlineDiff(
     toolbarNode = next;
     if (next !== undefined) {
       const host = presentation.toolbarHost();
-      if (host !== null) {
-        if (previous?.parentElement === host) previous.replaceWith(next);
-        else host.appendChild(next);
-      }
+      if (host !== null) mountReviewToolbar(host, next);
     }
     previous?.remove();
   };
@@ -550,6 +548,8 @@ export function createInlineDiff(
       getPosition: () => ({
         position: { lineNumber: line, column: model.getLineMaxColumn(line) },
         preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+        // Model-to-view conversion needs Right to include text injected at the anchor.
+        positionAffinity: monaco.editor.PositionAffinity.Right,
       }),
     };
   };
@@ -950,7 +950,9 @@ export function createInlineDiff(
       options.fileCount !== undefined && options.fileCount > 1 && options.fileIndex !== undefined
         ? `file ${options.fileIndex}/${options.fileCount} · `
         : "";
-    counterNode.textContent = `${labelPart}${filePart}change ${idx < 0 ? 0 : idx + 1}/${total}`;
+    const text = `${labelPart}${filePart}change ${idx < 0 ? 0 : idx + 1}/${total}`;
+    if (counterNode.textContent === text) return;
+    counterNode.textContent = text;
     if (dotsNode === undefined) {
       return;
     }
@@ -1655,7 +1657,7 @@ export function createInlineDiff(
       if (toolbarNode !== undefined) {
         const mount = presentation.toolbarHost();
         if (mount === null) toolbarNode.remove();
-        else mount.appendChild(toolbarNode);
+        else mountReviewToolbar(mount, toolbarNode);
       }
       syncDiffContext();
       renderCounter();

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { readReviewScroll, reviewScroll } from "../harness/review-scroll";
 
 const source = Array.from(
   { length: 7_000 },
@@ -37,12 +38,19 @@ test.use({
 
 test("wheel scrolling preserves file order and geometry as review editors remount", async ({
   page,
+  weavie,
 }) => {
   test.slow();
+  await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
+  await page.reload();
   await expect(page.locator(".editor-empty-review")).toContainText(`${paths.length}`);
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
+    `${paths.length} files · press ↓ to start`,
+  );
+  await page.locator(".unified-review-tree-row.file").first().click();
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
   const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
   await firstEditor
@@ -62,12 +70,25 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
         .map((section) => Number(section.dataset.index));
       samples.push(files);
     };
-    element.addEventListener("scroll", sample);
+    const observer = new MutationObserver(sample);
+    observer.observe(element, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-valuenow"],
+    });
     sample();
     return samples;
   });
   await scroller.hover();
-  for (let notch = 0; notch < 200; notch++) {
+  // Monaco normalizes wheel notches; its native Alt modifier accelerates this long traversal.
+  await page.keyboard.down("Alt");
+  const scrollbar = await page
+    .getByRole("scrollbar", { name: "Review scroll position" })
+    .elementHandle();
+  if (scrollbar === null) throw new Error("Review scrollbar is missing");
+  const position = () => scrollbar.evaluate(readReviewScroll);
+  let scroll = await position();
+  while (scroll.top < scroll.maximum) {
     await page.mouse.wheel(0, 400);
     await page.evaluate(
       () =>
@@ -75,19 +96,31 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
+    scroll = await position();
   }
   await expect(scroller).toBeFocused();
   const samples = await observation.jsonValue();
   const visited = [...new Set(samples.flat())].sort((a, b) => a - b);
   expect(visited).toEqual(paths.map((_, index) => index + 1));
   const firstVisible = samples.flatMap((sample) => sample.slice(0, 1));
-  for (let index = 1; index < firstVisible.length; index++) {
-    expect(firstVisible[index]).toBeGreaterThanOrEqual(firstVisible[index - 1]!);
-  }
-  const settledHeight = await scroller.evaluate((element) => element.scrollHeight);
-  for (let notch = 0; notch < 200; notch++) {
+  expect(firstVisible).toEqual([...firstVisible].sort((a, b) => a - b));
+  const settledHeight = scroll.maximum;
+  const reverseHeights = new Set<number>();
+  while (scroll.top > 0) {
     await page.mouse.wheel(0, -400);
-    expect(await scroller.evaluate((element) => element.scrollHeight)).toBe(settledHeight);
+    scroll = await position();
+    reverseHeights.add(scroll.maximum);
   }
-  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
+  expect([...reverseHeights]).toEqual([settledHeight]);
+  await page.keyboard.up("Alt");
+  await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(0);
+  const rows = page.locator(".unified-review-tree-row.file");
+  await rows.first().focus();
+  await page.keyboard.press("End");
+  await expect(rows.last()).toBeFocused();
+  await expect(rows.last()).toBeInViewport();
+  await page.keyboard.press("Home");
+  await expect(rows.first()).toBeFocused();
+  await expect(rows.first()).toBeInViewport();
+  expect(weavie.log()).not.toContain("dropped a page connection");
 });

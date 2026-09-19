@@ -6,6 +6,7 @@ import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 import { pastePng } from "../harness/pasted-image";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 type PromptBlock = {
   type: string;
@@ -31,7 +32,7 @@ test.use({
     run: async (page) => {
       page.on("websocket", (socket) => {
         socket.on("framesent", ({ payload }) => {
-          const frame = payload.toString();
+          const frame = decodeTestWebSocketMessage(payload);
           if (frame.includes("activeChanged") && frame.includes("just plain text")) {
             selectedEditors.add(page);
           }

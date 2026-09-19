@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.FileSystem;
 
@@ -38,7 +39,7 @@ public sealed class ThemeJsonLoader {
 		}
 
 		string text = _fileSystem.ReadAllText(path);
-		var node = JsonNode.Parse(text) as JsonObject
+		var node = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) as JsonObject
 			?? throw new InvalidOperationException($"theme {path} is not a JSON object");
 
 		if (node.TryGetPropertyValue("include", out var includeNode)

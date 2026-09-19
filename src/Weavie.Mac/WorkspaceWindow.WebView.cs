@@ -16,7 +16,7 @@ internal sealed partial class WorkspaceWindow {
 #endif
 
 	private async Task LoadWebAppAsync() {
-		var launcher = new WebAppLauncher(this, _core, string.Empty);
+		var launcher = new WebAppLauncher(this, _core);
 #if DEBUG
 		_devBringUp = new DevWebBringUp(
 			launcher, this,

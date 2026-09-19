@@ -138,9 +138,6 @@ public interface IGitService {
 	/// </summary>
 	Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default);
 
-	/// <summary>True when <paramref name="branch"/> is an ancestor of <paramref name="into"/> (fully merged).</summary>
-	Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default);
-
 	/// <summary>Deletes the local branch <paramref name="branch"/> (<c>-d</c>, or <c>-D</c> when <paramref name="force"/>).</summary>
 	Task DeleteBranchAsync(string repositoryDirectory, string branch, bool force, CancellationToken ct = default);
 

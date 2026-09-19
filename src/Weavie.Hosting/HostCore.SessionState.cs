@@ -5,6 +5,8 @@ namespace Weavie.Hosting;
 
 // The loaded overlay on top of git-worktree reconciliation. Client selection is deliberately absent.
 public sealed partial class HostCore {
+	private const int MaxConcurrentSessionRestores = 8;
+
 	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
 
 	private void PersistSessionState() {
@@ -57,9 +59,17 @@ public sealed partial class HostCore {
 		}
 
 		// Native UI loops may not be running yet; publish serially without dispatching to them.
+		// Bounded so a workspace with many loaded sessions doesn't fork all their Claude/shell
+		// processes in one simultaneous burst at startup; this is process-spawn concurrency, not
+		// CPU work, so the cap is a fixed constant rather than Environment.ProcessorCount.
 		var publicationGate = new Lock();
-		await Task.WhenAll(toLoad.Distinct().Select(slot => Task.Run(() => RestoreSlot(slot, publicationGate))))
-			.ConfigureAwait(false);
+		await Parallel.ForEachAsync(
+			toLoad.Distinct(),
+			new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentSessionRestores },
+			(slot, _) => {
+				RestoreSlot(slot, publicationGate);
+				return ValueTask.CompletedTask;
+			}).ConfigureAwait(false);
 
 		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
 		// workspace with no available agent provider still opens, with its other sessions and the reason why.

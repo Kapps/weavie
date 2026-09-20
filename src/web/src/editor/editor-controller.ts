@@ -2,7 +2,7 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import type * as monaco from "monaco-editor";
-import { createSignal } from "solid-js";
+import { createSignal, untrack } from "solid-js";
 import {
   type ClientSession,
   isBrowserHostedShell,
@@ -1492,25 +1492,30 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       configureDiff: (tab, inline, uri, message, reveal) => {
         const session = tab.session;
         reviews.overviewFor(session);
-        inline.bindHistory(
-          reviewHistoryHandlers(session, () => {
-            const presentation = tab.presentation;
-            return ({ path, line }) => {
-              if (
-                presentation?.signal.aborted ||
-                selectedSession() !== session ||
-                activeTabFor(session) !== tab
-              )
-                return;
-              const file = reviews
-                .board(session)
-                .files.find((file) => samePath(file.summary().path, path));
-              if (file !== undefined) reveal(file.summary(), line);
-            };
-          }),
-        );
-        inline.setReviewHistory(reviews.board(session).history);
-        inline.setByUri(uri, appliedReviewOptions(session, message, reveal));
+        const history = reviews.board(session).history;
+        const options = appliedReviewOptions(session, message, reveal);
+        // Review data drives rendering; reads during painting must not subscribe it to navigation.
+        untrack(() => {
+          inline.bindHistory(
+            reviewHistoryHandlers(session, () => {
+              const presentation = tab.presentation;
+              return ({ path, line }) => {
+                if (
+                  presentation?.signal.aborted ||
+                  selectedSession() !== session ||
+                  activeTabFor(session) !== tab
+                )
+                  return;
+                const file = reviews
+                  .board(session)
+                  .files.find((file) => samePath(file.summary().path, path));
+                if (file !== undefined) reveal(file.summary(), line);
+              };
+            }),
+          );
+          inline.setReviewHistory(history);
+          inline.setByUri(uri, options);
+        });
       },
       toggleFileCollapsed: (session, path) => {
         const state = reviews.board(session);

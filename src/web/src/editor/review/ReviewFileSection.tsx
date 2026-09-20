@@ -8,6 +8,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
@@ -39,7 +40,7 @@ export function ReviewFileSection(props: {
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
-  style: string;
+  top: number;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const collapsed = () => props.file().collapsed();
@@ -48,26 +49,30 @@ export function ReviewFileSection(props: {
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
+  let borderTop = 0;
+  let headerLimit = 0;
   const layoutHeader = (): void => {
-    const viewport = props.scroller().viewport;
-    const top = viewport.getBoundingClientRect().top;
     const offset = Math.max(
       0,
-      Math.min(
-        top - article!.getBoundingClientRect().top - article!.clientTop,
-        article!.clientHeight - header.offsetHeight,
-      ),
+      Math.min(props.scroller().getScrollTop() - props.top - borderTop, headerLimit),
     );
     header.style.top = `${offset}px`;
   };
+  const measureHeader = (): void => {
+    borderTop = article!.clientTop;
+    headerLimit = article!.clientHeight - header.offsetHeight;
+    layoutHeader();
+  };
   const [editor, setEditor] = createSignal<ReviewEditor>();
   createEffect(() => {
-    const position = props.style;
+    const top = props.top;
     const current = editor();
     if (article !== undefined) {
-      article.style.cssText = position;
-      layoutHeader();
-      current?.layout();
+      untrack(() => {
+        article!.style.top = `${top}px`;
+        measureHeader();
+        current?.layout();
+      });
     }
   });
   const remeasure = (): void => {
@@ -82,9 +87,13 @@ export function ReviewFileSection(props: {
 
   onMount(() => {
     const unsubscribe = props.scroller().onScroll(layoutHeader);
-    const observer = new ResizeObserver(layoutHeader);
+    const observer = new ResizeObserver(() => {
+      measureHeader();
+      editor()?.layout();
+    });
     observer.observe(article!);
-    layoutHeader();
+    observer.observe(header);
+    measureHeader();
     onCleanup(() => {
       unsubscribe();
       observer.disconnect();

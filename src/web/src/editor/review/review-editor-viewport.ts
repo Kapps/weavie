@@ -9,7 +9,7 @@ export function createReviewEditorViewport(
   header: HTMLElement,
   editor: monaco.editor.IStandaloneCodeEditor,
 ): {
-  bounds(): { top: number; height: number };
+  bounds(): { top: number; bottom: number; height: number };
   layout(): void;
   reveal(top: number): void;
   update(change: () => void): void;
@@ -17,31 +17,31 @@ export function createReviewEditorViewport(
 } {
   const scroller = scrollOwner.viewport;
   let syncing = false;
+  let containerTop = 0;
+  let containerHeight = 0;
+  let width = 0;
+  let headerHeight = 0;
+  let viewportHeight = 0;
 
-  const bounds = (): { top: number; height: number } => {
-    const headerHeight = header.getBoundingClientRect().height;
+  // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
+  const bounds = (): { top: number; bottom: number; height: number } => {
+    const top = scrollOwner.getScrollTop() + headerHeight - containerTop;
+    const height = Math.max(0, viewportHeight - headerHeight);
     return {
-      top: scroller.getBoundingClientRect().top + headerHeight,
-      height: Math.max(0, scroller.clientHeight - headerHeight),
+      top,
+      bottom: Math.min(top + height, containerHeight, editor.getContentHeight()),
+      height,
     };
   };
 
-  const layout = (): void => {
+  const sync = (): void => {
     const wasSyncing = syncing;
     syncing = true;
     try {
       const viewport = bounds();
-      const containerTop = container.getBoundingClientRect().top;
-      const contentHeight = Math.min(editor.getContentHeight(), container.clientHeight);
-      const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top - containerTop)));
-      const height = Math.max(
-        0,
-        Math.floor(
-          Math.min(viewport.top + viewport.height, containerTop + contentHeight) -
-            (containerTop + top),
-        ),
-      );
-      const width = container.clientWidth;
+      const contentHeight = Math.min(editor.getContentHeight(), containerHeight);
+      const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top)));
+      const height = Math.max(0, Math.floor(viewport.bottom - top));
       const previous = editor.getLayoutInfo();
       const resized = previous.width !== width || previous.height !== height;
       // Let Monaco coordinate rendering after both the size and scroll position are updated.
@@ -53,16 +53,25 @@ export function createReviewEditorViewport(
       syncing = wasSyncing;
     }
   };
+  const layout = (): void => {
+    containerTop =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scrollOwner.getScrollTop();
+    containerHeight = container.clientHeight;
+    width = container.clientWidth;
+    headerHeight = header.getBoundingClientRect().height;
+    viewportHeight = scroller.clientHeight;
+    sync();
+  };
   const observer = new ResizeObserver(layout);
   observer.observe(scroller);
   observer.observe(container);
   observer.observe(header);
-  const unsubscribe = scrollOwner.onScroll(layout);
+  const unsubscribe = scrollOwner.onScroll(sync);
   const reveal = (top: number): void => {
-    scrollOwner.setScrollTop(
-      scrollOwner.getScrollTop() + container.getBoundingClientRect().top - bounds().top + top,
-    );
-    layout();
+    scrollOwner.setScrollTop(containerTop - headerHeight + top);
+    sync();
   };
   // Native editor navigation feeds the same scroll owner as wheel and scrollbar input.
   const scroll = editor.onDidScrollChange((event) => {

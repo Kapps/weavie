@@ -6,6 +6,7 @@ import {
   type JSX,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import type { ReviewCopy } from "../editor-host";
@@ -62,7 +63,8 @@ export function ReviewFileBody(props: {
   };
   createEffect(() => {
     props.active();
-    mounted()?.inline.refreshPresentation();
+    const editor = mounted();
+    untrack(() => editor?.inline.refreshPresentation());
   });
   createEffect(() => {
     const editor = mounted();

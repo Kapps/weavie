@@ -112,9 +112,8 @@ export function createReviewEditor(options: {
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
       const bounds = viewport.bounds();
-      const rect = container.getBoundingClientRect();
-      const top = Math.max(bounds.top, rect.top) - rect.top;
-      const bottom = Math.min(bounds.top + bounds.height, rect.bottom) - rect.top;
+      const top = Math.max(0, bounds.top);
+      const bottom = bounds.bottom;
       const cursorTop = editor.getTopForLineNumber(cursor);
       if (cursorTop >= top && cursorTop < bottom) return cursor;
       const center = (top + bottom) / 2;
@@ -153,10 +152,7 @@ export function createReviewEditor(options: {
       viewState: editor.saveViewState(),
       anchor: {
         line,
-        offset:
-          viewport.bounds().top -
-          container.getBoundingClientRect().top -
-          editor.getTopForLineNumber(line),
+        offset: viewport.bounds().top - editor.getTopForLineNumber(line),
       },
     };
   };

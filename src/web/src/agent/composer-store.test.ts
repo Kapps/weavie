@@ -8,6 +8,7 @@ const bridge = vi.hoisted(() => ({
     string,
     {
       client: ClientSession;
+      dispose: () => void;
       handlers: Map<string, (payload: Record<string, unknown>) => void>;
     }
   >(),
@@ -45,6 +46,7 @@ function ensureSession(
   slot: string,
 ): {
   client: ClientSession;
+  dispose: () => void;
   handlers: Map<string, (payload: Record<string, unknown>) => void>;
 } {
   const key = `${backendId}\u0000${slot}`;
@@ -67,9 +69,19 @@ function ensureSession(
       },
     }),
   } as unknown as ClientSession;
-  const session = { client, handlers };
+  const disposers: Array<() => void> = [];
+  const session = {
+    client,
+    handlers,
+    dispose: () => {
+      for (const dispose of disposers) dispose();
+    },
+  };
   bridge.sessions.set(key, session);
-  for (const install of bridge.installers) install(client);
+  for (const install of bridge.installers) {
+    const dispose = install(client);
+    if (dispose !== undefined) disposers.push(dispose);
+  }
   return session;
 }
 
@@ -362,6 +374,127 @@ describe("agent composer attachments", () => {
     expect(store.composerState(second).draft).toBe("");
     expect(store.composerState(third).draft).toBe("third");
     expect([...drafts.values()].sort()).toEqual(["first", "third"]);
+  });
+});
+
+describe("BTW reply composers", () => {
+  it("owns images and receipts independently from the main draft and other replies", async () => {
+    const session = owner("reply-owners", "slot");
+    store.setComposerDraft(session, "main stays");
+    const reply = store.replyComposer(session, "first");
+    const other = store.replyComposer(session, "second");
+    other.setDraft("other stays");
+    reply.uploadImage(new Blob([new Uint8Array([1])], { type: "image/png" }));
+    expect(reply.submit()).toBe(false);
+    await flushAsyncWork();
+    const id = reply.state().attachments[0]!.id;
+    deliver("reply-owners", "slot", "attachmentState", { id, status: "ready", error: "" });
+    expect(reply.submit()).toBe(true);
+    const message = [...bridge.posted].reverse().find((item) => item.name === "replyAside")!;
+    expect(message.payload).toEqual({
+      conversationId: "first",
+      submission: {
+        id: expect.any(String),
+        prompt: "",
+        kind: "prompt",
+        commandName: "",
+        attachmentIds: [id],
+      },
+    });
+    const submission = message.payload.submission as { id: string };
+    deliver("reply-owners", "slot", "submissionState", {
+      id: submission.id,
+      status: "rejected",
+      attachmentIds: [],
+      error: "Try again",
+    });
+    expect(reply.state().attachments).toHaveLength(1);
+    expect(reply.state().error).toBe("Try again");
+    expect(reply.submit()).toBe(true);
+    const acceptedId = reply.state().pendingSubmission!.id;
+    reply.setDraft("new text while sending");
+    reply.uploadImage(new Blob([new Uint8Array([2])], { type: "image/png" }));
+    deliver("reply-owners", "slot", "submissionState", {
+      id: acceptedId,
+      status: "accepted",
+      attachmentIds: [id],
+      error: "",
+    });
+    expect(reply.state().draft).toBe("new text while sending");
+    expect(reply.state().attachments).toHaveLength(1);
+    expect(reply.state().attachments[0]!.id).not.toBe(id);
+    expect(store.composerState(session).draft).toBe("main stays");
+    expect(store.composerState(session).attachments).toHaveLength(0);
+    expect(other.state().draft).toBe("other stays");
+    expect(store.replyComposer(session, "first").state()).toBe(reply.state());
+    await flushAsyncWork();
+  });
+
+  it("releases every draft owner's preview when the session is disposed", async () => {
+    const current = ensureSession("reply-dispose", "slot");
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
+    const image = new Blob([new Uint8Array([1])], { type: "image/png" });
+    const reply = store.replyComposer(current.client, "first");
+    store.uploadAgentImage(current.client, image);
+    reply.uploadImage(image);
+    const previews = [store.composerState(current.client), reply.state()].map(
+      (state) => state.attachments[0]!.previewUrl,
+    );
+    Object.assign(current.client, { closed: true });
+    current.dispose();
+    for (const preview of previews) expect(revoke).toHaveBeenCalledWith(preview);
+    const count = bridge.posted.length;
+    await flushAsyncWork();
+    expect(bridge.posted).toHaveLength(count);
+    revoke.mockRestore();
+  });
+
+  it("invalidates captured reply owners on reset without resurrecting or leaking drafts", async () => {
+    const session = owner("reply-stale", "slot");
+    const stale = store.replyComposer(session, "first");
+    stale.setDraft("before reset");
+    store.clearReplyComposers(session);
+    const current = store.replyComposer(session, "first");
+    current.setDraft("new conversation draft");
+    const createUrl = vi.spyOn(URL, "createObjectURL");
+    const image = new Blob([new Uint8Array([1])], { type: "image/png" });
+    const posted = bridge.posted.length;
+    stale.setDraft("late clipboard text");
+    stale.uploadImage(image);
+    stale.setError("late clipboard failure");
+    expect(stale.captureImagePaste(pasteEvent(image))).toBe(false);
+    expect(stale.submit()).toBe(false);
+    await flushAsyncWork();
+    expect(createUrl).not.toHaveBeenCalled();
+    expect(bridge.posted).toHaveLength(posted);
+    expect(current.state().draft).toBe("new conversation draft");
+    expect(current.state().attachments).toHaveLength(0);
+    expect(current.state().error).toBeNull();
+    expect(stale.state().draft).toBe("");
+    createUrl.mockRestore();
+  });
+
+  it("cleans reply uploads on generation reset without touching the main composer", async () => {
+    const session = owner("reply-reset", "slot");
+    const reply = store.replyComposer(session, "first");
+    const image = new Blob([new Uint8Array([1])], { type: "image/png" });
+    store.uploadAgentImage(session, image);
+    reply.uploadImage(image);
+    await flushAsyncWork();
+    const id = reply.state().attachments[0]!.id;
+    store.clearReplyComposers(session);
+    expect(reply.state().attachments).toHaveLength(0);
+    expect(store.composerState(session).attachments).toHaveLength(1);
+    expect(bridge.posted).toContainEqual(
+      expect.objectContaining({ name: "removeAttachment", payload: { id } }),
+    );
+    deliver("reply-reset", "slot", "attachmentState", { id, status: "ready", error: "" });
+    expect(reply.state().attachments).toHaveLength(0);
+    store.replyComposer(session, "first").uploadImage(image);
+    store.clearReplyComposer(session, "first");
+    const count = bridge.posted.filter((item) => item.name === "uploadAttachment").length;
+    await flushAsyncWork();
+    expect(bridge.posted.filter((item) => item.name === "uploadAttachment")).toHaveLength(count);
   });
 });
 

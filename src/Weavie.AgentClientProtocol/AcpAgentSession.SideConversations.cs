@@ -32,9 +32,12 @@ public sealed partial class AcpAgentSession {
 	}
 
 	/// <inheritdoc/>
-	public void ReplyAside(string conversationId, string prompt) {
+	public void ReplyAside(string conversationId, AgentTurnSubmission submission) {
 		ArgumentException.ThrowIfNullOrEmpty(conversationId);
-		prompt = RequiredSidePrompt(prompt);
+		ArgumentNullException.ThrowIfNull(submission);
+		if (submission.Text.Trim().Length == 0 && submission.Attachments.Count == 0) {
+			throw new ArgumentException("Write a side reply or attach an image.", nameof(submission));
+		}
 		lock (_turnTransitionGate) {
 			SideRuntime runtime;
 			lock (_gate) {
@@ -52,7 +55,7 @@ public sealed partial class AcpAgentSession {
 				}
 			}
 			runtime.Session.Start();
-			runtime.Session.Submit(SideTurn(prompt));
+			runtime.Session.Submit(submission);
 		}
 	}
 
@@ -64,13 +67,6 @@ public sealed partial class AcpAgentSession {
 			throw new InvalidOperationException(
 				$"{_definition.Name} does not support context-preserving side conversations.");
 		}
-	}
-
-	private static string RequiredSidePrompt(string prompt) {
-		ArgumentNullException.ThrowIfNull(prompt);
-		prompt = prompt.Trim();
-		if (prompt.Length == 0) throw new ArgumentException("A side question cannot be empty.", nameof(prompt));
-		return prompt;
 	}
 
 	private bool HasWork() {
@@ -91,14 +87,6 @@ public sealed partial class AcpAgentSession {
 		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
 		return runtime;
 	}
-
-	private static AgentTurnSubmission SideTurn(string prompt) => new() {
-		Id = Guid.NewGuid().ToString("N"),
-		Text = prompt,
-		Kind = AgentTurnSubmissionKind.Prompt,
-		CommandName = string.Empty,
-		Attachments = [],
-	};
 
 	private AgentPaneMessage SideMarker(SideConversation conversation, string status) => new() {
 		Type = "side-conversation-started",

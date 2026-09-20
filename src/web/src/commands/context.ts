@@ -45,6 +45,8 @@ export function paneFocusContext(el: Element | null): ContextOverrides {
     terminalFocused:
       surface === "terminal" || (surface === null && (kind?.startsWith("terminal:") ?? false)),
     agentFocused: surface === "structured-agent",
+    agentPasteTargetFocused:
+      surface === "structured-agent" && el?.closest("[data-agent-paste-target]") !== null,
     agentComposerFocused:
       surface === "structured-agent" && el?.closest("[data-agent-composer]") !== null,
   };

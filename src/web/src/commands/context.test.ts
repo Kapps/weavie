@@ -87,6 +87,7 @@ describe("paneFocusContext", () => {
       terminalFocused: false,
       agentFocused: true,
       agentComposerFocused: false,
+      agentPasteTargetFocused: false,
     });
   });
 
@@ -94,6 +95,17 @@ describe("paneFocusContext", () => {
     const input = elementInPane("terminal:claude", "structured-agent", true);
 
     expect(paneFocusContext(input).agentComposerFocused).toBe(true);
+  });
+
+  it("enables reply paste without enabling main-composer submission", () => {
+    const pane = elementInPane("terminal:claude", "structured-agent", false);
+    const reply = {
+      closest: (selector: string) =>
+        selector === "[data-agent-paste-target]" ? pane : pane.closest(selector),
+    } as unknown as Element;
+    const context = paneFocusContext(reply);
+    expect(context.agentPasteTargetFocused).toBe(true);
+    expect(context.agentComposerFocused).toBe(false);
   });
 
   it("classifies Claude in the same persisted pane as a terminal surface", () => {
@@ -106,6 +118,7 @@ describe("paneFocusContext", () => {
       terminalFocused: true,
       agentFocused: false,
       agentComposerFocused: false,
+      agentPasteTargetFocused: false,
     });
   });
 });
@@ -118,7 +131,7 @@ function elementInPane(kind: string, surface: string, inComposer: boolean): Elem
     closest: (selector: string) =>
       selector === "[data-tool]"
         ? null
-        : selector === "[data-agent-composer]"
+        : selector === "[data-agent-composer]" || selector === "[data-agent-paste-target]"
           ? inComposer
             ? pane
             : null

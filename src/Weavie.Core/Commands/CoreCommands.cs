@@ -946,7 +946,7 @@ public static class CoreCommands {
 			Description = "Paste the local clipboard into the focused agent composer, including images.",
 			Aliases = ["paste", "paste clipboard", "agent paste", "paste image"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v" }],
-			When = "agentComposerFocused && !browserShell",
+			When = "agentPasteTargetFocused && !browserShell",
 		});
 
 		registry.Register(new CommandDefinition {

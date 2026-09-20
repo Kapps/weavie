@@ -1,6 +1,14 @@
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
-import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
@@ -18,6 +26,7 @@ import {
   planIdentityFromArgs,
 } from "./agent-plan";
 import { agentQueuedSubmissions, queuedSubmissionLabel } from "./agent-queue-store";
+import { registerComposerPasteTarget } from "./composer-clipboard";
 import {
   captureAgentImagePaste,
   composerState,
@@ -203,42 +212,24 @@ export function AgentComposer(props: {
     }
   };
 
-  const paste = async (): Promise<void> => {
-    const session = props.session;
-    if (session === null) {
-      return;
-    }
-    const inputProtocol = props.inputProtocol;
-    const selectionStart = textareaRef?.selectionStart;
-    const selectionEnd = textareaRef?.selectionEnd;
-    try {
-      const content = await readClipboardContent();
-      if (content.kind === "image") {
-        if (inputProtocol >= 2) {
-          uploadAgentImage(session, agentImageBlob(content.mime, content.dataB64));
-        } else {
-          sendPastedImage(session, content.mime, content.dataB64);
-        }
-        return;
-      }
-      if (content.kind !== "text") {
-        return;
-      }
-      const current = composerState(session).draft;
-      const start = selectionStart ?? current.length;
-      const end = selectionEnd ?? start;
-      const draft = current.slice(0, start) + content.text + current.slice(end);
-      setComposerDraft(session, draft);
-      if (props.session === session) {
-        placeCaretAfterDraftUpdate(draft, start + content.text.length);
-      }
-    } catch (error) {
-      notify(
-        "warn",
-        `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
+  onMount(() => {
+    onCleanup(
+      registerComposerPasteTarget(textareaRef!, () => {
+        const session = props.session;
+        if (session === null) return null;
+        const inputProtocol = props.inputProtocol;
+        return {
+          session,
+          draft: () => composerState(session).draft,
+          setDraft: (draft) => setComposerDraft(session, draft),
+          pasteImage: (mime, dataB64) => {
+            if (inputProtocol >= 2) uploadAgentImage(session, agentImageBlob(mime, dataB64));
+            else sendPastedImage(session, mime, dataB64);
+          },
+        };
+      }),
+    );
+  });
 
   const submit = (): boolean => {
     const session = props.session;
@@ -328,7 +319,6 @@ export function AgentComposer(props: {
       return true;
     });
 
-  const offPaste = registerCommand(CommandIds.agentPaste, paste);
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offOpenPlan = registerCommand(CommandIds.openAgentPlan, (args) => {
@@ -380,7 +370,6 @@ export function AgentComposer(props: {
     setAgentControl(session, fast.id, target.id);
     return true;
   });
-  onCleanup(offPaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
   onCleanup(offOpenPlan);
@@ -438,6 +427,7 @@ export function AgentComposer(props: {
       />
       <textarea
         ref={textareaRef}
+        data-agent-paste-target
         rows={1}
         value={composer().draft}
         placeholder={

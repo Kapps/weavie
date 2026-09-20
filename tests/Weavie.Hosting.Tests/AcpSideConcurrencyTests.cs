@@ -28,12 +28,12 @@ public sealed class AcpSideConcurrencyTests {
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "turn-completed"
 			&& message.ConversationId != second.ConversationId);
 
-		fixture.Session.ReplyAside(Assert.IsType<string>(second.ConversationId), "identify-session");
+		fixture.ReplyAside(Assert.IsType<string>(second.ConversationId), "identify-session");
 		var secondIdentity = await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.ConversationId == second.ConversationId && message.Text?.StartsWith("session:", StringComparison.Ordinal) == true);
 		Resolve(first, "one", "allow-once");
 		await AssertAnswerAsync(first, prompt == "input" ? "input: one" : "permission: allow-once");
-		fixture.Session.ReplyAside(Assert.IsType<string>(first.ConversationId), "identify-session");
+		fixture.ReplyAside(Assert.IsType<string>(first.ConversationId), "identify-session");
 		var firstIdentity = await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.ConversationId == first.ConversationId && message.Text?.StartsWith("session:", StringComparison.Ordinal) == true);
 		Assert.NotEqual(firstIdentity.Text, secondIdentity.Text);

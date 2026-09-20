@@ -176,6 +176,7 @@ import { useCompactMode } from "./mobile/useCompactMode";
 import "./notifications/attention";
 import "./notifications/intake";
 import "./notifications/startup-tip";
+import { installComposerClipboardCommand } from "./agent/composer-clipboard";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -1490,6 +1491,7 @@ export default function App(): JSX.Element {
       }),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),
+      installComposerClipboardCommand(),
       registerCommand(CommandIds.closeTerminalPrompt, (args, context) => {
         const requested = (args as { id?: unknown } | undefined)?.id;
         const id =

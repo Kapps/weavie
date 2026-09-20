@@ -2,11 +2,10 @@ import type { ClientSession } from "../bridge";
 import { createSessionOwnedMap } from "../messaging/session-owned-state";
 
 export interface AsideReplyState {
-  draft: string;
   open: boolean;
 }
 
-const EMPTY: AsideReplyState = { draft: "", open: false };
+const EMPTY: AsideReplyState = { open: false };
 const states = createSessionOwnedMap<string, AsideReplyState>();
 
 export function asideReplyState(session: ClientSession, conversationId: string): AsideReplyState {
@@ -18,7 +17,7 @@ export function setAsideReplyState(
   conversationId: string,
   state: AsideReplyState,
 ): void {
-  if (!state.open && state.draft.length === 0) {
+  if (!state.open) {
     clearAsideReplyState(session, conversationId);
     return;
   }

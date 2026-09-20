@@ -47,6 +47,36 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Single(reloaded.ReadMessages("provider", "/another-workspace"));
 	}
 
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void ReopenPreservesInputQuestionsWithOrWithoutConstraints(bool constrained) {
+		var question = new AgentInputQuestion {
+			Id = "answer",
+			Header = "Answer",
+			Question = "What should we use?",
+			AllowsOther = true,
+			Kind = "string",
+			Required = true,
+			InitialValues = [],
+			Options = [],
+			Format = constrained ? "email" : null,
+			Minimum = constrained ? 1 : null,
+			Maximum = constrained ? 10 : null,
+			MinimumLength = constrained ? 2 : null,
+			MaximumLength = constrained ? 20 : null,
+			Pattern = constrained ? "@" : null,
+		};
+		var message = Message("input-request", "") with { Questions = [question] };
+		new AcpSessionStore(Database).Save("provider", "/workspace", State("", "primary-id", 1), [message]);
+
+		var saved = Assert.Single(new AcpSessionStore(Database).ReadMessages("provider", "/workspace"));
+		var restored = Assert.Single(saved.Questions!);
+		Assert.Equal(question with { InitialValues = restored.InitialValues, Options = restored.Options }, restored);
+		Assert.Empty(restored.InitialValues);
+		Assert.Empty(restored.Options);
+	}
+
 	[Fact]
 	public void FailedDisplayWriteRollsBackContinuationStateAndEarlierEventsInTheTransaction() {
 		var store = new AcpSessionStore(Database);

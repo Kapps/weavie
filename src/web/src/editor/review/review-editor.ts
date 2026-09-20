@@ -11,7 +11,7 @@ import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
-import { createReviewEditorViewport } from "./review-editor-viewport";
+import { createReviewEditorViewport, type ReviewSectionGeometry } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff } from "./review-store";
 
@@ -25,7 +25,7 @@ export interface ReviewEditor {
   restore(location: TextLocation): void;
   revealFileStart(line: number): void;
   focus(): void;
-  layout(): void;
+  position(): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -39,6 +39,7 @@ export function createReviewEditor(options: {
   container: HTMLElement;
   scroller: ReviewScroll;
   header: HTMLElement;
+  section: ReviewSectionGeometry;
   model: monaco.editor.ITextModel;
   editable: boolean;
   diff: ReviewFileDiff;
@@ -81,6 +82,7 @@ export function createReviewEditor(options: {
     options.scroller,
     options.header,
     editor,
+    options.section,
   );
   const gaps = editor.createDecorationsCollection([]);
   let constructing = true;
@@ -96,7 +98,7 @@ export function createReviewEditor(options: {
     if (height === next) return;
     height = next;
     container.style.height = `${next}px`;
-    viewport.layout();
+    viewport.setContentHeight(next);
     options.onHeight(height);
   };
   const revealLine = (line: number): void => {
@@ -137,7 +139,6 @@ export function createReviewEditor(options: {
       });
       if (initialPaint) {
         loading.remove();
-        editor.render(true);
         mount.style.removeProperty("visibility");
       }
       if (constructing) queueMicrotask(publish);
@@ -172,6 +173,19 @@ export function createReviewEditor(options: {
     model,
     capture,
     restore,
+    reveal: (range) => {
+      viewport.update(() =>
+        editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate),
+      );
+      const top = editor.getTopForPosition(range.startLineNumber, range.startColumn);
+      const bottom =
+        editor.getTopForPosition(range.endLineNumber, range.endColumn) +
+        editor.getOption(monaco.editor.EditorOption.lineHeight);
+      const bounds = viewport.bounds();
+      if (top < bounds.top || bottom > bounds.bottom) {
+        viewport.reveal((top + bottom - bounds.height) / 2);
+      }
+    },
   });
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
@@ -193,7 +207,7 @@ export function createReviewEditor(options: {
       editorContexts.activate(binding.connection);
       editor.focus();
     },
-    layout: viewport.layout,
+    position: viewport.position,
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {

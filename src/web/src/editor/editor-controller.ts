@@ -466,7 +466,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     ) {
       if (selection !== undefined) {
         source.editor.setSelection(selection);
-        source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
+        source.reveal(selection);
       }
       source.editor.focus();
       const location = captureLocation(source.tab);

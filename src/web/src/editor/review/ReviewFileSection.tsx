@@ -17,7 +17,7 @@ import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
-import { ReviewFileBody } from "./ReviewFileBody";
+import { type ReviewBodyMeasurement, ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
@@ -33,7 +33,7 @@ export function ReviewFileSection(props: {
   editorHeight: () => number;
   onEditorHeight: (height: number) => void;
   index: number;
-  measure: (element: HTMLElement) => void;
+  onMeasuredHeight: (height: number) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
@@ -51,6 +51,31 @@ export function ReviewFileSection(props: {
   let header!: HTMLElement;
   let borderTop = 0;
   let headerLimit = 0;
+  let body: HTMLElement | undefined;
+  let observedBodyHeight: number | undefined;
+  let sectionMeasured = false;
+  let waiting: { height: number; publish(): void } | undefined;
+  let observer: ResizeObserver | undefined;
+  let disposed = false;
+  const publishMeasured = (): void => {
+    if (!sectionMeasured || waiting === undefined || waiting.height !== observedBodyHeight) return;
+    const ready = waiting;
+    waiting = undefined;
+    ready.publish();
+  };
+  const measurement: ReviewBodyMeasurement = {
+    observe: (element) => {
+      if (body !== undefined) observer?.unobserve(body);
+      body = element;
+      observedBodyHeight = undefined;
+      waiting = undefined;
+      if (body !== undefined) observer?.observe(body);
+    },
+    ready: (height, publish) => {
+      waiting = { height, publish };
+      publishMeasured();
+    },
+  };
   const layoutHeader = (): void => {
     const offset = Math.max(
       0,
@@ -70,33 +95,33 @@ export function ReviewFileSection(props: {
     if (article !== undefined) {
       untrack(() => {
         article!.style.top = `${top}px`;
-        measureHeader();
-        current?.layout();
+        layoutHeader();
+        current?.position();
       });
     }
   });
-  const remeasure = (): void => {
-    if (article !== undefined) {
-      props.measure(article);
-    }
-  };
-  createEffect(() => {
-    void collapsed();
-    queueMicrotask(remeasure);
-  });
-
   onMount(() => {
     const unsubscribe = props.scroller().onScroll(layoutHeader);
-    const observer = new ResizeObserver(() => {
+    observer = new ResizeObserver((entries) => {
       measureHeader();
-      editor()?.layout();
+      for (const entry of entries) {
+        if (entry.target === article) {
+          props.onMeasuredHeight(entry.borderBoxSize[0]!.blockSize);
+          if (disposed) return;
+          sectionMeasured = true;
+        } else if (entry.target === body) {
+          observedBodyHeight = entry.contentRect.height;
+        }
+      }
+      publishMeasured();
     });
-    observer.observe(article!);
+    observer.observe(article!, { box: "border-box" });
     observer.observe(header);
-    measureHeader();
+    if (body !== undefined) observer.observe(body);
     onCleanup(() => {
+      disposed = true;
       unsubscribe();
-      observer.disconnect();
+      observer!.disconnect();
     });
   });
 
@@ -107,7 +132,6 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
-        props.measure(element);
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);
@@ -180,16 +204,22 @@ export function ReviewFileSection(props: {
       <Show when={!collapsed()}>
         <div id={bodyId()}>
           <ReviewFileBody
+            measurement={measurement}
             session={props.session}
             tab={props.tab}
             onEditor={setEditor}
             header={() => header}
+            section={{
+              get element() {
+                return article!;
+              },
+              top: () => props.top,
+            }}
             scroller={props.scroller}
             editorHeight={props.editorHeight}
             onEditorHeight={props.onEditorHeight}
             scope={props.scope}
             file={props.file}
-            measure={remeasure}
             openCopy={props.openCopy}
             register={props.register}
             active={props.active}

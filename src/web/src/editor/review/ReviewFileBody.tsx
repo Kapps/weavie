@@ -13,15 +13,22 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
+import type { ReviewSectionGeometry } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
+
+export interface ReviewBodyMeasurement {
+  observe(element: HTMLElement | undefined): void;
+  ready(height: number, publish: () => void): void;
+}
 
 export function ReviewFileBody(props: {
   session: ClientSession;
   tab: TabOwner;
   onEditor(editor: ReviewEditor | undefined): void;
   header: () => HTMLElement;
+  section: ReviewSectionGeometry;
   scope: ReviewScopeState;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
@@ -31,9 +38,9 @@ export function ReviewFileBody(props: {
   scroller: () => ReviewScroll;
   editorHeight: () => number;
   onEditorHeight: (height: number) => void;
-  measure: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
+  measurement: ReviewBodyMeasurement;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
@@ -45,12 +52,15 @@ export function ReviewFileBody(props: {
   let liveExists: boolean | undefined;
   let resolution = 0;
   let dropped = false;
+  let editorHeight = props.editorHeight();
 
   // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
   const publish = (): void => {
-    if (live !== undefined) props.register.set(path, live);
+    props.measurement.ready(editorHeight, () => {
+      if (!dropped && live !== undefined) props.register.set(path, live);
+    });
   };
   const disposeEditor = (): void => {
     if (live === undefined) return;
@@ -86,7 +96,6 @@ export function ReviewFileBody(props: {
       if (live !== undefined) {
         disposeEditor();
         mount?.style.removeProperty("height");
-        props.measure();
       }
       return;
     }
@@ -116,12 +125,13 @@ export function ReviewFileBody(props: {
             container,
             scroller: props.scroller(),
             header: props.header(),
+            section: props.section,
             model: copy.model,
             editable: copy.editable,
             diff: latest,
             onHeight: (height) => {
+              editorHeight = height;
               props.onEditorHeight(height);
-              props.measure();
             },
             onPainted: publish,
             active: props.active,
@@ -145,6 +155,7 @@ export function ReviewFileBody(props: {
   onCleanup(() => {
     dropped = true;
     resolution += 1;
+    props.measurement.observe(undefined);
     disposeEditor();
   });
 
@@ -164,6 +175,7 @@ export function ReviewFileBody(props: {
         ref={(element) => {
           mount = element;
           element.style.height = `${props.editorHeight()}px`;
+          props.measurement.observe(element);
         }}
       />
     </>

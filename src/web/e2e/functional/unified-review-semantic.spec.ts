@@ -77,7 +77,7 @@ test.describe("semantic highlighting ownership", () => {
     fakeScript: {
       steps: [
         { op: "mcp", tool: "setSetting", args: { key: "editor.spellCheck", value: false } },
-        ...appliedEdit("semantic.ts", "export const value = 1;\n"),
+        ...appliedEdit("semantic.ownership", "export const value = 1;\n"),
       ],
     },
   });
@@ -86,7 +86,9 @@ test.describe("semantic highlighting ownership", () => {
     await page.clock.install();
     await page.evaluate(() => {
       document.documentElement.dataset.highlightingRequests = "0";
-      window.__WEAVIE_MONACO__!.languages.registerDocumentSemanticTokensProvider("typescript", {
+      const languages = window.__WEAVIE_MONACO__!.languages;
+      languages.register({ id: "semantic-ownership", extensions: [".ownership"] });
+      languages.registerDocumentSemanticTokensProvider("semantic-ownership", {
         getLegend: () => ({ tokenTypes: ["variable"], tokenModifiers: [] }),
         provideDocumentSemanticTokens: () => {
           document.documentElement.dataset.highlightingRequests = String(

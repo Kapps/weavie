@@ -1,6 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -157,7 +156,8 @@ export function UnifiedReview(props: {
       sizeVirtualList(instance.getTotalSize());
       owner.setScrollTop(top);
     },
-    measureElement: (element) => element.getBoundingClientRect().height,
+    measureElement: (element, entry) =>
+      entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
     useAnimationFrameWithResizeObserver: true,
@@ -309,12 +309,7 @@ export function UnifiedReview(props: {
   const measure = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
-        const index = virtualizer.indexFromElement(element);
-        const height = element.getBoundingClientRect().height;
-        batch(() => {
-          virtualizer.measureElement(element);
-          virtualizer.resizeItem(index, height);
-        });
+        virtualizer.measureElement(element);
       }
     };
     if (element.isConnected) commit();
@@ -370,7 +365,9 @@ export function UnifiedReview(props: {
                               openCopy={(diff) =>
                                 copies.open(diff.path, diff.current, diff.currentExists)
                               }
-                              measure={measure}
+                              onMeasuredHeight={(height) =>
+                                virtualizer.resizeItem(item().index, height)
+                              }
                               onFocus={() => {
                                 setVisibleFile(item().index - 1);
                                 props.changed();

@@ -76,6 +76,8 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     }
   };
   let contentHeight = 0;
+  let viewportWidth = 0;
+  let viewportHeight = 0;
   const getScrollTop = (): number => scrollable.getScrollPosition().scrollTop;
   const setScrollTop = (scrollTop: number): void => {
     update(() => scrollable.setScrollPosition({ scrollTop }));
@@ -96,14 +98,18 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const layout = (): void => {
     update(() =>
       scrollable.setScrollDimensions({
-        width: node.clientWidth,
-        height: node.clientHeight,
+        width: viewportWidth,
+        height: viewportHeight,
         scrollHeight: contentHeight,
       }),
     );
   };
   const subscription = scrollable.onScroll(render);
-  const observer = new ResizeObserver(layout);
+  const observer = new ResizeObserver(([entry]) => {
+    viewportWidth = entry!.contentRect.width;
+    viewportHeight = entry!.contentRect.height;
+    layout();
+  });
   observer.observe(node);
   const keydown = (event: KeyboardEvent): void => {
     if (event.target !== scrollbar && event.target !== element) return;
@@ -154,6 +160,8 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   };
   element.addEventListener("focusin", focus);
   element.addEventListener("keydown", keydown);
+  viewportWidth = node.clientWidth;
+  viewportHeight = node.clientHeight;
   layout();
   render();
   return {

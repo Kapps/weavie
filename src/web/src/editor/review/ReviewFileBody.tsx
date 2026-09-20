@@ -20,7 +20,7 @@ import type { ReviewSectionRegistry } from "./review-surface";
 
 export interface ReviewBodyMeasurement {
   observe(element: HTMLElement | undefined): void;
-  ready(height: number, publish: () => void): void;
+  ready(height: () => number, publish: () => void): void;
 }
 
 export function ReviewFileBody(props: {
@@ -58,9 +58,12 @@ export function ReviewFileBody(props: {
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
   const publish = (): void => {
-    props.measurement.ready(editorHeight, () => {
-      if (!dropped && live !== undefined) props.register.set(path, live);
-    });
+    props.measurement.ready(
+      () => editorHeight,
+      () => {
+        if (!dropped && live !== undefined) props.register.set(path, live);
+      },
+    );
   };
   const disposeEditor = (): void => {
     if (live === undefined) return;

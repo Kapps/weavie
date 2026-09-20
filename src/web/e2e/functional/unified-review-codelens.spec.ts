@@ -28,6 +28,83 @@ test.use({
   },
 });
 
+test("review navigation publishes the latest editor height after delayed measurements", async ({
+  page,
+}) => {
+  await awaitReviewSet(page, paths);
+  await page.locator(".editor-empty-review").click();
+  const target = paths.at(-1)!;
+  const section = page.locator(".unified-review-file", {
+    has: page.locator(".unified-review-file-name", { hasText: target }),
+  });
+  await expect(section).toHaveCount(0);
+  const gate = await page.evaluateHandle((path) => {
+    const NativeObserver = window.ResizeObserver;
+    const pending = new Map<ResizeObserver, Map<Element, ResizeObserverEntry>>();
+    const callbacks = new Map<ResizeObserver, ResizeObserverCallback>();
+    let held = true;
+    window.ResizeObserver = class extends NativeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        super((entries, observer) => {
+          const deferred: ResizeObserverEntry[] = [];
+          const immediate: ResizeObserverEntry[] = [];
+          for (const entry of entries) {
+            const owner = entry.target.closest(".unified-review-file");
+            const name = owner?.querySelector(".unified-review-file-name")?.textContent;
+            (held && name === path ? deferred : immediate).push(entry);
+          }
+          if (deferred.length > 0) {
+            const latest = pending.get(observer) ?? new Map<Element, ResizeObserverEntry>();
+            for (const entry of deferred) latest.set(entry.target, entry);
+            pending.set(observer, latest);
+          }
+          if (immediate.length > 0) callback(immediate, observer);
+        });
+        callbacks.set(this, callback);
+      }
+      override disconnect(): void {
+        pending.delete(this);
+        callbacks.delete(this);
+        super.disconnect();
+      }
+    };
+    return {
+      bodyHeight: () =>
+        [...pending.values()]
+          .flatMap((entries) => [...entries.values()])
+          .find((entry) => entry.target.matches(".unified-review-editor"))?.contentRect.height,
+      release: () => {
+        held = false;
+        for (const [observer, entries] of pending) {
+          callbacks.get(observer)!([...entries.values()], observer);
+        }
+        pending.clear();
+        window.ResizeObserver = NativeObserver;
+      },
+    };
+  }, target);
+  await page.locator(".unified-review-tree-row.file", { hasText: target }).click();
+  await expect(section.locator(".weavie-inline-removed-content")).toContainText("Value 901");
+  await expect.poll(() => gate.evaluate((state) => state.bodyHeight())).toBeGreaterThan(0);
+  const initialHeight = await gate.evaluate((state) => state.bodyHeight());
+  await expect(section.locator(".monaco-editor")).not.toHaveClass(/focused/);
+  await page.evaluate((path) => {
+    const editor = window
+      .__WEAVIE_MONACO__!.editor.getEditors()
+      .find((candidate) => candidate.getModel()?.uri.path.endsWith(`/${path}`))!;
+    editor.changeViewZones((accessor) => {
+      accessor.addZone({
+        afterLineNumber: 905,
+        heightInPx: 40,
+        domNode: document.createElement("div"),
+      });
+    });
+  }, target);
+  await expect.poll(() => gate.evaluate((state) => state.bodyHeight())).toBe(initialHeight! + 40);
+  await gate.evaluate((state) => state.release());
+  await expect(section.locator(".monaco-editor")).toHaveClass(/focused/);
+});
+
 test("background CodeLens refreshes cannot take scrolling ownership after review remounts", async ({
   page,
 }) => {
@@ -38,10 +115,11 @@ test("background CodeLens refreshes cannot take scrolling ownership after review
     const listeners = new Set<() => void>();
     const requests: string[] = [];
     let generation = 0;
-    monaco.languages.registerCodeLensProvider("scroll-lenses", {
+    const codeLenses: import("monaco-editor").languages.CodeLensProvider = {
       onDidChange: (listener) => {
-        listeners.add(listener);
-        return { dispose: () => listeners.delete(listener) };
+        const refresh = () => listener(codeLenses);
+        listeners.add(refresh);
+        return { dispose: () => listeners.delete(refresh) };
       },
       provideCodeLenses: (model) => {
         requests.push(model.uri.path);
@@ -53,7 +131,8 @@ test("background CodeLens refreshes cannot take scrolling ownership after review
           dispose() {},
         };
       },
-    });
+    };
+    monaco.languages.registerCodeLensProvider("scroll-lenses", codeLenses);
     return {
       requests,
       refresh: () => {
@@ -135,5 +214,30 @@ test("background CodeLens refreshes cannot take scrolling ownership after review
     ).toBeLessThanOrEqual(viewportHeight);
     await observation.evaluate((state) => state.clear());
   }
+  const caretLine = section.locator(".view-line", { hasText: /^Changed\sValue\s915$/ });
+  await caretLine.click({ position: { x: 20, y: 8 } });
+  await expect(section.locator(".monaco-editor")).toHaveClass(/focused/);
+  const beforeWheel = (await reviewScroll(page)).top;
+  await section.locator(".unified-review-file-header").hover();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1_000));
+  for (let step = 0; step < 14; step++) await page.mouse.wheel(0, 120);
+  await page.clock.runFor(350);
+  await page.clock.resume();
+  await expect
+    .poll(async () => (await reviewScroll(page)).top - beforeWheel)
+    .toBeGreaterThanOrEqual(700);
+  await expect(caretLine).not.toBeInViewport();
+  await expect(section.locator(".monaco-editor")).toHaveClass(/focused/);
+  const beforeFocusedRefresh = (await reviewScroll(page)).top;
+  await observation.evaluate((state) => state.clear());
+  await provider.evaluate((state) => state.refresh());
+  await expect(section.locator(".codelens-decoration")).toHaveCount(3);
+  expect((await reviewScroll(page)).top).toBe(beforeFocusedRefresh);
+  expect(
+    (await observation.evaluate((state) => state.positions)).every(
+      (position) => position === beforeFocusedRefresh,
+    ),
+  ).toBe(true);
   await observation.evaluate((state) => state.dispose());
 });

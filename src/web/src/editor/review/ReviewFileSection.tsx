@@ -54,11 +54,12 @@ export function ReviewFileSection(props: {
   let body: HTMLElement | undefined;
   let observedBodyHeight: number | undefined;
   let sectionMeasured = false;
-  let waiting: { height: number; publish(): void } | undefined;
+  let waiting: { height(): number; publish(): void } | undefined;
   let observer: ResizeObserver | undefined;
   let disposed = false;
   const publishMeasured = (): void => {
-    if (!sectionMeasured || waiting === undefined || waiting.height !== observedBodyHeight) return;
+    if (!sectionMeasured || waiting === undefined || waiting.height() !== observedBodyHeight)
+      return;
     const ready = waiting;
     waiting = undefined;
     ready.publish();

@@ -28,13 +28,14 @@ public sealed class DiffAgainstTests {
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 
 		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current), reviewed
-		// through the applied engine (acceptedBaseline == baseline until a hunk is kept).
+		// through the applied engine (acceptedBaseline == baseline until a hunk is kept — omitted on the wire
+		// in that case rather than resending the same text twice; see ChangeMessages.TurnDiff).
 		host.SessionEvent(session, "review", "showFile", new { path });
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
 		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
 		Assert.Equal("hello\nworld\n", diff.GetProperty("current").GetString());
-		Assert.Equal("hello\n", diff.GetProperty("acceptedBaseline").GetString());
+		Assert.Equal(System.Text.Json.JsonValueKind.Null, diff.GetProperty("acceptedBaseline").ValueKind);
 	}
 
 	[Fact]

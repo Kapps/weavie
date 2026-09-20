@@ -46,9 +46,11 @@ import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
   createReviewStore,
+  normalizeReviewFileDiff,
   type ReviewComments,
   type ReviewFile,
   type ReviewFileDiff,
+  type ReviewFileDiffWire,
   type ReviewHistory,
   type ReviewOverview,
 } from "./review/review-store";
@@ -1276,7 +1278,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<{ label: string; files: ReviewFile[] }>("changes", ({ label, files }) =>
         setReviewFilesFor(session, files, label),
       ),
-      review.on<ReviewFileDiff>("diff", (message) => setTurnDiffFor(session, message)),
+      review.on<ReviewFileDiffWire>("diff", (message) =>
+        setTurnDiffFor(session, normalizeReviewFileDiff(message)),
+      ),
       review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
       revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>

@@ -28,6 +28,28 @@ export interface ReviewFileDiff {
   currentExists: boolean;
 }
 
+/**
+ * The wire shape of a `review`/`diff` push: the host omits the accepted anchor when it's identical to the
+ * baseline (the common until-something-is-kept case) to avoid sending a large file's text twice. Normalize with
+ * {@link normalizeReviewFileDiff} before anything reads it as a {@link ReviewFileDiff}.
+ */
+export type ReviewFileDiffWire = Omit<
+  ReviewFileDiff,
+  "acceptedBaseline" | "acceptedBaselineExists"
+> & {
+  acceptedBaseline?: string;
+  acceptedBaselineExists?: boolean;
+};
+
+/** A missing accepted anchor means "same as the baseline" — restore it so downstream code has one shape to read. */
+export function normalizeReviewFileDiff(wire: ReviewFileDiffWire): ReviewFileDiff {
+  return {
+    ...wire,
+    acceptedBaseline: wire.acceptedBaseline ?? wire.baseline,
+    acceptedBaselineExists: wire.acceptedBaselineExists ?? wire.baselineExists,
+  };
+}
+
 export interface ReviewComments {
   number: number;
   path: string;

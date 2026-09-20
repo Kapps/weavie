@@ -35,13 +35,23 @@ public static class ChangeMessages {
 	/// band. Equal accepted/current text and existence means "no markers"; equal baseline/current state means
 	/// "faded only".
 	/// </summary>
+	/// <remarks>
+	/// Until anything is kept, the accepted anchor IS the review baseline (same text, same existence) — the common
+	/// case for a fresh turn. Sending that text twice doubles the wire cost of every file for no new information, and
+	/// a turn touching many large files can outgrow a single connection's outbound budget purely from this
+	/// duplication (see <c>WebSocketHostBridge</c>'s per-connection outbox). Omit the anchor fields whenever they'd
+	/// just repeat the baseline; the client already treats a missing anchor as "no faded band" — i.e. anchor ==
+	/// baseline — everywhere it reads this message.
+	/// </remarks>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
+		bool anchorIsBaseline = change.AcceptedBaselineText == change.BaselineText
+			&& change.AcceptedBaselineExists == change.BaselineExists;
 		return JsonSerializer.Serialize(new {
 			path = change.Path,
 			name = Path.GetFileName(change.Path),
-			acceptedBaseline = change.AcceptedBaselineText,
-			acceptedBaselineExists = change.AcceptedBaselineExists,
+			acceptedBaseline = anchorIsBaseline ? null : change.AcceptedBaselineText,
+			acceptedBaselineExists = anchorIsBaseline ? (bool?)null : change.AcceptedBaselineExists,
 			baseline = change.BaselineText,
 			baselineExists = change.BaselineExists,
 			current = change.CurrentText,

@@ -5,6 +5,7 @@ import type { ReviewResume } from "../session-types";
 import {
   canCloseReview,
   createReviewStore,
+  normalizeReviewFileDiff,
   type ReviewFile,
   type ReviewFileDiff,
 } from "./review-store";
@@ -300,6 +301,22 @@ describe("review store", () => {
       expect(store.overview().files[0]?.collapsed()).toBe(true);
       dispose();
     });
+  });
+
+  it("normalizeReviewFileDiff falls back to the baseline for an omitted accepted anchor", () => {
+    const normalized = normalizeReviewFileDiff({
+      rejected: [],
+      revision: "after",
+      path: firstFile.path,
+      name: firstFile.name,
+      baseline: "before",
+      baselineExists: true,
+      current: "after",
+      currentExists: true,
+    });
+
+    expect(normalized.acceptedBaseline).toBe("before");
+    expect(normalized.acceptedBaselineExists).toBe(true);
   });
 
   it("removes a disappeared file and resets the selected projection", () => {

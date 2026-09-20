@@ -65,14 +65,11 @@ export function UnifiedReview(props: {
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
-    );
+    props
+      .overview()
+      .files.findIndex(
+        (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
+      );
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -220,9 +217,10 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
+      stepIn: () => reveal(Math.max(0, index)),
       nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      prevFile: () =>
+        reveal((Math.max(0, index) - 1 + overview.files.length) % overview.files.length),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {

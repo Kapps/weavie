@@ -194,7 +194,9 @@ export function createReviewEditor(options: {
   constructing = false;
   const subscriptions = [
     contentSize,
-    editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
+    editor.onDidChangeCursorPosition((event) => {
+      if (editor.hasWidgetFocus()) options.onCursor(event.position.lineNumber);
+    }),
   ];
   return {
     capture,

@@ -47,6 +47,32 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
+  await expect(
+    page.locator(".unified-review-file .weavie-inline-removed-content").first(),
+  ).toContainText("value3500");
+  await page
+    .locator(".unified-review-file .unified-review-editor")
+    .first()
+    .evaluate(
+      (element) =>
+        new Promise<void>((resolve) => {
+          const observer = new ResizeObserver(() => {
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(element);
+        }),
+    );
+  await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
+    `${paths.length} files · press ↓ to start`,
+  );
+  await page.evaluate(() => {
+    const editor = window
+      .__WEAVIE_MONACO__!.editor.getEditors()
+      .find((candidate) => candidate.getModel()?.uri.path.endsWith("/wheel-00.ts"))!;
+    if (editor.hasWidgetFocus()) throw new Error("Background editor unexpectedly focused");
+    editor.setPosition({ lineNumber: 2, column: 1 });
+  });
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
     `${paths.length} files · press ↓ to start`,
   );

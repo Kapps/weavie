@@ -317,7 +317,11 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 		nint process = _hProcess;
 		int code = 0;
 		if (process != 0) {
-			WaitForSingleObject(process, 2000);
+			// The job's KILL_ON_JOB_CLOSE guarantees the process is already terminating by the time the read
+			// loop sees EOF, so this wait is bounded in practice; a caller (e.g. terminal close) that reports
+			// completion before this returns would let the OS still hold the process's handles, including its
+			// working-directory handle, past the point Weavie has told the world the terminal is gone.
+			WaitForSingleObject(process, uint.MaxValue);
 			if (GetExitCodeProcess(process, out uint exitCode)) {
 				code = unchecked((int)exitCode);
 			}

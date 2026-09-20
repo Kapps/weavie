@@ -341,6 +341,21 @@ describe("session ownership", () => {
     expect(store.editorOwner()).toBe("sess-B");
   });
 
+  it("flushAllEditorSessions drains every loaded session, not just the selected one", () => {
+    seed([], null, "sess-A");
+    store.openTab("/a.ts"); // schedules a debounced send for sess-A, never selected again below
+    seed([], null, "sess-B");
+    store.openTab("/b.ts"); // schedules a debounced send for the now-selected sess-B
+    bridgeState.posted.length = 0;
+
+    store.flushAllEditorSessions();
+
+    const slots = bridgeState.posted
+      .filter((message) => message.name === "sessionChanged")
+      .map((message) => message.slot);
+    expect(slots).toEqual(expect.arrayContaining(["sess-A", "sess-B"]));
+  });
+
   it("publishes backend and session ownership together", () => {
     seed([], null, "sess-remote", "remote:devbox");
     expect(store.editorBackendId()).toBe("remote:devbox");

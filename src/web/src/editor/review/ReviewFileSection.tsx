@@ -6,6 +6,7 @@ import {
   createSignal,
   For,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -32,9 +33,10 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
-  onEditorHeight: (height: number) => void;
+  onEditorHeight: (height: number) => boolean;
   index: number;
   measure: (element: HTMLElement) => void;
+  observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
@@ -81,10 +83,7 @@ export function ReviewFileSection(props: {
       props.measure(article);
     }
   };
-  createEffect(() => {
-    void collapsed();
-    queueMicrotask(remeasure);
-  });
+  createEffect(on(collapsed, () => queueMicrotask(remeasure), { defer: true }));
 
   onMount(() => {
     const unsubscribe = props.scroller().onScroll(layoutHeader);
@@ -107,7 +106,7 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
-        props.measure(element);
+        props.observe(element);
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);

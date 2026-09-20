@@ -1,3 +1,73 @@
+diff --git a/vscode/src/vs/editor/browser/gpu/gpuUtils.js b/vscode/src/vs/editor/browser/gpu/gpuUtils.js
+index a2389d2a3a21fbafae12399d9aa6fa1694f0c0a3..cddae639ccb5968101077976815a9f849f5838a4 100644
+--- a/vscode/src/vs/editor/browser/gpu/gpuUtils.js
++++ b/vscode/src/vs/editor/browser/gpu/gpuUtils.js
+@@ -1,5 +1,4 @@
+ 
+-import { BugIndicatingError } from '../../../base/common/errors.js';
+ import { toDisposable } from '../../../base/common/lifecycle.js';
+ 
+ const quadVertices = ( new Float32Array([1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0]));
+@@ -10,32 +9,42 @@ function ensureNonNullable(value) {
+     return value;
+ }
+ function observeDevicePixelDimensions(element, parentWindow, callback) {
+-    let observer = new parentWindow.ResizeObserver(entries => {
++    const exactPixels = 'devicePixelContentBoxSize' in parentWindow.ResizeObserverEntry.prototype;
++    const box = exactPixels ? 'device-pixel-content-box' : 'content-box';
++    const observer = new parentWindow.ResizeObserver(entries => {
+         const entry = entries.find(entry => entry.target === element);
+         if (!entry) {
+             return;
+         }
+-        if (!("devicePixelContentBoxSize" in entry)) {
+-            observer?.disconnect();
+-            observer = undefined;
+-            return;
+-        }
+-        const width = entry.devicePixelContentBoxSize[0].inlineSize;
+-        const height = entry.devicePixelContentBoxSize[0].blockSize;
++        // WebKit exposes CSS content dimensions but not device-pixel-content-box.
++        const width = exactPixels ? entry.devicePixelContentBoxSize[0].inlineSize
++            : Math.round(entry.contentRect.width * parentWindow.devicePixelRatio);
++        const height = exactPixels ? entry.devicePixelContentBoxSize[0].blockSize
++            : Math.round(entry.contentRect.height * parentWindow.devicePixelRatio);
+         if (width > 0 && height > 0) {
+             callback(width, height);
+         }
+     });
+-    try {
+-        observer.observe(element, {
+-            box: ["device-pixel-content-box"]
+-        });
+-    } catch {
+-        observer.disconnect();
+-        observer = undefined;
+-        throw ( new BugIndicatingError("Could not observe device pixel dimensions"));
++    let resolution;
++    const observeResolution = () => {
++        resolution?.removeEventListener('change', onResolutionChange);
++        resolution = parentWindow.matchMedia(`(resolution: ${parentWindow.devicePixelRatio}dppx)`);
++        resolution.addEventListener('change', onResolutionChange);
++    };
++    const onResolutionChange = () => {
++        observeResolution();
++        // A display/zoom change need not change CSS size; request a fresh observation.
++        observer.unobserve(element);
++        observer.observe(element, { box });
++    };
++    observer.observe(element, { box });
++    if (!exactPixels) {
++        observeResolution();
+     }
+-    return toDisposable(() => observer?.disconnect());
++    return toDisposable(() => {
++        observer.disconnect();
++        resolution?.removeEventListener('change', onResolutionChange);
++    });
+ }
+ 
+ export { ensureNonNullable, observeDevicePixelDimensions, quadVertices };
 diff --git a/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js b/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js
 index ac5c67b3e7fa818d9d87bdd17078a186313c4727..544e38acfc6c13a0fac03f132d949e9ebe88cdf8 100644
 --- a/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js

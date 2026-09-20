@@ -111,6 +111,8 @@ test.describe("wrapped review construction", () => {
     await expect(
       page.locator('.unified-review-file[data-index="3"] .view-line').first(),
     ).toBeInViewport();
+    // Centered navigation can leave the previous file visible and the first file in overscan.
+    await scrollReview(page, "end");
     await expect(first).toHaveCount(0);
     await scrollReview(page, "start");
     await expect(lines.first()).toBeVisible();

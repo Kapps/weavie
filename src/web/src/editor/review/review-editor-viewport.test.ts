@@ -178,6 +178,70 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("commits nested geometry changes once using the final dimensions and scroll", () => {
+    const current = fixture();
+    const initialScroll = current.view.getCurrentScrollTop();
+    current.measure.mockClear();
+    current.viewport.update(() => {
+      current.state.containerHeight = () => 150;
+      current.viewport.layout();
+      current.viewport.update(() => {
+        current.state.containerHeight = () => 900;
+        current.scrollTo(100);
+        current.viewport.layout();
+      });
+      expect(current.measure).not.toHaveBeenCalled();
+      expect(current.view.getCurrentScrollTop()).toBe(initialScroll);
+    });
+    expect(current.measure).toHaveBeenCalledTimes(2);
+    expect(current.editor.getLayoutInfo().height).toBe(562);
+    expect(current.view.getCurrentScrollTop()).toBe(100);
+  });
+
+  it("restores geometry ownership when a nested mutation throws", () => {
+    const current = fixture();
+    expect(() =>
+      current.viewport.update(() => {
+        current.viewport.update(() => {
+          throw new Error("mutation failed");
+        });
+      }),
+    ).toThrow("mutation failed");
+    current.measure.mockClear();
+    current.viewport.layout();
+    expect(current.measure).toHaveBeenCalledTimes(2);
+    current.scrollTo(100);
+    expect(current.view.getCurrentScrollTop()).toBe(100);
+  });
+
+  it("runs diff cleanup without committing geometry after viewport disposal", () => {
+    const current = fixture();
+    current.scrollTo(10_000);
+    current.viewport.dispose();
+    current.measure.mockClear();
+    current.editor.layout.mockClear();
+    current.writes.length = 0;
+    const cleanup = vi.fn(() => current.view.setMaxLineWidth(184));
+    const top = current.mount.style.top;
+
+    current.viewport.update(cleanup);
+    current.viewport.layout();
+    current.viewport.reveal(0);
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.mount.style.top).toBe(top);
+    expect(current.writes).toEqual([]);
+  });
+
+  it("does not commit an update that disposes its viewport", () => {
+    const current = fixture();
+    current.measure.mockClear();
+    current.viewport.update(() => current.viewport.dispose());
+    expect(current.measure).not.toHaveBeenCalled();
+  });
+
   it("keeps an unresolved editor inside its reserved section height", () => {
     const current = fixture();
     current.scrollTo(0);

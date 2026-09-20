@@ -16,7 +16,9 @@ export function createReviewEditorViewport(
   dispose(): void;
 } {
   const scroller = scrollOwner.viewport;
+  let disposed = false;
   let syncing = false;
+  let updateDepth = 0;
   let containerTop = 0;
   let containerHeight = 0;
   let width = 0;
@@ -35,6 +37,7 @@ export function createReviewEditorViewport(
   };
 
   const sync = (): void => {
+    if (disposed || updateDepth !== 0) return;
     const wasSyncing = syncing;
     syncing = true;
     try {
@@ -54,6 +57,7 @@ export function createReviewEditorViewport(
     }
   };
   const layout = (): void => {
+    if (disposed || updateDepth !== 0) return;
     containerTop =
       container.getBoundingClientRect().top -
       scroller.getBoundingClientRect().top +
@@ -70,6 +74,7 @@ export function createReviewEditorViewport(
   observer.observe(header);
   const unsubscribe = scrollOwner.onScroll(sync);
   const reveal = (top: number): void => {
+    if (disposed) return;
     scrollOwner.setScrollTop(containerTop - headerHeight + top);
     sync();
   };
@@ -119,14 +124,20 @@ export function createReviewEditorViewport(
     update: (change) => {
       const wasSyncing = syncing;
       syncing = true;
+      updateDepth += 1;
       try {
         change();
-        layout();
       } finally {
-        syncing = wasSyncing;
+        updateDepth -= 1;
+        try {
+          if (updateDepth === 0) layout();
+        } finally {
+          syncing = wasSyncing;
+        }
       }
     },
     dispose: () => {
+      disposed = true;
       observer.disconnect();
       unsubscribe();
       mount.removeEventListener("wheel", wheel, { capture: true });

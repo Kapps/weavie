@@ -1,6 +1,5 @@
-import { createVirtualizer } from "@tanstack/solid-virtual";
+import { createVirtualizer, measureElement } from "@tanstack/solid-virtual";
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -157,7 +156,10 @@ export function UnifiedReview(props: {
       sizeVirtualList(instance.getTotalSize());
       owner.setScrollTop(top);
     },
-    measureElement: (element) => element.getBoundingClientRect().height,
+    measureElement: (element, entry, instance) =>
+      entry === undefined
+        ? measureElement(element, entry, instance)
+        : entry.borderBoxSize[0]!.blockSize,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
     useAnimationFrameWithResizeObserver: true,
@@ -309,12 +311,7 @@ export function UnifiedReview(props: {
   const measure = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
-        const index = virtualizer.indexFromElement(element);
-        const height = element.getBoundingClientRect().height;
-        batch(() => {
-          virtualizer.measureElement(element);
-          virtualizer.resizeItem(index, height);
-        });
+        virtualizer.measureElement(element);
       }
     };
     if (element.isConnected) commit();

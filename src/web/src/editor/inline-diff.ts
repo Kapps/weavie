@@ -136,7 +136,8 @@ export interface InlineDiffPresentation {
   toolbarHost(): HTMLElement | null;
   revealLine(line: number): void;
   reviewLine(): number;
-  painted(markers: DiffMarkers | null): void;
+  prepareGeometry(markers: DiffMarkers | null): void;
+  painted(): void;
   /** Keeps geometry-induced scroll changes inside the owning presentation. */
   updateGeometry(change: () => void): void;
 }
@@ -1198,8 +1199,9 @@ export function createInlineDiff(
     presentation.updateGeometry(() => {
       clearRenderState();
       fallbackNavigation = options;
-      presentation.painted(null);
+      presentation.prepareGeometry(null);
     });
+    presentation.painted();
     const fileKept = fileIsKept(options);
     const editorDom = presentation.toolbarHost();
     if (editorDom !== null) {
@@ -1361,7 +1363,7 @@ export function createInlineDiff(
       // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
       if (markers.hunks.length === 0 && !hasFadedBand(options)) {
         clearRender();
-        presentation.painted(markers);
+        presentation.prepareGeometry(markers);
         initialProposalReveals.delete(uriString);
         return; // no net change and nothing kept — nothing to render
       }
@@ -1400,8 +1402,10 @@ export function createInlineDiff(
         });
       }
       renderedUri = uriString;
-      presentation.painted(markers);
+      presentation.prepareGeometry(markers);
     });
+    renderCounter();
+    presentation.painted();
     if (initialLine !== undefined) {
       editor.setPosition({ lineNumber: initialLine, column: 1 });
       presentation.revealLine(initialLine);

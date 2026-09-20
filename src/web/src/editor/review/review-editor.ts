@@ -126,16 +126,15 @@ export function createReviewEditor(options: {
       }
       return first;
     },
-    painted: (markers) => {
-      const initialPaint = !geometryReady;
-      viewport.update(() => {
-        const collapsed = collapseUnchanged(markers, model.getLineCount());
-        gaps.set(collapsed.gapMarkers);
-        editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-        geometryReady = true;
-        measure();
-      });
-      if (initialPaint) {
+    prepareGeometry: (markers) => {
+      const collapsed = collapseUnchanged(markers, model.getLineCount());
+      gaps.set(collapsed.gapMarkers);
+      editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+      geometryReady = true;
+      measure();
+    },
+    painted: () => {
+      if (loading.parentNode !== null) {
         loading.remove();
         editor.render(true);
         mount.style.removeProperty("visibility");

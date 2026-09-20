@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight } from "lucide-solid";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createSignal,
   For,
   type JSX,
@@ -51,10 +52,11 @@ export function ReviewFileSection(props: {
   let header!: HTMLElement;
   let borderTop = 0;
   let headerLimit = 0;
+  const sectionTop = createMemo(() => props.top);
   const layoutHeader = (): void => {
     const offset = Math.max(
       0,
-      Math.min(props.scroller().getScrollTop() - props.top - borderTop, headerLimit),
+      Math.min(props.scroller().getScrollTop() - sectionTop() - borderTop, headerLimit),
     );
     header.style.top = `${offset}px`;
   };
@@ -65,13 +67,12 @@ export function ReviewFileSection(props: {
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
   createEffect(() => {
-    const top = props.top;
-    const current = editor();
+    const top = sectionTop();
     if (article !== undefined) {
       untrack(() => {
         article!.style.top = `${top}px`;
-        measureHeader();
-        current?.layout();
+        layoutHeader();
+        editor()?.layout();
       });
     }
   });
@@ -93,7 +94,6 @@ export function ReviewFileSection(props: {
     });
     observer.observe(article!);
     observer.observe(header);
-    measureHeader();
     onCleanup(() => {
       unsubscribe();
       observer.disconnect();

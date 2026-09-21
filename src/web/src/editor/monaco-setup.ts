@@ -24,7 +24,7 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
  * tsserver-family servers treat them as project files and publish diagnostics.
  */
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  const editor = buildEditor(container, {}, {});
+  const editor = buildEditor(container, null, {}, {});
 
   // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
   // global.d.ts.
@@ -42,15 +42,17 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
  */
 export function createEmbeddedEditor(
   container: HTMLElement,
+  model: monaco.editor.ITextModel,
+  dimension: monaco.editor.IDimension,
   overrides: monaco.editor.IEditorOptions,
 ): monaco.editor.IStandaloneCodeEditor {
-  // The owning viewport sizes the model-less editor before attaching a document.
-  return buildEditor(container, overrides, { dimension: { width: 0, height: 0 } });
+  return buildEditor(container, model, overrides, { dimension });
 }
 
 // The construction options + live font/settings wiring every weavie editor shares.
 function buildEditor(
   container: HTMLElement,
+  model: monaco.editor.ITextModel | null,
   overrides: monaco.editor.IEditorOptions,
   construction: Pick<monaco.editor.IStandaloneEditorConstructionOptions, "dimension">,
 ): monaco.editor.IStandaloneCodeEditor {
@@ -58,7 +60,7 @@ function buildEditor(
   const font = currentFonts().editor;
   const editorOptions = currentEditorOptions();
   const editor = monaco.editor.create(container, {
-    model: null,
+    model,
     // No `theme` here on purpose: the active theme is global and owned by the theme controller. Passing a
     // `theme` option re-calls setTheme and would clobber the active theme back to that value.
     fontSize: font.size,

@@ -7,8 +7,9 @@ export function createReviewEditorViewport(
   mount: HTMLElement,
   scrollOwner: ReviewScroll,
   header: HTMLElement,
-  editor: monaco.editor.IStandaloneCodeEditor,
+  createEditor: (dimension: monaco.editor.IDimension) => monaco.editor.IStandaloneCodeEditor,
 ): {
+  editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
   reveal(top: number): void;
@@ -24,6 +25,19 @@ export function createReviewEditorViewport(
   let width = 0;
   let headerHeight = 0;
   let viewportHeight = 0;
+  const measure = (): void => {
+    containerTop =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scrollOwner.getScrollTop();
+    containerHeight = container.clientHeight;
+    width = container.clientWidth;
+    headerHeight = header.getBoundingClientRect().height;
+    viewportHeight = scroller.clientHeight;
+  };
+  // The absolute editor mount cannot change the reserved section geometry.
+  measure();
+  const editor = createEditor({ width, height: 0 });
 
   // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
   const bounds = (): { top: number; bottom: number; height: number } => {
@@ -58,14 +72,7 @@ export function createReviewEditorViewport(
   };
   const layout = (): void => {
     if (disposed || updateDepth !== 0) return;
-    containerTop =
-      container.getBoundingClientRect().top -
-      scroller.getBoundingClientRect().top +
-      scrollOwner.getScrollTop();
-    containerHeight = container.clientHeight;
-    width = container.clientWidth;
-    headerHeight = header.getBoundingClientRect().height;
-    viewportHeight = scroller.clientHeight;
+    measure();
     sync();
   };
   const observer = new ResizeObserver(layout);
@@ -116,8 +123,9 @@ export function createReviewEditorViewport(
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
-  layout();
+  sync();
   return {
+    editor,
     bounds,
     layout,
     reveal,

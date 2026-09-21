@@ -143,12 +143,13 @@ function fixture() {
     wheel: vi.fn(),
     dispose: vi.fn(),
   };
+  const createEditor = vi.fn(() => editor as unknown as MonacoEditor.IStandaloneCodeEditor);
   const viewport = createReviewEditorViewport(
     container as HTMLElement,
     mount as unknown as HTMLElement,
     owner,
     { getBoundingClientRect: () => ({ height: 32 }) } as HTMLElement,
-    editor as unknown as MonacoEditor.IStandaloneCodeEditor,
+    createEditor,
   );
   // Monaco publishes its clamped scroll before this DOM height mirror receives content-size changes.
   const content = view.onDidContentSizeChange(() => {
@@ -169,6 +170,7 @@ function fixture() {
     state,
     rootTop: () => rootTop,
     editor,
+    createEditor,
     container,
     measure,
     scrollTo: (top: number) => {
@@ -178,6 +180,13 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("supplies the measured width at construction without remeasuring the section", () => {
+    const current = fixture();
+    expect(current.createEditor).toHaveBeenCalledExactlyOnceWith({ width: 716, height: 0 });
+    expect(current.viewport.editor).toBe(current.editor);
+    expect(current.measure).toHaveBeenCalledTimes(2);
+  });
+
   it("commits nested geometry changes once using the final dimensions and scroll", () => {
     const current = fixture();
     const initialScroll = current.view.getCurrentScrollTop();

@@ -143,12 +143,13 @@ function fixture() {
     wheel: vi.fn(),
     dispose: vi.fn(),
   };
+  const createEditor = vi.fn(() => editor as unknown as MonacoEditor.IStandaloneCodeEditor);
   const viewport = createReviewEditorViewport(
     container as HTMLElement,
     mount as unknown as HTMLElement,
     owner,
     { getBoundingClientRect: () => ({ height: 32 }) } as HTMLElement,
-    editor as unknown as MonacoEditor.IStandaloneCodeEditor,
+    createEditor,
   );
   // Monaco publishes its clamped scroll before this DOM height mirror receives content-size changes.
   const content = view.onDidContentSizeChange(() => {
@@ -169,6 +170,7 @@ function fixture() {
     state,
     rootTop: () => rootTop,
     editor,
+    createEditor,
     container,
     measure,
     scrollTo: (top: number) => {
@@ -178,6 +180,77 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("supplies the measured width at construction without remeasuring the section", () => {
+    const current = fixture();
+    expect(current.createEditor).toHaveBeenCalledExactlyOnceWith({ width: 716, height: 0 });
+    expect(current.viewport.editor).toBe(current.editor);
+    expect(current.measure).toHaveBeenCalledTimes(2);
+  });
+
+  it("commits nested geometry changes once using the final dimensions and scroll", () => {
+    const current = fixture();
+    const initialScroll = current.view.getCurrentScrollTop();
+    current.measure.mockClear();
+    current.viewport.update(() => {
+      current.state.containerHeight = () => 150;
+      current.viewport.layout();
+      current.viewport.update(() => {
+        current.state.containerHeight = () => 900;
+        current.scrollTo(100);
+        current.viewport.layout();
+      });
+      expect(current.measure).not.toHaveBeenCalled();
+      expect(current.view.getCurrentScrollTop()).toBe(initialScroll);
+    });
+    expect(current.measure).toHaveBeenCalledTimes(2);
+    expect(current.editor.getLayoutInfo().height).toBe(562);
+    expect(current.view.getCurrentScrollTop()).toBe(100);
+  });
+
+  it("restores geometry ownership when a nested mutation throws", () => {
+    const current = fixture();
+    expect(() =>
+      current.viewport.update(() => {
+        current.viewport.update(() => {
+          throw new Error("mutation failed");
+        });
+      }),
+    ).toThrow("mutation failed");
+    current.measure.mockClear();
+    current.viewport.layout();
+    expect(current.measure).toHaveBeenCalledTimes(2);
+    current.scrollTo(100);
+    expect(current.view.getCurrentScrollTop()).toBe(100);
+  });
+
+  it("runs diff cleanup without committing geometry after viewport disposal", () => {
+    const current = fixture();
+    current.scrollTo(10_000);
+    current.viewport.dispose();
+    current.measure.mockClear();
+    current.editor.layout.mockClear();
+    current.writes.length = 0;
+    const cleanup = vi.fn(() => current.view.setMaxLineWidth(184));
+    const top = current.mount.style.top;
+
+    current.viewport.update(cleanup);
+    current.viewport.layout();
+    current.viewport.reveal(0);
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.mount.style.top).toBe(top);
+    expect(current.writes).toEqual([]);
+  });
+
+  it("does not commit an update that disposes its viewport", () => {
+    const current = fixture();
+    current.measure.mockClear();
+    current.viewport.update(() => current.viewport.dispose());
+    expect(current.measure).not.toHaveBeenCalled();
+  });
+
   it("keeps an unresolved editor inside its reserved section height", () => {
     const current = fixture();
     current.scrollTo(0);

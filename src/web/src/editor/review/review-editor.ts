@@ -59,29 +59,30 @@ export function createReviewEditor(options: {
   container.append(loading, mount);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
-  const editor = createEmbeddedEditor(mount, model, {
-    readOnly: !options.editable,
-    scrollBeyondLastLine: false,
-    automaticLayout: false,
-    smoothScrolling: false,
-    overviewRulerLanes: 0,
-    overviewRulerBorder: false,
-    hideCursorInOverviewRuler: true,
-    minimap: { enabled: false },
-    folding: false,
-    stickyScroll: { enabled: false },
-    renderLineHighlightOnlyWhenFocus: true,
-    // Visible-line width changes while scrolling; scrollbar space must not change section height with it.
-    scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
-    padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
-  }) as CollapsingEditor;
   const viewport = createReviewEditorViewport(
     container,
     mount,
     options.scroller,
     options.header,
-    editor,
+    (dimension) =>
+      createEmbeddedEditor(mount, model, dimension, {
+        readOnly: !options.editable,
+        scrollBeyondLastLine: false,
+        automaticLayout: false,
+        smoothScrolling: false,
+        overviewRulerLanes: 0,
+        overviewRulerBorder: false,
+        hideCursorInOverviewRuler: true,
+        minimap: { enabled: false },
+        folding: false,
+        stickyScroll: { enabled: false },
+        renderLineHighlightOnlyWhenFocus: true,
+        // Visible-line width changes must not change the section's height.
+        scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
+        padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
+      }),
   );
+  const editor = viewport.editor as CollapsingEditor;
   const gaps = editor.createDecorationsCollection([]);
   let constructing = true;
   let disposed = false;
@@ -126,16 +127,15 @@ export function createReviewEditor(options: {
       }
       return first;
     },
-    painted: (markers) => {
-      const initialPaint = !geometryReady;
-      viewport.update(() => {
-        const collapsed = collapseUnchanged(markers, model.getLineCount());
-        gaps.set(collapsed.gapMarkers);
-        editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-        geometryReady = true;
-        measure();
-      });
-      if (initialPaint) {
+    prepareGeometry: (markers) => {
+      const collapsed = collapseUnchanged(markers, model.getLineCount());
+      gaps.set(collapsed.gapMarkers);
+      editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+      geometryReady = true;
+      measure();
+    },
+    painted: () => {
+      if (loading.parentNode !== null) {
         loading.remove();
         editor.render(true);
         mount.style.removeProperty("visibility");

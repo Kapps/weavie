@@ -2,9 +2,11 @@ import { ChevronDown, ChevronRight } from "lucide-solid";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createSignal,
   For,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -31,9 +33,10 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
-  onEditorHeight: (height: number) => void;
+  onEditorHeight: (height: number) => boolean;
   index: number;
   measure: (element: HTMLElement) => void;
+  observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
@@ -51,10 +54,11 @@ export function ReviewFileSection(props: {
   let header!: HTMLElement;
   let borderTop = 0;
   let headerLimit = 0;
+  const sectionTop = createMemo(() => props.top);
   const layoutHeader = (): void => {
     const offset = Math.max(
       0,
-      Math.min(props.scroller().getScrollTop() - props.top - borderTop, headerLimit),
+      Math.min(props.scroller().getScrollTop() - sectionTop() - borderTop, headerLimit),
     );
     header.style.top = `${offset}px`;
   };
@@ -65,13 +69,12 @@ export function ReviewFileSection(props: {
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
   createEffect(() => {
-    const top = props.top;
-    const current = editor();
+    const top = sectionTop();
     if (article !== undefined) {
       untrack(() => {
         article!.style.top = `${top}px`;
-        measureHeader();
-        current?.layout();
+        layoutHeader();
+        editor()?.layout();
       });
     }
   });
@@ -80,10 +83,7 @@ export function ReviewFileSection(props: {
       props.measure(article);
     }
   };
-  createEffect(() => {
-    void collapsed();
-    queueMicrotask(remeasure);
-  });
+  createEffect(on(collapsed, () => queueMicrotask(remeasure), { defer: true }));
 
   onMount(() => {
     const unsubscribe = props.scroller().onScroll(layoutHeader);
@@ -93,7 +93,6 @@ export function ReviewFileSection(props: {
     });
     observer.observe(article!);
     observer.observe(header);
-    measureHeader();
     onCleanup(() => {
       unsubscribe();
       observer.disconnect();
@@ -107,7 +106,7 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
-        props.measure(element);
+        props.observe(element);
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);

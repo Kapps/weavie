@@ -7,8 +7,9 @@ export function createReviewEditorViewport(
   mount: HTMLElement,
   scrollOwner: ReviewScroll,
   header: HTMLElement,
-  editor: monaco.editor.IStandaloneCodeEditor,
+  createEditor: (dimension: monaco.editor.IDimension) => monaco.editor.IStandaloneCodeEditor,
 ): {
+  editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
   reveal(top: number): void;
@@ -16,12 +17,27 @@ export function createReviewEditorViewport(
   dispose(): void;
 } {
   const scroller = scrollOwner.viewport;
+  let disposed = false;
   let syncing = false;
+  let updateDepth = 0;
   let containerTop = 0;
   let containerHeight = 0;
   let width = 0;
   let headerHeight = 0;
   let viewportHeight = 0;
+  const measure = (): void => {
+    containerTop =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scrollOwner.getScrollTop();
+    containerHeight = container.clientHeight;
+    width = container.clientWidth;
+    headerHeight = header.getBoundingClientRect().height;
+    viewportHeight = scroller.clientHeight;
+  };
+  // The absolute editor mount cannot change the reserved section geometry.
+  measure();
+  const editor = createEditor({ width, height: 0 });
 
   // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
   const bounds = (): { top: number; bottom: number; height: number } => {
@@ -35,6 +51,7 @@ export function createReviewEditorViewport(
   };
 
   const sync = (): void => {
+    if (disposed || updateDepth !== 0) return;
     const wasSyncing = syncing;
     syncing = true;
     try {
@@ -54,14 +71,8 @@ export function createReviewEditorViewport(
     }
   };
   const layout = (): void => {
-    containerTop =
-      container.getBoundingClientRect().top -
-      scroller.getBoundingClientRect().top +
-      scrollOwner.getScrollTop();
-    containerHeight = container.clientHeight;
-    width = container.clientWidth;
-    headerHeight = header.getBoundingClientRect().height;
-    viewportHeight = scroller.clientHeight;
+    if (disposed || updateDepth !== 0) return;
+    measure();
     sync();
   };
   const observer = new ResizeObserver(layout);
@@ -70,6 +81,7 @@ export function createReviewEditorViewport(
   observer.observe(header);
   const unsubscribe = scrollOwner.onScroll(sync);
   const reveal = (top: number): void => {
+    if (disposed) return;
     scrollOwner.setScrollTop(containerTop - headerHeight + top);
     sync();
   };
@@ -111,22 +123,29 @@ export function createReviewEditorViewport(
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
-  layout();
+  sync();
   return {
+    editor,
     bounds,
     layout,
     reveal,
     update: (change) => {
       const wasSyncing = syncing;
       syncing = true;
+      updateDepth += 1;
       try {
         change();
-        layout();
       } finally {
-        syncing = wasSyncing;
+        updateDepth -= 1;
+        try {
+          if (updateDepth === 0) layout();
+        } finally {
+          syncing = wasSyncing;
+        }
       }
     },
     dispose: () => {
+      disposed = true;
       observer.disconnect();
       unsubscribe();
       mount.removeEventListener("wheel", wheel, { capture: true });

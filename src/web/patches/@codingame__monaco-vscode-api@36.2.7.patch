@@ -259,3 +259,46 @@ index 9327b6ae5f6b11b57da2aaedde2198d21cb46421..00850e6ec17756ed475ec5f32bbfee9f
              const action = ( new DefinitionAction({
                  openToSide,
                  openInPeek: canPeek,
+diff --git a/vscode/src/vs/editor/standalone/browser/standaloneServices.js b/vscode/src/vs/editor/standalone/browser/standaloneServices.js
+index c35586ed8afeb53322727e68e089158db9a41e39..45ea025f47671bb8c94cb864ef92b26a1be442c0 100644
+--- a/vscode/src/vs/editor/standalone/browser/standaloneServices.js
++++ b/vscode/src/vs/editor/standalone/browser/standaloneServices.js
+@@ -15,6 +15,7 @@ import { OS, isLinux, isMacintosh } from '../../../base/common/platform.js';
+ import { format } from '../../../base/common/strings.js';
+ import '../../../base/common/errors.js';
+ import { ResourceMap } from '../../../base/common/map.js';
++import { deepClone, equals } from '../../../base/common/objects.js';
+ import { IInstantiationService, createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+ import { registerSingleton, InstantiationType, getSingletonServiceDescriptors } from '../../../platform/instantiation/common/extensions.js';
+ import '../../common/services/semanticTokensStylingService.js';
+@@ -588,6 +589,7 @@ let StandaloneConfigurationService = class StandaloneConfigurationService {
+         this._onDidChangeConfiguration = ( new Emitter());
+         this.onDidChangeConfiguration = this._onDidChangeConfiguration.event;
+         const defaultConfiguration = ( new DefaultConfiguration$1(logService));
++        this._memoryConfiguration = ConfigurationModel.createEmptyModel(logService);
+         this._configuration = ( new Configuration$1(
+             defaultConfiguration.reload(),
+             ConfigurationModel.createEmptyModel(logService),
+@@ -596,7 +598,7 @@ let StandaloneConfigurationService = class StandaloneConfigurationService {
+             ConfigurationModel.createEmptyModel(logService),
+             ConfigurationModel.createEmptyModel(logService),
+             ( new ResourceMap()),
+-            ConfigurationModel.createEmptyModel(logService),
++            this._memoryConfiguration,
+             ( new ResourceMap()),
+             logService
+         ));
+@@ -614,10 +616,11 @@ let StandaloneConfigurationService = class StandaloneConfigurationService {
+         const changedKeys = [];
+         for (const entry of values) {
+             const [key, value] = entry;
+-            if (this.getValue(key) === value) {
++            const hasKey = this._memoryConfiguration.keys.includes(key);
++            if (value === undefined ? !hasKey : hasKey && equals(this._memoryConfiguration.getValue(key), value)) {
+                 continue;
+             }
+-            this._configuration.updateValue(key, value);
++            this._configuration.updateValue(key, deepClone(value));
+             changedKeys.push(key);
+         }
+         if (changedKeys.length > 0) {

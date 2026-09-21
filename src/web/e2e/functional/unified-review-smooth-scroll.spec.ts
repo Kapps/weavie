@@ -126,6 +126,52 @@ test("wheel animation paints Monaco text at the current review position", async 
   ).toBeLessThanOrEqual(1);
 });
 
+test("section header dimensions are measured in the resize phase, not during mounting", async ({
+  page,
+}) => {
+  const observation = await page.evaluateHandle(() => {
+    const NativeObserver = window.ResizeObserver;
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientTop")!;
+    let resizing = false;
+    let synchronous = 0;
+    let observed = 0;
+    window.ResizeObserver = new Proxy(NativeObserver, {
+      construct(target, [callback]: [ResizeObserverCallback]) {
+        return new target((entries, observer) => {
+          resizing = true;
+          try {
+            callback(entries, observer);
+          } finally {
+            resizing = false;
+          }
+        });
+      },
+    });
+    Object.defineProperty(Element.prototype, "clientTop", {
+      ...descriptor,
+      get() {
+        if (this.classList.contains("unified-review-file")) {
+          if (resizing) observed++;
+          else synchronous++;
+        }
+        return descriptor.get!.call(this);
+      },
+    });
+    return {
+      finish: () => {
+        window.ResizeObserver = NativeObserver;
+        Object.defineProperty(Element.prototype, "clientTop", descriptor);
+        return { synchronous, observed };
+      },
+    };
+  });
+  await page.locator(".editor-empty-review").click();
+  await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
+  const measurements = await observation.evaluate((sample) => sample.finish());
+  expect(measurements.observed).toBeGreaterThan(0);
+  expect(measurements.synchronous).toBe(0);
+});
+
 test("scrolling a remounted review preserves its diff paint", async ({ page }) => {
   await page.locator(".editor-empty-review").click();
   const section = page.locator(".unified-review-file");

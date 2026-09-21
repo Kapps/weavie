@@ -645,6 +645,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
               : created.editor.getDomNode(),
           revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
           reviewLine: () => diff.inlineReviewLine(created.editor),
+          prepareGeometry: () => {},
           painted: () => {},
           updateGeometry: (change) => change(),
         });

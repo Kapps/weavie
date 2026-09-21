@@ -30,7 +30,7 @@ export function ReviewFileBody(props: {
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
-  onEditorHeight: (height: number) => void;
+  onEditorHeight: (height: number) => boolean;
   measure: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
@@ -120,8 +120,7 @@ export function ReviewFileBody(props: {
             editable: copy.editable,
             diff: latest,
             onHeight: (height) => {
-              props.onEditorHeight(height);
-              props.measure();
+              if (props.onEditorHeight(height)) props.measure();
             },
             onPainted: publish,
             active: props.active,

@@ -1,6 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -157,10 +156,15 @@ export function UnifiedReview(props: {
       sizeVirtualList(instance.getTotalSize());
       owner.setScrollTop(top);
     },
-    measureElement: (element) => element.getBoundingClientRect().height,
+    // Observer snapshots must apply before navigation, not overwrite newer explicit sizes next frame.
+    measureElement: (element, entry, instance) =>
+      entry === undefined
+        ? (instance.itemSizeCache.get(
+            instance.options.getItemKey(instance.indexFromElement(element)),
+          ) ?? element.getBoundingClientRect().height)
+        : entry.borderBoxSize[0]!.blockSize,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
-    useAnimationFrameWithResizeObserver: true,
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 
@@ -306,19 +310,19 @@ export function UnifiedReview(props: {
       onCleanup(() => element.removeEventListener(event, followViewport, true));
     }
   });
-  const measure = (element: HTMLElement): void => {
+  const observe = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
-        const index = virtualizer.indexFromElement(element);
-        const height = element.getBoundingClientRect().height;
-        batch(() => {
-          virtualizer.measureElement(element);
-          virtualizer.resizeItem(index, height);
-        });
+        virtualizer.measureElement(element);
       }
     };
     if (element.isConnected) commit();
     else queueMicrotask(commit);
+  };
+  const measure = (element: HTMLElement): void => {
+    if (element.isConnected) {
+      virtualizer.resizeItem(Number(element.dataset.index), element.getBoundingClientRect().height);
+    }
   };
 
   return (
@@ -354,7 +358,12 @@ export function UnifiedReview(props: {
                               tab={props.tab}
                               scroller={() => scroll()!}
                               editorHeight={() => editorHeight(view())}
-                              onEditorHeight={(height) => editorHeights.set(view(), height)}
+                              onEditorHeight={(height) => {
+                                const file = view();
+                                if (editorHeights.get(file) === height) return false;
+                                editorHeights.set(file, height);
+                                return true;
+                              }}
                               scope={props.scope}
                               displayPath={displayPath}
                               file={view}
@@ -371,6 +380,7 @@ export function UnifiedReview(props: {
                                 copies.open(diff.path, diff.current, diff.currentExists)
                               }
                               measure={measure}
+                              observe={observe}
                               onFocus={() => {
                                 setVisibleFile(item().index - 1);
                                 props.changed();
@@ -384,7 +394,7 @@ export function UnifiedReview(props: {
                       <ReviewFileTree
                         expanded={expandedDirectories}
                         index={0}
-                        measure={measure}
+                        measure={observe}
                         nodes={treeNodes}
                         onSelect={(file) =>
                           surface.reveal(file.summary().path, file.summary().line)

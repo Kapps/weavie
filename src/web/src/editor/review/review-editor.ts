@@ -7,10 +7,11 @@ import {
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, monaco } from "../monaco-setup";
+import { monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff } from "./review-store";
@@ -33,6 +34,7 @@ export interface ReviewEditor {
 
 /** The section owns sizing and collapsed context; InlineDiff owns all review rendering and actions. */
 export function createReviewEditor(options: {
+  pool: ReviewEditorPool;
   session: ClientSession;
   tab: TabOwner;
   scope: ReviewScopeState;
@@ -53,28 +55,10 @@ export function createReviewEditor(options: {
   const loading = document.createElement("div");
   loading.className = "unified-review-notice";
   loading.textContent = "Calculating diff…";
-  const mount = document.createElement("div");
-  mount.className = "unified-review-editor-viewport";
-  mount.style.visibility = "hidden";
-  container.append(loading, mount);
-  const horizontalScrollbarSize =
-    monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
-  const editor = createEmbeddedEditor(mount, model, {
-    readOnly: !options.editable,
-    scrollBeyondLastLine: false,
-    automaticLayout: false,
-    smoothScrolling: false,
-    overviewRulerLanes: 0,
-    overviewRulerBorder: false,
-    hideCursorInOverviewRuler: true,
-    minimap: { enabled: false },
-    folding: false,
-    stickyScroll: { enabled: false },
-    renderLineHighlightOnlyWhenFocus: true,
-    // Visible-line width changes while scrolling; scrollbar space must not change section height with it.
-    scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
-    padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
-  }) as CollapsingEditor;
+  container.append(loading);
+  const lease = options.pool.acquire(container, model, options.editable);
+  const { mount } = lease;
+  const editor = lease.editor as CollapsingEditor;
   const viewport = createReviewEditorViewport(
     container,
     mount,
@@ -205,9 +189,9 @@ export function createReviewEditor(options: {
       viewport.dispose();
       inline.dispose();
       gaps.clear();
-      editor.dispose();
+      editor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
+      lease.release();
       loading.remove();
-      mount.remove();
     },
   };
 }

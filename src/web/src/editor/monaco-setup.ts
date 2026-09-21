@@ -42,7 +42,7 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
  */
 export function createEmbeddedEditor(
   container: HTMLElement,
-  model: monaco.editor.ITextModel,
+  model: monaco.editor.ITextModel | null,
   overrides: monaco.editor.IEditorOptions,
 ): monaco.editor.IStandaloneCodeEditor {
   // The owning viewport supplies real dimensions before exposing the editor.

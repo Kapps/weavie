@@ -26,6 +26,7 @@ import type { TabOwner } from "../tab-owner";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
+import { createReviewEditorPool } from "./review-editor-pool";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
@@ -79,6 +80,8 @@ export function UnifiedReview(props: {
 
   const copies = props.createCopyScope();
   onCleanup(() => copies.dispose());
+  const editorPool = createReviewEditorPool();
+  onCleanup(() => editorPool.dispose());
 
   const displayPath = (path: string): string => {
     const workspace = props.session.state.lsp.current?.workspace;
@@ -354,6 +357,7 @@ export function UnifiedReview(props: {
                         <Show when={file()}>
                           {(view) => (
                             <ReviewFileSection
+                              pool={editorPool}
                               session={props.session}
                               tab={props.tab}
                               scroller={() => scroll()!}

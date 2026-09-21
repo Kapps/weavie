@@ -13,11 +13,13 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import type { ReviewScroll } from "./review-scroll";
 import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileBody(props: {
+  pool: ReviewEditorPool;
   session: ClientSession;
   tab: TabOwner;
   onEditor(editor: ReviewEditor | undefined): void;
@@ -110,6 +112,7 @@ export function ReviewFileBody(props: {
         batch(() => {
           liveExists = latest.currentExists;
           live = createReviewEditor({
+            pool: props.pool,
             session: props.session,
             tab: props.tab,
             scope: props.scope,

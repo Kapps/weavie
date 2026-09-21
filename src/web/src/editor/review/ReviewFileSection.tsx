@@ -21,11 +21,13 @@ import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
+  pool: ReviewEditorPool;
   session: ClientSession;
   tab: TabOwner;
   scope: ReviewScopeState;
@@ -179,6 +181,7 @@ export function ReviewFileSection(props: {
       <Show when={!collapsed()}>
         <div id={bodyId()}>
           <ReviewFileBody
+            pool={props.pool}
             session={props.session}
             tab={props.tab}
             onEditor={setEditor}

@@ -93,10 +93,33 @@ test.describe("wrapped review construction", () => {
     },
   });
 
-  test("wrapped files have their final width and height on initial and cached mounts", async ({
+  test("wrapped files attach at their final width on initial and cached mounts", async ({
     page,
   }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("3");
+    const observation = await page.evaluateHandle(() => {
+      const monaco = window.__WEAVIE_MONACO__!;
+      const samples: { path: string; width: number; wrappingColumn: number }[] = [];
+      const subscription = monaco.editor.onDidCreateEditor((editor) => {
+        const changed = editor.onDidChangeModel(() => {
+          const model = editor.getModel();
+          if (model === null) return;
+          samples.push({
+            path: model.uri.path,
+            width: editor.getLayoutInfo().width,
+            wrappingColumn: editor.getOption(monaco.editor.EditorOption.wrappingInfo)
+              .wrappingColumn,
+          });
+        });
+        editor.onDidDispose(() => changed.dispose());
+      });
+      return {
+        finish: () => {
+          subscription.dispose();
+          return samples;
+        },
+      };
+    });
     await page.locator(".editor-empty-review").click();
     const first = page.locator('.unified-review-file[data-index="1"]');
     const lines = first.locator(".view-line");
@@ -120,5 +143,11 @@ test.describe("wrapped review construction", () => {
     expect(await first.locator(".monaco-editor").evaluate((element) => element.clientWidth)).toBe(
       width,
     );
+    const samples = await observation.evaluate((sample) => sample.finish());
+    expect(samples.filter((sample) => sample.path.endsWith("/a.txt"))).toHaveLength(2);
+    for (const sample of samples) {
+      expect(sample.width).toBe(width);
+      expect(sample.wrappingColumn).toBeGreaterThan(1);
+    }
   });
 });

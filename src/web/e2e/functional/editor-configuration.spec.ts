@@ -1,3 +1,4 @@
+import type { IConfigurationService } from "@codingame/monaco-vscode-api/vscode/vs/platform/configuration/common/configuration.service";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -10,14 +11,7 @@ test("equivalent partial editor configuration does not notify every cached model
   await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
   const result = await page.evaluate(async () => {
     const editor = window.__WEAVIE_EDITOR__ as unknown as {
-      _configurationService: {
-        inspect(key: string): { memoryValue: unknown; defaultValue: unknown };
-        getValue(key: string): unknown;
-        updateValue(key: string, value: unknown): Promise<void>;
-        onDidChangeConfiguration(
-          listener: (event: { affectedKeys: ReadonlySet<string> }) => void,
-        ): { dispose(): void };
-      };
+      _configurationService: IConfigurationService;
     };
     const service = editor._configurationService;
     const key = "editor.minimap";
@@ -59,4 +53,80 @@ test("equivalent partial editor configuration does not notify every cached model
   expect(result.values[3]).toEqual(result.defaults);
   expect(result.nested).toBe(false);
   expect(result.removed).toEqual(result.defaults);
+});
+
+test("equal parent and child overrides retain their explicit removal semantics", async ({
+  page,
+}) => {
+  await page.locator(".editor-empty-review").click();
+  await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
+  const results = await page.evaluate(async () => {
+    const service = (
+      window.__WEAVIE_EDITOR__ as unknown as {
+        _configurationService: IConfigurationService;
+      }
+    )._configurationService;
+    const parent = "editor.minimap";
+    const child = `${parent}.enabled`;
+    const defaults = service.inspect<boolean>(child).defaultValue!;
+    const results = [];
+    for (const order of ["parent-first", "child-first"]) {
+      await service.updateValue(child, undefined);
+      await service.updateValue(parent, undefined);
+      if (order === "parent-first") {
+        await service.updateValue(parent, { enabled: !defaults });
+        await service.updateValue(child, !defaults);
+        await service.updateValue(child, undefined);
+      } else {
+        await service.updateValue(child, !defaults);
+        await service.updateValue(parent, { enabled: !defaults });
+        await service.updateValue(parent, undefined);
+      }
+      results.push({ order, defaults, actual: service.getValue<boolean>(child) });
+    }
+    return results;
+  });
+  for (const result of results) expect(result.actual, result.order).toBe(result.defaults);
+});
+
+test("configuration owns snapshots of mutable object and array options", async ({ page }) => {
+  await page.locator(".editor-empty-review").click();
+  await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const service = (
+      window.__WEAVIE_EDITOR__ as unknown as {
+        _configurationService: IConfigurationService;
+      }
+    )._configurationService;
+    const minimap = { enabled: false };
+    const rulers = [{ column: 80, color: "#ffffff" }];
+    await service.updateValue("editor.minimap", minimap);
+    await service.updateValue("editor.rulers", rulers);
+    const initial = {
+      minimap: service.getValue<boolean>("editor.minimap.enabled"),
+      rulers: service.getValue("editor.rulers"),
+    };
+    minimap.enabled = true;
+    rulers[0]!.column = 100;
+    const stored = {
+      minimap: service.inspect("editor.minimap").memoryValue,
+      rulers: service.inspect("editor.rulers").memoryValue,
+    };
+    await service.updateValue("editor.minimap", minimap);
+    await service.updateValue("editor.rulers", rulers);
+    return {
+      initial,
+      stored,
+      updated: {
+        minimap: service.getValue<boolean>("editor.minimap.enabled"),
+        rulers: service.getValue("editor.rulers"),
+      },
+    };
+  });
+  expect(result.initial).toEqual({ minimap: false, rulers: [{ column: 80, color: "#ffffff" }] });
+  expect(result.stored).toEqual({
+    minimap: { enabled: false },
+    rulers: [{ column: 80, color: "#ffffff" }],
+  });
+  expect(result.updated).toEqual({ minimap: true, rulers: [{ column: 100, color: "#ffffff" }] });
 });

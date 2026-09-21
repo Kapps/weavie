@@ -59,7 +59,7 @@ export function createReviewEditor(options: {
   container.append(loading, mount);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
-  const editor = createEmbeddedEditor(mount, model, {
+  const editor = createEmbeddedEditor(mount, {
     readOnly: !options.editable,
     scrollBeyondLastLine: false,
     automaticLayout: false,
@@ -82,6 +82,7 @@ export function createReviewEditor(options: {
     options.header,
     editor,
   );
+  viewport.update(() => editor.setModel(model));
   const gaps = editor.createDecorationsCollection([]);
   let constructing = true;
   let disposed = false;

@@ -29,6 +29,23 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
   let disposed = false;
   let validity = new AbortController();
 
+  const setWords = (result: Misspelling[]): void => {
+    words = result;
+    const keys = findCommand(CommandIds.spellCorrect)?.keys.map(formatKey).join(" / ");
+    const hint = `Unrecognized word. Right-click for corrections or to add to a dictionary.${keys ? ` Correct Spelling (${keys}).` : ""}`;
+    decorations.set(
+      result.map(({ line, offset, word }) => ({
+        range: new monaco.Range(line, offset + 1, line, offset + word.length + 1),
+        options: {
+          description: "spelling",
+          inlineClassName: "weavie-misspelling",
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          hoverMessage: { value: hint },
+        },
+      })),
+    );
+  };
+
   const check = async (): Promise<void> => {
     const model = editor.getModel() as TokenizedModel | null;
     if (
@@ -56,7 +73,10 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
       )
         return;
       const spans = spellingSpans(model, ranges, tokens);
-      if (spans.length === 0) return;
+      if (spans.length === 0) {
+        setWords([]);
+        return;
+      }
       const result = await session
         .feature("spelling")
         .request<Misspelling[], { spans: SpellSpan[] }>("check", { spans }, pending.signal);
@@ -68,20 +88,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
       ) {
         return;
       }
-      words = result;
-      const keys = findCommand(CommandIds.spellCorrect)?.keys.map(formatKey).join(" / ");
-      const hint = `Unrecognized word. Right-click for corrections or to add to a dictionary.${keys ? ` Correct Spelling (${keys}).` : ""}`;
-      decorations.set(
-        result.map(({ line, offset, word }) => ({
-          range: new monaco.Range(line, offset + 1, line, offset + word.length + 1),
-          options: {
-            description: "spelling",
-            inlineClassName: "weavie-misspelling",
-            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-            hoverMessage: { value: hint },
-          },
-        })),
-      );
+      setWords(result);
     } catch (error) {
       if (!pending.signal.aborted) {
         notify("error", `Spell check failed: ${String(error)}`, "spell-check");
@@ -95,14 +102,41 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     }
     clearTimeout(timer);
     request?.abort();
-    words = [];
-    decorations.clear();
-    timer = setTimeout(() => void check(), 250);
+    timer = setTimeout(() => void check(), 100);
   };
   const tokensSource = createSpellingTokens(schedule);
-  const invalidate = (): void => {
+  const invalidateActions = (): void => {
     validity.abort();
     validity = new AbortController();
+  };
+  const invalidate = (): void => {
+    invalidateActions();
+    setWords([]);
+    schedule();
+  };
+  const edited = (event: monaco.editor.IModelContentChangedEvent): void => {
+    invalidateActions();
+    const model = editor.getModel();
+    const retained = event.isFlush
+      ? []
+      : words.flatMap((hit, index) => {
+          const previous = new monaco.Range(
+            hit.line,
+            hit.offset + 1,
+            hit.line,
+            hit.offset + hit.word.length + 1,
+          );
+          if (
+            event.changes.some(({ range }) =>
+              monaco.Range.areIntersectingOrTouching(previous, range),
+            )
+          )
+            return [];
+          const range = decorations.getRange(index);
+          if (range === null || model?.getValueInRange(range) !== hit.word) return [];
+          return [{ line: range.startLineNumber, offset: range.startColumn - 1, word: hit.word }];
+        });
+    setWords(retained);
     schedule();
   };
   const at = (position: monaco.IPosition | null): Misspelling | undefined =>
@@ -116,7 +150,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
         );
   const subscriptions = [
     editor.onDidChangeModel(invalidate),
-    editor.onDidChangeModelContent(invalidate),
+    editor.onDidChangeModelContent(edited),
     editor.onDidChangeModelLanguage(invalidate),
     (
       editor as monaco.editor.IStandaloneCodeEditor & {

@@ -43,8 +43,8 @@ function fixture(text: string, start: number, end: number) {
   const set = vi.fn();
   const clear = vi.fn();
   let version = 1;
-  const handlers: Array<() => void> = [];
-  const subscribe = (handler: () => void) => {
+  const handlers: Array<(event: unknown) => void> = [];
+  const subscribe = (handler: (event: unknown) => void) => {
     handlers.push(handler);
     return { dispose: vi.fn() };
   };
@@ -76,9 +76,16 @@ function fixture(text: string, start: number, end: number) {
   return {
     spelling,
     set,
+    clear,
+    scroll: () => handlers[4]!(undefined),
+    tokenize: () => handlers[3]!(undefined),
+    switchModel: () => handlers[0]!(undefined),
+    emptyViewport: () => {
+      end = start;
+    },
     edit: () => {
       version++;
-      handlers[1]!();
+      handlers[1]!({ changes: [], isFlush: false });
     },
   };
 }
@@ -94,9 +101,10 @@ it("rejects obsolete responses after editing and disposal even when transport co
         resolveOld = resolve;
       }),
   );
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(100);
   const oldSignal = bridge.request.mock.calls[0]![2] as AbortSignal;
   edit();
+  set.mockClear();
   expect(oldSignal.aborted).toBe(true);
   resolveOld([{ line: 1, offset: 0, word: "teh" }]);
   await Promise.resolve();
@@ -109,7 +117,7 @@ it("rejects obsolete responses after editing and disposal even when transport co
         resolveNew = resolve;
       }),
   );
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(100);
   spelling.dispose();
   resolveNew([{ line: 1, offset: 0, word: "teh" }]);
   await Promise.resolve();
@@ -120,7 +128,7 @@ it("sends fully visible words without scanning offscreen portions of a wrapped l
   const text = `${"before ".repeat(10000)}edge visible edge ${"after ".repeat(10000)}`;
   const { spelling } = fixture(text, 70002, 70016);
   bridge.request.mockResolvedValue([]);
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request.mock.calls[0]![1]).toEqual({
     spans: [{ line: 1, offset: 70004, text: " visible ", identifier: false }],
   });
@@ -136,8 +144,9 @@ it("does not send a check for a model edited while its grammar was loading", asy
         ready = resolve;
       }),
   );
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(100);
   edit();
+  set.mockClear();
   ready([]);
   await Promise.resolve();
   expect(bridge.request).not.toHaveBeenCalled();
@@ -147,7 +156,43 @@ it("does not send a check for a model edited while its grammar was loading", asy
 
 it("does not check the offscreen remainder of a long unbroken token", async () => {
   const { spelling } = fixture("a".repeat(1000000), 40001, 40101);
-  await vi.advanceTimersByTimeAsync(250);
+  await vi.advanceTimersByTimeAsync(100);
   expect(bridge.request).not.toHaveBeenCalled();
+  spelling.dispose();
+});
+
+it("retains markers during scroll and token refreshes and replaces them after 100ms idle", async () => {
+  const { spelling, set, clear, scroll, tokenize } = fixture("teh", 1, 4);
+  bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
+  await vi.advanceTimersByTimeAsync(99);
+  expect(bridge.request).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(set.mock.lastCall![0]).toHaveLength(1);
+  set.mockClear();
+  clear.mockClear();
+  scroll();
+  await vi.advanceTimersByTimeAsync(50);
+  tokenize();
+  await vi.advanceTimersByTimeAsync(99);
+  expect(set).not.toHaveBeenCalled();
+  expect(clear).not.toHaveBeenCalled();
+  bridge.request.mockResolvedValue([]);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(set).toHaveBeenCalledExactlyOnceWith([]);
+  spelling.dispose();
+});
+
+it("clears retained markers for an empty viewport and on model changes", async () => {
+  const { spelling, set, scroll, emptyViewport, switchModel } = fixture("teh", 1, 4);
+  bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
+  await vi.advanceTimersByTimeAsync(100);
+  emptyViewport();
+  scroll();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(set.mock.lastCall).toEqual([[]]);
+  expect(bridge.request).toHaveBeenCalledTimes(1);
+  set.mockClear();
+  switchModel();
+  expect(set).toHaveBeenCalledExactlyOnceWith([]);
   spelling.dispose();
 });

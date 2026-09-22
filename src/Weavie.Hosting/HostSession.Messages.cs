@@ -180,18 +180,19 @@ public sealed partial class HostSession {
 			return Task.CompletedTask;
 		});
 		messages.Handle<AgentSubmitMessage>("submit", (message, _) => {
-			HandleAgentSubmit(message, inputFrozen);
+			HandleAgentSubmit(message, inputFrozen, submission => {
+				var agent = Agent.Structured
+					?? throw new InvalidOperationException("This session does not use a structured agent.");
+				agent.Submit(submission);
+			});
 			return Task.CompletedTask;
 		});
 		messages.Handle<AgentSideReplyMessage>("replyAside", (message, _) => {
-			try {
-				if (inputFrozen()) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+			HandleAgentSubmit(message.Submission, inputFrozen, submission => {
 				var sideConversations = Agent.SideConversations
 					?? throw new InvalidOperationException("This agent does not support side conversations.");
-				sideConversations.ReplyAside(message.ConversationId, message.Prompt);
-			} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
-				Notify(ex.Message);
-			}
+				sideConversations.ReplyAside(message.ConversationId, submission);
+			});
 			return Task.CompletedTask;
 		});
 		messages.Handle<OpenPlanMessage, bool>(
@@ -232,17 +233,16 @@ public sealed partial class HostSession {
 		}
 	}
 
-	private void HandleAgentSubmit(AgentSubmitMessage message, Func<bool> inputFrozen) {
+	private void HandleAgentSubmit(
+		AgentSubmitMessage message,
+		Func<bool> inputFrozen,
+		Action<AgentTurnSubmission> submit) {
 		try {
 			if (inputFrozen()) {
 				throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
 			}
 
-			if (Agent.Structured is not { } agent) {
-				throw new InvalidOperationException("This session does not use a structured agent.");
-			}
-
-			var receipt = AcceptAgentSubmission(message, agent.Submit);
+			var receipt = AcceptAgentSubmission(message, submit);
 			PublishSubmissionState(message.Id, receipt, "accepted", string.Empty);
 		} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
 			PublishSubmissionState(message.Id, [], "rejected", ex.Message);
@@ -349,5 +349,5 @@ public sealed partial class HostSession {
 		string? CommandName,
 		string[]? AttachmentIds);
 
-	private sealed record AgentSideReplyMessage(string ConversationId, string Prompt);
+	private sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
 }

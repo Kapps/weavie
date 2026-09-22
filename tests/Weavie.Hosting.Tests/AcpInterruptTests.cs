@@ -70,7 +70,7 @@ public sealed class AcpInterruptTests {
 		fixture.AskAside("hold");
 		var held = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		string conversationId = Assert.IsType<string>(held.ConversationId);
-		fixture.Session.ReplyAside(conversationId, "queued side reply");
+		fixture.ReplyAside(conversationId, "queued side reply");
 
 		fixture.Session.Interrupt();
 		var reply = await fixture.WaitForMessageAsync(message => message.Type == "item-completed"

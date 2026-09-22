@@ -60,7 +60,7 @@ export function ReviewFileSection(props: {
       0,
       Math.min(props.scroller().getScrollTop() - sectionTop() - borderTop, headerLimit),
     );
-    header.style.top = `${offset}px`;
+    header.style.transform = `translateY(${offset}px)`;
   };
   const measureHeader = (): void => {
     borderTop = article!.clientTop;

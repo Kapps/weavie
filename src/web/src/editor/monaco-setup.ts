@@ -15,6 +15,11 @@ import {
 import { currentFonts, onFontsChanged } from "../fonts";
 import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
+type EditorConstruction = Pick<
+  monaco.editor.IStandaloneEditorConstructionOptions,
+  "dimension" | "overflowWidgetsDomNode"
+>;
+
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
 // before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
 
@@ -43,10 +48,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
 export function createEmbeddedEditor(
   container: HTMLElement,
   model: monaco.editor.ITextModel,
-  dimension: monaco.editor.IDimension,
+  construction: Required<EditorConstruction>,
   overrides: monaco.editor.IEditorOptions,
 ): monaco.editor.IStandaloneCodeEditor {
-  return buildEditor(container, model, overrides, { dimension });
+  return buildEditor(container, model, overrides, construction);
 }
 
 // The construction options + live font/settings wiring every weavie editor shares.
@@ -54,7 +59,7 @@ function buildEditor(
   container: HTMLElement,
   model: monaco.editor.ITextModel | null,
   overrides: monaco.editor.IEditorOptions,
-  construction: Pick<monaco.editor.IStandaloneEditorConstructionOptions, "dimension">,
+  construction: EditorConstruction,
 ): monaco.editor.IStandaloneCodeEditor {
   // Typography + behavior are user settings, live-updated below.
   const font = currentFonts().editor;

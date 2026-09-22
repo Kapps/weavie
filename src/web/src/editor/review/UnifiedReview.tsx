@@ -64,15 +64,18 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
+  // -1 means nothing is selected yet — distinct from file 0 being selected. Conflating the two let an
+  // editor that had merely mounted (e.g. under virtualizer overscan) masquerade as the user's selection.
+  // A review with exactly one file has no ambiguity about which file the user means, so it counts as
+  // selected from the start — computed here rather than written into selectedPath on mount, so there's
+  // no separate "becomes active" transition after the file's editor has already mounted.
+  const visibleFile = (): number => {
+    const overviewFiles = props.overview().files;
+    const index = overviewFiles.findIndex(
+      (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
     );
+    return index === -1 && overviewFiles.length === 1 ? 0 : index;
+  };
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -217,6 +220,8 @@ export function UnifiedReview(props: {
   const summary = () => {
     const overview = props.overview();
     const index = visibleFile();
+    // Parked navigation (nothing selected) starts from file 0, same as an explicit selection of it.
+    const from = index < 0 ? 0 : index;
     const reveal = (index: number): void => {
       const file = overview.files[index]?.summary();
       if (file !== undefined) surface.reveal(file.path, file.line);
@@ -224,9 +229,9 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
-      nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      stepIn: () => reveal(from),
+      nextFile: () => reveal((from + 1) % overview.files.length),
+      prevFile: () => reveal((from - 1 + overview.files.length) % overview.files.length),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {

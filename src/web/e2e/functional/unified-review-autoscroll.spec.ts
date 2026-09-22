@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import { pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -95,6 +96,52 @@ test("middle scrolling crosses files after its starting editor unmounts, without
   await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(0);
   await page.keyboard.press("Escape");
 });
+
+for (const key of ["PageUp", "document start", "ArrowUp", "q"]) {
+  test(`${key} stops review autoscroll and still reaches the editor`, async ({ page }) => {
+    await openReview(page);
+    const editor = page.locator(".unified-review-file .monaco-editor").first();
+    const observation = await editor.evaluateHandle((node) => {
+      const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
+        .__WEAVIE_MONACO__;
+      const editor = monaco.editor.getEditors().find((editor) => editor.getDomNode() === node)!;
+      const model = editor.getModel()!;
+      const original = model.getLineContent(20);
+      editor.setPosition({ lineNumber: 20, column: 1 });
+      editor.focus();
+      return () => ({
+        position: editor.getPosition(),
+        text: model.getLineContent(20),
+        original,
+      });
+    });
+    const before = (await reviewScroll(page)).top;
+    const origin = await arm(page, editor);
+    await page.mouse.move(origin.x, origin.y + 40);
+    await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBeGreaterThan(before);
+
+    if (key === "document start") await pressDocumentStart(page);
+    else await page.keyboard.press(key);
+    await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
+    await expect(page.locator(".middle-click-autoscrolling")).toHaveCount(0);
+    const result = await observation.evaluate((sample) => sample());
+    if (key === "q") {
+      expect(result.text).toBe(`q${result.original}`);
+      expect(result.position).toEqual({ lineNumber: 20, column: 2 });
+    } else {
+      expect(result.text).toBe(result.original);
+      expect(result.position!.lineNumber).toBeLessThan(20);
+    }
+    const stopped = (await reviewScroll(page)).top;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect((await reviewScroll(page)).top).toBe(stopped);
+  });
+}
 
 test("review autoscroll releases ownership on cancellation, tab teardown, and a live setting change", async ({
   page,

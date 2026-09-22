@@ -149,8 +149,8 @@ export function installMiddleClickAutoscroll(): () => void {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      stop();
     }
+    stop();
   };
   const controller = new AbortController();
   document.addEventListener("mousedown", onMouseDown, {

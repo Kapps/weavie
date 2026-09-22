@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import type { editor as MonacoEditor } from "monaco-editor";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import { reviewScroll } from "../harness/review-scroll";
@@ -78,52 +79,83 @@ test("wheel animation follows the live smooth scrolling setting in an existing r
   }
 });
 
-test("wheel animation paints Monaco text at the current review position", async ({ page }) => {
-  await page.locator(".editor-empty-review").click();
-  const editor = page.locator(".unified-review-file .monaco-editor");
-  await expect(editor).toBeVisible();
-  await editor.hover();
-  const observation = await page.evaluateHandle(() => {
-    const monaco = (window as unknown as WeavieWindow).__WEAVIE_MONACO__!;
-    const editor = monaco.editor.getEditors().find((candidate) => {
-      const node = (candidate as EditorHandle).getDomNode();
-      return (node as HTMLElement | null)?.closest(".unified-review-file");
-    }) as EditorHandle & { getTopForLineNumber(lineNumber: number): number };
-    const offsets: number[] = [];
-    let frame = 0;
-    const sample = () => {
-      const node = editor.getDomNode() as HTMLElement;
-      const line = node.querySelector<HTMLElement>(".view-line");
-      const number = line?.textContent?.match(/new\sline\s(\d+)/)?.[1];
-      if (line && number !== undefined) {
-        const top = editor.getTopForLineNumber(Number(number) + 1) - editor.getScrollTop();
-        offsets.push(line.getBoundingClientRect().top - node.getBoundingClientRect().top - top);
-      }
-      frame = requestAnimationFrame(sample);
-    };
-    frame = requestAnimationFrame(sample);
-    return {
-      finish: () => {
-        cancelAnimationFrame(frame);
-        return offsets;
-      },
-    };
+test.describe("steady unified scrolling", () => {
+  test.use({
+    fakeScript: {
+      steps: ["a", "b", "c", "d", "e"].flatMap((name) => appliedEdit(`${name}.txt`, content)),
+    },
   });
-  for (let index = 0; index < 25; index++) {
-    await page.mouse.wheel(0, 120);
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
+
+  test("wheel animation paints current text without resizing visible or offscreen viewports", async ({
+    page,
+  }) => {
+    await expect(page.locator(".editor-empty-review")).toContainText("5");
+    await page.locator(".editor-empty-review").click();
+    const editor = page.locator(".unified-review-file .monaco-editor").first();
+    await expect(editor).toBeVisible();
+    const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
+    await scrollbar.press("PageDown");
+    await scrollbar.press("PageDown");
+    await editor.hover();
+    const observation = await page.evaluateHandle(() => {
+      const monaco = (window as unknown as WeavieWindow).__WEAVIE_MONACO__!;
+      const editors = monaco.editor.getEditors().filter((candidate) => {
+        const node = (candidate as EditorHandle).getDomNode();
+        return (node as HTMLElement | null)?.closest(".unified-review-file");
+      }) as MonacoEditor.IStandaloneCodeEditor[];
+      const editor = editors[0]!;
+      const offsets: number[] = [];
+      const layouts: MonacoEditor.IDimension[] = [];
+      const restore = editors.map((editor) => {
+        const layout = editor.layout;
+        editor.layout = function (...args) {
+          if (args[0]) layouts.push(args[0]);
+          return layout.apply(this, args);
+        };
+        return () => {
+          editor.layout = layout;
+        };
+      });
+      let frame = 0;
+      const sample = () => {
+        const node = editor.getDomNode() as HTMLElement;
+        const line = node.querySelector<HTMLElement>(".view-line");
+        const number = line?.textContent?.match(/new\sline\s(\d+)/)?.[1];
+        if (line && number !== undefined) {
+          const top = editor.getTopForLineNumber(Number(number) + 1) - editor.getScrollTop();
+          offsets.push(line.getBoundingClientRect().top - node.getBoundingClientRect().top - top);
+        }
+        frame = requestAnimationFrame(sample);
+      };
+      frame = requestAnimationFrame(sample);
+      return {
+        finish: () => {
+          cancelAnimationFrame(frame);
+          for (const reset of restore) reset();
+          return { offsets, layouts, editorCount: editors.length };
+        },
+      };
+    });
+    for (let index = 0; index < 25; index++) {
+      await page.mouse.wheel(0, 120);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    }
+    const { offsets, layouts, editorCount } = await observation.evaluate((sample) =>
+      sample.finish(),
     );
-  }
-  const offsets = await observation.evaluate((sample) => sample.finish());
-  expect(offsets.length).toBeGreaterThan(25);
-  expect(
-    Math.max(...offsets.map(Math.abs)),
-    "painted text agrees with Monaco's current scroll geometry",
-  ).toBeLessThanOrEqual(1);
+    expect(editorCount, "include the virtualizer's offscreen editor").toBeGreaterThan(1);
+    expect(layouts, "scrolling inside one file must not re-layout its editor").toEqual([]);
+    expect(offsets.length).toBeGreaterThan(25);
+    expect(
+      Math.max(...offsets.map(Math.abs)),
+      "painted text agrees with Monaco's current scroll geometry",
+    ).toBeLessThanOrEqual(1);
+  });
 });
 
 test("section header dimensions are measured in the resize phase, not during mounting", async ({

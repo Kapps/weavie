@@ -1,3 +1,4 @@
+import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { monaco } from "../monaco-setup";
 import type { ReviewScroll } from "./review-scroll";
 
@@ -37,7 +38,8 @@ export function createReviewEditorViewport(
   };
   // The absolute editor mount cannot change the reserved section geometry.
   measure();
-  const editor = createEditor({ width, height: 0 });
+  let dimension = { width, height: 0 };
+  const editor = createEditor(dimension);
 
   // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
   const bounds = (): { top: number; bottom: number; height: number } => {
@@ -58,11 +60,18 @@ export function createReviewEditorViewport(
       const viewport = bounds();
       const contentHeight = Math.min(editor.getContentHeight(), containerHeight);
       const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top)));
-      const height = Math.max(0, Math.floor(viewport.bottom - top));
-      const previous = editor.getLayoutInfo();
-      const resized = previous.width !== width || previous.height !== height;
+      // Round the visible extent independently: fractional scrolling must not resize an interior band.
+      const height = Math.max(
+        0,
+        Math.floor(Math.min(viewport.height + Math.min(viewport.top, 0), contentHeight - top)),
+      );
+      const resized = dimension.width !== width || dimension.height !== height;
       // Let Monaco coordinate rendering after both the size and scroll position are updated.
-      if (resized) editor.layout({ width, height }, true);
+      if (resized) {
+        // Monaco clamps an offscreen zero-height request; compare requests, not its clamped result.
+        dimension = { width, height };
+        editor.layout(dimension, true);
+      }
       const moved = editor.getScrollTop() !== top;
       if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
@@ -91,17 +100,24 @@ export function createReviewEditorViewport(
       reveal(event.scrollTop);
     }
   });
-  const wheel = (event: WheelEvent): void => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+  const ownsTarget = (target: Element): boolean => {
     const root = editor.getDomNode();
     const scrollable = target.closest(".monaco-scrollable-element");
-    if (
-      target.closest(".monaco-editor") !== root ||
-      (scrollable !== null && scrollable !== root?.querySelector(".monaco-scrollable-element"))
-    ) {
-      return;
-    }
+    return (
+      root !== null &&
+      target.closest(".monaco-editor") === root &&
+      (scrollable === null ||
+        !root.contains(scrollable) ||
+        scrollable === root.querySelector(".monaco-scrollable-element"))
+    );
+  };
+  const offMiddleClick = registerMiddleClickScroll(editor.getDomNode()!, ownsTarget, {
+    x: (delta) => editor.setScrollLeft(editor.getScrollLeft() + delta),
+    y: null,
+  });
+  const wheel = (event: WheelEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element) || !ownsTarget(target)) return;
     // The review owns root-editor scrolling; nested widgets keep Monaco's own wheel handling.
     event.stopPropagation();
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
@@ -148,6 +164,7 @@ export function createReviewEditorViewport(
       disposed = true;
       observer.disconnect();
       unsubscribe();
+      offMiddleClick();
       mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
     },

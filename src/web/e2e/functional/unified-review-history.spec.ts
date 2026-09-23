@@ -173,6 +173,11 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
   });
 }
 
+// Flaked on main, 2026-09-19 04:46 UTC: https://github.com/Kapps/weavie/actions/runs/35421743698/job/105840899864
+// — scrollTop off by the container's unset height. PR #927 made review-editor.ts's `geometryReady` always
+// start false (previously true for baseline-less diffs like this test's newly-created file), but `restore()`
+// wasn't gated on it, so a Back landing before the first diff paint computed its reveal against a still-unsized
+// container. Fixed in review-editor.ts by queuing the restore until the first paint lands.
 test("same-file definition opens the file and restores the review departure in both directions", async ({
   page,
 }) => {

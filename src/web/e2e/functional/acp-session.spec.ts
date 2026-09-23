@@ -66,6 +66,11 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   );
 });
 
+// Flaked on windows-latest CI 2026-09-23 05:29 UTC, as a cascading failure after
+// acp-side-conversations.spec.ts:57 broke earlier in the same shard
+// (https://github.com/Kapps/weavie/actions/runs/35821454146/job/107054805366) — the "Reply" button never
+// became enabled. Root cause and fix: see the comment on acp-side-conversations.spec.ts:57 (AcpSessionStore
+// per-message SQLite connection churn). Did not touch this test or its timeout.
 test("ACP side replies survive session switches and run alongside the primary turn", async ({
   page,
 }) => {

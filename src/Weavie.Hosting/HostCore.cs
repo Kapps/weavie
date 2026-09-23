@@ -574,6 +574,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		_userDictionary.Changed -= InvalidateSpelling;
 		_userDictionary.Dispose();
+		_acpSessions.Dispose();
 		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);
 		_spellLanguages.Dispose();
 		_spellingHttp.Dispose();

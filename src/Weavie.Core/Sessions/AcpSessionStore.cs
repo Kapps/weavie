@@ -7,13 +7,13 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>Transactional ACP continuation identities and the display events observed by Weavie.</summary>
-public sealed class AcpSessionStore(string path) {
+public sealed class AcpSessionStore(string path) : IDisposable {
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
 	};
 	private static readonly JsonSerializerOptions MessageJsonOptions = new(JsonOptions) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 	private readonly Lock _gate = new();
-	private bool _schemaReady;
+	private SqliteConnection? _connection;
 
 	/// <summary>The private database backing this store.</summary>
 	public string FilePath { get; } = Path.GetFullPath(path);
@@ -105,30 +105,48 @@ public sealed class AcpSessionStore(string path) {
 		return values;
 	});
 
+	// A single long-lived connection, reused for the store's lifetime instead of opened and torn down per call:
+	// every displayed ACP message (deltas included) flows through Save, and reopening a connection — plus its
+	// directory/permission checks — per message made this path disproportionately slow under Windows CI's
+	// file-I/O overhead, stalling the whole session (Save runs under the session's turn-transition lock) for
+	// every emitted message. A failed operation drops the cached connection so the next call opens a fresh one,
+	// preserving the old per-call design's self-recovery from a transient failure.
 	private T Execute<T>(Func<SqliteConnection, T> operation) {
 		lock (_gate) {
 			try {
-				SecureFile.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-				using var connection = new SqliteConnection(new SqliteConnectionStringBuilder {
-					DataSource = FilePath,
-					Pooling = false,
-				}.ToString());
-				connection.Open();
-				SecureFile.Restrict(FilePath);
-				if (!_schemaReady) {
-					using var schema = connection.CreateCommand();
-					schema.CommandText = """
-						CREATE TABLE IF NOT EXISTS conversations (owner TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, id));
-						CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
-						CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
-						""";
-					schema.ExecuteNonQuery();
-					_schemaReady = true;
-				}
+				var connection = _connection ??= OpenConnection();
 				return operation(connection);
 			} catch (Exception error) when (error is SqliteException or JsonException or IOException or UnauthorizedAccessException) {
+				_connection?.Dispose();
+				_connection = null;
 				throw new AcpSessionStoreException($"Could not read or save the ACP conversation in '{FilePath}': {error.Message}", error);
 			}
+		}
+	}
+
+	private SqliteConnection OpenConnection() {
+		SecureFile.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+		var connection = new SqliteConnection(new SqliteConnectionStringBuilder {
+			DataSource = FilePath,
+			Pooling = false,
+		}.ToString());
+		connection.Open();
+		SecureFile.Restrict(FilePath);
+		using var schema = connection.CreateCommand();
+		schema.CommandText = """
+			CREATE TABLE IF NOT EXISTS conversations (owner TEXT NOT NULL, id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(owner, id));
+			CREATE TABLE IF NOT EXISTS pane_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, message TEXT NOT NULL);
+			CREATE INDEX IF NOT EXISTS pane_owner ON pane_events(owner, sequence);
+			""";
+		schema.ExecuteNonQuery();
+		return connection;
+	}
+
+	/// <inheritdoc/>
+	public void Dispose() {
+		lock (_gate) {
+			_connection?.Dispose();
+			_connection = null;
 		}
 	}
 

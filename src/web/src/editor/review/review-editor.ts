@@ -57,6 +57,10 @@ export function createReviewEditor(options: {
   mount.className = "unified-review-editor-viewport";
   mount.style.visibility = "hidden";
   container.append(loading, mount);
+  // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
+  const widgets = document.createElement("div");
+  widgets.className = "monaco-editor unified-review-overflow-widgets";
+  options.scroller.element.append(widgets);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const viewport = createReviewEditorViewport(
@@ -65,22 +69,27 @@ export function createReviewEditor(options: {
     options.scroller,
     options.header,
     (dimension) =>
-      createEmbeddedEditor(mount, model, dimension, {
-        readOnly: !options.editable,
-        scrollBeyondLastLine: false,
-        automaticLayout: false,
-        smoothScrolling: false,
-        overviewRulerLanes: 0,
-        overviewRulerBorder: false,
-        hideCursorInOverviewRuler: true,
-        minimap: { enabled: false },
-        folding: false,
-        stickyScroll: { enabled: false },
-        renderLineHighlightOnlyWhenFocus: true,
-        // Visible-line width changes must not change the section's height.
-        scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
-        padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
-      }),
+      createEmbeddedEditor(
+        mount,
+        model,
+        { dimension, overflowWidgetsDomNode: widgets },
+        {
+          readOnly: !options.editable,
+          scrollBeyondLastLine: false,
+          automaticLayout: false,
+          smoothScrolling: false,
+          overviewRulerLanes: 0,
+          overviewRulerBorder: false,
+          hideCursorInOverviewRuler: true,
+          minimap: { enabled: false },
+          folding: false,
+          stickyScroll: { enabled: false },
+          renderLineHighlightOnlyWhenFocus: true,
+          // Visible-line width changes must not change the section's height.
+          scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
+          padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
+        },
+      ),
   );
   const editor = viewport.editor as CollapsingEditor;
   const gaps = editor.createDecorationsCollection([]);
@@ -173,6 +182,10 @@ export function createReviewEditor(options: {
     capture,
     restore,
   });
+  widgets.addEventListener("focusin", () => {
+    editorContexts.activate(binding.connection);
+    options.onCursor(editor.getPosition()?.lineNumber ?? 1);
+  });
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
   options.configure(inline, model.uri.toString(), options.diff);
@@ -198,7 +211,7 @@ export function createReviewEditor(options: {
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
       disposed = true;
-      if (container.contains(document.activeElement)) {
+      if (container.contains(document.activeElement) || widgets.contains(document.activeElement)) {
         options.scroller.element.focus({ preventScroll: true });
       }
       binding.dispose();
@@ -207,6 +220,7 @@ export function createReviewEditor(options: {
       inline.dispose();
       gaps.clear();
       editor.dispose();
+      widgets.remove();
       loading.remove();
       mount.remove();
     },

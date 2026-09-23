@@ -73,7 +73,8 @@ export function createReviewEditorViewport(
         editor.layout(dimension, true);
       }
       const moved = editor.getScrollTop() !== top;
-      if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
+      const transform = `translateY(${top}px)`;
+      if (mount.style.transform !== transform) mount.style.transform = transform;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
     } finally {
       syncing = wasSyncing;

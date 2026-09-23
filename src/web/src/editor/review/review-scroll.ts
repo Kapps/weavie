@@ -87,8 +87,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   });
   const render = (): void => {
     const top = getScrollTop();
-    // A top offset preserves the containing block of fixed-position editor widgets.
-    content.style.top = `${-top}px`;
+    content.style.transform = `translateY(${-top}px)`;
     scrollbar.setAttribute("aria-valuenow", String(top));
     const dimensions = scrollable.getScrollDimensions();
     scrollbar.setAttribute(

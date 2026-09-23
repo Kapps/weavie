@@ -103,7 +103,7 @@ function fixture() {
     },
   };
   const mount = {
-    style: { top: "", setProperty: vi.fn() },
+    style: { transform: "", setProperty: vi.fn() },
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   };
@@ -236,7 +236,7 @@ describe("review viewport geometry ownership", () => {
     current.editor.layout.mockClear();
     current.writes.length = 0;
     const cleanup = vi.fn(() => current.view.setMaxLineWidth(184));
-    const top = current.mount.style.top;
+    const top = current.mount.style.transform;
 
     current.viewport.update(cleanup);
     current.viewport.layout();
@@ -245,7 +245,7 @@ describe("review viewport geometry ownership", () => {
     expect(cleanup).toHaveBeenCalledOnce();
     expect(current.measure).not.toHaveBeenCalled();
     expect(current.editor.layout).not.toHaveBeenCalled();
-    expect(current.mount.style.top).toBe(top);
+    expect(current.mount.style.transform).toBe(top);
     expect(current.writes).toEqual([]);
   });
 
@@ -310,7 +310,7 @@ describe("review viewport geometry ownership", () => {
     for (const top of [10_100, 9_900, 30_000]) {
       current.scrollTo(top);
       expect(current.view.getCurrentScrollTop()).toBe(top);
-      expect(Number.parseFloat(current.mount.style.top)).toBe(top);
+      expect(current.mount.style.transform).toBe(`translateY(${top}px)`);
     }
     expect(current.editor.layout).not.toHaveBeenCalled();
     expect(current.measure).not.toHaveBeenCalled();
@@ -347,13 +347,13 @@ describe("review viewport geometry ownership", () => {
     current.state.containerHeight = () => 1_000;
     current.viewport.layout();
     current.scrollTo(0);
-    expect(current.mount.style.top).toBe("0px");
+    expect(current.mount.style.transform).toBe("translateY(0px)");
     expect(current.editor.getLayoutInfo().height).toBe(359);
     current.scrollTo(700.375);
-    expect(current.mount.style.top).toBe("501px");
+    expect(current.mount.style.transform).toBe("translateY(501px)");
     expect(current.editor.getLayoutInfo().height).toBe(499);
     current.scrollTo(1_200.5);
-    expect(current.mount.style.top).toBe("1000px");
+    expect(current.mount.style.transform).toBe("translateY(1000px)");
     expect(current.editor.getLayoutInfo().height).toBe(0);
   });
 
@@ -381,7 +381,7 @@ describe("review viewport geometry ownership", () => {
     current.measure.mockClear();
     current.view.getScrollable().setScrollPositionNow({ scrollTop: 9_900 });
     expect(current.rootTop()).toBe(9_900);
-    expect(Number.parseFloat(current.mount.style.top)).toBe(9_900);
+    expect(current.mount.style.transform).toBe("translateY(9900px)");
     expect(current.measure).not.toHaveBeenCalled();
   });
 
@@ -405,6 +405,8 @@ describe("review viewport geometry ownership", () => {
     current.container.clientWidth += 1;
     current.viewport.layout();
     expect(current.view.getCurrentScrollTop()).toBe(current.view.getScrollHeight() - 562);
-    expect(Number.parseFloat(current.mount.style.top)).toBe(current.view.getCurrentScrollTop());
+    expect(current.mount.style.transform).toBe(
+      `translateY(${current.view.getCurrentScrollTop()}px)`,
+    );
   });
 });

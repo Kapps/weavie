@@ -10,6 +10,19 @@ export function mountReviewToolbar(host: HTMLElement, toolbar: HTMLElement): voi
   else previous.replaceWith(toolbar);
 }
 
+/** A standalone editor owns one toolbar, independently of shared review-footer ownership. */
+export function createEditorToolbarPublisher(
+  getHost: () => HTMLElement | null,
+): (toolbar: HTMLElement | undefined) => void {
+  let mounted: HTMLElement | undefined;
+  return (toolbar) => {
+    const host = getHost();
+    if (toolbar !== undefined && host !== null) mountReviewToolbar(host, toolbar);
+    if (mounted !== toolbar || host === null) mounted?.remove();
+    mounted = host === null ? undefined : toolbar;
+  };
+}
+
 export const makeButton = (
   className: string,
   label: string,

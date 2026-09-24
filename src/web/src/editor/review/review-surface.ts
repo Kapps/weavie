@@ -17,6 +17,7 @@ export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   refresh(): void;
   takeControl(): void;
   reveal(path: string, line: number): void;
+  toolbar(): HTMLElement | undefined;
 }
 
 export interface ReviewSectionRegistry {
@@ -209,6 +210,7 @@ export function createReviewSurface(surface: {
       activeSection()?.inline.refreshPresentation();
     },
     actions: () => activeSection()?.inline.captureActions(),
+    toolbar: () => activeSection()?.inline.toolbar(),
     reveal: (path, line) => reveal({ path, line }, "location"),
     sections: {
       empty: () => settle(),

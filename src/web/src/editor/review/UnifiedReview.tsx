@@ -65,14 +65,11 @@ export function UnifiedReview(props: {
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
-    );
+    props
+      .overview()
+      .files.findIndex(
+        (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
+      );
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -154,15 +151,11 @@ export function UnifiedReview(props: {
       const top =
         options.adjustments === undefined ? offset : owner.getScrollTop() + options.adjustments;
       sizeVirtualList(instance.getTotalSize());
-      owner.setScrollTop(top);
+      if (options.adjustments === undefined) owner.setScrollTop(top);
+      else owner.setScrollAnchor(top, options.adjustments);
     },
-    // Observer snapshots must apply before navigation, not overwrite newer explicit sizes next frame.
-    measureElement: (element, entry, instance) =>
-      entry === undefined
-        ? (instance.itemSizeCache.get(
-            instance.options.getItemKey(instance.indexFromElement(element)),
-          ) ?? element.getBoundingClientRect().height)
-        : entry.borderBoxSize[0]!.blockSize,
+    measureElement: (element, entry) =>
+      entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
   });
@@ -224,9 +217,10 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
+      stepIn: () => reveal(Math.max(0, index)),
       nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      prevFile: () =>
+        reveal((Math.max(0, index) - 1 + overview.files.length) % overview.files.length),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {
@@ -266,23 +260,29 @@ export function UnifiedReview(props: {
       }),
     ),
   );
-  createEffect(() => {
-    controlsRevision();
-    visibleFile();
+  const parkedToolbar = createMemo(() => {
     const overview = props.overview();
-    setContext("diffActive", overview.files.length > 0);
-    if (surface.actions() !== undefined || overview.files.length === 0) return;
-    const controls = createParkedToolbar(
-      summary(),
+    if (overview.files.length === 0) return undefined;
+    return createParkedToolbar(
+      { fileCount: overview.files.length, label: overview.label },
       {
-        ...summary(),
+        stepIn: () => summary().stepIn(),
+        nextFile: () => summary().nextFile(),
+        prevFile: () => summary().prevFile(),
         undo: history.onUndoLast,
         redo: history.onRedo,
       },
       overview.history,
-    );
-    if (toolbarHost !== undefined) mountReviewToolbar(toolbarHost, controls.bar);
-    onCleanup(() => controls.bar.remove());
+    ).bar;
+  });
+  createEffect(() => {
+    controlsRevision();
+    visibleFile();
+    setContext("diffActive", props.overview().files.length > 0);
+    const toolbar = surface.toolbar() ?? parkedToolbar();
+    if (toolbarHost === undefined) return;
+    if (toolbar === undefined) toolbarHost.replaceChildren();
+    else mountReviewToolbar(toolbarHost, toolbar);
   });
 
   const followViewport = (): void => {
@@ -318,11 +318,6 @@ export function UnifiedReview(props: {
     };
     if (element.isConnected) commit();
     else queueMicrotask(commit);
-  };
-  const measure = (element: HTMLElement): void => {
-    if (element.isConnected) {
-      virtualizer.resizeItem(Number(element.dataset.index), element.getBoundingClientRect().height);
-    }
   };
 
   return (
@@ -360,9 +355,7 @@ export function UnifiedReview(props: {
                               editorHeight={() => editorHeight(view())}
                               onEditorHeight={(height) => {
                                 const file = view();
-                                if (editorHeights.get(file) === height) return false;
                                 editorHeights.set(file, height);
-                                return true;
                               }}
                               scope={props.scope}
                               displayPath={displayPath}
@@ -370,7 +363,7 @@ export function UnifiedReview(props: {
                               index={item().index}
                               register={surface.sections}
                               active={() => visibleFile() === item().index - 1}
-                              toolbarHost={() => toolbarHost ?? null}
+                              onToolbar={() => setControlsRevision((value) => value + 1)}
                               configureDiff={(inline, uri, diff) =>
                                 props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
                                   surface.reveal(file.path, line),
@@ -379,8 +372,9 @@ export function UnifiedReview(props: {
                               openCopy={(diff) =>
                                 copies.open(diff.path, diff.current, diff.currentExists)
                               }
-                              measure={measure}
-                              observe={observe}
+                              onMeasuredHeight={(height) =>
+                                virtualizer.resizeItem(item().index, height)
+                              }
                               onFocus={() => {
                                 setVisibleFile(item().index - 1);
                                 props.changed();

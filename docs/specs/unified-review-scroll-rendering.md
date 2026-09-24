@@ -4,6 +4,22 @@ The unified review uses one logical scroll position for its file list, pinned he
 Monaco viewports. Their placement uses CSS transforms. Completion, hover, and rename widgets live
 outside the transformed content so their fixed positions remain relative to the window.
 
+Immediate wheel input accumulates a destination using Monaco's normalization and per-event
+clamping. The scroll owner commits that destination once per animation frame, before Monaco's
+coordinated editor rendering. The file list, headers, editor viewports, and saved view state all read
+the committed position. Absolute navigation supersedes queued input; geometry-anchor corrections
+shift the pending destination as well as the visible position. Physical-wheel interpolation remains
+Monaco-owned and follows the editor's smooth-scrolling setting.
+
+The review body owns initial diff painting. Cached CodeLens zones are initialized before the editor
+publishes its first section height, so remounting does not temporarily remove known lens rows and
+change the virtual range. Fresh provider results may still change geometry asynchronously.
+
+The review owns its footer independently of editor lifetimes. Inline diff controllers publish toolbar
+content; the footer selects the active registered section's toolbar or its parked navigation controls.
+Editor teardown never removes the shared footer's DOM. This prevents an empty-toolbar interval from
+resizing the viewport and clamping the scroll position during a file handoff.
+
 Each review section owns an external widget layer. The Monaco patch gives every view using that
 layer its own child container, focus tracking, inherited context keys, and keyboard registration.
 Nested definition peeks share the placement layer but own separate children. View disposal removes
@@ -53,3 +69,8 @@ headers, resize, keyboard navigation, Find, review actions, and autoscroll. The 
 completion positioning after scrolling and changing files, click acceptance, editor focus, and
 cleanup. It also accepts and cancels rename with a definition peek open: sharing popup focus or
 losing its keyboard context makes Escape fail in that scenario.
+
+Burst-input coverage checks exact destinations, reversals, and boundary clamping through both
+headers and embedded editors, with one committed wheel position per frame. Cached-remount journeys
+check one initial diff paint and stable CodeLens height. These correctness tests do not establish
+native trackpad smoothness; JavaScript-dispatched events bypass native input delivery.

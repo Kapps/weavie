@@ -48,17 +48,20 @@ async function prepareDefinition(page: Page): Promise<Locator> {
   await page.evaluate((name) => {
     const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
       .__WEAVIE_MONACO__;
-    monaco.languages.registerDefinitionProvider("*", {
-      provideDefinition: (model) =>
-        model.uri.path.endsWith(`/${name}`)
-          ? [
-              {
-                uri: model.uri,
-                range: { startLineNumber: 1, startColumn: 14, endLineNumber: 1, endColumn: 30 },
-              },
-            ]
-          : [],
-    });
+    monaco.languages.registerDefinitionProvider(
+      { language: "typescript", exclusive: true },
+      {
+        provideDefinition: (model) =>
+          model.uri.path.endsWith(`/${name}`)
+            ? [
+                {
+                  uri: model.uri,
+                  range: { startLineNumber: 1, startColumn: 14, endLineNumber: 1, endColumn: 30 },
+                },
+              ]
+            : [],
+      },
+    );
   }, sourceName);
   return word;
 }

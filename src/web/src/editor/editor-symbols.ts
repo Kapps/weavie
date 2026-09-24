@@ -2,7 +2,6 @@ import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { samePath } from "./fs-path";
 import type { TextLocation } from "./nav-history";
-import { REVEAL_SCROLL } from "./reveal-scroll";
 
 export const noEditorSymbols: SymbolActions = {
   documentSymbols: async () => ({ providerAvailable: false, items: [] }),
@@ -29,7 +28,7 @@ export function createEditorSymbols(options: {
       if (!editorContexts.displayed(connection) || !samePath(origin.path, symbol.path)) return;
       resume ??= options.suspendHistory();
       connection.editor.setSelection(symbol.range);
-      connection.editor.revealRangeInCenterIfOutsideViewport(symbol.range, REVEAL_SCROLL);
+      connection.reveal(symbol.range);
     },
     cancelPreview: () => {
       if (resume === undefined) return;

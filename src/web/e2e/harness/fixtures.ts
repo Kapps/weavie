@@ -134,7 +134,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         inference,
         automaticInference,
         pr: prScenario,
-        notionDoc: notionDoc ?? undefined,
+        ...(notionDoc === null ? {} : { notionDoc }),
       });
       // Collect the page's console errors for the failure dump: a browser-side error that disrupts boot
       // (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the DOM snapshot

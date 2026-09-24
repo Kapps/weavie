@@ -36,7 +36,7 @@ export function ReviewFileSection(props: {
   onMeasuredHeight: (height: number) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
@@ -49,6 +49,7 @@ export function ReviewFileSection(props: {
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
+  let sectionTop = props.top;
   let borderTop = 0;
   let headerLimit = 0;
   let body: HTMLElement | undefined;
@@ -80,9 +81,9 @@ export function ReviewFileSection(props: {
   const layoutHeader = (): void => {
     const offset = Math.max(
       0,
-      Math.min(props.scroller().getScrollTop() - props.top - borderTop, headerLimit),
+      Math.min(props.scroller().getScrollTop() - sectionTop - borderTop, headerLimit),
     );
-    header.style.top = `${offset}px`;
+    header.style.transform = `translateY(${offset}px)`;
   };
   const measureHeader = (): void => {
     borderTop = article!.clientTop;
@@ -96,6 +97,7 @@ export function ReviewFileSection(props: {
     if (article !== undefined) {
       untrack(() => {
         article!.style.top = `${top}px`;
+        sectionTop = top;
         layoutHeader();
         current?.position();
       });
@@ -133,6 +135,7 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
+        article.style.top = `${sectionTop}px`;
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);
@@ -210,12 +213,7 @@ export function ReviewFileSection(props: {
             tab={props.tab}
             onEditor={setEditor}
             header={() => header}
-            section={{
-              get element() {
-                return article!;
-              },
-              top: () => props.top,
-            }}
+            section={{ top: () => sectionTop }}
             scroller={props.scroller}
             editorHeight={props.editorHeight}
             onEditorHeight={props.onEditorHeight}
@@ -224,7 +222,7 @@ export function ReviewFileSection(props: {
             openCopy={props.openCopy}
             register={props.register}
             active={props.active}
-            toolbarHost={props.toolbarHost}
+            onToolbar={props.onToolbar}
             configureDiff={props.configureDiff}
             onCursor={props.onFocus}
           />

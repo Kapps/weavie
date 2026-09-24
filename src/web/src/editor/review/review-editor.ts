@@ -1,3 +1,4 @@
+import { CodeLensContribution } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/codelens/browser/codelensController";
 import type { ClientSession } from "../../bridge";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
@@ -42,9 +43,9 @@ export function createReviewEditor(options: {
   section: ReviewSectionGeometry;
   model: monaco.editor.ITextModel;
   editable: boolean;
-  diff: ReviewFileDiff;
+  path: string;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onHeight: (height: number) => void;
   onPainted: () => void;
@@ -58,34 +59,49 @@ export function createReviewEditor(options: {
   mount.className = "unified-review-editor-viewport";
   mount.style.visibility = "hidden";
   container.append(loading, mount);
+  // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
+  const widgets = document.createElement("div");
+  widgets.className = "monaco-editor unified-review-overflow-widgets";
+  options.scroller.element.append(widgets);
   const horizontalScrollbarSize =
     monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
-  const editor = createEmbeddedEditor(mount, model, {
-    readOnly: !options.editable,
-    scrollBeyondLastLine: false,
-    automaticLayout: false,
-    smoothScrolling: false,
-    overviewRulerLanes: 0,
-    overviewRulerBorder: false,
-    hideCursorInOverviewRuler: true,
-    minimap: { enabled: false },
-    folding: false,
-    stickyScroll: { enabled: false },
-    renderLineHighlightOnlyWhenFocus: true,
-    // Visible-line width changes while scrolling; scrollbar space must not change section height with it.
-    scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
-    padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
-  }) as CollapsingEditor;
   const viewport = createReviewEditorViewport(
     container,
     mount,
     options.scroller,
     options.header,
-    editor,
+    (dimension) => {
+      const editor = createEmbeddedEditor(
+        mount,
+        model,
+        { dimension, overflowWidgetsDomNode: widgets },
+        {
+          readOnly: !options.editable,
+          scrollBeyondLastLine: false,
+          automaticLayout: false,
+          smoothScrolling: false,
+          overviewRulerLanes: 0,
+          overviewRulerBorder: false,
+          hideCursorInOverviewRuler: true,
+          minimap: { enabled: false },
+          folding: false,
+          stickyScroll: { enabled: false },
+          renderLineHighlightOnlyWhenFocus: true,
+          // Visible-line width changes must not change the section's height.
+          scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
+          padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
+        },
+      );
+      // Cached CodeLens zones must precede the first published section height.
+      if (editor.getContribution(CodeLensContribution.ID) === null) {
+        throw new Error("Monaco CodeLens contribution is not registered.");
+      }
+      return editor;
+    },
     options.section,
   );
+  const editor = viewport.editor as CollapsingEditor;
   const gaps = editor.createDecorationsCollection([]);
-  let constructing = true;
   let disposed = false;
   const publish = (): void => {
     if (!disposed) options.onPainted();
@@ -109,7 +125,7 @@ export function createReviewEditor(options: {
     scope: options.scope,
     updateGeometry: viewport.update,
     active: options.active,
-    toolbarHost: options.toolbarHost,
+    publishToolbar: options.onToolbar,
     revealLine,
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
@@ -128,27 +144,25 @@ export function createReviewEditor(options: {
       }
       return first;
     },
-    painted: (markers) => {
-      const initialPaint = !geometryReady;
-      viewport.update(() => {
-        const collapsed = collapseUnchanged(markers, model.getLineCount());
-        gaps.set(collapsed.gapMarkers);
-        editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-        geometryReady = true;
-        measure();
-      });
-      if (initialPaint) {
+    prepareGeometry: (markers) => {
+      const collapsed = collapseUnchanged(markers, model.getLineCount());
+      gaps.set(collapsed.gapMarkers);
+      editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+      geometryReady = true;
+      measure();
+    },
+    painted: () => {
+      if (loading.parentNode !== null) {
         loading.remove();
         mount.style.removeProperty("visibility");
       }
-      if (constructing) queueMicrotask(publish);
-      else publish();
+      publish();
     },
   };
   const capture = (): TextLocation => {
     const line = presentation.reviewLine();
     return {
-      path: options.diff.path,
+      path: options.path,
       line,
       viewState: editor.saveViewState(),
       anchor: {
@@ -187,11 +201,12 @@ export function createReviewEditor(options: {
       }
     },
   });
+  widgets.addEventListener("focusin", () => {
+    editorContexts.activate(binding.connection);
+    options.onCursor(editor.getPosition()?.lineNumber ?? 1);
+  });
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
-  options.configure(inline, model.uri.toString(), options.diff);
-  measure();
-  constructing = false;
   const subscriptions = [
     contentSize,
     editor.onDidChangeCursorPosition((event) => {
@@ -214,7 +229,7 @@ export function createReviewEditor(options: {
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
       disposed = true;
-      if (container.contains(document.activeElement)) {
+      if (container.contains(document.activeElement) || widgets.contains(document.activeElement)) {
         options.scroller.element.focus({ preventScroll: true });
       }
       binding.dispose();
@@ -223,6 +238,7 @@ export function createReviewEditor(options: {
       inline.dispose();
       gaps.clear();
       editor.dispose();
+      widgets.remove();
       loading.remove();
       mount.remove();
     },

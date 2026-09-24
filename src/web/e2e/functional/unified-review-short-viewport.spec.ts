@@ -88,12 +88,16 @@ test("short editors retain their height across file boundaries and reveal keyboa
   const scroll = await reviewScroll(page);
   const step = Math.min(150, Math.floor((scroll.maximum - scroll.top) / 2));
   expect(step).toBeGreaterThan(0);
+  await page.clock.install();
+  await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1_000));
   for (const delta of [step, step, -step, -step]) {
     const before = (await reviewScroll(page)).top;
     await page.mouse.wheel(0, delta);
+    await page.clock.runFor(350);
     await expect
       .poll(async () => ((await reviewScroll(page)).top - before) * Math.sign(delta))
       .toBeGreaterThan(0);
     expect(await editor.evaluate((element) => element.clientHeight)).toBe(editorHeight);
   }
+  await page.clock.resume();
 });

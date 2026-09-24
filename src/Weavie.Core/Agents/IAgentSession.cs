@@ -80,5 +80,5 @@ public interface IStructuredAgentSideConversations {
 	void AskAside(AgentTurnSubmission submission);
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
-	void ReplyAside(string conversationId, string prompt);
+	void ReplyAside(string conversationId, AgentTurnSubmission submission);
 }

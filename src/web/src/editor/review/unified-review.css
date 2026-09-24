@@ -252,8 +252,6 @@
   width: 100%;
 }
 
-/* Positioned by `top` (never a transform) and unclipped, so Monaco's fixed suggest/hover widgets escape the
-   section and land where the caret is. */
 .unified-review-file {
   position: absolute;
   left: 0;
@@ -353,6 +351,13 @@
   width: 100%;
 }
 
+/* Monaco positions overflowing widgets against the viewport, outside the transformed scroll content. */
+.unified-review-overflow-widgets {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
 /* Keep the review's scrollbar local: Monaco option overrides also reach nested peek editors. */
 .unified-review-editor-viewport > .monaco-editor
   > .overflow-guard
@@ -361,8 +366,6 @@
   display: none;
 }
 
-/* Round the last section corners on Monaco's own clip layer — never on an ancestor, which would trap the
-   fixed-position suggest/hover widgets. */
 .unified-review-editor .overflow-guard {
   border-radius: 0 0 6px 6px;
 }

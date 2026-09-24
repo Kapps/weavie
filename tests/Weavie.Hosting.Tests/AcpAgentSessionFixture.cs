@@ -424,6 +424,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public void AskAside(string text) => Session.AskAside(Prompt(text));
 
+	public void ReplyAside(string conversationId, string text) => Session.ReplyAside(conversationId, Prompt(text));
+
 	private static AgentTurnSubmission Prompt(string text) => new() {
 		Id = Guid.NewGuid().ToString("N"),
 		Text = text,

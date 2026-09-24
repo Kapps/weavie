@@ -22,7 +22,6 @@ import {
   createParkedNavigation,
   createParkedToolbar,
   makeButton,
-  mountReviewToolbar,
   withShortcut,
 } from "./review/review-toolbar";
 import { sessionFileUri } from "./session-uri";
@@ -133,10 +132,11 @@ export interface InlineDiffActions {
 export interface InlineDiffPresentation {
   scope: ReviewScopeState;
   active(): boolean;
-  toolbarHost(): HTMLElement | null;
+  publishToolbar(toolbar: HTMLElement | undefined): void;
   revealLine(line: number): void;
   reviewLine(): number;
-  painted(markers: DiffMarkers | null): void;
+  prepareGeometry(markers: DiffMarkers | null): void;
+  painted(): void;
   /** Keeps geometry-induced scroll changes inside the owning presentation. */
   updateGeometry(change: () => void): void;
 }
@@ -156,6 +156,8 @@ export function inlineReviewLine(editor: monaco.editor.IStandaloneCodeEditor): n
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
 export interface InlineDiff {
   captureActions(): InlineDiffActions;
+  /** Current toolbar content; the presentation owns its DOM attachment and lifetime. */
+  toolbar(): HTMLElement | undefined;
   /** Refresh the toolbar mount and command context after the active review surface changes. */
   refreshPresentation(): void;
   /** Register (or replace) the diff for a file path; renders immediately if that file is the active model. */
@@ -298,13 +300,8 @@ export function createInlineDiff(
   let composerObserver: ResizeObserver | undefined;
 
   const replaceToolbar = (next: HTMLElement | undefined): void => {
-    const previous = toolbarNode;
     toolbarNode = next;
-    if (next !== undefined) {
-      const host = presentation.toolbarHost();
-      if (host !== null) mountReviewToolbar(host, next);
-    }
-    previous?.remove();
+    presentation.publishToolbar(next);
   };
 
   const clearControls = (): void => {
@@ -1198,78 +1195,74 @@ export function createInlineDiff(
     presentation.updateGeometry(() => {
       clearRenderState();
       fallbackNavigation = options;
-      presentation.painted(null);
+      presentation.prepareGeometry(null);
     });
+    presentation.painted();
     const fileKept = fileIsKept(options);
-    const editorDom = presentation.toolbarHost();
-    if (editorDom !== null) {
-      const bar = document.createElement("div");
-      bar.className = "weavie-inline-toolbar";
-      const multiFile =
-        options.fileCount !== undefined &&
-        options.fileCount > 1 &&
-        options.onPrevFile !== undefined &&
-        options.onNextFile !== undefined;
-      if (multiFile) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-file",
-            "←",
-            withShortcut("Previous file", CommandIds.reviewPrevFile),
-            prevFile,
-          ),
-        );
-      }
-      const warning = document.createElement("span");
-      warning.className = "weavie-inline-stack-sub";
-      warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
-      bar.appendChild(warning);
-      if (multiFile) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-file",
-            "→",
-            withShortcut("Next file", CommandIds.reviewNextFile),
-            nextFile,
-          ),
-        );
-      }
-      if (options.mode === "applied" && !fileKept) {
-        // No hunk geometry to act on, so only the whole-file actions are offered.
-        bar.append(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep file",
-            withShortcut("Keep this file", CommandIds.acceptChange),
-            () => runAction(options.onKeepFile),
-          ),
-          makeButton(
-            "weavie-inline-reject",
-            "Revert file",
-            withShortcut("Revert this file", CommandIds.rejectChange),
-            () => runAction(options.onRevertFile),
-          ),
-        );
-      } else if (options.mode === "review") {
-        bar.append(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep",
-            withShortcut("Keep this change", CommandIds.acceptChange),
-            () => runAction(options.onAccept),
-          ),
-          makeButton(
-            "weavie-inline-reject",
-            "Reject",
-            withShortcut("Reject this change", CommandIds.rejectChange),
-            () => runAction(options.onReject),
-          ),
-        );
-      }
-      replaceToolbar(bar);
-    } else {
-      replaceToolbar(undefined);
+    const bar = document.createElement("div");
+    bar.className = "weavie-inline-toolbar";
+    const multiFile =
+      options.fileCount !== undefined &&
+      options.fileCount > 1 &&
+      options.onPrevFile !== undefined &&
+      options.onNextFile !== undefined;
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "←",
+          withShortcut("Previous file", CommandIds.reviewPrevFile),
+          prevFile,
+        ),
+      );
     }
+    const warning = document.createElement("span");
+    warning.className = "weavie-inline-stack-sub";
+    warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
+    bar.appendChild(warning);
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "→",
+          withShortcut("Next file", CommandIds.reviewNextFile),
+          nextFile,
+        ),
+      );
+    }
+    if (options.mode === "applied" && !fileKept) {
+      // No hunk geometry to act on, so only the whole-file actions are offered.
+      bar.append(
+        makeButton(
+          "weavie-inline-accept",
+          "Keep file",
+          withShortcut("Keep this file", CommandIds.acceptChange),
+          () => runAction(options.onKeepFile),
+        ),
+        makeButton(
+          "weavie-inline-reject",
+          "Revert file",
+          withShortcut("Revert this file", CommandIds.rejectChange),
+          () => runAction(options.onRevertFile),
+        ),
+      );
+    } else if (options.mode === "review") {
+      bar.append(
+        makeButton(
+          "weavie-inline-accept",
+          "Keep",
+          withShortcut("Keep this change", CommandIds.acceptChange),
+          () => runAction(options.onAccept),
+        ),
+        makeButton(
+          "weavie-inline-reject",
+          "Reject",
+          withShortcut("Reject this change", CommandIds.rejectChange),
+          () => runAction(options.onReject),
+        ),
+      );
+    }
+    replaceToolbar(bar);
     renderedUri = uriString;
   };
 
@@ -1361,7 +1354,7 @@ export function createInlineDiff(
       // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
       if (markers.hunks.length === 0 && !hasFadedBand(options)) {
         clearRender();
-        presentation.painted(markers);
+        presentation.prepareGeometry(markers);
         initialProposalReveals.delete(uriString);
         return; // no net change and nothing kept — nothing to render
       }
@@ -1400,8 +1393,10 @@ export function createInlineDiff(
         });
       }
       renderedUri = uriString;
-      presentation.painted(markers);
+      presentation.prepareGeometry(markers);
     });
+    renderCounter();
+    presentation.painted();
     if (initialLine !== undefined) {
       editor.setPosition({ lineNumber: initialLine, column: 1 });
       presentation.revealLine(initialLine);
@@ -1413,8 +1408,7 @@ export function createInlineDiff(
   // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
   const renderParked = (): void => {
     clearRenderState();
-    const editorDom = presentation.toolbarHost();
-    if (editorDom === null || parkedReview === undefined) {
+    if (parkedReview === undefined) {
       replaceToolbar(undefined);
       return;
     }
@@ -1646,6 +1640,7 @@ export function createInlineDiff(
       );
       return { ...locationActions, ...captureHistoryActions() } as InlineDiffActions;
     },
+    toolbar: () => toolbarNode,
     refreshPresentation() {
       if (
         renderedScope !== presentation.scope.current ||
@@ -1654,11 +1649,7 @@ export function createInlineDiff(
         renderActive();
         return;
       }
-      if (toolbarNode !== undefined) {
-        const mount = presentation.toolbarHost();
-        if (mount === null) toolbarNode.remove();
-        else mountReviewToolbar(mount, toolbarNode);
-      }
+      presentation.publishToolbar(toolbarNode);
       syncDiffContext();
       renderCounter();
     },

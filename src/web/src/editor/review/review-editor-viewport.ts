@@ -1,8 +1,8 @@
+import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { monaco } from "../monaco-setup";
 import type { ReviewScroll } from "./review-scroll";
 
 export interface ReviewSectionGeometry {
-  readonly element: HTMLElement;
   top(): number;
 }
 
@@ -12,9 +12,10 @@ export function createReviewEditorViewport(
   mount: HTMLElement,
   scrollOwner: ReviewScroll,
   header: HTMLElement,
-  editor: monaco.editor.IStandaloneCodeEditor,
+  createEditor: (dimension: monaco.editor.IDimension) => monaco.editor.IStandaloneCodeEditor,
   section: ReviewSectionGeometry,
 ): {
+  editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
   position(): void;
@@ -24,10 +25,11 @@ export function createReviewEditorViewport(
   dispose(): void;
 } {
   const scroller = scrollOwner.viewport;
-  let syncing = false;
   let disposed = false;
+  let syncing = false;
   let updateDepth = 0;
   let dirty = false;
+  let measurePending = false;
   let containerOffset = 0;
   let sectionTop = section.top();
   let containerHeight = 0;
@@ -35,6 +37,20 @@ export function createReviewEditorViewport(
   let headerHeight = 0;
   let viewportHeight = 0;
   let cursorVisible = false;
+  const measure = (): void => {
+    containerOffset =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scrollOwner.getScrollTop() -
+      section.top();
+    containerHeight = container.clientHeight;
+    width = container.clientWidth;
+    headerHeight = header.getBoundingClientRect().height;
+    viewportHeight = scroller.clientHeight;
+  };
+  measure();
+  let dimension = { width, height: 0 };
+  const editor = createEditor(dimension);
 
   // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
   const bounds = (): { top: number; bottom: number; height: number } => {
@@ -66,18 +82,25 @@ export function createReviewEditorViewport(
     try {
       while (dirty) {
         dirty = false;
+        if (measurePending) {
+          measurePending = false;
+          measure();
+        }
         const viewport = bounds();
         const contentHeight = Math.min(editor.getContentHeight(), containerHeight);
         const height = Math.max(0, Math.floor(Math.min(contentHeight, viewport.height)));
         const top = Math.max(0, Math.min(Math.ceil(viewport.top), contentHeight - height));
-        const previous = editor.getLayoutInfo();
-        const resized = previous.width !== width || previous.height !== height;
+        const resized = dimension.width !== width || dimension.height !== height;
         // Let Monaco coordinate rendering after both the size and scroll position are updated.
-        if (resized) editor.layout({ width, height }, true);
+        if (resized) {
+          // Monaco clamps offscreen dimensions; compare requests rather than its clamped result.
+          dimension = { width, height };
+          editor.layout(dimension, true);
+        }
         const moved = editor.getScrollTop() !== top;
         if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
-        const offset = `${editor.getScrollTop()}px`;
-        if (mount.style.top !== offset) mount.style.top = offset;
+        const transform = `translateY(${editor.getScrollTop()}px)`;
+        if (mount.style.transform !== transform) mount.style.transform = transform;
       }
     } finally {
       syncing = false;
@@ -85,14 +108,9 @@ export function createReviewEditorViewport(
   };
   const layout = (): void => {
     if (disposed) return;
-    containerOffset =
-      container.getBoundingClientRect().top - section.element.getBoundingClientRect().top;
-    containerHeight = container.clientHeight;
-    width = container.clientWidth;
-    headerHeight = header.getBoundingClientRect().height;
-    viewportHeight = scroller.clientHeight;
+    measurePending = true;
     sync();
-    rememberCursorVisibility();
+    if (!syncing && updateDepth === 0) rememberCursorVisibility();
   };
   const observer = new ResizeObserver(layout);
   observer.observe(scroller);
@@ -103,6 +121,7 @@ export function createReviewEditorViewport(
     rememberCursorVisibility();
   });
   const reveal = (top: number): void => {
+    if (disposed) return;
     scrollOwner.setScrollTop(sectionTop + containerOffset - headerHeight + top);
     sync();
   };
@@ -127,17 +146,24 @@ export function createReviewEditorViewport(
     if (event.source !== "model") revealCursor();
     rememberCursorVisibility();
   });
-  const wheel = (event: WheelEvent): void => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+  const ownsTarget = (target: Element): boolean => {
     const root = editor.getDomNode();
     const scrollable = target.closest(".monaco-scrollable-element");
-    if (
-      target.closest(".monaco-editor") !== root ||
-      (scrollable !== null && scrollable !== root?.querySelector(".monaco-scrollable-element"))
-    ) {
-      return;
-    }
+    return (
+      root !== null &&
+      target.closest(".monaco-editor") === root &&
+      (scrollable === null ||
+        !root.contains(scrollable) ||
+        scrollable === root.querySelector(".monaco-scrollable-element"))
+    );
+  };
+  const offMiddleClick = registerMiddleClickScroll(editor.getDomNode()!, ownsTarget, {
+    x: (delta) => editor.setScrollLeft(editor.getScrollLeft() + delta),
+    y: null,
+  });
+  const wheel = (event: WheelEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element) || !ownsTarget(target)) return;
     // The review owns root-editor scrolling; nested widgets keep Monaco's own wheel handling.
     event.stopPropagation();
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
@@ -159,8 +185,9 @@ export function createReviewEditorViewport(
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
-  layout();
+  sync();
   return {
+    editor,
     bounds,
     layout,
     position: () => {
@@ -189,8 +216,10 @@ export function createReviewEditorViewport(
     },
     dispose: () => {
       disposed = true;
+      measurePending = false;
       observer.disconnect();
       unsubscribe();
+      offMiddleClick();
       mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
       cursor.dispose();

@@ -4,11 +4,10 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/dom";
 import type { IMouseWheelEvent } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/mouseEvent";
 import { SmoothScrollableElement } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/ui/scrollbar/scrollableElement";
-import {
-  Scrollable,
-  ScrollbarVisibility,
-} from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
+import { ScrollbarVisibility } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
+import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { ReviewScrollState } from "./review-scroll-state";
 
 // Match Monaco's ViewLayout animation duration.
 const SMOOTH_SCROLL_MS = 125;
@@ -19,6 +18,7 @@ export interface ReviewScroll {
   readonly viewport: HTMLElement;
   getScrollTop(): number;
   setScrollTop(top: number): void;
+  setScrollAnchor(top: number, adjustment: number): void;
   setContentHeight(height: number): void;
   onScroll(listener: (userInitiated: boolean) => void): () => void;
   wheel(event: WheelEvent): void;
@@ -26,12 +26,12 @@ export interface ReviewScroll {
 }
 
 export function createReviewScroll(element: HTMLElement, content: HTMLElement): ReviewScroll {
-  const state = new Scrollable({
+  const state = new ReviewScrollState({
     forceIntegerValues: false,
     smoothScrollDuration: currentEditorOptions().smoothScrolling ? SMOOTH_SCROLL_MS : 0,
-    // Monaco can paint the updated editor viewports in this same animation frame.
+    // Commit before Monaco's coordinated editor rendering (priority 100).
     scheduleAtNextAnimationFrame: (callback) =>
-      scheduleAtNextAnimationFrame(getWindow(element), callback),
+      scheduleAtNextAnimationFrame(getWindow(element), callback, 101),
   });
   const offOptions = onEditorOptionsChanged((options) => {
     state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
@@ -48,10 +48,17 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       useShadows: false,
       alwaysConsumeMouseWheel: true,
       mouseWheelSmoothScroll: true,
+      handleMouseWheel: false,
     },
     state,
   );
   const node = scrollable.getDomNode();
+  const wheel = (event: WheelEvent): void => {
+    state.wheel(() =>
+      scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
+    );
+  };
+  node.addEventListener("wheel", wheel, { passive: false });
   node.style.overflow = "clip";
   extent.style.overflow = "visible";
   element.appendChild(node);
@@ -82,10 +89,16 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const setScrollTop = (scrollTop: number): void => {
     update(() => scrollable.setScrollPosition({ scrollTop }));
   };
+  const offMiddleClick = registerMiddleClickScroll(node, () => true, {
+    x: null,
+    y: (delta) =>
+      scrollable.setScrollPosition({
+        scrollTop: state.getFutureScrollPosition().scrollTop + delta,
+      }),
+  });
   const render = (): void => {
     const top = getScrollTop();
-    // A top offset preserves the containing block of fixed-position editor widgets.
-    content.style.top = `${-top}px`;
+    content.style.transform = `translateY(${-top}px)`;
     scrollbar.setAttribute("aria-valuenow", String(top));
     const dimensions = scrollable.getScrollDimensions();
     scrollbar.setAttribute(
@@ -115,7 +128,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     if (event.target !== scrollbar && event.target !== element) return;
     const dimensions = scrollable.getScrollDimensions();
     const page = dimensions.height;
-    let top = getScrollTop();
+    let top = state.getFutureScrollPosition().scrollTop;
     switch (event.key) {
       case "ArrowDown":
         top += 40;
@@ -169,6 +182,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     viewport: node,
     getScrollTop,
     setScrollTop,
+    setScrollAnchor: (top, adjustment) => update(() => state.setScrollAnchor(top, adjustment)),
     setContentHeight: (height) => {
       if (contentHeight === height) return;
       contentHeight = height;
@@ -179,12 +193,13 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    wheel: (event) =>
-      scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
+    wheel,
     dispose: () => {
+      offMiddleClick();
       offOptions();
       observer.disconnect();
       subscription.dispose();
+      node.removeEventListener("wheel", wheel);
       element.removeEventListener("keydown", keydown);
       element.removeEventListener("focusin", focus);
       listeners.clear();

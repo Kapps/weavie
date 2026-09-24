@@ -31,7 +31,7 @@ export function ReviewFileBody(props: {
   section: ReviewSectionGeometry;
   scope: ReviewScopeState;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onCursor: (line: number) => void;
   file: Accessor<ReviewFileView>;
@@ -131,14 +131,14 @@ export function ReviewFileBody(props: {
             section: props.section,
             model: copy.model,
             editable: copy.editable,
-            diff: latest,
+            path,
             onHeight: (height) => {
               editorHeight = height;
               props.onEditorHeight(height);
             },
             onPainted: publish,
             active: props.active,
-            toolbarHost: () => (props.active() ? props.toolbarHost() : null),
+            onToolbar: props.onToolbar,
             configure: props.configureDiff,
             onCursor: props.onCursor,
           });

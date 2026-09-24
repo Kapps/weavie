@@ -91,6 +91,10 @@ test("Alt+click shows an unchanged definition without leaving unified review, an
     peek.locator(".monaco-editor .view-line", { hasText: "export const hiddenDefinition" }),
   ).toBeVisible();
   await expect(review).toBeVisible();
+  const nestedEditor = peek.locator(".monaco-editor").first();
+  await nestedEditor.click({ button: "middle", position: { x: 150, y: 25 } });
+  await expect(nestedEditor).toHaveClass(/scroll-editor-on-middle-click-editor/);
+  await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(peek).toHaveCount(0);
   await expect(review).toBeVisible();

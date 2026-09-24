@@ -1,46 +1,15 @@
-// Middle-click autoscroll for every scrollable surface in the app: press the middle button, then move the
-// pointer to scroll continuously — the further from the press point, the faster. Windows' engine ships this
-// natively, macOS and Linux never have, so Weavie owns the gesture on all three (preventDefault on the press
-// keeps Chromium from starting a second one on top of ours). Monaco drives its own virtual viewport through
-// `scrollOnMiddleClick`, wired to the same setting.
+// One gesture engine serves DOM panes and registered virtual scroll axes.
+// Unregistered Monaco editors keep their own scrollOnMiddleClick contribution.
 
 import { currentEditorOptions } from "../editor-options";
+import { type MiddleClickScrollSurface, middleClickSurfaceAt } from "./middle-click-scroll-surface";
 
 // Pointer travel that scrolls at zero speed, so a press without a deliberate drag holds still.
 const DEAD_ZONE = 5;
-// Surfaces that own the middle button themselves: text fields and links (primary-selection paste, open),
-// Monaco and xterm (their own gestures), and anything marking itself `data-middle-click`.
-const OWNS_MIDDLE_CLICK =
-  "a,input,textarea,select,[contenteditable]:not([contenteditable='false'])," +
-  ".monaco-editor,.xterm,[data-middle-click]";
-const SCROLLABLE = /^(auto|scroll|overlay)$/;
-
-interface Surface {
-  x: Element | null;
-  y: Element | null;
-}
-
-// The nearest ancestor that can actually scroll, per axis — so a drag down scrolls the pane even when the
-// pointer sits on something narrower that only scrolls sideways (a wide code block, a tab strip). Walks
-// `Element`, not `HTMLElement`: a press on an icon targets an SVG `<path>`.
-function surfaceAt(target: Element): Surface | null {
-  const surface: Surface = { x: null, y: null };
-  for (let node: Element | null = target; node !== null; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    surface.x ??=
-      SCROLLABLE.test(style.overflowX) && node.scrollWidth - node.clientWidth > 1 ? node : null;
-    surface.y ??=
-      SCROLLABLE.test(style.overflowY) && node.scrollHeight - node.clientHeight > 1 ? node : null;
-    if (surface.x !== null && surface.y !== null) {
-      break;
-    }
-  }
-  return surface.x === null && surface.y === null ? null : surface;
-}
 
 /** Installs the app-wide middle-click autoscroll; returns a teardown. */
 export function installMiddleClickAutoscroll(): () => void {
-  let surface: Surface | null = null;
+  let surface: MiddleClickScrollSurface | null = null;
   let frame = 0;
   let lastFrame = 0;
   let originX = 0;
@@ -57,8 +26,8 @@ export function installMiddleClickAutoscroll(): () => void {
     held = null;
     marker?.remove();
     marker = null;
-    surface?.x?.classList.remove("middle-click-autoscrolling");
-    surface?.y?.classList.remove("middle-click-autoscrolling");
+    surface?.x?.element.classList.remove("middle-click-autoscrolling");
+    surface?.y?.element.classList.remove("middle-click-autoscrolling");
     surface = null;
   };
   const animate = (time: number): void => {
@@ -70,12 +39,20 @@ export function installMiddleClickAutoscroll(): () => void {
       const step = (distance: number): number =>
         (Math.sign(distance) * Math.max(Math.abs(distance) - DEAD_ZONE, 0) * (time - lastFrame)) /
         32;
-      if (surface.y !== null) {
-        surface.y.scrollTop += step(pointerY - originY);
+      for (const direction of ["y", "x"] as const) {
+        const axis = surface[direction];
+        if (axis === null) continue;
+        if (!axis.live || !axis.element.isConnected || axis.element.closest("[hidden],[inert]")) {
+          axis.element.classList.remove("middle-click-autoscrolling");
+          surface[direction] = null;
+        } else {
+          axis.scrollBy(step(direction === "y" ? pointerY - originY : pointerX - originX));
+        }
       }
-      if (surface.x !== null) {
-        surface.x.scrollLeft += step(pointerX - originX);
-      }
+    }
+    if (surface.x === null && surface.y === null) {
+      stop();
+      return;
     }
     lastFrame = time;
     frame = requestAnimationFrame(animate);
@@ -114,19 +91,20 @@ export function installMiddleClickAutoscroll(): () => void {
       event.ctrlKey ||
       event.metaKey ||
       event.shiftKey ||
-      !(target instanceof Element) ||
-      target.closest(OWNS_MIDDLE_CLICK) !== null
+      !(target instanceof Element)
     ) {
       return;
     }
-    const found = surfaceAt(target);
+    const enabled = currentEditorOptions().middleClickAutoscroll;
+    // Disabled editor autoscroll gives Monaco its normal selection/PRIMARY-paste gesture back.
+    if (!enabled && target.closest(".monaco-editor")) return;
+    const found = middleClickSurfaceAt(target);
     if (found === null) {
       return;
     }
-    // Consumed before the setting is read: turning the setting off has to silence the engine's own autoscroll
-    // (Chromium ships one) too, or "off" would mean something different on Windows.
+    // Suppress the engine's built-in autoscroll on DOM surfaces even when ours is disabled.
     consume(event);
-    if (!currentEditorOptions().middleClickAutoscroll) {
+    if (!enabled) {
       return;
     }
     // Bound to the drag: a window-level wheel listener — passive or not — takes the page off WebKit's
@@ -147,8 +125,8 @@ export function installMiddleClickAutoscroll(): () => void {
     marker.className = "middle-click-autoscroll-origin";
     marker.style.left = `${event.clientX}px`;
     marker.style.top = `${event.clientY}px`;
-    found.x?.classList.add("middle-click-autoscrolling");
-    found.y?.classList.add("middle-click-autoscrolling");
+    found.x?.element.classList.add("middle-click-autoscrolling");
+    found.y?.element.classList.add("middle-click-autoscrolling");
     frame = requestAnimationFrame(animate);
   };
   const onMouseMove = (event: MouseEvent): void => {
@@ -158,8 +136,9 @@ export function installMiddleClickAutoscroll(): () => void {
   };
   // Releasing after a real drag ends the scroll; releasing in place leaves it armed for a click-move-click.
   const onMouseUp = (event: MouseEvent): void => {
-    if (event.button === 1 && (movedWhileHeld || dragged(event.clientX, event.clientY))) {
-      consume(event);
+    if (event.button !== 1) return;
+    consume(event);
+    if (movedWhileHeld || dragged(event.clientX, event.clientY)) {
       stop();
       swallowDismissal();
     }
@@ -170,8 +149,8 @@ export function installMiddleClickAutoscroll(): () => void {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      stop();
     }
+    stop();
   };
   const controller = new AbortController();
   document.addEventListener("mousedown", onMouseDown, {

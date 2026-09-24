@@ -151,13 +151,13 @@ export function UnifiedReview(props: {
       const top =
         options.adjustments === undefined ? offset : owner.getScrollTop() + options.adjustments;
       sizeVirtualList(instance.getTotalSize());
-      owner.setScrollTop(top);
+      if (options.adjustments === undefined) owner.setScrollTop(top);
+      else owner.setScrollAnchor(top, options.adjustments);
     },
     measureElement: (element, entry) =>
       entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
-    useAnimationFrameWithResizeObserver: true,
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 
@@ -260,23 +260,29 @@ export function UnifiedReview(props: {
       }),
     ),
   );
-  createEffect(() => {
-    controlsRevision();
-    visibleFile();
+  const parkedToolbar = createMemo(() => {
     const overview = props.overview();
-    setContext("diffActive", overview.files.length > 0);
-    if (surface.actions() !== undefined || overview.files.length === 0) return;
-    const controls = createParkedToolbar(
-      summary(),
+    if (overview.files.length === 0) return undefined;
+    return createParkedToolbar(
+      { fileCount: overview.files.length, label: overview.label },
       {
-        ...summary(),
+        stepIn: () => summary().stepIn(),
+        nextFile: () => summary().nextFile(),
+        prevFile: () => summary().prevFile(),
         undo: history.onUndoLast,
         redo: history.onRedo,
       },
       overview.history,
-    );
-    if (toolbarHost !== undefined) mountReviewToolbar(toolbarHost, controls.bar);
-    onCleanup(() => controls.bar.remove());
+    ).bar;
+  });
+  createEffect(() => {
+    controlsRevision();
+    visibleFile();
+    setContext("diffActive", props.overview().files.length > 0);
+    const toolbar = surface.toolbar() ?? parkedToolbar();
+    if (toolbarHost === undefined) return;
+    if (toolbar === undefined) toolbarHost.replaceChildren();
+    else mountReviewToolbar(toolbarHost, toolbar);
   });
 
   const followViewport = (): void => {
@@ -304,7 +310,7 @@ export function UnifiedReview(props: {
       onCleanup(() => element.removeEventListener(event, followViewport, true));
     }
   });
-  const measure = (element: HTMLElement): void => {
+  const observe = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
         virtualizer.measureElement(element);
@@ -347,14 +353,17 @@ export function UnifiedReview(props: {
                               tab={props.tab}
                               scroller={() => scroll()!}
                               editorHeight={() => editorHeight(view())}
-                              onEditorHeight={(height) => editorHeights.set(view(), height)}
+                              onEditorHeight={(height) => {
+                                const file = view();
+                                editorHeights.set(file, height);
+                              }}
                               scope={props.scope}
                               displayPath={displayPath}
                               file={view}
                               index={item().index}
                               register={surface.sections}
                               active={() => visibleFile() === item().index - 1}
-                              toolbarHost={() => toolbarHost ?? null}
+                              onToolbar={() => setControlsRevision((value) => value + 1)}
                               configureDiff={(inline, uri, diff) =>
                                 props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
                                   surface.reveal(file.path, line),
@@ -379,7 +388,7 @@ export function UnifiedReview(props: {
                       <ReviewFileTree
                         expanded={expandedDirectories}
                         index={0}
-                        measure={measure}
+                        measure={observe}
                         nodes={treeNodes}
                         onSelect={(file) =>
                           surface.reveal(file.summary().path, file.summary().line)

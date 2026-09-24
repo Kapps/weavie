@@ -155,7 +155,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.DoesNotContain(fixture.Messages, message =>
 			message.IsPrimaryThread == true && message.Text == "why this design?");
 
-		fixture.Session.ReplyAside(conversationId, "and the tradeoff?");
+		fixture.ReplyAside(conversationId, "and the tradeoff?");
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed"
 			&& message.ConversationId == conversationId
@@ -212,7 +212,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal("context:guidance=True;selection=False", answer.Text);
 		Assert.Equal("1", answer.TurnId);
 		string conversationId = Assert.IsType<string>(answer.ConversationId);
-		fixture.Session.ReplyAside(conversationId, "follow-up");
+		fixture.ReplyAside(conversationId, "follow-up");
 		var reply = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: follow-up");
 		Assert.Equal(conversationId, reply.ConversationId);
@@ -379,7 +379,7 @@ public sealed class AcpAgentSessionTests {
 
 		Assert.Equal(completed.ConversationId, terminal.ConversationId);
 		var error = Assert.Throws<InvalidOperationException>(() =>
-			fixture.Session.ReplyAside(Assert.IsType<string>(completed.ConversationId), "still there?"));
+			fixture.ReplyAside(Assert.IsType<string>(completed.ConversationId), "still there?"));
 		Assert.Contains("no longer available", error.Message, StringComparison.OrdinalIgnoreCase);
 	}
 

@@ -45,4 +45,11 @@ describe("collapseUnchanged", () => {
   it("shows the whole file for the full-context span", () => {
     expect(lines([FULL_CONTEXT])).toEqual([]);
   });
+
+  it("ignores a revealed span the file has shrunk past", () => {
+    expect(lines([{ start: 150, end: 160 }])).toEqual([
+      [1, 46],
+      [54, 100],
+    ]);
+  });
 });

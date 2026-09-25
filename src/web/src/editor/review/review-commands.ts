@@ -46,18 +46,13 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       return () => session !== null && action(session, path, args);
     };
   // Acts only while the presentation it was captured on is still the one displayed.
-  const atUnifiedFile =
-    (
-      action: (
-        session: NonNullable<ReturnType<typeof selectedSession>>,
-        path: string | undefined,
-      ) => boolean,
-    ): CommandCapture =>
+  const whileDisplayed =
+    (inner: CommandCapture): CommandCapture =>
     (context, args) => {
       const { session } = context;
       const tab = session === null ? undefined : activeTabFor(session);
       const presentation = tab?.presentation;
-      const run = forSession(action)(context, args);
+      const run = inner(context, args);
       return () =>
         presentation !== undefined &&
         !presentation.signal.aborted &&
@@ -65,6 +60,12 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
         activeTabFor(session!) === tab &&
         run(args, context);
     };
+  const atUnifiedFile = (
+    action: (
+      session: NonNullable<ReturnType<typeof selectedSession>>,
+      path: string | undefined,
+    ) => boolean,
+  ): CommandCapture => whileDisplayed(forSession(action));
   return [
     ...(
       [
@@ -95,12 +96,12 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
     ],
     [
       CommandIds.reviewOpenLine,
-      ({ session }) => {
+      whileDisplayed(({ session }) => {
         const text =
           session === null ? undefined : activeTabFor(session)?.presentation?.capture().text;
         return () =>
           session !== null && text != null && editor.openReview(session, text.path, text.line);
-      },
+      }),
     ],
     [
       CommandIds.reviewOpen,

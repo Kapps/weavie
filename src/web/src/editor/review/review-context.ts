@@ -34,7 +34,11 @@ export function collapseUnchanged(
       start: Math.max(1, Math.min(span.start, span.end + 1) - CONTEXT_LINES),
       end: Math.min(lineCount, Math.max(span.end, span.start - 1) + CONTEXT_LINES),
     }))
-    .concat(revealed.map((span) => ({ start: span.start, end: Math.min(lineCount, span.end) })))
+    .concat(
+      revealed
+        .filter((span) => span.start <= lineCount)
+        .map((span) => ({ start: span.start, end: Math.min(lineCount, span.end) })),
+    )
     .sort((a, b) => a.start - b.start);
   const shown: { start: number; end: number }[] = [];
   for (const span of padded) {

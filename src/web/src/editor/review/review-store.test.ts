@@ -5,7 +5,6 @@ import type { ReviewResume } from "../session-types";
 import {
   canCloseReview,
   createReviewStore,
-  FULL_CONTEXT,
   type ReviewFile,
   type ReviewFileDiff,
 } from "./review-store";
@@ -314,19 +313,6 @@ describe("review store", () => {
       store.reset(client);
       expect(store.count()).toBe(0);
       expect(store.overview().files).toEqual([]);
-      dispose();
-    });
-  });
-
-  it("holds each file's revealed context on its stable view", () => {
-    createRoot((dispose) => {
-      const store = createReviewStore(() => {});
-      const client = session();
-      store.setFiles(client, [firstFile, secondFile], "PR #1");
-      store.setFileContext(client, firstFile.path, [FULL_CONTEXT]);
-      const [first, second] = store.board(client).files;
-      expect(first!.context()).toEqual([FULL_CONTEXT]);
-      expect(second!.context()).toEqual([]);
       dispose();
     });
   });

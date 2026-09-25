@@ -4,6 +4,7 @@ import {
   createEffect,
   createSignal,
   type JSX,
+  on,
   onCleanup,
   Show,
   untrack,
@@ -72,11 +73,14 @@ export function ReviewFileBody(props: {
     const editor = mounted();
     untrack(() => editor?.inline.refreshPresentation());
   });
-  createEffect(() => {
-    const editor = mounted();
-    props.file().context();
-    untrack(() => editor?.refreshContext());
-  });
+  // A remounted editor applies the context itself; only a change while mounted needs a refresh.
+  createEffect(
+    on(
+      () => props.file().context(),
+      () => untrack(mounted)?.refreshContext(),
+      { defer: true },
+    ),
+  );
   createEffect(() => {
     const editor = mounted();
     const value = diff();

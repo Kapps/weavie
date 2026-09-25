@@ -132,6 +132,8 @@ export function createReviewEditor(options: {
     button.className = "unified-review-gap";
     button.textContent = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
     button.title = `${button.textContent} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`;
+    // Keep focus in the editor: the band is rebuilt on click, which would drop focus to the body.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => options.revealContext(span));
     return {
       afterLineNumber: span.start - 1,
@@ -226,6 +228,8 @@ export function createReviewEditor(options: {
   options.configure(inline, model.uri.toString(), options.diff);
   measure();
   constructing = false;
+  container.classList.toggle("navigable", options.diff.currentExists);
+  let pressedLine = 0;
   const subscriptions = [
     contentSize,
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
@@ -233,12 +237,17 @@ export function createReviewEditor(options: {
       if (options.diff.currentExists && isLineNumber(event.target))
         event.target.element!.title = `Open file at this line${keyHint(CommandIds.reviewOpenLine)}`;
     }),
+    // A plain click on a line number navigates; a drag or modified click keeps Monaco's line selection.
     editor.onMouseDown((event) => {
-      if (options.diff.currentExists && event.event.leftButton && isLineNumber(event.target))
-        void runCommandWithFeedback(CommandIds.reviewOpen, {
-          path: options.diff.path,
-          line: event.target.position!.lineNumber,
-        });
+      const { leftButton, shiftKey, ctrlKey, metaKey, altKey } = event.event;
+      const plain = leftButton && !shiftKey && !ctrlKey && !metaKey && !altKey;
+      pressedLine = plain && isLineNumber(event.target) ? event.target.position!.lineNumber : 0;
+    }),
+    editor.onMouseUp((event) => {
+      const line = pressedLine;
+      pressedLine = 0;
+      if (line !== 0 && isLineNumber(event.target) && event.target.position!.lineNumber === line)
+        void runCommandWithFeedback(CommandIds.reviewOpen, { path: options.diff.path, line });
     }),
   ];
   return {
@@ -253,7 +262,11 @@ export function createReviewEditor(options: {
       editor.focus();
     },
     layout: viewport.layout,
-    refreshContext: () => viewport.update(applyContext),
+    refreshContext: () => {
+      const location = capture();
+      viewport.update(applyContext);
+      restore(location);
+    },
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {

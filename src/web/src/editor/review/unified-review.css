@@ -393,11 +393,11 @@
   color: var(--fg);
 }
 
-.unified-review-editor .line-numbers {
+.unified-review-editor.navigable .line-numbers {
   cursor: pointer;
 }
 
-.unified-review-editor .line-numbers:hover {
+.unified-review-editor.navigable .line-numbers:hover {
   color: var(--accent);
   text-decoration: underline;
 }

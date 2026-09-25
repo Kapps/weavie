@@ -164,6 +164,6 @@ fieldset.getting-started-options {
   border-color: transparent;
 }
 
-.getting-started .getting-started-next:hover {
+.getting-started .getting-started-next:hover:not(:disabled) {
   background: var(--button-hover-bg);
 }

@@ -392,6 +392,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
 				}
 			}
+			// Getting Started just asked about inference, so don't ask again this run.
+			if (change.Key == CoreSettings.GettingStartedCompleted) {
+				Interlocked.Exchange(ref _automaticInferenceOffered, 1);
+			}
+
 			if (change.Key is InferenceSettings.Enabled or InferenceSettings.AllowAutomatic
 				&& AutomaticInferenceEnabled()) {
 				ClearAutomaticInferenceOffer();

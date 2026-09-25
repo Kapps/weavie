@@ -175,7 +175,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
 const KEY_COMMANDS = [
   CommandIds.focusOmnibarCommands,
   CommandIds.focusOmnibarFiles,
-  CommandIds.newSession,
+  CommandIds.showSessions,
   CommandIds.reviseSelection,
   CommandIds.findInFiles,
 ];

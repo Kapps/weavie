@@ -34,7 +34,8 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   await setup.getByRole("button", { name: "Next" }).click();
 
   await expect(heading).toHaveText("Keyboard");
-  await expect(setup.locator("dt", { hasText: "New Session" })).toBeVisible();
+  await expect(setup.locator("dt", { hasText: "Sessions" })).toBeVisible();
+  await expect(setup.locator(".getting-started-keys kbd", { hasText: "Unbound" })).toHaveCount(0);
   await setup.getByRole("button", { name: "Finish" }).click();
   await expect(setup).toBeHidden();
 
@@ -42,6 +43,9 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
   await expect(setup).toHaveCount(0);
+  await expect(
+    page.locator(".toast", { hasText: "Let Weavie use automatic inference" }),
+  ).toHaveCount(0);
 
   await runCommand(page, "Getting Started");
   await expect(heading).toHaveText("Appearance");

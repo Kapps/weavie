@@ -1,5 +1,6 @@
 import { monaco } from "../monaco-setup";
 import type { DiffMarkers } from "./diff-markers";
+import type { LineSpan } from "./review-store";
 
 // Unchanged lines kept either side of a change, matching the file-review reading distance.
 const CONTEXT_LINES = 3;
@@ -15,16 +16,17 @@ export function estimatedEditorHeight(added: number, removed: number): number {
 }
 
 /**
- * Hides every line more than `CONTEXT_LINES` from a change (bright or accepted), and marks the first line after
- * each collapsed stretch so a gap reads as a gap. A timed-out diff (null markers) collapses nothing.
+ * The stretches hidden because they lie more than `CONTEXT_LINES` from every change (bright or accepted) and
+ * outside every `revealed` span. A timed-out diff (null markers) collapses nothing.
  */
 export function collapseUnchanged(
   markers: DiffMarkers | null,
   lineCount: number,
-): { hidden: monaco.IRange[]; gapMarkers: monaco.editor.IModelDeltaDecoration[] } {
+  revealed: readonly LineSpan[],
+): monaco.IRange[] {
   const spans = markers === null ? [] : changedSpans(markers);
   if (spans.length === 0) {
-    return { hidden: [], gapMarkers: [] };
+    return [];
   }
   // A pure deletion's span is empty (end < start) and its ghost hangs off the line above, so pad both edges.
   const padded = spans
@@ -32,6 +34,7 @@ export function collapseUnchanged(
       start: Math.max(1, Math.min(span.start, span.end + 1) - CONTEXT_LINES),
       end: Math.min(lineCount, Math.max(span.end, span.start - 1) + CONTEXT_LINES),
     }))
+    .concat(revealed.map((span) => ({ start: span.start, end: Math.min(lineCount, span.end) })))
     .sort((a, b) => a.start - b.start);
   const shown: { start: number; end: number }[] = [];
   for (const span of padded) {
@@ -44,22 +47,17 @@ export function collapseUnchanged(
   }
 
   const hidden: monaco.IRange[] = [];
-  const gapMarkers: monaco.editor.IModelDeltaDecoration[] = [];
   let line = 1;
   for (const span of shown) {
     if (span.start > line) {
       hidden.push(new monaco.Range(line, 1, span.start - 1, 1));
-      gapMarkers.push({
-        range: new monaco.Range(span.start, 1, span.start, 1),
-        options: { isWholeLine: true, className: "weavie-review-gap" },
-      });
     }
     line = span.end + 1;
   }
   if (line <= lineCount) {
     hidden.push(new monaco.Range(line, 1, lineCount, 1));
   }
-  return { hidden, gapMarkers };
+  return hidden;
 }
 
 // Every changed line range in live-model coordinates: the bright pending hunks plus the faded accepted ones.

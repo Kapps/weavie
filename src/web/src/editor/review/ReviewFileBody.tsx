@@ -14,7 +14,12 @@ import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
-import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
+import {
+  hasReviewChanges,
+  type LineSpan,
+  type ReviewFileDiff,
+  type ReviewFileView,
+} from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileBody(props: {
@@ -27,6 +32,7 @@ export function ReviewFileBody(props: {
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onCursor: (line: number) => void;
+  revealContext: (span: LineSpan) => void;
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
@@ -65,6 +71,11 @@ export function ReviewFileBody(props: {
     props.active();
     const editor = mounted();
     untrack(() => editor?.inline.refreshPresentation());
+  });
+  createEffect(() => {
+    const editor = mounted();
+    props.file().context();
+    untrack(() => editor?.refreshContext());
   });
   createEffect(() => {
     const editor = mounted();
@@ -126,6 +137,8 @@ export function ReviewFileBody(props: {
             active: props.active,
             toolbarHost: () => (props.active() ? props.toolbarHost() : null),
             configure: props.configureDiff,
+            context: props.file().context,
+            revealContext: props.revealContext,
             onCursor: props.onCursor,
           });
           setMounted(live);

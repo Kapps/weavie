@@ -1,4 +1,7 @@
 import type { ClientSession } from "../../bridge";
+import { keyHint } from "../../commands/key-hint";
+import { runCommandWithFeedback } from "../../commands/registry";
+import { CommandIds } from "../../commands/types";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
 import {
@@ -10,12 +13,14 @@ import {
 import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
+import type { DiffMarkers } from "./diff-markers";
 import { collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
-import type { ReviewFileDiff } from "./review-store";
+import type { LineSpan, ReviewFileDiff } from "./review-store";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
+const GAP_HEIGHT = 24;
 type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
   setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
 };
@@ -26,6 +31,8 @@ export interface ReviewEditor {
   revealFileStart(line: number): void;
   focus(): void;
   layout(): void;
+  /** Re-applies the collapsed stretches after the file's revealed context changed. */
+  refreshContext(): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -45,6 +52,8 @@ export function createReviewEditor(options: {
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
   configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
+  context: () => readonly LineSpan[];
+  revealContext: (span: LineSpan) => void;
   onHeight: (height: number) => void;
   onPainted: () => void;
   onCursor: (line: number) => void;
@@ -92,7 +101,9 @@ export function createReviewEditor(options: {
       ),
   );
   const editor = viewport.editor as CollapsingEditor;
-  const gaps = editor.createDecorationsCollection([]);
+  // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
+  let markers: DiffMarkers | null | undefined;
+  let gaps: string[] = [];
   let constructing = true;
   let disposed = false;
   const publish = (): void => {
@@ -112,6 +123,33 @@ export function createReviewEditor(options: {
   const revealLine = (line: number): void => {
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
     viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
+  };
+  const gapZone = (range: monaco.IRange): monaco.editor.IViewZone => {
+    const span = { start: range.startLineNumber, end: range.endLineNumber };
+    const count = span.end - span.start + 1;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "unified-review-gap";
+    button.textContent = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
+    button.title = `${button.textContent} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`;
+    button.addEventListener("click", () => options.revealContext(span));
+    return {
+      afterLineNumber: span.start - 1,
+      heightInPx: GAP_HEIGHT,
+      domNode: button,
+      suppressMouseDown: true,
+    };
+  };
+  const applyContext = (): void => {
+    if (markers === undefined) return;
+    const hidden = collapseUnchanged(markers, model.getLineCount(), options.context());
+    editor.setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
+    editor.changeViewZones((accessor) => {
+      for (const id of gaps) accessor.removeZone(id);
+      gaps = hidden.map((range) => accessor.addZone(gapZone(range)));
+    });
+    geometryReady = true;
+    measure();
   };
   const presentation: InlineDiffPresentation = {
     scope: options.scope,
@@ -136,12 +174,9 @@ export function createReviewEditor(options: {
       }
       return first;
     },
-    prepareGeometry: (markers) => {
-      const collapsed = collapseUnchanged(markers, model.getLineCount());
-      gaps.set(collapsed.gapMarkers);
-      editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-      geometryReady = true;
-      measure();
+    prepareGeometry: (next) => {
+      markers = next;
+      applyContext();
     },
     painted: () => {
       if (loading.parentNode !== null) {
@@ -194,6 +229,17 @@ export function createReviewEditor(options: {
   const subscriptions = [
     contentSize,
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
+    editor.onMouseMove((event) => {
+      if (options.diff.currentExists && isLineNumber(event.target))
+        event.target.element!.title = `Open file at this line${keyHint(CommandIds.reviewOpenLine)}`;
+    }),
+    editor.onMouseDown((event) => {
+      if (options.diff.currentExists && event.event.leftButton && isLineNumber(event.target))
+        void runCommandWithFeedback(CommandIds.reviewOpen, {
+          path: options.diff.path,
+          line: event.target.position!.lineNumber,
+        });
+    }),
   ];
   return {
     capture,
@@ -207,6 +253,7 @@ export function createReviewEditor(options: {
       editor.focus();
     },
     layout: viewport.layout,
+    refreshContext: () => viewport.update(applyContext),
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
@@ -218,7 +265,6 @@ export function createReviewEditor(options: {
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();
       inline.dispose();
-      gaps.clear();
       editor.dispose();
       widgets.remove();
       loading.remove();
@@ -226,3 +272,6 @@ export function createReviewEditor(options: {
     },
   };
 }
+
+const isLineNumber = (target: monaco.editor.IMouseTarget): boolean =>
+  target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS && target.element !== null;

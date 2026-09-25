@@ -138,6 +138,8 @@ export const CommandIds = {
   reviewOpen: "weavie.review.open",
   reviewClose: "weavie.review.close",
   reviewToggleFile: "weavie.review.toggleFile",
+  reviewToggleContext: "weavie.review.toggleContext",
+  reviewOpenLine: "weavie.review.openLine",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",
   keepFile: "weavie.review.keepFile",

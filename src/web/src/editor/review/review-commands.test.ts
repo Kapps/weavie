@@ -41,6 +41,7 @@ const review = {
   undoRevert: vi.fn(() => true),
   redo: vi.fn(() => true),
   toggleFileCollapsed: vi.fn(() => true),
+  toggleFileContext: vi.fn(() => true),
 };
 const openReview = vi.fn((session: ClientSession) => session === env.selected);
 const lifetime = new AbortController();
@@ -92,6 +93,8 @@ describe("review command bindings", () => {
       CommandIds.reviewComment,
       CommandIds.reviewOpen,
       CommandIds.reviewToggleFile,
+      CommandIds.reviewToggleContext,
+      CommandIds.reviewOpenLine,
       CommandIds.reviewNextFile,
       CommandIds.reviewPrevFile,
     ];
@@ -101,6 +104,7 @@ describe("review command bindings", () => {
     }
     expect(openReview).toHaveBeenCalledWith(right, "/right/one.ts", 9);
     expect(review.toggleFileCollapsed).not.toHaveBeenCalled();
+    expect(review.toggleFileContext).not.toHaveBeenCalled();
     expect(Object.values(inline).every((action) => action.mock.calls.length === 0)).toBe(true);
   });
 
@@ -112,6 +116,16 @@ describe("review command bindings", () => {
   it("toggles the addressed file fold for the selected session", async () => {
     expect(await run(CommandIds.reviewToggleFile, { path: "/left/one.ts" }, left)).toBe(true);
     expect(review.toggleFileCollapsed).toHaveBeenCalledWith(left, "/left/one.ts");
+  });
+
+  it("toggles the current file's full context for the selected session", async () => {
+    expect(await run(CommandIds.reviewToggleContext, undefined, left)).toBe(true);
+    expect(review.toggleFileContext).toHaveBeenCalledWith(left, "/left/one.ts");
+  });
+
+  it("opens the presentation's cursor line in file review", async () => {
+    expect(await run(CommandIds.reviewOpenLine, undefined, left)).toBe(true);
+    expect(openReview).toHaveBeenCalledWith(left, "/left/one.ts", 9);
   });
 
   it("lets the selected presentation consume empty undo chords", async () => {

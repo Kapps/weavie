@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from "lucide-solid";
+import { ChevronDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-solid";
 import {
   type Accessor,
   createEffect,
@@ -22,7 +22,12 @@ import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
-import type { ReviewFileDiff, ReviewFileView } from "./review-store";
+import {
+  isFullContext,
+  type LineSpan,
+  type ReviewFileDiff,
+  type ReviewFileView,
+} from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
@@ -38,6 +43,7 @@ export function ReviewFileSection(props: {
   measure: (element: HTMLElement) => void;
   observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
+  revealContext: (span: LineSpan) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
@@ -48,6 +54,7 @@ export function ReviewFileSection(props: {
   const summary = () => props.file().summary();
   const collapsed = () => props.file().collapsed();
   const pending = () => props.file().pending();
+  const fullContext = () => isFullContext(props.file().context());
   const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
@@ -149,6 +156,19 @@ export function ReviewFileSection(props: {
             {props.displayPath(summary().path)}
           </button>
         </Show>
+        <button
+          type="button"
+          class="unified-review-file-context"
+          title={`${fullContext() ? "Collapse unchanged lines" : "Show full file"}${keyHint(CommandIds.reviewToggleContext)}`}
+          aria-pressed={fullContext()}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.reviewToggleContext, { path: summary().path })
+          }
+        >
+          <Show when={fullContext()} fallback={<UnfoldVertical />}>
+            <FoldVertical />
+          </Show>
+        </button>
         <span class="unified-review-file-stats">
           <span class="unified-review-added">+{summary().added}</span>
           <span class="unified-review-removed">−{summary().removed}</span>
@@ -195,6 +215,7 @@ export function ReviewFileSection(props: {
             toolbarHost={props.toolbarHost}
             configureDiff={props.configureDiff}
             onCursor={props.onFocus}
+            revealContext={props.revealContext}
           />
           <For each={props.file().diff()?.rejected}>
             {(rejected) => (

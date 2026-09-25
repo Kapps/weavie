@@ -46,8 +46,9 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 					| AgentProviderCapabilities.Ide
 					| AgentProviderCapabilities.Events
 					| AgentProviderCapabilities.EditDisposition,
-				Available = installed,
-				UnavailableReason = installed
+				// A miss only warns: a session still opens and its terminal reports the failed launch.
+				Available = true,
+				Warning = installed
 					? null
 					: $"Claude Code isn't installed: '{command}' was not found. Install it, or set claude.path to its location.",
 			};

@@ -86,11 +86,11 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
             >
               <strong>{provider.name}</strong>
               <small>
-                {provider.available
-                  ? provider.surface === "terminal"
+                {provider.unavailableReason ??
+                  provider.warning ??
+                  (provider.surface === "terminal"
                     ? "Runs in its own terminal UI"
-                    : "Runs in Weavie's agent pane"
-                  : provider.unavailableReason}
+                    : "Runs in Weavie's agent pane")}
               </small>
             </button>
           )}

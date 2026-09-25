@@ -25,6 +25,7 @@ const DEFAULT: AgentDefaults = {
       name: "Claude Code",
       available: true,
       unavailableReason: null,
+      warning: null,
       surface: "terminal",
     },
   ],

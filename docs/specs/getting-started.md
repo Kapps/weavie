@@ -17,9 +17,9 @@ belongs to [workspace auto-config](../concepts/workspace-autoconfig.md).
 - **Done state.** The only new persisted state is the `gettingStarted.completed` setting. Finish, Skip, Esc, and
   clicking outside all set it; setting it back to `false` shows setup again on the next launch. While it's false the
   startup tip and the automatic-inference toast are held back, because setup covers inference.
-- **Claude detection.** Claude Code reports itself unavailable, with a reason, when `claude.path` doesn't resolve to
-  an executable. That feeds the setup page and the New Session prompt. "Check again" re-reads the agent list after
-  an install outside Weavie.
+- **Claude detection.** Claude Code carries a warning when `claude.path` doesn't resolve to an executable, shown on
+  the setup page. It never blocks a session: without another agent, the workspace session must still open, and its
+  terminal reports the failed launch. "Check again" re-reads the agent list after an install outside Weavie.
 
 ## Architecture
 

@@ -106,7 +106,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task AgentDefaults_ReportsClaudeUnavailable_WhenItsPathDoesNotResolve() {
+	public async Task AgentDefaults_WarnsClaudeIsMissing_WhenItsPathDoesNotResolve() {
 		_services.Settings.Set(CoreSettings.ClaudePath, JsonSerializer.SerializeToElement(_temp.Combine("missing-claude")));
 		await _controller.ShowAsync();
 
@@ -114,8 +114,8 @@ public sealed class WelcomeControllerTests : IDisposable {
 
 		var claude = defaults.Payload.GetProperty("providers").EnumerateArray()
 			.Single(provider => provider.GetProperty("id").GetString() == "claude");
-		Assert.False(claude.GetProperty("available").GetBoolean());
-		Assert.Contains("missing-claude", claude.GetProperty("unavailableReason").GetString(), StringComparison.Ordinal);
+		Assert.True(claude.GetProperty("available").GetBoolean());
+		Assert.Contains("missing-claude", claude.GetProperty("warning").GetString(), StringComparison.Ordinal);
 	}
 
 	private async Task<MessageEnvelope> RequestAsync(string feature, string name, string payload) {

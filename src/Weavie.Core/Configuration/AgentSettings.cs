@@ -30,6 +30,7 @@ public static class AgentSettings {
 				writer.WriteString("name", provider.Name);
 				writer.WriteBoolean("available", provider.Available);
 				writer.WriteString("unavailableReason", provider.UnavailableReason);
+				writer.WriteString("warning", provider.Warning);
 				writer.WriteString(
 					"surface",
 					provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)

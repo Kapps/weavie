@@ -72,6 +72,16 @@ export async function setDefaultAgentProvider(
   setByBackend((previous) => new Map(previous).set(backendId, defaults));
 }
 
+/** Re-reads one host's providers, e.g. after the user installs an agent outside Weavie. */
+export async function refreshAgentProviders(backendId: string): Promise<void> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) {
+    throw new Error(`Agent backend '${backendId}' is not connected.`);
+  }
+  const defaults = await connection.host.feature("agentDefaults").request<AgentDefaults>("get", {});
+  setByBackend((previous) => new Map(previous).set(backendId, defaults));
+}
+
 registerHostFeature((connection) => {
   const update = (defaults: AgentDefaults): void => {
     setByBackend((previous) => new Map(previous).set(connection.id, defaults));

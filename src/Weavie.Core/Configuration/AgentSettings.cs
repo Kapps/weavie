@@ -15,7 +15,7 @@ public static class AgentSettings {
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider];
+	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
 	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {

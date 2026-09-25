@@ -22,6 +22,9 @@ public static class CoreSettings {
 	/// <summary>The Claude executable path setting.</summary>
 	public const string ClaudePath = "claude.path";
 
+	/// <summary>Whether the first-run Getting Started setup has been finished or dismissed.</summary>
+	public const string GettingStartedCompleted = "gettingStarted.completed";
+
 	/// <summary>The Claude conversation resume setting.</summary>
 	public const string ClaudeResumeSession = "claude.resumeSession";
 
@@ -154,6 +157,16 @@ public static class CoreSettings {
 			Aliases = ["claude", "claude binary", "claude path"],
 			Apply = ApplyMode.NextSession,
 			ComputeDefault = DefaultClaudePath,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = GettingStartedCompleted,
+			Kind = SettingKind.Bool,
+			Description = "Whether the Getting Started setup (theme, agent, inference) has been finished or dismissed. "
+				+ "Set to false to show it again on the next launch; run Getting Started to open it now.",
+			Aliases = ["onboarding", "first run", "setup wizard", "welcome setup"],
+			Apply = ApplyMode.Live,
+			Default = false,
 		});
 
 		registry.Register(new SettingDefinition {

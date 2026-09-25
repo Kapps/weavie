@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Git;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
@@ -14,7 +15,6 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void WireHostMessages() {
 		WireSystemNotificationMessages();
-		WireThemeMessages();
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse<HelloRequest, HostHello>(
@@ -22,8 +22,14 @@ public sealed partial class HostCore {
 			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
 				BuildHello(),
 				_ => {
-					OfferStartupTip();
-					OfferAutomaticInference();
+					// Getting Started covers inference, so the tip and inference offer wait until setup is done.
+					if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
+						OfferStartupTip();
+						OfferAutomaticInference();
+					} else {
+						_messages.Host.Feature("gettingStarted").Publish("show", new { });
+					}
+
 					return Task.CompletedTask;
 				})));
 
@@ -51,11 +57,6 @@ public sealed partial class HostCore {
 				Log($"[bridge] refused non-http URL: {message.Url}");
 			}
 
-			return Task.CompletedTask;
-		});
-
-		_messages.Host.Feature("diagnostics").Handle<WebLogMessage>("log", (message, _) => {
-			Log($"[web:{message.Level}] {message.Message}");
 			return Task.CompletedTask;
 		});
 
@@ -117,20 +118,7 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage, JsonElement>(
-			"setProvider",
-			(message, _) => {
-				RememberDefaultProvider(message.ProviderId);
-				return Task.FromResult(ParseJsonElement(BuildAgentDefaults()));
-			});
-
 		var acpRegistry = _messages.Host.Feature("acpRegistry");
-		acpRegistry.Handle<EmptyMessage, IReadOnlyList<AcpRegistryAgent>>(
-			"list",
-			(_, ct) => _acpAgents.ListRegistryAsync(ct));
-		acpRegistry.Handle<AcpInstallMessage>(
-			"install",
-			(message, ct) => _acpAgents.InstallAsync(message.Id, message.Distribution, ct));
 		acpRegistry.Handle<AcpAgentMessage>("remove", (message, _) => {
 			EnsureProviderCanBeRemoved(message.Id);
 			_acpAgents.Remove(message.Id);
@@ -149,7 +137,7 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("sessions").HandleKeyed<CommandRequest, CommandWireResult>(
 			"invoke",
 			CommandExecutionLane,
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
 		_messages.Host.Feature("sessionCreation").Handle<HostBranchPreviewRequest, BranchPreviewResult>(
 			"previewBranch",
@@ -157,7 +145,7 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("commands").HandleKeyed<CommandRequest, CommandWireResult>(
 			"invoke",
 			CommandExecutionLane,
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
 
 		_messages.Host.Feature("applicationMenu").HandleOwned<ApplicationMenuState>(
@@ -332,7 +320,7 @@ public sealed partial class HostCore {
 					search.Options.Exclude),
 				[.. search.RecentTerms]),
 			ResolvedTestProfile(),
-			ParseJsonElement(BuildAgentDefaults()),
+			ParseJsonElement(_global.AgentDefaultsJson()),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
@@ -376,8 +364,6 @@ public sealed partial class HostCore {
 
 	private sealed record OpenUrlMessage(string Url);
 
-	private sealed record WebLogMessage(string Level, string Message);
-
 	private sealed record SuggestionDismissal(string Id, bool Forever);
 
 	private sealed record RemoteAgentMessage(string Name, string Url, string Token);
@@ -399,8 +385,6 @@ public sealed partial class HostCore {
 		string Exclude);
 
 	private sealed record SearchTerm(string Term);
-
-	private sealed record AgentProviderMessage(string ProviderId);
 
 	private sealed record HostHello(
 		string HostIncarnation,

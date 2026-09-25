@@ -39,6 +39,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
 	private readonly MessageIngress _messageIngress;
+	private readonly GlobalHostFeatures _global;
 	private MessagePeer? _applicationMenuOwner;
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
@@ -103,16 +104,13 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private ShellMenuController? _shellMenu;
 	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
-	private Action? _onKeybindingsChanged;
 	private Action<IReadOnlyList<string>>? _onUnknownKeybindingCommands;
 	private Action<bool>? _onKeybindingsMalformedChanged;
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<bool>? _onSettingsMalformedChanged;
-	private Action<string>? _onThemeOverridesChanged;
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
-	private Action? _onAgentProvidersChanged;
 	private Action? _onRecentsChanged;
 	private IDisposable? _shellSettingSubscription;
 
@@ -166,6 +164,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_messages.RouteAsync,
 			_messages.Disconnect,
 			_messages.Diagnostics);
+		_global = new GlobalHostFeatures(_messages.Host, services, Log);
 		_commandRegistry = services.CommandRegistry;
 		_clientCommands = new CommandDispatcher(_commandRegistry);
 		_clientCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
@@ -343,11 +342,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		return
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
-			+ $"window.__WEAVIE_AGENT__ = {BuildAgentDefaults()};"
-			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
+			+ _global.BootstrapScript()
 			+ BuildTestProfileScript()
-			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
-			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
 
@@ -364,10 +360,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
 	];
 
-	private string BuildAgentDefaults() => AgentSettings.BuildJson(
-		_settings,
-		[.. _agentProviders.Providers.Select(provider => provider.Info)]);
-
 	/// <summary>The app's build identity (public version plus internal build number, e.g. <c>0.2.1.1507</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -378,8 +370,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_messages.Host.Feature("window").Publish("state", new { maximized, focused });
 
 	/// <summary>
-	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme/
-	/// keybinding/layout edits re-push their resolved values.
+	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/layout
+	/// edits re-push their resolved values (app-wide theme/agent/keybinding pushes live in GlobalHostFeatures).
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens every loaded session's shell pane.
@@ -391,7 +383,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 				}
 			}));
 
-		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
+		// Live settings groups: re-push the resolved values so the web applies them in place.
 		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (change.Key == EditorSettings.SpellCheckLocale) InvalidateSpelling();
@@ -400,14 +392,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
 				}
 			}
-			if (AgentSettings.Keys.Contains(change.Key)) {
-				_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
-			}
-
-			if (ThemeSettings.Keys.Contains(change.Key)) {
-				PushThemeToWeb();
-			}
-
 			if (change.Key is InferenceSettings.Enabled or InferenceSettings.AllowAutomatic
 				&& AutomaticInferenceEnabled()) {
 				ClearAutomaticInferenceOffer();
@@ -428,21 +412,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// surface it where the user is, and clear it (same toast key) once the file parses cleanly again.
 		_onSettingsMalformedChanged = NotifySettingsMalformed;
 		_settings.MalformedChanged += _onSettingsMalformedChanged;
-
-		_onThemeOverridesChanged = themeId => {
-			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
-				PushThemeToWeb();
-			}
-		};
-		_themeOverrides.Changed += _onThemeOverridesChanged;
-
-		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
-		// web rebuilds its resolver + palette live. Detached on dispose (the store may outlive this core).
-		_onKeybindingsChanged = () => _messages.Host.Feature("commands").PublishJson(
-			"catalog",
-			$"{{\"commands\":{_keybindings.BuildCommandsJson()},"
-			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
-		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
 		// A binding to a typo'd/unknown command id is otherwise dropped silently (console only): name it so the
 		// user learns why their key does nothing.
@@ -471,21 +440,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_onRecentsChanged = PushRecentWorkspacesToWeb;
 		_platform.RecentsChanged += _onRecentsChanged;
 
-		_onAgentProvidersChanged = () =>
-			_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
-		_agentProviders.Changed += _onAgentProvidersChanged;
-
 		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
 
 	}
-
-	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.
-	private void PushThemeToWeb() =>
-		_messages.Host.Feature("settings").PublishJson(
-			"theme",
-			ThemeJson.Build(_settings, _themeOverrides, Log));
 
 	// Surfaces (or clears) the malformed-settings toast. Keyed so the "reloaded" info replaces the lingering
 	// error in place once the file parses again. Called on the live transition and once during hello.
@@ -563,6 +522,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		await AttemptAsync(() => _messages.Host.QuiesceAsync()).ConfigureAwait(false);
 		await AttemptAsync(DisposeSystemNotificationsAsync).ConfigureAwait(false);
 		Attempt(DetachReactions);
+		Attempt(_global.Dispose);
 		Attempt(() => _drainTick?.Cancel());
 		Attempt(_sessionStore.Flush);
 
@@ -584,11 +544,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	}
 
 	private void DetachReactions() {
-		if (_onKeybindingsChanged is not null) {
-			_keybindings.KeybindingsChanged -= _onKeybindingsChanged;
-			_onKeybindingsChanged = null;
-		}
-
 		if (_onUnknownKeybindingCommands is not null) {
 			_keybindings.UnknownCommandsChanged -= _onUnknownKeybindingCommands;
 			_onUnknownKeybindingCommands = null;
@@ -611,11 +566,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_onSettingsMalformedChanged = null;
 		}
 
-		if (_onThemeOverridesChanged is not null) {
-			_themeOverrides.Changed -= _onThemeOverridesChanged;
-			_onThemeOverridesChanged = null;
-		}
-
 		if (_onRemoteAgentsChanged is not null) {
 			_remoteAgents.Changed -= _onRemoteAgentsChanged;
 			_onRemoteAgentsChanged = null;
@@ -630,11 +580,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_searchState.Changed -= _onSearchStateChanged;
 			_onSearchStateChanged = null;
 		}
-		if (_onAgentProvidersChanged is not null) {
-			_agentProviders.Changed -= _onAgentProvidersChanged;
-			_onAgentProvidersChanged = null;
-		}
-
 		if (_onRecentsChanged is not null) {
 			_platform.RecentsChanged -= _onRecentsChanged;
 			_onRecentsChanged = null;

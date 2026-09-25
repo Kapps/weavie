@@ -5,6 +5,7 @@ import { applyChromeTheme } from "../theme/controller";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "../styles.css";
+import "../chrome/session-prompt.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. The host injects recents as

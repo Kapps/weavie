@@ -1,14 +1,4 @@
-using Weavie.AcpDistribution;
-using Weavie.Core;
-using Weavie.Core.Commands;
-using Weavie.Core.Configuration;
-using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
-using Weavie.Core.Remote;
-using Weavie.Core.Search;
-using Weavie.Core.Sessions;
-using Weavie.Core.Suggestions;
-using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 
@@ -33,67 +23,9 @@ internal sealed class AppController : ApplicationContext {
 	private bool _exiting;
 
 	public AppController() {
-		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
-		LogBuffer = LogBuffer.InstallConsoleCapture(WeaviePaths.HostLogFile);
+		// App-global Core stores shared by every window (and the welcome window); installs the console tee first.
+		Services = HostServices.CreateDefault();
 		Notifications = new WindowsNotificationService();
-
-		// User settings from ~/.weavie/settings.toml; the change hub windows react to (e.g. a shell change reopens
-		// the shell pane).
-		Settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
-		Settings.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-
-		// App-global command catalog + user keybindings (~/.weavie/keybindings.json merged over defaults); each
-		// window injects them into its web app and re-pushes on edit.
-		CommandRegistry = CoreCommands.CreateRegistry();
-		SuggestionRegistry = CoreSuggestions.CreateRegistry();
-		Keybindings = new KeybindingStore(CommandRegistry, filePath: null, enableWatcher: true);
-		Keybindings.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-
-		// Claude session ids per working directory (~/.weavie/claude-sessions.json) — app-global so every session
-		// resumes its own directory's previous Claude conversation.
-		ClaudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
-		ClaudeSessions.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-		AcpAgents = AcpDistributionService.CreateDefault();
-
-		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global so a change reaches every window;
-		// appearance itself is normal settings (theme.mode/theme.light/theme.dark).
-		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
-		ThemeOverrides.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-
-		// Registered remote agents (~/.weavie/remote-agents.json) — app-global so a connect/disconnect in one
-		// window reaches every other window's rail.
-		RemoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
-		RemoteAgents.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-
-		// Session rail UI state (~/.weavie/rail-state.json) — last-used backend + promoted remote sessions;
-		// app-global so it's shared across windows.
-		RailState = new RailStateStore(new LocalFileSystem(), path: null);
-		RailState.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-
-		// Find-in-files UI state (~/.weavie/search-state.json) — options + globs + recent terms; app-global.
-		SearchState = new SearchStateStore(new LocalFileSystem(), path: null);
-		SearchState.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
 
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe.
@@ -104,7 +36,7 @@ internal sealed class AppController : ApplicationContext {
 		};
 		_manager = new WorkspaceManager(recents);
 
-		string? initial = InitialWorkspace.Resolve(Settings, _manager.Recents);
+		string? initial = InitialWorkspace.Resolve(Services.Settings, _manager.Recents);
 		if (initial is null || OpenOrFocus(initial) is null) {
 			ShowWelcome();
 		}
@@ -112,8 +44,8 @@ internal sealed class AppController : ApplicationContext {
 		// Global hotkeys (e.g. ctrl+` → focus). Created last, after a window exists, so the WinForms
 		// SynchronizationContext WindowsGlobalHotkeys captures is installed.
 		_hotkeys = new ApplicationHotkeys(
-			CommandRegistry,
-			Keybindings,
+			Services.CommandRegistry,
+			Services.Keybindings,
 			new WindowsGlobalHotkeys(),
 			ToggleFrontmostWindow,
 			line => {
@@ -122,41 +54,11 @@ internal sealed class AppController : ApplicationContext {
 			});
 	}
 
-	/// <summary>App-global settings store, shared by every workspace window.</summary>
-	public SettingsStore Settings { get; }
-
-	/// <summary>App-global command catalog (<see cref="CoreCommands"/>), shared by every window.</summary>
-	public CommandRegistry CommandRegistry { get; }
-
-	/// <summary>App-global contextual-suggestion catalog (<see cref="CoreSuggestions"/>), shared by every window.</summary>
-	public SuggestionRegistry SuggestionRegistry { get; }
-
-	/// <summary>App-global keybindings store (user file merged over command defaults), shared by every window.</summary>
-	public KeybindingStore Keybindings { get; }
+	/// <summary>The app-global Core stores, shared by every workspace window and the welcome window.</summary>
+	public HostServices Services { get; }
 
 	/// <summary>Recent-workspaces store, for the Open Recent menu and the welcome window.</summary>
 	public RecentWorkspaces Recents => _manager.Recents;
-
-	/// <summary>App-global per-theme color overrides store (theme-overrides.json), shared by every window.</summary>
-	public ThemeOverridesStore ThemeOverrides { get; }
-
-	/// <summary>App-global Claude-session-id map (claude-sessions.json), shared so every session resumes its own.</summary>
-	public ClaudeSessionStore ClaudeSessions { get; }
-
-	/// <summary>App-global ACP agent installations and registry operations.</summary>
-	public IAcpAgentCatalog AcpAgents { get; }
-
-	/// <summary>App-global remote-agent registry (remote-agents.json), shared so a connect/disconnect reaches every window.</summary>
-	public RemoteAgentStore RemoteAgents { get; }
-
-	/// <summary>App-global session-rail UI state (rail-state.json), shared across windows.</summary>
-	public RailStateStore RailState { get; }
-
-	/// <summary>App-global find-in-files UI state (search-state.json), shared across windows.</summary>
-	public SearchStateStore SearchState { get; }
-
-	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
-	public LogBuffer LogBuffer { get; }
 
 	/// <summary>The process-wide Windows app-notification manager shared by every workspace channel.</summary>
 	public WindowsNotificationService Notifications { get; }
@@ -309,8 +211,8 @@ internal sealed class AppController : ApplicationContext {
 		if (disposing) {
 			_hotkeys.Dispose(); // unregisters the OS hotkeys + tears down the message window
 			Notifications.Dispose();
-			Settings.Dispose();
-			Keybindings.Dispose();
+			Services.Settings.Dispose();
+			Services.Keybindings.Dispose();
 		}
 
 		base.Dispose(disposing);

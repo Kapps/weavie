@@ -261,6 +261,12 @@ public static class CoreCommands {
 	/// <summary>Expands or collapses the current file in unified review; bound to <c>alt+[</c>.</summary>
 	public const string ReviewToggleFile = "weavie.review.toggleFile";
 
+	/// <summary>Shows or re-collapses the current unified-review file's unchanged lines; bound to <c>alt+]</c>.</summary>
+	public const string ReviewToggleContext = "weavie.review.toggleContext";
+
+	/// <summary>Opens the unified-review cursor line in file review; bound to <c>$mod+alt+o</c>.</summary>
+	public const string ReviewOpenLine = "weavie.review.openLine";
+
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
 
@@ -1487,6 +1493,29 @@ public static class CoreCommands {
 			Aliases = ["toggle review file", "collapse review file", "expand review file", "fold review file"],
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to toggle; omit for the current file\"}}",
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+[" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewToggleContext,
+			Title = "Toggle Full File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "unifiedReviewActive && editorFocused",
+			Description = "Show every unchanged line of the current unified-review file, or collapse them back around its changes.",
+			Aliases = ["show full file", "expand diff", "expand context", "show unchanged lines", "collapse context"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to expand; omit for the current file\"}}",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+]" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewOpenLine,
+			Title = "Open Line in File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "unifiedReviewActive && editorFocused",
+			Description = "Open the file under the unified-review cursor in file review, at the cursor's line.",
+			Aliases = ["go to file", "open file at line", "jump to file", "open line in file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+o" }],
 		});
 
 		registry.Register(new CommandDefinition {

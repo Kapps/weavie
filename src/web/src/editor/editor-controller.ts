@@ -46,9 +46,13 @@ import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
   createReviewStore,
+  FULL_CONTEXT,
+  isFullContext,
+  type LineSpan,
   type ReviewComments,
   type ReviewFile,
   type ReviewFileDiff,
+  type ReviewFileView,
   type ReviewHistory,
   type ReviewOverview,
 } from "./review/review-store";
@@ -193,6 +197,9 @@ export interface EditorController {
     ): void;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
+    /** Shows every unchanged line of the file, or collapses them back when it already shows them all. */
+    toggleFileContext(session: ClientSession, path: string | undefined): boolean;
+    revealFileContext(session: ClientSession, path: string, span: LineSpan): void;
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
@@ -708,6 +715,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
   };
+
+  const reviewFileView = (
+    session: ClientSession,
+    path: string | undefined,
+  ): ReviewFileView | undefined =>
+    reviews
+      .board(session)
+      .files.find((candidate) => path !== undefined && samePath(candidate.summary().path, path));
 
   const showUnifiedReview = (session: ClientSession): boolean => {
     if (!activateDestinationFor(session, "navigation")) return false;
@@ -1467,9 +1482,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (path === undefined) {
         return showUnifiedReview(session);
       }
-      const view = reviews
-        .board(session)
-        .files.find((candidate) => samePath(candidate.summary().path, path));
+      const view = reviewFileView(session, path);
       if (view === undefined) {
         return false;
       }
@@ -1519,10 +1532,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         });
       },
       toggleFileCollapsed: (session, path) => {
-        const state = reviews.board(session);
-        const target = state.files.find(
-          (candidate) => path !== undefined && samePath(candidate.summary().path, path),
-        );
+        const target = reviewFileView(session, path);
         if (target === undefined) {
           return false;
         }
@@ -1531,6 +1541,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       },
       setFileCollapsed: (session, path, collapsed) => {
         reviews.setFileCollapsed(session, path, collapsed);
+      },
+      toggleFileContext: (session, path) => {
+        const target = reviewFileView(session, path);
+        if (target === undefined) {
+          return false;
+        }
+        const full = isFullContext(target.context());
+        reviews.setFileContext(session, target.summary().path, full ? [] : [FULL_CONTEXT]);
+        if (!full) reviews.setFileCollapsed(session, target.summary().path, false);
+        return true;
+      },
+      revealFileContext: (session, path, span) => {
+        const target = reviewFileView(session, path);
+        if (target !== undefined)
+          reviews.setFileContext(session, path, [...target.context(), span]);
       },
       revert: tryRevertAll,
       keepFile: (session, path) => {

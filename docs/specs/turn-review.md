@@ -21,7 +21,9 @@ Both review presentations are projections over one Core-owned review board:
   user hasn't seen. A re-push of the same state leaves the user's own fold alone. The section disclosure
   advertises the rebindable `alt+[` fold command, and the file tree supports standard arrow-key navigation. A
   deleted current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working
-  copy exists.
+  copy exists. Each collapsed unchanged stretch is a clickable band that reveals its lines, and the section's
+  `alt+]` toggle shows the whole file or collapses it back; revealed lines are web-only presentation state on the
+  file's view. Clicking a line number (or `$mod+alt+o` at the cursor) opens that file in file review at that line.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
@@ -315,6 +317,8 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
 | `weavie.review.open` | `$mod+Shift+u` | open the Review Changes tab |
 | `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
+| `weavie.review.toggleContext` | `alt+]` | show the current unified-review file's unchanged lines, or collapse them back |
+| `weavie.review.openLine` | `$mod+alt+o` | open the unified-review cursor line in file review |
 
 Every step of the walk — Next/Previous Change and Next/Previous File — is routed by the mode the session is
 reviewing on, so it acts on the surface the user is looking at. In file review it drives the inline toolbar; in

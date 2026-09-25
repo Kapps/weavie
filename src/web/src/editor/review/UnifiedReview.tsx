@@ -28,7 +28,13 @@ import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
-import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
+import type {
+  LineSpan,
+  ReviewFile,
+  ReviewFileDiff,
+  ReviewFileView,
+  ReviewOverview,
+} from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
 import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
@@ -44,6 +50,7 @@ export function UnifiedReview(props: {
   tab: TabOwner;
   changed: () => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
+  onRevealContext: (session: ClientSession, path: string, span: LineSpan) => void;
   bindSurface: (surface: UnifiedReviewSurface) => () => void;
   clear: () => void;
   configureDiff: (
@@ -378,6 +385,9 @@ export function UnifiedReview(props: {
                               }
                               openCopy={(diff) =>
                                 copies.open(diff.path, diff.current, diff.currentExists)
+                              }
+                              revealContext={(span) =>
+                                props.onRevealContext(props.session, view().summary().path, span)
                               }
                               measure={measure}
                               observe={observe}

@@ -45,6 +45,27 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
         (session === null ? undefined : activeTabFor(session)?.presentation?.capture().text?.path);
       return () => session !== null && action(session, path, args);
     };
+  // Acts only while the presentation it was captured on is still the one displayed.
+  const whileDisplayed =
+    (inner: CommandCapture): CommandCapture =>
+    (context, args) => {
+      const { session } = context;
+      const tab = session === null ? undefined : activeTabFor(session);
+      const presentation = tab?.presentation;
+      const run = inner(context, args);
+      return () =>
+        presentation !== undefined &&
+        !presentation.signal.aborted &&
+        selectedSession() === session &&
+        activeTabFor(session!) === tab &&
+        run(args, context);
+    };
+  const atUnifiedFile = (
+    action: (
+      session: NonNullable<ReturnType<typeof selectedSession>>,
+      path: string | undefined,
+    ) => boolean,
+  ): CommandCapture => whileDisplayed(forSession(action));
   return [
     ...(
       [
@@ -67,21 +88,20 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
     [CommandIds.keepAll, forSession((session) => editor.review.keepAll(session))],
     [
       CommandIds.reviewToggleFile,
-      (context, args) => {
-        const { session } = context;
-        const tab = session === null ? undefined : activeTabFor(session);
-        const presentation = tab?.presentation;
-        const run = forSession((session, path) => editor.review.toggleFileCollapsed(session, path))(
-          context,
-          args,
-        );
+      atUnifiedFile((session, path) => editor.review.toggleFileCollapsed(session, path)),
+    ],
+    [
+      CommandIds.reviewToggleContext,
+      atUnifiedFile((session, path) => editor.review.toggleFileContext(session, path)),
+    ],
+    [
+      CommandIds.reviewOpenLine,
+      whileDisplayed(({ session }) => {
+        const text =
+          session === null ? undefined : activeTabFor(session)?.presentation?.capture().text;
         return () =>
-          presentation !== undefined &&
-          !presentation.signal.aborted &&
-          selectedSession() === session &&
-          activeTabFor(session!) === tab &&
-          run(args, context);
-      },
+          session !== null && text != null && editor.openReview(session, text.path, text.line);
+      }),
     ],
     [
       CommandIds.reviewOpen,

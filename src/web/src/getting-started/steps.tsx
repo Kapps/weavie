@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-solid";
+import { ChevronRight, MessageCircle } from "lucide-solid";
 import { createResource, createUniqueId, For, type JSX, Show } from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
 import { agentProviders } from "../chrome/agent-default";
@@ -7,7 +7,7 @@ import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { chromeVars } from "../theme/chrome-vars";
 import { savedAppearance, savedPalette } from "../theme/controller";
-import { type ThemeChoice, themeRequest } from "../theme/picker-state";
+import { SELECT_THEME, type ThemeChoice, themeRequest } from "../theme/picker-state";
 import { browseThemes, readSetting, writeSetting } from "./state";
 
 /** Runs a setup action, routing its failure to the page's error line. */
@@ -79,6 +79,10 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
           <ChevronRight size="1em" aria-hidden="true" />
         </button>
       </p>
+      <p class="gs-later">
+        Change it anytime with <CommandName id={SELECT_THEME} />
+        <Keycaps label={liveKeyLabel(SELECT_THEME)} />
+      </p>
     </>
   );
 }
@@ -142,7 +146,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
     <>
       <SettingRow
         title="Allow suggestions"
-        detail="Weavie asks your agent for small things, like a branch name for a new session. These calls stay out of your conversation."
+        detail="Weavie asks your agent for small things, like a name for a new branch. These requests don't appear in your chat."
         disabled={enabled.loading}
         control={(id) => (
           <Switch
@@ -155,7 +159,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
       />
       <SettingRow
         title="Suggest automatically"
-        detail="Offer suggestions without waiting for a click. Uses a few tokens now and then."
+        detail="Suggest without being asked. This uses a little of your agent usage now and then."
         disabled={off()}
         control={(id) => (
           <Switch
@@ -167,8 +171,8 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
         )}
       />
       <SettingRow
-        title="Answered by"
-        detail="The agent that handles these suggestions."
+        title="Which agent"
+        detail="The agent that makes these suggestions."
         disabled={off()}
         control={(id) => (
           <select
@@ -193,11 +197,10 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
 }
 
 const KEY_COMMANDS: { id: string; detail: string }[] = [
-  { id: CommandIds.focusOmnibarCommands, detail: "Run any action by name" },
-  { id: CommandIds.focusOmnibarFiles, detail: "Jump to a file" },
-  { id: CommandIds.showSessions, detail: "Start or switch agent sessions" },
-  { id: CommandIds.reviseSelection, detail: "Have the agent rewrite the selected code" },
-  { id: CommandIds.findInFiles, detail: "Search the whole workspace" },
+  { id: CommandIds.focusOmnibarCommands, detail: "Find any action" },
+  { id: CommandIds.focusOmnibarFiles, detail: "Open a file" },
+  { id: CommandIds.showSessions, detail: "Start or switch sessions" },
+  { id: CommandIds.reviseSelection, detail: "Ask the agent to rewrite selected code" },
 ];
 
 /** A shortcut label (e.g. `Ctrl+Shift+P`) drawn as one keycap per key. */
@@ -209,25 +212,43 @@ export function Keycaps(props: { label: string }): JSX.Element {
   );
 }
 
-export function KeysStep(): JSX.Element {
+// A command's title from the live catalog, without a trailing ellipsis.
+function CommandName(props: { id: string }): JSX.Element {
+  return (
+    <strong>{findCommandInCatalog(LOCAL_BACKEND_ID, props.id)?.title.replace(/…$/, "")}</strong>
+  );
+}
+
+export function FinishStep(): JSX.Element {
   return (
     <>
+      <div class="gs-ask">
+        <MessageCircle size="1.4em" aria-hidden="true" />
+        <p>
+          <strong>Just ask your agent.</strong> Not sure how to do something in Weavie? Ask your
+          agent. It can change settings, run commands, and explain features for you.
+        </p>
+      </div>
+      <p class="gs-subhead">A few keys to start with</p>
       <ul class="gs-keys">
         <For each={KEY_COMMANDS}>
           {(command) => (
             <li>
               <span class="gs-text">
-                <strong>{findCommandInCatalog(LOCAL_BACKEND_ID, command.id)?.title}</strong>
+                <CommandName id={command.id} />
                 <small>{command.detail}</small>
               </span>
-              <Keycaps label={liveKeyLabel(command.id)} />
+              <span class="gs-combo">
+                <Keycaps label={liveKeyLabel(command.id)} />
+                <Show when={command.id === CommandIds.focusOmnibarFiles}>
+                  <small>or</small>
+                  <Keycaps label="Shift+Shift" />
+                </Show>
+              </span>
             </li>
           )}
         </For>
       </ul>
-      <p class="gs-footnote">
-        Hover any button to see its shortcut. You can rebind every one in keybindings.json.
-      </p>
     </>
   );
 }

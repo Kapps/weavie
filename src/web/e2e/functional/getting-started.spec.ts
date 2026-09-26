@@ -88,6 +88,9 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   const setup = page.locator(".getting-started-dialog");
   const heading = setup.getByRole("heading", { level: 2 });
   await expect(heading).toHaveText("Choose a look");
+  await expect(setup.locator(".gs-later")).toContainText(
+    "Change it anytime with Select Color Theme",
+  );
 
   await setup.getByRole("button", { name: "Light", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
@@ -102,7 +105,7 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   for (const name of [/Codex/, /Claude Agent/]) {
     const suggested = setup.getByRole("button", { name });
     await expect(suggested).toContainText("Not installed yet. Choosing it installs it.");
-    await expect(suggested.locator(".gs-tag")).toHaveAttribute("title", /Third-party agent/);
+    await expect(suggested.locator(".gs-tag")).toHaveAttribute("title", /Made by a third party/);
   }
   await expect(setup.getByRole("button", { name: /Other Agent/ })).toHaveCount(0);
   await expect(setup.getByRole("button", { name: /Claude Code/ }).locator(".gs-tag")).toHaveCount(
@@ -117,11 +120,15 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   const inference = setup.getByRole("switch", { name: /Allow suggestions/ });
   await expect(inference).toBeEnabled();
   await inference.check();
-  await expect(setup.getByRole("combobox", { name: /Answered by/ })).toHaveValue("fake-acp");
+  await expect(setup.getByRole("combobox", { name: /Which agent/ })).toHaveValue("fake-acp");
   await expect(setup.getByRole("switch", { name: /Suggest automatically/ })).toBeEnabled();
   await setup.getByRole("button", { name: "Next" }).click();
 
-  await expect(heading).toHaveText("Learn the keys");
+  await expect(heading).toHaveText("You're ready");
+  await expect(setup.locator(".gs-ask")).toContainText("Just ask your agent.");
+  await expect(setup.locator(".gs-keys li", { hasText: "Go to File" })).toContainText(
+    "orShiftShift",
+  );
   await expect(
     setup.locator(".gs-keys li", { hasText: "Sessions" }).locator("kbd").last(),
   ).toHaveText("N");
@@ -170,7 +177,7 @@ test("choosing a suggested agent installs and checks it, and shows why a failed 
   const codex = setup.getByRole("button", { name: /Codex/ });
   await codex.click();
 
-  await expect(codex).toContainText("Installing and checking it starts");
+  await expect(codex).toContainText("Installing…");
   await expect(setup.locator(".gs-error")).toContainText("npm ERR! 404 Not Found");
   await expect(codex).toContainText("Not installed yet. Choosing it installs it.");
   await expect(codex).toHaveAttribute("aria-pressed", "false");

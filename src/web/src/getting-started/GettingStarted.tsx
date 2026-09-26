@@ -9,7 +9,7 @@ import {
   setGettingStartedOpen,
   writeSetting,
 } from "./state";
-import { type Attempt, InferenceStep, Keycaps, KeysStep, ThemeStep } from "./steps";
+import { type Attempt, FinishStep, InferenceStep, Keycaps, ThemeStep } from "./steps";
 import "./getting-started.css";
 
 const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) => JSX.Element }[] =
@@ -30,9 +30,9 @@ const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) 
       body: InferenceStep,
     },
     {
-      title: "Learn the keys",
-      hint: "Weavie is built for the keyboard. Start with these five.",
-      body: KeysStep,
+      title: "You're ready",
+      hint: "One last tip, and a few keys worth learning.",
+      body: FinishStep,
     },
   ];
 

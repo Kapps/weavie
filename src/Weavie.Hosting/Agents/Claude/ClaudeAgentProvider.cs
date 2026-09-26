@@ -50,7 +50,7 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 				Available = true,
 				Warning = installed
 					? null
-					: $"Claude Code isn't installed: '{command}' was not found. Install it, or set claude.path to its location.",
+					: $"Claude Code isn't installed yet. Weavie couldn't find '{command}'.",
 			};
 		}
 	}

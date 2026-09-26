@@ -20,7 +20,7 @@ import type { Attempt } from "./steps";
 const SUGGESTED_AGENTS = ["claude-acp", "codex-acp"];
 
 const ACP_TOOLTIP =
-  "Third-party agent from the ACP registry, maintained outside Weavie. It runs in Weavie's native agent pane.";
+  "Made by a third party and maintained outside Weavie. It chats in Weavie's agent panel.";
 
 function AcpTag(): JSX.Element {
   return (
@@ -95,8 +95,8 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
                 <small>
                   {provider.unavailableReason ??
                     (provider.surface === "terminal"
-                      ? "Claude's own terminal UI, in a Weavie pane"
-                      : (registryDescription(provider.id) ?? "Runs in Weavie's native agent pane"))}
+                      ? "Runs in a terminal inside Weavie"
+                      : (registryDescription(provider.id) ?? "Chats in Weavie's agent panel"))}
                 </small>
                 <Show when={provider.warning}>
                   {(warning) => <small class="gs-warning">{warning()}</small>}
@@ -123,9 +123,9 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
                 <small>{agent.description}</small>
                 <small class="gs-note">
                   {installing() === agent.id
-                    ? "Installing and checking it starts… The first download can take a minute."
+                    ? "Installing… The first download can take a minute."
                     : agent.distributions[0] === undefined
-                      ? "No installable distribution in the registry."
+                      ? "Not available to install right now."
                       : "Not installed yet. Choosing it installs it."}
                 </small>
               </span>
@@ -134,15 +134,11 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
         </For>
       </fieldset>
       <Show when={registry.error}>
-        {(error) => (
-          <small class="gs-warning">
-            Couldn't reach the ACP registry to offer more agents: {String(error())}
-          </small>
-        )}
+        {(error) => <small class="gs-warning">Couldn't load more agents: {String(error())}</small>}
       </Show>
       <div class="gs-links">
         <button type="button" class="gs-link" onClick={() => setBrowsing(true)}>
-          Install another agent from the ACP registry
+          Browse more agents
           <ChevronRight size="1em" aria-hidden="true" />
         </button>
         <Show when={agentProviders(LOCAL_BACKEND_ID).some((provider) => provider.warning !== null)}>

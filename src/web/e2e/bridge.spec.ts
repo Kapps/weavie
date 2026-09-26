@@ -70,6 +70,7 @@ test.describe("session-addressed WebSocket transport", () => {
       expect(request.payload).toEqual({ id: "sample", distribution: "uvx" });
       installed = true;
       host.respond(request, null);
+      host.publishHost("acpRegistry", "installed", { id: "sample", error: null });
     });
     host.onHost("request", "acpRegistry", "remove", (request) => {
       expect(request.payload).toEqual({ id: "sample" });

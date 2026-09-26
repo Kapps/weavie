@@ -16,6 +16,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	private readonly HostServices _services;
 	private readonly Action<string> _log;
 	private readonly List<IDisposable> _handlers = [];
+	private readonly CancellationTokenSource _lifetime = new();
 
 	public GlobalHostFeatures(HostMessageBus host, HostServices services, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(host);
@@ -113,8 +114,34 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		var acpRegistry = _host.Feature("acpRegistry");
 		_handlers.Add(acpRegistry.Handle<EmptyRequest, IReadOnlyList<AcpRegistryAgent>>(
 			"list", (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
-		_handlers.Add(acpRegistry.Handle<AcpInstallMessage>(
-			"install", (message, ct) => _services.AcpAgents.InstallAsync(message.Id, message.Distribution, ct)));
+		// A first npx/uvx start downloads the agent, which can outlast a request, so installs answer at once and
+		// report through "installed" when the check finishes.
+		_handlers.Add(acpRegistry.Handle<AcpInstallMessage>("install", (message, ct) => {
+			_ = InstallAsync(message);
+			return Task.CompletedTask;
+		}));
+	}
+
+	private async Task InstallAsync(AcpInstallMessage message) {
+		string? error = null;
+		try {
+			await _services.AcpAgents.InstallAsync(
+				message.Id,
+				message.Distribution,
+				(launch, ct) => Weavie.AgentClientProtocol.AcpAgentCheck.VerifyAsync(
+					Agents.AgentProviderComposition.Definition(launch),
+					ct),
+				_lifetime.Token).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+			return;
+		} catch (Exception ex) {
+			error = ex.Message;
+			_log($"[acp] installing {message.Id} ({message.Distribution}) failed: {ex}");
+		}
+
+		if (!_lifetime.IsCancellationRequested) {
+			_host.Feature("acpRegistry").Publish("installed", new InstallResult(message.Id, error));
+		}
 	}
 
 	private void OnSettingChanged(SettingChange change) {
@@ -150,6 +177,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 	/// <inheritdoc/>
 	public void Dispose() {
+		_lifetime.Cancel();
 		_services.Settings.SettingChanged -= OnSettingChanged;
 		_services.ThemeOverrides.Changed -= OnThemeOverridesChanged;
 		_services.Keybindings.KeybindingsChanged -= PushCommandCatalog;
@@ -160,6 +188,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	}
 
 	private sealed record EmptyRequest;
+	private sealed record InstallResult(string Id, string? Error);
 	private sealed record WebLogMessage(string Level, string Message);
 	private sealed record SettingRead(string Key);
 	private sealed record SettingWrite(string Key, JsonElement Value);

@@ -53,7 +53,7 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
     setBusy(agent.id);
     setError(null);
     try {
-      await feature().request("install", { id: agent.id, distribution });
+      await installAcpAgent(props.backendId, agent.id, distribution);
       notify("info", `${agent.name} ${agent.version} is installed through ${distribution}.`);
       await load();
     } catch (caught) {
@@ -158,8 +158,53 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
   );
 }
 
-export function acpRegistryFeature(backendId: string) {
+function connected(backendId: string) {
   const connection = hostConnection(backendId);
   if (connection === undefined) throw new Error("The selected Weavie host is not connected.");
-  return connection.host.feature("acpRegistry");
+  return connection;
+}
+
+export function acpRegistryFeature(backendId: string) {
+  return connected(backendId).host.feature("acpRegistry");
+}
+
+/**
+ * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (a first
+ * npx/uvx start downloads it, so this can take a while); rejects with the agent's own error output otherwise.
+ */
+export function installAcpAgent(
+  backendId: string,
+  id: string,
+  distribution: string,
+): Promise<void> {
+  const connection = connected(backendId);
+  const feature = connection.host.feature("acpRegistry");
+  return new Promise((resolve, reject) => {
+    let replayingHello = connection.currentHello !== null;
+    const stop = (): void => {
+      offResult();
+      offHello();
+    };
+    const offResult = feature.on<{ id: string; error: string | null }>("installed", (result) => {
+      if (result.id !== id) return;
+      stop();
+      if (result.error === null) resolve();
+      else reject(new Error(result.error));
+    });
+    // The result is announced once; a reconnect in between can miss it, so say so rather than wait forever.
+    const offHello = connection.onHello(() => {
+      if (replayingHello) {
+        replayingHello = false;
+        return;
+      }
+      stop();
+      reject(
+        new Error("The connection to Weavie dropped during the install. Check the agent list."),
+      );
+    });
+    feature.request("install", { id, distribution }).catch((error: unknown) => {
+      stop();
+      reject(error);
+    });
+  });
 }

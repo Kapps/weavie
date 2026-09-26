@@ -443,7 +443,10 @@ fieldset.gs-choices {
 /* Footer. */
 
 .gs-error {
+  max-height: 6.5em;
+  overflow-y: auto;
   margin: 10px 0 0;
+  white-space: pre-wrap;
   color: var(--bad);
 }
 

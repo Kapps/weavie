@@ -5,6 +5,7 @@ import {
   type AcpRegistryAgent,
   AcpRegistryList,
   acpRegistryFeature,
+  installAcpAgent,
 } from "../chrome/AcpRegistryList";
 import {
   agentProviders,
@@ -49,10 +50,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
     props.attempt(async () => {
       setInstalling(agent.id);
       try {
-        await acpRegistryFeature(LOCAL_BACKEND_ID).request("install", {
-          id: agent.id,
-          distribution,
-        });
+        await installAcpAgent(LOCAL_BACKEND_ID, agent.id, distribution);
         await use(agent.id);
       } finally {
         setInstalling(null);
@@ -125,7 +123,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
                 <small>{agent.description}</small>
                 <small class="gs-note">
                   {installing() === agent.id
-                    ? "Installing…"
+                    ? "Installing and checking it starts… The first download can take a minute."
                     : agent.distributions[0] === undefined
                       ? "No installable distribution in the registry."
                       : "Not installed yet. Choosing it installs it."}

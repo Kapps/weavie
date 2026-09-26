@@ -20,6 +20,27 @@ test.use({
           socket.send(
             encodeTestWebSocketMessage(JSON.stringify({ ...message, kind: "response", payload })),
           );
+          // An install answers at once and reports its check later; this one fails the way npm would.
+          if (message.feature === "acpRegistry" && message.name === "install") {
+            const { id } = message.payload as { id: string };
+            const result = {
+              id,
+              error: "npm ERR! 404 Not Found - GET https://registry.npmjs.org/codex-acp",
+            };
+            setTimeout(() => {
+              socket.send(
+                encodeTestWebSocketMessage(
+                  JSON.stringify({
+                    ...message,
+                    kind: "event",
+                    requestId: null,
+                    name: "installed",
+                    payload: result,
+                  }),
+                ),
+              );
+            }, 500);
+          }
         });
       });
     },
@@ -37,6 +58,9 @@ function canned(message: MessageEnvelope): unknown {
       downloadCount: 12345,
     };
     return { extensions: [extension], offset: 0, totalSize: 1 };
+  }
+  if (message.feature === "acpRegistry" && message.name === "install") {
+    return null;
   }
   if (message.feature === "acpRegistry" && message.name === "list") {
     const agent = (id: string, name: string, description: string) => ({
@@ -136,4 +160,22 @@ test("Browse more themes hands setup off to the Open VSX picker and back", async
   await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
   await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose a look");
+});
+
+test("choosing a suggested agent installs and checks it, and shows why a failed install failed", async ({
+  page,
+}) => {
+  const setup = page.locator(".getting-started-dialog");
+  await setup.getByRole("button", { name: "Next" }).click();
+  const codex = setup.getByRole("button", { name: /Codex/ });
+  await codex.click();
+
+  await expect(codex).toContainText("Installing and checking it starts");
+  await expect(setup.locator(".gs-error")).toContainText("npm ERR! 404 Not Found");
+  await expect(codex).toContainText("Not installed yet. Choosing it installs it.");
+  await expect(codex).toHaveAttribute("aria-pressed", "false");
+  await expect(setup.getByRole("button", { name: /Claude Code/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

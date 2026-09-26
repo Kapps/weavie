@@ -102,6 +102,7 @@
 
 .session-prompt-error {
   margin-top: 0.8em;
+  white-space: pre-wrap;
   color: var(--danger, #f85149);
   font-size: 0.85em;
 }

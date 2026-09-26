@@ -1,16 +1,18 @@
 namespace Weavie.WorktreeServe;
 
-internal sealed record WorktreeServeOptions(string? Workspace, int HttpsPort, string? StateRoot) {
+// Agent, when set, replaces the provider of the preview's copy of the checkout's session.
+internal sealed record WorktreeServeOptions(string? Workspace, int HttpsPort, string? StateRoot, string? Agent) {
 	public const int DefaultHttpsPort = 10000;
 
 	public const string Usage =
 		"Usage: dotnet run --project tools/Weavie.WorktreeServe -- "
-		+ "[--workspace <path>] [--https-port <port>] [--state-root <path>]";
+		+ "[--workspace <path>] [--https-port <port>] [--state-root <path>] [--agent <provider id>]";
 
 	public static (WorktreeServeOptions? Options, string? Error) Resolve(string[] args) {
 		ArgumentNullException.ThrowIfNull(args);
 		string? workspace = null;
 		string? stateRoot = null;
+		string? agent = null;
 		int httpsPort = DefaultHttpsPort;
 
 		for (int index = 0; index < args.Length; index += 2) {
@@ -27,6 +29,9 @@ internal sealed record WorktreeServeOptions(string? Workspace, int HttpsPort, st
 				case "--state-root":
 					stateRoot = value;
 					break;
+				case "--agent":
+					agent = value;
+					break;
 				case "--https-port":
 					if (!int.TryParse(value, out int parsed) || parsed is < 1 or > 65535) {
 						return (null, $"invalid HTTPS port '{value}'.");
@@ -41,6 +46,6 @@ internal sealed record WorktreeServeOptions(string? Workspace, int HttpsPort, st
 			}
 		}
 
-		return (new WorktreeServeOptions(workspace, httpsPort, stateRoot), null);
+		return (new WorktreeServeOptions(workspace, httpsPort, stateRoot, agent), null);
 	}
 }

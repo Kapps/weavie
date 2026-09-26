@@ -16,7 +16,8 @@ internal static class PreviewStateBootstrap {
 		string productionRoot,
 		string previewRoot,
 		string workspaceRoot,
-		string selectedWorktree) {
+		string selectedWorktree,
+		string? agentOverride) {
 		string source = Path.GetFullPath(productionRoot);
 		string destination = Path.GetFullPath(previewRoot);
 		var workspaceId = WorkspaceId.ForPath(workspaceRoot);
@@ -31,14 +32,20 @@ internal static class PreviewStateBootstrap {
 		}
 
 		var catalog = AcpDistributionSnapshot.ReadCatalog(source);
-		string provider = selected[0].AgentProviderId;
+		string provider = agentOverride ?? selected[0].AgentProviderId;
 		if (provider != "claude" && catalog.All(agent => agent.Id != provider)) {
-			throw new InvalidOperationException(
-				$"session '{selected[0].Label}' uses unavailable provider '{provider}' in production state.");
+			throw new InvalidOperationException(agentOverride is null
+				? $"session '{selected[0].Label}' uses unavailable provider '{provider}' in production state; "
+					+ "pass --agent <provider id> (e.g. --agent claude) to run the preview's copy with another agent."
+				: $"--agent '{provider}' isn't installed in production state.");
 		}
 
-		var projected = productionSessions.Items.Select(session => session with {
-			Loaded = PhysicalPath.Equal(session.WorktreePath, selectedWorktree),
+		var projected = productionSessions.Items.Select(session => {
+			bool current = PhysicalPath.Equal(session.WorktreePath, selectedWorktree);
+			return session with {
+				Loaded = current,
+				AgentProviderId = current ? provider : session.AgentProviderId,
+			};
 		}).ToList();
 		PreservePreviewOwnedSessions(destination, workspaceId, destinationSessionsPath, projected);
 

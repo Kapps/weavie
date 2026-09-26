@@ -46,7 +46,7 @@ internal sealed class WorktreeServeApp(ITailscaleCli tailscale) {
 			Console.WriteLine($"[worktree-serve] state:     {stateRoot}");
 			await BuildAsync(sourceRoot, runRoot, cancellationToken).ConfigureAwait(false);
 			EnsurePortAvailable(options.HttpsPort);
-			var preview = PreviewStateBootstrap.Refresh(productionRoot, stateRoot, workspace, selectedWorktree);
+			var preview = PreviewStateBootstrap.Refresh(productionRoot, stateRoot, workspace, selectedWorktree, options.Agent);
 			Console.WriteLine($"[worktree-serve] session:   {preview.SelectedSession.Value} ({preview.SelectedProvider})");
 
 			var readiness = new HeadlessReadiness();

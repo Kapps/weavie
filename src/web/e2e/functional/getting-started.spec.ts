@@ -5,30 +5,18 @@ import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harne
 
 test.use({
   setupCompleted: false,
-  // Open VSX is a live service; answer theme searches with one canned extension.
+  // Open VSX and the ACP registry are live services; answer them with canned entries.
   preNavigate: {
     run: async (page) => {
       await page.routeWebSocket("**/*", (socket) => {
         const server = socket.connectToServer();
         socket.onMessage((data) => {
           const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
-          if (
-            message.kind !== "request" ||
-            message.feature !== "themes" ||
-            message.name !== "search"
-          ) {
+          const payload = message.kind === "request" ? canned(message) : undefined;
+          if (payload === undefined) {
             server.send(data);
             return;
           }
-          const extension = {
-            namespace: "example-author",
-            name: "popular",
-            displayName: "Popular Theme",
-            version: "1.2.3",
-            description: "A popular theme.",
-            downloadCount: 12345,
-          };
-          const payload = { extensions: [extension], offset: 0, totalSize: 1 };
           socket.send(
             encodeTestWebSocketMessage(JSON.stringify({ ...message, kind: "response", payload })),
           );
@@ -37,6 +25,37 @@ test.use({
     },
   },
 });
+
+function canned(message: MessageEnvelope): unknown {
+  if (message.feature === "themes" && message.name === "search") {
+    const extension = {
+      namespace: "example-author",
+      name: "popular",
+      displayName: "Popular Theme",
+      version: "1.2.3",
+      description: "A popular theme.",
+      downloadCount: 12345,
+    };
+    return { extensions: [extension], offset: 0, totalSize: 1 };
+  }
+  if (message.feature === "acpRegistry" && message.name === "list") {
+    const agent = (id: string, name: string, description: string) => ({
+      id,
+      name,
+      version: "1.0.0",
+      description,
+      distributions: ["npx"],
+      installedDistribution: null,
+      installedVersion: null,
+    });
+    return [
+      agent("claude-acp", "Claude Agent", "ACP wrapper for Anthropic's Claude"),
+      agent("codex-acp", "Codex", "ACP adapter for OpenAI's coding assistant"),
+      agent("other-acp", "Other Agent", "Not a suggested agent"),
+    ];
+  }
+  return undefined;
+}
 
 test("first run opens Getting Started, saves each choice live, and stays closed once finished", async ({
   page,
@@ -56,6 +75,15 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
 
   await expect(heading).toHaveText("Pick your agent");
   await expect(setup.getByRole("button", { name: /Claude Code/ })).toBeEnabled();
+  for (const name of [/Codex/, /Claude Agent/]) {
+    const suggested = setup.getByRole("button", { name });
+    await expect(suggested).toContainText("Not installed yet. Choosing it installs it.");
+    await expect(suggested.locator(".gs-tag")).toHaveAttribute("title", /Third-party agent/);
+  }
+  await expect(setup.getByRole("button", { name: /Other Agent/ })).toHaveCount(0);
+  await expect(setup.getByRole("button", { name: /Claude Code/ }).locator(".gs-tag")).toHaveCount(
+    0,
+  );
   const fakeAcp = setup.getByRole("button", { name: /Fake ACP/ });
   await fakeAcp.click();
   await expect(fakeAcp).toHaveAttribute("aria-pressed", "true");

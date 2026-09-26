@@ -2,13 +2,14 @@ import { createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { ModalShell } from "../chrome/ModalShell";
 import { notify } from "../notify/notify";
+import { AgentStep } from "./AgentStep";
 import {
   COMPLETED_SETTING,
   gettingStartedOpen,
   setGettingStartedOpen,
   writeSetting,
 } from "./state";
-import { AgentStep, type Attempt, InferenceStep, Keycaps, KeysStep, ThemeStep } from "./steps";
+import { type Attempt, InferenceStep, Keycaps, KeysStep, ThemeStep } from "./steps";
 import "./getting-started.css";
 
 const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) => JSX.Element }[] =

@@ -2,7 +2,8 @@ import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { hostConnection } from "../bridge";
 import { notify } from "../notify/notify";
 
-interface AcpRegistryAgent {
+/** One agent in the official ACP registry, with what this host has installed of it. */
+export interface AcpRegistryAgent {
   id: string;
   name: string;
   version: string;

@@ -234,7 +234,7 @@ fieldset.gs-choices {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   background: var(--gs-surface);
   border: 1px solid var(--gs-line);
   border-radius: 10px;
@@ -246,6 +246,22 @@ fieldset.gs-choices {
 
 .getting-started .gs-choice:disabled {
   opacity: 0.6;
+}
+
+.gs-tag {
+  margin-left: 8px;
+  padding: 0 5px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  border: 1px solid var(--gs-line);
+  border-radius: 4px;
+  cursor: help;
+}
+
+.gs-text small.gs-note {
+  color: var(--accent);
 }
 
 .gs-radio {

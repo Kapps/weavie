@@ -1,13 +1,7 @@
-import { ChevronLeft, ChevronRight } from "lucide-solid";
-import { createResource, createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
+import { ChevronRight } from "lucide-solid";
+import { createResource, createUniqueId, For, type JSX, Show } from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
-import { AcpRegistryList } from "../chrome/AcpRegistryList";
-import {
-  agentProviders,
-  defaultAgentProvider,
-  refreshAgentProviders,
-  setDefaultAgentProvider,
-} from "../chrome/agent-default";
+import { agentProviders } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -86,75 +80,6 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
         </button>
       </p>
     </>
-  );
-}
-
-export function AgentStep(props: { attempt: Attempt }): JSX.Element {
-  const [browsing, setBrowsing] = createSignal(false);
-  // Suggestions follow the default agent; the next step can still point them elsewhere.
-  const choose = (id: string) =>
-    props.attempt(async () => {
-      await setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
-      await writeSetting("inference.defaultProvider", id);
-    });
-  return (
-    <Show
-      when={!browsing()}
-      fallback={
-        <>
-          <button type="button" class="gs-link" onClick={() => setBrowsing(false)}>
-            <ChevronLeft size="1em" aria-hidden="true" />
-            Back to your agents
-          </button>
-          <div class="gs-registry">
-            <AcpRegistryList backendId={LOCAL_BACKEND_ID} removable={false} />
-          </div>
-        </>
-      }
-    >
-      <fieldset class="gs-choices" aria-label="Agent">
-        <For each={agentProviders(LOCAL_BACKEND_ID)}>
-          {(provider) => (
-            <button
-              type="button"
-              class="gs-choice"
-              aria-pressed={defaultAgentProvider(LOCAL_BACKEND_ID) === provider.id}
-              disabled={!provider.available}
-              onClick={() => choose(provider.id)}
-            >
-              <span class="gs-radio" aria-hidden="true" />
-              <span class="gs-text">
-                <strong>{provider.name}</strong>
-                <small>
-                  {provider.unavailableReason ??
-                    (provider.surface === "terminal"
-                      ? "Its own terminal UI, embedded in a Weavie pane"
-                      : "Runs in Weavie's native agent pane")}
-                </small>
-                <Show when={provider.warning}>
-                  {(warning) => <small class="gs-warning">{warning()}</small>}
-                </Show>
-              </span>
-            </button>
-          )}
-        </For>
-      </fieldset>
-      <div class="gs-links">
-        <button type="button" class="gs-link" onClick={() => setBrowsing(true)}>
-          Install another agent from the ACP registry
-          <ChevronRight size="1em" aria-hidden="true" />
-        </button>
-        <Show when={agentProviders(LOCAL_BACKEND_ID).some((provider) => provider.warning !== null)}>
-          <button
-            type="button"
-            class="gs-link"
-            onClick={() => props.attempt(() => refreshAgentProviders(LOCAL_BACKEND_ID))}
-          >
-            Installed it? Check again
-          </button>
-        </Show>
-      </div>
-    </Show>
   );
 }
 

@@ -1,169 +1,477 @@
 /* Getting Started: inline on the welcome screen, or inside .getting-started-dialog over a workspace. */
 
 .confirm-dialog.getting-started-dialog {
-  width: min(640px, 94vw);
-  padding: 24px;
+  width: min(680px, 94vw);
+  padding: 0;
+  overflow: hidden;
 }
 
 .getting-started {
+  --gs-surface: color-mix(in srgb, var(--fg) 5%, transparent);
+  --gs-surface-hover: color-mix(in srgb, var(--fg) 9%, transparent);
+  --gs-line: color-mix(in srgb, var(--fg) 13%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  padding: 28px 32px 22px;
   color: var(--fg);
+  outline: none;
 }
 
 .getting-started button,
 .getting-started select {
-  padding: 0.45em 0.9em;
   color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
   font-size: var(--font-chrome-size);
   cursor: pointer;
 }
 
-.getting-started button:hover:not(:disabled) {
-  background: var(--list-hover-bg);
+.getting-started select {
+  padding: 0.4em 0.6em;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 6px;
 }
 
-.getting-started button:disabled {
+.getting-started button:disabled,
+.getting-started select:disabled {
   cursor: default;
-  opacity: 0.6;
+}
+
+.getting-started :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Header: progress, step count, title, hint. */
+
+.gs-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 22px;
+}
+
+.getting-started .gs-segment {
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--gs-line);
+  transition: background 0.2s ease;
+}
+
+.getting-started .gs-segment.gs-reached {
+  background: var(--accent);
+}
+
+.gs-eyebrow {
+  margin: 0 0 6px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .getting-started h2 {
   margin: 0;
-  font-size: calc(var(--font-chrome-size) * 1.4);
-  font-weight: 600;
+  font-size: calc(var(--font-chrome-size) * 1.7);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
-.getting-started-progress {
-  display: flex;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.getting-started .getting-started-progress button {
-  border-color: transparent;
-  background: transparent;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-}
-
-.getting-started .getting-started-progress [aria-current="step"] button {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.getting-started-hint,
-.getting-started-error {
-  margin: 0;
+.gs-hint {
+  margin: 6px 0 20px;
   color: var(--dim);
 }
 
-.getting-started-error {
-  color: var(--danger, #f85149);
-}
+/* Body: a fixed height so the dialog never jumps between steps; long content scrolls inside it. */
 
-.getting-started-body {
+.gs-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 12rem;
+  height: 15.5rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
-.getting-started-body .acp-registry-list {
-  max-height: 16rem;
-  margin-top: 0;
-}
-
-.getting-started-options,
-.getting-started-row,
-.getting-started-nav {
+.gs-text {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
 }
 
-fieldset.getting-started-options {
+.gs-text strong {
+  font-weight: 600;
+}
+
+.gs-text small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  line-height: 1.4;
+}
+
+.gs-text small.gs-warning {
+  color: var(--warn);
+}
+
+fieldset.gs-modes,
+fieldset.gs-choices {
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-.getting-started-stack {
-  flex-direction: column;
+/* Appearance: one card per mode, each with a miniature window in the real theme colors. */
+
+.gs-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
 
-.getting-started .getting-started-option {
+.getting-started .gs-mode {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  text-align: left;
+  gap: 8px;
+  padding: 8px;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 10px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
-.getting-started .getting-started-option[aria-pressed="true"] {
+.getting-started .gs-mode:hover {
+  background: var(--gs-surface-hover);
+}
+
+.getting-started .gs-mode[aria-pressed="true"],
+.getting-started .gs-choice[aria-pressed="true"] {
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
-.getting-started-option small {
-  color: var(--dim);
-  font-size: var(--font-hint-size);
+.gs-mode-preview {
+  position: relative;
+  display: block;
+  height: 86px;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-.getting-started-field {
+.gs-mock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template: 14px 1fr / 26% 1fr;
+  background: var(--bg);
+}
+
+.gs-mock-half {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+.gs-mock-bar {
+  grid-column: 1 / -1;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.gs-mock-side {
+  background: var(--bar);
+  border-right: 1px solid var(--border);
+}
+
+.gs-mock-lines {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 7px;
+  padding: 11px 10px;
+}
+
+.gs-mock-lines i {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--fg);
+  opacity: 0.35;
+}
+
+.gs-mock-lines i.gs-mock-accent {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.gs-mode-label {
+  font-weight: 600;
+}
+
+.gs-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.gs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   color: var(--dim);
   font-size: var(--font-metadata-size);
 }
 
-.getting-started-check {
+/* Agent: radio-style cards, then the optional registry. */
+
+.gs-choices {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
   gap: 8px;
 }
 
-.getting-started-keys {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px 24px;
-  margin: 0;
+.getting-started .gs-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 10px;
 }
 
-.getting-started-keys dd {
-  margin: 0;
+.getting-started .gs-choice:hover:not(:disabled) {
+  background: var(--gs-surface-hover);
 }
 
-.getting-started-keys kbd {
-  font-family: var(--font-content-family);
-  font-size: var(--font-metadata-size);
+.getting-started .gs-choice:disabled {
+  opacity: 0.6;
+}
+
+.gs-radio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--dim);
+  border-radius: 50%;
+}
+
+.gs-choice[aria-pressed="true"] .gs-radio {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 45%, transparent 50%);
+}
+
+.gs-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
+.getting-started .gs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  background: none;
+  border: none;
   color: var(--accent);
 }
 
-.getting-started-nav {
-  justify-content: flex-end;
+.getting-started .gs-link:hover {
+  text-decoration: underline;
 }
 
-.getting-started .getting-started-skip {
+.gs-registry {
+  border: 1px solid var(--gs-line);
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.gs-registry .acp-registry-list {
+  max-height: none;
+  margin-top: 0;
+  border-top: none;
+}
+
+.gs-registry .acp-registry-agent:last-child {
+  border-bottom: none;
+}
+
+.getting-started .gs-registry button {
+  padding: 0.35em 0.8em;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 6px;
+}
+
+/* Smart suggestions: setting rows with switches. */
+
+.gs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 14px;
+  background: var(--gs-surface);
+  border-radius: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.gs-row.gs-disabled {
+  opacity: 0.55;
+}
+
+.gs-switch {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--gs-line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.gs-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s ease;
+}
+
+.gs-switch:checked {
+  background: var(--accent);
+}
+
+.gs-switch:checked::before {
+  background: var(--button-fg);
+  transform: translateX(14px);
+}
+
+.gs-switch:disabled {
+  cursor: default;
+}
+
+/* Keyboard: command, what it's for, and its keys. */
+
+.gs-keys {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gs-keys li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--gs-line);
+}
+
+.gs-keys li:last-child {
+  border-bottom: none;
+}
+
+.gs-keys .gs-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.gs-keycaps {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.gs-keycaps kbd {
+  min-width: 1.6em;
+  padding: 1px 6px;
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-hint-size);
+  line-height: 1.6;
+  text-align: center;
+  color: var(--fg);
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+.gs-footnote {
+  margin: 4px 0 0;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+/* Footer. */
+
+.gs-error {
+  margin: 10px 0 0;
+  color: var(--bad);
+}
+
+.gs-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gs-line);
+}
+
+.getting-started .gs-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.5em 1em;
+  border-radius: 7px;
+  border: 1px solid transparent;
+}
+
+.getting-started .gs-skip {
   margin-right: auto;
-  border-color: transparent;
-  background: transparent;
+  background: none;
   color: var(--dim);
 }
 
-.getting-started .getting-started-next {
-  color: var(--button-fg);
-  background: var(--button-bg);
-  border-color: transparent;
+.getting-started .gs-skip:hover {
+  color: var(--fg);
 }
 
-.getting-started .getting-started-next:hover:not(:disabled) {
+.getting-started .gs-nav .gs-secondary {
+  background: var(--gs-surface);
+  border-color: var(--gs-line);
+}
+
+.getting-started .gs-secondary:hover {
+  background: var(--gs-surface-hover);
+}
+
+.getting-started .gs-primary {
+  font-weight: 600;
+  color: var(--button-fg);
+  background: var(--button-bg);
+}
+
+.getting-started .gs-primary:hover {
   background: var(--button-hover-bg);
+}
+
+.gs-nav .gs-keycaps kbd {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
 }

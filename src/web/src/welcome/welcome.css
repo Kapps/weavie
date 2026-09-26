@@ -218,3 +218,9 @@
   opacity: 1;
   transform: none;
 }
+
+.welcome .getting-started {
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}

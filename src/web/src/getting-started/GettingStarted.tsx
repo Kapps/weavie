@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { ModalShell } from "../chrome/ModalShell";
 import { notify } from "../notify/notify";
@@ -8,37 +8,40 @@ import {
   setGettingStartedOpen,
   writeSetting,
 } from "./state";
-import { AgentStep, type Attempt, InferenceStep, KeysStep, ThemeStep } from "./steps";
+import { AgentStep, type Attempt, InferenceStep, Keycaps, KeysStep, ThemeStep } from "./steps";
 import "./getting-started.css";
 
 const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) => JSX.Element }[] =
   [
     {
-      title: "Appearance",
-      hint: "Pick a color scheme. It applies as you choose.",
+      title: "Choose a look",
+      hint: "Weavie follows your system by default. Changes apply instantly.",
       body: ThemeStep,
     },
     {
-      title: "Agent",
-      hint: "Choose the agent new sessions start with, or install one from the ACP registry.",
+      title: "Pick your agent",
+      hint: "New sessions start with this agent. You can pick another for any session.",
       body: AgentStep,
     },
     {
-      title: "AI suggestions",
-      hint: "Weavie can make small, isolated model calls outside your session. They're off unless you allow them.",
+      title: "Smart suggestions",
+      hint: "Optional, and off until you turn it on.",
       body: InferenceStep,
     },
     {
-      title: "Keyboard",
-      hint: "Weavie is built for the keyboard. These are the shortcuts to learn first.",
+      title: "Learn the keys",
+      hint: "Weavie is built for the keyboard. Start with these five.",
       body: KeysStep,
     },
   ];
 
+const INTERACTIVE = "button, select, input, textarea, a";
+
 /** The setup steps; every choice saves immediately, and finishing (or skipping) marks setup done. */
-export function GettingStarted(props: { onDone: () => void }): JSX.Element {
+export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean }): JSX.Element {
   const [index, setIndex] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
+  let section: HTMLElement | undefined;
   const attempt: Attempt = (action) => {
     setError(null);
     action().catch((caught: unknown) =>
@@ -52,41 +55,62 @@ export function GettingStarted(props: { onDone: () => void }): JSX.Element {
     });
   const step = () => STEPS[index()]!;
   const last = () => index() === STEPS.length - 1;
+  const next = () => (last() ? finish() : setIndex(index() + 1));
+  // Each step starts with focus on the page itself, so Enter advances and Tab reaches the first control.
+  createEffect(on(index, () => section?.focus()));
 
   return (
-    <section class="getting-started" aria-labelledby="getting-started-title">
-      <ol class="getting-started-progress">
+    <section
+      ref={section}
+      class="getting-started"
+      tabindex="-1"
+      aria-labelledby="getting-started-title"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !(event.target as Element).closest(INTERACTIVE)) {
+          event.preventDefault();
+          next();
+        }
+      }}
+    >
+      <div class="gs-progress">
         <For each={STEPS}>
           {(candidate, position) => (
-            <li aria-current={position() === index() ? "step" : undefined}>
-              <button type="button" onClick={() => setIndex(position())}>
-                {candidate.title}
-              </button>
-            </li>
+            <button
+              type="button"
+              class="gs-segment"
+              classList={{ "gs-reached": position() <= index() }}
+              aria-current={position() === index() ? "step" : undefined}
+              aria-label={`Step ${position() + 1}: ${candidate.title}`}
+              title={candidate.title}
+              onClick={() => setIndex(position())}
+            />
           )}
         </For>
-      </ol>
+      </div>
+      <p class="gs-eyebrow">
+        Setup · Step {index() + 1} of {STEPS.length}
+      </p>
       <h2 id="getting-started-title">{step().title}</h2>
-      <p class="getting-started-hint">{step().hint}</p>
-      <div class="getting-started-body">
+      <p class="gs-hint">{step().hint}</p>
+      <div class="gs-body">
         <Dynamic component={step().body} attempt={attempt} />
       </div>
-      <Show when={error()}>{(message) => <p class="getting-started-error">{message()}</p>}</Show>
-      <div class="getting-started-nav">
-        <button type="button" class="getting-started-skip" onClick={finish}>
+      <Show when={error()}>{(message) => <p class="gs-error">{message()}</p>}</Show>
+      <div class="gs-nav">
+        <button type="button" class="gs-skip" onClick={finish}>
           Skip setup
+          <Show when={props.escapeSkips}>
+            <Keycaps label="Esc" />
+          </Show>
         </button>
         <Show when={index() > 0}>
-          <button type="button" onClick={() => setIndex(index() - 1)}>
+          <button type="button" class="gs-secondary" onClick={() => setIndex(index() - 1)}>
             Back
           </button>
         </Show>
-        <button
-          type="button"
-          class="getting-started-next"
-          onClick={() => (last() ? finish() : setIndex(index() + 1))}
-        >
-          {last() ? "Finish" : "Next"}
+        <button type="button" class="gs-primary" onClick={next}>
+          {last() ? "Start using Weavie" : "Next"}
+          <Keycaps label="↵" />
         </button>
       </div>
     </section>
@@ -115,7 +139,7 @@ export function GettingStartedModal(): JSX.Element {
           }
         }}
       >
-        <GettingStarted onDone={close} />
+        <GettingStarted onDone={close} escapeSkips={true} />
       </ModalShell>
     </Show>
   );

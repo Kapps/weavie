@@ -36,6 +36,7 @@ export function replyComposer(session: ClientSession, conversationId: string) {
     uploadImage: (blob: Blob) => state.uploadAgentImage(owner, blob),
     captureImagePaste: (event: ClipboardEvent) => state.captureAgentImagePaste(event, owner),
     removeAttachment: (id: string) => state.removeComposerAttachment(owner, id),
+    setOpen: (open: boolean) => state.setReplyOpen(owner, open),
     submit: (): boolean => {
       const submission = state.prepareSubmission(
         owner,

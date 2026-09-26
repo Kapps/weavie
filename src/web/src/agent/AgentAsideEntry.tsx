@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -6,7 +6,7 @@ import { AgentAsideReply } from "./AgentAsideReply";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import { newestVisibleAgentElement } from "./AgentViewport";
-import { asideReplyState, setAsideReplyState } from "./aside-reply-store";
+import { replyComposer } from "./composer-store";
 
 const toggles = new Map<HTMLElement, () => void>();
 
@@ -32,8 +32,8 @@ export function AsideEntry(props: {
   if (typeof conversationId !== "string" || conversationId.length === 0) {
     throw new Error("An aside entry requires a conversation id.");
   }
-  const saved = asideReplyState(props.session, conversationId);
-  const [replying, setReplying] = createSignal(saved.open);
+  const composer = replyComposer(props.session, conversationId);
+  const replying = () => composer.state().replyOpen;
   let card: HTMLElement | undefined;
   const collapsed = () => props.expandedDetails.has(props.entry.id);
   const toggle = () => props.onDetailsToggle(props.entry.id, !collapsed());
@@ -46,10 +46,6 @@ export function AsideEntry(props: {
     toggles.set(card!, toggle);
     onCleanup(() => toggles.delete(card!));
   });
-  const setReplyOpen = (open: boolean): void => {
-    setReplying(open);
-    setAsideReplyState(props.session, conversationId, { open });
-  };
 
   return (
     <article ref={card} class="agent-aside" data-agent-aside={props.entry.conversationId}>
@@ -89,9 +85,7 @@ export function AsideEntry(props: {
                 type="button"
                 class="agent-aside-reply-button"
                 disabled={props.entry.asideActive === true}
-                onClick={() => {
-                  setReplyOpen(true);
-                }}
+                onClick={() => composer.setOpen(true)}
               >
                 Reply
               </button>
@@ -100,7 +94,7 @@ export function AsideEntry(props: {
             <AgentAsideReply
               session={props.session}
               conversationId={conversationId}
-              onClose={() => setReplyOpen(false)}
+              onClose={() => composer.setOpen(false)}
             />
           </Show>
         </Show>

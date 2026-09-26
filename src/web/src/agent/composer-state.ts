@@ -19,6 +19,8 @@ export interface AgentComposerState {
   draftRevision: number;
   pendingSubmission: { id: string; draftRevision: number } | null;
   error: string | null;
+  // Whether a BTW reply box is open; an accepted reply closes it unless more was typed while it sent.
+  replyOpen: boolean;
 }
 
 const EMPTY: AgentComposerState = {
@@ -27,6 +29,7 @@ const EMPTY: AgentComposerState = {
   draftRevision: 0,
   pendingSubmission: null,
   error: null,
+  replyOpen: false,
 };
 let sequence = 0;
 const DRAFT_KIND = "agent-composer";
@@ -87,6 +90,10 @@ const nextId = (prefix: string): string =>
 
 export function composerState(owner: ComposerOwner | null): AgentComposerState {
   return owner === null ? EMPTY : stateFor(owner);
+}
+
+export function setReplyOpen(owner: ComposerOwner, open: boolean): void {
+  update(owner, (state) => ({ ...state, replyOpen: open }));
 }
 
 export function setComposerDraft(owner: ComposerOwner, draft: string): void {
@@ -267,15 +274,21 @@ export function settleSubmission(owner: ComposerOwner, message: SubmissionState)
       revoke(attachment);
     }
   }
-  update(owner, (current) => ({
-    ...current,
-    draft: current.draftRevision === state.pendingSubmission?.draftRevision ? "" : current.draft,
-    attachments: current.attachments.filter(
+  update(owner, (current) => {
+    const draft =
+      current.draftRevision === state.pendingSubmission?.draftRevision ? "" : current.draft;
+    const attachments = current.attachments.filter(
       (attachment) => !message.attachmentIds.includes(attachment.id),
-    ),
-    pendingSubmission: null,
-    error: null,
-  }));
+    );
+    return {
+      ...current,
+      draft,
+      attachments,
+      pendingSubmission: null,
+      error: null,
+      replyOpen: current.replyOpen && (draft.length > 0 || attachments.length > 0),
+    };
+  });
 }
 
 export function publishAgent(

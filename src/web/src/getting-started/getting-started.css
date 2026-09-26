@@ -208,19 +208,18 @@ fieldset.gs-choices {
   font-weight: 600;
 }
 
-.gs-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 6px;
+.gs-themes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 4px 0 0;
+  color: var(--dim);
 }
 
-.gs-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
+.gs-themes strong {
+  color: var(--fg);
+  font-weight: 600;
 }
 
 /* Agent: radio-style cards, then the optional registry. */

@@ -73,6 +73,11 @@ internal sealed class GlobalHostFeatures : IDisposable {
 			return await new OpenVsxThemeInstaller(http, OpenVsxThemeInstaller.DefaultRegistry)
 				.SearchAsync(message.Query, message.Offset, message.SortBy, ct).ConfigureAwait(false);
 		}));
+		_handlers.Add(themes.HandleConcurrent<ThemeExtensionRequest, CommandWireResult>("install", async (message, ct) =>
+			CommandWireResult.From(await ThemeCommands.InstallFromOpenVsxAsync(
+				JsonSerializer.Serialize(new { @namespace = message.Namespace, name = message.Name, version = message.Version }),
+				_services.Settings,
+				ct).ConfigureAwait(false))));
 		_handlers.Add(themes.HandleConcurrent<ThemeExtensionRequest, IReadOnlyList<ThemePreview>>(
 			"previewExtension",
 			async (message, ct) => {

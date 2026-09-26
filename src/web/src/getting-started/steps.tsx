@@ -13,8 +13,8 @@ import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { chromeVars } from "../theme/chrome-vars";
 import { savedAppearance, savedPalette } from "../theme/controller";
-import { selectTheme, type ThemeChoice, themeRequest } from "../theme/picker-state";
-import { readSetting, writeSetting } from "./state";
+import { type ThemeChoice, themeRequest } from "../theme/picker-state";
+import { browseThemes, readSetting, writeSetting } from "./state";
 
 /** Runs a setup action, routing its failure to the page's error line. */
 export type Attempt = (action: () => Promise<void>) => void;
@@ -45,25 +45,10 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
   const [themes] = createResource(() =>
     themeRequest<ThemeChoice[]>("list", {}, new AbortController().signal),
   );
-  const themeSelect = (type: "light" | "dark", label: string) => (
-    <label class="gs-field">
-      <span>{label}</span>
-      <select
-        onChange={(event) => {
-          const id = event.currentTarget.value;
-          props.attempt(() => selectTheme(id, new AbortController().signal));
-        }}
-      >
-        <For each={(themes() ?? []).filter((theme) => theme.type === type)}>
-          {(theme) => (
-            <option value={theme.id} selected={theme.id === savedAppearance()[type]}>
-              {theme.label}
-            </option>
-          )}
-        </For>
-      </select>
-    </label>
-  );
+  const label = (type: "light" | "dark") => {
+    const id = savedAppearance()[type];
+    return themes()?.find((theme) => theme.id === id)?.label ?? id;
+  };
   return (
     <>
       <fieldset class="gs-modes" aria-label="Color scheme">
@@ -91,10 +76,15 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
           )}
         </For>
       </fieldset>
-      <div class="gs-pair">
-        {themeSelect("light", "Light theme")}
-        {themeSelect("dark", "Dark theme")}
-      </div>
+      <p class="gs-themes">
+        <span>
+          Using <strong>{label("light")}</strong> and <strong>{label("dark")}</strong>.
+        </span>
+        <button type="button" class="gs-link" onClick={browseThemes}>
+          Browse more themes
+          <ChevronRight size="1em" aria-hidden="true" />
+        </button>
+      </p>
     </>
   );
 }

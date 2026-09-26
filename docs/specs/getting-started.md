@@ -13,6 +13,9 @@ belongs to [workspace auto-config](../concepts/workspace-autoconfig.md).
   no default keybinding because it's rarely run.
 - **Keyboard-first.** Enter advances from anywhere that isn't a control, Esc skips the modal, and both keys are
   shown on the buttons. The theme cards preview each mode in the saved themes' own colors.
+- **More themes.** A fresh install ships only Weavie Light and Weavie Dark, so the Appearance step names the current
+  pair and "Browse more themes" opens the theme picker on the Open VSX catalog. Only one modal shows at a time, so
+  over a workspace setup steps aside for the picker and returns to Appearance when it closes.
 - **Every choice saves immediately.** Each step writes an existing setting through the host, so there is no draft
   state: `theme.mode` / `theme.light` / `theme.dark`, `agent.defaultProvider`, and `inference.enabled` /
   `inference.allowAutomatic` / `inference.defaultProvider`.

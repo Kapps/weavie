@@ -10,6 +10,7 @@ import {
   type ThemeChoice,
   type ThemePreview,
   type ThemeSearchOrder,
+  themePickerStartsInRegistry,
   themeRequest,
 } from "./picker-state";
 
@@ -23,7 +24,7 @@ export function createThemePicker() {
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
   const [query, setQuery] = createSignal("");
   const [sortBy, setSortBy] = createSignal<ThemeSearchOrder>("downloadCount");
-  const [registry, setRegistry] = createSignal(false);
+  const [registry, setRegistry] = createSignal(themePickerStartsInRegistry());
   const [extensions, setExtensions] = createSignal<ExtensionChoice[]>([]);
   const [total, setTotal] = createSignal(0);
   const [selected, setSelected] = createSignal(0);

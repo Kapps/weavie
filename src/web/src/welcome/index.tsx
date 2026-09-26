@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import { log } from "../bridge";
 import { dismissSplash } from "../splash";
 import { applyChromeTheme } from "../theme/controller";
+import { ThemePicker } from "../theme/ThemePicker";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "../styles.css";
@@ -22,5 +23,13 @@ window.addEventListener("error", (e) => {
 });
 
 applyChromeTheme();
-render(() => <Welcome />, root);
+render(
+  () => (
+    <>
+      <Welcome />
+      <ThemePicker />
+    </>
+  ),
+  root,
+);
 dismissSplash();

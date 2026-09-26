@@ -1,7 +1,42 @@
+import type { MessageEnvelope } from "../../src/messaging/message-envelope";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { decodeTestWebSocketMessage, encodeTestWebSocketMessage } from "../harness/websocket-codec";
 
-test.use({ setupCompleted: false });
+test.use({
+  setupCompleted: false,
+  // Open VSX is a live service; answer theme searches with one canned extension.
+  preNavigate: {
+    run: async (page) => {
+      await page.routeWebSocket("**/*", (socket) => {
+        const server = socket.connectToServer();
+        socket.onMessage((data) => {
+          const message = JSON.parse(decodeTestWebSocketMessage(data)) as MessageEnvelope;
+          if (
+            message.kind !== "request" ||
+            message.feature !== "themes" ||
+            message.name !== "search"
+          ) {
+            server.send(data);
+            return;
+          }
+          const extension = {
+            namespace: "example-author",
+            name: "popular",
+            displayName: "Popular Theme",
+            version: "1.2.3",
+            description: "A popular theme.",
+            downloadCount: 12345,
+          };
+          const payload = { extensions: [extension], offset: 0, totalSize: 1 };
+          socket.send(
+            encodeTestWebSocketMessage(JSON.stringify({ ...message, kind: "response", payload })),
+          );
+        });
+      });
+    },
+  },
+});
 
 test("first run opens Getting Started, saves each choice live, and stays closed once finished", async ({
   page,
@@ -54,4 +89,23 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   await expect(heading).toHaveText("Choose a look");
   await page.keyboard.press("Escape");
   await expect(setup).toBeHidden();
+});
+
+test("Browse more themes hands setup off to the Open VSX picker and back", async ({ page }) => {
+  const setup = page.locator(".getting-started-dialog");
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose a look");
+  await expect(setup.locator(".gs-themes")).toContainText("Using Weavie Light and Weavie Dark.");
+
+  await setup.getByRole("button", { name: /Browse more themes/ }).click();
+  const picker = page.getByRole("dialog", { name: "Select Color Theme" });
+  await expect(picker.getByRole("button", { name: "Open VSX", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(picker.getByRole("option", { name: /Popular Theme/ })).toBeVisible();
+  await expect(setup).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Choose a look");
 });

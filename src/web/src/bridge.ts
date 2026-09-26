@@ -424,9 +424,6 @@ function createConnection(
   connection.onHello((hello) => {
     if (connection.isLocal) {
       restoreSelection(hello);
-      for (const entry of pendingLogs.splice(0)) {
-        log(entry.level, entry.message);
-      }
     }
     const active = selected();
     if (active?.connection === connection) {
@@ -615,20 +612,13 @@ export function backendName(backendId: string): string {
   return backends.get(backendId)?.info.name ?? backendId;
 }
 
-type LogLevel = "info" | "warn" | "error";
-
-// Lines logged while the local host is unreachable; delivered once it answers hello.
-const pendingLogs: { level: LogLevel; message: string }[] = [];
-
-export function log(level: LogLevel, message: string): void {
-  const connection = hostConnection(LOCAL_BACKEND_ID);
+export function log(level: "info" | "warn" | "error", message: string): void {
   try {
-    if (connection === undefined) {
-      throw new Error("No local host connection.");
-    }
-    connection.host.feature("diagnostics").publish("log", { level, message });
-  } catch {
-    pendingLogs.push({ level, message });
+    hostConnection(LOCAL_BACKEND_ID)
+      ?.host.feature("diagnostics")
+      .publish("log", { level, message });
+  } catch (error) {
+    console.error(message, error);
   }
 }
 
@@ -659,8 +649,6 @@ class WebSocketTransport implements BridgeTransport {
   private reconnectDelayMs = 500;
   private disposed = false;
   private opened = false;
-  private attempt = 0;
-  private attemptStartedMs = 0;
   private readonly messages = new ChunkedMessageReceiver();
 
   constructor(
@@ -693,25 +681,13 @@ class WebSocketTransport implements BridgeTransport {
     clearBackendPhase(this.backendId);
   }
 
-  // One line per connection event, so a slow or failing connect can be diagnosed from the host log.
-  private trace(event: string): void {
-    const elapsed = Math.round(performance.now() - this.attemptStartedMs);
-    log(
-      "info",
-      `[bridge/web] ${this.label} attempt ${this.attempt} ${event} after ${elapsed}ms (+${Math.round(performance.now())}ms since navigation)`,
-    );
-  }
-
   private connect(): void {
-    this.attempt += 1;
-    this.attemptStartedMs = performance.now();
     void Promise.all([this.resolveEndpoint(), initWebSocketCodec()]).then(
       ([endpoint]) => {
         setResourceBase(this.backendId, endpoint.resourceBase);
         this.open(endpoint.bridgeUrl);
       },
       (error) => {
-        this.trace(`couldn't start: ${error instanceof Error ? error.message : String(error)}`);
         reportError(this.backendId, error);
         this.dropped();
       },
@@ -726,22 +702,17 @@ class WebSocketTransport implements BridgeTransport {
     socket.binaryType = "arraybuffer";
     this.socket = socket;
     socket.onopen = (): void => {
-      this.trace("opened");
       this.reconnectDelayMs = 500;
       this.opened = true;
       void hostConnection(this.backendId)
         ?.connect()
         .then(() => {
-          this.trace("host answered hello");
           if (this.socket === socket) {
             setBackendPhase(this.backendId, "online");
             clearNotification(connectionNotificationKey(this.backendId));
           }
         })
-        .catch((error: unknown) => {
-          this.trace(`hello failed: ${error instanceof Error ? error.message : String(error)}`);
-          socket.close();
-        });
+        .catch(() => socket.close());
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (this.socket === socket) {
@@ -759,11 +730,10 @@ class WebSocketTransport implements BridgeTransport {
         }
       }
     };
-    socket.onclose = (event: CloseEvent): void => {
+    socket.onclose = (): void => {
       if (this.socket !== socket) {
         return;
       }
-      this.trace(`closed (code ${event.code}${event.reason === "" ? "" : ` ${event.reason}`})`);
       this.socket = null;
       this.messages.reset();
       hostConnection(this.backendId)?.transportDropped();

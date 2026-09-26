@@ -1,0 +1,552 @@
+/* Getting Started: inline on the welcome screen, or inside .getting-started-dialog over a workspace. */
+
+.confirm-dialog.getting-started-dialog {
+  width: min(680px, 94vw);
+  padding: 0;
+  overflow: hidden;
+}
+
+.getting-started {
+  --gs-surface: color-mix(in srgb, var(--fg) 5%, transparent);
+  --gs-surface-hover: color-mix(in srgb, var(--fg) 9%, transparent);
+  --gs-line: color-mix(in srgb, var(--fg) 18%, transparent);
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px 22px;
+  color: var(--fg);
+  outline: none;
+}
+
+.getting-started button,
+.getting-started select {
+  color: var(--fg);
+  font-size: var(--font-chrome-size);
+  cursor: pointer;
+}
+
+.getting-started select {
+  padding: 0.4em 0.6em;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 6px;
+}
+
+.getting-started button:disabled,
+.getting-started select:disabled {
+  cursor: default;
+}
+
+.getting-started :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Header: progress, step count, title, hint. */
+
+.gs-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 22px;
+}
+
+.getting-started .gs-segment {
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--gs-line);
+  transition: background 0.2s ease;
+}
+
+.getting-started .gs-segment.gs-reached {
+  background: var(--accent);
+}
+
+.gs-eyebrow {
+  margin: 0 0 6px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.getting-started h2 {
+  margin: 0;
+  font-size: calc(var(--font-chrome-size) * 1.7);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.gs-hint {
+  margin: 6px 0 20px;
+  color: var(--dim);
+}
+
+/* Body: a fixed height so the dialog never jumps between steps; long content scrolls inside it. */
+
+.gs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 17rem;
+  overflow-y: auto;
+}
+
+.gs-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.gs-text strong {
+  font-weight: 600;
+}
+
+.gs-text small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  line-height: 1.4;
+}
+
+.gs-text small.gs-warning {
+  color: var(--warn);
+}
+
+fieldset.gs-modes,
+fieldset.gs-choices {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Appearance: one card per mode, each with a miniature window in the real theme colors. */
+
+.gs-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.getting-started .gs-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 10px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.getting-started .gs-mode:hover {
+  background: var(--gs-surface-hover);
+}
+
+.getting-started .gs-mode[aria-pressed="true"],
+.getting-started .gs-choice[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.gs-mode-preview {
+  position: relative;
+  display: block;
+  height: 86px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gs-mock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template: 14px 1fr / 26% 1fr;
+  background: var(--bg);
+}
+
+.gs-mock-half {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+.gs-mock-bar {
+  grid-column: 1 / -1;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.gs-mock-side {
+  background: var(--bar);
+  border-right: 1px solid var(--border);
+}
+
+.gs-mock-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 10px;
+}
+
+.gs-mock-lines i {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--fg);
+  opacity: 0.35;
+}
+
+.gs-mock-lines i.gs-mock-accent {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.gs-mode-label {
+  font-weight: 600;
+}
+
+.gs-themes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 4px 0 0;
+  color: var(--dim);
+}
+
+.gs-themes strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Agent: radio-style cards, then the optional registry. */
+
+.gs-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.getting-started .gs-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 10px;
+}
+
+.getting-started .gs-choice:hover:not(:disabled) {
+  background: var(--gs-surface-hover);
+}
+
+.getting-started .gs-choice:disabled {
+  opacity: 0.6;
+}
+
+.gs-tag {
+  margin-left: 8px;
+  padding: 0 5px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  border: 1px solid var(--gs-line);
+  border-radius: 4px;
+  cursor: help;
+}
+
+.gs-text small.gs-note {
+  color: var(--accent);
+}
+
+.gs-radio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--dim);
+  border-radius: 50%;
+}
+
+.gs-choice[aria-pressed="true"] .gs-radio {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 45%, transparent 50%);
+}
+
+.gs-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
+.getting-started .gs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+}
+
+.getting-started .gs-link:hover {
+  text-decoration: underline;
+}
+
+.gs-registry {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.gs-registry .acp-registry-filter {
+  margin-top: 0;
+}
+
+.gs-registry .acp-registry-list {
+  flex: 1 1 0;
+  max-height: none;
+  margin-top: 8px;
+  border-top: none;
+}
+
+.gs-registry .acp-registry-agent:last-child {
+  border-bottom: none;
+}
+
+.getting-started .gs-registry button {
+  padding: 0.35em 0.8em;
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-radius: 6px;
+}
+
+/* Smart suggestions: setting rows with switches. */
+
+.gs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 14px;
+  background: var(--gs-surface);
+  border-radius: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.gs-row .gs-text {
+  cursor: pointer;
+}
+
+.gs-row.gs-disabled {
+  opacity: 0.55;
+}
+
+.gs-switch {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--gs-line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.gs-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s ease;
+}
+
+.gs-switch:checked {
+  background: var(--accent);
+}
+
+.gs-switch:checked::before {
+  background: var(--button-fg);
+  transform: translateX(14px);
+}
+
+.gs-switch:disabled {
+  cursor: default;
+}
+
+/* Keyboard: command, what it's for, and its keys. */
+
+.gs-keys {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gs-keys li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--gs-line);
+}
+
+.gs-keys li:last-child {
+  border-bottom: none;
+}
+
+.gs-keys .gs-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.gs-keycaps {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.gs-keycaps kbd {
+  min-width: 1.6em;
+  padding: 1px 6px;
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-hint-size);
+  line-height: 1.6;
+  text-align: center;
+  color: var(--fg);
+  background: var(--gs-surface);
+  border: 1px solid var(--gs-line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+/* Footer. */
+
+.gs-error {
+  max-height: 6.5em;
+  overflow-y: auto;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  color: var(--bad);
+}
+
+.gs-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gs-line);
+}
+
+.getting-started .gs-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.5em 1em;
+  border-radius: 7px;
+  border: 1px solid transparent;
+}
+
+.getting-started .gs-skip {
+  margin-right: auto;
+  background: none;
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
+}
+
+.getting-started .gs-skip:hover {
+  color: var(--fg);
+}
+
+.getting-started .gs-nav .gs-secondary {
+  background: var(--gs-surface);
+  border-color: var(--gs-line);
+}
+
+.getting-started .gs-secondary:hover {
+  background: var(--gs-surface-hover);
+}
+
+.getting-started .gs-primary {
+  font-weight: 600;
+  color: var(--button-fg);
+  background: var(--button-bg);
+}
+
+.getting-started .gs-primary:hover {
+  background: var(--button-hover-bg);
+}
+
+.gs-nav .gs-keycaps kbd {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.getting-started .acp-registry-filter {
+  background: var(--gs-surface);
+  border-color: var(--gs-line);
+}
+
+.gs-later {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  color: var(--dim);
+}
+
+.gs-later strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* You're ready: the ask-your-agent tip, then the first keys. */
+
+.gs-ask {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 10px;
+}
+
+.gs-ask p {
+  margin: 0;
+  color: var(--fg);
+  line-height: 1.45;
+}
+
+.gs-subhead {
+  margin: 4px 0 -4px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.gs-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}

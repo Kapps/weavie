@@ -98,8 +98,8 @@ public sealed record HostServices {
 	public required string ExitJournalFile { get; init; }
 
 	/// <summary>
-	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
-	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
+	/// Builds the standard app-global store set — settings + keybindings watched live, console logging wired —
+	/// that every host shares across its windows and its welcome screen.
 	/// </summary>
 	public static HostServices CreateDefault() {
 		// Install the console tee first so every store's construction log below lands in the in-app log viewer too.

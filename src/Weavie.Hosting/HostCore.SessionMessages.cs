@@ -27,7 +27,7 @@ public sealed partial class HostCore {
 					RawJson(message.Args),
 					ct).ConfigureAwait(false);
 				return new ResponseWithCompletion<CommandWireResult>(
-					ToWireResult(execution.Result),
+					CommandWireResult.From(execution.Result),
 					execution.CompleteAsync);
 			});
 
@@ -99,7 +99,7 @@ public sealed partial class HostCore {
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
 		review.Handle<ReviewCommentRequest, CommandWireResult>(
 			"addComment",
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await AddPrCommentAsync(session, message, ct).ConfigureAwait(false)));
 
 		session.Bus.Feature("revise").Handle<ReviseStartMessage>("start", (message, _) => {
@@ -143,7 +143,7 @@ public sealed partial class HostCore {
 			(message, ct) => GetPullRequestAsync(message, ct));
 		pullRequests.Handle<PullRequestReference, CommandWireResult>(
 			"open",
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
 
 		var sources = session.Bus.Feature("sources");
@@ -183,16 +183,6 @@ public sealed partial class HostCore {
 		session.Shells.Resync(target);
 	}
 
-	private static CommandWireResult ToWireResult(CommandResult result) {
-		JsonElement? data = null;
-		if (!string.IsNullOrWhiteSpace(result.DataJson)) {
-			using var document = JsonDocument.Parse(result.DataJson);
-			data = document.RootElement.Clone();
-		}
-
-		return new CommandWireResult(result.Ok, result.Message, result.Error, data);
-	}
-
 	private static CommandResult FromWireResult(CommandWireResult result) =>
 		new(result.Ok, result.Message, result.Error) {
 			DataJson = RawJson(result.Data),
@@ -208,12 +198,6 @@ public sealed partial class HostCore {
 	private sealed record SessionSyncRequest;
 
 	private sealed record SessionSyncResult(bool Ok);
-
-	private sealed record CommandWireResult(
-		bool Ok,
-		string? Message,
-		string? Error,
-		JsonElement? Data);
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
 

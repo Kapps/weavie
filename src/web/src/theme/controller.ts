@@ -3,6 +3,7 @@
 // so a `system`-mode OS switch re-themes instantly with no host round-trip. Monaco-free (kept off the
 // editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
+import { createSignal } from "solid-js";
 import type { ThemeMode, ThemeSlot } from "../bridge";
 import { hostInjected, registerHostFeature } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
@@ -99,6 +100,18 @@ let state: ThemeState = (() => {
   });
   return computeState(injected);
 })();
+
+const appearanceOf = (s: ThemeState) => ({ mode: s.mode, light: s.light.id, dark: s.dark.id });
+const [appearance, setAppearance] = createSignal(appearanceOf(state));
+
+/** The saved mode and per-polarity theme ids, updated live as the host pushes changes. */
+export const savedAppearance = appearance;
+
+/** One polarity's saved palette, updated live, for previewing a theme without applying it. */
+export function savedPalette(type: "light" | "dark"): Readonly<Record<string, string>> {
+  appearance();
+  return state[type].resolved.colors;
+}
 
 let preview: Slot | null = null;
 const displayedSlot = (): Slot => preview ?? activeSlot(state);
@@ -227,6 +240,7 @@ function reapplyActive(): void {
 
 function setActive(injected: InjectedTheme): void {
   state = computeState(injected);
+  setAppearance(appearanceOf(state));
   reapplyActive();
 }
 

@@ -42,7 +42,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		Write(Under(production, WeaviePaths.AcpSessionsFile), "production-conversations");
 		Write(Under(production, WeaviePaths.WorkspaceWorktreesFile(workspaceId)), "production-worktree-registry");
 
-		var result = PreviewStateBootstrap.Refresh(production, preview, workspace, current);
+		var result = PreviewStateBootstrap.Refresh(production, preview, workspace, current, null);
 
 		Assert.Equal("current", result.SelectedSession.Value);
 		Assert.Equal("codex-acp", result.SelectedProvider);
@@ -80,7 +80,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		Write(Under(preview, WeaviePaths.SettingsFile), "preview");
 
 		Assert.Throws<InvalidOperationException>(
-			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current));
+			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current, null));
 
 		Assert.Equal("preview", File.ReadAllText(Under(preview, WeaviePaths.SettingsFile)));
 	}
@@ -97,9 +97,37 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		]);
 
 		var error = Assert.Throws<InvalidOperationException>(
-			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current));
+			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current, null));
 
 		Assert.Contains("unavailable provider 'missing-acp'", error.Message, StringComparison.Ordinal);
+		Assert.Contains("--agent", error.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void Refresh_runs_the_preview_copy_with_an_explicit_agent_without_touching_production() {
+		string production = _root.CreateDirectory("production");
+		string preview = _root.CreateDirectory("preview");
+		string workspace = _root.CreateDirectory("repository");
+		string current = _root.CreateDirectory("current-worktree");
+		var workspaceId = WorkspaceId.ForPath(workspace);
+		WriteSessions(production, workspaceId, [
+			Descriptor("current", "current", current, loaded: true, "missing-acp"),
+		]);
+
+		var result = PreviewStateBootstrap.Refresh(production, preview, workspace, current, "claude");
+
+		Assert.Equal("claude", result.SelectedProvider);
+		var session = SessionStore.ReadSnapshot(
+			_fileSystem,
+			Under(preview, WeaviePaths.WorkspaceSessionsFile(workspaceId))).Items.Single();
+		Assert.Equal("claude", session.AgentProviderId);
+		Assert.Equal(
+			"missing-acp",
+			SessionStore.ReadSnapshot(
+				_fileSystem,
+				Under(production, WeaviePaths.WorkspaceSessionsFile(workspaceId))).Items.Single().AgentProviderId);
+		Assert.Throws<InvalidOperationException>(
+			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current, "missing-acp"));
 	}
 
 	[Fact]
@@ -113,7 +141,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		Write(sessionsPath, "{ broken ");
 
 		Assert.Throws<JsonException>(
-			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current));
+			() => PreviewStateBootstrap.Refresh(production, preview, workspace, current, null));
 
 		Assert.Equal("{ broken ", File.ReadAllText(sessionsPath));
 		Assert.False(File.Exists(sessionsPath + ".bad"));

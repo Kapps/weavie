@@ -1,4 +1,4 @@
-import { createEffect, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
@@ -14,7 +14,6 @@ export function AgentAsideReply(props: {
 }): JSX.Element {
   const composer = replyComposer(props.session, props.conversationId);
   let textarea!: HTMLTextAreaElement;
-  let pending = false;
   const canSubmit = () => {
     const state = composer.state();
     return (
@@ -23,12 +22,6 @@ export function AgentAsideReply(props: {
       (state.draft.trim().length > 0 || state.attachments.length > 0)
     );
   };
-  createEffect(() => {
-    const state = composer.state();
-    const accepted = pending && state.pendingSubmission === null && state.error === null;
-    pending = state.pendingSubmission !== null;
-    if (accepted && state.draft.length === 0 && state.attachments.length === 0) props.onClose();
-  });
   onMount(() => {
     onCleanup(
       registerComposerPasteTarget(textarea, () => ({

@@ -21,7 +21,11 @@ public sealed class EmptyAcpAgentCatalog : IAcpAgentCatalog {
 		Task.FromResult<IReadOnlyList<AcpRegistryAgent>>([]);
 
 	/// <inheritdoc/>
-	public Task InstallAsync(string id, string distribution, CancellationToken ct) =>
+	public Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct) =>
 		Task.FromException(new InvalidOperationException("This host does not expose the ACP Registry."));
 
 	/// <inheritdoc/>

@@ -15,6 +15,7 @@ export const test = base.extend<{
       workspaceSeed: null,
       inference: "disabled",
       automaticInference: false,
+      setupCompleted: true,
     });
     let log = "";
     let proc: ChildProcess | null = null;

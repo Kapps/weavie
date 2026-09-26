@@ -112,6 +112,9 @@ public static class CoreCommands {
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
 
+	/// <summary>Opens the Getting Started setup (theme, default agent, inference).</summary>
+	public const string GettingStarted = "weavie.gettingStarted.open";
+
 	/// <summary>Reloads installed and custom ACP agent definitions while the registry manager is open.</summary>
 	public const string ReloadAcpAgents = "weavie.agent.reloadAcp";
 
@@ -854,6 +857,17 @@ public static class CoreCommands {
 			Description = "Install, update, or remove native agents from the official ACP Registry.",
 			Aliases = ["ACP registry", "install agent", "manage agents", "add ACP agent"],
 			KeybindingsActiveInModal = true,
+		});
+
+		// No default keybinding: a rarely-run setup flow, reachable from the palette, the welcome screen, and Claude.
+		registry.Register(new CommandDefinition {
+			Id = GettingStarted,
+			Title = "Getting Started",
+			RunsIn = CommandLocation.Web,
+			Category = "Help",
+			Description = "Open the Getting Started setup: pick a color theme, choose or install the default agent, "
+				+ "and configure AI inference.",
+			Aliases = ["setup", "onboarding", "first run", "tutorial", "welcome"],
 		});
 
 		// No default keybinding: only meaningful while an update is pending (the update indicator's

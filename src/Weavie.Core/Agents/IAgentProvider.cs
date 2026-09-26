@@ -43,6 +43,9 @@ public sealed record AgentProviderInfo {
 
 	/// <summary>The user-facing reason this provider is unavailable, when <see cref="Available"/> is false.</summary>
 	public string? UnavailableReason { get; init; }
+
+	/// <summary>A user-facing problem that doesn't block selection, e.g. the provider's executable wasn't found.</summary>
+	public string? Warning { get; init; }
 }
 
 /// <summary>Required provider-neutral dependencies for one worktree-scoped agent session.</summary>

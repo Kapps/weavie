@@ -490,7 +490,11 @@ internal sealed class RecordingAcpCatalog : IAcpAgentCatalog {
 	public IReadOnlyList<AcpLaunchSpec> ReloadSpecs { get; init; } = [];
 	public Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) =>
 		Task.FromResult<IReadOnlyList<AcpRegistryAgent>>([]);
-	public Task InstallAsync(string id, string distribution, CancellationToken ct) =>
+	public Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct) =>
 		Task.CompletedTask;
 	public void Remove(string id) {
 		Removed.Add(id);

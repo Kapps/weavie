@@ -173,7 +173,8 @@ strictly reads production state and projects its safe configuration into a per-s
 `~/.weavie-previews/worktree-serve`. The exact matching session keeps its label, editor state, and agent provider and
 is the only production session marked loaded. Other production sessions remain visible but unloaded. A missing
 session, duplicate path match, malformed state document, or unavailable provider fails the launch rather than
-choosing a default provider.
+choosing a default provider. To run the preview's copy of the session with a different installed agent, pass
+`--agent <provider id>` (for example `--agent claude`); production state is never changed.
 
 The projection includes global and workspace settings, keybindings, themes, ACP controls, and independently copied
 ACP launch recipes and binary packages. It deliberately excludes agent conversation associations, Codex and Claude

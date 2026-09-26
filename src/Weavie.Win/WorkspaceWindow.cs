@@ -63,36 +63,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 		_dialogs = new WinDialogs(this);
 		_notifications = _app.Notifications.CreateChannel();
 
-		// The shared core over this workspace, driven by the app-global Core stores (shared across windows). One
-		// GitHub client backs both PR listing and review comments.
-		var github = new Weavie.Core.Review.GitHubReviewProvider(http: null, new Weavie.Core.Review.GitHubTokenSource());
-		var acpSessions = new Weavie.Core.Sessions.AcpSessionStore(Weavie.Core.WeaviePaths.AcpSessionsFile);
-		var agentProviders = Weavie.Hosting.Agents.AgentProviderComposition.Create(
-			_app.Settings,
-			_app.ClaudeSessions,
-			_app.AcpAgents,
-			acpSessions);
-		_core = new HostCore(this, new HostServices {
-			Settings = _app.Settings,
-			CommandRegistry = _app.CommandRegistry,
-			SuggestionRegistry = _app.SuggestionRegistry,
-			Keybindings = _app.Keybindings,
-			ThemeOverrides = _app.ThemeOverrides,
-			AgentProviders = agentProviders,
-			AcpAgents = _app.AcpAgents,
-			AcpSessions = acpSessions,
-			Inference = Weavie.Hosting.Inference.InferenceComposition.CreateDefault(_app.Settings, agentProviders),
-			RemoteAgents = _app.RemoteAgents,
-			RailState = _app.RailState,
-			SearchState = _app.SearchState,
-			PullRequests = github,
-			ReviewComments = github,
-			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),
-			LogBuffer = _app.LogBuffer,
-			LastCrashFile = Weavie.Core.WeaviePaths.LastCrashFile,
-			PreviousCrashFile = Weavie.Core.WeaviePaths.PreviousCrashFile,
-			ExitJournalFile = Weavie.Core.WeaviePaths.ExitJournalFile,
-		}, workspaceRoot,
+		// The shared core over this workspace, driven by the app-global Core stores (shared across windows).
+		_core = new HostCore(this, _app.Services, workspaceRoot,
 		WorkspaceHttpServerOptions.Native(Path.Combine(AppContext.BaseDirectory, "wwwroot")),
 		UnavailableWorkspaceWebSocketBridge.Instance);
 		// On the page's `ready`, push the native window state (maximize glyph + blur dim) the core can't know.

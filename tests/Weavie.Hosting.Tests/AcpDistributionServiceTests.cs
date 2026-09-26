@@ -23,7 +23,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 
 		int changes = 0;
 		service.Changed += () => changes++;
-		await service.InstallAsync("sample", "npx", CancellationToken.None);
+		await service.InstallAsync("sample", "npx", Accept, CancellationToken.None);
 
 		var launch = Assert.Single(service.LaunchSpecs);
 		Assert.Equal("npx", launch.Command);
@@ -38,7 +38,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		Assert.Equal(launch.Command, persisted.Command);
 		Assert.Equal(launch.Arguments, persisted.Arguments);
 		Assert.Equal(launch.Environment, persisted.Environment);
-		await reloaded.InstallAsync("sample", "uvx", CancellationToken.None);
+		await reloaded.InstallAsync("sample", "uvx", Accept, CancellationToken.None);
 		var uvx = Assert.Single(reloaded.LaunchSpecs);
 		Assert.Equal("uvx", uvx.Command);
 		Assert.Equal(["sample-acp==1.2.3", "--stdio"], uvx.Arguments);
@@ -123,7 +123,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		};
 		var service = Service(new InMemoryFileSystem(), handler);
 
-		await service.InstallAsync("sample", "binary", CancellationToken.None);
+		await service.InstallAsync("sample", "binary", Accept, CancellationToken.None);
 
 		var launch = Assert.Single(service.LaunchSpecs);
 		Assert.True(Path.IsPathFullyQualified(launch.Command));
@@ -139,7 +139,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		var service = Service(new InMemoryFileSystem(), handler);
 
 		await Assert.ThrowsAsync<InvalidDataException>(
-			() => service.InstallAsync("sample", "binary", CancellationToken.None));
+			() => service.InstallAsync("sample", "binary", Accept, CancellationToken.None));
 
 		Assert.Empty(service.LaunchSpecs);
 	}
@@ -157,7 +157,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 			"https://registry.test/sample.tar.gz")) { Archive = archive };
 		var service = Service(new InMemoryFileSystem(), handler);
 
-		await service.InstallAsync("sample", "binary", CancellationToken.None);
+		await service.InstallAsync("sample", "binary", Accept, CancellationToken.None);
 
 		string install = Directory.GetParent(Path.GetDirectoryName(Assert.Single(service.LaunchSpecs).Command)!)!.FullName;
 		string runtime = Path.Combine(install, "jbr", "bin", "java");
@@ -176,7 +176,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		var service = Service(new InMemoryFileSystem(), handler);
 
 		await Assert.ThrowsAsync<InvalidDataException>(
-			() => service.InstallAsync("sample", "binary", CancellationToken.None));
+			() => service.InstallAsync("sample", "binary", Accept, CancellationToken.None));
 
 		Assert.Empty(service.LaunchSpecs);
 	}
@@ -190,7 +190,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 
 		Assert.Empty(Assert.Single(await service.ListRegistryAsync(CancellationToken.None)).Distributions);
 		await Assert.ThrowsAsync<InvalidDataException>(
-			() => service.InstallAsync("sample", "binary", CancellationToken.None));
+			() => service.InstallAsync("sample", "binary", Accept, CancellationToken.None));
 
 		Assert.Empty(service.LaunchSpecs);
 		Assert.Equal(0, handler.ArchiveRequests);
@@ -205,7 +205,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		var service = Service(new InMemoryFileSystem(), handler);
 
 		await Assert.ThrowsAsync<InvalidDataException>(
-			() => service.InstallAsync("sample", "binary", CancellationToken.None));
+			() => service.InstallAsync("sample", "binary", Accept, CancellationToken.None));
 
 		Assert.False(File.Exists(_root.Combine("packages", "sample", "1.2.3", "escaped")));
 	}
@@ -228,12 +228,38 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		fileSystem.WriteAllText(_root.Combine("custom.json"),
 			"""{"version":1,"agents":[{"id":"mine","name":"Mine","command":"mine","args":[],"env":{}}]}""");
 		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
-		await service.InstallAsync("sample", "npx", CancellationToken.None);
+		await service.InstallAsync("sample", "npx", Accept, CancellationToken.None);
 
 		service.Remove("sample");
 
 		Assert.Equal("mine", Assert.Single(service.LaunchSpecs).Id);
 	}
+
+	[Fact]
+	public async Task AnInstallTheCheckRejectsIsNeverSaved() {
+		var fileSystem = new InMemoryFileSystem();
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+		int changes = 0;
+		service.Changed += () => changes++;
+		AcpLaunchSpec? checkedLaunch = null;
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.InstallAsync(
+			"sample",
+			"npx",
+			(launch, _) => {
+				checkedLaunch = launch;
+				throw new InvalidOperationException("the agent never answered");
+			},
+			CancellationToken.None));
+
+		Assert.Equal("the agent never answered", error.Message);
+		Assert.Equal(["--yes", "sample-acp@1.2.3", "--stdio"], checkedLaunch?.Arguments);
+		Assert.Empty(service.LaunchSpecs);
+		Assert.Equal(0, changes);
+		Assert.Empty(Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3"))).LaunchSpecs);
+	}
+
+	private static Task Accept(AcpLaunchSpec launch, CancellationToken ct) => Task.CompletedTask;
 
 	private AcpDistributionService Service(InMemoryFileSystem fileSystem, RegistryHandler handler) {
 		var http = new HttpClient(handler);

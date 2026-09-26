@@ -16,11 +16,19 @@ namespace Weavie.AgentClientProtocol;
 /// </summary>
 internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+	private static readonly object InitializeParameters = new {
+		protocolVersion = 1,
+		clientCapabilities = new {
+			session = new { configOptions = new { boolean = new { } } },
+		},
+		clientInfo = new { name = "weavie", title = "Weavie", version = "1" },
+	};
 	private readonly AcpAgentDefinition _definition;
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly StringBuilder _reply = new();
 	private readonly Lock _replyGate = new();
 	private readonly OwnedProcess _process;
+	private Task _stderrDrained = Task.CompletedTask;
 	private long _nextId;
 	private int _replyBytes;
 	private int _maxReplyBytes = int.MaxValue;
@@ -39,7 +47,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 		CancellationToken ct) {
 		AcpInferenceClient client;
 		try {
-			client = Start(definition, request.Workspace);
+			client = Start(definition, request.Workspace, static _ => { });
 		} catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or IOException
 			or InvalidOperationException or UnauthorizedAccessException) {
 			return Failure(definition.Id, InferenceFailureKind.NotConfigured,
@@ -51,7 +59,10 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 		}
 	}
 
-	private static AcpInferenceClient Start(AcpAgentDefinition definition, string workspace) {
+	private static AcpInferenceClient Start(
+		AcpAgentDefinition definition,
+		string workspace,
+		Action<string> onStderrLine) {
 		string directory = Path.GetFullPath(workspace);
 		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, directory, []);
 		string command = invocation.Command;
@@ -75,14 +86,16 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 
 		var client = new AcpInferenceClient(definition, process);
 		_ = client.ReadStdoutAsync();
-		_ = DrainStderrAsync(process);
+		client._stderrDrained = DrainStderrAsync(process, onStderrLine);
 		return client;
 	}
 
-	// Read stderr so a chatty agent cannot fill its pipe buffer and stall; inference never surfaces its content.
-	private static async Task DrainStderrAsync(OwnedProcess process) {
+	// Read stderr so a chatty agent cannot fill its pipe buffer and stall; each line goes to the caller's sink.
+	private static async Task DrainStderrAsync(OwnedProcess process, Action<string> onLine) {
 		try {
-			await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+			while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
+				onLine(line);
+			}
 		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
 			// The process ended first.
 		}
@@ -93,13 +106,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 		_maxReplyBytes = request.MaxOutputBytes;
 		try {
 			ArgumentNullException.ThrowIfNull(request.Profile);
-			var initialized = await RequestAsync("initialize", new {
-				protocolVersion = 1,
-				clientCapabilities = new {
-					session = new { configOptions = new { boolean = new { } } },
-				},
-				clientInfo = new { name = "weavie", title = "Weavie", version = "1" },
-			}, ct).ConfigureAwait(false);
+			var initialized = await RequestAsync("initialize", InitializeParameters, ct).ConfigureAwait(false);
 			var capabilities = AcpCapabilities.Read(initialized);
 			if (request.Images.Count > 0
 				&& !AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image")) {
@@ -259,7 +266,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 				try {
 					Handle(line);
 				} catch (JsonException) {
-					FailPending(new AcpProtocolException("The ACP agent wrote a malformed inference message."));
+					FailPending(new AcpProtocolException("The ACP agent wrote output that isn't an ACP message."));
 					return;
 				}
 			}
@@ -267,7 +274,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 			// Falls through to the shared teardown below.
 		}
 
-		FailPending(new IOException("The ACP agent closed its output before answering the inference query."));
+		FailPending(new IOException("The ACP agent closed its output before answering."));
 	}
 
 	private void Handle(string line) {

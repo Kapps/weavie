@@ -80,9 +80,14 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 	}
 
 	/// <inheritdoc/>
-	public async Task InstallAsync(string id, string distribution, CancellationToken ct) {
+	public async Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(id);
 		ArgumentException.ThrowIfNullOrWhiteSpace(distribution);
+		ArgumentNullException.ThrowIfNull(verify);
 		var registry = await _registry.FetchAsync(ct).ConfigureAwait(false);
 		var entry = registry.SingleOrDefault(candidate => candidate.Id == id)
 			?? throw new InvalidOperationException($"The ACP Registry has no agent named '{id}'.");
@@ -92,6 +97,7 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 			"binary" => await InstallBinaryAsync(entry, ct).ConfigureAwait(false),
 			_ => throw new InvalidOperationException($"Agent '{id}' has no '{distribution}' distribution."),
 		};
+		await verify(launch, ct).ConfigureAwait(false);
 		lock (_gate) {
 			var agents = _installations.Load().Where(agent => agent.Id != id).Append(launch).ToArray();
 			var merged = Merge(agents, _custom.Load());

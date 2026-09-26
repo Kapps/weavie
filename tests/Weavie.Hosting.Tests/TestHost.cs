@@ -574,6 +574,15 @@ internal sealed class TestHost : IAsyncDisposable {
 		await ConnectAsync().ConfigureAwait(false);
 	}
 
+	/// <summary>App-global stores isolated under <paramref name="tempRoot"/>, with first-run setup already finished.</summary>
+	internal static HostServices IsolatedServices(string tempRoot) => IsolatedServices(
+		tempRoot,
+		new StubHttpMessageHandler(),
+		Path.Combine(tempRoot, "sources"),
+		new StaticPullRequestProvider([], []),
+		static settings => InferenceComposition.CreateDisabled(settings),
+		EmptyAcpAgentCatalog.Instance);
+
 	private static HostServices IsolatedServices(
 		string tempRoot,
 		StubHttpMessageHandler sourceHttp,
@@ -581,7 +590,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		IPullRequestProvider pullRequests,
 		Func<SettingsStore, IInferenceService> inferenceFor,
 		IAcpAgentCatalog acpAgents) {
-		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
+		string settingsFile = Path.Combine(tempRoot, "settings.toml");
+		// Setup is finished, and claude.path names a real file so Claude counts as installed on any machine.
+		File.WriteAllText(
+			settingsFile,
+			$"[claude]\npath = '{Environment.ProcessPath}'\n\n[gettingStarted]\ncompleted = true\n");
+		var settings = CoreSettings.CreateStore(settingsFile, enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(tempRoot, "theme-overrides.json"));

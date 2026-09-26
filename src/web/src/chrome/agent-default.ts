@@ -25,6 +25,7 @@ const DEFAULT: AgentDefaults = {
       name: "Claude Code",
       available: true,
       unavailableReason: null,
+      warning: null,
       surface: "terminal",
     },
   ],
@@ -69,6 +70,16 @@ export async function setDefaultAgentProvider(
   if (defaults.defaultProvider !== providerId) {
     throw new Error(`The host rejected agent provider '${providerId}'.`);
   }
+  setByBackend((previous) => new Map(previous).set(backendId, defaults));
+}
+
+/** Re-reads one host's providers, e.g. after the user installs an agent outside Weavie. */
+export async function refreshAgentProviders(backendId: string): Promise<void> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) {
+    throw new Error(`Agent backend '${backendId}' is not connected.`);
+  }
+  const defaults = await connection.host.feature("agentDefaults").request<AgentDefaults>("get", {});
   setByBackend((previous) => new Map(previous).set(backendId, defaults));
 }
 

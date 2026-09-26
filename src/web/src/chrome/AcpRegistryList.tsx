@@ -19,6 +19,13 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [filter, setFilter] = createSignal("");
+  const shown = () => {
+    const query = filter().trim().toLowerCase();
+    return agents().filter((agent) =>
+      `${agent.name} ${agent.description}`.toLowerCase().includes(query),
+    );
+  };
   const feature = () => acpRegistryFeature(props.backendId);
 
   const load = async (): Promise<void> => {
@@ -74,12 +81,17 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
   return (
     <>
       <Show when={error()}>{(message) => <div class="session-prompt-error">{message()}</div>}</Show>
+      <input
+        type="search"
+        class="acp-registry-filter"
+        placeholder="Filter agents"
+        aria-label="Filter agents"
+        value={filter()}
+        onInput={(event) => setFilter(event.currentTarget.value)}
+      />
       <Show when={!loading()} fallback={<div class="acp-registry-state">Loading registry…</div>}>
         <div class="acp-registry-list">
-          <For
-            each={agents()}
-            fallback={<div class="acp-registry-state">No agents are available.</div>}
-          >
+          <For each={shown()} fallback={<div class="acp-registry-state">No agents match.</div>}>
             {(agent) => {
               const installed = () => agent.installedDistribution !== null;
               const current = () => agent.installedVersion === agent.version;

@@ -219,9 +219,20 @@
   cursor: pointer;
 }
 
-.acp-registry-list {
-  max-height: min(610px, 70vh);
+.acp-registry-filter {
+  width: 100%;
   margin-top: 18px;
+  padding: 0.45em 0.7em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.acp-registry-list {
+  max-height: min(560px, 64vh);
+  margin-top: 12px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
 }

@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight } from "lucide-solid";
-import { createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { ChevronLeft, ChevronRight } from "lucide-solid";
+import { createResource, createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
 import { AcpRegistryList } from "../chrome/AcpRegistryList";
 import {
@@ -101,8 +101,27 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
 
 export function AgentStep(props: { attempt: Attempt }): JSX.Element {
   const [browsing, setBrowsing] = createSignal(false);
+  // Suggestions follow the default agent; the next step can still point them elsewhere.
+  const choose = (id: string) =>
+    props.attempt(async () => {
+      await setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
+      await writeSetting("inference.defaultProvider", id);
+    });
   return (
-    <>
+    <Show
+      when={!browsing()}
+      fallback={
+        <>
+          <button type="button" class="gs-link" onClick={() => setBrowsing(false)}>
+            <ChevronLeft size="1em" aria-hidden="true" />
+            Back to your agents
+          </button>
+          <div class="gs-registry">
+            <AcpRegistryList backendId={LOCAL_BACKEND_ID} removable={false} />
+          </div>
+        </>
+      }
+    >
       <fieldset class="gs-choices" aria-label="Agent">
         <For each={agentProviders(LOCAL_BACKEND_ID)}>
           {(provider) => (
@@ -111,9 +130,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
               class="gs-choice"
               aria-pressed={defaultAgentProvider(LOCAL_BACKEND_ID) === provider.id}
               disabled={!provider.available}
-              onClick={() =>
-                props.attempt(() => setDefaultAgentProvider(LOCAL_BACKEND_ID, provider.id))
-              }
+              onClick={() => choose(provider.id)}
             >
               <span class="gs-radio" aria-hidden="true" />
               <span class="gs-text">
@@ -133,11 +150,9 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
         </For>
       </fieldset>
       <div class="gs-links">
-        <button type="button" class="gs-link" onClick={() => setBrowsing(!browsing())}>
-          <Show when={browsing()} fallback={<ChevronRight size="1em" aria-hidden="true" />}>
-            <ChevronDown size="1em" aria-hidden="true" />
-          </Show>
+        <button type="button" class="gs-link" onClick={() => setBrowsing(true)}>
           Install another agent from the ACP registry
+          <ChevronRight size="1em" aria-hidden="true" />
         </button>
         <Show when={agentProviders(LOCAL_BACKEND_ID).some((provider) => provider.warning !== null)}>
           <button
@@ -149,29 +164,46 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
           </button>
         </Show>
       </div>
-      <Show when={browsing()}>
-        <div class="gs-registry">
-          <AcpRegistryList backendId={LOCAL_BACKEND_ID} removable={false} />
-        </div>
-      </Show>
-    </>
+    </Show>
   );
 }
 
+// One labelled setting; the row's title and detail name its control.
 function SettingRow(props: {
   title: string;
   detail: string;
   disabled: boolean;
-  children: JSX.Element;
+  control: (id: string) => JSX.Element;
 }): JSX.Element {
+  const id = createUniqueId();
   return (
-    <label class="gs-row" classList={{ "gs-disabled": props.disabled }}>
-      <span class="gs-text">
+    <div class="gs-row" classList={{ "gs-disabled": props.disabled }}>
+      <label class="gs-text" for={id}>
         <strong>{props.title}</strong>
         <small>{props.detail}</small>
-      </span>
-      {props.children}
-    </label>
+      </label>
+      {props.control(id)}
+    </div>
+  );
+}
+
+function Switch(props: {
+  id: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}): JSX.Element {
+  return (
+    <input
+      id={props.id}
+      type="checkbox"
+      role="switch"
+      class="gs-switch"
+      aria-checked={props.checked}
+      checked={props.checked}
+      disabled={props.disabled}
+      onChange={(event) => props.onChange(event.currentTarget.checked)}
+    />
   );
 }
 
@@ -197,52 +229,50 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
         title="Allow suggestions"
         detail="Weavie asks your agent for small things, like a branch name for a new session. These calls stay out of your conversation."
         disabled={enabled.loading}
-      >
-        <input
-          type="checkbox"
-          role="switch"
-          class="gs-switch"
-          checked={enabled() === true}
-          disabled={enabled.loading}
-          onChange={(event) => write("inference.enabled", event.currentTarget.checked, setEnabled)}
-        />
-      </SettingRow>
+        control={(id) => (
+          <Switch
+            id={id}
+            checked={enabled() === true}
+            disabled={enabled.loading}
+            onChange={(checked) => write("inference.enabled", checked, setEnabled)}
+          />
+        )}
+      />
       <SettingRow
         title="Suggest automatically"
         detail="Offer suggestions without waiting for a click. Uses a few tokens now and then."
         disabled={off()}
-      >
-        <input
-          type="checkbox"
-          role="switch"
-          class="gs-switch"
-          checked={automatic() === true}
-          disabled={off() || automatic.loading}
-          onChange={(event) =>
-            write("inference.allowAutomatic", event.currentTarget.checked, setAutomatic)
-          }
-        />
-      </SettingRow>
+        control={(id) => (
+          <Switch
+            id={id}
+            checked={automatic() === true}
+            disabled={off() || automatic.loading}
+            onChange={(checked) => write("inference.allowAutomatic", checked, setAutomatic)}
+          />
+        )}
+      />
       <SettingRow
         title="Answered by"
         detail="The agent that handles these suggestions."
         disabled={off()}
-      >
-        <select
-          disabled={off()}
-          onChange={(event) =>
-            write("inference.defaultProvider", event.currentTarget.value, setProvider)
-          }
-        >
-          <For each={agentProviders(LOCAL_BACKEND_ID).filter((agent) => agent.available)}>
-            {(agent) => (
-              <option value={agent.id} selected={agent.id === provider()}>
-                {agent.name}
-              </option>
-            )}
-          </For>
-        </select>
-      </SettingRow>
+        control={(id) => (
+          <select
+            id={id}
+            disabled={off()}
+            onChange={(event) =>
+              write("inference.defaultProvider", event.currentTarget.value, setProvider)
+            }
+          >
+            <For each={agentProviders(LOCAL_BACKEND_ID).filter((agent) => agent.available)}>
+              {(agent) => (
+                <option value={agent.id} selected={agent.id === provider()}>
+                  {agent.name}
+                </option>
+              )}
+            </For>
+          </select>
+        )}
+      />
     </>
   );
 }

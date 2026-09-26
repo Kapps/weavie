@@ -30,6 +30,7 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   const inference = setup.getByRole("switch", { name: /Allow suggestions/ });
   await expect(inference).toBeEnabled();
   await inference.check();
+  await expect(setup.getByRole("combobox", { name: /Answered by/ })).toHaveValue("fake-acp");
   await expect(setup.getByRole("switch", { name: /Suggest automatically/ })).toBeEnabled();
   await setup.getByRole("button", { name: "Next" }).click();
 

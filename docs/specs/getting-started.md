@@ -25,6 +25,9 @@ belongs to [workspace auto-config](../concepts/workspace-autoconfig.md).
 - **Every choice saves immediately.** Each step writes an existing setting through the host, so there is no draft
   state: `theme.mode` / `theme.light` / `theme.dark`, `agent.defaultProvider`, and `inference.enabled` /
   `inference.allowAutomatic` / `inference.defaultProvider`.
+- **Suggestion defaults.** Opening the Smart suggestions step turns on `inference.enabled` and
+  `inference.allowAutomatic` where they're still at their default (an explicit off is kept), and points
+  `inference.defaultProvider` at the default agent chosen on the Agent step; the step's controls can change all three.
 - **Done state.** The only new persisted state is the `gettingStarted.completed` setting. Finish, Skip, Esc, and
   clicking outside all set it; setting it back to `false` shows setup again on the next launch. While it's false the
   startup tip and the automatic-inference toast are held back, because setup covers inference.

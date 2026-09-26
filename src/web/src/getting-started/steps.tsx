@@ -1,7 +1,15 @@
 import { ChevronRight, MessageCircle } from "lucide-solid";
-import { createResource, createUniqueId, For, type JSX, Show } from "solid-js";
+import {
+  createResource,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onMount,
+  Show,
+} from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
-import { agentProviders } from "../chrome/agent-default";
+import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -127,32 +135,44 @@ function Switch(props: {
 }
 
 export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
-  const [enabled, { mutate: setEnabled }] = createResource(() =>
-    readSetting<boolean>("inference.enabled"),
-  );
-  const [automatic, { mutate: setAutomatic }] = createResource(() =>
-    readSetting<boolean>("inference.allowAutomatic"),
-  );
-  const [provider, { mutate: setProvider }] = createResource(() =>
-    readSetting<string>("inference.defaultProvider"),
-  );
-  const write = <T,>(key: string, value: T, mutate: (value: T) => void) =>
+  const [enabled, setEnabled] = createSignal<boolean>();
+  const [automatic, setAutomatic] = createSignal<boolean>();
+  const [provider, setProvider] = createSignal<string>();
+  const write = <T,>(key: string, value: T, set: (value: T) => void) =>
     props.attempt(async () => {
       await writeSetting(key, value);
-      mutate(value);
+      set(value);
     });
+  // Switches never set start on, and suggestions follow the agent picked on the previous step.
+  const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
+    const setting = await readSetting<T>(key);
+    const value = setting.isDefault ? onByDefault : setting.value;
+    if (value !== setting.value) await writeSetting(key, value);
+    set(value);
+  };
+  onMount(() =>
+    props.attempt(async () => {
+      await initial("inference.enabled", true, setEnabled);
+      await initial("inference.allowAutomatic", true, setAutomatic);
+      const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
+      if ((await readSetting<string>("inference.defaultProvider")).value !== agent) {
+        await writeSetting("inference.defaultProvider", agent);
+      }
+      setProvider(agent);
+    }),
+  );
   const off = () => enabled() !== true;
   return (
     <>
       <SettingRow
         title="Allow suggestions"
         detail="Weavie asks your agent for small things, like a name for a new branch. These requests don't appear in your chat."
-        disabled={enabled.loading}
+        disabled={enabled() === undefined}
         control={(id) => (
           <Switch
             id={id}
             checked={enabled() === true}
-            disabled={enabled.loading}
+            disabled={enabled() === undefined}
             onChange={(checked) => write("inference.enabled", checked, setEnabled)}
           />
         )}
@@ -165,7 +185,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
           <Switch
             id={id}
             checked={automatic() === true}
-            disabled={off() || automatic.loading}
+            disabled={off() || automatic() === undefined}
             onChange={(checked) => write("inference.allowAutomatic", checked, setAutomatic)}
           />
         )}

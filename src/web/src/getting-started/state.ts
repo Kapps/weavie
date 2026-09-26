@@ -53,10 +53,12 @@ function settings() {
   return connection.host.feature("settings");
 }
 
-/** Reads one global setting's effective value from the local host. */
-export async function readSetting<T>(key: string): Promise<T> {
-  const setting = await settings().request<{ value: T }, { key: string }>("get", { key });
-  return setting.value;
+/** Reads one global setting's effective value from the local host, and whether it's still the default. */
+export async function readSetting<T>(key: string): Promise<{ value: T; isDefault: boolean }> {
+  const setting = await settings().request<{ value: T; source: string }, { key: string }>("get", {
+    key,
+  });
+  return { value: setting.value, isDefault: setting.source === "default" };
 }
 
 /** Writes one global setting on the local host; rejects when it's invalid or an env var overrides it. */

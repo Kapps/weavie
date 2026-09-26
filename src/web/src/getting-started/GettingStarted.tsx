@@ -26,7 +26,7 @@ const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) 
     },
     {
       title: "Smart suggestions",
-      hint: "Optional, and off until you turn it on.",
+      hint: "Small helpers from your agent. Turn them off anytime.",
       body: InferenceStep,
     },
     {

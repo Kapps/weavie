@@ -13,14 +13,14 @@ import {
   refreshAgentProviders,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import { writeSetting } from "./state";
 import type { Attempt } from "./steps";
 
 // Registry agents offered even before they're installed; everything shown about them comes from the live registry.
 const SUGGESTED_AGENTS = ["claude-acp", "codex-acp"];
 
-const ACP_TOOLTIP =
-  "Made by a third party and maintained outside Weavie. It chats in Weavie's agent panel.";
+const ACP_TOOLTIP = "Made by a third party and maintained outside Weavie.";
+// How every ACP agent differs from Claude Code's terminal.
+const ACP_SURFACE = "Uses Weavie's own interface instead of a terminal";
 
 function AcpTag(): JSX.Element {
   return (
@@ -41,11 +41,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
     (registry() ?? []).filter(
       (agent) => SUGGESTED_AGENTS.includes(agent.id) && !installed().has(agent.id),
     );
-  // Suggestions follow the default agent; the next step can still point them elsewhere.
-  const use = async (id: string) => {
-    await setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
-    await writeSetting("inference.defaultProvider", id);
-  };
+  const use = (id: string) => setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
   const installAndUse = (agent: AcpRegistryAgent, distribution: string) =>
     props.attempt(async () => {
       setInstalling(agent.id);
@@ -56,8 +52,6 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
         setInstalling(null);
       }
     });
-  const registryDescription = (id: string) =>
-    registry.error ? undefined : registry()?.find((agent) => agent.id === id)?.description;
 
   return (
     <Show
@@ -96,7 +90,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
                   {provider.unavailableReason ??
                     (provider.surface === "terminal"
                       ? "Runs in a terminal inside Weavie"
-                      : (registryDescription(provider.id) ?? "Chats in Weavie's agent panel"))}
+                      : ACP_SURFACE)}
                 </small>
                 <Show when={provider.warning}>
                   {(warning) => <small class="gs-warning">{warning()}</small>}
@@ -120,7 +114,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
                   {agent.name}
                   <AcpTag />
                 </strong>
-                <small>{agent.description}</small>
+                <small>{ACP_SURFACE}</small>
                 <small class="gs-note">
                   {installing() === agent.id
                     ? "Installing… The first download can take a minute."

@@ -102,9 +102,13 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
 
   await expect(heading).toHaveText("Pick your agent");
   await expect(setup.getByRole("button", { name: /Claude Code/ })).toBeEnabled();
+  await expect(setup.getByRole("button", { name: /Claude Code/ })).toContainText(
+    "Runs in a terminal inside Weavie",
+  );
   for (const name of [/Codex/, /Claude Agent/]) {
     const suggested = setup.getByRole("button", { name });
     await expect(suggested).toContainText("Not installed yet. Choosing it installs it.");
+    await expect(suggested).toContainText("Uses Weavie's own interface instead of a terminal");
     await expect(suggested.locator(".gs-tag")).toHaveAttribute("title", /Made by a third party/);
   }
   await expect(setup.getByRole("button", { name: /Other Agent/ })).toHaveCount(0);
@@ -118,10 +122,16 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
 
   await expect(heading).toHaveText("Smart suggestions");
   const inference = setup.getByRole("switch", { name: /Allow suggestions/ });
-  await expect(inference).toBeEnabled();
-  await inference.check();
+  const automatic = setup.getByRole("switch", { name: /Suggest automatically/ });
+  await expect(inference).toBeChecked();
+  await expect(automatic).toBeChecked();
   await expect(setup.getByRole("combobox", { name: /Which agent/ })).toHaveValue("fake-acp");
-  await expect(setup.getByRole("switch", { name: /Suggest automatically/ })).toBeEnabled();
+  await automatic.uncheck();
+  await setup.getByRole("button", { name: "Back" }).click();
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(inference).toBeChecked();
+  await expect(automatic).not.toBeChecked();
+  await automatic.check();
   await setup.getByRole("button", { name: "Next" }).click();
 
   await expect(heading).toHaveText("You're ready");

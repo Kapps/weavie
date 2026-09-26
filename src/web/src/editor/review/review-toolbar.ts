@@ -32,7 +32,7 @@ export const withShortcut = (label: string, commandId: string): string => {
 };
 
 export function createParkedToolbar(
-  summary: Pick<ParkedReview, "fileCount" | "label">,
+  summary: Pick<ParkedReview, "fileCount" | "fileIndex" | "label">,
   actions: { stepIn(): void; nextFile(): void; prevFile(): void; undo(): void; redo(): void },
   history: ReviewHistoryState,
 ): { bar: HTMLElement; undo: HTMLButtonElement; redo: HTMLButtonElement } {
@@ -57,7 +57,10 @@ export function createParkedToolbar(
   const sub = document.createElement("span");
   sub.className = "weavie-inline-stack-sub";
   const parkedLabel = summary.label === undefined ? "" : `${summary.label} · `;
-  sub.textContent = `${parkedLabel}${summary.fileCount} file${summary.fileCount === 1 ? "" : "s"} · press ↓ to start`;
+  // The file position renders immediately from the known file set — never gated behind that file's own
+  // diff paint completing, which for a large/slow-to-render file can otherwise leave this counter stuck
+  // on stale text well past when the review is visibly open.
+  sub.textContent = `${parkedLabel}file ${summary.fileIndex}/${summary.fileCount} · press ↓ to start`;
   stack.append(name, sub);
   bar.appendChild(stack);
   if (multiFile) {

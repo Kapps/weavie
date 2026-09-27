@@ -156,6 +156,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "./files/session-files";
+import { GettingStartedModal } from "./getting-started/GettingStarted";
 import { ThemePicker } from "./theme/ThemePicker";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
@@ -2023,6 +2024,7 @@ export default function App(): JSX.Element {
         }
       />
       <ThemePicker />
+      <GettingStartedModal />
       <Show when={updateRestarting()}>
         <UpdateOverlay />
       </Show>

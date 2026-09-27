@@ -123,6 +123,7 @@ const MOCK_AGENT_DEFAULTS = {
       name: "Claude Code",
       available: true,
       unavailableReason: null,
+      warning: null,
       surface: "terminal",
     },
     {
@@ -130,6 +131,7 @@ const MOCK_AGENT_DEFAULTS = {
       name: "ACP",
       available: true,
       unavailableReason: null,
+      warning: null,
       surface: "structured",
     },
   ],

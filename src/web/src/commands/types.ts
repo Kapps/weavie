@@ -88,6 +88,7 @@ export const CommandIds = {
   reloadAgentHistory: "weavie.agent.reloadHistory",
   manageAcpAgents: "weavie.agent.manageAcp",
   reloadAcpAgents: "weavie.agent.reloadAcp",
+  gettingStarted: "weavie.gettingStarted.open",
   terminalCopy: "weavie.terminal.copy",
   terminalPaste: "weavie.terminal.paste",
   agentPaste: "weavie.agent.paste",

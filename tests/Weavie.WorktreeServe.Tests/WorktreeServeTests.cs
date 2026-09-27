@@ -15,6 +15,15 @@ public sealed class WorktreeServeTests {
 		Assert.Equal(10000, options.HttpsPort);
 		Assert.Null(options.Workspace);
 		Assert.Null(options.StateRoot);
+		Assert.Null(options.Agent);
+	}
+
+	[Fact]
+	public void Agent_option_names_the_preview_session_provider() {
+		var (options, error) = WorktreeServeOptions.Resolve(["--agent", "claude"]);
+
+		Assert.Null(error);
+		Assert.Equal("claude", options!.Agent);
 	}
 
 	[Theory]

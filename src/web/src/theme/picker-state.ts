@@ -1,10 +1,5 @@
 import { createSignal } from "solid-js";
-import {
-  hostConnection,
-  invokeClientCommandOnHost,
-  LOCAL_BACKEND_ID,
-  type ThemeSlot,
-} from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, type ThemeSlot } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import type { CommandResult } from "../commands/types";
 
@@ -50,15 +45,25 @@ export async function selectTheme(id: string, signal: AbortSignal): Promise<void
 }
 
 export async function installTheme(choice: ThemeChoice): Promise<void> {
-  const result = await invokeClientCommandOnHost("weavie.theme.install", {
-    namespace: choice.namespace,
-    name: choice.name,
-    version: choice.version,
-  });
+  const result = await themeRequest<CommandResult>(
+    "install",
+    { namespace: choice.namespace, name: choice.name, version: choice.version },
+    new AbortController().signal,
+  );
   if (!result.ok) throw new Error(result.error);
 }
 
-export const [themePickerOpen, setThemePickerOpen] = createSignal(false);
+// Which catalog the open picker starts on; null while it's closed.
+const [pickerSource, setPickerSource] = createSignal<"installed" | "registry" | null>(null);
+export const themePickerOpen = (): boolean => pickerSource() !== null;
+export const themePickerStartsInRegistry = (): boolean => pickerSource() === "registry";
+export const setThemePickerOpen = (open: boolean): void => {
+  setPickerSource(open ? "installed" : null);
+};
+/** Opens the picker on the Open VSX catalog rather than the installed themes. */
+export const openThemeRegistry = (): void => {
+  setPickerSource("registry");
+};
 registerCommand(SELECT_THEME, async (args) => {
   const id = (args as { id?: unknown } | undefined)?.id;
   if (id !== undefined) {

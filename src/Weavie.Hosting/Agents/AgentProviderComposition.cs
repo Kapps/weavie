@@ -59,7 +59,8 @@ public static class AgentProviderComposition {
 		return providers;
 	}
 
-	private static AcpAgentDefinition Definition(AcpLaunchSpec launch) => new() {
+	/// <summary>The ACP agent definition an installed launch recipe describes.</summary>
+	internal static AcpAgentDefinition Definition(AcpLaunchSpec launch) => new() {
 		Id = launch.Id,
 		Name = launch.Name,
 		Command = launch.Command,

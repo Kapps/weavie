@@ -10,36 +10,50 @@ namespace Weavie.Hosting.Agents.Claude;
 
 /// <summary>The Claude Code provider, retaining the existing settings and conversation store.</summary>
 public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
+	private readonly SettingsStore _settings;
 	private readonly ClaudeSessionStore _sessions;
 	private readonly IInferenceProvider _inference;
 
 	/// <summary>Creates the provider over the app-global Claude conversation store.</summary>
 	public ClaudeAgentProvider(SettingsStore settings, ClaudeSessionStore sessions)
 		: this(
+			settings,
 			sessions,
 			new ClaudeCliInference(
 				settings,
 				new AgentCliProcessRunner(),
 				WeaviePaths.Internal("inference-images"))) { }
 
-	internal ClaudeAgentProvider(ClaudeSessionStore sessions, IInferenceProvider inference) {
+	internal ClaudeAgentProvider(SettingsStore settings, ClaudeSessionStore sessions, IInferenceProvider inference) {
+		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(sessions);
 		ArgumentNullException.ThrowIfNull(inference);
+		_settings = settings;
 		_sessions = sessions;
 		_inference = inference;
 	}
 
 	/// <inheritdoc/>
-	public AgentProviderInfo Info { get; } = new() {
-		Id = "claude",
-		Name = "Claude Code",
-		Capabilities = AgentProviderCapabilities.Terminal
-			| AgentProviderCapabilities.CapabilityRegistry
-			| AgentProviderCapabilities.Ide
-			| AgentProviderCapabilities.Events
-			| AgentProviderCapabilities.EditDisposition,
-		Available = true,
-	};
+	public AgentProviderInfo Info {
+		get {
+			string command = _settings.RequireString(CoreSettings.ClaudePath);
+			bool installed = ExecutableFinder.FindOnPath(command) is not null;
+			return new() {
+				Id = "claude",
+				Name = "Claude Code",
+				Capabilities = AgentProviderCapabilities.Terminal
+					| AgentProviderCapabilities.CapabilityRegistry
+					| AgentProviderCapabilities.Ide
+					| AgentProviderCapabilities.Events
+					| AgentProviderCapabilities.EditDisposition,
+				// A miss only warns: a session still opens and its terminal reports the failed launch.
+				Available = true,
+				Warning = installed
+					? null
+					: $"Claude Code isn't installed yet. Weavie couldn't find '{command}'.",
+			};
+		}
+	}
 
 	/// <inheritdoc/>
 	public InferenceProviderInfo InferenceInfo => _inference.InferenceInfo;

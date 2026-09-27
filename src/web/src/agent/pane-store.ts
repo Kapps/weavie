@@ -20,7 +20,6 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
-import { clearAsideReplyStates } from "./aside-reply-store";
 import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
@@ -177,7 +176,6 @@ function createHistory(session: ClientSession) {
     historyGeneration = null;
     historyRevision = null;
     appliedDrafts = 0;
-    clearAsideReplyStates(session);
     clearReplyComposers(session);
     accumulator.reset("pane", () => model.reset());
     startHistory();

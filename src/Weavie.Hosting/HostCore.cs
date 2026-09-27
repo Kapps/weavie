@@ -528,6 +528,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		await AttemptAsync(() => _messageIngress.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await AttemptAsync(() => _messages.Host.QuiesceAsync()).ConfigureAwait(false);
 		await AttemptAsync(DisposeSystemNotificationsAsync).ConfigureAwait(false);
+		Attempt(_menuActions.Close);
 		Attempt(DetachReactions);
 		Attempt(_global.Dispose);
 		Attempt(() => _drainTick?.Cancel());

@@ -128,15 +128,16 @@ public sealed class WelcomeController {
 		private readonly WelcomeController _owner;
 		private readonly HostMessageRouter _router;
 		private readonly MessageIngress _ingress;
+		private readonly DeferredUiQueue _menuActions;
 
 		public Attachment(WelcomeController owner) {
 			_owner = owner;
 			_router = new HostMessageRouter(owner._bridge, owner._ui, Log);
 			_ingress = new MessageIngress(owner._ui, _router.RouteAsync, _router.Disconnect, _router.Diagnostics);
 			Global = new GlobalHostFeatures(_router.Host, owner._services, Log);
-			var menuActions = new DeferredUiQueue(owner._ui);
+			_menuActions = new DeferredUiQueue(owner._ui);
 			_router.Host.Feature("window").Handle<JsonElement>("menu", (message, _) => {
-				menuActions.Enqueue(() => OnMenu(message));
+				_menuActions.Enqueue(() => OnMenu(message));
 				return Task.CompletedTask;
 			});
 			owner._bridge.MessageReceived += _ingress.Enqueue;
@@ -150,6 +151,7 @@ public sealed class WelcomeController {
 		public void Close() {
 			_owner._bridge.MessageReceived -= _ingress.Enqueue;
 			_owner._bridge.PeerDisconnected -= _ingress.EnqueueDisconnect;
+			_menuActions.Close();
 			Global.Dispose();
 			_ = DisposeAsync();
 		}

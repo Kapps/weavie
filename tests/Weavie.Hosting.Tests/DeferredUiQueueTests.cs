@@ -25,6 +25,20 @@ public sealed class DeferredUiQueueTests {
 		Assert.True(ui.RanEverythingOnItsThread);
 	}
 
+	[Fact]
+	public async Task Closing_drops_actions_that_have_not_started() {
+		var ui = new ManualUiDispatcher(paused: true);
+		var queue = new DeferredUiQueue(ui);
+		bool ran = false;
+
+		queue.Enqueue(() => ran = true);
+		await ui.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(5));
+		queue.Close();
+		ui.RunPending();
+
+		Assert.False(ran);
+	}
+
 	// Like the WinForms and Cocoa dispatchers: inline when already on the UI thread, queued from anywhere else.
 	private sealed class InlineOnUiThreadDispatcher : IUiDispatcher, IDisposable {
 		private readonly BlockingCollection<Action> _work = [];

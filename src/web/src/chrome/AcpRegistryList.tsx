@@ -179,18 +179,23 @@ export function installAcpAgent(
 ): Promise<void> {
   const connection = connected(backendId);
   const feature = connection.host.feature("acpRegistry");
+  // Results are broadcast to every page, so this install only accepts the one tagged with its own operation.
+  const operation = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     let replayingHello = connection.currentHello !== null;
     const stop = (): void => {
       offResult();
       offHello();
     };
-    const offResult = feature.on<{ id: string; error: string | null }>("installed", (result) => {
-      if (result.id !== id) return;
-      stop();
-      if (result.error === null) resolve();
-      else reject(new Error(result.error));
-    });
+    const offResult = feature.on<{ operation: string; error: string | null }>(
+      "installed",
+      (result) => {
+        if (result.operation !== operation) return;
+        stop();
+        if (result.error === null) resolve();
+        else reject(new Error(result.error));
+      },
+    );
     // The result is announced once; a reconnect in between can miss it, so say so rather than wait forever.
     const offHello = connection.onHello(() => {
       if (replayingHello) {
@@ -202,7 +207,7 @@ export function installAcpAgent(
         new Error("The connection to Weavie dropped during the install. Check the agent list."),
       );
     });
-    feature.request("install", { id, distribution }).catch((error: unknown) => {
+    feature.request("install", { id, distribution, operation }).catch((error: unknown) => {
       stop();
       reject(error);
     });

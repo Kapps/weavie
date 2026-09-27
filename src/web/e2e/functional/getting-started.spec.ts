@@ -17,14 +17,18 @@ test.use({
             server.send(data);
             return;
           }
+          const error = registryOffline && message.name === "list" ? OFFLINE : null;
           socket.send(
-            encodeTestWebSocketMessage(JSON.stringify({ ...message, kind: "response", payload })),
+            encodeTestWebSocketMessage(
+              JSON.stringify({ ...message, kind: "response", payload, error }),
+            ),
           );
           // An install answers at once and reports its check later; this one fails the way npm would.
           if (message.feature === "acpRegistry" && message.name === "install") {
-            const { id } = message.payload as { id: string };
+            const { id, operation } = message.payload as { id: string; operation: string };
             const result = {
               id,
+              operation,
               error: "npm ERR! 404 Not Found - GET https://registry.npmjs.org/codex-acp",
             };
             setTimeout(() => {
@@ -45,6 +49,13 @@ test.use({
       });
     },
   },
+});
+
+// Set by a test to make the ACP registry list fail the way an offline machine does.
+let registryOffline = false;
+const OFFLINE = "getaddrinfo ENOTFOUND cdn.agentclientprotocol.com";
+test.beforeEach(() => {
+  registryOffline = false;
 });
 
 function canned(message: MessageEnvelope): unknown {
@@ -125,12 +136,15 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
   const automatic = setup.getByRole("switch", { name: /Suggest automatically/ });
   await expect(inference).toBeChecked();
   await expect(automatic).toBeChecked();
-  await expect(setup.getByRole("combobox", { name: /Which agent/ })).toHaveValue("fake-acp");
+  const suggestionsAgent = setup.getByRole("combobox", { name: /Which agent/ });
+  await expect(suggestionsAgent).toHaveValue("fake-acp");
   await automatic.uncheck();
+  await suggestionsAgent.selectOption("claude");
   await setup.getByRole("button", { name: "Back" }).click();
   await setup.getByRole("button", { name: "Next" }).click();
   await expect(inference).toBeChecked();
   await expect(automatic).not.toBeChecked();
+  await expect(suggestionsAgent).toHaveValue("claude");
   await automatic.check();
   await setup.getByRole("button", { name: "Next" }).click();
 
@@ -195,4 +209,33 @@ test("choosing a suggested agent installs and checks it, and shows why a failed 
     "aria-pressed",
     "true",
   );
+});
+
+test("the Agent step still works when the ACP registry can't be reached", async ({ page }) => {
+  registryOffline = true;
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const setup = page.locator(".getting-started-dialog");
+  await setup.getByRole("button", { name: "Next" }).click();
+  await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Pick your agent");
+  await expect(setup.getByText(`Couldn't load more agents: Error: ${OFFLINE}`)).toBeVisible();
+  const fakeAcp = setup.getByRole("button", { name: /Fake ACP/ });
+  await fakeAcp.click();
+  await expect(fakeAcp).toHaveAttribute("aria-pressed", "true");
+  expect(errors).toEqual([]);
+});
+
+test.describe("with suggestions forced on by the environment", () => {
+  test.use({ automaticInference: true });
+
+  test("a refused switch change snaps back and says why", async ({ page }) => {
+    const setup = page.locator(".getting-started-dialog");
+    await setup.getByRole("button", { name: "Next" }).click();
+    await setup.getByRole("button", { name: "Next" }).click();
+    const inference = setup.getByRole("switch", { name: /Allow suggestions/ });
+    await expect(inference).toBeChecked();
+    await inference.click();
+    await expect(setup.locator(".gs-error")).toContainText("environment variable");
+    await expect(inference).toBeChecked();
+  });
 });

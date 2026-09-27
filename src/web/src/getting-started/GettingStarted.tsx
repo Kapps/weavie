@@ -9,32 +9,31 @@ import {
   setGettingStartedOpen,
   writeSetting,
 } from "./state";
-import { type Attempt, FinishStep, InferenceStep, Keycaps, ThemeStep } from "./steps";
+import { FinishStep, InferenceStep, Keycaps, type SetupRun, ThemeStep } from "./steps";
 import "./getting-started.css";
 
-const STEPS: { title: string; hint: string; body: (props: { attempt: Attempt }) => JSX.Element }[] =
-  [
-    {
-      title: "Choose a look",
-      hint: "Weavie follows your system by default. Changes apply instantly.",
-      body: ThemeStep,
-    },
-    {
-      title: "Pick your agent",
-      hint: "New sessions start with this agent. You can pick another for any session.",
-      body: AgentStep,
-    },
-    {
-      title: "Smart suggestions",
-      hint: "Small helpers from your agent. Turn them off anytime.",
-      body: InferenceStep,
-    },
-    {
-      title: "You're ready",
-      hint: "One last tip, and a few keys worth learning.",
-      body: FinishStep,
-    },
-  ];
+const STEPS: { title: string; hint: string; body: (props: { run: SetupRun }) => JSX.Element }[] = [
+  {
+    title: "Choose a look",
+    hint: "Weavie follows your system by default. Changes apply instantly.",
+    body: ThemeStep,
+  },
+  {
+    title: "Pick your agent",
+    hint: "New sessions start with this agent. You can pick another for any session.",
+    body: AgentStep,
+  },
+  {
+    title: "Smart suggestions",
+    hint: "Small helpers from your agent. Turn them off anytime.",
+    body: InferenceStep,
+  },
+  {
+    title: "You're ready",
+    hint: "One last tip, and a few keys worth learning.",
+    body: FinishStep,
+  },
+];
 
 const INTERACTIVE = "button, select, input, textarea, a";
 
@@ -43,12 +42,14 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
   const [index, setIndex] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
   let section: HTMLElement | undefined;
-  const attempt: Attempt = (action) => {
+  const attempt: SetupRun["attempt"] = (action) => {
     setError(null);
     action().catch((caught: unknown) =>
       setError(caught instanceof Error ? caught.message : String(caught)),
     );
   };
+  const run: SetupRun = { attempt, agentChoice: 0, suggestionsAgent: null };
+
   const finish = () =>
     attempt(async () => {
       await writeSetting(COMPLETED_SETTING, true);
@@ -94,7 +95,7 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
       <h2 id="getting-started-title">{step().title}</h2>
       <p class="gs-hint">{step().hint}</p>
       <div class="gs-body">
-        <Dynamic component={step().body} attempt={attempt} />
+        <Dynamic component={step().body} run={run} />
       </div>
       <Show when={error()}>{(message) => <p class="gs-error">{message()}</p>}</Show>
       <div class="gs-nav">

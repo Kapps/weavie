@@ -51,7 +51,7 @@ public sealed class WelcomeController {
 		ArgumentNullException.ThrowIfNull(onOpenRecent);
 		_bridge = bridge;
 		_surface = surface;
-		_ui = ui;
+		_ui = new GuardedUiDispatcher(ui, failure => Log($"[welcome] a UI action failed: {failure}"));
 		_services = services;
 		_welcomeUrl = welcomeUrl;
 		_recents = recents;
@@ -134,11 +134,11 @@ public sealed class WelcomeController {
 			_router = new HostMessageRouter(owner._bridge, owner._ui, Log);
 			_ingress = new MessageIngress(owner._ui, _router.RouteAsync, _router.Disconnect, _router.Diagnostics);
 			Global = new GlobalHostFeatures(_router.Host, owner._services, Log);
-			_router.Host.Feature("window").HandleAfterEvent<JsonElement>("menu", (message, _) =>
-				Task.FromResult<Func<CancellationToken, Task>>(ct => owner._ui.InvokeAsync(() => {
-					OnMenu(message);
-					return Task.CompletedTask;
-				}, ct)));
+			// Posted, not awaited: Open Folder shows a native picker the user can leave up past any message deadline.
+			_router.Host.Feature("window").Handle<JsonElement>("menu", (message, _) => {
+				owner._ui.Post(() => OnMenu(message));
+				return Task.CompletedTask;
+			});
 			owner._bridge.MessageReceived += _ingress.Enqueue;
 			owner._bridge.PeerDisconnected += _ingress.EnqueueDisconnect;
 		}

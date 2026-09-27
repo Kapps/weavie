@@ -165,12 +165,12 @@ public sealed partial class HostCore {
 			_shell?.HandleWindowResize(message);
 			return Task.CompletedTask;
 		});
-		window.HandleAfterEvent<JsonElement>("menu", (message, _) =>
-			Task.FromResult<Func<CancellationToken, Task>>(ct => _ui.InvokeAsync(() => {
-				(_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
-					.HandleMenuAction(message);
-				return Task.CompletedTask;
-			}, ct)));
+		// Posted, not awaited: a menu action can open a native dialog the user leaves up past any message deadline.
+		window.Handle<JsonElement>("menu", (message, _) => {
+			_ui.Post(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
+				.HandleMenuAction(message));
+			return Task.CompletedTask;
+		});
 	}
 
 	private void OnApplicationMenuActivated(ApplicationMenuActivation activation) {
@@ -425,6 +425,6 @@ public sealed partial class HostCore {
 			: null;
 }
 
-internal sealed record AcpInstallMessage(string Id, string Distribution);
+internal sealed record AcpInstallMessage(string Id, string Distribution, string Operation);
 
 internal sealed record AcpAgentMessage(string Id);

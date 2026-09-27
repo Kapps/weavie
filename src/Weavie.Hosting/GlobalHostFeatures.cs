@@ -140,7 +140,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}
 
 		if (!_lifetime.IsCancellationRequested) {
-			_host.Feature("acpRegistry").Publish("installed", new InstallResult(message.Id, error));
+			_host.Feature("acpRegistry").Publish("installed", new InstallResult(message.Id, message.Operation, error));
 		}
 	}
 
@@ -188,7 +188,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	}
 
 	private sealed record EmptyRequest;
-	private sealed record InstallResult(string Id, string? Error);
+	private sealed record InstallResult(string Id, string Operation, string? Error);
 	private sealed record WebLogMessage(string Level, string Message);
 	private sealed record SettingRead(string Key);
 	private sealed record SettingWrite(string Key, JsonElement Value);

@@ -18,8 +18,15 @@ import { savedAppearance, savedPalette } from "../theme/controller";
 import { SELECT_THEME, type ThemeChoice, themeRequest } from "../theme/picker-state";
 import { browseThemes, readSetting, writeSetting } from "./state";
 
-/** Runs a setup action, routing its failure to the page's error line. */
-export type Attempt = (action: () => Promise<void>) => void;
+/** What the steps of one setup run share: its error line, and choices that must outlive a step's view. */
+export interface SetupRun {
+  /** Runs a setup action, routing its failure to the page's error line. */
+  attempt: (action: () => Promise<void>) => void;
+  /** Bumped by every agent choice, so a slow install only takes effect if nothing was chosen since. */
+  agentChoice: number;
+  /** The agent suggestions were last pointed at, so revisiting the step keeps a "Which agent" change. */
+  suggestionsAgent: string | null;
+}
 
 const MODES: { mode: ThemeMode; label: string }[] = [
   { mode: "system", label: "Match system" },
@@ -43,7 +50,7 @@ function ThemeMock(props: { type: "light" | "dark"; class: string }): JSX.Elemen
   );
 }
 
-export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
+export function ThemeStep(props: { run: SetupRun }): JSX.Element {
   const [themes] = createResource(() =>
     themeRequest<ThemeChoice[]>("list", {}, new AbortController().signal),
   );
@@ -60,7 +67,7 @@ export function ThemeStep(props: { attempt: Attempt }): JSX.Element {
               type="button"
               class="gs-mode"
               aria-pressed={savedAppearance().mode === option.mode}
-              onClick={() => props.attempt(() => writeSetting("theme.mode", option.mode))}
+              onClick={() => props.run.attempt(() => writeSetting("theme.mode", option.mode))}
             >
               <span class="gs-mode-preview">
                 <Show
@@ -134,16 +141,29 @@ function Switch(props: {
   );
 }
 
-export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
+export function InferenceStep(props: { run: SetupRun }): JSX.Element {
   const [enabled, setEnabled] = createSignal<boolean>();
   const [automatic, setAutomatic] = createSignal<boolean>();
   const [provider, setProvider] = createSignal<string>();
-  const write = <T,>(key: string, value: T, set: (value: T) => void) =>
-    props.attempt(async () => {
-      await writeSetting(key, value);
+  // Shows the new value at once and restores the old one if the host refuses it (e.g. an env override).
+  const write = <T,>(
+    key: string,
+    value: T,
+    get: () => T | undefined,
+    set: (value: T | undefined) => void,
+  ) =>
+    props.run.attempt(async () => {
+      const previous = get();
       set(value);
+      try {
+        await writeSetting(key, value);
+      } catch (error) {
+        set(previous);
+        throw error;
+      }
     });
-  // Switches never set start on, and suggestions follow the agent picked on the previous step.
+  // Switches never set start on. Suggestions follow the agent picked on the previous step, once per agent, so a
+  // "Which agent" change survives going back and forth.
   const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
     const setting = await readSetting<T>(key);
     const value = setting.isDefault ? onByDefault : setting.value;
@@ -151,14 +171,18 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
     set(value);
   };
   onMount(() =>
-    props.attempt(async () => {
+    props.run.attempt(async () => {
       await initial("inference.enabled", true, setEnabled);
       await initial("inference.allowAutomatic", true, setAutomatic);
       const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
-      if ((await readSetting<string>("inference.defaultProvider")).value !== agent) {
+      const current = (await readSetting<string>("inference.defaultProvider")).value;
+      if (props.run.suggestionsAgent === agent || current === agent) {
+        setProvider(current);
+      } else {
         await writeSetting("inference.defaultProvider", agent);
+        setProvider(agent);
       }
-      setProvider(agent);
+      props.run.suggestionsAgent = agent;
     }),
   );
   const off = () => enabled() !== true;
@@ -173,7 +197,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
             id={id}
             checked={enabled() === true}
             disabled={enabled() === undefined}
-            onChange={(checked) => write("inference.enabled", checked, setEnabled)}
+            onChange={(checked) => write("inference.enabled", checked, enabled, setEnabled)}
           />
         )}
       />
@@ -186,7 +210,9 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
             id={id}
             checked={automatic() === true}
             disabled={off() || automatic() === undefined}
-            onChange={(checked) => write("inference.allowAutomatic", checked, setAutomatic)}
+            onChange={(checked) =>
+              write("inference.allowAutomatic", checked, automatic, setAutomatic)
+            }
           />
         )}
       />
@@ -199,7 +225,7 @@ export function InferenceStep(props: { attempt: Attempt }): JSX.Element {
             id={id}
             disabled={off()}
             onChange={(event) =>
-              write("inference.defaultProvider", event.currentTarget.value, setProvider)
+              write("inference.defaultProvider", event.currentTarget.value, provider, setProvider)
             }
           >
             <For each={agentProviders(LOCAL_BACKEND_ID).filter((agent) => agent.available)}>

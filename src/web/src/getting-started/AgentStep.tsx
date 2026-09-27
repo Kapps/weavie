@@ -13,7 +13,7 @@ import {
   refreshAgentProviders,
   setDefaultAgentProvider,
 } from "../chrome/agent-default";
-import type { Attempt } from "./steps";
+import type { SetupRun } from "./steps";
 
 // Registry agents offered even before they're installed; everything shown about them comes from the live registry.
 const SUGGESTED_AGENTS = ["claude-acp", "codex-acp"];
@@ -30,26 +30,35 @@ function AcpTag(): JSX.Element {
   );
 }
 
-export function AgentStep(props: { attempt: Attempt }): JSX.Element {
+export function AgentStep(props: { run: SetupRun }): JSX.Element {
   const [browsing, setBrowsing] = createSignal(false);
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [registry] = createResource(() =>
     acpRegistryFeature(LOCAL_BACKEND_ID).request<AcpRegistryAgent[]>("list", {}),
   );
   const installed = () => new Set(agentProviders(LOCAL_BACKEND_ID).map((provider) => provider.id));
+  // An unreachable registry is reported below; reading a failed resource would throw mid-render.
   const suggested = () =>
-    (registry() ?? []).filter(
+    (registry.error ? [] : (registry() ?? [])).filter(
       (agent) => SUGGESTED_AGENTS.includes(agent.id) && !installed().has(agent.id),
     );
-  const use = (id: string) => setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
+  const use = (id: string) =>
+    props.run.attempt(() => {
+      props.run.agentChoice += 1;
+      return setDefaultAgentProvider(LOCAL_BACKEND_ID, id);
+    });
+  // A slow install only becomes the default if no other agent was chosen while it ran, even from a later view.
   const installAndUse = (agent: AcpRegistryAgent, distribution: string) =>
-    props.attempt(async () => {
+    props.run.attempt(async () => {
+      const choice = ++props.run.agentChoice;
       setInstalling(agent.id);
       try {
         await installAcpAgent(LOCAL_BACKEND_ID, agent.id, distribution);
-        await use(agent.id);
       } finally {
         setInstalling(null);
+      }
+      if (props.run.agentChoice === choice) {
+        await setDefaultAgentProvider(LOCAL_BACKEND_ID, agent.id);
       }
     });
 
@@ -76,7 +85,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
               class="gs-choice"
               aria-pressed={defaultAgentProvider(LOCAL_BACKEND_ID) === provider.id}
               disabled={!provider.available || installing() !== null}
-              onClick={() => props.attempt(() => use(provider.id))}
+              onClick={() => use(provider.id)}
             >
               <span class="gs-radio" aria-hidden="true" />
               <span class="gs-text">
@@ -139,7 +148,7 @@ export function AgentStep(props: { attempt: Attempt }): JSX.Element {
           <button
             type="button"
             class="gs-link"
-            onClick={() => props.attempt(() => refreshAgentProviders(LOCAL_BACKEND_ID))}
+            onClick={() => props.run.attempt(() => refreshAgentProviders(LOCAL_BACKEND_ID))}
           >
             Installed it? Check again
           </button>

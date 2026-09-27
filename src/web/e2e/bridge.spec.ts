@@ -67,10 +67,11 @@ test.describe("session-addressed WebSocket transport", () => {
       ]),
     );
     host.onHost("request", "acpRegistry", "install", (request) => {
-      expect(request.payload).toEqual({ id: "sample", distribution: "uvx" });
+      const { operation } = request.payload as { operation: string };
+      expect(request.payload).toEqual({ id: "sample", distribution: "uvx", operation });
       installed = true;
       host.respond(request, null);
-      host.publishHost("acpRegistry", "installed", { id: "sample", error: null });
+      host.publishHost("acpRegistry", "installed", { id: "sample", operation, error: null });
     });
     host.onHost("request", "acpRegistry", "remove", (request) => {
       expect(request.payload).toEqual({ id: "sample" });

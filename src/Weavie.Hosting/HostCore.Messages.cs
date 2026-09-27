@@ -165,9 +165,8 @@ public sealed partial class HostCore {
 			_shell?.HandleWindowResize(message);
 			return Task.CompletedTask;
 		});
-		// Posted, not awaited: a menu action can open a native dialog the user leaves up past any message deadline.
 		window.Handle<JsonElement>("menu", (message, _) => {
-			_ui.Post(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
+			_menuActions.Enqueue(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
 				.HandleMenuAction(message));
 			return Task.CompletedTask;
 		});

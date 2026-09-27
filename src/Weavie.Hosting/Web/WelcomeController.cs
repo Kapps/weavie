@@ -134,9 +134,9 @@ public sealed class WelcomeController {
 			_router = new HostMessageRouter(owner._bridge, owner._ui, Log);
 			_ingress = new MessageIngress(owner._ui, _router.RouteAsync, _router.Disconnect, _router.Diagnostics);
 			Global = new GlobalHostFeatures(_router.Host, owner._services, Log);
-			// Posted, not awaited: Open Folder shows a native picker the user can leave up past any message deadline.
+			var menuActions = new DeferredUiQueue(owner._ui);
 			_router.Host.Feature("window").Handle<JsonElement>("menu", (message, _) => {
-				owner._ui.Post(() => OnMenu(message));
+				menuActions.Enqueue(() => OnMenu(message));
 				return Task.CompletedTask;
 			});
 			owner._bridge.MessageReceived += _ingress.Enqueue;

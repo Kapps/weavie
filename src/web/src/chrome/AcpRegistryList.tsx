@@ -1,5 +1,6 @@
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { hostConnection } from "../bridge";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { notify } from "../notify/notify";
 
 /** One agent in the official ACP registry, with what this host has installed of it. */
@@ -172,6 +173,8 @@ export function acpRegistryFeature(backendId: string) {
  * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (a first
  * npx/uvx start downloads it, so this can take a while); rejects with the agent's own error output otherwise.
  */
+let installSequence = 0;
+
 export function installAcpAgent(
   backendId: string,
   id: string,
@@ -180,7 +183,7 @@ export function installAcpAgent(
   const connection = connected(backendId);
   const feature = connection.host.feature("acpRegistry");
   // Results are broadcast to every page, so this install only accepts the one tagged with its own operation.
-  const operation = crypto.randomUUID();
+  const operation = `${PAGE_EPOCH}-${++installSequence}`;
   return new Promise((resolve, reject) => {
     let replayingHello = connection.currentHello !== null;
     const stop = (): void => {

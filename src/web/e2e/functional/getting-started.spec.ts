@@ -228,14 +228,18 @@ test("the Agent step still works when the ACP registry can't be reached", async 
 test.describe("with suggestions forced on by the environment", () => {
   test.use({ automaticInference: true });
 
-  test("a refused switch change snaps back and says why", async ({ page }) => {
+  test("refused switch changes show the host value and say why", async ({ page }) => {
     const setup = page.locator(".getting-started-dialog");
     await setup.getByRole("button", { name: "Next" }).click();
     await setup.getByRole("button", { name: "Next" }).click();
     const inference = setup.getByRole("switch", { name: /Allow suggestions/ });
     await expect(inference).toBeChecked();
+    // Two quick changes, both refused: the switch ends on the host's value, not an unconfirmed one.
+    await inference.click();
     await inference.click();
     await expect(setup.locator(".gs-error")).toContainText("environment variable");
+    await expect(inference).toBeChecked();
+    await inference.click();
     await expect(inference).toBeChecked();
   });
 });

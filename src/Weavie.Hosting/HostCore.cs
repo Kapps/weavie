@@ -40,6 +40,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly HostMessageRouter _messages;
 	private readonly MessageIngress _messageIngress;
 	private readonly GlobalHostFeatures _global;
+	private readonly DeferredUiQueue _menuActions;
 	private MessagePeer? _applicationMenuOwner;
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
@@ -165,6 +166,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_messages.Disconnect,
 			_messages.Diagnostics);
 		_global = new GlobalHostFeatures(_messages.Host, services, Log);
+		_menuActions = new DeferredUiQueue(_ui);
 		_commandRegistry = services.CommandRegistry;
 		_clientCommands = new CommandDispatcher(_commandRegistry);
 		_clientCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {

@@ -145,20 +145,14 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
   const [enabled, setEnabled] = createSignal<boolean>();
   const [automatic, setAutomatic] = createSignal<boolean>();
   const [provider, setProvider] = createSignal<string>();
-  // Shows the new value at once and restores the old one if the host refuses it (e.g. an env override).
-  const write = <T,>(
-    key: string,
-    value: T,
-    get: () => T | undefined,
-    set: (value: T | undefined) => void,
-  ) =>
+  // Shows the new value at once; if the host refuses it (e.g. an env override), shows what the host actually has.
+  const write = <T,>(key: string, value: T, set: (value: T) => void) =>
     props.run.attempt(async () => {
-      const previous = get();
       set(value);
       try {
         await writeSetting(key, value);
       } catch (error) {
-        set(previous);
+        set((await readSetting<T>(key)).value);
         throw error;
       }
     });
@@ -197,7 +191,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
             id={id}
             checked={enabled() === true}
             disabled={enabled() === undefined}
-            onChange={(checked) => write("inference.enabled", checked, enabled, setEnabled)}
+            onChange={(checked) => write("inference.enabled", checked, setEnabled)}
           />
         )}
       />
@@ -210,9 +204,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
             id={id}
             checked={automatic() === true}
             disabled={off() || automatic() === undefined}
-            onChange={(checked) =>
-              write("inference.allowAutomatic", checked, automatic, setAutomatic)
-            }
+            onChange={(checked) => write("inference.allowAutomatic", checked, setAutomatic)}
           />
         )}
       />
@@ -225,7 +217,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
             id={id}
             disabled={off()}
             onChange={(event) =>
-              write("inference.defaultProvider", event.currentTarget.value, provider, setProvider)
+              write("inference.defaultProvider", event.currentTarget.value, setProvider)
             }
           >
             <For each={agentProviders(LOCAL_BACKEND_ID).filter((agent) => agent.available)}>

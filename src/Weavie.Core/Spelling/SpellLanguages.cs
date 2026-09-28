@@ -93,7 +93,7 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	private static SpellVocabulary Load(string path, string locale) {
 		var words = WordList.CreateFromFiles(Path.Combine(path, "index.dic"), Path.Combine(path, "index.aff"));
 		if (words.RootCount == 0) throw new InvalidDataException("The downloaded spelling dictionary contains no words.");
-		return new(words, includeTechnicalWords: locale.StartsWith("en-", StringComparison.Ordinal));
+		return new(words, english: locale.StartsWith("en-", StringComparison.Ordinal));
 	}
 
 	[GeneratedRegex(@"\A[a-z]{2,3}(?:-[A-Za-z0-9]+)*\z", RegexOptions.NonBacktracking)]

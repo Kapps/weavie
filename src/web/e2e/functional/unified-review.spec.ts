@@ -364,6 +364,7 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
+    await page.locator(".unified-review-tree-row.file", { hasText: "walk.txt" }).click();
     const overview = page.locator(".unified-review");
     const toolbar = overview.locator(".weavie-inline-toolbar");
     const counter = toolbar.locator(".weavie-inline-stack-sub");

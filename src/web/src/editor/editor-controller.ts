@@ -466,7 +466,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     ) {
       if (selection !== undefined) {
         source.editor.setSelection(selection);
-        source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
+        source.reveal(selection);
       }
       source.editor.focus();
       const location = captureLocation(source.tab);
@@ -628,10 +628,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, marks] = await Promise.all([
+        const [diff, prose, marks, toolbar] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
           import("./revise-marks"),
+          import("./review/review-toolbar"),
         ]);
         inlineDiff = diff.createInlineDiff(created.editor, {
           scope: reviewScope,
@@ -639,10 +640,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             const connection = editorContexts.fromEditor(created.editor);
             return connection !== undefined && editorContexts.displayed(connection);
           },
-          toolbarHost: () =>
+          publishToolbar: toolbar.createEditorToolbarPublisher(() =>
             editorContexts.fromEditor(created.editor) === undefined
               ? null
               : created.editor.getDomNode(),
+          ),
           revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
           reviewLine: () => diff.inlineReviewLine(created.editor),
           prepareGeometry: () => {},

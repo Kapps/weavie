@@ -225,7 +225,7 @@ export function sessionWorktrees(repoRoot: string): string[] {
     cwd: repoRoot,
     encoding: "utf8",
   });
-  const paths = [...out.matchAll(/^worktree (.+)$/gm)].map((m) => m[1].trim());
+  const paths = [...out.matchAll(/^worktree (.+)$/gm)].map((m) => m[1]!.trim());
   const primary = paths[0]; // git lists the main working tree first
   return paths.filter((p) => p !== primary);
 }

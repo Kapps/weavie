@@ -1,3 +1,4 @@
+import { CodeLensContribution } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/codelens/browser/codelensController";
 import type { ClientSession } from "../../bridge";
 import { editorContexts } from "../editor-context";
 import { connectTextEditor } from "../editor-contributions";
@@ -11,7 +12,7 @@ import { createEmbeddedEditor, monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import { collapseUnchanged } from "./review-context";
-import { createReviewEditorViewport } from "./review-editor-viewport";
+import { createReviewEditorViewport, type ReviewSectionGeometry } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { ReviewFileDiff } from "./review-store";
 
@@ -25,7 +26,7 @@ export interface ReviewEditor {
   restore(location: TextLocation): void;
   revealFileStart(line: number): void;
   focus(): void;
-  layout(): void;
+  position(): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -39,11 +40,12 @@ export function createReviewEditor(options: {
   container: HTMLElement;
   scroller: ReviewScroll;
   header: HTMLElement;
+  section: ReviewSectionGeometry;
   model: monaco.editor.ITextModel;
   editable: boolean;
-  diff: ReviewFileDiff;
+  path: string;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onHeight: (height: number) => void;
   onPainted: () => void;
@@ -68,8 +70,8 @@ export function createReviewEditor(options: {
     mount,
     options.scroller,
     options.header,
-    (dimension) =>
-      createEmbeddedEditor(
+    (dimension) => {
+      const editor = createEmbeddedEditor(
         mount,
         model,
         { dimension, overflowWidgetsDomNode: widgets },
@@ -89,11 +91,17 @@ export function createReviewEditor(options: {
           scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
           padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
         },
-      ),
+      );
+      // Cached CodeLens zones must precede the first published section height.
+      if (editor.getContribution(CodeLensContribution.ID) === null) {
+        throw new Error("Monaco CodeLens contribution is not registered.");
+      }
+      return editor;
+    },
+    options.section,
   );
   const editor = viewport.editor as CollapsingEditor;
   const gaps = editor.createDecorationsCollection([]);
-  let constructing = true;
   let disposed = false;
   const publish = (): void => {
     if (!disposed) options.onPainted();
@@ -106,7 +114,7 @@ export function createReviewEditor(options: {
     if (height === next) return;
     height = next;
     container.style.height = `${next}px`;
-    viewport.layout();
+    viewport.setContentHeight(next);
     options.onHeight(height);
   };
   const revealLine = (line: number): void => {
@@ -117,7 +125,7 @@ export function createReviewEditor(options: {
     scope: options.scope,
     updateGeometry: viewport.update,
     active: options.active,
-    toolbarHost: options.toolbarHost,
+    publishToolbar: options.onToolbar,
     revealLine,
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
@@ -146,17 +154,15 @@ export function createReviewEditor(options: {
     painted: () => {
       if (loading.parentNode !== null) {
         loading.remove();
-        editor.render(true);
         mount.style.removeProperty("visibility");
       }
-      if (constructing) queueMicrotask(publish);
-      else publish();
+      publish();
     },
   };
   const capture = (): TextLocation => {
     const line = presentation.reviewLine();
     return {
-      path: options.diff.path,
+      path: options.path,
       line,
       viewState: editor.saveViewState(),
       anchor: {
@@ -181,6 +187,19 @@ export function createReviewEditor(options: {
     model,
     capture,
     restore,
+    reveal: (range) => {
+      viewport.update(() =>
+        editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate),
+      );
+      const top = editor.getTopForPosition(range.startLineNumber, range.startColumn);
+      const bottom =
+        editor.getTopForPosition(range.endLineNumber, range.endColumn) +
+        editor.getOption(monaco.editor.EditorOption.lineHeight);
+      const bounds = viewport.bounds();
+      if (top < bounds.top || bottom > bounds.bottom) {
+        viewport.reveal((top + bottom - bounds.height) / 2);
+      }
+    },
   });
   widgets.addEventListener("focusin", () => {
     editorContexts.activate(binding.connection);
@@ -188,12 +207,11 @@ export function createReviewEditor(options: {
   });
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
-  options.configure(inline, model.uri.toString(), options.diff);
-  measure();
-  constructing = false;
   const subscriptions = [
     contentSize,
-    editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
+    editor.onDidChangeCursorPosition((event) => {
+      if (editor.hasWidgetFocus()) options.onCursor(event.position.lineNumber);
+    }),
   ];
   return {
     capture,
@@ -206,7 +224,7 @@ export function createReviewEditor(options: {
       editorContexts.activate(binding.connection);
       editor.focus();
     },
-    layout: viewport.layout,
+    position: viewport.position,
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {

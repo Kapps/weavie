@@ -54,6 +54,25 @@ function fixture() {
 }
 
 describe("unified review completion navigation", () => {
+  it("takes toolbar content from the selected section's exact lifetime, independently of actions", () => {
+    const { surface, state } = fixture();
+    const toolbar = {} as HTMLElement;
+    const old = { inline: { toolbar: () => undefined } } as unknown as ReviewEditor;
+    const current = { inline: { toolbar: () => toolbar } } as unknown as ReviewEditor;
+    expect(surface.toolbar()).toBeUndefined();
+    surface.sections.set("/work/0.ts", old);
+    expect(surface.toolbar()).toBeUndefined();
+    surface.sections.set("/work/0.ts", current);
+    surface.sections.clear("/work/0.ts", old);
+    expect(surface.toolbar()).toBe(toolbar);
+    state.index = 1;
+    expect(surface.toolbar()).toBeUndefined();
+    state.index = 0;
+    surface.sections.clear("/work/0.ts", current);
+    expect(surface.toolbar()).toBeUndefined();
+    surface.dispose();
+  });
+
   it("wraps past reviewed files and advances only once for a completion", () => {
     const { surface, state, select } = fixture();
     state.index = 2;

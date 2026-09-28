@@ -5,13 +5,15 @@ import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import { scrollReview } from "../harness/review-scroll";
 
-const paths = ["a-widgets.ts", "b-widgets.ts"];
+const paths = ["a-widgets.ts", "b-widgets.ts"] as const;
 const content = Array.from(
   { length: 300 },
   (_, index) => `export const value${index} = ${index};`,
 ).join("\n");
 
-test.use({ fakeScript: { steps: paths.flatMap((path) => appliedEdit(path, content)) } });
+test.use({
+  fakeScript: { steps: paths.flatMap((path) => appliedEdit(path, content)) },
+});
 
 test("scrolled review completions stay at the caret and belong to their editor", async ({
   page,
@@ -160,7 +162,11 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   await input.fill("renamedReviewValue");
   await page.keyboard.press("Enter");
   await expect(input).toBeHidden();
-  await expect(section.locator(".view-line", { hasText: "renamedReviewValue" })).toBeVisible();
+  await expect(
+    section.locator(".view-line:not(.peekview-widget .view-line)", {
+      hasText: "renamedReviewValue",
+    }),
+  ).toBeVisible();
   await expect
     .poll(() => readFile(join(weavie.workspace, paths[1]!), "utf8"))
     .toContain("renamedReviewValue");

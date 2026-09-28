@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, navChord } from "../harness/navigator";
@@ -20,6 +20,32 @@ test.use({
     ],
   },
 });
+
+for (const [key, index] of [
+  ["ArrowDown", 0],
+  ["ArrowRight", 0],
+  ["ArrowLeft", -1],
+] as const) {
+  test(`parked ${key} enters the boundary file and Home preserves its selection`, async ({
+    page,
+  }) => {
+    await awaitReviewSet(page, ["notes.txt", "review.txt"]);
+    await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
+    const counter = overview.locator(".weavie-inline-stack-sub");
+    const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
+    const files = await page.evaluate(() => window.__WEAVIE_REVIEW__!.files);
+    const file = basename(files.at(index)!);
+    await expect(counter).toContainText("2 files · press ↓ to start");
+    await overview.locator(".unified-review-diffs").focus();
+    await page.keyboard.press(navChord(key));
+    await expect(overview.locator(".weavie-inline-stack-name")).toHaveText(file);
+    await expect(overview.locator(".monaco-editor.focused")).toHaveCount(1);
+    await scrollbar.press("Home");
+    await expect(overview.locator(".weavie-inline-stack-name")).toHaveText(file);
+    await expect(counter).toContainText("change 1/");
+  });
+}
 
 test("the existing toolbar and keyboard review the active unified section without opening a file", async ({
   page,

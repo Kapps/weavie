@@ -20,6 +20,7 @@ export function connectTextEditor(options: {
   model: monaco.editor.ITextModel;
   capture(): TextLocation | undefined;
   restore(location: TextLocation): void;
+  reveal(range: monaco.IRange): void;
 }): { connection: TextEditorConnection; dispose(): void } {
   const { editor, model, session } = options;
   const lifetime = new AbortController();

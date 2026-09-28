@@ -140,7 +140,8 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
  * Brings up the editor: initializes the VSCode services (must precede editor creation), creates the editor in
  * `container`, wires lazy per-language LSP. `onSaveError` / `onOpenError` surface a failed save / open as a
  * toast so neither strands silently. The callbacks return viewport history and Monaco-initiated destinations to
- * the controller, which owns navigation and tab state.
+ * the controller, which owns navigation and tab state. `onLocalEdit` fires on every real user edit so review
+ * state can tell an edit the user already saw from one it hasn't.
  */
 export async function createEditorHost(
   container: HTMLElement,
@@ -152,6 +153,7 @@ export async function createEditorHost(
     selection: monaco.IRange | undefined;
     source: TextEditorConnection;
   }) => Promise<TextEditorConnection | undefined>,
+  onLocalEdit: (session: ClientSession, path: string) => void,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -350,6 +352,7 @@ export async function createEditorHost(
         const session = sessionForUri(model.uri);
         if (session !== undefined) {
           promoteFor(session, sessionUriHostPath(model.uri));
+          onLocalEdit(session, sessionUriHostPath(model.uri));
         }
         const delay = editor.getModel() === model ? 250 : 600;
         const pending = saveTimers.get(key);

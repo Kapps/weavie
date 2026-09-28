@@ -185,6 +185,43 @@ describe("review store", () => {
     });
   });
 
+  it("keeps a manual collapse when the confirming diff catches up with the session's own edit", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore(() => {});
+      const client = session();
+      store.setFiles(client, [firstFile], "turn");
+      store.setDiff(client, diff(firstFile));
+      const view = store.board(client).files[0]!;
+
+      store.noteLocalEdit(client, firstFile.path);
+      store.setFileCollapsed(client, firstFile.path, true);
+      expect(view.collapsed()).toBe(true);
+
+      store.setDiff(client, diff(firstFile, "before", "the user's own edit"));
+      expect(view.collapsed()).toBe(true); // must NOT reopen
+      dispose();
+    });
+  });
+
+  it("only shields the push confirming the edit, not a later unrelated one", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore(() => {});
+      const client = session();
+      store.setFiles(client, [firstFile], "turn");
+      store.setDiff(client, diff(firstFile));
+      const view = store.board(client).files[0]!;
+
+      store.noteLocalEdit(client, firstFile.path);
+      store.setFileCollapsed(client, firstFile.path, true);
+      store.setDiff(client, diff(firstFile, "before", "edit A"));
+      expect(view.collapsed()).toBe(true);
+
+      store.setDiff(client, diff(firstFile, "before", "edit B")); // no noteLocalEdit before this one
+      expect(view.collapsed()).toBe(false); // un-reviews normally
+      dispose();
+    });
+  });
+
   it("starts a file whose only diff is kept in its collapsed state", () => {
     createRoot((dispose) => {
       const store = createReviewStore(() => {});

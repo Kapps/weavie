@@ -612,6 +612,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         deps.onOpenError,
         ({ path, selection, source }) =>
           navigateFrom(source, path, selection, true, "file", source.capture()),
+        (session, path) => reviews.noteLocalEdit(session, path),
       ),
     );
     const initDeadline = new Promise<never>((_, reject) => {

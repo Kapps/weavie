@@ -13,6 +13,18 @@ const content = Array.from(
 
 test.use({ fakeScript: { steps: paths.flatMap((path) => appliedEdit(path, content)) } });
 
+// Flake: 2026-09-28 ~06:10 UTC, run
+// https://github.com/Kapps/weavie/actions/runs/36383469427/job/108804715135 — this test hit "Test
+// timeout of 60000ms exceeded" / "Target page, context or browser has been closed" immediately after
+// unified-review-wheel.spec.ts's own 180s timeout forced that browser closed in the same worker.
+// Investigated: ran this test back-to-back after unified-review-wheel.spec.ts locally (workers: 1, same
+// as CI) repeatedly. When the wheel test completed normally this test passed in a few seconds every
+// time; in some runs it (and unrelated tests elsewhere in the suite) hit their own generic
+// actionability timeouts, consistent with this sandbox's own resource contention rather than anything
+// specific to the wheel test. Every local failure was a plain "element didn't appear/disappear in
+// time" on an assertion this test correctly depends on — no wrong assertion or logic defect found. Not
+// independently reproduced identically to the CI signature; treating it as collateral from the wheel
+// test's own timeout (see unified-review-wheel.spec.ts) rather than a defect in this test.
 test("scrolled review completions stay at the caret and belong to their editor", async ({
   page,
 }) => {

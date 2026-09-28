@@ -135,6 +135,7 @@ export function AgentPaneBody(props: {
     virtualizer,
     props.model.agentTurnStartIndex,
     props.model.latestResultIndex,
+    props.model.historyComplete,
     props.model.keyboardRequestKey,
     turnNavigable,
     props.model.revision,

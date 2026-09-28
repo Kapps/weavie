@@ -12,6 +12,7 @@ export function createAgentPaneScroll(
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
   turnStartIndex: Accessor<number | null>,
   latestResultIndex: Accessor<number | null>,
+  historyComplete: Accessor<boolean>,
   pendingRequestKey: Accessor<string | null>,
   turnNavigable: Accessor<boolean>,
   revision: Accessor<number>,
@@ -106,10 +107,10 @@ export function createAgentPaneScroll(
       { row },
     );
 
-  // Following stops at the latest result's top so a fast response is read from its start.
+  // Following stops at the latest live result's top so a fast response is read from its start.
   const followLatest = (): void => {
     const element = body();
-    const row = latestResultIndex();
+    const row = historyComplete() ? latestResultIndex() : null;
     const start = rowStart(row);
     if (
       element !== undefined &&

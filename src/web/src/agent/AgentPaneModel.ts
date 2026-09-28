@@ -26,6 +26,8 @@ export interface AgentPaneModel {
   readonly entries: AgentTranscriptEntry[];
   readonly generation: Accessor<number>;
   readonly history: Accessor<readonly string[]>;
+  /** Whether the host's stored transcript has fully loaded; replayed history is never live output. */
+  readonly historyComplete: Accessor<boolean>;
   readonly interruptible: Accessor<boolean>;
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardRequestKey: Accessor<string | null>;
@@ -46,6 +48,7 @@ export interface AgentPaneModel {
 export interface MutableAgentPaneModel extends AgentPaneModel {
   publish(updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void;
   replace(updates: AgentPaneUpdate[]): void;
+  setHistoryComplete(complete: boolean): void;
   reset(): void;
 }
 
@@ -66,6 +69,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [keyboardRequestKey, setKeyboardRequestKey] = createSignal<string | null>(null);
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
+  const [historyComplete, setHistoryComplete] = createSignal(false);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
   const [latestResultIndex, setLatestResultIndex] = createSignal<number | null>(null);
   const [pendingRowIndexes, setPendingRowIndexes] = createSignal<readonly number[]>([]);
@@ -188,6 +192,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     entries,
     generation,
     history,
+    historyComplete,
     interruptible,
     keyboardApprovalId,
     keyboardRequestKey,
@@ -213,6 +218,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     replace(updates) {
       project(updates);
     },
+    setHistoryComplete,
     reset() {
       expandedActivities.clear();
       project([]);

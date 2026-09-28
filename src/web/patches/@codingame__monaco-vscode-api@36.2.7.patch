@@ -1,3 +1,35 @@
+diff --git a/vscode/src/vs/editor/browser/view.js b/vscode/src/vs/editor/browser/view.js
+index 656a607fd6c30ba85969fc73fde17031b1bbef1b..cfc9f0cc1ff602146da24c998a5d4c24f85ae1ad 100644
+--- a/vscode/src/vs/editor/browser/view.js
++++ b/vscode/src/vs/editor/browser/view.js
+@@ -4,7 +4,9 @@ import { createElement, getWindow, runAtThisOrScheduleAtNextAnimationFrame } fro
+ import { createFastDomNode } from '../../base/browser/fastDomNode.js';
+ import { inputLatency } from '../../base/browser/performance.js';
+ import { BugIndicatingError, onUnexpectedError } from '../../base/common/errors.js';
+-import { DisposableStore, Disposable } from '../../base/common/lifecycle.js';
++import { DisposableStore, Disposable, toDisposable } from '../../base/common/lifecycle.js';
++import { IContextKeyService } from '../../platform/contextkey/common/contextkey.service.js';
++import { IKeybindingService } from '../../platform/keybinding/common/keybinding.service.js';
+ import { PointerHandlerLastRenderData } from './controller/mouseTarget.js';
+ import { PointerHandler } from './controller/pointerHandler.js';
+ import { RenderingContext } from './view/renderingContext.js';
+@@ -79,6 +81,16 @@ let View = class View extends ViewEventHandler {
+         this.onWillPaste = this._onWillPaste.event;
+         this._shouldRecomputeGlyphMarginLanes = false;
+         this._ownerID = ownerID;
++        // A shared overflow layer still needs each view's own focus and keyboard context.
++        if (overflowWidgetsDomNode) {
++            const owned = overflowWidgetsDomNode.appendChild(editorContainer.ownerDocument.createElement("div"));
++            this._instantiationService.invokeFunction(accessor => {
++                this._register(accessor.get(IContextKeyService).createScoped(owned));
++                this._register(accessor.get(IKeybindingService).registerContainer(owned));
++            });
++            this._register(toDisposable(() => owned.remove()));
++            overflowWidgetsDomNode = owned;
++        }
+         this._widgetFocusTracker = this._register(( new CodeEditorWidgetFocusTracker(editorContainer, overflowWidgetsDomNode, this._userInteractionService)));
+         this._register(this._widgetFocusTracker.onChange(() => {
+             this._context.viewModel.setHasWidgetFocus(this._widgetFocusTracker.hasFocus());
 diff --git a/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js b/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js
 index ac5c67b3e7fa818d9d87bdd17078a186313c4727..544e38acfc6c13a0fac03f132d949e9ebe88cdf8 100644
 --- a/vscode/src/vs/editor/browser/widget/codeEditor/embeddedCodeEditorWidget.js

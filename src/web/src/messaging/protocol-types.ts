@@ -53,6 +53,7 @@ export interface AgentProviderInfo {
   name: string;
   available: boolean;
   unavailableReason: string | null;
+  warning: string | null;
   surface: "terminal" | "structured";
 }
 

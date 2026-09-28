@@ -89,8 +89,7 @@ export function createReviewEditor(options: {
     container.append(loading, mount);
     const widgets = document.createElement("div");
     cleanup.push(toDisposable(() => widgets.remove()));
-    widgets.className = "monaco-editor";
-    widgets.style.position = "absolute";
+    widgets.className = "monaco-editor unified-review-overflow-widgets";
     options.scroller.element.append(widgets);
     const viewport = createReviewEditorViewport(
       container,
@@ -208,6 +207,13 @@ export function createReviewEditor(options: {
       restore,
     });
     observers.add(binding);
+    const widgetFocus = (): void => {
+      if (disposed) return;
+      editorContexts.activate(binding.connection);
+      options.onCursor(editor.getPosition()?.lineNumber ?? 1);
+    };
+    widgets.addEventListener("focusin", widgetFocus);
+    observers.add(toDisposable(() => widgets.removeEventListener("focusin", widgetFocus)));
     let target: ReviewToolbarTarget = { kind: "none" };
     const paint = createReviewDiffPaint(
       editor,

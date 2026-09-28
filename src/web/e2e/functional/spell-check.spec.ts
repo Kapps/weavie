@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { IConfigurationService } from "@codingame/monaco-vscode-api/vscode/vs/platform/configuration/common/configuration.service";
 import type { Page } from "@playwright/test";
 import { type MessageEnvelope, parseEnvelope } from "../../src/messaging/message-envelope";
 import {
@@ -150,8 +151,11 @@ test("scrolling reuses semantic declarations for the unchanged document", async 
     ].join("\n"),
   );
   await openFile(page, "large.ts");
-  await page.evaluate(() => {
-    window.__WEAVIE_EDITOR__?.updateOptions({ "semanticHighlighting.enabled": false });
+  await page.evaluate(async () => {
+    const editor = window.__WEAVIE_EDITOR__ as unknown as {
+      _configurationService: IConfigurationService;
+    };
+    await editor._configurationService.updateValue("editor.semanticHighlighting.enabled", false);
   });
   await provideDeclarations(page, [0, 6, 10, 0, 1, 1001, 6, 8, 0, 1]);
   await expect(word(page, "starttypoo")).toBeVisible();
@@ -294,4 +298,59 @@ test("mixed English spellings and technical words remain valid while technical t
   await page.getByRole("menuitem", { name: /^middleware(?:\s|$)/ }).click();
   await expect(marks(page)).toHaveText(["prosetypoo"]);
   await expect.poll(() => readFile(file, "utf8")).toBe(text.replace("middlewre", "middleware"));
+});
+
+test("spelling markers survive scrolling and track untouched words through edits", async ({
+  page,
+  weavie,
+}) => {
+  const file = join(weavie.workspace, "notes.txt");
+  await writeFile(file, `A mispelled word.\nprosetypoo\n${"correct\n".repeat(100)}`);
+  await openFile(page, "notes.txt");
+  await expect(marks(page)).toHaveText(["mispelled", "prosetypoo"]);
+  const snapshots = await page.evaluate(() => {
+    const editor = window.__WEAVIE_EDITOR__;
+    const model = editor?.getModel();
+    if (!editor || !model) throw new Error("Editor is not ready");
+    const snapshot = () =>
+      model
+        .getAllDecorations()
+        .filter((item) => item.options.description === "spelling")
+        .map(({ range }) => ({
+          text: model.getValueInRange(range),
+          line: range.startLineNumber,
+          column: range.startColumn,
+        }));
+    const before = snapshot();
+    editor.setScrollTop(12);
+    const scrolled = snapshot();
+    editor.layout();
+    const laidOut = snapshot();
+    editor.executeEdits("test", [
+      {
+        range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+        text: "Another line.\n",
+      },
+    ]);
+    const shifted = snapshot();
+    editor.executeEdits("test", [
+      {
+        range: { startLineNumber: 3, startColumn: 11, endLineNumber: 3, endColumn: 11 },
+        text: "x",
+      },
+    ]);
+    return { before, scrolled, laidOut, shifted, boundaryEdited: snapshot() };
+  });
+  expect(snapshots.scrolled).toEqual(snapshots.before);
+  expect(snapshots.laidOut).toEqual(snapshots.before);
+  expect(snapshots.shifted).toEqual([
+    { text: "mispelled", line: 2, column: 3 },
+    { text: "prosetypoo", line: 3, column: 1 },
+  ]);
+  expect(snapshots.boundaryEdited).toEqual([{ text: "mispelled", line: 2, column: 3 }]);
+  await word(page, "mispelled").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
+  await expect
+    .poll(() => readFile(file, "utf8"))
+    .toBe(`Another line.\nA misspelled word.\nprosetypoox\n${"correct\n".repeat(100)}`);
 });

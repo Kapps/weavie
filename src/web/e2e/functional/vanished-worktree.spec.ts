@@ -66,6 +66,14 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
     throw new Error("the forked session did not create a git worktree");
   }
 
+  // Flake, 2026-09-20 05:41 UTC: https://github.com/Kapps/weavie/actions/runs/35491607862/job/106027946640
+  // Windows shard 6/6 hit `EBUSY: resource busy or locked, rmdir ...worktrees\e2e-vanished-worktree`. Root
+  // cause was in the host, not this test: WindowsConPtyTerminal.RaiseExited() waited on the shell process
+  // handle with a fixed 2s timeout and ignored the result, so `weavie.terminal.close` (awaited above) could
+  // report success before Windows had actually released the process's handle to its working directory
+  // inside the worktree. Fixed by waiting without a timeout, since the owning job object's
+  // KILL_ON_JOB_CLOSE already guarantees the process is terminating by the time this wait runs
+  // (src/Weavie.Core/Terminal/WindowsConPtyTerminal.cs).
   await rm(worktree, { recursive: true, force: true });
 
   // The session ends itself — no command, no click — leaving the workspace session selected.

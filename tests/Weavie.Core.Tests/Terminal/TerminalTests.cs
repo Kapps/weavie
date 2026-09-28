@@ -53,4 +53,27 @@ public sealed class WindowsConPtyTerminalTests {
 			return false;
 		}
 	}
+
+	// Regression for a race where Dispose() returned before the OS had actually released the shell process's
+	// handle to its working directory: a caller (terminal close) that reports completion on that premature return
+	// could not immediately delete the directory. No sleep/retry here — a fixed directory delete must succeed the
+	// instant Dispose() returns, exactly what a real caller does.
+	[Fact]
+	public void Dispose_ReleasesTheWorkingDirectoryImmediately() {
+		if (!OperatingSystem.IsWindows()) {
+			return;
+		}
+
+		string workingDirectory = Directory.CreateTempSubdirectory("weavie-conpty-test-").FullName;
+		using var term = new WindowsConPtyTerminal();
+		term.Start(new TerminalStartInfo {
+			Command = "cmd.exe",
+			Arguments = ["/c", "ping", "-t", "127.0.0.1"],
+			WorkingDirectory = workingDirectory,
+		});
+
+		term.Dispose();
+
+		Directory.Delete(workingDirectory, recursive: true);
+	}
 }

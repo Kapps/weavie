@@ -4,8 +4,9 @@ namespace Weavie.Hosting;
 
 /// <summary>
 /// Marshals work onto the host's UI thread (WinForms <c>BeginInvoke</c>, Cocoa
-/// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless runs a dedicated serial thread). Dispatch is
-/// always asynchronous because a synchronous hop would deadlock the PTY-teardown path the bridges document.
+/// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless runs a dedicated serial thread). Posting from
+/// another thread never blocks, since a synchronous hop would deadlock the PTY-teardown path the bridges document;
+/// posting from the UI thread itself runs inline on Windows and macOS (see <see cref="DeferredUiQueue"/>).
 /// Host catalog mutations are serialized here; session message routing does not depend on presentation selection.
 /// </summary>
 public interface IUiDispatcher {

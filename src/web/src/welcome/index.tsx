@@ -2,9 +2,11 @@ import { render } from "solid-js/web";
 import { log } from "../bridge";
 import { dismissSplash } from "../splash";
 import { applyChromeTheme } from "../theme/controller";
+import { ThemePicker } from "../theme/ThemePicker";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "../styles.css";
+import "../chrome/session-prompt.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. The host injects recents as
@@ -21,5 +23,13 @@ window.addEventListener("error", (e) => {
 });
 
 applyChromeTheme();
-render(() => <Welcome />, root);
+render(
+  () => (
+    <>
+      <Welcome />
+      <ThemePicker />
+    </>
+  ),
+  root,
+);
 dismissSplash();

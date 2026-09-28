@@ -79,6 +79,7 @@ vi.mock("./review-editor-viewport", () => ({
       getLayoutInfo: () => ({ width: 760, contentWidth: 700 }),
       getScrollWidth: () => Math.max(700, widthLayout._maxLineWidth),
       getScrollLeft: () => 0,
+      getPosition: () => ({ lineNumber: 7, column: 1 }),
       setScrollLeft: vi.fn(),
       render: vi.fn(),
     };
@@ -92,17 +93,32 @@ vi.mock("./review-editor-viewport", () => ({
   },
 }));
 
+import { editorContexts } from "../editor-context";
 import { createReviewEditor } from "./review-editor";
 
 function node() {
+  const listeners = new Map<() => void, () => void>();
   const value = {
+    className: "",
     dataset: {},
     style: { removeProperty: vi.fn() },
     closest: () => ({ dataset: { index: "0" } }),
     append: vi.fn(),
     contains: () => false,
     remove: () => state.nodes.delete(value),
-    removeEventListener: vi.fn(),
+    addEventListener: (event: string, listener: () => void) => {
+      expect(event).toBe("focusin");
+      listeners.set(listener, state.resource("widget-focus").dispose);
+    },
+    removeEventListener: (event: string, listener: () => void) => {
+      expect(event).toBe("focusin");
+      const release = listeners.get(listener);
+      listeners.delete(listener);
+      release?.();
+    },
+    focus: () => {
+      for (const listener of listeners.keys()) listener();
+    },
   };
   state.nodes.add(value);
   return value;
@@ -117,6 +133,7 @@ function fixture() {
   };
   state.model = model;
   const onPainted = vi.fn();
+  const onCursor = vi.fn();
   const options = {
     container: { style: {}, append: vi.fn(), closest: () => ({ dataset: { index: "0" } }) },
     scroller: { element: { append: vi.fn(), focus: vi.fn() } },
@@ -130,9 +147,10 @@ function fixture() {
     preparedWidth: { minimumContentWidth: 700, viewportWrapping: true },
     comments: { presenter: {}, bind: () => state.resource("comment-layout") },
     onPainted,
+    onCursor,
     active: () => false,
   } as unknown as Parameters<typeof createReviewEditor>[0];
-  return { options, model, onPainted };
+  return { options, model, onPainted, onCursor };
 }
 
 describe("review editor construction ownership", () => {
@@ -161,6 +179,7 @@ describe("review editor construction ownership", () => {
     "layout",
     "horizontal-position",
     "binding",
+    "widget-focus",
     "paint",
     "activity",
     "comment-layout",
@@ -179,6 +198,24 @@ describe("review editor construction ownership", () => {
       expect(state.widthLayout._maxLineWidth).toBe(0);
     }
     expect(onPainted).not.toHaveBeenCalled();
+  });
+
+  it("activates the owning editor for external widget focus and removes its listener on release", () => {
+    const { options, onCursor } = fixture();
+    const activate = vi.mocked(editorContexts.activate);
+    activate.mockClear();
+    const editor = createReviewEditor(options);
+    const widgets = [...state.nodes].find((value) =>
+      (value as ReturnType<typeof node>).className.includes("unified-review-overflow-widgets"),
+    ) as ReturnType<typeof node>;
+    widgets.focus();
+    expect(activate).toHaveBeenCalledOnce();
+    expect(onCursor).toHaveBeenCalledExactlyOnceWith(7);
+    editor.dispose();
+    widgets.focus();
+    expect(activate).toHaveBeenCalledOnce();
+    expect(onCursor).toHaveBeenCalledOnce();
+    expect(state.live.size).toBe(0);
   });
 
   it("stops viewport updates before paint cleanup and releases all resources once even if cleanup throws", async () => {

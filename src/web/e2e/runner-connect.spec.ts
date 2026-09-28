@@ -10,6 +10,7 @@ test.describe("runner browser entry", () => {
       fakeScript: null,
       inference: "disabled",
       automaticInference: false,
+      setupCompleted: true,
       workspaceSeed: null,
     });
     try {

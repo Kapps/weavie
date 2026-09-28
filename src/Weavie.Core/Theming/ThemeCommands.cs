@@ -43,7 +43,8 @@ public static class ThemeCommands {
 			Task.FromResult(Reset(settings, overrides)));
 	}
 
-	private static async Task<CommandResult> InstallFromOpenVsxAsync(string? argsJson, SettingsStore settings, CancellationToken ct) {
+	/// <summary>Installs a theme extension from Open VSX; args carry its <c>namespace</c>, <c>name</c>, and optional <c>version</c>.</summary>
+	public static async Task<CommandResult> InstallFromOpenVsxAsync(string? argsJson, SettingsStore settings, CancellationToken ct) {
 		using var args = ParseArgs(argsJson);
 		string? ns = GetString(args, "namespace");
 		string? name = GetString(args, "name");

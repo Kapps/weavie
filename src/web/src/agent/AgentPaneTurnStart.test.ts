@@ -35,6 +35,15 @@ describe("agent turn starts", () => {
       ["Image", true],
     ]);
   });
+
+  it("marks the prompt of a turn announced before its prompt", () => {
+    const messages: AgentPaneUpdate[] = [
+      { type: "turn-started", providerId: "acp", threadId: "thread-1", turnId: "turn-1" },
+      input("user-message", "turn-1", "prompt", "Inspect this"),
+    ];
+
+    expect(toAgentTranscript(messages).map((entry) => entry.turnStart)).toEqual([true]);
+  });
 });
 
 function input(

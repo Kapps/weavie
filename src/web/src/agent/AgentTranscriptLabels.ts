@@ -50,6 +50,6 @@ export function latestAgentTurnStartId(entries: readonly AgentTranscriptEntry[])
   return null;
 }
 
-function isResult(entry: AgentTranscriptEntry): boolean {
+export function isResult(entry: AgentTranscriptEntry): boolean {
   return entry.tone === "assistant" && (entry.kind === "message" || entry.kind === "plan");
 }

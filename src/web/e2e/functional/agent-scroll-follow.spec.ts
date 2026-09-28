@@ -19,13 +19,11 @@ test("precision scrolling and composer resizing preserve a paused reading positi
         `Finding ${paragraph + 1}: The transcript preserves the position of its formatted content as rows enter the viewport. This paragraph wraps naturally in the agent pane.`,
     ).join("\n\n")}`;
     await composer.fill(text);
-    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(1);
     await composer.press("Enter");
     const answer = surface.locator(".agent-entry-message.agent-tone-assistant").last();
     await expect(answer).toContainText(`Investigation ${turn}`);
     await expect(surface.getByRole("button", { name: "Run", exact: true })).toBeVisible();
     await expect(answer).toBeInViewport();
-    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(1);
   }
 
   await body.hover();
@@ -99,4 +97,33 @@ test("precision scrolling and composer resizing preserve a paused reading positi
   }, anchor);
   expect(Math.abs(displacement)).toBeLessThanOrEqual(1);
   await expect(latest).toBeVisible();
+});
+
+test("a long response arriving at once is shown from its start", async ({ page }) => {
+  await awaitEditorReady(page);
+  await createSession(page, { branch: "scroll-response-top", provider: "fake-acp" });
+  const surface = page.locator('[data-surface="structured-agent"]');
+  const composer = surface.locator("[data-agent-composer] textarea");
+  const body = surface.locator(".agent-body");
+
+  await composer.fill(
+    `# Long answer\n\n${Array.from({ length: 40 }, (_, index) => `Paragraph ${index + 1} of the answer.`).join("\n\n")}`,
+  );
+  await composer.press("Enter");
+  const answer = surface.locator(".agent-entry-message.agent-tone-assistant").last();
+  await expect(answer).toContainText("Paragraph 40");
+  await expect(surface.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+  const answerRow = surface
+    .locator(".agent-virtual-row:not(.agent-virtual-row-user)")
+    .filter({ hasText: "Paragraph 40" });
+  const answerOffset = async () => {
+    const [row, viewport] = await Promise.all([answerRow.boundingBox(), body.boundingBox()]);
+    return Math.abs((row?.y ?? Number.NaN) - (viewport?.y ?? 0));
+  };
+  await expect.poll(answerOffset).toBeLessThanOrEqual(1);
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  expect(await answerOffset()).toBeLessThanOrEqual(1);
+  await expect(surface.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
 });

@@ -7,7 +7,7 @@ import { paneActivityIdentity } from "./AgentPaneIdentity";
 import { projectAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
-import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
+import { computeSectionLabels, isResult, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import {
@@ -30,6 +30,8 @@ export interface AgentPaneModel {
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardRequestKey: Accessor<string | null>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
+  /** The final row's index when it is an agent result, where following the latest stops. */
+  readonly latestResultIndex: Accessor<number | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
   readonly pendingRowIndexes: Accessor<readonly number[]>;
@@ -65,6 +67,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
+  const [latestResultIndex, setLatestResultIndex] = createSignal<number | null>(null);
   const [pendingRowIndexes, setPendingRowIndexes] = createSignal<readonly number[]>([]);
   const [agentTurnStartId, setAgentTurnStartId] = createSignal<string | null>(null);
   const [agentTurnStartIndex, setAgentTurnStartIndex] = createSignal<number | null>(null);
@@ -98,6 +101,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const turnStartIndex =
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
     const labels = computeSectionLabels(visible, active);
+    const last = visible.at(-1);
     activities.clear();
     visitEntries(visible, (entry, path) => {
       const activity = projection.activities.get(entry.id);
@@ -118,6 +122,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       setLatestPlan(latestCompletedPlan(updates));
       setAgentTurnStartId(turnStartId);
       setAgentTurnStartIndex(turnStartIndex);
+      setLatestResultIndex(last !== undefined && isResult(last) ? visible.length - 1 : null);
       setSectionLabels(labels);
       setRevision((value) => value + 1);
     });
@@ -187,6 +192,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     keyboardApprovalId,
     keyboardRequestKey,
     latestPlan,
+    latestResultIndex,
     pendingLegacyImageCount,
     pendingRequestKind,
     pendingRowIndexes,

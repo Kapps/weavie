@@ -54,6 +54,14 @@ for (const { primaryRunning, prompt } of [
   });
 }
 
+// Flaked on windows-latest CI twice: 2026-09-22 05:00 UTC
+// (https://github.com/Kapps/weavie/actions/runs/35688127083/job/106619812542) and 2026-09-23 05:29 UTC
+// (https://github.com/Kapps/weavie/actions/runs/35821454146/job/107054805366), both in the openCommandPalette
+// helper's 1000ms wait right after a BTW reply, cascading into the shard's other tests. Root cause: every
+// displayed ACP message (including each BTW reply) opened, used, and closed its own unpooled SQLite connection
+// on the session's shared turn-transition lock (Weavie.Core/Sessions/AcpSessionStore.cs), which is disproportionately
+// slow on Windows CI. Fixed by reusing one long-lived connection per store instead of one per message
+// (AcpSessionStore.cs) — did not touch this test or its timeout.
 test("BTW stays at its creation point through later primary output, side replies, and reopening", async ({
   page,
 }) => {

@@ -91,6 +91,12 @@ async function coloredPng(page: Page, color: string): Promise<string> {
   }, color);
 }
 
+// Flaked on windows-latest CI twice, as a cascading failure after acp-side-conversations.spec.ts:57 broke
+// earlier in the same shard: 2026-09-22 05:00 UTC
+// (https://github.com/Kapps/weavie/actions/runs/35688127083/job/106619812542) and 2026-09-23 05:29 UTC
+// (https://github.com/Kapps/weavie/actions/runs/35821454146/job/107054805366) — "Target page, context or
+// browser has been closed". Root cause and fix: see the comment on acp-side-conversations.spec.ts:57
+// (AcpSessionStore per-message SQLite connection churn). Did not touch this test or its timeout.
 test("desktop image paste previews and sends an image-only BTW reply", async ({ page }) => {
   const surface = await createAcpSession(page, "btw-native-image");
   await submitAcpDraft(surface, "/btw image question");

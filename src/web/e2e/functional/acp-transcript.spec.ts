@@ -42,6 +42,11 @@ test.use({
   },
 });
 
+// Flaked on windows-latest CI 2026-09-22 05:00 UTC, as a cascading failure after
+// acp-side-conversations.spec.ts:57 broke earlier in the same shard
+// (https://github.com/Kapps/weavie/actions/runs/35688127083/job/106619812542) — the "Reply" button never
+// became enabled. Root cause and fix: see the comment on acp-side-conversations.spec.ts:57 (AcpSessionStore
+// per-message SQLite connection churn). Did not touch this test or its timeout.
 test("reopened ACP transcript preserves images and clean history and resumes its existing BTW fork", async ({
   page,
   weavie,

@@ -17,12 +17,16 @@ import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
-import type { InlineDiff, ReviewScopeState } from "../inline-diff";
+import type { ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
+import type { ReviewDocumentScope } from "./review-document";
 import type { ReviewEditor } from "./review-editor";
+import { createReviewHeaderPosition, measureReviewHeader } from "./review-header-position";
+import type { ReviewHorizontalPosition } from "./review-horizontal-position";
+import type { ReviewPreparationQueue } from "./review-preparation-queue";
 import type { ReviewScroll } from "./review-scroll";
-import type { ReviewFileDiff, ReviewFileView } from "./review-store";
+import type { ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
@@ -39,10 +43,15 @@ export function ReviewFileSection(props: {
   observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
-  configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
-  openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
+  activated: () => boolean;
+  ownsEditor(): boolean;
+  claimEditor(): void;
+  preparePassive: ReviewPreparationQueue;
+  controlsChanged(): void;
+  openCopy: () => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
+  documents: ReviewDocumentScope;
+  horizontal: ReviewHorizontalPosition;
   top: number;
 }): JSX.Element {
   const summary = () => props.file().summary();
@@ -52,29 +61,30 @@ export function ReviewFileSection(props: {
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
+  let positionHeader!: ReturnType<typeof createReviewHeaderPosition>;
   let borderTop = 0;
   let headerLimit = 0;
+  let placedTop = 0;
   const sectionTop = createMemo(() => props.top);
   const layoutHeader = (): void => {
-    const offset = Math.max(
-      0,
-      Math.min(props.scroller().getScrollTop() - sectionTop() - borderTop, headerLimit),
-    );
-    header.style.top = `${offset}px`;
+    positionHeader(props.scroller().getScrollTop(), placedTop, borderTop, headerLimit);
   };
   const measureHeader = (): void => {
-    borderTop = article!.clientTop;
-    headerLimit = article!.clientHeight - header.offsetHeight;
+    const measured = measureReviewHeader(article!, header);
+    borderTop = measured.borderTop;
+    headerLimit = measured.limit;
     layoutHeader();
   };
-  const [editor, setEditor] = createSignal<ReviewEditor>();
+  const [editor, setEditor] = createSignal<Pick<ReviewEditor, "layout" | "shift">>();
   createEffect(() => {
     const top = sectionTop();
-    if (article !== undefined) {
+    if (article !== undefined && top !== placedTop) {
       untrack(() => {
+        const delta = top - placedTop;
+        placedTop = top;
         article!.style.top = `${top}px`;
         layoutHeader();
-        editor()?.layout();
+        editor()?.shift(delta);
       });
     }
   });
@@ -106,13 +116,21 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
+        placedTop = untrack(sectionTop);
+        element.style.top = `${placedTop}px`;
         props.observe(element);
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);
       }}
     >
-      <header class="unified-review-file-header" ref={header}>
+      <header
+        class="unified-review-file-header"
+        ref={(element) => {
+          header = element;
+          positionHeader = createReviewHeaderPosition(element);
+        }}
+      >
         <button
           type="button"
           class="unified-review-file-toggle"
@@ -176,39 +194,42 @@ export function ReviewFileSection(props: {
           </button>
         </Show>
       </header>
-      <Show when={!collapsed()}>
-        <div id={bodyId()}>
-          <ReviewFileBody
-            session={props.session}
-            tab={props.tab}
-            onEditor={setEditor}
-            header={() => header}
-            scroller={props.scroller}
-            editorHeight={props.editorHeight}
-            onEditorHeight={props.onEditorHeight}
-            scope={props.scope}
-            file={props.file}
-            measure={remeasure}
-            openCopy={props.openCopy}
-            register={props.register}
-            active={props.active}
-            toolbarHost={props.toolbarHost}
-            configureDiff={props.configureDiff}
-            onCursor={props.onFocus}
-          />
-          <For each={props.file().diff()?.rejected}>
-            {(rejected) => (
-              <div class="unified-review-rejection">
-                <span>
-                  Rejected proposal
-                  {rejected.stale ? " — changed since rejection; undo unavailable" : ""}
-                </span>
-                <pre>{rejected.text || "(empty file)"}</pre>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
+      <div id={bodyId()} hidden={collapsed()}>
+        <ReviewFileBody
+          session={props.session}
+          tab={props.tab}
+          onEditor={setEditor}
+          header={() => header}
+          scroller={props.scroller}
+          editorHeight={props.editorHeight}
+          onEditorHeight={props.onEditorHeight}
+          scope={props.scope}
+          file={props.file}
+          measure={remeasure}
+          openCopy={props.openCopy}
+          register={props.register}
+          documents={props.documents}
+          horizontal={props.horizontal}
+          active={props.active}
+          activated={props.activated}
+          ownsEditor={props.ownsEditor}
+          claimEditor={props.claimEditor}
+          preparePassive={props.preparePassive}
+          controlsChanged={props.controlsChanged}
+          onCursor={props.onFocus}
+        />
+        <For each={props.file().diff()?.rejected}>
+          {(rejected) => (
+            <div class="unified-review-rejection">
+              <span>
+                Rejected proposal
+                {rejected.stale ? " — changed since rejection; undo unavailable" : ""}
+              </span>
+              <pre>{rejected.text || "(empty file)"}</pre>
+            </div>
+          )}
+        </For>
+      </div>
     </article>
   );
 }

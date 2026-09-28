@@ -2,7 +2,7 @@ import type { ClientSession } from "../bridge";
 import type { InlineDiffActions } from "./inline-diff";
 import type { TabViewState } from "./nav-history";
 import type { Placement } from "./session-store";
-import type { EditorSessionEntry } from "./session-types";
+import type { EditorSessionEntry, EditorTab, EditorViewState } from "./session-types";
 
 export interface TabPresenter {
   readonly signal: AbortSignal;
@@ -22,8 +22,21 @@ export class TabOwner {
 
   constructor(
     readonly session: ClientSession,
-    public entry: EditorSessionEntry,
+    public entry: EditorTab,
+    private savedViewState: EditorViewState | null,
   ) {}
+
+  get viewState(): EditorViewState | null {
+    return this.savedViewState;
+  }
+
+  saveViewState(state: EditorViewState | null): void {
+    this.savedViewState = state;
+  }
+
+  snapshot(): EditorSessionEntry {
+    return { ...this.entry, viewState: this.savedViewState };
+  }
 
   get signal(): AbortSignal {
     return this.lifetime.signal;

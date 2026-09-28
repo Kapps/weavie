@@ -4,7 +4,7 @@ import {
   type ActivateResult,
   activateTabFor,
   activeTabFor,
-  captureViewStateFor,
+  captureViewState,
   closeTabFor,
   openTabFor,
   openTabsFor,
@@ -29,7 +29,7 @@ export function createTabActions(deps: {
   const remember = (tab: TabOwner): void => {
     if (tab.entry.scratch || tabKind(tab.entry) === "plan") return;
     const entries = closed.get(tab.session) ?? [];
-    entries.push({ ...tab.entry, preview: false });
+    entries.push({ ...tab.snapshot(), preview: false });
     closed.set(tab.session, entries);
   };
   const close = async (targets: TabOwner[], protectPinned: boolean): Promise<void> => {
@@ -117,7 +117,7 @@ export function createTabActions(deps: {
           stack.splice(stack.indexOf(reopen), 1);
           deps.depart(session);
           const result = openTabFor(session, reopen.path, { kind: tabKind(reopen) });
-          captureViewStateFor(session, result.path, reopen.viewState);
+          captureViewState(tabOwnerFor(session, result.path)!, reopen.viewState);
           result.placement = { viewState: reopen.viewState };
           deps.present(session, result);
           return true;

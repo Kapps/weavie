@@ -451,6 +451,12 @@
   margin-top: 4px;
 }
 
+.weavie-pr-composer-status {
+  font-size: var(--font-hint-size);
+  color: var(--dim);
+  white-space: normal;
+}
+
 .weavie-pr-composer-input {
   flex: 1;
   resize: none;

@@ -10,6 +10,7 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
 import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { editorWheelOptions } from "../wheel-scroll-options";
 
 // Match Monaco's ViewLayout animation duration.
 const SMOOTH_SCROLL_MS = 125;
@@ -34,9 +35,6 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     scheduleAtNextAnimationFrame: (callback) =>
       scheduleAtNextAnimationFrame(getWindow(element), callback),
   });
-  const offOptions = onEditorOptionsChanged((options) => {
-    state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
-  });
   // The logical extent stays fixed while the painted list moves inside it.
   const extent = document.createElement("div");
   extent.className = "unified-review-scroll-extent";
@@ -49,9 +47,15 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       useShadows: false,
       alwaysConsumeMouseWheel: true,
       mouseWheelSmoothScroll: true,
+      handleMouseWheel: true,
+      ...editorWheelOptions(currentEditorOptions(), window.__WEAVIE_SHELL__?.platform),
     },
     state,
   );
+  const offOptions = onEditorOptionsChanged((options) => {
+    state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
+    scrollable.updateOptions(editorWheelOptions(options, window.__WEAVIE_SHELL__?.platform));
+  });
   const node = scrollable.getDomNode();
   node.style.overflow = "clip";
   extent.style.overflow = "visible";
@@ -146,15 +150,19 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     if (
       !(target instanceof HTMLElement) ||
       !content.contains(target) ||
-      target.closest(".monaco-editor")
+      target.closest(".review-adaptive-live")
     )
       return;
     const viewport = node.getBoundingClientRect();
     const rect = target.getBoundingClientRect();
-    const delta =
-      rect.top < viewport.top
-        ? rect.top - viewport.top
-        : Math.max(0, rect.bottom - viewport.bottom);
+    const header = target
+      .closest(".unified-review-file")
+      ?.querySelector(".unified-review-file-header");
+    const top =
+      header && !header.contains(target)
+        ? Math.max(viewport.top, header.getBoundingClientRect().bottom)
+        : viewport.top;
+    const delta = rect.top < top ? rect.top - top : Math.max(0, rect.bottom - viewport.bottom);
     if (delta !== 0) setScrollTop(getScrollTop() + delta);
   };
   element.addEventListener("focusin", focus);
@@ -170,14 +178,15 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       if (contentHeight === height) return;
       contentHeight = height;
       extent.style.height = `${height}px`;
-      layout();
+      update(() => scrollable.setScrollDimensions({ scrollHeight: contentHeight }));
     },
     onScroll: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    wheel: (event) =>
-      scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
+    wheel: (event) => {
+      scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent);
+    },
     dispose: () => {
       offMiddleClick();
       offOptions();

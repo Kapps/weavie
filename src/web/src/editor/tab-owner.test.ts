@@ -4,11 +4,11 @@ import type { TabPresenter } from "./tab-owner";
 import { TabOwner } from "./tab-owner";
 
 const owner = () =>
-  new TabOwner({ signal: new AbortController().signal } as ClientSession, {
-    path: "weavie:review",
-    kind: "review",
-    viewState: null,
-  });
+  new TabOwner(
+    { signal: new AbortController().signal } as ClientSession,
+    { path: "weavie:review", kind: "review" },
+    null,
+  );
 const presenter = (): Omit<TabPresenter, "signal"> => ({
   text: true,
   capture: () => ({ state: null, text: null }),

@@ -67,18 +67,22 @@ test.describe("Review Changes tab — large addition", () => {
     weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
-    const section = page.locator(".unified-review-file");
+    const file = page.locator(".unified-review-file");
+    const section = file.locator(".review-adaptive-live");
     const scroller = page.locator(".unified-review-diffs");
     const lastLine = section.locator(".view-line", { hasText: "new line 4999" });
     const newFileBand = section.locator(".weavie-inline-newfile-tag");
-    await expect(section.locator(".monaco-editor")).toBeAttached();
+    await expect(file.locator(".review-adaptive-body")).toBeAttached();
     await workerRequested.promise;
     try {
-      await expect(section.locator(".monaco-editor")).toBeHidden();
-      await expect(section.locator(".unified-review-notice")).toHaveText("Calculating diff…");
+      await expect(section.locator(".monaco-editor")).toHaveCount(0);
+      await expect(file.locator(".unified-review-notice")).toHaveText("Preparing review…");
     } finally {
       releaseWorker.resolve();
     }
+    await expect(file.locator(".review-adaptive-body")).toHaveAttribute("aria-busy", "false");
+    await expect(file.locator(".passive-review-body .view-line").first()).toBeVisible();
+    await file.locator(".review-adaptive-body").focus();
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expect(newFileBand).toHaveText("New file");
     await expectBoundedEditor(section, scroller);

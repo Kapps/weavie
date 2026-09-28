@@ -122,7 +122,7 @@ function tab(session: ClientSession, kind: "file" | "review"): TabOwner {
   }
   let owner = values.get(kind);
   if (owner === undefined) {
-    owner = new TabOwner(session, { kind, path: kind, viewState: null });
+    owner = new TabOwner(session, { kind, path: kind }, null);
     owner.mount({
       text: true,
       capture: () => ({ state: null, text: { path: kind, line: 1 } }),

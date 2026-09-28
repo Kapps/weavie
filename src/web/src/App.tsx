@@ -686,7 +686,14 @@ export default function App(): JSX.Element {
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
-    setContext("reviewAvailable", editor.parkedReviewCount() > 0);
+    const session = selectedSession();
+    setContext(
+      "reviewAvailable",
+      editor.parkedReviewCount() > 0 ||
+        (session !== null &&
+          !session.closed &&
+          editor.review.draftsFor(session).retained().length > 0),
+    );
   });
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));

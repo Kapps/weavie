@@ -2,7 +2,7 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import type * as monaco from "monaco-editor";
-import { createSignal, untrack } from "solid-js";
+import { createSignal } from "solid-js";
 import {
   type ClientSession,
   isBrowserHostedShell,
@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import type { CommandResult } from "../commands/types";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -34,6 +35,8 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
+import type { ReviewCommentDrafts, ReviewCommentPost } from "./review/review-comment-drafts";
+import { ReviewCommentSession } from "./review/review-comment-session";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
@@ -59,19 +62,19 @@ import {
   activePathFor,
   activeTabFor,
   captureReviewFor,
-  captureViewStateFor,
+  captureViewState,
   closeTabFor,
   convertScratchFor,
   dropReviewTabFor,
-  editorSessionFor,
   flushEditorSessionFor,
   onEditorSessionChanged,
   openTabFor,
   openTabsFor,
+  snapshotEditorSessionFor,
   tabOwnerFor,
 } from "./session-store";
 import type { EditorSession } from "./session-types";
-import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
+import { SESSION_FILE_SCHEME, sessionOwnsUri, sessionUriHostPath } from "./session-uri-owner";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -184,13 +187,12 @@ export interface EditorController {
     canClose(): boolean;
     overview(): ReviewOverview;
     overviewFor(session: ClientSession): ReviewOverview;
-    configureDiff(
-      tab: TabOwner,
-      inline: InlineDiff,
-      uri: string,
+    draftsFor(session: ClientSession): ReviewCommentDrafts;
+    diffOptions(
+      session: ClientSession,
       diff: ReviewFileDiff,
       reveal: (file: ReviewFile, line: number) => void,
-    ): void;
+    ): InlineDiffOptions;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
     revert(session: ClientSession): boolean;
@@ -233,6 +235,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
   const reviews = createReviewStore(captureReviewFor);
+  const commentOwners = new Map<ClientSession, ReviewCommentSession>();
+  const commentsFor = (session: ClientSession): ReviewCommentSession => {
+    if (session.closed) throw new Error("The comment session is closed.");
+    let owner = commentOwners.get(session);
+    if (!owner) {
+      owner = new ReviewCommentSession(
+        () => reviews.board(session).files,
+        (path, model) =>
+          model.uri.scheme === SESSION_FILE_SCHEME &&
+          sessionOwnsUri(session, model.uri) &&
+          samePath(path, sessionUriHostPath(model.uri)),
+        (request) =>
+          session
+            .feature("review")
+            .request<CommandResult, ReviewCommentPost>("addComment", request),
+      );
+      commentOwners.set(session, owner);
+    }
+    return owner;
+  };
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const reconcileOpenFiles = (session: ClientSession): void => {
     host?.reconcileSession(
@@ -314,7 +336,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const presenter = tab.presentation;
     if (presenter === undefined) return undefined;
     const view = presenter.capture();
-    captureViewStateFor(tab.session, tab.entry.path, view.state);
+    captureViewState(tab, view.state);
     return { tab: { path: tab.entry.path, kind: tabKind(tab.entry) }, view };
   };
   const filePresenter = (
@@ -326,7 +348,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const connection = editorContexts.forTab(tab);
       const text = connection?.capture() ?? null;
       return {
-        state: text?.viewState ?? tab.entry.viewState,
+        state: text?.viewState ?? tab.viewState,
         text: content() === undefined ? text : null,
       };
     },
@@ -497,7 +519,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const navigation = createEditorNavigation({
     capture: (session) => {
       const tab = activeTabFor(session);
-      return selectedSession() !== session || tab === undefined ? undefined : captureLocation(tab);
+      return tab === undefined ? undefined : captureLocation(tab);
     },
     restore: async (session, location, signal) => {
       signal.throwIfAborted();
@@ -936,42 +958,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
-  // The Comment/Reply actions for a PR file under review (nothing for a plain turn file), merged into the applied
-  // diff so commenting coexists with Accept/Reject on the one toolbar. `number` is the PR to post against.
-  const prCommentActions = (
-    session: ClientSession,
-    path: string,
-  ): Pick<InlineDiffOptions, "comments" | "onAddComment" | "onReply"> => {
-    const pr = reviews
-      .board(session)
-      .files.find((file) => samePath(file.summary().path, path))
-      ?.comments();
-    if (pr === null || pr === undefined) {
-      return {};
-    }
-    return {
-      comments: pr.comments,
-      onAddComment: (line, body) =>
-        session.feature("review").publish("addComment", {
-          number: pr.number,
-          path,
-          line,
-          side: "right",
-          inReplyTo: 0,
-          body,
-        }),
-      onReply: (inReplyTo, body) =>
-        session.feature("review").publish("addComment", {
-          number: pr.number,
-          path,
-          line: 0,
-          side: "right",
-          inReplyTo,
-          body,
-        }),
-    };
-  };
-
   const clearPresentedProposal = (): void => {
     const review = activeReview;
     if (review === undefined) {
@@ -1025,6 +1011,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
     const index = files.findIndex((file) => samePath(file.path, message.path));
+    const commenting = commentsFor(session).context(message.path);
     const fileNavigation =
       files.length > 1 && index !== -1
         ? {
@@ -1055,7 +1042,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       fileLabel: message.name,
       ...(state.label !== "" ? { reviewLabel: state.label } : {}),
       ...fileNavigation,
-      ...prCommentActions(session, message.path),
+      ...(commenting === undefined ? {} : { commenting }),
     };
   };
 
@@ -1115,14 +1102,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
-    if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
+    if (
+      canCloseReview(reviews.board(session)) &&
+      !canCloseReview({ files, label }) &&
+      !commentOwners.get(session)?.drafts.retained().length
+    )
       void tabs.capture(session, REVIEW_TAB_KEY).close();
     reviews.setFiles(session, files, label);
+    commentOwners.get(session)?.refresh();
     renderReviewState(session);
   };
 
   const setTurnDiffFor = (session: ClientSession, message: ReviewFileDiff): void => {
     reviews.setDiff(session, message);
+    commentOwners.get(session)?.refresh();
     if (selectedSession() === session) {
       renderTurnDiff(session, message);
     }
@@ -1130,6 +1123,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const setReviewCommentsFor = (session: ClientSession, message: ReviewComments): void => {
     const state = reviews.setComments(session, message);
+    commentOwners.get(session)?.refresh();
     if (selectedSession() !== session) {
       return;
     }
@@ -1144,6 +1138,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       resetPresentedReview(session);
     }
     reviews.reset(session);
+    commentOwners.get(session)?.refresh();
     reviewProposals.delete(session);
     renderReviewState(session);
   };
@@ -1230,9 +1225,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const revise = session.feature("revise");
     const cleanups = [
       editor.handle<Record<string, never>, { session: EditorSession }>("flush", async () => {
-        flushEditorSessionFor(session);
         await host?.flushSession(session);
-        return { session: editorSessionFor(session) ?? { active: null, open: [] } };
+        for (const entry of openTabsFor(session))
+          captureLocation(tabOwnerFor(session, entry.path)!);
+        flushEditorSessionFor(session);
+        return { session: snapshotEditorSessionFor(session) ?? { active: null, open: [] } };
       }),
       editor.on<{
         path: string;
@@ -1318,6 +1315,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       offContext();
       navigation.detach(session);
       editorSessions.delete(session);
+      commentOwners.get(session)?.dispose();
+      commentOwners.delete(session);
       pendingReconciliations.delete(session);
       if (!disposing) {
         host?.reconcileSession(session, []);
@@ -1329,6 +1328,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const offSelection = onSelectedSession((session) => {
     if (presentedSession !== null && presentedSession !== session) {
       navigation.capture(presentedSession);
+      flushEditorSessionFor(presentedSession);
       navigation.detach(presentedSession);
     }
     presentedSession = session;
@@ -1490,34 +1490,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canClose: () => canCloseReview(reviews.overview()),
       overview: reviews.overview,
       overviewFor: reviews.overviewFor,
-      configureDiff: (tab, inline, uri, message, reveal) => {
-        const session = tab.session;
-        reviews.overviewFor(session);
-        const history = reviews.board(session).history;
-        const options = appliedReviewOptions(session, message, reveal);
-        // Review data drives rendering; reads during painting must not subscribe it to navigation.
-        untrack(() => {
-          inline.bindHistory(
-            reviewHistoryHandlers(session, () => {
-              const presentation = tab.presentation;
-              return ({ path, line }) => {
-                if (
-                  presentation?.signal.aborted ||
-                  selectedSession() !== session ||
-                  activeTabFor(session) !== tab
-                )
-                  return;
-                const file = reviews
-                  .board(session)
-                  .files.find((file) => samePath(file.summary().path, path));
-                if (file !== undefined) reveal(file.summary(), line);
-              };
-            }),
-          );
-          inline.setReviewHistory(history);
-          inline.setByUri(uri, options);
-        });
-      },
+      draftsFor: (session) => commentsFor(session).drafts,
+      diffOptions: appliedReviewOptions,
       toggleFileCollapsed: (session, path) => {
         const state = reviews.board(session);
         const target = state.files.find(
@@ -1609,6 +1583,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       host?.dispose();
       offSelection();
       offSessionFeatures();
+      for (const owner of commentOwners.values()) owner.dispose();
+      commentOwners.clear();
     },
   };
 }

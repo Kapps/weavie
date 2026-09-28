@@ -1,23 +1,20 @@
-import { createSignal } from "solid-js";
+import { createSignal, untrack } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 import { samePath } from "./fs-path";
-import type {
-  EditorSession,
-  EditorSessionEntry,
-  EditorViewState,
-  ReviewResume,
-} from "./session-types";
+import type { EditorSession, EditorTab, EditorViewState, ReviewResume } from "./session-types";
 import { isFileTab, matchesTab, tabKind, tabResourceKey } from "./tab-entry";
 import { TabOwner } from "./tab-owner";
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
 
-function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {
+type EditorTopology = Omit<EditorSession, "open"> & { open: EditorTab[] };
+
+function normalize(open: EditorTab[]): EditorTab[] {
   const pinned = open.filter((entry) => entry.pinned);
   return pinned.length === 0 ? open : [...pinned, ...open.filter((entry) => !entry.pinned)];
 }
 
-function structureKey(session: EditorSession): string {
+function structureKey(session: EditorTopology): string {
   return JSON.stringify({
     active: session.active,
     open: session.open.map((entry) => [
@@ -50,13 +47,13 @@ class OwnedEditorSession {
     return entry === undefined ? undefined : this.tabs.get(tabResourceKey(entry));
   }
 
-  private reconcileTabs(next: EditorSession): void {
+  private reconcileTabs(next: EditorTopology): void {
     const live = new Set<string>();
     for (const entry of next.open) {
       const key = tabResourceKey(entry);
       live.add(key);
       const tab = this.tabs.get(key);
-      if (tab === undefined) this.tabs.set(key, new TabOwner(this.owner, entry));
+      if (tab === undefined) this.tabs.set(key, new TabOwner(this.owner, entry, null));
       else tab.entry = entry;
     }
     for (const [key, tab] of this.tabs) {
@@ -69,11 +66,21 @@ class OwnedEditorSession {
 
   constructor(private readonly owner: ClientSession) {
     this.feature = owner.feature("editor");
-    [this.readState, this.writeState] = createSignal<EditorSession | null>(null);
+    [this.readState, this.writeState] = createSignal<EditorTopology | null>(null);
   }
 
-  get current(): () => EditorSession | null {
+  get current(): () => EditorTopology | null {
     return this.readState;
+  }
+
+  snapshot(): EditorSession | null {
+    const current = untrack(this.readState);
+    return current === null
+      ? null
+      : {
+          ...current,
+          open: current.open.map((entry) => this.tabs.get(tabResourceKey(entry))!.snapshot()),
+        };
   }
 
   pendingLine(path: string): number | undefined {
@@ -82,8 +89,13 @@ class OwnedEditorSession {
 
   restore(session: EditorSession): void {
     this.cancelPending();
-    const next = { ...session, open: normalize(session.open) };
+    const next = {
+      ...session,
+      open: normalize(session.open.map(({ viewState: _viewState, ...entry }) => entry)),
+    };
     this.reconcileTabs(next);
+    for (const entry of session.open)
+      this.tabs.get(tabResourceKey(entry))!.saveViewState(entry.viewState);
     this.writeState(next);
     this.emitOpenEditors(next);
     this.notifyStructure();
@@ -122,13 +134,12 @@ class OwnedEditorSession {
       // open (file tree, recents, Go-to-File) restores where the user last was in the tab.
       return {
         path: existing.path,
-        placement: opts.line === undefined ? { viewState: existing.viewState ?? null } : placement,
+        placement: opts.line === undefined ? { viewState: this.viewState(existing) } : placement,
       };
     }
 
-    const entry: EditorSessionEntry = {
+    const entry: EditorTab = {
       path,
-      viewState: null,
       ...(existing?.pinned ? { pinned: true } : {}),
       ...(scratch ? { scratch: true } : {}),
       ...(preview ? { preview: true } : {}),
@@ -154,11 +165,11 @@ class OwnedEditorSession {
     // A freshly opened tab has no captured viewState yet; fall back to the line an explicit reveal just asked
     // for so a redundant activation (e.g. session selection settling late after a reload) can't regress it to
     // the file's top. A real viewState — captured the moment the user actually leaves the tab — always wins.
-    const pendingLine = entry.viewState === null ? this.pendingLines.get(entry.path) : undefined;
+    const viewState = this.viewState(entry);
+    const pendingLine = viewState === null ? this.pendingLines.get(entry.path) : undefined;
     return {
       path: entry.path,
-      placement:
-        pendingLine === undefined ? { viewState: entry.viewState ?? null } : { line: pendingLine },
+      placement: pendingLine === undefined ? { viewState } : { line: pendingLine },
     };
   }
 
@@ -173,7 +184,7 @@ class OwnedEditorSession {
     const active = nearestSurvivor(current.open, closed, current.active);
     this.commit({ active, open });
     this.pendingLines.delete(target.path);
-    return { disposed: target.path, next: entryPlacement(open, active) };
+    return { disposed: target.path, next: this.entryPlacement(open, active) };
   }
 
   dropReview(path: string, fallback: string | null): void {
@@ -207,12 +218,12 @@ class OwnedEditorSession {
     if (existing !== undefined) {
       const open = normalize(current.open.filter((entry) => entry.path !== scratchPath));
       this.commit({ active: existing.path, open });
-      return { path: existing.path, placement: { viewState: existing.viewState ?? null } };
+      return { path: existing.path, placement: { viewState: this.viewState(existing) } };
     }
     const open = normalize(
       current.open.map((entry, candidate) =>
         candidate === index
-          ? { path: savedPath, viewState: null, ...(entry.pinned ? { pinned: true } : {}) }
+          ? { path: savedPath, ...(entry.pinned ? { pinned: true } : {}) }
           : entry,
       ),
     );
@@ -220,7 +231,7 @@ class OwnedEditorSession {
     return { path: savedPath, placement: { line: 1 } };
   }
 
-  closeMany(predicate: (entry: EditorSessionEntry) => boolean): {
+  closeMany(predicate: (entry: EditorTab) => boolean): {
     disposed: string[];
     next: ActivateResult | null;
   } {
@@ -242,7 +253,7 @@ class OwnedEditorSession {
     for (const path of closed) {
       this.pendingLines.delete(path);
     }
-    return { disposed: [...closed], next: entryPlacement(open, active) };
+    return { disposed: [...closed], next: this.entryPlacement(open, active) };
   }
 
   togglePin(path: string): void {
@@ -279,22 +290,10 @@ class OwnedEditorSession {
     }
   }
 
-  captureViewState(path: string, viewState: EditorViewState | null): void {
-    const current = this.readState();
-    if (current === null) {
-      return;
-    }
-    let changed = false;
-    const open = current.open.map((entry) => {
-      if (matchesTab(entry, path)) {
-        changed = true;
-        return { ...entry, viewState };
-      }
-      return entry;
-    });
-    if (changed) {
-      this.commit({ active: current.active, open });
-    }
+  captureViewState(tab: TabOwner, viewState: EditorViewState | null): void {
+    if (this.owner.signal.aborted || this.tabs.get(tabResourceKey(tab.entry)) !== tab) return;
+    tab.saveViewState(viewState);
+    this.schedulePost();
   }
 
   flush(): void {
@@ -302,7 +301,7 @@ class OwnedEditorSession {
       return;
     }
     this.cancelPending();
-    const current = this.readState();
+    const current = this.snapshot();
     if (current !== null) {
       this.send(current);
     }
@@ -326,20 +325,32 @@ class OwnedEditorSession {
     if (current !== null) this.commit({ ...current, review });
   }
 
-  private commit(next: EditorSession): void {
+  private viewState(entry: EditorTab): EditorViewState | null {
+    return this.tabs.get(tabResourceKey(entry))!.viewState ?? null;
+  }
+
+  private entryPlacement(open: EditorTab[], path: string | null): ActivateResult | null {
+    const entry = open.find((candidate) => candidate.path === path);
+    return entry === undefined
+      ? null
+      : { path: entry.path, placement: { viewState: this.viewState(entry) } };
+  }
+
+  private commit(next: EditorTopology): void {
     next = { review: this.readState()?.review ?? null, ...next };
     const structureChanged = structureKey(next) !== this.lastStructure;
     this.reconcileTabs(next);
     this.writeState(next);
-    this.cancelPending();
-    this.postTimer = setTimeout(() => {
-      this.postTimer = undefined;
-      this.send(next);
-    }, 300);
+    this.schedulePost();
     if (structureChanged) {
       this.emitOpenEditors(next);
       this.notifyStructure();
     }
+  }
+
+  private schedulePost(): void {
+    this.cancelPending();
+    this.postTimer = setTimeout(() => this.flush(), 300);
   }
 
   private send(session: EditorSession): void {
@@ -363,7 +374,7 @@ class OwnedEditorSession {
     });
   }
 
-  private emitOpenEditors(session: EditorSession): void {
+  private emitOpenEditors(session: EditorTopology): void {
     this.lastStructure = structureKey(session);
     this.publish("openEditorsChanged", {
       editors: session.open.filter(isFileTab).map((entry) => ({
@@ -422,7 +433,7 @@ function stateFor(owner: ClientSession): OwnedEditorSession | undefined {
 }
 
 function nearestSurvivor(
-  open: EditorSessionEntry[],
+  open: EditorTab[],
   closed: ReadonlySet<string>,
   active: string | null,
 ): string | null {
@@ -441,14 +452,6 @@ function nearestSurvivor(
     }
   }
   return null;
-}
-
-function entryPlacement(open: EditorSessionEntry[], path: string | null): ActivateResult | null {
-  if (path === null) {
-    return null;
-  }
-  const entry = open.find((candidate) => candidate.path === path);
-  return entry === undefined ? null : { path, placement: { viewState: entry.viewState ?? null } };
 }
 
 export type Placement =
@@ -473,20 +476,19 @@ export interface CloseResult {
   next: ActivateResult | null;
 }
 
-export const editorSession = (): EditorSession | null => selectedState()?.current() ?? null;
-export const editorSessionFor = (owner: ClientSession): EditorSession | null =>
-  stateFor(owner)?.current() ?? null;
+export const snapshotEditorSessionFor = (owner: ClientSession): EditorSession | null =>
+  stateFor(owner)?.snapshot() ?? null;
 export const pendingLineFor = (owner: ClientSession, path: string): number | undefined =>
   stateFor(owner)?.pendingLine(path);
 export function onEditorSessionChanged(owner: ClientSession, listener: () => void): () => void {
   return stateFor(owner)?.subscribeStructure(listener) ?? (() => {});
 }
-export const openTabs = (): EditorSessionEntry[] => editorSession()?.open ?? [];
-export const openTabsFor = (owner: ClientSession): EditorSessionEntry[] =>
-  editorSessionFor(owner)?.open ?? [];
-export const activePath = (): string | null => editorSession()?.active ?? null;
+export const openTabs = (): EditorTab[] => selectedState()?.current()?.open ?? [];
+export const openTabsFor = (owner: ClientSession): EditorTab[] =>
+  stateFor(owner)?.current()?.open ?? [];
+export const activePath = (): string | null => selectedState()?.current()?.active ?? null;
 export const activePathFor = (owner: ClientSession): string | null =>
-  editorSessionFor(owner)?.active ?? null;
+  stateFor(owner)?.current()?.active ?? null;
 export const editorBackendId = (): string | null => selectedSession()?.connection.id ?? null;
 export const editorOwner = (): string | null => selectedSession()?.address.incarnation ?? null;
 
@@ -559,12 +561,12 @@ export const convertScratchFor = (
   savedPath: string,
 ): ActivateResult | null => stateFor(owner)?.convertScratch(scratchPath, savedPath) ?? null;
 export const closeMany = (
-  predicate: (entry: EditorSessionEntry) => boolean,
+  predicate: (entry: EditorTab) => boolean,
 ): { disposed: string[]; next: ActivateResult | null } =>
   selectedState()?.closeMany(predicate) ?? { disposed: [], next: null };
 export const closeManyFor = (
   owner: ClientSession,
-  predicate: (entry: EditorSessionEntry) => boolean,
+  predicate: (entry: EditorTab) => boolean,
 ): { disposed: string[]; next: ActivateResult | null } =>
   stateFor(owner)?.closeMany(predicate) ?? { disposed: [], next: null };
 export const togglePin = (path: string): void => selectedState()?.togglePin(path);
@@ -573,16 +575,10 @@ export const togglePinFor = (owner: ClientSession, path: string): void =>
 export const promote = (path: string): void => selectedState()?.promote(path);
 export const promoteFor = (owner: ClientSession, path: string): void =>
   stateFor(owner)?.promote(path);
-export const captureViewState = (path: string, viewState: EditorViewState | null): void =>
-  selectedState()?.captureViewState(path, viewState);
+export const captureViewState = (tab: TabOwner, viewState: EditorViewState | null): void =>
+  stateFor(tab.session)?.captureViewState(tab, viewState);
 export const captureReviewFor = (owner: ClientSession, review: ReviewResume): void =>
   stateFor(owner)?.captureReview(review);
-export const captureViewStateFor = (
-  owner: ClientSession,
-  path: string,
-  viewState: EditorViewState | null,
-): void => stateFor(owner)?.captureViewState(path, viewState);
-
 export const tabOwnerFor = (session: ClientSession, path: string): TabOwner | undefined =>
   stateFor(session)?.tab(path);
 

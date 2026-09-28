@@ -2,12 +2,16 @@ import { notify } from "../../notify/notify";
 import { normalizePath } from "../fs-path";
 import type { TextLocation } from "../nav-history";
 import type { TabPresenter } from "../tab-owner";
-import type { ReviewEditor } from "./review-editor";
+import type { ReviewHorizontalPositions } from "./review-horizontal-position";
+import type { ReviewSection } from "./review-section";
 import { hasReviewChanges, type ReviewFileView } from "./review-store";
+import type { ReviewToolbarPresenter } from "./review-toolbar-presenter";
+import type { ReviewToolbarTarget } from "./review-toolbar-state";
 
 interface ReviewViewState {
   location: TextLocation | null;
   scrollTop: number;
+  horizontal: Readonly<Record<string, number>>;
 }
 
 type ReviewAlignment = "location" | "file-start";
@@ -20,14 +24,15 @@ export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
 }
 
 export interface ReviewSectionRegistry {
-  set(path: string, section: ReviewEditor): void;
-  clear(path: string, section: ReviewEditor): void;
+  set(path: string, section: ReviewSection): void;
+  clear(path: string, section: ReviewSection): void;
   empty(path: string): void;
-  failed(path: string, error: unknown): void;
+  failed(path: string, owner: ReviewSection, error: unknown, retry: () => void): void;
 }
 
 /** Resolves exact file destinations through the virtualizer; hunk navigation belongs to InlineDiff. */
 export function createReviewSurface(surface: {
+  horizontal: ReviewHorizontalPositions;
   changed(): void;
   active(): boolean;
   signal: AbortSignal;
@@ -40,10 +45,11 @@ export function createReviewSurface(surface: {
   expand(file: ReviewFileView): void;
   scrollToIndex(index: number): void;
   focus(): void;
-}): UnifiedReviewSurface & { sections: ReviewSectionRegistry } {
-  const sections = new Map<string, ReviewEditor>();
+  controls: Pick<ReviewToolbarPresenter, "refresh" | "captureActions">;
+}): UnifiedReviewSurface & { sections: ReviewSectionRegistry; target(): ReviewToolbarTarget } {
+  const sections = new Map<string, ReviewSection>();
   const lifetime = new AbortController();
-  const failures = new Map<string, unknown>();
+  const failures = new Map<string, { owner: ReviewSection; retry(): void }>();
   let pending: {
     location: TextLocation;
     alignment: ReviewAlignment;
@@ -81,9 +87,11 @@ export function createReviewSurface(surface: {
     else section.restore(operation.location);
     operation.finish();
   };
-  const activeSection = (): ReviewEditor | undefined => {
+  const activeSection = (): ReviewSection | undefined => {
     const file = surface.files()[surface.currentIndex()];
-    return file === undefined ? undefined : sections.get(normalizePath(file.summary().path));
+    if (file === undefined) return undefined;
+    const key = normalizePath(file.summary().path);
+    return sections.get(key) ?? failures.get(key)?.owner;
   };
   const restore = (
     location: TextLocation,
@@ -98,7 +106,7 @@ export function createReviewSurface(surface: {
     if (file === undefined)
       return Promise.reject(new Error("This file is no longer in the review."));
     const key = normalizePath(location.path);
-    if (failures.has(key)) return Promise.reject(failures.get(key));
+    const failure = failures.get(key);
     const validity = AbortSignal.any([signal, surface.signal, lifetime.signal]);
     return new Promise((resolve, reject) => {
       const complete = (settle: () => void): void => {
@@ -124,6 +132,16 @@ export function createReviewSurface(surface: {
       }
       validity.addEventListener("abort", cancel, { once: true });
       surface.select(index, location.path, location.line);
+      if (failure) {
+        failures.delete(key);
+        try {
+          failure.retry();
+        } catch (error) {
+          failures.set(key, failure);
+          fail(error);
+          return;
+        }
+      }
       queueMicrotask(() => {
         if (pending !== operation) return;
         surface.scrollToIndex(index + 1);
@@ -176,13 +194,21 @@ export function createReviewSurface(surface: {
       const location =
         activeSection()?.capture() ??
         (file === undefined ? null : { path: file.summary().path, line: file.summary().line });
-      return { state: { location, scrollTop: surface.getScrollTop() }, text: location };
+      return {
+        state: {
+          location,
+          scrollTop: surface.getScrollTop(),
+          horizontal: surface.horizontal.snapshot(),
+        },
+        text: location,
+      };
     },
     restore: async (placement, signal) => {
       signal.throwIfAborted();
       surface.clear();
       const saved =
         "viewState" in placement ? (placement.viewState as ReviewViewState | null) : null;
+      if (saved !== null) surface.horizontal.restore(saved.horizontal);
       if (saved?.location != null) {
         if (
           surface
@@ -206,16 +232,19 @@ export function createReviewSurface(surface: {
     refresh: () => {
       settle();
       advanceReviewedFile();
-      activeSection()?.inline.refreshPresentation();
+      surface.controls.refresh();
     },
-    actions: () => activeSection()?.inline.captureActions(),
+    actions: surface.controls.captureActions,
+    target: () => activeSection()?.target() ?? { kind: "none" },
     reveal: (path, line) => reveal({ path, line }, "location"),
     sections: {
       empty: () => settle(),
-      failed: (path, error) => {
-        failures.set(normalizePath(path), error);
+      failed: (path, owner, error, retry) => {
+        failures.set(normalizePath(path), { owner, retry });
+        sections.delete(normalizePath(path));
         if (pending !== null && normalizePath(pending.location.path) === normalizePath(path))
           pending.fail(error);
+        surface.controls.refresh();
       },
       set: (path, section) => {
         failures.delete(normalizePath(path));
@@ -225,6 +254,7 @@ export function createReviewSurface(surface: {
       },
       clear: (path, section) => {
         const key = normalizePath(path);
+        if (failures.get(key)?.owner === section) failures.delete(key);
         if (sections.get(key) === section) {
           sections.delete(key);
           surface.changed();

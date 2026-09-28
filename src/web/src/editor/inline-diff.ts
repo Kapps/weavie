@@ -2,33 +2,26 @@
 // highlights, an action toolbar). The modified side is always the live model content, so the diff tracks edits
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
-import { type ClientSession, log, type ReviewCommentInfo } from "../bridge";
-import { setContext } from "../commands/context";
+import {
+  DisposableStore,
+  dispose,
+  toDisposable,
+} from "@codingame/monaco-vscode-api/vscode/vs/base/common/lifecycle";
+import { type ClientSession, log } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
-import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { monaco } from "./monaco-setup";
-import { DiffComputer } from "./review/diff-computer";
-import {
-  type AcceptedDiffHunk,
-  computeDiffMarkers,
-  type DiffHunk,
-  type DiffMarkers,
-  type HunkRevert,
-  type HunkUnkeep,
-} from "./review/diff-markers";
+import type { DiffMarkers, HunkRevert, HunkUnkeep } from "./review/diff-markers";
 import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./review/diff-zones";
-import {
-  createParkedNavigation,
-  createParkedToolbar,
-  makeButton,
-  mountReviewToolbar,
-  withShortcut,
-} from "./review/review-toolbar";
+import type { ReviewCommentContext } from "./review/review-comment-session";
+import { createReviewCommentView } from "./review/review-comment-view";
+import { type ReviewDocument, ReviewDocumentScope } from "./review/review-document";
+import type { ReviewActionPresentation } from "./review/review-file-actions";
+import { buildReviewHunkControls } from "./review/review-hunk-controls";
+import { hasFadedBand, reviewDiffSources } from "./review/review-sources";
+import { createReviewToolbarPresenter } from "./review/review-toolbar-presenter";
+import type { ReviewToolbarPaint, ReviewToolbarTarget } from "./review/review-toolbar-state";
 import { sessionFileUri } from "./session-uri";
-
-// Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
-const MAX_CHANGE_DOTS = 7;
 
 export type { HunkRevert, HunkUnkeep };
 
@@ -97,12 +90,8 @@ export interface InlineDiffOptions {
   fileCount?: number;
   /** Applied review: names the review in the toolbar subtitle — "PR #12" or "vs main" ("diff against"). */
   reviewLabel?: string;
-  /** A PR file's review comments anchored to its lines, rendered as threads below their line (applied mode). */
-  comments?: ReviewCommentInfo[];
-  /** Applied mode (PR file): post a new comment on `line` (the current side). */
-  onAddComment?: (line: number, body: string) => void;
-  /** Applied mode (PR file): reply to the thread rooted at `inReplyTo`. */
-  onReply?: (inReplyTo: number, body: string) => void;
+  /** Exact-session comments and draft authority, independent of this paint adapter. */
+  commenting?: ReviewCommentContext;
 }
 
 /** Diff navigation and actions exposed to commands, keybindings, the palette, and Claude. */
@@ -209,123 +198,184 @@ export interface ReviewHistoryState {
   canRedo: boolean;
 }
 
-// A file carries a faded "accepted" band (kept-but-uncommitted hunks) iff its accepted anchor diverges from the
-// review baseline. Only meaningful in applied mode. A fully-kept file has no bright hunks but still shows this band.
-function hasFadedBand(options: InlineDiffOptions): boolean {
-  return (
-    options.mode === "applied" &&
-    options.acceptedBaseline !== undefined &&
-    options.acceptedBaseline !== options.original
-  );
-}
-
-function fileIsKept(options: InlineDiffOptions): boolean {
-  return (
-    options.mode === "applied" &&
-    hasFadedBand(options) &&
-    options.original === options.claudeVersion
-  );
-}
-
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(
   editor: monaco.editor.IStandaloneCodeEditor,
   presentation: InlineDiffPresentation,
 ): InlineDiff {
-  const diffs = new Map<string, InlineDiffOptions>();
-  const appliedKeys = new Map<ClientSession, Set<string>>();
-  const diffComputer = new DiffComputer();
-  let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
-  let zoneIds: string[] = [];
-  // The floating action bar is a plain DOM child of the editor (not a Monaco overlay widget) so it sits above
-  // sticky-scroll and clear of the minimap, positioned bottom-center via CSS.
-  let toolbarNode: HTMLElement | undefined;
-  let renderedUri: string | undefined;
-  let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
-  let renderGeneration = 0;
-  let renderInFlight = false;
-  let renderQueued = false;
-  // The model version the rendered hunks were computed against; undefined when nothing is rendered.
-  let renderedVersion: number | undefined;
-  let disposed = false;
-  const initialProposalReveals = new Set<string>();
-  // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
-  let currentOptions: InlineDiffOptions | undefined;
-  let fallbackNavigation: InlineDiffOptions | undefined;
-  let currentHunks: DiffHunk[] = [];
-  // Monaco content widgets for the per-hunk inline affordances — ✓ keep / ✕ revert beside each bright pending
-  // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
-  let hunkWidgets: monaco.editor.IContentWidget[] = [];
-  // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
-  let renderedScope = presentation.scope.current;
-  // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
-  // dropdown nodes (kept so one document listener can close it on an outside click).
-  let counterNode: HTMLElement | undefined;
-  let dotsNode: HTMLElement | undefined;
-  let scopeMenuNode: HTMLElement | undefined;
-  let scopeWrapNode: HTMLElement | undefined;
-  // Survives a toolbar rebuild (a debounced recompute, a font change) so a background render doesn't
-  // silently close the dropdown mid-gesture; reset explicitly on model swap and clearAll.
-  let scopeMenuOpen = false;
-  // Session-global review undo/redo: availability (host-pushed) + the bound handlers, plus the toolbar buttons
-  // that reflect it. Not per-file, so it survives the active diff clearing.
+  const documents = new ReviewDocumentScope();
+  const inline = createSharedInlineDiff(editor, presentation, documents);
+  return {
+    ...inline,
+    dispose: () => {
+      inline.dispose();
+      documents.dispose();
+    },
+  };
+}
+
+/** Shared documents can outlive this surface's Monaco binding. */
+export function createSharedInlineDiff(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  presentation: InlineDiffPresentation,
+  documents: ReviewDocumentScope,
+): InlineDiff {
+  let target: ReviewToolbarTarget = { kind: "none" };
+  let parked: ParkedReview | undefined;
   let history: ReviewHistoryState = {
     canUndo: false,
     canUndoKeep: false,
     canUndoRevert: false,
     canRedo: false,
   };
-  let historyHandlers: ReviewHistoryHandlers | undefined;
+  let handlers: ReviewHistoryHandlers | undefined;
+  const toolbar = createReviewToolbarPresenter({
+    host: presentation.toolbarHost,
+    active: presentation.active,
+    scope: presentation.scope,
+    target: () =>
+      target.kind !== "none"
+        ? target
+        : parked !== undefined && parked.fileCount > 0
+          ? { kind: "parked", summary: parked }
+          : { kind: "none" },
+    reviewPending: () => parked !== undefined,
+    composerFocused: () => paint.composerFocused(),
+    history: () => history,
+    historyHandlers: () => handlers,
+  });
+  const paint = createInlineDiffPaint(editor, presentation, documents, (value) => {
+    target = value;
+    toolbar.refresh();
+  });
+  return {
+    ...paint,
+    captureActions: toolbar.captureActions,
+    refreshPresentation: toolbar.refresh,
+    bindHistory: (value) => {
+      handlers = value;
+    },
+    setReviewHistory: (value) => {
+      history = value;
+      toolbar.refresh();
+    },
+    setParkedReview: (value) => {
+      parked = value;
+      paint.refresh();
+    },
+    clearAll: () => {
+      parked = undefined;
+      presentation.scope.current = "change";
+      toolbar.reset();
+      paint.clearAll();
+    },
+    dispose: () => {
+      toolbar.dispose();
+      paint.dispose();
+    },
+  };
+}
+
+export type InlineDiffPaint = Pick<
+  InlineDiff,
+  | "set"
+  | "clear"
+  | "setByUri"
+  | "clearByUri"
+  | "retainApplied"
+  | "clearAll"
+  | "hasDiffForUri"
+  | "dispose"
+> & {
+  refresh(): void;
+  composerFocused(): boolean;
+  commentsRetained(): boolean;
+};
+
+export type InlineDiffPaintPresentation = Pick<
+  InlineDiffPresentation,
+  "scope" | "revealLine" | "reviewLine" | "prepareGeometry" | "painted" | "updateGeometry"
+>;
+
+/** An ordinary editor owns its comment binding; unified files supply their stable presenter. */
+export function createInlineDiffPaint(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  presentation: InlineDiffPaintPresentation,
+  documents: ReviewDocumentScope,
+  onTargetChanged: (target: ReviewToolbarTarget) => void,
+): InlineDiffPaint {
+  const owned = new DisposableStore();
+  const comments = owned.add(createReviewCommentView(editor, presentation.updateGeometry));
+  const configure = (): void => {
+    const model = editor.getModel();
+    comments.configure(
+      model === null ? undefined : documents.get(model.uri.toString())?.commenting,
+    );
+  };
+  try {
+    owned.add(editor.onDidChangeModel(configure));
+    owned.add(documents.onDidChangeConfiguration(configure));
+    configure();
+    const paint = createReviewDiffPaint(editor, presentation, documents, comments, onTargetChanged);
+    return { ...paint, dispose: () => dispose([paint, owned]) };
+  } catch (error) {
+    try {
+      owned.dispose();
+    } catch (cleanup) {
+      throw new AggregateError([error, cleanup], "Inline comment binding and cleanup failed");
+    }
+    throw error;
+  }
+}
+
+/** Paint adapters publish their actual displayed target; they never own a surface toolbar. */
+export function createReviewDiffPaint(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  presentation: InlineDiffPaintPresentation,
+  documents: ReviewDocumentScope,
+  comments: Pick<ReturnType<typeof createReviewCommentView>, "open" | "focused" | "retained">,
+  onTargetChanged: (target: ReviewToolbarTarget) => void,
+): InlineDiffPaint {
+  const appliedKeys = new Map<ClientSession, Set<string>>();
+  let documentBinding: { document: ReviewDocument; lease: monaco.IDisposable } | undefined;
+  const releaseDocument = (): void => {
+    const previous = documentBinding;
+    documentBinding = undefined;
+    previous?.lease.dispose();
+  };
+  const bindDocument = (model: monaco.editor.ITextModel): ReviewDocument => {
+    if (documentBinding?.document !== documents.forModel(model)) {
+      releaseDocument();
+      const document = documents.forModel(model);
+      documentBinding = { document, lease: document.retainSources() };
+    }
+    return documentBinding.document;
+  };
+  let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
+  let zoneIds: string[] = [];
+  let renderedUri: string | undefined;
+  let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
+  let renderGeneration = 0;
+  let presentationRevision = 0;
+  let renderInFlight = false;
+  let renderQueued = false;
+  let disposed = false;
+  const initialProposalReveals = new Set<string>();
+  let toolbarPaint: ReviewToolbarPaint = { status: "pending" };
+  // Monaco content widgets for the per-hunk inline affordances — ✓ keep / ✕ revert beside each bright pending
+  // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
+  let hunkWidgets: monaco.editor.IContentWidget[] = [];
   // Every control whose action names a specific hunk, with the title it carries when it can act.
   let scopeActions: { button: HTMLButtonElement; title: string }[] = [];
-  let undoButton: HTMLButtonElement | undefined;
-  let redoButton: HTMLButtonElement | undefined;
-  // The parked-navigator summary (review set non-empty, no changed file in view) + whether it's the rendered
-  // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
-  let parkedReview: ParkedReview | undefined;
-  let showingParked = false;
-  // The transient "new comment" composer zone (a PR file under review), opened by the toolbar Comment button.
-  // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
-  // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
-  let composerZoneId: string | undefined;
-  // How many composer textareas (the new-comment composer AND every thread's reply composer) currently hold
-  // focus, tracked by focus/blur since the editor's shadow root hides the real activeElement. A live composer
-  // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
-  // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
-  let focusedComposers = 0;
-  // Content observers for the sized zones (threads in zoneIds, plus the new-comment composer's own),
-  // disconnected when their zone is removed.
-  let zoneObservers: ResizeObserver[] = [];
-  let composerObserver: ResizeObserver | undefined;
-
-  const replaceToolbar = (next: HTMLElement | undefined): void => {
-    const previous = toolbarNode;
-    toolbarNode = next;
-    if (next !== undefined) {
-      const host = presentation.toolbarHost();
-      if (host !== null) mountReviewToolbar(host, next);
-    }
-    previous?.remove();
-  };
 
   const clearControls = (): void => {
+    presentationRevision++;
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
     hunkWidgets = [];
-    counterNode = undefined;
-    dotsNode = undefined;
-    scopeMenuNode = undefined;
-    scopeWrapNode = undefined;
     scopeActions = [];
-    undoButton = undefined;
-    redoButton = undefined;
-
-    showingParked = false;
-    renderedVersion = undefined;
-    currentOptions = undefined;
-    fallbackNavigation = undefined;
-    currentHunks = [];
+    toolbarPaint = { status: "pending" };
   };
 
   const changeViewZones = (change: Parameters<typeof editor.changeViewZones>[0]): void =>
@@ -334,9 +384,6 @@ export function createInlineDiff(
   const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
-    // NB: a new-comment composer is deliberately NOT closed here — a routine same-model re-render (a keep, the
-    // faded band, a fresh diff push) would otherwise wipe the half-typed comment. It's closed on submit/cancel,
-    // a model swap (onModel), and clearAll instead.
     if (zoneIds.length > 0) {
       changeViewZones((accessor) => {
         for (const id of zoneIds) {
@@ -344,14 +391,7 @@ export function createInlineDiff(
         }
       });
       zoneIds = [];
-      // The reply composers lived in those zones — removing a focused one may not fire blur, so clear their
-      // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
-      focusedComposers = 0;
     }
-    for (const observer of zoneObservers) {
-      observer.disconnect();
-    }
-    zoneObservers = [];
   };
 
   const clearRenderState = (): void => {
@@ -361,178 +401,7 @@ export function createInlineDiff(
   };
   const clearRender = (): void => {
     clearRenderState();
-    replaceToolbar(undefined);
-  };
-
-  // A comment composer: a textarea + a submit button. onSubmit fires with the trimmed body (ignored when empty);
-  // Ctrl/Cmd+Enter submits too. Used for both a new comment and a thread reply.
-  const buildComposer = (
-    placeholder: string,
-    submitLabel: string,
-    onSubmit: (body: string) => void,
-  ): HTMLElement => {
-    const wrap = document.createElement("div");
-    wrap.className = "weavie-pr-composer";
-    const input = document.createElement("textarea");
-    input.className = "weavie-pr-composer-input";
-    input.placeholder = placeholder;
-    input.rows = 2;
-    // Track focus so composerFocused() covers every composer (new comment + each reply), not just the new-comment
-    // zone — else a review chord typed into a reply would Keep/Revert a hunk instead of reaching the textarea.
-    input.addEventListener("focus", () => {
-      focusedComposers++;
-    });
-    input.addEventListener("blur", () => {
-      focusedComposers = Math.max(0, focusedComposers - 1);
-    });
-    const submit = (): void => {
-      const body = input.value.trim();
-      if (body.length > 0) {
-        onSubmit(body);
-        input.value = "";
-      }
-    };
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        submit();
-      }
-    });
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "weavie-pr-composer-submit";
-    button.textContent = submitLabel;
-    button.addEventListener("click", submit);
-    wrap.append(input, button);
-    return wrap;
-  };
-
-  // A view zone sized by its content. Monaco force-sets the zone node's own height, so `content` lives inside a
-  // bare wrapper and its measured height (margins included) drives heightInPx via layoutZone; the ResizeObserver
-  // keeps the zone in sync as comment bodies wrap on editor resize.
-  const addContentSizedZone = (
-    accessor: monaco.editor.IViewZoneChangeAccessor,
-    afterLineNumber: number,
-    content: HTMLElement,
-  ): { id: string; observer: ResizeObserver } => {
-    const domNode = document.createElement("div");
-    domNode.appendChild(content);
-    const zone: monaco.editor.IViewZone & { heightInPx: number } = {
-      afterLineNumber,
-      heightInPx: 0,
-      domNode,
-    };
-    const id = accessor.addZone(zone);
-    const observer = new ResizeObserver(() => {
-      const style = getComputedStyle(content);
-      const height =
-        content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
-      if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
-        zone.heightInPx = height;
-        changeViewZones((a) => a.layoutZone(id));
-      }
-    });
-    observer.observe(content);
-    return { id, observer };
-  };
-
-  // A comment thread for one line: its comments (root + replies, in order) and a reply composer. The reply posts
-  // against the thread's root id (onReply); the host re-fetches and re-renders.
-  const buildCommentThread = (
-    comments: ReviewCommentInfo[],
-    options: InlineDiffOptions,
-  ): HTMLElement => {
-    const node = document.createElement("div");
-    node.className = "weavie-pr-thread";
-    const rootId = comments.find((c) => c.inReplyTo === 0)?.id ?? comments[0]?.id ?? 0;
-    for (const comment of comments) {
-      const item = document.createElement("div");
-      item.className = "weavie-pr-comment";
-      const author = document.createElement("span");
-      author.className = "weavie-pr-comment-author";
-      author.textContent = `@${comment.author}`;
-      const body = document.createElement("span");
-      body.className = "weavie-pr-comment-body";
-      body.textContent = comment.body;
-      item.append(author, body);
-      node.appendChild(item);
-    }
-    if (options.onReply !== undefined) {
-      const onReply = options.onReply;
-      node.appendChild(buildComposer("Reply…", "Reply", (text) => onReply(rootId, text)));
-    }
-    return node;
-  };
-
-  // Remove the transient new-comment composer zone, if one is open.
-  const closeNewComposer = (): void => {
-    composerObserver?.disconnect();
-    composerObserver = undefined;
-    if (composerZoneId !== undefined) {
-      const id = composerZoneId;
-      composerZoneId = undefined;
-      changeViewZones((accessor) => accessor.removeZone(id));
-    }
-  };
-
-  // Open a new-comment composer below `line` (the toolbar Comment action). Submit posts via onAddComment then
-  // closes it; Cancel removes it. clearRender no longer drops it, so a background re-render can't wipe a draft.
-  const openNewComposer = (line: number, options: InlineDiffOptions): void => {
-    if (options.onAddComment === undefined) {
-      return;
-    }
-    const onAddComment = options.onAddComment;
-    closeNewComposer();
-    const node = document.createElement("div");
-    node.className = "weavie-pr-thread weavie-pr-thread-new";
-    // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
-    // keeps every review chord declining (composerFocused stays true).
-    const composer = buildComposer("Add a comment…", "Comment", (body) => {
-      onAddComment(line, body);
-      closeNewComposer();
-    });
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "weavie-pr-composer-cancel";
-    cancel.textContent = "Cancel";
-    cancel.addEventListener("click", closeNewComposer);
-    composer.appendChild(cancel);
-    node.appendChild(composer);
-    changeViewZones((accessor) => {
-      const { id, observer } = addContentSizedZone(accessor, line, node);
-      composerZoneId = id;
-      composerObserver = observer;
-    });
-    queueMicrotask(() => node.querySelector("textarea")?.focus());
-  };
-
-  // Add each commented line's thread to the same zone transaction as the diff paint.
-  const addPrCommentZones = (
-    model: monaco.editor.ITextModel,
-    options: InlineDiffOptions,
-    accessor: monaco.editor.IViewZoneChangeAccessor,
-    nextZoneIds: string[],
-    nextZoneObservers: ResizeObserver[],
-  ): void => {
-    if (options.comments === undefined || options.comments.length === 0) {
-      return;
-    }
-    const byLine = new Map<number, ReviewCommentInfo[]>();
-    for (const comment of options.comments) {
-      const group = byLine.get(comment.line) ?? [];
-      group.push(comment);
-      byLine.set(comment.line, group);
-    }
-    for (const [line, comments] of byLine) {
-      const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-      const { id, observer } = addContentSizedZone(
-        accessor,
-        clamped,
-        buildCommentThread(comments, options),
-      );
-      nextZoneIds.push(id);
-      nextZoneObservers.push(observer);
-    }
+    publishTarget();
   };
 
   // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
@@ -542,7 +411,7 @@ export function createInlineDiff(
     anchorLine: number,
     dom: HTMLElement,
   ): monaco.editor.IContentWidget => {
-    const line = Math.min(model.getLineCount(), Math.max(1, anchorLine));
+    const line = anchorLine;
     return {
       getId: () => `${id}.${line}`,
       getDomNode: () => dom,
@@ -555,71 +424,6 @@ export function createInlineDiff(
     };
   };
 
-  // The faded hunk's widget: a "✓ accepted" tag + an inline ↶ undo that un-keeps just that hunk (posts
-  // onUnkeepHunk).
-  const buildUndoWidget = (
-    hunk: AcceptedDiffHunk,
-    index: number,
-    model: monaco.editor.ITextModel,
-    onUnkeep: (hunk: HunkUnkeep) => void,
-  ): monaco.editor.IContentWidget => {
-    const dom = document.createElement("div");
-    dom.className = "weavie-inline-accepted-tag";
-    const kept = document.createElement("span");
-    kept.className = "weavie-inline-accepted-kept";
-    kept.textContent = "✓ accepted";
-    const undo = makeButton(
-      "weavie-inline-accepted-undo",
-      "↶ undo",
-      withShortcut("Undo keep", CommandIds.undoKeep),
-      () => {
-        // Pin the position to this hunk (it's on screen — the user just clicked it) so the restored bright
-        // hunk is what the counter names and Keep/Revert act on after the re-render.
-        editor.setPosition({ lineNumber: hunk.anchorLine, column: 1 });
-        onUnkeep({
-          acceptedStart: hunk.acceptedStart,
-          acceptedEndExclusive: hunk.acceptedEndExclusive,
-          reviewStart: hunk.reviewStart,
-          reviewEndExclusive: hunk.reviewEndExclusive,
-          acceptedGuardText: hunk.acceptedGuardText,
-          guardText: hunk.guardText,
-        });
-      },
-    );
-    dom.append(kept, undo);
-    return anchoredWidget(`weavie.accepted.${index}`, model, hunk.anchorLine, dom);
-  };
-
-  // The pending-band counterpart: ✓ keep / ✕ revert beside a bright hunk's first line — the mouse path to the
-  // same per-hunk actions the keyboard chords and toolbar drive.
-  const buildPendingWidget = (
-    hunk: DiffHunk,
-    index: number,
-    model: monaco.editor.ITextModel,
-  ): monaco.editor.IContentWidget => {
-    const dom = document.createElement("div");
-    dom.className = "weavie-inline-pending-tag";
-    dom.append(
-      trackScopeAction(
-        makeButton(
-          "weavie-inline-pending-keep",
-          "✓ keep",
-          withShortcut("Keep this change", CommandIds.acceptChange),
-          () => keepHunkNow(hunk),
-        ),
-      ),
-      trackScopeAction(
-        makeButton(
-          "weavie-inline-pending-revert",
-          "✕ revert",
-          withShortcut("Revert this change", CommandIds.rejectChange),
-          () => revertHunkNow(hunk),
-        ),
-      ),
-    );
-    return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
-  };
-
   const reveal = (line: number): void => {
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
@@ -628,58 +432,35 @@ export function createInlineDiff(
 
   const reviewLine = presentation.reviewLine;
 
-  // Jump to the previous/next change hunk (by anchor line), wrapping. Walks all hunks (so a kept one can be
-  // revisited), unlike the Keep loop. False when there's no diff to navigate.
-  const goToChange = (direction: 1 | -1): boolean => {
-    if (currentHunks.length === 0) {
-      return false;
-    }
-    const lines = currentHunks.map((h) => h.anchorLine);
-    const current = reviewLine();
-    let target: number;
-    if (direction === 1) {
-      target = lines.find((line) => line > current) ?? lines[0]!;
-    } else {
-      const before = lines.filter((line) => line < current);
-      target = before.length > 0 ? before[before.length - 1]! : lines[lines.length - 1]!;
-    }
-    reveal(target);
-    return true;
+  const actionPresentation = (): ReviewActionPresentation => {
+    const binding = documentBinding!;
+    const revision = presentationRevision;
+    return {
+      scope: presentation.scope,
+      valid: () =>
+        !disposed &&
+        presentationRevision === revision &&
+        documentBinding === binding &&
+        editor.getModel() === binding.document.model,
+      availability: () => toolbarPaint.status,
+      reviewLine,
+      commentLine: () => editor.getPosition()?.lineNumber ?? 1,
+      revealLine: reveal,
+      selectLine: (line) => editor.setPosition({ lineNumber: line, column: 1 }),
+      openComment: (line) => comments.open(line),
+      composerFocused,
+      swallowFileNavigation: IS_MAC,
+    };
   };
-
-  // The hunk at the review line (the last one starting at/before it), defaulting to the first — the subject of
-  // a per-hunk Keep / Revert and of the counter's `change j/M`.
-  const hunkAtReviewLine = (): DiffHunk | undefined => {
-    if (currentHunks.length === 0) {
-      return undefined;
-    }
-    const line = reviewLine();
-    let hunk = currentHunks[0];
-    for (const h of currentHunks) {
-      if (h.anchorLine <= line) {
-        hunk = h;
-      } else {
-        break;
-      }
-    }
-    return hunk;
-  };
-
-  // After a per-hunk keep/revert clears the file's LAST bright hunk, the file lingers in the review set while a
-  // faded band remains, so the host's re-emit has acceptedBaseline != current and won't advance — step to the
-  // next file ourselves (a no-op for a single-file review). With no faded band the file clears and the
-  // controller advances, so callers pass fadedRemains=false there to avoid a double-step.
-  const advanceIfExhausted = (kept: DiffHunk, fadedRemains: boolean): void => {
-    if (fadedRemains && !currentHunks.some((h) => h !== kept)) {
-      nextFile();
-    }
-  };
-
   // A per-hunk action needs coordinates that still match the live model, and they only do at the version the
   // render was computed against — an edit since then (a keystroke while the recompute is in flight) moves
   // every hunk after it, so keeping or reverting would act on the wrong lines.
   const geometryStale = (): boolean =>
-    currentOptions !== undefined && renderedVersion !== editor.getModel()?.getVersionId();
+    toolbarPaint.status === "ready" &&
+    (documentBinding === undefined ||
+      documentBinding.document.actions.stale ||
+      documentBinding.document.actions.options !== toolbarPaint.options ||
+      documentBinding.document.actions.geometry?.markers !== toolbarPaint.markers);
 
   const STALE_TITLE = "Waiting for the edited file's change geometry";
 
@@ -698,498 +479,26 @@ export function createInlineDiff(
     return button;
   };
 
-  // A hunk's live-model text plus its keep/revert coordinates — the payload (with concurrency guard) both post.
-  const hunkPayload = (model: monaco.editor.ITextModel, hunk: DiffHunk): HunkRevert => ({
-    baselineStart: hunk.baselineStart,
-    baselineEndExclusive: hunk.baselineEndExclusive,
-    currentStart: hunk.currentStart,
-    currentEndExclusive: hunk.currentEndExclusive,
-    guardText: model
-      .getLinesContent()
-      .slice(hunk.currentStart - 1, hunk.currentEndExclusive - 1)
-      .join("\n"),
-  });
-
-  // Keep one specific hunk: advance the host's review baseline over it (no disk write; same coordinates + guard
-  // as a revert) so it drops from the pending diff for good. Keeping doesn't move the live model, so the
-  // remaining hunks' anchors hold — reveal the next one now; the host re-emits the diff without the kept hunk.
-  // Shared by the cursor chord/toolbar path and the per-hunk inline ✓ keep button.
-  const keepHunkNow = (hunk: DiffHunk): void => {
-    const options = currentOptions;
-    const model = editor.getModel();
+  const composerFocused = comments.focused;
+  const toolbarTarget = (): ReviewToolbarTarget => {
+    const binding = documentBinding;
     if (
-      options?.mode !== "applied" ||
-      options.onKeepHunk === undefined ||
-      model === null ||
-      geometryStale()
+      !disposed &&
+      binding !== undefined &&
+      binding.document.model === editor.getModel() &&
+      documents.has(binding.document.model.uri.toString())
     ) {
-      return;
+      return {
+        kind: "file",
+        owner: binding,
+        document: binding.document,
+        presentation: actionPresentation(),
+        paint: toolbarPaint,
+      };
     }
-    const remaining = currentHunks.filter((h) => h !== hunk);
-    const target = remaining.find((h) => h.anchorLine > hunk.anchorLine) ?? remaining[0];
-    options.onKeepHunk(hunkPayload(model, hunk));
-    if (target !== undefined) {
-      reveal(target.anchorLine);
-    }
-    advanceIfExhausted(hunk, true); // keeping always leaves the hunk faded, so the re-emit never advances
+    return { kind: "none" };
   };
-
-  // Revert one specific hunk on disk (host splices baseline lines back; web sends coordinates + a guard). The
-  // host re-emits the file's diff, re-rendering without the reverted hunk. Shared like keepHunkNow.
-  const revertHunkNow = (hunk: DiffHunk): void => {
-    const options = currentOptions;
-    const model = editor.getModel();
-    if (
-      options?.mode !== "applied" ||
-      options.onRevertHunk === undefined ||
-      model === null ||
-      geometryStale()
-    ) {
-      return;
-    }
-    // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
-    // with acceptedBaseline != current, so the re-emit won't advance and we must. Without one the file clears
-    // (acceptedBaseline == current) and the controller advances on its own.
-    const fadedRemains = hasFadedBand(options);
-    options.onRevertHunk(hunkPayload(model, hunk));
-    advanceIfExhausted(hunk, fadedRemains);
-  };
-
-  // Per-hunk Keep at the cursor; false (the key falls through) outside applied mode.
-  const keepHunk = (): boolean => {
-    if (currentOptions?.mode !== "applied" || currentOptions.onKeepHunk === undefined) {
-      return false;
-    }
-    const hunk = hunkAtReviewLine();
-    if (hunk !== undefined) {
-      keepHunkNow(hunk);
-    }
-    // Fully-kept file at "change 0/0": the toolbar is up, so consume the key — never fall through
-    // and let Monaco type into the file under review.
-    return true;
-  };
-
-  // Per-hunk Revert at the cursor; false outside applied mode.
-  const revertHunk = (): boolean => {
-    if (currentOptions?.mode !== "applied" || currentOptions.onRevertHunk === undefined) {
-      return false;
-    }
-    const hunk = hunkAtReviewLine();
-    if (hunk !== undefined) {
-      revertHunkNow(hunk);
-    }
-    // Same as keepHunk: at "change 0/0" consume the key rather than fall through to the editor.
-    return true;
-  };
-
-  // Active-diff actions shared by the toolbar buttons and commands; each returns whether it acted, so an
-  // unmatched keybinding falls through. accept/reject are per-hunk in applied mode, whole-proposal in review.
-  const runAction = (action: (() => void) | undefined): boolean => {
-    if (action === undefined) {
-      return false;
-    }
-    action();
-    return true;
-  };
-  // Parked navigator: the review set is non-empty but no changed file is in view, so the toolbar sits at
-  // "change 0" without moving the editor. Any nav (or Keep) steps in — opens the first change — at which point
-  // the live toolbar takes over. stepIn declines when there's nothing to step into.
-  const parkedNavigation = () =>
-    parkedReview === undefined ? undefined : createParkedNavigation(parkedReview);
-  const stepIn = (): boolean => parkedNavigation()?.accept() ?? false;
-  // While a new-comment composer is open, the review chords fall through to it: its own keydown handler owns
-  // Ctrl+Enter (submit), Ctrl+Backspace (delete word), and arrows (caret). Gate on the zone being open, not
-  // document.activeElement — the editor lives in a shadow root, so activeElement is the shadow host, never the
-  // composer textarea inside it.
-  const composerFocused = (): boolean => composerZoneId !== undefined || focusedComposers > 0;
-
-  const nextChange = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : goToChange(1);
-  const prevChange = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : goToChange(-1);
-  const undo = (): boolean => runAction(currentOptions?.onUndo);
-  const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
-  // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
-  // Win/Linux that's wanted — ctrl+$mod+←/→ is plain Ctrl+←/→ word-nav. On macOS it's Ctrl+⌘+←/→, which has no
-  // native meaning, so falling through just rings the system bell — swallow it instead while a review is up.
-  const fileOptions = (): InlineDiffOptions | undefined => currentOptions ?? fallbackNavigation;
-  const swallowFileNav = (): boolean => IS_MAC && fileOptions()?.mode === "applied";
-  const nextFile = (): boolean =>
-    composerFocused()
-      ? false
-      : showingParked
-        ? (parkedNavigation()?.nextFile() ?? false)
-        : runAction(fileOptions()?.onNextFile) || swallowFileNav();
-  const prevFile = (): boolean =>
-    composerFocused()
-      ? false
-      : showingParked
-        ? (parkedNavigation()?.prevFile() ?? false)
-        : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
-
-  // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
-  // from the review set. Returns false outside applied mode.
-  const keepFile = (): boolean => {
-    const options = fileOptions();
-    return runAction(
-      options?.mode === "applied" && !fileIsKept(options) ? options.onKeepFile : undefined,
-    );
-  };
-  // Per-file Revert (applied mode): the host restores the whole file to its turn baseline on disk; the
-  // editor-controller routes this through a confirm before posting. Returns false outside applied mode.
-  const revertFile = (): boolean => {
-    const options = fileOptions();
-    return runAction(
-      options?.mode === "applied" && !fileIsKept(options) ? options.onRevertFile : undefined,
-    );
-  };
-
-  // Comment on the current cursor line (a PR file under review, which carries onAddComment). Returns false (the
-  // key falls through) for a plain turn file or when no diff is active.
-  const comment = (): boolean => {
-    if (currentOptions?.onAddComment === undefined) {
-      return false;
-    }
-    openNewComposer(editor.getPosition()?.lineNumber ?? 1, currentOptions);
-    return true;
-  };
-
-  // Keep / Revert act at the toolbar's sticky scope in applied mode (change → hunk, file → whole file, all →
-  // the set); in review mode they resolve the openDiff proposal. The plain keys and the toolbar buttons share
-  // these, so a keypress always matches the picker.
-  const accept = (): boolean => {
-    if (composerFocused()) {
-      return false; // typing a comment: let the composer's own Ctrl+Enter submit instead of Keeping the diff
-    }
-    if (showingParked) {
-      return stepIn(); // Keep at "change 0" enters the review rather than acting
-    }
-    const options = fileOptions();
-    if (options?.mode !== "applied") {
-      return runAction(options?.onAccept);
-    }
-    if (currentOptions === undefined) {
-      return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
-    }
-    const scope = presentation.scope.current;
-    return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
-  };
-  const reject = (): boolean => {
-    if (composerFocused()) {
-      return false; // typing a comment: let Ctrl+Backspace delete a word instead of Reverting the diff
-    }
-    if (showingParked) {
-      return false; // nothing to revert from "change 0"
-    }
-    const options = fileOptions();
-    if (options?.mode !== "applied") {
-      return runAction(options?.onReject);
-    }
-    if (currentOptions === undefined) {
-      return revertFile(); // no geometry was rendered: only whole-file Revert is meaningful
-    }
-    const scope = presentation.scope.current;
-    return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
-  };
-
-  // Review undo/redo (session-global; bound once via bindHistory). While a review surface is up the undo chords
-  // CONSUME the key even with nothing to undo — never fall through and let Monaco insert a newline (Shift+Enter)
-  // into the file under review. They only decline (fall through to the editor) when no review is up at all.
-  // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
-  // case the undo chords are meaningful and must consume the key rather than type into the editor.
-  const reviewUp = (): boolean =>
-    parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
-  const captureHistoryActions = () => {
-    const handlers = historyHandlers;
-    return {
-      undoKeep: (): boolean =>
-        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
-      undoRevert: (): boolean =>
-        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
-      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
-    };
-  };
-  const undoLast = (): boolean =>
-    history.canUndo ? runAction(historyHandlers?.onUndoLast) : false;
-  const redoReview = (): boolean => captureHistoryActions().redoReview();
-
-  // Dim/enable the toolbar's Undo/Redo buttons to match availability (cheap — no full re-render).
-  const syncHistoryButtons = (): void => {
-    if (undoButton !== undefined) {
-      undoButton.disabled = !history.canUndo;
-    }
-    if (redoButton !== undefined) {
-      redoButton.disabled = !history.canRedo;
-    }
-  };
-
-  // Set the sticky scope the Keep / Revert buttons act on and re-render so their labels/handlers follow.
-  const setScope = (scope: ReviewScope): void => {
-    if (currentOptions?.mode !== "applied") {
-      return;
-    }
-    presentation.scope.current = scope;
-    syncScopeButtons(); // the re-render is async; don't leave the old scope's blocked state up meanwhile
-    renderActive();
-  };
-
-  const scopeName = (scope: ReviewScope): string =>
-    scope === "change" ? "Change" : scope === "file" ? "File" : "All";
-
-  // Repaint the applied toolbar's `file i/N · change j/M` subtitle + change dots for the hunk at the review
-  // line. A cheap DOM-only update fired on cursor move and scroll (no full re-render); no-op outside applied mode.
-  const renderCounter = (): void => {
-    const options = currentOptions;
-    if (counterNode === undefined || options === undefined) {
-      return;
-    }
-    const total = currentHunks.length;
-    const hunk = hunkAtReviewLine();
-    const idx = hunk === undefined ? -1 : currentHunks.indexOf(hunk);
-    const labelPart = options.reviewLabel === undefined ? "" : `${options.reviewLabel} · `;
-    const filePart =
-      options.fileCount !== undefined && options.fileCount > 1 && options.fileIndex !== undefined
-        ? `file ${options.fileIndex}/${options.fileCount} · `
-        : "";
-    const text = `${labelPart}${filePart}change ${idx < 0 ? 0 : idx + 1}/${total}`;
-    if (counterNode.textContent === text) return;
-    counterNode.textContent = text;
-    if (dotsNode === undefined) {
-      return;
-    }
-    dotsNode.replaceChildren();
-    if (total > 1 && total <= MAX_CHANGE_DOTS) {
-      for (let i = 0; i < total; i++) {
-        const dot = document.createElement("i");
-        dot.className = i === idx ? "on" : i < idx ? "done" : "";
-        dotsNode.appendChild(dot);
-      }
-    }
-  };
-
-  const navButtons = (): HTMLElement[] => [
-    makeButton(
-      "weavie-inline-nav",
-      "↑",
-      withShortcut("Previous change", CommandIds.prevChange),
-      prevChange,
-    ),
-    makeButton(
-      "weavie-inline-nav",
-      "↓",
-      withShortcut("Next change", CommandIds.nextChange),
-      nextChange,
-    ),
-  ];
-
-  // The scope dropdown: a `Scope: <X> ▾` toggle over a Keep / Revert menu whose items set the sticky scope,
-  // with per-item counts naming each scope's reach.
-  const buildScopePicker = (options: InlineDiffOptions): HTMLElement => {
-    const scope = presentation.scope.current;
-    const wrap = document.createElement("div");
-    wrap.className = "weavie-inline-scope";
-    scopeWrapNode = wrap;
-    const menu = document.createElement("div");
-    menu.className = "weavie-inline-scope-menu";
-    menu.style.display = scopeMenuOpen ? "flex" : "none";
-    scopeMenuNode = menu;
-    const toggle = makeButton(
-      "weavie-inline-scope-btn",
-      `Scope: ${scopeName(scope)} ▾`,
-      "Choose what Keep / Revert act on",
-      () => {
-        scopeMenuOpen = !scopeMenuOpen;
-        menu.style.display = scopeMenuOpen ? "flex" : "none";
-      },
-    );
-    const head = document.createElement("div");
-    head.className = "weavie-inline-scope-head";
-    head.textContent = "Keep / Revert…";
-    menu.appendChild(head);
-    const addItem = (value: ReviewScope, label: string, count: number | undefined): void => {
-      const item = makeButton(
-        `weavie-inline-scope-item${value === scope ? " active" : ""}`,
-        label,
-        label,
-        () => {
-          scopeMenuOpen = false;
-          setScope(value);
-        },
-      );
-      if (count !== undefined) {
-        const tag = document.createElement("span");
-        tag.className = "weavie-inline-scope-count";
-        tag.textContent = String(count);
-        item.appendChild(tag);
-      }
-      menu.appendChild(item);
-    };
-    addItem("change", "This change", undefined);
-    addItem("file", "This file", currentHunks.length);
-    // "All" always offered — it's the only Keep/Revert scope that commits the whole review and closes the
-    // navigator (keep-all / revert-all), so a single-file review still has a way out. "All files" reads wrong
-    // for one file, so name it "All changes" (counting hunks) there.
-    const manyFiles = (options.fileCount ?? 1) > 1;
-    if (options.allActionsDisabled !== true) {
-      addItem(
-        "all",
-        manyFiles ? "All files" : "All changes",
-        manyFiles ? options.fileCount : currentHunks.length,
-      );
-    }
-    wrap.append(toggle, menu);
-    return wrap;
-  };
-
-  // The applied-review toolbar: a 2D navigator (files ← →, hunks ↑ ↓) around a stacked filename + counter,
-  // then a scope picker feeding Keep / Revert buttons whose label/handler/shortcut follow the sticky scope.
-  const buildAppliedBar = (bar: HTMLElement, options: InlineDiffOptions): void => {
-    const multiFile =
-      options.fileCount !== undefined &&
-      options.fileCount > 1 &&
-      options.onPrevFile !== undefined &&
-      options.onNextFile !== undefined;
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "←",
-          withShortcut("Previous file", CommandIds.reviewPrevFile),
-          prevFile,
-        ),
-      );
-    }
-    const stack = document.createElement("div");
-    stack.className = "weavie-inline-stack";
-    const name = document.createElement("span");
-    name.className = "weavie-inline-stack-name";
-    name.textContent = options.fileLabel ?? "";
-    counterNode = document.createElement("span");
-    counterNode.className = "weavie-inline-stack-sub";
-    stack.append(name, counterNode);
-    bar.appendChild(stack);
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "→",
-          withShortcut("Next file", CommandIds.reviewNextFile),
-          nextFile,
-        ),
-      );
-    }
-    dotsNode = document.createElement("span");
-    dotsNode.className = "weavie-inline-dots";
-    bar.appendChild(dotsNode);
-    bar.append(...navButtons());
-    const divider = document.createElement("span");
-    divider.className = "weavie-inline-divider";
-    bar.appendChild(divider);
-    bar.appendChild(buildScopePicker(options));
-
-    // Keep / Revert always carry the plain chords (Ctrl+Enter / Ctrl+Backspace); accept/reject route to the
-    // sticky scope, so the buttons and the keys stay in lockstep. Only the tooltip names the current scope.
-    const scope = presentation.scope.current;
-    const allTarget = (options.fileCount ?? 1) > 1 ? "all files" : "all changes";
-    const keepTip =
-      scope === "change"
-        ? "Keep this change"
-        : scope === "file"
-          ? "Keep this file"
-          : `Keep ${allTarget}`;
-    const revertTip =
-      scope === "change"
-        ? "Revert this change"
-        : scope === "file"
-          ? "Revert this file"
-          : `Revert ${allTarget}`;
-    const keep = makeButton(
-      "weavie-inline-accept",
-      "Keep",
-      withShortcut(keepTip, CommandIds.acceptChange),
-      accept,
-    );
-    const revert = makeButton(
-      "weavie-inline-reject",
-      "Revert",
-      withShortcut(revertTip, CommandIds.rejectChange),
-      reject,
-    );
-    // Only the change scope names a hunk; File / All changes act on coordinates an edit can't move.
-    if (scope === "change") {
-      trackScopeAction(keep);
-      trackScopeAction(revert);
-    }
-    bar.append(keep, revert);
-    // A PR file also carries review comments, so Comment/Reply sit beside Keep/Revert on the one toolbar (a plain
-    // turn file has no onAddComment, so no button).
-    if (options.onAddComment !== undefined) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-comment",
-          "Comment",
-          withShortcut("Add a comment on the current line", CommandIds.reviewComment),
-          () => openNewComposer(editor.getPosition()?.lineNumber ?? 1, options),
-        ),
-      );
-    }
-    // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
-    // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
-    const histDivider = document.createElement("span");
-    histDivider.className = "weavie-inline-divider";
-    bar.appendChild(histDivider);
-    undoButton = makeButton(
-      "weavie-inline-hist",
-      "↶",
-      `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
-      undoLast,
-    );
-    redoButton = makeButton(
-      "weavie-inline-hist",
-      "↷",
-      withShortcut("Redo review action", CommandIds.redoReview),
-      redoReview,
-    );
-    bar.append(undoButton, redoButton);
-    syncHistoryButtons();
-    renderCounter();
-  };
-
-  // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar), which also carries
-  // Comment/Reply for a PR file; review mode is the hunk arrows + Keep/Reject for the proposal; view mode is
-  // arrows alone.
-  const buildToolbar = (options: InlineDiffOptions): HTMLElement => {
-    const bar = document.createElement("div");
-    bar.className = "weavie-inline-toolbar";
-    if (options.mode === "applied") {
-      buildAppliedBar(bar, options);
-      return bar;
-    }
-    bar.append(...navButtons());
-    if (options.mode === "review") {
-      if (options.onAccept !== undefined) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep",
-            withShortcut("Keep this change", CommandIds.acceptChange),
-            accept,
-          ),
-        );
-      }
-      if (options.onReject !== undefined) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-reject",
-            "Reject",
-            withShortcut("Reject this change", CommandIds.rejectChange),
-            reject,
-          ),
-        );
-      }
-    }
-    return bar;
-  };
+  const publishTarget = (): void => onTargetChanged(toolbarTarget());
 
   const renderUnavailable = (
     uriString: string,
@@ -1198,112 +507,26 @@ export function createInlineDiff(
   ): void => {
     presentation.updateGeometry(() => {
       clearRenderState();
-      fallbackNavigation = options;
+      toolbarPaint = { status: "unavailable", options, message };
       presentation.prepareGeometry(null);
     });
-    presentation.painted();
-    const fileKept = fileIsKept(options);
-    const editorDom = presentation.toolbarHost();
-    if (editorDom !== null) {
-      const bar = document.createElement("div");
-      bar.className = "weavie-inline-toolbar";
-      const multiFile =
-        options.fileCount !== undefined &&
-        options.fileCount > 1 &&
-        options.onPrevFile !== undefined &&
-        options.onNextFile !== undefined;
-      if (multiFile) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-file",
-            "←",
-            withShortcut("Previous file", CommandIds.reviewPrevFile),
-            prevFile,
-          ),
-        );
-      }
-      const warning = document.createElement("span");
-      warning.className = "weavie-inline-stack-sub";
-      warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
-      bar.appendChild(warning);
-      if (multiFile) {
-        bar.appendChild(
-          makeButton(
-            "weavie-inline-file",
-            "→",
-            withShortcut("Next file", CommandIds.reviewNextFile),
-            nextFile,
-          ),
-        );
-      }
-      if (options.mode === "applied" && !fileKept) {
-        // No hunk geometry to act on, so only the whole-file actions are offered.
-        bar.append(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep file",
-            withShortcut("Keep this file", CommandIds.acceptChange),
-            () => runAction(options.onKeepFile),
-          ),
-          makeButton(
-            "weavie-inline-reject",
-            "Revert file",
-            withShortcut("Revert this file", CommandIds.rejectChange),
-            () => runAction(options.onRevertFile),
-          ),
-        );
-      } else if (options.mode === "review") {
-        bar.append(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep",
-            withShortcut("Keep this change", CommandIds.acceptChange),
-            () => runAction(options.onAccept),
-          ),
-          makeButton(
-            "weavie-inline-reject",
-            "Reject",
-            withShortcut("Reject this change", CommandIds.rejectChange),
-            () => runAction(options.onReject),
-          ),
-        );
-      }
-      replaceToolbar(bar);
-    } else {
-      replaceToolbar(undefined);
-    }
     renderedUri = uriString;
+    publishTarget();
+    presentation.painted();
   };
 
-  const replacePaint = (
-    model: monaco.editor.ITextModel,
-    options: InlineDiffOptions,
-    markers: ReturnType<typeof computeDiffMarkers>,
-  ): void => {
+  const replacePaint = (markers: DiffMarkers): void => {
     if (decorations === undefined) {
       decorations = editor.createDecorationsCollection(markers.decorations);
     } else {
       decorations.set(markers.decorations);
     }
 
-    for (const observer of zoneObservers) {
-      observer.disconnect();
-    }
     const previousZoneIds = zoneIds;
-    const nextZoneIds: string[] = [];
-    const nextZoneObservers: ResizeObserver[] = [];
     changeViewZones((accessor) => {
-      for (const id of previousZoneIds) {
-        accessor.removeZone(id);
-      }
-      nextZoneIds.push(...addDiffZones(editor, accessor, markers));
-      addPrCommentZones(model, options, accessor, nextZoneIds, nextZoneObservers);
+      for (const id of previousZoneIds) accessor.removeZone(id);
+      zoneIds = addDiffZones(editor, accessor, markers);
     });
-    if (previousZoneIds.length > 0) {
-      focusedComposers = 0;
-    }
-    zoneIds = nextZoneIds;
-    zoneObservers = nextZoneObservers;
   };
 
   const render = async (uriString: string, generation: number): Promise<void> => {
@@ -1311,27 +534,19 @@ export function createInlineDiff(
     if (model === null || model.uri.toString() !== uriString) {
       return;
     }
-    const options = diffs.get(uriString);
+    const options = documents.get(uriString);
     if (options === undefined) {
       return;
     }
     const version = model.getVersionId();
-    const computation = diffComputer.compute(
-      uriString,
-      {
-        original: options.original,
-        claudeVersion: options.claudeVersion,
-        acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
-      },
-      model,
-    );
+    const computation = bindDocument(model).prepare(reviewDiffSources(options));
     const calculation = computation instanceof Promise ? await computation : computation;
     if (
       disposed ||
       generation !== renderGeneration ||
       editor.getModel() !== model ||
       model.getVersionId() !== version ||
-      diffs.get(uriString) !== options
+      documents.get(uriString) !== options
     ) {
       return;
     }
@@ -1348,18 +563,8 @@ export function createInlineDiff(
     let initialLine: number | undefined;
     presentation.updateGeometry(() => {
       clearControls();
-      if (options.allActionsDisabled === true && presentation.scope.current === "all") {
-        presentation.scope.current = "change";
-      }
 
-      const markers = computeDiffMarkers(
-        {
-          original: options.original,
-          acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
-          claudeVersion: options.claudeVersion,
-        },
-        calculation,
-      );
+      const markers = calculation.markers;
       // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
       if (markers.hunks.length === 0 && !hasFadedBand(options)) {
         clearRender();
@@ -1367,82 +572,33 @@ export function createInlineDiff(
         initialProposalReveals.delete(uriString);
         return; // no net change and nothing kept — nothing to render
       }
-      const { acceptedHunks, hunks } = markers;
+      const { hunks } = markers;
 
-      replacePaint(model, options, markers);
+      replacePaint(markers);
 
-      currentOptions = options;
-      currentHunks = hunks;
-      renderedVersion = version;
-      showingParked = false;
+      toolbarPaint = { status: "ready", options, markers };
       if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
         initialLine = hunks[0].anchorLine;
       }
-      renderedScope = presentation.scope.current;
-      replaceToolbar(buildToolbar(options));
-      // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
-      if (
-        options.mode === "applied" &&
-        options.onKeepHunk !== undefined &&
-        options.onRevertHunk !== undefined
-      ) {
-        hunks.forEach((hunk, index) => {
-          const widget = buildPendingWidget(hunk, index, model);
-          hunkWidgets.push(widget);
-          editor.addContentWidget(widget);
-        });
-      }
-      // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
-      if (options.onUnkeepHunk !== undefined) {
-        const onUnkeep = options.onUnkeepHunk;
-        acceptedHunks.forEach((hunk, index) => {
-          const widget = buildUndoWidget(hunk, index, model, onUnkeep);
-          hunkWidgets.push(widget);
-          editor.addContentWidget(widget);
-        });
+      for (const control of buildReviewHunkControls(
+        documentBinding!.document,
+        actionPresentation(),
+        markers,
+        trackScopeAction,
+      )) {
+        const widget = anchoredWidget(control.id, model, control.line, control.element);
+        hunkWidgets.push(widget);
+        editor.addContentWidget(widget);
       }
       renderedUri = uriString;
       presentation.prepareGeometry(markers);
     });
-    renderCounter();
+    publishTarget();
     presentation.painted();
     if (initialLine !== undefined) {
       editor.setPosition({ lineNumber: initialLine, column: 1 });
       presentation.revealLine(initialLine);
     }
-  };
-
-  // The parked toolbar: the same bottom-center bar as a live review, sitting at "change 0" over whatever the
-  // editor shows. Its nav + Keep step into the review (stepIn); Keep/Revert are inert until then; Undo/Redo
-  // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
-  const renderParked = (): void => {
-    clearRenderState();
-    const editorDom = presentation.toolbarHost();
-    if (editorDom === null || parkedReview === undefined) {
-      replaceToolbar(undefined);
-      return;
-    }
-    const controls = createParkedToolbar(
-      parkedReview,
-      { stepIn, nextFile, prevFile, undo: undoLast, redo: redoReview },
-      history,
-    );
-    undoButton = controls.undo;
-    redoButton = controls.redo;
-    replaceToolbar(controls.bar);
-    showingParked = true;
-  };
-
-  // True when the diff commands (Next/Previous/Keep/Revert Change, Undo All) would actually act: a diff is shown
-  // for the active model, or a review set is pending (their chords step into it). Gates them out of the palette
-  // otherwise — an empty workspace shouldn't lead with commands that silently no-op (#137).
-  const syncDiffContext = (): void => {
-    if (!presentation.active()) return;
-    const model = editor.getModel();
-    const active =
-      (model !== null && diffs.has(model.uri.toString())) ||
-      (parkedReview !== undefined && parkedReview.fileCount > 0);
-    setContext("diffActive", active);
   };
 
   const drainRender = async (): Promise<void> => {
@@ -1455,7 +611,7 @@ export function createInlineDiff(
         renderQueued = false;
         const model = editor.getModel();
         const uriString = model?.uri.toString();
-        const options = uriString === undefined ? undefined : diffs.get(uriString);
+        const options = uriString === undefined ? undefined : documents.get(uriString);
         if (model === null || uriString === undefined || options === undefined) {
           continue;
         }
@@ -1467,7 +623,7 @@ export function createInlineDiff(
             !disposed &&
             generation === renderGeneration &&
             editor.getModel() === model &&
-            diffs.get(uriString) === options
+            documents.get(uriString) === options
           ) {
             log("error", `inline diff rendering failed: ${String(error)}`);
             renderUnavailable(uriString, options, "Diff calculation failed");
@@ -1489,24 +645,20 @@ export function createInlineDiff(
 
   // Render the active model's diff if it has one; else park the navigator when a review set is pending; else clear.
   const renderActive = (): void => {
-    syncDiffContext();
     renderGeneration++;
     const model = editor.getModel();
     const uriString = model?.uri.toString();
-    const options = uriString === undefined ? undefined : diffs.get(uriString);
-    renderedScope = presentation.scope.current;
+    const options = uriString === undefined ? undefined : documents.get(uriString);
     if (model !== null && uriString !== undefined && options !== undefined) {
       if (renderedUri !== uriString) {
         clearRender(); // what is on screen belongs to another file; nothing here to preserve
       }
+      bindDocument(model);
+      publishTarget();
       queueRender();
-    } else if (parkedReview !== undefined && parkedReview.fileCount > 0) {
-      renderQueued = false;
-      diffComputer.dispose();
-      renderParked();
     } else {
       renderQueued = false;
-      diffComputer.dispose();
+      releaseDocument();
       clearRender();
     }
   };
@@ -1514,13 +666,14 @@ export function createInlineDiff(
   const scheduleRender = (): void => {
     const model = editor.getModel();
     const uriString = model?.uri.toString();
-    const options = uriString === undefined ? undefined : diffs.get(uriString);
+    const options = uriString === undefined ? undefined : documents.get(uriString);
     if (model === null || uriString === undefined || options === undefined) {
       return;
     }
     initialProposalReveals.delete(uriString);
     renderGeneration++;
     syncScopeButtons();
+    publishTarget();
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
     }
@@ -1530,232 +683,146 @@ export function createInlineDiff(
     }, DIFF_RECOMPUTE_DEBOUNCE_MS);
   };
 
-  // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
-  const onModel = editor.onDidChangeModel(() => {
-    closeNewComposer();
-    scopeMenuOpen = false;
-    if (recomputeTimer !== undefined) {
-      clearTimeout(recomputeTimer);
-      recomputeTimer = undefined;
-    }
-    renderActive();
-  });
-  const onContent = editor.onDidChangeModelContent(scheduleRender);
-  const offFonts = onFontsChanged(renderActive);
-  // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
-  const onCursor = editor.onDidChangeCursorPosition(() => {
-    const uri = editor.getModel()?.uri.toString();
-    if (uri !== undefined) {
-      initialProposalReveals.delete(uri);
-    }
-    renderCounter();
-  });
-  // Manual scrolling moves the review position too (reviewLine follows the viewport once the cursor leaves
-  // it), so the counter tracks scroll as well as cursor moves.
-  const onScroll = editor.onDidScrollChange(renderCounter);
-  // Close an open scope dropdown on any click outside it (capture so it beats the editor's own handlers).
-  const onDocDown = (event: PointerEvent): void => {
-    if (
-      scopeMenuOpen &&
-      scopeMenuNode !== undefined &&
-      scopeWrapNode !== undefined &&
-      !scopeWrapNode.contains(event.target as Node)
-    ) {
-      scopeMenuOpen = false;
-      scopeMenuNode.style.display = "none";
-    }
+  const subscriptions = new DisposableStore();
+  const release = (): void => {
+    if (disposed) return;
+    disposed = true;
+    renderGeneration++;
+    renderQueued = false;
+    initialProposalReveals.clear();
+    if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
+    dispose([
+      subscriptions,
+      toDisposable(releaseDocument),
+      toDisposable(clearPaint),
+      toDisposable(clearControls),
+      toDisposable(() => {
+        renderedUri = undefined;
+        publishTarget();
+      }),
+    ]);
   };
-  document.addEventListener("pointerdown", onDocDown, true);
-  // Escape closes an open scope dropdown from the keyboard (capture so it beats the editor's own Escape).
-  const onDocKey = (event: KeyboardEvent): void => {
-    if (event.key === "Escape" && scopeMenuOpen && scopeMenuNode !== undefined) {
-      event.stopPropagation();
-      scopeMenuOpen = false;
-      scopeMenuNode.style.display = "none";
-    }
-  };
-  document.addEventListener("keydown", onDocKey, true);
-
-  // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
-  // to its file:// URI; the review path passes the transient model's URI).
-  const setByUri = (key: string, options: InlineDiffOptions): void => {
-    if (!diffs.has(key) && options.mode === "review") {
-      initialProposalReveals.add(key);
-    }
-    diffs.set(key, options);
-    syncDiffContext();
-    const model = editor.getModel();
-    if (model === null || model.uri.toString() !== key) {
-      return;
-    }
-    // The host re-emits this file's diff on every autosave, so mid-typing the pushes arrive at keystroke rate.
-    // Let the armed recompute pick the new options up rather than rendering per save; a push while nothing is
-    // pending (a keep, a fresh agent edit) still renders straight away.
-    if (renderedUri !== key || recomputeTimer === undefined) {
-      renderActive();
-    }
-  };
-  const clearByUri = (key: string): void => {
-    for (const [session, keys] of appliedKeys) {
-      keys.delete(key);
-      if (keys.size === 0) {
-        appliedKeys.delete(session);
-      }
-    }
-    diffs.delete(key);
-    initialProposalReveals.delete(key);
-    diffComputer.clear(key);
-    syncDiffContext(); // an off-screen clear still changes whether any diff is active
-    if (renderedUri === key) {
-      renderActive(); // fall back to the parked navigator when a review set still remains
-    }
-  };
-
-  const actions = {
-    nextChange,
-    prevChange,
-    nextFile,
-    prevFile,
-    accept,
-    reject,
-    undo,
-    keepFile,
-    revertFile,
-    keepAll,
-    comment,
-  };
-  return {
-    captureActions() {
-      const model = editor.getModel();
-      const version = model?.getVersionId();
-      const options = currentOptions;
-      const line = reviewLine();
-      const scope = presentation.scope.current;
-      const locationActions = Object.fromEntries(
-        Object.entries(actions).map(([name, action]) => [
-          name,
-          () => {
-            if (
-              disposed ||
-              editor.getModel() !== model ||
-              model?.getVersionId() !== version ||
-              currentOptions !== options ||
-              reviewLine() !== line ||
-              presentation.scope.current !== scope
-            )
-              throw new Error("The review location for this command has changed.");
-            return action();
-          },
-        ]),
-      );
-      return { ...locationActions, ...captureHistoryActions() } as InlineDiffActions;
-    },
-    refreshPresentation() {
-      if (
-        renderedScope !== presentation.scope.current ||
-        (toolbarNode === undefined && presentation.active())
-      ) {
-        renderActive();
-        return;
-      }
-      if (toolbarNode !== undefined) {
-        const mount = presentation.toolbarHost();
-        if (mount === null) toolbarNode.remove();
-        else mountReviewToolbar(mount, toolbarNode);
-      }
-      syncDiffContext();
-      renderCounter();
-    },
-    set(session, path, options) {
-      const key = sessionFileUri(session, path).toString();
-      let keys = appliedKeys.get(session);
-      if (keys === undefined) {
-        keys = new Set<string>();
-        appliedKeys.set(session, keys);
-      }
-      keys.add(key);
-      setByUri(key, options);
-    },
-    clear(session, path) {
-      clearByUri(sessionFileUri(session, path).toString());
-    },
-    setByUri,
-    clearByUri,
-    retainApplied(session, paths) {
-      const keys = appliedKeys.get(session);
-      if (keys === undefined) {
-        return;
-      }
-      const retained = new Set(paths.map((path) => sessionFileUri(session, path).toString()));
-      const activeUri = editor.getModel()?.uri.toString();
-      let activeRemoved = false;
-      let changed = false;
-      for (const key of keys) {
-        if (retained.has(key)) {
-          continue;
+  try {
+    // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
+    subscriptions.add(
+      editor.onDidChangeModel(() => {
+        releaseDocument();
+        onTargetChanged({ kind: "none" });
+        if (recomputeTimer !== undefined) {
+          clearTimeout(recomputeTimer);
+          recomputeTimer = undefined;
         }
-        keys.delete(key);
-        diffs.delete(key);
-        initialProposalReveals.delete(key);
-        diffComputer.clear(key);
-        activeRemoved ||= key === activeUri;
-        changed = true;
-      }
-      if (keys.size === 0) {
-        appliedKeys.delete(session);
-      }
-      if (!changed) {
-        return;
-      }
-      syncDiffContext();
-      if (activeRemoved) {
         renderActive();
+      }),
+    );
+    subscriptions.add(editor.onDidChangeModelContent(scheduleRender));
+    subscriptions.add(toDisposable(onFontsChanged(renderActive)));
+    // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
+    subscriptions.add(
+      editor.onDidChangeCursorPosition(() => {
+        const uri = editor.getModel()?.uri.toString();
+        if (uri !== undefined) {
+          initialProposalReveals.delete(uri);
+        }
+        publishTarget();
+      }),
+    );
+    // Manual scrolling moves the review position too (reviewLine follows the viewport once the cursor leaves
+    // it), so the counter tracks scroll as well as cursor moves.
+    subscriptions.add(editor.onDidScrollChange(publishTarget));
+
+    // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
+    // to its file:// URI; the review path passes the transient model's URI).
+    const setByUri = (key: string, options: InlineDiffOptions): void => {
+      if (!documents.has(key) && options.mode === "review") {
+        initialProposalReveals.add(key);
       }
-    },
-    clearAll() {
-      diffs.clear();
-      appliedKeys.clear();
-      renderGeneration++;
-      renderQueued = false;
-      diffComputer.dispose();
-      initialProposalReveals.clear();
-      presentation.scope.current = "change";
-      scopeMenuOpen = false;
-      parkedReview = undefined;
-      closeNewComposer();
-      clearRender();
-      syncDiffContext();
-    },
-    hasDiffForUri: (uri) => diffs.has(uri),
-    bindHistory(handlers) {
-      historyHandlers = handlers;
-    },
-    setReviewHistory(state) {
-      history = state;
-      syncHistoryButtons();
-    },
-    setParkedReview(summary) {
-      parkedReview = summary;
-      renderActive();
-    },
-    dispose() {
-      disposed = true;
-      renderGeneration++;
-      renderQueued = false;
-      diffComputer.dispose();
-      initialProposalReveals.clear();
-      if (recomputeTimer !== undefined) {
-        clearTimeout(recomputeTimer);
+      documents.configure(key, options);
+    };
+    const clearByUri = (key: string): void => {
+      for (const [session, keys] of appliedKeys) {
+        keys.delete(key);
+        if (keys.size === 0) {
+          appliedKeys.delete(session);
+        }
       }
-      document.removeEventListener("pointerdown", onDocDown, true);
-      document.removeEventListener("keydown", onDocKey, true);
-      onCursor.dispose();
-      onScroll.dispose();
-      onModel.dispose();
-      onContent.dispose();
-      offFonts();
-      closeNewComposer();
-      clearRender();
-    },
-  };
+      documents.configure(key, undefined);
+    };
+
+    subscriptions.add(
+      documents.onDidChangeConfiguration((uri) => {
+        if (!documents.has(uri)) {
+          initialProposalReveals.delete(uri);
+          if (documentBinding?.document.model.uri.toString() === uri) releaseDocument();
+        }
+        if (editor.getModel()?.uri.toString() !== uri) return;
+        syncScopeButtons();
+        publishTarget();
+        // Autosave pushes share the edit's pending debounce; explicit review changes paint immediately.
+        if (!documents.has(uri) || renderedUri !== uri || recomputeTimer === undefined)
+          renderActive();
+      }),
+    );
+    renderActive();
+
+    return {
+      refresh: renderActive,
+      composerFocused,
+      commentsRetained: comments.retained,
+      set(session, path, options) {
+        const key = sessionFileUri(session, path).toString();
+        let keys = appliedKeys.get(session);
+        if (keys === undefined) {
+          keys = new Set<string>();
+          appliedKeys.set(session, keys);
+        }
+        keys.add(key);
+        setByUri(key, options);
+      },
+      clear(session, path) {
+        clearByUri(sessionFileUri(session, path).toString());
+      },
+      setByUri,
+      clearByUri,
+      retainApplied(session, paths) {
+        const keys = appliedKeys.get(session);
+        if (keys === undefined) {
+          return;
+        }
+        const retained = new Set(paths.map((path) => sessionFileUri(session, path).toString()));
+        for (const key of keys) {
+          if (retained.has(key)) {
+            continue;
+          }
+          keys.delete(key);
+          documents.configure(key, undefined);
+        }
+        if (keys.size === 0) {
+          appliedKeys.delete(session);
+        }
+      },
+      clearAll() {
+        releaseDocument();
+        appliedKeys.clear();
+        renderGeneration++;
+        renderQueued = false;
+        initialProposalReveals.clear();
+        documents.retain(() => false);
+        clearRender();
+        publishTarget();
+      },
+      hasDiffForUri: (uri) => documents.has(uri),
+      dispose: release,
+    };
+  } catch (error) {
+    try {
+      release();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Inline diff construction and cleanup failed",
+      );
+    }
+    throw error;
+  }
 }

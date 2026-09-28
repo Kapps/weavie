@@ -1,3 +1,7 @@
+import {
+  DisposableMap,
+  DisposableStore,
+} from "@codingame/monaco-vscode-api/vscode/vs/base/common/lifecycle";
 import { ICodeEditorService } from "@codingame/monaco-vscode-api/vscode/vs/editor/browser/services/codeEditorService.service";
 import type { TextEditorConnection } from "./editor-context";
 // Monaco + the monaco-vscode-api service layer are the heaviest code in the app, so this module is dynamically
@@ -252,7 +256,8 @@ export async function createEditorHost(
 
   // Save: debounce-flush the working copy to disk so embedded Claude (which reads disk) sees current state. A
   // blind overwrite (ignoreModifiedSince) — weavie's buffer is authoritative; the isDirty guard skips no-op saves.
-  const saveAttached = new WeakSet<monaco.editor.ITextModel>();
+  const saveAttached = new DisposableMap<monaco.editor.ITextModel, DisposableStore>();
+  disposables.push(saveAttached);
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Error gate (clean → erroring): hold a flush while the file shows error markers AND its last saved state was
@@ -338,9 +343,10 @@ export async function createEditorHost(
     if (saveAttached.has(model) || !isUserFileModel(model)) {
       return;
     }
-    saveAttached.add(model);
+    const subscriptions = new DisposableStore();
+    saveAttached.set(model, subscriptions);
     const key = model.uri.toString();
-    disposables.push(
+    subscriptions.add(
       model.onDidChangeContent(() => {
         // Only a real user edit dirties the working copy; a host-driven reload/revert doesn't, so skip it.
         if (!textFileService.isDirty(model.uri)) {
@@ -361,6 +367,8 @@ export async function createEditorHost(
           setTimeout(() => flushSave(key), delay),
         );
       }),
+    );
+    subscriptions.add(
       model.onWillDispose(() => {
         const pending = saveTimers.get(key);
         if (pending !== undefined) {
@@ -369,6 +377,7 @@ export async function createEditorHost(
         }
         holdingSince.delete(key);
         savedHadErrors.delete(key);
+        saveAttached.deleteAndDispose(model);
       }),
     );
   };

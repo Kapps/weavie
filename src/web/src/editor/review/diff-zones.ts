@@ -4,9 +4,10 @@
 
 import { monaco } from "../monaco-setup";
 import type { DiffMarkers } from "./diff-markers";
+import { ReviewZoneOrder } from "./review-zone-order";
 
 // Height of the "New file" header band shown above a wholly-new file's first line.
-const NEW_FILE_BADGE_HEIGHT = 24;
+export const NEW_FILE_BADGE_HEIGHT = 24;
 
 /**
  * Repaint debounce, so typing into a file under review doesn't recompute the diff and re-lay-out its zones on
@@ -25,6 +26,7 @@ export function addDiffZones(
     ids.push(
       accessor.addZone({
         afterLineNumber: 0,
+        ordinal: ReviewZoneOrder.diff,
         heightInPx: NEW_FILE_BADGE_HEIGHT,
         domNode: buildNewFileBadge(),
       }),
@@ -35,6 +37,7 @@ export function addDiffZones(
     ids.push(
       accessor.addZone({
         afterLineNumber: ghost.afterLineNumber,
+        ordinal: ReviewZoneOrder.diff,
         heightInLines: ghost.lines.length,
         domNode: view.node,
         onDomNodeTop: view.onDomNodeTop,
@@ -73,7 +76,10 @@ function buildGhostLines(
   const onDomNodeTop = (top: number): void => {
     const overscan = 20;
     const viewportHeight = editor.getLayoutInfo().height;
-    const start = Math.max(0, Math.floor(-top / fontInfo.lineHeight) - overscan);
+    const start = Math.min(
+      lines.length,
+      Math.max(0, Math.floor(-top / fontInfo.lineHeight) - overscan),
+    );
     const end = Math.min(
       lines.length,
       Math.max(0, Math.ceil((viewportHeight - top) / fontInfo.lineHeight) + overscan),
@@ -95,7 +101,7 @@ function buildGhostLines(
 
 // The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added
 // file is labelled once instead of washed green on every line.
-function buildNewFileBadge(): HTMLElement {
+export function buildNewFileBadge(): HTMLElement {
   const node = document.createElement("div");
   node.className = "weavie-inline-newfile";
   const tag = document.createElement("span");

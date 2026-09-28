@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ReviewEditor } from "./review-editor";
+import type { ReviewSection } from "./review-section";
 import type { ReviewFileView } from "./review-store";
 import { createReviewSurface } from "./review-surface";
 
@@ -36,7 +36,10 @@ function fixture() {
   const select = vi.fn((index: number) => {
     state.index = index;
   });
+  const controls = { refresh: vi.fn(), captureActions: vi.fn() };
   const surface = createReviewSurface({
+    horizontal: new ReviewHorizontalPositions(vi.fn()),
+    controls,
     signal: new AbortController().signal,
     active: () => state.active,
     changed: vi.fn(),
@@ -50,7 +53,7 @@ function fixture() {
     scrollToIndex: vi.fn(),
     focus: vi.fn(),
   });
-  return { surface, state, select };
+  return { surface, state, select, controls };
 }
 
 describe("unified review completion navigation", () => {
@@ -114,7 +117,7 @@ describe("pending review navigation ownership", () => {
       restore: vi.fn(),
       revealFileStart: vi.fn(),
       focus: vi.fn(),
-    } as unknown as ReviewEditor;
+    } as unknown as ReviewSection;
     const paint = async () => {
       await Promise.resolve();
       for (const callback of frames.splice(0)) callback(0);
@@ -147,6 +150,77 @@ describe("pending review navigation ownership", () => {
     surface.dispose();
   });
 
+  it("retries failed preparation only when the user selects the file again", async () => {
+    const { surface, section, paint } = painting();
+    const retry = vi.fn();
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    surface.sections.failed("/work/0.ts", section, new Error("grammar failed"), retry);
+    await paint();
+    surface.refresh();
+    expect(retry).not.toHaveBeenCalled();
+    expect(section.focus).not.toHaveBeenCalled();
+    surface.reveal("/work/0.ts", 80);
+    expect(retry).toHaveBeenCalledOnce();
+    await paint();
+    surface.sections.set("/work/0.ts", section);
+    await Promise.resolve();
+    expect(section.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(section.focus).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  it("keeps the exact failed file's unavailable toolbar target", () => {
+    const { surface, section } = painting();
+    const target = { kind: "none" as const };
+    section.target = vi.fn(() => target);
+    surface.sections.failed("/work/0.ts", section, new Error("paint failed"), vi.fn());
+    expect(surface.target()).toBe(target);
+    surface.sections.clear("/work/0.ts", section);
+    surface.target();
+    expect(section.target).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  it("keeps a failed retry recoverable without retrying it in the background", async () => {
+    const { surface, section, paint } = painting();
+    const retry = vi.fn<() => void>(() => {
+      throw new Error("still unavailable");
+    });
+    surface.sections.failed("/work/0.ts", section, new Error("unavailable"), retry);
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    expect(retry).toHaveBeenCalledOnce();
+    retry.mockImplementation(() => {
+      surface.sections.set("/work/0.ts", section);
+    });
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    await Promise.resolve();
+    expect(retry).toHaveBeenCalledTimes(2);
+    expect(section.focus).toHaveBeenCalledOnce();
+    surface.dispose();
+  });
+
+  it("releases the retired file's retry without clearing a replacement owner's failure", async () => {
+    const { surface, section, paint } = painting();
+    const retiredRetry = vi.fn();
+    surface.sections.failed("/work/0.ts", section, new Error("failed"), retiredRetry);
+    surface.sections.clear("/work/0.ts", section);
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    expect(retiredRetry).not.toHaveBeenCalled();
+    surface.takeControl();
+    const replacement = { ...section };
+    const retry = vi.fn();
+    surface.sections.failed("/work/0.ts", replacement, new Error("replacement failed"), retry);
+    surface.sections.clear("/work/0.ts", section);
+    surface.reveal("/work/0.ts", 80);
+    expect(retry).toHaveBeenCalledOnce();
+    expect(retiredRetry).not.toHaveBeenCalled();
+    surface.dispose();
+  });
+
   it("allows a new navigation from the input that cancels an older queued frame", async () => {
     const { surface, section, paint } = painting();
     surface.reveal("/work/0.ts", 1);
@@ -168,6 +242,7 @@ describe("pending review navigation ownership", () => {
         viewState: {
           location: { path: "/work/0.ts", line: 1 },
           scrollTop: 0,
+          horizontal: {},
         },
       },
       new AbortController().signal,
@@ -181,3 +256,5 @@ describe("pending review navigation ownership", () => {
     surface.dispose();
   });
 });
+
+import { ReviewHorizontalPositions } from "./review-horizontal-position";

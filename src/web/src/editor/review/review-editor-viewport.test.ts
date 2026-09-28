@@ -13,6 +13,7 @@ import type { ReviewScroll } from "./review-scroll";
 vi.mock("../monaco-setup", () => ({ monaco: { editor: { ScrollType: { Immediate: 1 } } } }));
 
 function fixture() {
+  vi.stubGlobal("document", { activeElement: null });
   vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "6" }));
   vi.stubGlobal(
     "requestAnimationFrame",
@@ -70,6 +71,9 @@ function fixture() {
   let rootTop = view.getCurrentScrollTop();
   const writes: number[] = [];
   const state = {
+    focused: true,
+    mountFocused: false,
+    widgetFocused: false,
     duringLayout: () => {},
     containerHeight: () => contentHeight,
     containerOffset: 38,
@@ -92,6 +96,9 @@ function fixture() {
     removeEventListener: vi.fn(),
   };
   const container = {
+    append: vi.fn((node: { isConnected: boolean }) => {
+      node.isConnected = true;
+    }),
     get clientHeight() {
       measure();
       return state.containerHeight();
@@ -103,11 +110,30 @@ function fixture() {
     },
   };
   const mount = {
+    isConnected: true,
+    contains: () => state.mountFocused,
+    remove: vi.fn(() => {
+      mount.isConnected = false;
+    }),
     style: { top: "", setProperty: vi.fn() },
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   };
+  const widgetHost = {
+    append: vi.fn((node: { isConnected: boolean }) => {
+      node.isConnected = true;
+    }),
+  };
+  const widgets = {
+    parentElement: widgetHost,
+    isConnected: true,
+    contains: () => state.widgetFocused,
+    remove: vi.fn(() => {
+      widgets.isConnected = false;
+    }),
+  };
   const editor = {
+    hasWidgetFocus: () => state.focused,
     layout: vi.fn(({ width, height }: { width: number; height: number }) => {
       layoutInfo.width = width;
       layoutInfo.height = height;
@@ -124,6 +150,8 @@ function fixture() {
     setScrollTop: (top: number) => view.getScrollable().setScrollPositionNow({ scrollTop: top }),
     onDidScrollChange: view.onDidScroll,
     render: vi.fn(),
+    renderAsync: vi.fn(),
+    dispose: vi.fn(),
   };
   const listeners = new Set<(userInitiated: boolean) => void>();
   const owner: ReviewScroll = {
@@ -150,8 +178,9 @@ function fixture() {
   };
   const createEditor = vi.fn(() => editor as unknown as MonacoEditor.IStandaloneCodeEditor);
   const viewport = createReviewEditorViewport(
-    container as HTMLElement,
+    container as unknown as HTMLElement,
     mount as unknown as HTMLElement,
+    widgets as unknown as HTMLElement,
     owner,
     { getBoundingClientRect: () => ({ height: state.headerHeight }) } as HTMLElement,
     createEditor,
@@ -171,6 +200,8 @@ function fixture() {
     view,
     viewport,
     mount,
+    widgets,
+    widgetHost,
     writes,
     state,
     rootTop: () => rootTop,
@@ -185,6 +216,49 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("parks exact unfocused nodes without scroll-time layout and reattaches them on re-entry", () => {
+    const current = fixture();
+    current.state.focused = false;
+    current.state.containerOffset = 20_000;
+    current.viewport.layout();
+    current.scrollTo(0);
+    expect(current.mount.isConnected).toBe(false);
+    expect(current.widgets.isConnected).toBe(false);
+    current.editor.layout.mockClear();
+    current.measure.mockClear();
+    for (const top of [100, 200.5, 300.75]) current.scrollTo(top);
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    current.container.clientWidth = 720;
+    current.viewport.layout();
+    expect(current.editor.getLayoutInfo().width).toBe(720);
+    expect(current.mount.isConnected).toBe(false);
+    current.scrollTo(20_000);
+    expect(current.container.append).toHaveBeenCalledExactlyOnceWith(current.mount);
+    expect(current.widgetHost.append).toHaveBeenCalledExactlyOnceWith(current.widgets);
+    expect(current.editor.renderAsync).toHaveBeenCalledExactlyOnceWith(true);
+    expect(current.createEditor).toHaveBeenCalledOnce();
+    expect(current.editor.dispose).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "focused",
+    "mountFocused",
+    "widgetFocused",
+  ] as const)("retains an offscreen editor with %s input ownership", (owner) => {
+    const current = fixture();
+    current.state.focused = false;
+    current.state[owner] = true;
+    current.state.containerOffset = 20_000;
+    current.viewport.layout();
+    current.scrollTo(0);
+    expect(current.mount.remove).not.toHaveBeenCalled();
+    expect(current.widgets.remove).not.toHaveBeenCalled();
+    current.state[owner] = false;
+    current.scrollTo(10);
+    expect(current.mount.isConnected).toBe(false);
+    expect(current.widgets.isConnected).toBe(false);
+  });
   it("supplies the measured width at construction without remeasuring the section", () => {
     const current = fixture();
     expect(current.createEditor).toHaveBeenCalledExactlyOnceWith({ width: 716, height: 0 });
@@ -210,6 +284,30 @@ describe("review viewport geometry ownership", () => {
     expect(current.measure).toHaveBeenCalledTimes(2);
     expect(current.editor.getLayoutInfo().height).toBe(562);
     expect(current.view.getCurrentScrollTop()).toBe(100);
+  });
+
+  it("shifts cached section positions without measuring layout or changing the outer scroll", () => {
+    const current = fixture();
+    current.scrollTo(10_000);
+    const before = current.viewport.bounds();
+    current.measure.mockClear();
+    current.editor.layout.mockClear();
+    current.writes.length = 0;
+    current.state.containerOffset += 200;
+    current.viewport.shift(200);
+    expect(current.viewport.bounds()).toEqual({
+      top: before.top - 200,
+      bottom: before.bottom - 200,
+      height: before.height,
+    });
+    expect(current.view.getCurrentScrollTop()).toBe(9_800);
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.writes).toEqual([]);
+    current.viewport.reveal(50);
+    expect(current.rootTop()).toBe(250);
+    current.viewport.layout();
+    expect(current.viewport.bounds().top).toBe(50);
   });
 
   it("restores geometry ownership when a nested mutation throws", () => {
@@ -240,6 +338,7 @@ describe("review viewport geometry ownership", () => {
 
     current.viewport.update(cleanup);
     current.viewport.layout();
+    current.viewport.shift(100);
     current.viewport.reveal(0);
 
     expect(cleanup).toHaveBeenCalledOnce();

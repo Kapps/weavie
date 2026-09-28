@@ -30,16 +30,20 @@ test.use({
 test("a pending diff shows a bounded loading surface until geometry is ready", async ({ page }) => {
   await page.locator(".editor-empty-review").click();
   const section = page.locator(".unified-review-file");
-  await expect(section.locator(".monaco-editor")).toBeAttached();
+  await expect(section.locator(".review-adaptive-body")).toBeAttached();
   await workerRequested.promise;
   try {
-    await expect(section.locator(".monaco-editor")).toBeHidden();
-    await expect(section.locator(".unified-review-notice")).toHaveText("Calculating diff…");
+    await expect(section.locator(".review-adaptive-body")).toHaveAttribute("aria-busy", "true");
+    await expect(section.locator(".review-adaptive-live .monaco-editor")).toHaveCount(0);
+    await expect(section.locator(".unified-review-notice")).toHaveText("Preparing review…");
     const viewport = await page.locator(".unified-review-diffs").evaluate((el) => el.clientHeight);
     expect(await section.evaluate((el) => el.clientHeight)).toBeLessThan(viewport);
   } finally {
     releaseWorker.resolve();
   }
+  await expect(section.locator(".review-adaptive-body")).toHaveAttribute("aria-busy", "false");
   await expect(section.locator(".view-line", { hasText: "changed line 3500" })).toBeVisible();
-  await expect(section.locator(".weavie-inline-removed-content")).toContainText("line 3500");
+  await expect(
+    section.locator(".weavie-inline-removed-line", { hasText: "line 3500" }),
+  ).toBeVisible();
 });

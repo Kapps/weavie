@@ -17,7 +17,7 @@ export interface ReviewFileBodyProps {
   session: ClientSession;
   tab: TabOwner;
   onEditor(editor: Pick<ReviewEditor, "layout" | "shift"> | undefined): void;
-  activated: () => boolean;
+  requestFocus(): () => void;
   ownsEditor(): boolean;
   claimEditor(): void;
   preparePassive: ReviewPreparationQueue;

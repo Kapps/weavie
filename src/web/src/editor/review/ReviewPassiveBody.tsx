@@ -9,6 +9,7 @@ import { onFontsChanged } from "../../fonts";
 import type { ReviewCopy } from "../editor-host";
 import type { ReviewFileBodyProps } from "./ReviewFileBody";
 import type { ReviewCommentLayout } from "./review-comment-layout";
+import type { ReviewDocument } from "./review-document";
 import { reviewEditorConfiguration } from "./review-editor-configuration";
 import { createReviewHorizontalScroll } from "./review-horizontal-scroll";
 import { buildReviewHunkControls } from "./review-hunk-controls";
@@ -20,7 +21,7 @@ import type {
   PreparedPassiveReview,
 } from "./review-passive-presentation";
 import { captureReviewDecorations, sameReviewDecorations } from "./review-projection-decorations";
-import type { ReviewSection } from "./review-section";
+import type { ReviewSectionFailure } from "./review-section";
 import { hasReviewChanges } from "./review-store";
 import type { ReviewToolbarTarget } from "./review-toolbar-state";
 import { routeReviewWheel } from "./review-wheel";
@@ -36,13 +37,11 @@ export function ReviewPassiveBody(
     | "preparePassive"
     | "onEditorHeight"
     | "measure"
-    | "register"
     | "onEditor"
     | "header"
     | "horizontal"
   > & {
     comments: ReviewCommentLayout;
-    failureOwner: ReviewSection;
     target(): ReviewToolbarTarget;
     cursorLine(): number;
     onPresentation(value: PassiveReviewPresentation | undefined): void;
@@ -50,6 +49,7 @@ export function ReviewPassiveBody(
 ): JSX.Element {
   let container!: HTMLDivElement;
   const [error, setError] = createSignal("");
+  const [failure, setFailure] = createSignal<ReviewSectionFailure>();
   const [ready, setReady] = createSignal(false);
   const [available, setAvailable] = createSignal<PreparedPassiveReview>();
   const [controlsRevision, setControlsRevision] = createSignal(0);
@@ -59,6 +59,7 @@ export function ReviewPassiveBody(
   let decorationsDirty = false;
   let decorationCheckQueued = false;
   let copy: ReviewCopy | undefined;
+  let reviewDocument: ReviewDocument | undefined;
   let configuration: ReturnType<typeof reviewEditorConfiguration> | undefined;
   let preparation: AbortController | undefined;
   let subscriptions: { dispose(): void }[] = [];
@@ -115,14 +116,15 @@ export function ReviewPassiveBody(
     setReady(false);
     if (enabled && !preparing) void prepare();
   };
+  const matches = (value: PreparedPassiveReview): boolean =>
+    !dropped &&
+    !value.source.model.isDisposed() &&
+    value.source.version === value.source.model.getVersionId() &&
+    value.source.language === value.source.model.getLanguageId() &&
+    value.diff === untrack(() => props.file().diff());
   const current = (): PreparedPassiveReview | undefined => {
     if (dropped || !cached) return undefined;
-    if (
-      cached.source.model.isDisposed() ||
-      cached.source.version !== cached.source.model.getVersionId() ||
-      cached.source.language !== cached.source.model.getLanguageId() ||
-      cached.diff !== untrack(() => props.file().diff())
-    ) {
+    if (!matches(cached)) {
       invalidate();
       return undefined;
     }
@@ -235,8 +237,9 @@ export function ReviewPassiveBody(
               ),
             ];
           }
+          reviewDocument = props.documents.forModel(copy.model);
           const documentModel = await preparePassiveDocument(
-            props.documents.forModel(copy.model),
+            reviewDocument,
             diff,
             operation.signal,
           );
@@ -285,6 +288,7 @@ export function ReviewPassiveBody(
           container.style.height = `${rendered.height}px`;
           paintedRevision = revision;
           setError("");
+          setFailure(undefined);
           if (props.onEditorHeight(rendered.height)) props.measure();
           layout();
           prepared = {
@@ -303,9 +307,13 @@ export function ReviewPassiveBody(
       paintedRevision = undefined;
       if (visualRevision === requestedRevision) {
         setError(`${String(cause)} — select this file again to retry.`);
-        props.register.failed(props.file().summary().path, props.failureOwner, cause, () => {
-          setError("");
-          resume();
+        setFailure({
+          error: cause,
+          retry: () => {
+            setError("");
+            setFailure(undefined);
+            resume();
+          },
         });
       }
     } finally {
@@ -325,7 +333,7 @@ export function ReviewPassiveBody(
   const resume = (): void => {
     if (dropped) return;
     enabled = true;
-    if (!current() && !preparing) void prepare();
+    if (!current() && !preparing && !failure()) void prepare();
     sync();
   };
   createEffect(() => {
@@ -345,6 +353,7 @@ export function ReviewPassiveBody(
       for (const subscription of subscriptions) subscription.dispose();
       subscriptions = [];
       copy = undefined;
+      reviewDocument = undefined;
       for (const chunk of visible) chunk.node.remove();
       chunks = [];
       copyMap = undefined;
@@ -353,8 +362,8 @@ export function ReviewPassiveBody(
       container.style.height = "0px";
       setReady(props.file().loaded());
       setError("");
+      setFailure(undefined);
       if (props.onEditorHeight(0)) props.measure();
-      if (props.file().loaded()) props.register.empty(props.file().summary().path);
       return;
     }
     invalidate();
@@ -393,12 +402,15 @@ export function ReviewPassiveBody(
     props.onEditor(geometry);
     props.onPresentation({
       ...geometry,
-      prepared: available,
+      prepared: () => {
+        const value = available();
+        return value && matches(value) ? value : undefined;
+      },
       current,
       displayed: () => displayed,
-      document: () =>
-        copy && !copy.model.isDisposed() ? props.documents.forModel(copy.model) : undefined,
+      document: () => (copy && !copy.model.isDisposed() ? reviewDocument : undefined),
       error,
+      failure,
       bounds: () => {
         const top = scroller.getScrollTop() + headerHeight - containerTop;
         return {

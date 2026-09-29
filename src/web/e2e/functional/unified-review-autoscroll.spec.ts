@@ -5,6 +5,7 @@ import { pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor, reviewPaint } from "../harness/review-renderer";
 import { reviewScroll, scrollReview } from "../harness/review-scroll";
 
 const paths = ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"];
@@ -32,7 +33,7 @@ async function openReview(page: Page): Promise<void> {
   await awaitReviewSet(page, paths);
   await page.locator(".editor-empty-review").click();
   await page.locator(".unified-review-tree-row.file").first().click();
-  await expect(page.locator(".unified-review-file .view-line").first()).toBeVisible();
+  await expect(reviewEditor(page).locator(".view-line").first()).toBeVisible();
 }
 
 async function arm(page: Page, target: Locator): Promise<{ x: number; y: number }> {
@@ -44,11 +45,11 @@ async function arm(page: Page, target: Locator): Promise<{ x: number; y: number 
   return origin;
 }
 
-test("middle scrolling crosses files after its starting editor unmounts, without editing text", async ({
+test("middle scrolling crosses files while preserving its focused editor and selection", async ({
   page,
 }) => {
   await openReview(page);
-  const editor = page.locator(".unified-review-file .monaco-editor").first();
+  const editor = reviewEditor(page);
   const original = await editor.elementHandle();
   const observation = await page.evaluateHandle(() => {
     const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
@@ -79,8 +80,9 @@ test("middle scrolling crosses files after its starting editor unmounts, without
   expect(await observation.evaluate((sample) => sample.unchangedText())).toBe(true);
 
   await page.mouse.move(origin.x + 120, origin.y + 250);
-  await expect.poll(() => observation.evaluate((sample) => sample.disposed())).toBe(true);
-  expect(await original!.evaluate((node) => node.isConnected)).toBe(false);
+  await expect(editor).not.toBeInViewport();
+  expect(await observation.evaluate((sample) => sample.disposed())).toBe(false);
+  expect(await original!.evaluate((node) => node.isConnected)).toBe(true);
   await expect(page.locator(".middle-click-autoscroll-origin")).toBeVisible();
   await expect.poll(() => reviewScroll(page).then(({ top, maximum }) => maximum - top)).toBe(0);
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 5/5");
@@ -88,6 +90,7 @@ test("middle scrolling crosses files after its starting editor unmounts, without
   await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
   await expect(page.locator(".middle-click-autoscrolling")).toHaveCount(0);
   expect(await observation.evaluate((sample) => sample.unchangedText())).toBe(true);
+  expect(await observation.evaluate((sample) => sample.unchangedSelection())).toBe(true);
 
   const header = page.locator(".unified-review-file-header").last();
   const reverse = await arm(page, header);
@@ -100,7 +103,7 @@ test("middle scrolling crosses files after its starting editor unmounts, without
 for (const key of ["PageUp", "document start", "ArrowUp", "q"]) {
   test(`${key} stops review autoscroll and still reaches the editor`, async ({ page }) => {
     await openReview(page);
-    const editor = page.locator(".unified-review-file .monaco-editor").first();
+    const editor = reviewEditor(page);
     const observation = await editor.evaluateHandle((node) => {
       const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
         .__WEAVIE_MONACO__;
@@ -150,8 +153,8 @@ test("review autoscroll releases ownership on cancellation, tab teardown, and a 
   await openReview(page);
   const header = page.locator(".unified-review-file-header").first();
   const marker = page.locator(".middle-click-autoscroll-origin");
-  await page
-    .locator(".unified-review-file .margin")
+  await reviewEditor(page)
+    .locator(".margin")
     .first()
     .click({ button: "middle", position: { x: 5, y: 20 } });
   await expect(marker).toBeVisible();
@@ -174,7 +177,7 @@ test("review autoscroll releases ownership on cancellation, tab teardown, and a 
   const origin = await arm(page, header);
   await page.mouse.click(origin.x, origin.y);
   await expect(marker).toHaveCount(0);
-  await expect(page.locator(".unified-review-file .monaco-editor").first()).toBeVisible();
+  await expect(reviewPaint(page).first()).toBeVisible();
 
   await arm(page, header);
   await page.keyboard.press("ControlOrMeta+w");
@@ -190,7 +193,7 @@ test("review autoscroll releases ownership on cancellation, tab teardown, and a 
   await expect(marker).toHaveCount(0);
   await header.click({ button: "middle" });
   await expect(marker).toHaveCount(0);
-  const editor = page.locator(".unified-review-file .monaco-editor").first();
+  const editor = reviewEditor(page);
   const delivered = await editor.evaluateHandle((node) => {
     let pressed = false;
     node.addEventListener(

@@ -11,6 +11,7 @@ import {
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
 import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -54,12 +55,12 @@ async function prepareDeparture(page: Page): Promise<void> {
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: sourceName }),
   });
-  await section
+  await reviewPaint(section)
     .locator(".view-line")
     .first()
     .click({ position: { x: 4, y: 4 } });
   await pressDocumentEnd(page);
-  const departure = section.locator(".view-line", { hasText: "review departure" });
+  const departure = reviewPaint(section).locator(".view-line", { hasText: "review departure" });
   await expect(departure).toBeInViewport();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
@@ -123,10 +124,12 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
     const departure = await reviewState(page);
     if (invocation === "keyboard") await page.keyboard.press("F12");
     else if (invocation === "context menu") {
-      await page.locator(".unified-review .view-line", { hasText: "review departure" }).click({
-        button: "right",
-        position: { x: 40, y: 4 },
-      });
+      await reviewPaint(page)
+        .locator(".view-line", { hasText: "review departure" })
+        .click({
+          button: "right",
+          position: { x: 40, y: 4 },
+        });
       await page
         .locator(".context-menu-item")
         .filter({ hasText: /^Go to Definition/ })
@@ -147,7 +150,7 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
     await expect(page.locator(".weavie-inline-stack-name")).toHaveText(sourceName);
     await expect.poll(() => reviewState(page)).toEqual(departure);
     await expect(
-      page.locator(".unified-review .view-line", { hasText: "review departure" }),
+      reviewPaint(page).locator(".view-line", { hasText: "review departure" }),
     ).toBeInViewport();
 
     await page.keyboard.press("ControlOrMeta+Shift+p");
@@ -157,14 +160,14 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
     await expectRevealed(page, "hello.ts", 1);
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
     await expect(
-      page.locator(".unified-review .view-line", { hasText: "review departure" }),
+      reviewPaint(page).locator(".view-line", { hasText: "review departure" }),
     ).toBeInViewport();
     await expect.poll(() => reviewState(page)).toEqual(departure);
     await page.locator(".editor-tab", { hasText: "notes.txt" }).click();
     await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
     await expect(
-      page.locator(".unified-review .view-line", { hasText: "review departure" }),
+      reviewPaint(page).locator(".view-line", { hasText: "review departure" }),
     ).toBeInViewport();
     await expect.poll(() => reviewState(page)).toEqual(departure);
     await expect(
@@ -297,7 +300,7 @@ test("document symbols preview, cancel and commit against the originating review
     if (action === "cancel") await expect.poll(() => reviewState(page)).toEqual(departure);
     else {
       await expect(
-        page.locator(".unified-review-file .view-line", {
+        reviewPaint(page).locator(".view-line", {
           hasText: /export\sconst\svalue0\s=\s0;/,
         }),
       ).toBeInViewport();

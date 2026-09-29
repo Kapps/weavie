@@ -2,6 +2,7 @@ import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint, reviewPaintSelector } from "../harness/review-renderer";
 
 const baseline = Array.from({ length: 170 }, (_, index) => `// comment ${index}`);
 const changed = baseline.map((line, index) => (index % 20 === 10 ? `${line} updated` : line));
@@ -17,23 +18,27 @@ test.use({
 });
 
 async function expectCenteredLine(section: Locator, text: string): Promise<void> {
-  const line = section.locator(".view-line", { hasText: text });
+  const line = reviewPaint(section).locator(".view-line", { hasText: text });
   await expect(line).toBeInViewport();
   await expect
     .poll(() =>
-      section.evaluate((element, targetText) => {
-        // Monaco replaces line elements during rendering; sample all geometry in one DOM read.
-        const scroller = element.closest(".unified-review-diffs")?.getBoundingClientRect();
-        const header = element
-          .querySelector(".unified-review-file-header")
-          ?.getBoundingClientRect();
-        const bounds = Array.from(element.querySelectorAll(".view-line"))
-          .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").includes(targetText))
-          ?.getBoundingClientRect();
-        if (!scroller || !header || !bounds) return Number.POSITIVE_INFINITY;
-        const center = (scroller.y + header.height + scroller.y + scroller.height) / 2;
-        return Math.abs(bounds.y + bounds.height / 2 - center);
-      }, text),
+      section.evaluate(
+        (element, { targetText, paintSelector }) => {
+          // Monaco replaces line elements during rendering; sample all geometry in one DOM read.
+          const scroller = element.closest(".unified-review-diffs")?.getBoundingClientRect();
+          const header = element
+            .querySelector(".unified-review-file-header")
+            ?.getBoundingClientRect();
+          const paint = element.querySelector(paintSelector);
+          const bounds = Array.from(paint?.querySelectorAll(".view-line") ?? [])
+            .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").includes(targetText))
+            ?.getBoundingClientRect();
+          if (!scroller || !header || !bounds) return Number.POSITIVE_INFINITY;
+          const center = (scroller.y + header.height + scroller.y + scroller.height) / 2;
+          return Math.abs(bounds.y + bounds.height / 2 - center);
+        },
+        { targetText: text, paintSelector: reviewPaintSelector },
+      ),
     )
     .toBeLessThanOrEqual(25);
 }
@@ -79,6 +84,8 @@ for (const keepFile of ["toolbar", "file header"]) {
         return offset >= 0 && offset <= 25;
       })
       .toBe(true);
-    await expect(second.locator(".view-line", { hasText: /^\/\/\scomment\s7$/ })).toBeInViewport();
+    await expect(
+      reviewPaint(second).locator(".view-line", { hasText: /^\/\/\scomment\s7$/ }),
+    ).toBeInViewport();
   });
 }

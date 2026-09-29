@@ -1,5 +1,6 @@
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor, reviewPaint } from "../harness/review-renderer";
 import { scrollReview } from "../harness/review-scroll";
 
 test.use({
@@ -33,21 +34,31 @@ test("the review viewport owns the embedded editor's initial size", async ({ pag
     };
   });
   await page.locator(".editor-empty-review").click();
-  await expect(page.locator(".unified-review-file .view-line").first()).toBeVisible();
+  await reviewPaint(page)
+    .first()
+    .locator(".view-line")
+    .first()
+    .click({ position: { x: 5, y: 5 } });
+  await expect(reviewEditor(page)).toBeVisible();
   expect(await observation.evaluate((sample) => sample.finish())).toBe(0);
 });
 
-test("remounted sections reuse their measured height until the resize observer reports a change", async ({
+test("retained sections reuse measured heights without synchronous reads during return scrolling", async ({
   page,
 }) => {
   await expect(page.locator(".editor-empty-review")).toContainText("3");
   await page.locator(".editor-empty-review").click();
-  const first = page.locator('.unified-review-file[data-index="1"] .monaco-editor');
-  const last = page.locator('.unified-review-file[data-index="3"] .monaco-editor');
-  await expect(first).toBeVisible();
+  const first = page.locator('.unified-review-file[data-index="1"]');
+  const last = page.locator('.unified-review-file[data-index="3"]');
+  await expect(reviewPaint(first).locator(".view-line").first()).toBeInViewport();
+  const original = await first.elementHandle();
+  const maximum = await page
+    .getByRole("scrollbar", { name: "Review scroll position" })
+    .getAttribute("aria-valuemax");
   await scrollReview(page, "end");
-  await expect(last).toBeVisible();
-  await expect(first).toHaveCount(0);
+  await expect(last).toBeInViewport();
+  await expect(first).not.toBeInViewport();
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
   const observation = await page.evaluateHandle(() => {
     const rect = Element.prototype.getBoundingClientRect;
     const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
@@ -72,8 +83,13 @@ test("remounted sections reuse their measured height until the resize observer r
     };
   });
   await scrollReview(page, "start");
-  await expect(first).toBeVisible();
+  await expect(reviewPaint(first).locator(".view-line").first()).toBeInViewport();
   expect(await observation.evaluate((sample) => sample.finish())).toBe(0);
+  await expect(page.getByRole("scrollbar", { name: "Review scroll position" })).toHaveAttribute(
+    "aria-valuemax",
+    maximum!,
+  );
+  await expect(reviewEditor(page)).toHaveCount(0);
 });
 
 test.describe("wrapped review construction", () => {
@@ -93,7 +109,7 @@ test.describe("wrapped review construction", () => {
     },
   });
 
-  test("wrapped files attach at their final width on initial and cached mounts", async ({
+  test("wrapped files attach at their final width on initial and repeated activation", async ({
     page,
   }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("3");
@@ -122,27 +138,33 @@ test.describe("wrapped review construction", () => {
     });
     await page.locator(".editor-empty-review").click();
     const first = page.locator('.unified-review-file[data-index="1"]');
-    const lines = first.locator(".view-line");
+    const lines = reviewPaint(first).locator(".view-line");
     await expect(lines.first()).toBeVisible();
     await expect(first.locator(".unified-review-notice")).toHaveCount(0);
     const height = await first.evaluate((element) => element.clientHeight);
     expect(height).toBeGreaterThan(2_000);
-    const width = await first.locator(".monaco-editor").evaluate((element) => element.clientWidth);
+    const width = await first
+      .locator(".review-adaptive-body")
+      .evaluate((element) => element.clientWidth);
     expect(width).toBeGreaterThan(100);
     await expect(lines.nth(1)).toContainText("wrapped");
+    await lines.first().click({ position: { x: 5, y: 5 } });
+    await expect(reviewEditor(first)).toBeVisible();
     await page.locator(".unified-review-tree-row.file").last().click();
     await expect(
-      page.locator('.unified-review-file[data-index="3"] .view-line').first(),
+      reviewEditor(page.locator('.unified-review-file[data-index="3"]'))
+        .locator(".view-line")
+        .first(),
     ).toBeInViewport();
-    // Centered navigation can leave the previous file visible and the first file in overscan.
     await scrollReview(page, "end");
-    await expect(first).toHaveCount(0);
+    await expect(first).not.toBeInViewport();
+    await expect(reviewEditor(first)).toHaveCount(0);
     await scrollReview(page, "start");
     await expect(lines.first()).toBeVisible();
+    await lines.first().click({ position: { x: 5, y: 5 } });
+    await expect(reviewEditor(first)).toBeVisible();
     await expect.poll(() => first.evaluate((element) => element.clientHeight)).toBe(height);
-    expect(await first.locator(".monaco-editor").evaluate((element) => element.clientWidth)).toBe(
-      width,
-    );
+    expect(await reviewEditor(first).evaluate((element) => element.clientWidth)).toBe(width);
     const samples = await observation.evaluate((sample) => sample.finish());
     expect(samples.filter((sample) => sample.path.endsWith("/a.txt"))).toHaveLength(2);
     for (const sample of samples) {

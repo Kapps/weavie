@@ -4,6 +4,7 @@ import type { ReviewDocument } from "./review-document";
 import type { PassiveDocument } from "./review-passive-document";
 import type { renderPassiveChunks } from "./review-passive-lines";
 import type { captureReviewDecorations } from "./review-projection-decorations";
+import type { ReviewSectionFailure } from "./review-section";
 import type { ReviewFileDiff } from "./review-store";
 
 export interface PreparedPassiveReview {
@@ -22,6 +23,7 @@ export interface PassiveReviewPresentation {
   displayed(): PreparedPassiveReview | undefined;
   document(): ReviewDocument | undefined;
   error: Accessor<string>;
+  failure(): ReviewSectionFailure | undefined;
   bounds(): { top: number; bottom: number; height: number };
   reveal(top: number): void;
   suspend(): void;

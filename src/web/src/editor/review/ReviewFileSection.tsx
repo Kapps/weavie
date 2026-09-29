@@ -43,7 +43,7 @@ export function ReviewFileSection(props: {
   observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
   active: () => boolean;
-  activated: () => boolean;
+  requestFocus(): () => void;
   ownsEditor(): boolean;
   claimEditor(): void;
   preparePassive: ReviewPreparationQueue;
@@ -211,7 +211,7 @@ export function ReviewFileSection(props: {
           documents={props.documents}
           horizontal={props.horizontal}
           active={props.active}
-          activated={props.activated}
+          requestFocus={props.requestFocus}
           ownsEditor={props.ownsEditor}
           claimEditor={props.claimEditor}
           preparePassive={props.preparePassive}

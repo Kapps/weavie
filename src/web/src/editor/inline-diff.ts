@@ -288,6 +288,7 @@ export type InlineDiffPaint = Pick<
   | "dispose"
 > & {
   refresh(): void;
+  retry(): void;
   composerFocused(): boolean;
   commentsRetained(): boolean;
 };
@@ -767,6 +768,10 @@ export function createReviewDiffPaint(
 
     return {
       refresh: renderActive,
+      retry: () => {
+        clearControls();
+        renderActive();
+      },
       composerFocused,
       commentsRetained: comments.retained,
       set(session, path, options) {

@@ -22,7 +22,9 @@ import type {
   PassiveReviewPresentation,
   PreparedPassiveReview,
 } from "./review-passive-presentation";
+import type { ReviewSectionFailure } from "./review-section";
 import { hasReviewChanges } from "./review-store";
+import type { ReviewSectionBinding } from "./review-surface";
 
 /** File-owned presentation: scrolling never activates or retires an editor. */
 export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
@@ -32,6 +34,7 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
   const [passive, setPassive] = createSignal<PassiveReviewPresentation>();
   const [live, setLive] = createSignal<ReviewEditor>();
   const [error, setError] = createSignal("");
+  const [failure, setFailure] = createSignal<ReviewSectionFailure>();
   const [cursorLine, setCursorLine] = createSignal(1);
   let saved:
     | { model: monaco.editor.ITextModel; state: monaco.editor.ICodeEditorViewState }
@@ -45,6 +48,7 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
   let retirementQueued = false;
   let disposed = false;
   let pointerId = 0;
+  let registration: ReviewSectionBinding | undefined;
   const commentHost = document.createElement("div");
   commentHost.className = "review-file-comments";
   const comments = createReviewCommentLayout(commentHost, () => {
@@ -57,20 +61,26 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
     root.style.height = `${height}px`;
     if (props.onEditorHeight(height)) props.measure();
   };
+  const present = (): void => {
+    const editor = untrack(live);
+    const prepared = untrack(() => passive()?.prepared());
+    root.dataset.presentation = editor ? "live" : prepared ? "passive" : "pending";
+  };
   const report = (cause: unknown): void => {
     setError(`${String(cause)} — select this file again to retry.`);
-    props.register.failed(path, section, cause, () => {
-      setError("");
-      passive()?.resume();
-      publish();
+    setFailure({
+      error: cause,
+      retry: () => {
+        setError("");
+        setFailure(undefined);
+        passive()?.resume();
+        publish();
+      },
     });
   };
   const publish = (): void => {
     if (disposed) return;
-    if (!error() && (live()?.ready() || passive()?.prepared())) {
-      props.register.set(path, section);
-    }
-    props.controlsChanged();
+    registration?.changed();
   };
   const release = (): void => {
     lifetime++;
@@ -91,6 +101,7 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
       ]);
     } finally {
       releasing = false;
+      if (!disposed) present();
     }
   };
   const activate = (): ReviewEditor | undefined => {
@@ -129,13 +140,11 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
           viewportWrapping: prepared.rendered.viewportWrapping,
         },
         path,
-        active: props.active,
-        controlsChanged: props.controlsChanged,
         onHeight: (height) => {
           liveHeight = height;
           if (!constructing) size(height);
         },
-        onPainted: publish,
+        onChanged: publish,
         onCursor: (line) => {
           setCursorLine(line);
           if (!constructing) props.onCursor(line);
@@ -163,7 +172,9 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
       binding = prepared;
       batch(() => {
         setError("");
+        setFailure(undefined);
         setLive(candidate);
+        present();
       });
       return !disposed && untrack(live) === candidate ? candidate : undefined;
     } catch (cause) {
@@ -217,6 +228,7 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
         release();
         // Teardown can remove global tracking decorations; only publish a revalidated projection.
         if (!collapsed && presentation.current()) size(passiveHeight);
+        publish();
       } catch (cause) {
         report(cause);
       }
@@ -226,12 +238,24 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
     path,
     scope: props.scope,
     valid: () => !disposed,
+    collapsed: () => props.file().collapsed(),
+    empty: () => {
+      const file = props.file();
+      const diff = file.diff();
+      return file.loaded() && (!diff || !hasReviewChanges(diff));
+    },
+    failure,
     passive,
     editor: live,
     activate: () => {
-      const editor = activate();
-      if (editor) props.claimEditor();
-      return editor;
+      try {
+        const editor = activate();
+        if (editor) props.claimEditor();
+        return editor;
+      } catch (cause) {
+        report(cause);
+        throw cause;
+      }
     },
     cursor: cursorLine,
     select: (line) => {
@@ -240,10 +264,6 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
     },
     viewState: () =>
       saved?.model === passive()?.displayed()?.copy.model ? (saved?.state ?? null) : null,
-    save: (state) => {
-      const model = passive()?.displayed()?.copy.model;
-      if (model) saved = { model, state };
-    },
     comments,
   });
   const configureComments = (): void => {
@@ -264,11 +284,11 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
     const presentation = passive();
     const prepared = presentation?.prepared();
     const editor = live();
-    const requested = props.activated();
     const owns = props.ownsEditor();
     const retained = editor?.retained();
     const collapsed = props.file().collapsed();
-    const failure = error();
+    failure();
+    presentation?.failure();
     const diff = props.file().diff();
     untrack(() => {
       if (!presentation || disposed || releasing) return;
@@ -280,33 +300,25 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
         release();
         if (!diff || !hasReviewChanges(diff)) size(0);
         presentation.resume();
+        present();
+        publish();
         return;
       }
-      publish();
       if (collapsed) {
         presentation.suspend();
         if (editor && !owns && !retained) retire();
-        return;
-      }
-      if (!editor) {
+      } else if (!editor) {
         if (prepared) size(prepared.rendered.height);
         presentation.resume();
-        if (requested && prepared && !failure) {
-          try {
-            const editor = activate();
-            if (editor) {
-              props.claimEditor();
-              if (document.activeElement === root) editor.focus();
-            }
-          } catch (cause) {
-            report(cause);
-          }
-        }
       } else if (owns || retained) presentation.suspend();
       else retire();
+      present();
+      publish();
     });
   });
   onMount(() => {
+    registration = props.register.bind(path, section);
+    let cancelFocus: (() => void) | undefined;
     const events = new AbortController();
     const listenerOptions = { capture: true, signal: events.signal };
     root.addEventListener(
@@ -322,19 +334,19 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
         if ((event.target as Element).closest(".review-file-comments")) return;
         if (event.target === root && !constructing) {
           event.stopPropagation();
-          props.claimEditor();
           props.onCursor(cursorLine());
-          const presentation = passive();
-          const bounds = presentation?.bounds();
-          const shown = presentation?.displayed();
-          if (bounds && shown && (bounds.bottom <= 0 || bounds.top >= shown.rendered.height))
-            presentation!.reveal(0);
-          try {
-            section.focus();
-          } catch (cause) {
-            report(cause);
-          }
+          cancelFocus?.();
+          cancelFocus = props.requestFocus();
         } else if (!constructing && live()) props.claimEditor();
+      },
+      listenerOptions,
+    );
+    root.addEventListener(
+      "focusout",
+      (event) => {
+        if (event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
+        cancelFocus?.();
+        cancelFocus = undefined;
       },
       listenerOptions,
     );
@@ -366,7 +378,10 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
       },
       listenerOptions,
     );
-    onCleanup(() => events.abort());
+    onCleanup(() => {
+      events.abort();
+      cancelFocus?.();
+    });
     props.onEditor({
       layout: () => {
         passive()?.layout();
@@ -380,7 +395,7 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
   });
   onCleanup(() => {
     disposed = true;
-    props.register.clear(path, section);
+    registration?.dispose();
     release();
     props.onEditor(undefined);
   });
@@ -394,14 +409,13 @@ export function ReviewAdaptiveBody(props: ReviewFileBodyProps): JSX.Element {
         root = element;
         element.style.height = `${passiveHeight}px`;
       }}
-      data-presentation={live() ? "live" : passive()?.prepared() ? "passive" : "pending"}
+      data-presentation="pending"
     >
       <div class="review-adaptive-passive" inert={live() !== undefined}>
         <ReviewPassiveBody
           {...props}
           cursorLine={cursorLine}
           comments={comments}
-          failureOwner={section}
           target={section.passiveTarget}
           onPresentation={setPassive}
           onEditor={() => {}}

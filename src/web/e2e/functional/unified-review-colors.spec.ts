@@ -1,6 +1,7 @@
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
 
 test.use({
   colorScheme: "dark",
@@ -25,11 +26,11 @@ test("dark-mode comments remain readable over stacked added-line and word backgr
   await awaitReviewSet(page, ["comments.ts"]);
   await page.locator(".editor-empty-review").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
-  const section = page.locator(".unified-review-file");
+  const section = reviewPaint(page.locator(".unified-review-file"));
   const comment = section.locator(".view-line", { hasText: "Handle the updated case." });
   await expect(comment).toBeVisible();
   await expect(section.locator(".weavie-inline-added-text")).toBeVisible();
-  await expect(comment.locator(".mtki")).toBeVisible();
+  await expect(comment.locator(".mtki", { hasText: /^updated$/ })).toBeVisible();
   await expect
     .poll(() =>
       section.evaluate((element) => {

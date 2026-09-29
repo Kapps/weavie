@@ -1,5 +1,4 @@
 import {
-  batch,
   createEffect,
   createMemo,
   createSelector,
@@ -71,7 +70,6 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const [requestedEditor, setRequestedEditor] = createSignal<string>();
   const [committedEditor, setCommittedEditor] = createSignal<string>();
   const visibleFile = createMemo((): number =>
     Math.max(
@@ -225,11 +223,6 @@ export function UnifiedReview(props: {
     props.onFileCollapsed(props.session, file.summary().path, collapsed);
   };
 
-  const [controlsRevision, setControlsRevision] = createSignal(0);
-  const changed = (): void => {
-    setControlsRevision((value) => value + 1);
-    props.changed();
-  };
   const active = createTabActivity(props.tab);
   const surface = createReviewSurface({
     horizontal,
@@ -240,11 +233,9 @@ export function UnifiedReview(props: {
     getScrollTop: () => scroll()!.getScrollTop(),
     setScrollTop: (top) => scroll()!.setScrollTop(top),
     focus: () => scroller?.focus(),
-    changed,
     files,
     currentIndex: visibleFile,
-    select: (index, path) => {
-      setRequestedEditor(normalizePath(path));
+    select: (index) => {
       setVisibleFile(index);
       props.changed();
     },
@@ -306,7 +297,6 @@ export function UnifiedReview(props: {
   });
   createEffect(() => onCleanup(props.bindSurface(surface)));
   createEffect(() => {
-    controlsRevision();
     visibleFile();
     props.overview().history;
     active();
@@ -399,18 +389,13 @@ export function UnifiedReview(props: {
                               index={item().index}
                               register={surface.sections}
                               active={() => isActiveFile(item().index - 1)}
-                              activated={() =>
-                                requestedEditor() === normalizePath(view().summary().path)
-                              }
+                              requestFocus={() => surface.requestFocus(view().summary().path)}
                               ownsEditor={() =>
                                 committedEditor() === normalizePath(view().summary().path)
                               }
                               claimEditor={() => {
                                 const path = normalizePath(view().summary().path);
-                                batch(() => {
-                                  setRequestedEditor(path);
-                                  setCommittedEditor(path);
-                                });
+                                setCommittedEditor(path);
                               }}
                               preparePassive={preparePassive}
                               documents={documents}

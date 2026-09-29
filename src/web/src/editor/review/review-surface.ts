@@ -14,26 +14,31 @@ interface ReviewViewState {
   horizontal: Readonly<Record<string, number>>;
 }
 
-type ReviewAlignment = "location" | "file-start";
+type ReviewAlignment = "location" | "file-start" | "focus";
+interface SectionEntry {
+  section: ReviewSection;
+}
 
 export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
   refresh(): void;
   takeControl(): void;
   reveal(path: string, line: number): void;
+  requestFocus(path: string): () => void;
+}
+
+export interface ReviewSectionBinding {
+  changed(): void;
+  dispose(): void;
 }
 
 export interface ReviewSectionRegistry {
-  set(path: string, section: ReviewSection): void;
-  clear(path: string, section: ReviewSection): void;
-  empty(path: string): void;
-  failed(path: string, owner: ReviewSection, error: unknown, retry: () => void): void;
+  bind(path: string, section: ReviewSection): ReviewSectionBinding;
 }
 
-/** Resolves exact file destinations through the virtualizer; hunk navigation belongs to InlineDiff. */
+/** One request owns activation, placement and focus in an exact retained file. */
 export function createReviewSurface(surface: {
   horizontal: ReviewHorizontalPositions;
-  changed(): void;
   active(): boolean;
   signal: AbortSignal;
   clear(): void;
@@ -47,56 +52,96 @@ export function createReviewSurface(surface: {
   focus(): void;
   controls: Pick<ReviewToolbarPresenter, "refresh" | "captureActions">;
 }): UnifiedReviewSurface & { sections: ReviewSectionRegistry; target(): ReviewToolbarTarget } {
-  const sections = new Map<string, ReviewSection>();
+  const sections = new Map<string, SectionEntry>();
   const lifetime = new AbortController();
-  const failures = new Map<string, { owner: ReviewSection; retry(): void }>();
-  let pending: {
-    location: TextLocation;
-    alignment: ReviewAlignment;
-    ready: boolean;
-    finish(): void;
-    fail(error: unknown): void;
-    cancel(): void;
-  } | null = null;
+  let pending:
+    | {
+        location: TextLocation;
+        file: ReviewFileView;
+        entry: SectionEntry | undefined;
+        alignment: ReviewAlignment;
+        focus: boolean;
+        positioned: boolean;
+        finish(): void;
+        fail(error: unknown): void;
+        cancel(): void;
+      }
+    | undefined;
+  let applying = false;
+  let changedWhileApplying = false;
   let selectedFile: ReviewFileView | undefined;
   let selectedPending = false;
   const settle = (): void => {
-    if (pending === null || !pending.ready) return;
-    const section = sections.get(normalizePath(pending.location.path));
-    if (section === undefined) {
-      const file = surface
-        .files()
-        .find(
-          (candidate) =>
-            normalizePath(candidate.summary().path) === normalizePath(pending!.location.path),
-        );
-      const diff = file?.diff();
-      if (file === undefined) {
-        pending.fail(new Error("This file is no longer in the review."));
-        return;
-      }
-      if (!file.collapsed() && (!file.loaded() || (diff != null && hasReviewChanges(diff)))) return;
-      const operation = pending;
-      pending = null;
-      operation.finish();
+    if (applying) {
+      changedWhileApplying = true;
       return;
     }
     const operation = pending;
-    pending = null;
-    if (operation.alignment === "file-start") section.revealFileStart(operation.location.line);
-    else section.restore(operation.location);
-    operation.finish();
+    if (!operation?.positioned) return;
+    if (!surface.files().includes(operation.file)) {
+      operation.fail(new Error("This file is no longer in the review."));
+      return;
+    }
+    const entry = sections.get(normalizePath(operation.location.path));
+    if (entry === undefined) {
+      const file = operation.file;
+      const diff = file.diff();
+      if (file.collapsed() || (file.loaded() && (!diff || !hasReviewChanges(diff)))) {
+        if (operation.focus) surface.focus();
+        operation.finish();
+      }
+      return;
+    }
+    operation.entry ??= entry;
+    if (operation.entry !== entry) {
+      operation.cancel();
+      return;
+    }
+    applying = true;
+    try {
+      const state = entry.section.state();
+      if (state.kind === "collapsed" || state.kind === "empty") {
+        if (operation.focus) surface.focus();
+        operation.finish();
+        return;
+      }
+      const navigation =
+        state.kind === "ready"
+          ? state.enter(operation.alignment === "focus" ? "focus" : "navigate")
+          : undefined;
+      const capability =
+        navigation ??
+        (operation.alignment === "focus" && state.kind !== "ready" ? state.input : undefined);
+      if (pending !== operation) return;
+      if (!capability?.current()) {
+        if (state.kind === "unavailable") operation.fail(state.failure.error);
+        return;
+      }
+      if (operation.alignment !== "focus" && navigation) {
+        if (operation.alignment === "file-start")
+          navigation.revealFileStart(operation.location.line);
+        else navigation.restore(operation.location);
+      }
+      if (pending !== operation || !capability.current()) return;
+      if (operation.focus) capability.focus();
+      if (pending === operation && capability.current()) operation.finish();
+    } catch (error) {
+      if (pending === operation) operation.fail(error);
+    } finally {
+      applying = false;
+      if (changedWhileApplying && pending) queueMicrotask(settle);
+      changedWhileApplying = false;
+    }
   };
   const activeSection = (): ReviewSection | undefined => {
     const file = surface.files()[surface.currentIndex()];
-    if (file === undefined) return undefined;
-    const key = normalizePath(file.summary().path);
-    return sections.get(key) ?? failures.get(key)?.owner;
+    return file && sections.get(normalizePath(file.summary().path))?.section;
   };
-  const restore = (
+  const request = (
     location: TextLocation,
     signal: AbortSignal,
     alignment: ReviewAlignment,
+    focus: boolean,
   ): Promise<void> => {
     pending?.cancel();
     const index = surface
@@ -105,70 +150,83 @@ export function createReviewSurface(surface: {
     const file = surface.files()[index];
     if (file === undefined)
       return Promise.reject(new Error("This file is no longer in the review."));
-    const key = normalizePath(location.path);
-    const failure = failures.get(key);
+    const entry = sections.get(normalizePath(location.path));
     const validity = AbortSignal.any([signal, surface.signal, lifetime.signal]);
     return new Promise((resolve, reject) => {
-      const complete = (settle: () => void): void => {
-        if (pending === operation) pending = null;
+      const complete = (finish: () => void): void => {
+        if (pending === operation) pending = undefined;
         validity.removeEventListener("abort", cancel);
-        settle();
+        finish();
       };
       const fail = (error: unknown): void => complete(() => reject(error));
       const cancel = (): void =>
         fail(new DOMException("Review navigation cancelled", "AbortError"));
       const operation = {
         location,
+        file,
+        entry,
         alignment,
-        ready: false,
+        focus,
+        positioned: false,
         cancel,
         fail,
         finish: () => complete(resolve),
       };
       pending = operation;
-      if (validity.aborted) {
-        cancel();
-        return;
-      }
+      if (validity.aborted) return cancel();
       validity.addEventListener("abort", cancel, { once: true });
-      surface.select(index, location.path, location.line);
-      if (failure) {
-        failures.delete(key);
-        try {
-          failure.retry();
-        } catch (error) {
-          failures.set(key, failure);
-          fail(error);
-          return;
-        }
-      }
-      queueMicrotask(() => {
+      try {
+        surface.select(index, location.path, location.line);
         if (pending !== operation) return;
-        surface.scrollToIndex(index + 1);
-        requestAnimationFrame(() => {
-          if (pending !== operation) return;
-          operation.ready = true;
+        const state = entry?.section.state();
+        if (state?.kind === "unavailable" && !(alignment === "focus" && state.input))
+          state.failure.retry();
+        if (alignment === "focus") {
+          operation.positioned = true;
           settle();
-        });
-      });
+        } else
+          queueMicrotask(() => {
+            if (pending !== operation) return;
+            surface.scrollToIndex(surface.files().indexOf(file) + 1);
+            requestAnimationFrame(() => {
+              if (pending !== operation) return;
+              operation.positioned = true;
+              settle();
+            });
+          });
+      } catch (error) {
+        fail(error);
+      }
     });
   };
+  const report = (result: Promise<void>): void => {
+    void result.catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        notify("warn", String(error));
+    });
+  };
+  const requestFocus = (path: string): (() => void) => {
+    const controller = new AbortController();
+    report(request({ path, line: 1 }, controller.signal, "focus", true));
+    return () => controller.abort();
+  };
   const focus = (): void => {
-    const section = activeSection();
-    if (section === undefined) surface.focus();
-    else section.focus();
+    if (pending) {
+      pending.focus = true;
+      settle();
+      return;
+    }
+    const state = activeSection()?.state();
+    const input = state && "input" in state ? state.input : undefined;
+    if (input?.current()) input.focus();
+    else surface.focus();
   };
   const reveal = (location: TextLocation, alignment: ReviewAlignment): void => {
     const file = surface
       .files()
       .find((file) => normalizePath(file.summary().path) === normalizePath(location.path));
     if (file !== undefined) surface.expand(file);
-    void restore(location, lifetime.signal, alignment)
-      .then(focus)
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
-          notify("warn", String(error));
-      });
+    report(request(location, lifetime.signal, alignment, true));
   };
   const advanceReviewedFile = (): void => {
     const files = surface.files();
@@ -210,23 +268,23 @@ export function createReviewSurface(surface: {
         "viewState" in placement ? (placement.viewState as ReviewViewState | null) : null;
       if (saved !== null) surface.horizontal.restore(saved.horizontal);
       if (saved?.location != null) {
-        if (
-          surface
-            .files()
-            .some(
-              (file) => normalizePath(file.summary().path) === normalizePath(saved.location!.path),
-            )
-        ) {
-          await restore(saved.location, signal, "location");
-        } else {
-          notify("warn", "This saved location is no longer in the review.");
-        }
-      } else if (saved !== null) {
-        surface.setScrollTop(saved.scrollTop);
-      }
+        const index = surface
+          .files()
+          .findIndex(
+            (file) => normalizePath(file.summary().path) === normalizePath(saved.location!.path),
+          );
+        const file = surface.files()[index];
+        if (!file) notify("warn", "This saved location is no longer in the review.");
+        else if (file.collapsed()) {
+          pending?.cancel();
+          surface.select(index, saved.location.path, saved.location.line);
+          surface.setScrollTop(saved.scrollTop);
+        } else await request(saved.location, signal, "location", false);
+      } else if (saved !== null) surface.setScrollTop(saved.scrollTop);
       signal.throwIfAborted();
     },
     focus,
+    requestFocus,
     dispose: () => lifetime.abort(),
     takeControl: () => pending?.cancel(),
     refresh: () => {
@@ -235,30 +293,37 @@ export function createReviewSurface(surface: {
       surface.controls.refresh();
     },
     actions: surface.controls.captureActions,
-    target: () => activeSection()?.target() ?? { kind: "none" },
+    target: () => {
+      const state = activeSection()?.state();
+      return state?.kind === "ready" || state?.kind === "unavailable"
+        ? state.target
+        : { kind: "none" };
+    },
     reveal: (path, line) => reveal({ path, line }, "location"),
     sections: {
-      empty: () => settle(),
-      failed: (path, owner, error, retry) => {
-        failures.set(normalizePath(path), { owner, retry });
-        sections.delete(normalizePath(path));
-        if (pending !== null && normalizePath(pending.location.path) === normalizePath(path))
-          pending.fail(error);
-        surface.controls.refresh();
-      },
-      set: (path, section) => {
-        failures.delete(normalizePath(path));
-        sections.set(normalizePath(path), section);
-        settle();
-        surface.changed();
-      },
-      clear: (path, section) => {
+      bind: (path, section) => {
         const key = normalizePath(path);
-        if (failures.get(key)?.owner === section) failures.delete(key);
-        if (sections.get(key) === section) {
-          sections.delete(key);
-          surface.changed();
+        const entry = { section };
+        if (pending && normalizePath(pending.location.path) === key) {
+          if (pending.entry) pending.cancel();
+          else pending.entry = entry;
         }
+        sections.set(key, entry);
+        const changed = (): void => {
+          if (sections.get(key) !== entry) return;
+          settle();
+          surface.controls.refresh();
+        };
+        changed();
+        return {
+          changed,
+          dispose: () => {
+            if (sections.get(key) !== entry) return;
+            if (pending?.entry === entry) pending.cancel();
+            sections.delete(key);
+            surface.controls.refresh();
+          },
+        };
       },
     },
   };

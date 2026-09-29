@@ -1,5 +1,6 @@
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
 import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -17,8 +18,9 @@ test("controlled review preserves scroll-only commands and reveals distant find 
 }) => {
   await page.locator(".editor-empty-review").click();
   const section = page.locator(".unified-review-file");
+  const paint = reviewPaint(section);
   await expect(section.locator(".weavie-inline-newfile-tag")).toHaveText("New file");
-  await section.locator(".view-line", { hasText: /^Review\sline\s1$/ }).click();
+  await paint.locator(".view-line", { hasText: /^Review\sline\s1$/ }).click();
   const editor = await page.evaluateHandle(() => {
     const editors = (
       window as WeavieWindow
@@ -55,7 +57,7 @@ test("controlled review preserves scroll-only commands and reveals distant find 
     await page.keyboard.press("ControlOrMeta+f");
     const find = section.locator(".find-widget textarea").first();
     await find.fill(`Review line ${line}`);
-    const match = section.locator(".view-line", {
+    const match = paint.locator(".view-line", {
       hasText: new RegExp(`^Review\\sline\\s${line}$`),
     });
     await expect(match).toBeInViewport();
@@ -71,7 +73,7 @@ test("controlled review preserves scroll-only commands and reveals distant find 
     if (matchBounds === null) throw new Error("Find result was not rendered");
     expect(matchBounds.y).toBeGreaterThanOrEqual(headerBottom);
     expect(matchBounds.y + matchBounds.height).toBeLessThanOrEqual(toolbarTop);
-    expect(await section.locator(".view-line").count()).toBeLessThan(250);
+    expect(await paint.locator(".view-line").count()).toBeLessThan(250);
     await checkScrollOnly();
   }
   const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
@@ -83,11 +85,11 @@ test("controlled review preserves scroll-only commands and reveals distant find 
       return maximum - top;
     })
     .toBeLessThanOrEqual(1);
-  await expect(section.locator(".view-line", { hasText: /^Review\sline\s5000$/ })).toBeInViewport();
+  await expect(paint.locator(".view-line", { hasText: /^Review\sline\s5000$/ })).toBeInViewport();
   await expect(section.locator(".unified-review-file-header")).toBeInViewport();
   await page.keyboard.press("Home");
   await expect.poll(async () => (await reviewScroll(page)).top).toBe(0);
-  await expect(section.locator(".view-line", { hasText: /^Review\sline\s1$/ })).toBeInViewport();
+  await expect(paint.locator(".view-line", { hasText: /^Review\sline\s1$/ })).toBeInViewport();
   const thumb = scrollbar.locator(".slider");
   const trackBounds = await scrollbar.boundingBox();
   const thumbBounds = await thumb.boundingBox();
@@ -104,7 +106,7 @@ test("controlled review preserves scroll-only commands and reveals distant find 
   );
   await page.mouse.up();
   await expect.poll(async () => (await reviewScroll(page)).top).toBeGreaterThan(0);
-  await expect(section.locator(".view-line").first()).toBeInViewport();
+  await expect(paint.locator(".view-line").first()).toBeInViewport();
   await expect(section.locator(".unified-review-file-header")).toBeInViewport();
 });
 
@@ -129,10 +131,12 @@ test.describe("partially visible small file", () => {
       has: page.locator(".unified-review-file-name", { hasText: "a-small.txt" }),
     });
     await expect(section.locator(".weavie-inline-newfile-tag")).toHaveText("New file");
-    const first = section.locator(".view-line", { hasText: /^Small\sline\s01$/ });
+    const first = reviewPaint(section).locator(".view-line", { hasText: /^Small\sline\s01$/ });
     await first.hover();
     for (let notch = 0; notch < 6; notch++) await page.mouse.wheel(0, 120);
-    await section.locator(".view-line", { hasText: /^Small\sline\s15$/ }).click();
+    await reviewPaint(section)
+      .locator(".view-line", { hasText: /^Small\sline\s15$/ })
+      .click();
     await page.keyboard.press("ControlOrMeta+f");
     await section.locator(".find-widget textarea").first().fill("Small line 01");
     await page.keyboard.press("Enter");

@@ -26,7 +26,6 @@ import type { ReviewHorizontalPosition } from "./review-horizontal-position";
 import { reviewLineAtOffset } from "./review-line-geometry";
 import { beginExternalMouseDown } from "./review-mouse-handoff";
 import type { ReviewScroll } from "./review-scroll";
-import type { ReviewSection } from "./review-section";
 import type { ReviewToolbarTarget } from "./review-toolbar-state";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
@@ -34,11 +33,17 @@ type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
   setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
 };
 
-export interface ReviewEditor extends ReviewSection {
+export interface ReviewEditor {
+  capture(): TextLocation;
+  restore(location: TextLocation): void;
+  revealFileStart(line: number): void;
+  focus(): void;
+  target(): ReviewToolbarTarget;
   layout(): void;
   shift(delta: number): void;
   retained(): boolean;
   ready(): boolean;
+  retry(): void;
   viewState(): monaco.editor.ICodeEditorViewState | null;
   restoreViewState(state: monaco.editor.ICodeEditorViewState): void;
   selectLine(line: number): void;
@@ -61,10 +66,8 @@ export function createReviewEditor(options: {
   preparedWidth: { minimumContentWidth: number; viewportWrapping: boolean };
   editable: boolean;
   path: string;
-  active: () => boolean;
-  controlsChanged(): void;
   onHeight: (height: number) => void;
-  onPainted: () => void;
+  onChanged(): void;
   onCursor: (line: number) => void;
 }): ReviewEditor {
   const { container, model } = options;
@@ -123,7 +126,7 @@ export function createReviewEditor(options: {
     cleanup.push(toDisposable(() => gaps.clear()));
     let constructing = true;
     const publish = (): void => {
-      if (!disposed) options.onPainted();
+      if (!disposed) options.onChanged();
     };
     let geometryReady = false;
     let height = 0;
@@ -222,7 +225,7 @@ export function createReviewEditor(options: {
       options.comments.presenter,
       (value) => {
         target = value;
-        if (!disposed && options.active()) options.controlsChanged();
+        if (!constructing) publish();
       },
     );
     cleanup.push(paint);
@@ -245,6 +248,7 @@ export function createReviewEditor(options: {
     constructing = false;
     return {
       ready: () => painted && !disposed,
+      retry: paint.retry,
       retained: activity.retained,
       viewState: () => editor.saveViewState(),
       restoreViewState: (state) => {

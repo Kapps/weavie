@@ -4,6 +4,8 @@ import { openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, navChord } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
+import { reviewScroll } from "../harness/review-scroll";
 
 const baseline = Array.from({ length: 50 }, (_, index) => `line ${index + 1}`);
 const changed = baseline.map((line, index) =>
@@ -54,7 +56,7 @@ test("the existing toolbar and keyboard review the active unified section withou
   const review = overview.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: "review.txt" }),
   });
-  await expect(review.locator(".weavie-inline-accepted")).toHaveCount(1);
+  await expect(reviewPaint(review).locator(".weavie-inline-accepted")).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+Backspace");
   await expect
     .poll(() => readFile(join(weavie.workspace, "review.txt"), "utf8"))
@@ -103,30 +105,45 @@ test("file navigation wraps and file-scope Keep uses the unified selection", asy
   ).toBeVisible();
 });
 
-test("collapsing the selected file keeps navigation available and reopens it on Next Change", async ({
-  page,
-}) => {
-  await awaitReviewSet(page, ["notes.txt", "review.txt"]);
-  await page.locator(".editor-empty-review").click();
-  const overview = page.locator(".unified-review");
-  const review = overview.locator(".unified-review-file", { hasText: "review.txt" });
-  await overview.locator(".unified-review-tree-row.file", { hasText: "review.txt" }).click();
-  await expect(overview.locator(".weavie-inline-stack-name")).toHaveText("review.txt");
-  await review.locator(".unified-review-file-toggle").click();
-  await expect(review.locator(".unified-review-file-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  const toolbar = page.locator(".weavie-inline-toolbar");
-  await expect(toolbar).toBeVisible();
-  await toolbar.locator(".weavie-inline-nav").nth(1).click();
-  await expect(review.locator(".unified-review-file-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await expect(overview.locator(".weavie-inline-stack-name")).toHaveText("review.txt");
-  await expect(overview).toBeVisible();
-});
+for (const restore of [false, true]) {
+  test(`collapsing the selected file ${restore ? "survives tab restore and keyboard navigation" : "reopens on toolbar Next Change"}`, async ({
+    page,
+  }) => {
+    await awaitReviewSet(page, ["notes.txt", "review.txt"]);
+    await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
+    const review = overview.locator(".unified-review-file", { hasText: "review.txt" });
+    await overview.locator(".unified-review-tree-row.file", { hasText: "review.txt" }).click();
+    await expect(overview.locator(".weavie-inline-stack-name")).toHaveText("review.txt");
+    await review.locator(".unified-review-file-toggle").click();
+    await expect(review.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    if (restore) {
+      const scroll = (await reviewScroll(page)).top;
+      await openFile(page, "notes.txt");
+      await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
+      await expect(review.locator(".unified-review-file-toggle")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(scroll);
+    }
+    const toolbar = page.locator(".weavie-inline-toolbar");
+    await expect(toolbar).toBeVisible();
+    const next = toolbar.locator(".weavie-inline-nav", { hasText: "↓" });
+    await expect(next).toHaveAttribute("title", /^Review changes/);
+    if (restore) await page.keyboard.press(navChord("ArrowDown"));
+    else await next.click();
+    await expect(review.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(overview.locator(".weavie-inline-stack-name")).toHaveText("review.txt");
+    await expect(overview).toBeVisible();
+  });
+}
 
 test("tab switches restore the exact hunk and history actions update the shared toolbar", async ({
   page,

@@ -146,7 +146,7 @@ function fixture() {
     },
     preparedWidth: { minimumContentWidth: 700, viewportWrapping: true },
     comments: { presenter: {}, bind: () => state.resource("comment-layout") },
-    onPainted,
+    onChanged: onPainted,
     onCursor,
     active: () => false,
   } as unknown as Parameters<typeof createReviewEditor>[0];

@@ -7,7 +7,7 @@ namespace Weavie.Core.Changes;
 /// <param name="EndExclusive">The 1-based line just past the range's end.</param>
 public readonly record struct LineRange(int Start, int EndExclusive);
 
-/// <summary>The result of <see cref="SessionChangeTracker.RevertHunk"/>.</summary>
+/// <summary>The result of <see cref="SessionChangeTracker.RevertHunk(string, LineRange, LineRange, string)"/>.</summary>
 public enum RevertHunkOutcome {
 	/// <summary>The current lines didn't match the guard text — nothing was written (a concurrent edit).</summary>
 	GuardMismatch,

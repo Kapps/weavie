@@ -326,7 +326,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
-	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by
+	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile(string)"/> (shared by
 	/// per-hunk/per-file/whole-set reverts); the host only owns the editor pushes.
 	/// </summary>
 	private void UndoTurn(HostSession session) {
@@ -432,45 +432,38 @@ public sealed partial class HostCore {
 	/// Core splices its own baseline lines back in (never the message's). A guard mismatch (a parallel edit moved
 	/// the file) aborts without writing and re-emits a fresh diff; reverting a created file's last hunk deletes it.
 	/// </summary>
-	private void RejectHunk(HostSession session, JsonElement root) {
+	private ReviewDecisionNavigation RejectHunk(HostSession session, JsonElement root) {
 		string path = root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 		if (string.IsNullOrEmpty(path)) {
-			return;
+			return ReviewDecisionNavigation.None;
 		}
 
 		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
 
-		try {
-			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
-			if (outcome == RevertHunkOutcome.GuardMismatch) {
-				Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-				PushTurnDiffToWeb(session, path);
-				return;
-			}
-
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+		var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText, out var navigation);
+		if (outcome == RevertHunkOutcome.GuardMismatch) {
+			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+			PushTurnDiffToWeb(session, path);
+			return ReviewDecisionNavigation.None;
 		}
+		return navigation;
 	}
 
 	/// <summary>
 	/// Reverts one file to its review baseline on disk — the file-scoped analogue of <see cref="UndoTurn"/>,
-	/// sharing <see cref="SessionChangeTracker.RevertFile"/>. Refreshes the editor and re-emits the review set so
+	/// sharing <see cref="SessionChangeTracker.RevertFile(string)"/>. Refreshes the editor and re-emits the review set so
 	/// the now-clean file leaves the ← / → walk.
 	/// </summary>
-	private void RevertFile(HostSession session, JsonElement root) {
+	private ReviewDecisionNavigation RevertFile(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
-			return;
+			return ReviewDecisionNavigation.None;
 		}
 
-		try {
-			session.Changes.RevertFile(path);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
-		}
+		session.Changes.RevertFile(path, out var navigation);
+		return navigation;
 	}
 
 	/// <summary>
@@ -478,37 +471,39 @@ public sealed partial class HostCore {
 	/// diff for good and survives session switches. The web sends the same line ranges + <c>guardText</c> as a
 	/// revert; a guard mismatch (a parallel edit moved the file) re-emits a fresh diff without advancing.
 	/// </summary>
-	private void KeepHunk(HostSession session, JsonElement root) {
+	private ReviewDecisionNavigation KeepHunk(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
-			return;
+			return ReviewDecisionNavigation.None;
 		}
 
 		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
+		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText, out var navigation)) {
 			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(session, path);
-			return;
+			return ReviewDecisionNavigation.None;
 		}
 
 		PushReviewActionToWeb(session, [path]);
+		return navigation;
 	}
 
 	/// <summary>
 	/// Keeps a whole file: advances its review baseline to current (no disk write) so it leaves the review set for
-	/// good — the file-scoped analogue of keep-all, sharing <see cref="SessionChangeTracker.KeepFile"/>.
+	/// good — the file-scoped analogue of keep-all, sharing <see cref="SessionChangeTracker.KeepFile(string)"/>.
 	/// </summary>
-	private void KeepFile(HostSession session, JsonElement root) {
+	private ReviewDecisionNavigation KeepFile(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
-			return;
+			return ReviewDecisionNavigation.None;
 		}
 
-		session.Changes.KeepFile(path);
+		session.Changes.KeepFile(path, out var navigation);
 		PushReviewActionToWeb(session, [path]);
+		return navigation;
 	}
 
 	/// <summary>

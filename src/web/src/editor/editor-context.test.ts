@@ -129,6 +129,7 @@ function tab(session: ClientSession, kind: "file" | "review"): TabOwner {
       restore: async () => {},
       focus: () => {},
       actions: () => undefined,
+      captureReviewAdvance: () => () => {},
     });
     values.set(kind, owner);
   }

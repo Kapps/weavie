@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { InteractionIntent } from "../chrome/interaction-intent";
 import type { EditorControllerDeps } from "./editor-controller";
 
 const env = vi.hoisted(() => ({
@@ -27,9 +28,15 @@ vi.mock("../bridge", () => ({
 }));
 
 vi.stubGlobal("location", { search: "" });
-vi.stubGlobal("window", {});
-const { activePathFor, openTabsFor, tabOwnerFor, openTabFor, snapshotEditorSessionFor } =
-  await import("./session-store");
+vi.stubGlobal("window", { clearTimeout });
+const {
+  activePathFor,
+  openTabsFor,
+  tabOwnerFor,
+  openTabFor,
+  closeTabFor,
+  snapshotEditorSessionFor,
+} = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
 const coreInstallers = env.installers.length;
 
@@ -46,6 +53,7 @@ interface FakeFeature {
   handle(name: string, handler: (message: unknown) => unknown): () => void;
   on(name: string, handler: (message: unknown) => void): () => void;
   publish(name: string, payload: unknown): void;
+  request(name: string, payload: unknown): Promise<unknown>;
 }
 
 function fakeSession(slot: string): ClientSession {
@@ -81,6 +89,11 @@ function fakeSession(slot: string): ClientSession {
       publish(event, payload) {
         current?.published.push({ name: event, payload });
       },
+      request: async (event, payload) => {
+        const handler = requests.get(event);
+        if (handler === undefined) throw new Error(`No test responder for ${event}`);
+        return handler(payload);
+      },
     };
     features.set(name, current);
     return current;
@@ -98,6 +111,7 @@ function fakeSession(slot: string): ClientSession {
 
 function dependencies(confirm: EditorControllerDeps["confirm"]): EditorControllerDeps {
   return {
+    interaction: new InteractionIntent(new EventTarget()),
     confirm,
     confirmDiscard: () => Promise.resolve(true),
     onEditorContextMenu: () => {},
@@ -131,12 +145,159 @@ it("the latest reveal retains its placement while the editor has not initialized
     restore,
     focus: () => {},
     actions: () => undefined,
+    captureReviewAdvance: () => () => {},
   });
 
   await vi.waitFor(() =>
     expect(restore).toHaveBeenCalledExactlyOnceWith({ line: 3 }, expect.any(AbortSignal)),
   );
   expect(onOpenError).not.toHaveBeenCalled();
+});
+
+it.each([
+  "before mount",
+  "during restore",
+])("finishes the selected placement without reclaiming focus after newer input %s", async (when) => {
+  const session = fakeSession(`slow-open-${when}`);
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  controller.openFile("/work/slow.txt", 7);
+  const tab = tabOwnerFor(session, "/work/slow.txt")!;
+  const completion = Promise.withResolvers<void>();
+  const restore = vi.fn(() => completion.promise);
+  const focus = vi.fn();
+  if (when === "before mount") deps.interaction.invalidate();
+  tab.mount({
+    text: true,
+    capture: () => ({ state: null, text: null }),
+    restore,
+    focus,
+    actions: () => undefined,
+    captureReviewAdvance: () => () => {},
+  });
+  await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce());
+  if (when === "during restore") deps.interaction.invalidate();
+  completion.resolve();
+  await completion.promise;
+  await Promise.resolve();
+  expect(restore).toHaveBeenCalledExactlyOnceWith({ line: 7 }, expect.any(AbortSignal));
+  expect(activePathFor(session)).toBe("/work/slow.txt");
+  expect(focus).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+it("background session open and close notifications cannot revoke foreground focus", async () => {
+  const foreground = fakeSession("foreground-loading");
+  const background = fakeSession("background-opening");
+  env.selected = foreground;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) {
+    install(foreground);
+    install(background);
+  }
+  controller.openFile("/foreground.txt", 3);
+  const permission = deps.interaction.capture();
+  const editor = background.feature("editor") as unknown as FakeFeature;
+  editor.emit("openFile", { path: "/background.txt", line: 1, intent: "navigation" });
+  expect(activePathFor(background)).toBe("/background.txt");
+  expect(permission.current()).toBe(true);
+  editor.emit("closeTab", { path: "/background.txt" });
+  expect(permission.current()).toBe(true);
+  const focus = vi.fn();
+  tabOwnerFor(foreground, "/foreground.txt")!.mount({
+    text: true,
+    capture: () => ({ state: null, text: null }),
+    restore: async () => {},
+    focus,
+    actions: () => undefined,
+    captureReviewAdvance: () => () => {},
+  });
+  await vi.waitFor(() => expect(focus).toHaveBeenCalledOnce());
+  controller.dispose();
+});
+
+it.each([
+  false,
+  true,
+])("permits retired-source advancement only for its own deletion: %s", (sourceDeleted) => {
+  const session = fakeSession(`source-deletion-${sourceDeleted}`);
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  const review = session.feature("review") as unknown as FakeFeature;
+  review.emit("changes", {
+    label: "Review",
+    files: ["/source.ts", "/next.ts"].map((path) => ({
+      path,
+      name: path,
+      line: 1,
+      added: 1,
+      removed: 0,
+      currentExists: true,
+    })),
+  });
+  openTabFor(session, "/neighbor.ts", {});
+  openTabFor(session, "/source.ts", {});
+  const tab = tabOwnerFor(session, "/source.ts")!;
+  tab.mount(controller.filePresenter(tab, () => undefined));
+  const complete = tab.presentation!.captureReviewAdvance("/source.ts");
+  const focus = deps.interaction.begin();
+  closeTabFor(session, "/source.ts");
+  expect(activePathFor(session)).toBe("/neighbor.ts");
+  complete({ path: "/next.ts", line: 1 }, focus, sourceDeleted);
+  expect(activePathFor(session)).toBe(sourceDeleted ? "/next.ts" : "/neighbor.ts");
+  controller.dispose();
+});
+
+it("routes a path-addressed Keep file completion through the selected review presenter", async () => {
+  const session = fakeSession("review-header");
+  env.selected = session;
+  const controller = createEditorController(dependencies(async () => true));
+  for (const install of env.installers) install(session);
+  const review = session.feature("review") as unknown as FakeFeature;
+  const path = "/work/change.ts";
+  review.emit("changes", {
+    label: "Review",
+    files: [{ path, name: "change.ts", line: 1, added: 1, removed: 0, currentExists: true }],
+  });
+  review.emit("diff", {
+    path,
+    name: "change.ts",
+    revision: "1",
+    baseline: "before",
+    baselineExists: true,
+    current: "after",
+    currentExists: true,
+    acceptedBaseline: "before",
+    acceptedBaselineExists: true,
+    rejected: [],
+  });
+  openTabFor(session, "weavie:review", { kind: "review" });
+  const complete = vi.fn();
+  const captureReviewAdvance = vi.fn(() => complete);
+  tabOwnerFor(session, "weavie:review")!.mount({
+    text: true,
+    capture: () => ({ state: null, text: { path, line: 1 } }),
+    restore: async () => {},
+    focus: () => {},
+    actions: () => undefined,
+    captureReviewAdvance,
+  });
+  const response = Promise.withResolvers<{
+    sourceDeleted: boolean;
+    next: { path: string; line: number };
+  }>();
+  review.requests.set("keepFile", () => response.promise);
+  expect(controller.review.keepFile(session, path)).toBe(true);
+  expect(captureReviewAdvance).toHaveBeenCalledExactlyOnceWith(path);
+  expect(complete).not.toHaveBeenCalled();
+  response.resolve({ sourceDeleted: false, next: { path: "/work/next.ts", line: 1 } });
+  await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+  controller.dispose();
 });
 
 it("reverts an unfocused review board through its exact session", async () => {
@@ -273,6 +434,7 @@ it("captures and flushes the departing exact tab after selection has moved to an
     restore: async () => {},
     focus: () => {},
     actions: () => undefined,
+    captureReviewAdvance: () => () => {},
   });
   const secondCapture = vi.fn(() => ({ state: { top: 999 }, text: null }));
   tabOwnerFor(second, "weavie:review")!.mount({
@@ -281,6 +443,7 @@ it("captures and flushes the departing exact tab after selection has moved to an
     restore: async () => {},
     focus: () => {},
     actions: () => undefined,
+    captureReviewAdvance: () => () => {},
   });
   env.selected = second;
   for (const selection of env.selections) selection(second);
@@ -305,6 +468,7 @@ it("flush returns the current exact presenter snapshot after the asynchronous fl
     restore: async () => {},
     focus: () => {},
     actions: () => undefined,
+    captureReviewAdvance: () => () => {},
   });
   const editor = session.feature("editor") as unknown as FakeFeature;
   const flushed = editor.requests.get("flush")!({});

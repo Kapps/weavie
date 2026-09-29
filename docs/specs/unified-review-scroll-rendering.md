@@ -47,10 +47,10 @@ invalidation and publication, so reading toolbar state cannot restart preparatio
 The surface owns one cancellable navigation request through activation, placement, and focus. A ready
 section grants a capability for the exact current live adapter, activating passive paint before any
 cursor-dependent restoration. The adaptive owner commits live visibility before granting that
-capability. Ambient pane focus joins an unfinished navigation instead of replacing its destination.
-Without a navigation request, pane focus uses an existing live input or the outer scroller; opening
+capability. Model restoration never focuses; its initiating controller alone may focus after it finishes.
+Ambient pane focus uses an existing live input or the outer scroller and cannot grant delayed focus; opening
 the review does not activate an editor. Keyboard or pointer entry into a file grants editing ownership.
-User input, replacement, and disposal revoke pending requests. State
+Scrolling within the review, replacement, and disposal revoke pending requests. State
 notifications from a retired binding cannot affect its replacement. An existing live editor remains
 focusable while diff geometry is pending, but hunk navigation waits for current geometry.
 
@@ -62,6 +62,20 @@ retiring a presenter refreshes its consumers; capturing scroll state does not. O
 commands belong to the exact client session, not a rendering pass or history update. They read current
 availability and capture the current presentation when invoked, so an admitted command survives a
 same-session history refresh without granting a late response access to a replacement presentation.
+
+Loading lifetime and permission to take focus are separate. The app owns an interaction epoch, advanced
+by pointer, key, wheel, selected-session changes, and explicit foreground navigation. A delayed action
+retains its initiating permission; programmatic focus return and ambient recovery cannot renew it.
+Newer input revokes focus without cancelling an already-selected file's model loading or placement.
+An Undo/Redo response cannot initiate a reveal after that permission is revoked. Background-session
+events mutate only their own state and cannot revoke foreground focus.
+
+Keep/Revert captures its next pending location and source-deletion disposition inside Core's mutation
+lock. Only that response may advance to another file, through its original presentation and interaction
+permission. Neither snapshot publication nor painting initiates advancement. A deleted source file may
+disappear before its response; only that decision's explicit deletion disposition permits navigation to
+continue through the retired source. Data mutation and projection complete regardless of whether the
+user has moved on.
 
 Explicit navigation expands a collapsed file. Restoring a collapsed tab preserves its saved outer
 position without restoring or focusing hidden content. Preparation failures retry only for a new

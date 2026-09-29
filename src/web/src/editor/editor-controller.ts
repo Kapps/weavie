@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import type { FocusIntent, InteractionIntent } from "../chrome/interaction-intent";
 import type { CommandResult } from "../commands/types";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
@@ -28,7 +29,6 @@ import { createEditorNavigation } from "./editor-navigation";
 import { createEditorSymbols, noEditorSymbols } from "./editor-symbols";
 import { samePath } from "./fs-path";
 import type {
-  HunkRevert,
   HunkUnkeep,
   InlineDiff,
   InlineDiffOptions,
@@ -38,6 +38,7 @@ import type {
 import type { NavLocation, TextLocation } from "./nav-history";
 import type { ReviewCommentDrafts, ReviewCommentPost } from "./review/review-comment-drafts";
 import { ReviewCommentSession } from "./review/review-comment-session";
+import { applyReviewDecision, type ReviewDecisionCompletion } from "./review/review-decision";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
@@ -83,7 +84,14 @@ import { SESSION_FILE_SCHEME, sessionOwnsUri, sessionUriHostPath } from "./sessi
 // stamped — so it's set well above any real cold start while still bounding an init that truly never settles.
 const EDITOR_INIT_MS = 60_000;
 
+class FileOpenError extends Error {
+  constructor() {
+    super("The file could not be opened.");
+  }
+}
+
 export interface EditorControllerDeps {
+  interaction: InteractionIntent;
   /** Surface a debounced save that failed to reach disk. */
   onSaveError: (message: string) => void;
   /** Surface a file that couldn't be opened (read), so a failed open errors loudly instead of a blank tab. */
@@ -184,6 +192,7 @@ export interface EditorController {
   ): Omit<TabPresenter, "signal">;
   captureTab(tab: TabOwner): void;
   readonly review: {
+    interaction: InteractionIntent;
     scope: ReviewScopeState;
     canClose(): boolean;
     overview(): ReviewOverview;
@@ -193,6 +202,7 @@ export interface EditorController {
       session: ClientSession,
       diff: ReviewFileDiff,
       reveal: (file: ReviewFile, line: number) => void,
+      captureAdvance: () => ReviewDecisionCompletion,
     ): InlineDiffOptions;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
@@ -214,6 +224,8 @@ export interface EditorController {
 }
 
 export function createEditorController(deps: EditorControllerDeps): EditorController {
+  const beginFocus = (session: ClientSession): FocusIntent | undefined =>
+    selectedSession() === session ? deps.interaction.begin() : undefined;
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
   let inlineDiff: InlineDiff | undefined;
@@ -308,7 +320,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const result = activateTabFor(session, path);
       if (result !== null) {
         result.placement = { ...result.placement, focus: false };
-        await applyActive(session, result);
+        await applyActive(session, result, undefined);
       }
     }
     if (selectedSession() === session) renderReviewState(session);
@@ -360,8 +372,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return;
       const shown = await editorHost.show(tab.session, tab.entry.path, placement, signal);
       if (shown.kind === "failed") {
-        rollbackFailedOpen(tab.session, tab.entry.path);
-        throw new Error("The file could not be opened.");
+        throw new FileOpenError();
       }
       if (shown.kind === "superseded")
         throw new DOMException("Tab activation cancelled", "AbortError");
@@ -374,10 +385,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       } else focusTabContent(element);
     },
     actions: () => (content() === undefined ? inlineDiff?.captureActions() : undefined),
+    captureReviewAdvance: (path) =>
+      content() === undefined ? captureFileAdvance(tab.session, path) : () => {},
   });
   const applyActive = (
     session: ClientSession,
     result: ActivateResult,
+    focus: FocusIntent | undefined,
   ): Promise<TextEditorConnection | undefined> => {
     if (selectedSession() !== session) return Promise.resolve(undefined);
     const tab = tabOwnerFor(session, result.path);
@@ -391,18 +405,32 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         const presenter = await tab.wait(signal);
         const validity = AbortSignal.any([signal, presenter.signal]);
         validity.throwIfAborted();
-        await presenter.restore(result.placement, validity);
+        try {
+          await presenter.restore(result.placement, validity);
+        } catch (error) {
+          if (error instanceof FileOpenError && !validity.aborted)
+            rollbackFailedOpen(session, result.path, focus);
+          throw error;
+        }
         validity.throwIfAborted();
         const location = captureLocation(tab);
         if (location !== undefined) navigation.record(session, location);
-        if (!("focus" in result.placement) || result.placement.focus !== false) presenter.focus();
+        if (
+          focus?.current() &&
+          (!("focus" in result.placement) || result.placement.focus !== false)
+        )
+          presenter.focus();
         return editorContexts.forTab(tab);
       })(),
     );
   };
 
-  const presentTab = (session: ClientSession, result: ActivateResult): void => {
-    void applyActive(session, result).catch((error: unknown) => {
+  const presentTab = (
+    session: ClientSession,
+    result: ActivateResult,
+    focus: FocusIntent | undefined,
+  ): void => {
+    void applyActive(session, result, focus).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError"))
         deps.onOpenError(`Couldn't open the tab: ${String(error)}`);
     });
@@ -410,14 +438,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Drop a tab whose open failed (no working copy to release) and, if it was active, switch to its neighbor. A
   // cascade is fine: an unreadable neighbor rolls back in turn until a readable tab or empty pane is reached.
-  const rollbackFailedOpen = (session: ClientSession, path: string): void => {
+  const rollbackFailedOpen = (
+    session: ClientSession,
+    path: string,
+    focus: FocusIntent | undefined,
+  ): void => {
     const wasActive = activePathFor(session);
     const result = closeTabFor(session, path);
     if (result === null) {
       return;
     }
     if (path === wasActive) {
-      applyOrClear(session, result.next);
+      applyOrClear(session, result.next, focus);
     }
   };
 
@@ -441,6 +473,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     preview: boolean,
     scratch: boolean,
     intent: EditorOpenIntent,
+    focus: FocusIntent | undefined,
   ): void => {
     const foreground = activateDestinationFor(session, intent);
     const result = openTabFor(session, path, {
@@ -449,7 +482,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       scratch,
     });
     if (foreground) {
-      presentTab(session, result);
+      presentTab(session, result, focus);
     }
   };
 
@@ -461,7 +494,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   ): void => {
     const session = selectedSession();
     if (session !== null) {
-      openFileFor(session, path, line, preview, scratch, "navigation");
+      openFileFor(session, path, line, preview, scratch, "navigation", deps.interaction.begin());
     }
   };
 
@@ -479,6 +512,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     origin: TextLocation | undefined,
   ): Promise<TextEditorConnection | undefined> => {
     if (!editorContexts.displayed(source) || selectedSession() !== source.session) return undefined;
+    const focus = deps.interaction.begin();
     const { session } = source;
     if (origin !== undefined) source.restore(origin);
     navigation.depart(session);
@@ -499,7 +533,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     deps.onDestinationActivated();
     const result = openTabFor(session, path, { preview });
     result.placement = selection === undefined ? { line: 1 } : { selection };
-    const destination = await applyActive(session, result);
+    const destination = await applyActive(session, result, focus);
     return destination;
   };
   const symbols = (): SymbolActions => {
@@ -526,10 +560,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       signal.throwIfAborted();
       if (selectedSession() !== session)
         throw new DOMException("Editor view detached", "AbortError");
+      const focus = deps.interaction.begin();
       activateDestinationFor(session, "restore");
       const result = openTabFor(session, location.tab.path, { kind: tabKind(location.tab) });
       result.placement = { viewState: location.view.state };
-      await applyActive(session, result);
+      await applyActive(session, result, focus);
       signal.throwIfAborted();
     },
     changed: () => setNavRevision((revision) => revision + 1),
@@ -549,7 +584,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const session = selectedSession();
     if (session !== null) {
       activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, url, { kind: "web" }));
+      presentTab(session, openTabFor(session, url, { kind: "web" }), deps.interaction.begin());
     }
   };
 
@@ -559,17 +594,25 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const session = selectedSession();
     if (session !== null) {
       activateDestinationFor(session, "navigation");
-      presentTab(session, openTabFor(session, target, { kind: "source" }));
+      presentTab(
+        session,
+        openTabFor(session, target, { kind: "source" }),
+        deps.interaction.begin(),
+      );
     }
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
-  const applyOrClear = (session: ClientSession, next: ActivateResult | null): void => {
+  const applyOrClear = (
+    session: ClientSession,
+    next: ActivateResult | null,
+    focus: FocusIntent | undefined,
+  ): void => {
     if (selectedSession() !== session) {
       return;
     }
     if (next !== null) {
-      presentTab(session, next);
+      presentTab(session, next, focus);
     } else {
       host?.clear();
       deps.onCurrentFileChanged(null);
@@ -579,6 +622,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
   const tabs = createTabActions({
+    captureFocus: beginFocus,
     depart: (session) => {
       activateDestinationFor(session, "navigation");
     },
@@ -719,23 +763,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Open a review file on its first change as a preview tab (so ← / → reuses one tab); re-requests its turn-diff
   // so applied markers render even if the push was missed.
-  const openReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
+  const openReviewFile = (
+    session: ClientSession,
+    file: ReviewFile,
+    line: number,
+    focus: FocusIntent | undefined,
+  ): void => {
     if (selectedSession() !== session) {
       return;
     }
     if (!file.currentExists) {
-      showUnifiedReview(session);
+      showUnifiedReview(session, focus);
       return;
     }
-    navigation.depart(session);
-    openFileFor(session, file.path, line, true, false, "navigation");
+    openFileFor(session, file.path, line, true, false, "navigation", focus);
     session.feature("review").publish("showFile", { path: file.path });
   };
 
-  const showUnifiedReview = (session: ClientSession): boolean => {
+  const showUnifiedReview = (session: ClientSession, focus: FocusIntent | undefined): boolean => {
     if (!activateDestinationFor(session, "navigation")) return false;
     const result = openTabFor(session, REVIEW_TAB_KEY, { kind: "review" });
-    presentTab(session, result);
+    presentTab(session, result, focus);
     return true;
   };
 
@@ -796,25 +844,32 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  const revealReviewFile = openReviewFile;
+  const revealReviewFile = (session: ClientSession, file: ReviewFile, line: number): void =>
+    openReviewFile(session, file, line, beginFocus(session));
 
-  // A file's diff just cleared (its last hunk was kept or reverted) while other changed files remain under
-  // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
-  // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
-  // since the host drops it from the review set right after.
-  const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
-    const idx = files.findIndex((file) => samePath(file.path, fromPath));
-    const start = idx === -1 ? 0 : idx;
-    for (let step = 1; step <= files.length; step++) {
-      const candidate = files[(start + step) % files.length];
-      if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
-        revealReviewFile(session, candidate, candidate.line);
+  const captureFileAdvance = (session: ClientSession, path: string): ReviewDecisionCompletion => {
+    const tab = activeTabFor(session);
+    if (selectedSession() !== session || tab === undefined || !samePath(tab.entry.path, path))
+      return () => {};
+    const presenter = tab.presentation;
+    const signal = navigation.signal(session);
+    return (location, focus, sourceDeleted) => {
+      if (signal.aborted || !focus.current() || selectedSession() !== session) return;
+      if (tab.signal.aborted && !sourceDeleted) return;
+      if (!tab.signal.aborted && (activeTabFor(session) !== tab || tab.presentation !== presenter))
         return;
-      }
-    }
+      const next = reviews
+        .board(session)
+        .files.find((file) => samePath(file.summary().path, location.path))
+        ?.summary();
+      if (next !== undefined) openReviewFile(session, next, location.line, focus);
+    };
   };
+
+  const captureReviewAdvance = (session: ClientSession, path: string): ReviewDecisionCompletion =>
+    selectedSession() === session
+      ? (activeTabFor(session)?.presentation?.captureReviewAdvance(path) ?? (() => {}))
+      : () => {};
 
   // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
   // per-hunk and whole-file reverts go through this so the host never races a debounced write. A failed flush
@@ -832,32 +887,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  // Ask the host to revert just this hunk on disk. The host re-emits the file's diff (or an fs-change removal
-  // for a created file emptied by the revert), which re-renders without the reverted hunk.
-  const revertHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("revertHunk", { path, ...hunk }),
-    );
-  };
-
-  // Keep just this hunk: the host advances its review baseline over it (no disk write) so it drops from the
-  // pending diff for good. Flush first so the host's guardText check sees the same disk content the web does.
-  const keepHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("keepHunk", { path, ...hunk }),
-    );
+  const decide = <T extends { path: string }>(
+    session: ClientSession,
+    operation: "keepHunk" | "revertHunk" | "keepFile" | "revertFile",
+    payload: T,
+    complete: ReviewDecisionCompletion,
+  ): void => {
+    const focus = beginFocus(session);
+    afterFlush(session, payload.path, () => {
+      void applyReviewDecision(session, operation, payload, focus, complete);
+    });
   };
 
   // Un-keep just this faded hunk: the host splices the accepted-anchor lines back into the review baseline, so it
   // returns to the bright pending band. No disk read (the guard is against Core's review baseline), so no flush.
   const unkeepHunk = (session: ClientSession, path: string, hunk: HunkUnkeep): void => {
     session.feature("review").publish("unkeepHunk", { path, ...hunk });
-  };
-
-  // Keep every change in one file: the host advances its review baseline to current, so the file leaves the
-  // review set for good. No confirm — keeping is non-destructive.
-  const keepFile = (session: ClientSession, path: string): void => {
-    afterFlush(session, path, () => session.feature("review").publish("keepFile", { path }));
   };
 
   const pendingReviewFile = (
@@ -881,7 +926,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Revert every change in one file to its turn baseline on disk, after a confirm (the host restores the file
   // wholesale and re-emits its now-empty diff + the trimmed review set).
-  const revertFile = (session: ClientSession, path: string): void => {
+  const revertFile = (
+    session: ClientSession,
+    path: string,
+    complete: ReviewDecisionCompletion,
+  ): void => {
     void deps
       .confirm({
         title: "Revert file?",
@@ -890,9 +939,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       })
       .then((ok) => {
         if (ok) {
-          afterFlush(session, path, () =>
-            session.feature("review").publish("revertFile", { path }),
-          );
+          decide(session, "revertFile", { path }, complete);
         }
       });
   };
@@ -925,23 +972,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const fileHistoryHandlers = (session: ClientSession): ReviewHistoryHandlers => {
     const existing = fileHistoryOwners.get(session);
     if (existing !== undefined) return existing;
-    const handlers = reviewHistoryHandlers(session, () => {
-      const connection = host === undefined ? undefined : editorContexts.fromEditor(host.editor);
-      const presentation = connection?.tab.presentation;
-      return ({ path, line }) => {
-        if (
-          connection === undefined ||
-          presentation?.signal.aborted ||
-          !editorContexts.displayed(connection) ||
-          selectedSession() !== session
-        )
-          return;
-        const file = reviews
-          .board(session)
-          .files.find((file) => samePath(file.summary().path, path));
-        if (file !== undefined) openReviewFile(session, file.summary(), line);
-      };
-    });
+    const handlers = reviewHistoryHandlers(
+      session,
+      () => beginFocus(session),
+      () => {
+        const connection = host === undefined ? undefined : editorContexts.fromEditor(host.editor);
+        const presentation = connection?.tab.presentation;
+        return ({ path, line }, focus) => {
+          if (
+            connection === undefined ||
+            presentation?.signal.aborted ||
+            !editorContexts.displayed(connection) ||
+            selectedSession() !== session
+          )
+            return;
+          const file = reviews
+            .board(session)
+            .files.find((file) => samePath(file.summary().path, path));
+          if (file !== undefined) openReviewFile(session, file.summary(), line, focus);
+        };
+      },
+    );
     fileHistoryOwners.set(session, handlers);
     return handlers;
   };
@@ -951,7 +1002,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
       return false;
     }
-    const handlers = reviewHistoryHandlers(session, () => () => {});
+    const handlers = reviewHistoryHandlers(
+      session,
+      () => beginFocus(session),
+      () => () => {},
+    );
     if (kind === "keep") handlers.onUndoKeep();
     else handlers.onUndoRevert();
     return true;
@@ -961,7 +1016,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (!reviews.board(session).history.canRedo) {
       return false;
     }
-    reviewHistoryHandlers(session, () => () => {}).onRedo();
+    reviewHistoryHandlers(
+      session,
+      () => beginFocus(session),
+      () => () => {},
+    ).onRedo();
     return true;
   };
 
@@ -1014,6 +1073,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     message: ReviewFileDiff,
     reveal: (file: ReviewFile, line: number) => void,
+    captureAdvance: () => ReviewDecisionCompletion,
   ): InlineDiffOptions => {
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
@@ -1039,10 +1099,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       acceptedBaseline: message.acceptedBaseline,
       claudeVersion: message.current,
       mode: "applied",
-      onKeepHunk: (hunk) => keepHunk(session, message.path, hunk),
-      onKeepFile: () => keepFile(session, message.path),
-      onRevertHunk: (hunk) => revertHunk(session, message.path, hunk),
-      onRevertFile: () => revertFile(session, message.path),
+      onKeepHunk: (hunk) =>
+        decide(session, "keepHunk", { path: message.path, ...hunk }, captureAdvance()),
+      onKeepFile: () => decide(session, "keepFile", { path: message.path }, captureAdvance()),
+      onRevertHunk: (hunk) =>
+        decide(session, "revertHunk", { path: message.path, ...hunk }, captureAdvance()),
+      onRevertFile: () => revertFile(session, message.path, captureAdvance()),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
       onKeepAll: () => session.feature("review").publish("accept", {}),
       onUndo: () => revertAllFor(session),
@@ -1054,25 +1116,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
     if (
       message.acceptedBaseline === message.current &&
       message.acceptedBaselineExists === message.currentExists
     ) {
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
-      const active = activePathFor(session);
-      if (active !== null && samePath(active, message.path) && files.length > 1) {
-        advanceToNextPendingFile(session, message.path);
-      }
       return;
     }
 
     inlineDiff?.set(
       session,
       message.path,
-      appliedReviewOptions(session, message, (file, line) => openReviewFile(session, file, line)),
+      appliedReviewOptions(
+        session,
+        message,
+        (file, line) => revealReviewFile(session, file, line),
+        () => captureFileAdvance(session, message.path),
+      ),
     );
     commentProse?.refresh();
   };
@@ -1212,7 +1273,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const wasActive = activePathFor(session) === entry.path;
       const result = closeTabFor(session, entry.path);
       if (result !== null && wasActive) {
-        applyOrClear(session, result.next);
+        applyOrClear(session, result.next, undefined);
       }
       host?.closeFile(session, entry.path, true);
     }
@@ -1252,6 +1313,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           message.preview === true,
           message.scratch === true,
           message.intent,
+          beginFocus(session),
         );
       }),
       editor.on<{ id: string; path: string; title: string; markdown: string }>(
@@ -1268,7 +1330,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
           if (activateDestinationFor(session, "navigation")) {
-            presentTab(session, result);
+            presentTab(session, result, deps.interaction.begin());
           }
         },
       ),
@@ -1365,13 +1427,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     savedPath: string;
   }
 
-  const applyScratchSave = (session: ClientSession, result: ScratchSaveResult): void => {
+  const applyScratchSave = (
+    session: ClientSession,
+    result: ScratchSaveResult,
+    focus: FocusIntent | undefined,
+  ): void => {
     if (result.savedPath === "") {
       return;
     }
     const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
     if (activation !== null) {
-      presentTab(session, activation);
+      presentTab(session, activation, focus);
     }
     host?.closeFile(session, result.scratchPath, true);
   };
@@ -1386,6 +1452,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const native = !isBrowserHostedShell() && session.connection.isLocal;
     const name = native ? basename(entry.path) : await deps.promptScratchName(basename(entry.path));
     if (name === null) return;
+    const focus = beginFocus(session);
     tab.assertLive();
     host?.cancelSave(session, entry.path);
     const payload = {
@@ -1399,7 +1466,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         native ? "saveScratchAs" : "saveScratchNamed",
         payload,
       );
-    if (!tab.signal.aborted) applyScratchSave(session, result);
+    if (!tab.signal.aborted) applyScratchSave(session, result, focus);
   };
 
   const save = (tab: TabOwner): boolean => {
@@ -1461,7 +1528,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         } else {
           navigation.depart(session);
         }
-        presentTab(session, openTabFor(session, path, { line, column, focus, preview: true }));
+        presentTab(
+          session,
+          openTabFor(session, path, { line, column, focus, preview: true }),
+          deps.interaction.begin(),
+        );
       }
     },
     newFile,
@@ -1473,7 +1544,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return false;
       }
       if (path === undefined) {
-        return showUnifiedReview(session);
+        return showUnifiedReview(session, deps.interaction.begin());
       }
       const view = reviews
         .board(session)
@@ -1482,7 +1553,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return false;
       }
       const file = view.summary();
-      openReviewFile(session, file, line ?? file.line);
+      revealReviewFile(session, file, line ?? file.line);
       return true;
     },
     hostReady: editorHostReady,
@@ -1494,6 +1565,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviewActive,
     parkedReviewCount: reviews.count,
     review: {
+      interaction: deps.interaction,
       scope: reviewScope,
       canClose: () => canCloseReview(reviews.overview()),
       overview: reviews.overview,
@@ -1520,7 +1592,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (file === null) {
           return false;
         }
-        keepFile(session, file.path);
+        decide(session, "keepFile", { path: file.path }, captureReviewAdvance(session, file.path));
         return true;
       },
       revertFile: (session, path) => {
@@ -1528,7 +1600,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (file === null) {
           return false;
         }
-        revertFile(session, file.path);
+        revertFile(session, file.path, captureReviewAdvance(session, file.path));
         return true;
       },
       close: (session) => {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
@@ -67,26 +68,18 @@ public sealed partial class HostCore {
 			UndoTurn(session);
 			return Task.CompletedTask;
 		});
-		review.Handle<JsonElement>("revertHunk", (message, _) => {
-			RejectHunk(session, message);
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("keepHunk", (message, _) => {
-			RunReviewAction(session, () => KeepHunk(session, message));
-			return Task.CompletedTask;
-		});
+		review.Handle<JsonElement, ReviewDecisionNavigation>("revertHunk", (message, _) =>
+			Task.FromResult(RunReviewDecision(session, () => RejectHunk(session, message))));
+		review.Handle<JsonElement, ReviewDecisionNavigation>("keepHunk", (message, _) =>
+			Task.FromResult(RunReviewDecision(session, () => KeepHunk(session, message))));
 		review.Handle<JsonElement>("unkeepHunk", (message, _) => {
 			RunReviewAction(session, () => UnkeepHunk(session, message));
 			return Task.CompletedTask;
 		});
-		review.Handle<JsonElement>("revertFile", (message, _) => {
-			RevertFile(session, message);
-			return Task.CompletedTask;
-		});
-		review.Handle<JsonElement>("keepFile", (message, _) => {
-			RunReviewAction(session, () => KeepFile(session, message));
-			return Task.CompletedTask;
-		});
+		review.Handle<JsonElement, ReviewDecisionNavigation>("revertFile", (message, _) =>
+			Task.FromResult(RunReviewDecision(session, () => RevertFile(session, message))));
+		review.Handle<JsonElement, ReviewDecisionNavigation>("keepFile", (message, _) =>
+			Task.FromResult(RunReviewDecision(session, () => KeepFile(session, message))));
 		review.Handle<JsonElement, ReviewHistoryLocation?>("undo", (message, _) =>
 			Task.FromResult(ReviewUndo(session, message)));
 		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, _) =>

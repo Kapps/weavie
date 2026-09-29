@@ -122,7 +122,6 @@ export class ReviewFileActions {
       callback(this.payload(hunk));
       if (valid()) {
         if (keep && target !== undefined) presentation.revealLine(target.anchorLine);
-        if (remaining.length === 0 && (keep || hasFadedBand(options!))) run(options!.onNextFile);
       }
       return true;
     };

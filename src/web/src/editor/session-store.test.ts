@@ -1,6 +1,7 @@
 import { createComputed, createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { InteractionIntent } from "../chrome/interaction-intent";
 import type { EditorSessionEntry } from "./session-types";
 
 interface Posted {
@@ -243,6 +244,23 @@ describe("togglePin", () => {
 });
 
 describe("convertScratch", () => {
+  it.each([
+    false,
+    true,
+  ])("converts a background scratch without selecting it (destination open: %s)", (existing) => {
+    seed(
+      [
+        { path: "/tmp/U1", scratch: true, viewState: null },
+        { path: "/other.ts", viewState: null },
+        ...(existing ? [{ path: "/saved.ts", viewState: null }] : []),
+      ],
+      "/other.ts",
+    );
+    expect(store.convertScratch("/tmp/U1", "/saved.ts")).toBeNull();
+    expect(paths()).toContain("/saved.ts");
+    expect(paths()).not.toContain("/tmp/U1");
+    expect(store.activePath()).toBe("/other.ts");
+  });
   it("renames the scratch tab in place, keeping its position", () => {
     seed(
       [
@@ -401,6 +419,7 @@ it("closing a captured batch never adopts tabs opened or reopened during its con
   const present = vi.fn();
   const release = vi.fn();
   const actions = createTabActions({
+    captureFocus: new InteractionIntent(new EventTarget()).begin,
     depart: () => {},
     present,
     capture: () => {},
@@ -538,6 +557,7 @@ it("closed-tab undo restores the final synchronous capture into a new exact owne
   const old = store.activeTabFor(session)!;
   const present = vi.fn();
   const actions = createTabActions({
+    captureFocus: new InteractionIntent(new EventTarget()).begin,
     depart: () => {},
     present,
     capture: (tab) => store.captureViewState(tab, { top: 7.5, selection: [3, 6] }),
@@ -551,8 +571,12 @@ it("closed-tab undo restores the final synchronous capture into a new exact owne
   const current = store.activeTabFor(session)!;
   expect(current).not.toBe(old);
   expect(current.viewState).toEqual({ top: 7.5, selection: [3, 6] });
-  expect(present).toHaveBeenLastCalledWith(session, {
-    path: "/scroll",
-    placement: { viewState: { top: 7.5, selection: [3, 6] } },
-  });
+  expect(present).toHaveBeenLastCalledWith(
+    session,
+    {
+      path: "/scroll",
+      placement: { viewState: { top: 7.5, selection: [3, 6] } },
+    },
+    expect.objectContaining({ current: expect.any(Function) }),
+  );
 });

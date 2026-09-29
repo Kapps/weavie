@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
+import type { InteractionIntent } from "../../chrome/interaction-intent";
 import {
   buildPathTree,
   type PathTreeNode,
@@ -28,6 +29,7 @@ import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
 import type { ReviewCommentDrafts as DraftStore } from "./review-comment-drafts";
 import { estimatedEditorHeight } from "./review-context";
+import type { ReviewDecisionCompletion } from "./review-decision";
 import { ReviewDocumentScope } from "./review-document";
 import { createReviewFileOwners } from "./review-file-owners";
 import { reviewHistoryHandlers } from "./review-history-handlers";
@@ -45,6 +47,7 @@ const TREE_HEADER_HEIGHT = 42;
 const TREE_ROW_HEIGHT = 28;
 
 export function UnifiedReview(props: {
+  interaction: InteractionIntent;
   scope: ReviewScopeState;
   overview: () => ReviewOverview;
   drafts: DraftStore;
@@ -58,6 +61,7 @@ export function UnifiedReview(props: {
     session: ClientSession,
     diff: ReviewFileDiff,
     reveal: (file: ReviewFile, line: number) => void,
+    captureAdvance: () => ReviewDecisionCompletion,
   ) => InlineDiffOptions;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
@@ -106,7 +110,12 @@ export function UnifiedReview(props: {
     label,
     documents,
     optionsFor: (value) =>
-      props.diffOptions(props.session, value, (target, line) => surface.reveal(target.path, line)),
+      props.diffOptions(
+        props.session,
+        value,
+        (target, line) => surface.reveal(target.path, line, props.interaction.begin()),
+        () => surface.captureReviewAdvance(value.path),
+      ),
     resolve: (value) => copies.open(value.path, value.current, value.currentExists),
   });
   const sessionKey = (): string =>
@@ -225,6 +234,7 @@ export function UnifiedReview(props: {
 
   const active = createTabActivity(props.tab);
   const surface = createReviewSurface({
+    interaction: props.interaction,
     horizontal,
     active,
     controls: { refresh: () => toolbar.refresh(), captureActions: () => toolbar.captureActions() },
@@ -249,7 +259,7 @@ export function UnifiedReview(props: {
     const index = visibleFile();
     const reveal = (index: number): void => {
       const file = currentFiles[index]?.summary();
-      if (file !== undefined) surface.reveal(file.path, file.line);
+      if (file !== undefined) surface.reveal(file.path, file.line, props.interaction.begin());
     };
     return {
       fileCount: currentFiles.length,
@@ -259,15 +269,15 @@ export function UnifiedReview(props: {
       prevFile: () => reveal((index - 1 + currentFiles.length) % currentFiles.length),
     };
   });
-  const history = reviewHistoryHandlers(props.session, () => {
+  const history = reviewHistoryHandlers(props.session, props.interaction.begin, () => {
     const presentation = props.tab.presentation;
-    return ({ path, line }) => {
+    return ({ path, line }, focus) => {
       if (
         !presentation?.signal.aborted &&
         selectedSession() === props.session &&
         activeTabFor(props.session) === props.tab
       )
-        surface.reveal(path, line);
+        surface.reveal(path, line, focus);
     };
   });
   const toolbar = createReviewToolbarPresenter({
@@ -428,7 +438,11 @@ export function UnifiedReview(props: {
                         measure={observe}
                         nodes={treeNodes}
                         onSelect={(file) =>
-                          surface.reveal(file.summary().path, file.summary().line)
+                          surface.reveal(
+                            file.summary().path,
+                            file.summary().line,
+                            props.interaction.begin(),
+                          )
                         }
                         onToggleDirectory={toggleDirectory}
                         overview={props.overview}

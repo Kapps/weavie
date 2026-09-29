@@ -215,10 +215,13 @@ class OwnedEditorSession {
     const existing = current.open.find(
       (entry, candidate) => candidate !== index && samePath(entry.path, savedPath),
     );
+    const active = current.active === scratchPath;
     if (existing !== undefined) {
       const open = normalize(current.open.filter((entry) => entry.path !== scratchPath));
-      this.commit({ active: existing.path, open });
-      return { path: existing.path, placement: { viewState: this.viewState(existing) } };
+      this.commit({ active: active ? existing.path : current.active, open });
+      return active
+        ? { path: existing.path, placement: { viewState: this.viewState(existing) } }
+        : null;
     }
     const open = normalize(
       current.open.map((entry, candidate) =>
@@ -227,8 +230,8 @@ class OwnedEditorSession {
           : entry,
       ),
     );
-    this.commit({ active: savedPath, open });
-    return { path: savedPath, placement: { line: 1 } };
+    this.commit({ active: active ? savedPath : current.active, open });
+    return active ? { path: savedPath, placement: { line: 1 } } : null;
   }
 
   closeMany(predicate: (entry: EditorTab) => boolean): {

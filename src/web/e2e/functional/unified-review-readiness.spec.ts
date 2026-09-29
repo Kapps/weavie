@@ -13,10 +13,14 @@ test.use({
   },
 });
 
-for (const cancel of [false, true]) {
-  test(`navigation to a retained pending file ${cancel ? "cancels on user scrolling" : "focuses once after fresh preparation"}`, async ({
-    page,
-  }) => {
+for (const interaction of ["none", "scroll", "palette"] as const) {
+  const outcome =
+    interaction === "scroll"
+      ? "cancels on user scrolling"
+      : interaction === "palette"
+        ? "completes placement without stealing newer palette focus"
+        : "focuses once after fresh preparation";
+  test(`navigation to a retained pending file ${outcome}`, async ({ page }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("2");
     await page.locator(".editor-empty-review").click();
     await expect(page.locator('.review-adaptive-body[aria-busy="false"]')).toHaveCount(2);
@@ -93,14 +97,18 @@ for (const cancel of [false, true]) {
         name: "Review scroll position",
         exact: true,
       });
-      if (cancel) {
+      if (interaction === "scroll") {
         await scrollbar.press("Home");
         await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBe(0);
         await expect(scrollbar).toBeFocused();
+      } else if (interaction === "palette") {
+        await page.locator(".tb-omnibar-input").click();
+        await page.locator(".tb-omnibar-input").fill(">Go Back");
+        await expect(page.locator(".tb-omnibar-input")).toBeFocused();
       }
       await gate.evaluate((gate) => gate.release());
       await expect(section.locator(".review-adaptive-body")).toHaveAttribute("aria-busy", "false");
-      if (cancel) {
+      if (interaction === "scroll") {
         await expect(scrollbar).toBeFocused();
         expect((await reviewScroll(page)).top).toBe(0);
         expect((await gate.evaluate((gate) => gate.state())).focuses).toBe(0);
@@ -108,10 +116,15 @@ for (const cancel of [false, true]) {
         await expect(reviewEditor(section)).toBeVisible();
         await expect
           .poll(() => gate.evaluate((gate) => gate.state()))
-          .toEqual({ creates: 1, focuses: 1 });
-        await expect(
-          reviewEditor(section).getByRole("textbox", { name: "Editor content" }),
-        ).toBeFocused();
+          .toEqual({ creates: 1, focuses: interaction === "palette" ? 0 : 1 });
+        if (interaction === "palette") {
+          await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+          await expect(page.locator(".tb-omnibar-input")).toHaveValue(">Go Back");
+          await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
+        } else
+          await expect(
+            reviewEditor(section).getByRole("textbox", { name: "Editor content" }),
+          ).toBeFocused();
         await expect(
           reviewEditor(section).locator(".view-line", { hasText: /^b-ready\.txt\sline\s0$/ }),
         ).toBeInViewport();

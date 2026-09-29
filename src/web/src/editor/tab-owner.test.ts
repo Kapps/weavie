@@ -18,6 +18,7 @@ const presenter = (): Omit<TabPresenter, "signal"> => ({
   restore: async () => {},
   focus: vi.fn(),
   actions: () => undefined,
+  captureReviewAdvance: () => () => {},
 });
 
 it("waits for the exact tab and retires only the disposed mounting", async () => {

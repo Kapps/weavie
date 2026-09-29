@@ -1,4 +1,5 @@
 import { type ClientSession, selectedSession } from "../bridge";
+import type { FocusIntent } from "../chrome/interaction-intent";
 import { basename } from "./fs-path";
 import {
   type ActivateResult,
@@ -18,8 +19,13 @@ import type { TabOwner } from "./tab-owner";
 
 /** Capture once for a command or menu. Confirmations cannot expand the captured set of owners. */
 export function createTabActions(deps: {
+  captureFocus(session: ClientSession): FocusIntent | undefined;
   depart(session: ClientSession): void;
-  present(session: ClientSession, result: ActivateResult | null): void;
+  present(
+    session: ClientSession,
+    result: ActivateResult | null,
+    focus: FocusIntent | undefined,
+  ): void;
   capture(tab: TabOwner): void;
   content(tab: TabOwner): string;
   release(tab: TabOwner): void;
@@ -36,6 +42,9 @@ export function createTabActions(deps: {
     const eligible = (tab: TabOwner): boolean =>
       !tab.signal.aborted && !tab.session.signal.aborted && (!protectPinned || !tab.entry.pinned);
     const doomed = targets.filter(eligible);
+    const session = doomed[0]?.session;
+    if (session === undefined) return;
+    let focus = deps.captureFocus(session);
     const confirmed = new Set<TabOwner>();
     while (true) {
       const dirty = doomed.filter(
@@ -47,10 +56,9 @@ export function createTabActions(deps: {
       );
       if (dirty.length === 0) break;
       if (!(await deps.confirmDiscard(dirty.map((tab) => basename(tab.entry.path))))) return;
+      focus = deps.captureFocus(session);
       for (const tab of dirty) confirmed.add(tab);
     }
-    const session = doomed[0]?.session;
-    if (session === undefined) return;
     const active = activeTabFor(session);
     if (active !== undefined) {
       deps.capture(active);
@@ -66,16 +74,17 @@ export function createTabActions(deps: {
       changed = true;
       deps.release(tab);
     }
-    if (changed && active?.signal.aborted) deps.present(session, next);
+    if (changed && active?.signal.aborted) deps.present(session, next, focus);
   };
   const activate = (tab: TabOwner | undefined): boolean => {
     if (tab === undefined) return false;
     tab.assertLive();
     if (selectedSession() !== tab.session)
       throw new Error("The tab's session is no longer displayed.");
+    const focus = deps.captureFocus(tab.session);
     deps.depart(tab.session);
     const result = activateTabFor(tab.session, tab.entry.path);
-    deps.present(tab.session, result);
+    deps.present(tab.session, result, focus);
     return true;
   };
   return {
@@ -114,12 +123,13 @@ export function createTabActions(deps: {
             return false;
           if (selectedSession() !== session)
             throw new Error("The tab's session is no longer displayed.");
+          const focus = deps.captureFocus(session);
           stack.splice(stack.indexOf(reopen), 1);
           deps.depart(session);
           const result = openTabFor(session, reopen.path, { kind: tabKind(reopen) });
           captureViewState(tabOwnerFor(session, result.path)!, reopen.viewState);
           result.placement = { viewState: reopen.viewState };
-          deps.present(session, result);
+          deps.present(session, result, focus);
           return true;
         },
       };

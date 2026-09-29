@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { InteractionIntent } from "../../chrome/interaction-intent";
 import { notify } from "../../notify/notify";
 import { ReviewHorizontalPositions } from "./review-horizontal-position";
 import type { ReviewSection, ReviewSectionState } from "./review-section";
@@ -8,6 +9,8 @@ import { createReviewSurface } from "./review-surface";
 vi.mock("../../notify/notify", () => ({ notify: vi.fn() }));
 
 function fixture() {
+  const input = new EventTarget();
+  const intents = new InteractionIntent(input);
   const state = { index: 0, active: true, pending: [true, true, true], collapsed: false };
   const files: ReviewFileView[] = state.pending.map((_, index) => ({
     summary: () => ({
@@ -43,6 +46,7 @@ function fixture() {
   const setScrollTop = vi.fn();
   const scrollToIndex = vi.fn();
   const surface = createReviewSurface({
+    interaction: intents,
     horizontal: new ReviewHorizontalPositions(vi.fn()),
     controls,
     signal: new AbortController().signal,
@@ -57,7 +61,21 @@ function fixture() {
     scrollToIndex,
     focus,
   });
-  return { surface, state, select, controls, focus, setScrollTop, scrollToIndex };
+  return {
+    surface: {
+      ...surface,
+      reveal: (path: string, line: number) => surface.reveal(path, line, intents.begin()),
+    },
+    input,
+    intents,
+    files,
+    state,
+    select,
+    controls,
+    focus,
+    setScrollTop,
+    scrollToIndex,
+  };
 }
 
 function interaction() {
@@ -82,15 +100,49 @@ function interaction() {
 }
 
 describe("unified review completion navigation", () => {
-  it("wraps past reviewed files and advances only once for a completion", () => {
-    const { surface, state, select } = fixture();
+  it("wraps past reviewed files from the decision response, not a snapshot", () => {
+    const { surface, state, select, intents } = fixture();
     state.index = 2;
     state.pending[0] = false;
+    const complete = surface.captureReviewAdvance("/work/2.ts");
+    const focus = intents.begin();
     surface.refresh();
     state.pending[2] = false;
     surface.refresh();
     surface.refresh();
+    expect(select).not.toHaveBeenCalled();
+    complete({ path: "/work/1.ts", line: 10 }, focus, false);
     expect(select).toHaveBeenCalledExactlyOnceWith(1, "/work/1.ts", 10);
+    surface.dispose();
+  });
+
+  it.each([
+    "response first",
+    "projection first",
+  ])("advances after its source is removed (%s)", (order) => {
+    const { surface, state, select, files, intents } = fixture();
+    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const focus = intents.begin();
+    if (order === "projection first") files.shift();
+    state.pending[0] = false;
+    complete({ path: "/work/1.ts", line: 10 }, focus, true);
+    expect(select).toHaveBeenCalledExactlyOnceWith(
+      order === "projection first" ? 0 : 1,
+      "/work/1.ts",
+      10,
+    );
+    surface.dispose();
+  });
+
+  it("finishes background data changes without reclaiming newer interaction", () => {
+    const { surface, state, select, input, intents } = fixture();
+    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const focus = intents.begin();
+    input.dispatchEvent(new Event("keydown"));
+    state.pending[0] = false;
+    surface.refresh();
+    complete({ path: "/work/1.ts", line: 10 }, focus, false);
+    expect(select).not.toHaveBeenCalled();
     surface.dispose();
   });
 
@@ -107,11 +159,14 @@ describe("unified review completion navigation", () => {
   });
 
   it("does not replay a completion that arrived while another session or tab was active", () => {
-    const { surface, state, select } = fixture();
+    const { surface, state, select, intents } = fixture();
+    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const focus = intents.begin();
     surface.refresh();
     state.active = false;
     state.pending[0] = false;
     surface.refresh();
+    complete({ path: "/work/1.ts", line: 10 }, focus, false);
     state.active = true;
     surface.refresh();
     expect(select).not.toHaveBeenCalled();
@@ -174,6 +229,22 @@ describe("pending review navigation ownership", () => {
     surface.dispose();
   });
 
+  it.each([
+    "pointerdown",
+    "keydown",
+    "wheel",
+  ])("keeps delayed placement but not focus after newer outside %s input", async (event) => {
+    const { surface, section, navigation, input, paint } = painting();
+    surface.reveal("/work/0.ts", 80);
+    await paint();
+    input.dispatchEvent(new Event(event));
+    surface.sections.bind("/work/0.ts", section).changed();
+    await paint();
+    expect(navigation.restore).toHaveBeenCalledExactlyOnceWith({ path: "/work/0.ts", line: 80 });
+    expect(navigation.focus).not.toHaveBeenCalled();
+    surface.dispose();
+  });
+
   it("waits for a retained ready section to finish preparing fresh geometry", async () => {
     const { surface, section, sectionState, ready, navigation, paint } = painting();
     const binding = surface.sections.bind("/work/0.ts", section);
@@ -194,7 +265,7 @@ describe("pending review navigation ownership", () => {
     surface.dispose();
   });
 
-  it("joins ambient presenter focus to an exact pending restoration", async () => {
+  it("keeps restoration focus-free even when ambient recovery runs before preparation", async () => {
     const { surface, section, sectionState, ready, navigation, select, paint } = painting();
     sectionState.value = { kind: "pending", input: undefined };
     const binding = surface.sections.bind("/work/0.ts", section);
@@ -214,6 +285,8 @@ describe("pending review navigation ownership", () => {
     await restored;
     expect(select).toHaveBeenCalledExactlyOnceWith(0, "/work/0.ts", 80);
     expect(navigation.restore).toHaveBeenCalledExactlyOnceWith(location);
+    expect(navigation.focus).not.toHaveBeenCalled();
+    surface.focus();
     expect(navigation.focus).toHaveBeenCalledOnce();
     surface.dispose();
   });

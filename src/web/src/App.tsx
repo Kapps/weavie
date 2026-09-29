@@ -45,6 +45,7 @@ import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
+import { InteractionIntent } from "./chrome/interaction-intent";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -244,6 +245,7 @@ function mobileTransitionStyle(transition: MobileTransition | null): string | un
 }
 
 export default function App(): JSX.Element {
+  const interaction = new InteractionIntent(window);
   const deferredFocus = new DeferredFocus(
     selectedSession,
     {
@@ -255,8 +257,12 @@ export default function App(): JSX.Element {
   createEffect(() => {
     selectedSession();
     deferredFocus.invalidate();
+    interaction.invalidate();
   });
-  onCleanup(() => deferredFocus.dispose());
+  onCleanup(() => {
+    deferredFocus.dispose();
+    interaction.dispose();
+  });
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
   const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
@@ -668,6 +674,7 @@ export default function App(): JSX.Element {
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
+    interaction,
     onEditorContextMenu: (connection, x, y) => editorCommands.openMenu(connection, x, y),
     onSaveError: (message) => addToast("error", message),
     onOpenError: (message) => addToast("warn", message),
@@ -728,7 +735,7 @@ export default function App(): JSX.Element {
     }
   });
 
-  const focusPane = (kind: string): void => {
+  const restorePaneFocus = (kind: string): void => {
     deferredFocus.invalidate();
     // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
@@ -766,6 +773,11 @@ export default function App(): JSX.Element {
           ?.focus();
       }
     }
+  };
+
+  const focusPane = (kind: string): void => {
+    interaction.invalidate();
+    restorePaneFocus(kind);
   };
 
   // Dismiss Sessions before focusing its destination: the modal makes the pane area inert.
@@ -1739,7 +1751,7 @@ export default function App(): JSX.Element {
         const unavailable =
           lost !== null && (lost.isConnected === false || lost.closest("[hidden]") !== null);
         if (unavailable && kind !== null && !compact() && !hasTextSelection()) {
-          focusPane(kind);
+          restorePaneFocus(kind);
         }
         if (document.activeElement === document.body) {
           publishFocus(null);

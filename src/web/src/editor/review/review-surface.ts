@@ -1,7 +1,9 @@
+import type { FocusIntent, InteractionIntent } from "../../chrome/interaction-intent";
 import { notify } from "../../notify/notify";
 import { normalizePath } from "../fs-path";
 import type { TextLocation } from "../nav-history";
 import type { TabPresenter } from "../tab-owner";
+import type { ReviewDecisionCompletion } from "./review-decision";
 import type { ReviewHorizontalPositions } from "./review-horizontal-position";
 import type { ReviewSection } from "./review-section";
 import { hasReviewChanges, type ReviewFileView } from "./review-store";
@@ -23,7 +25,7 @@ export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   dispose(): void;
   refresh(): void;
   takeControl(): void;
-  reveal(path: string, line: number): void;
+  reveal(path: string, line: number, focus: FocusIntent): void;
   requestFocus(path: string): () => void;
 }
 
@@ -38,6 +40,7 @@ export interface ReviewSectionRegistry {
 
 /** One request owns activation, placement and focus in an exact retained file. */
 export function createReviewSurface(surface: {
+  interaction: InteractionIntent;
   horizontal: ReviewHorizontalPositions;
   active(): boolean;
   signal: AbortSignal;
@@ -60,7 +63,7 @@ export function createReviewSurface(surface: {
         file: ReviewFileView;
         entry: SectionEntry | undefined;
         alignment: ReviewAlignment;
-        focus: boolean;
+        focus: FocusIntent | undefined;
         positioned: boolean;
         finish(): void;
         fail(error: unknown): void;
@@ -69,8 +72,6 @@ export function createReviewSurface(surface: {
     | undefined;
   let applying = false;
   let changedWhileApplying = false;
-  let selectedFile: ReviewFileView | undefined;
-  let selectedPending = false;
   const settle = (): void => {
     if (applying) {
       changedWhileApplying = true;
@@ -87,7 +88,7 @@ export function createReviewSurface(surface: {
       const file = operation.file;
       const diff = file.diff();
       if (file.collapsed() || (file.loaded() && (!diff || !hasReviewChanges(diff)))) {
-        if (operation.focus) surface.focus();
+        if (operation.focus?.current()) surface.focus();
         operation.finish();
       }
       return;
@@ -101,7 +102,7 @@ export function createReviewSurface(surface: {
     try {
       const state = entry.section.state();
       if (state.kind === "collapsed" || state.kind === "empty") {
-        if (operation.focus) surface.focus();
+        if (operation.focus?.current()) surface.focus();
         operation.finish();
         return;
       }
@@ -123,7 +124,7 @@ export function createReviewSurface(surface: {
         else navigation.restore(operation.location);
       }
       if (pending !== operation || !capability.current()) return;
-      if (operation.focus) capability.focus();
+      if (operation.focus?.current()) capability.focus();
       if (pending === operation && capability.current()) operation.finish();
     } catch (error) {
       if (pending === operation) operation.fail(error);
@@ -141,7 +142,7 @@ export function createReviewSurface(surface: {
     location: TextLocation,
     signal: AbortSignal,
     alignment: ReviewAlignment,
-    focus: boolean,
+    focus: FocusIntent | undefined,
   ): Promise<void> => {
     pending?.cancel();
     const index = surface
@@ -207,46 +208,40 @@ export function createReviewSurface(surface: {
   };
   const requestFocus = (path: string): (() => void) => {
     const controller = new AbortController();
-    report(request({ path, line: 1 }, controller.signal, "focus", true));
+    report(request({ path, line: 1 }, controller.signal, "focus", surface.interaction.begin()));
     return () => controller.abort();
   };
   const focus = (): void => {
-    if (pending) {
-      pending.focus = true;
-      settle();
-      return;
-    }
     const state = activeSection()?.state();
     const input = state && "input" in state ? state.input : undefined;
     if (input?.current()) input.focus();
     else surface.focus();
   };
-  const reveal = (location: TextLocation, alignment: ReviewAlignment): void => {
+  const reveal = (location: TextLocation, alignment: ReviewAlignment, focus: FocusIntent): void => {
     const file = surface
       .files()
       .find((file) => normalizePath(file.summary().path) === normalizePath(location.path));
     if (file !== undefined) surface.expand(file);
-    report(request(location, lifetime.signal, alignment, true));
+    report(request(location, lifetime.signal, alignment, focus));
   };
-  const advanceReviewedFile = (): void => {
-    const files = surface.files();
-    const index = surface.currentIndex();
-    const file = files[index];
-    const isPending = file?.pending() === true;
-    const completed = file === selectedFile && selectedPending && !isPending;
-    selectedFile = file;
-    selectedPending = isPending;
-    if (!completed || !surface.active()) return;
-    for (let step = 1; step < files.length; step++) {
-      const next = files[(index + step) % files.length]!;
-      if (!next.pending()) continue;
-      const { path, line } = next.summary();
-      reveal({ path, line }, "file-start");
-      return;
-    }
+  const captureReviewAdvance = (path: string): ReviewDecisionCompletion => {
+    const current = surface.files()[surface.currentIndex()];
+    if (current === undefined || normalizePath(current.summary().path) !== normalizePath(path))
+      return () => {};
+    return (location, focus) => {
+      if (
+        lifetime.signal.aborted ||
+        surface.signal.aborted ||
+        !surface.active() ||
+        !focus.current()
+      )
+        return;
+      reveal(location, "file-start", focus);
+    };
   };
   return {
     text: true,
+    captureReviewAdvance,
     capture: () => {
       const file = surface.files()[surface.currentIndex()];
       const location =
@@ -279,7 +274,7 @@ export function createReviewSurface(surface: {
           pending?.cancel();
           surface.select(index, saved.location.path, saved.location.line);
           surface.setScrollTop(saved.scrollTop);
-        } else await request(saved.location, signal, "location", false);
+        } else await request(saved.location, signal, "location", undefined);
       } else if (saved !== null) surface.setScrollTop(saved.scrollTop);
       signal.throwIfAborted();
     },
@@ -289,7 +284,6 @@ export function createReviewSurface(surface: {
     takeControl: () => pending?.cancel(),
     refresh: () => {
       settle();
-      advanceReviewedFile();
       surface.controls.refresh();
     },
     actions: surface.controls.captureActions,
@@ -299,7 +293,7 @@ export function createReviewSurface(surface: {
         ? state.target
         : { kind: "none" };
     },
-    reveal: (path, line) => reveal({ path, line }, "location"),
+    reveal: (path, line, focus) => reveal({ path, line }, "location", focus),
     sections: {
       bind: (path, section) => {
         const key = normalizePath(path);

@@ -436,14 +436,9 @@ export async function createEditorHost(
         const position = { lineNumber: placement.line, column: placement.column ?? 1 };
         editor.revealPositionInCenter(position, REVEAL_SCROLL);
         editor.setPosition(position);
-        // focus: false = reveal only (the search panel's live preview keeps typing in its own input).
-        if (placement.focus !== false) {
-          editor.focus();
-        }
       } else if ("selection" in placement) {
         editor.setSelection(placement.selection);
         editor.revealRangeInCenterIfOutsideViewport(placement.selection, REVEAL_SCROLL);
-        editor.focus();
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }

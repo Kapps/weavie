@@ -132,7 +132,7 @@ describe("document-owned review actions", () => {
     };
     expect(f.options.onKeepHunk).toHaveBeenCalledWith(expected);
     expect(f.options.onRevertHunk).toHaveBeenCalledWith(expected);
-    expect(f.options.onNextFile).toHaveBeenCalledOnce();
+    expect(f.options.onNextFile).not.toHaveBeenCalled();
   });
 
   it("reveals the next remaining hunk and does not advance the file early", () => {
@@ -144,13 +144,16 @@ describe("document-owned review actions", () => {
     expect(f.options.onNextFile).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("advances after the last revert only with a faded band: %s", (faded) => {
+  it.each([
+    false,
+    true,
+  ])("leaves cross-file advancement to the decision result with faded band: %s", (faded) => {
     const f = fixture();
     const options = { ...f.options, acceptedBaseline: faded ? "anchor" : f.options.original };
     f.configure(options);
     f.publish(options, [f.hunk]);
     expect(f.actions.commands(f.port).reject()).toBe(true);
-    expect(f.options.onNextFile).toHaveBeenCalledTimes(faded ? 1 : 0);
+    expect(f.options.onNextFile).not.toHaveBeenCalled();
   });
 
   it.each([

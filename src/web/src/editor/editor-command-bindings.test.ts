@@ -142,6 +142,7 @@ function tab(session: ClientSession): TabOwner {
       restore: async () => {},
       focus: () => {},
       actions: () => undefined,
+      captureReviewAdvance: () => () => {},
     });
     tabs.set(session, owner);
   }

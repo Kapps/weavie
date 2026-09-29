@@ -35,6 +35,7 @@ export default function ReviewTab(props: {
   };
   return (
     <UnifiedReview
+      interaction={controller.review.interaction}
       tab={tab}
       session={tab.session}
       scope={controller.review.scope}

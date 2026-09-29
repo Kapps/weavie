@@ -64,15 +64,22 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
-    );
+  const [viewTop, setViewTop] = createSignal(0);
+  const [anchorPath, setAnchorPath] = createSignal<string>();
+  // The selected file, else the first file on screen; none while only the file tree is in view.
+  const visibleFile = (): number | undefined => {
+    const path = selectedPath();
+    if (path !== null) {
+      const index = props.overview().files.findIndex((file) => samePath(file.summary().path, path));
+      if (index >= 0) return index;
+    }
+    const owner = scroll();
+    if (owner === undefined) return undefined;
+    const top = viewTop();
+    const bottom = top + owner.viewport.clientHeight;
+    const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
+    return row === undefined ? undefined : row.index - 1;
+  };
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -197,12 +204,16 @@ export function UnifiedReview(props: {
     signal: props.tab.signal,
     clear: props.clear,
     getScrollTop: () => scroll()!.getScrollTop(),
-    setScrollTop: (top) => scroll()!.setScrollTop(top),
+    setScrollTop: (top) => {
+      setAnchorPath(undefined);
+      scroll()!.setScrollTop(top);
+    },
     focus: () => scroller?.focus(),
     changed,
     files,
     currentIndex: visibleFile,
     select: (index) => {
+      setAnchorPath(props.overview().files[index]?.summary().path);
       setVisibleFile(index);
       props.changed();
     },
@@ -217,6 +228,7 @@ export function UnifiedReview(props: {
   const summary = () => {
     const overview = props.overview();
     const index = visibleFile();
+    const count = overview.files.length;
     const reveal = (index: number): void => {
       const file = overview.files[index]?.summary();
       if (file !== undefined) surface.reveal(file.path, file.line);
@@ -224,9 +236,9 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
-      nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      stepIn: () => reveal(index ?? 0),
+      nextFile: () => reveal(index === undefined ? 0 : (index + 1) % count),
+      prevFile: () => reveal(((index ?? 0) - 1 + count) % count),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {
@@ -285,7 +297,16 @@ export function UnifiedReview(props: {
     onCleanup(() => controls.bar.remove());
   });
 
+  // A navigated file holds its place while files above it measure, until the user takes over.
+  createEffect(() => {
+    const path = anchorPath();
+    const index =
+      path === undefined ? -1 : files().findIndex((file) => samePath(file.summary().path, path));
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+      index < 0 ? undefined : (item) => item.index <= index;
+  });
   const followViewport = (): void => {
+    setAnchorPath(undefined);
     surface.takeControl();
   };
   onMount(() => {
@@ -294,7 +315,9 @@ export function UnifiedReview(props: {
     setScroll(owner);
     sizeVirtualList(virtualizer.getTotalSize());
     const changedScroll = owner.onScroll((userInitiated) => {
+      setViewTop(owner.getScrollTop());
       if (userInitiated) {
+        setAnchorPath(undefined);
         const row = virtualizer.getVirtualItemForOffset(owner.getScrollTop());
         if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
       }
@@ -401,7 +424,12 @@ export function UnifiedReview(props: {
                         }
                         onToggleDirectory={toggleDirectory}
                         overview={props.overview}
-                        selectedPath={() => files()[visibleFile()]?.summary().path ?? null}
+                        selectedPath={() => {
+                          const index = visibleFile();
+                          return index === undefined
+                            ? null
+                            : (files()[index]?.summary().path ?? null);
+                        }}
                         style={`top:${item().start}px`}
                       />
                     </Show>

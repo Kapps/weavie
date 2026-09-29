@@ -2082,6 +2082,51 @@ test.describe("ACP composer", () => {
   // signal back on with nothing left to correct it. Fixed by adding a 1px tolerance in
   // AgentPaneScroll.ts's updateAgentTurnStartPosition. Reproduced locally at ~5-7% under worker
   // contention before the fix; 80/80 passed after under the same contention.
+  test("a request after a pinned long response brings the request into view", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const turn = { threadId: "thread-pin", turnId: "turn-pin" };
+    publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
+    publishPane(
+      paneMessage({ ...turn, type: "user-message", itemId: "prompt-pin", text: "Plan it" }),
+    );
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "item-completed",
+        itemId: "plan-pin",
+        itemType: "agentMessage",
+        status: "completed",
+        text: Array.from({ length: 60 }, (_, index) => `Step ${index + 1}.`).join("\n\n"),
+      }),
+    );
+    const body = page.locator(".agent-body");
+    const planRow = page.locator(".agent-virtual-row", { hasText: "Step 60." });
+    await expect
+      .poll(() =>
+        planRow.evaluate(
+          (element) =>
+            element.getBoundingClientRect().top -
+            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
+        ),
+      )
+      .toBeCloseTo(0, 0);
+
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "approval-requested",
+        itemId: "approval-pin",
+        requestId: "approval-pin",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        actions: permissionActions,
+      }),
+    );
+    await waitForBottom(page, body);
+    await expect(page.locator(".agent-entry-request")).toBeInViewport();
+  });
+
   test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();
@@ -2132,20 +2177,22 @@ test.describe("ACP composer", () => {
       hasText: "Explain the long result",
     });
 
+    const answerRow = page.locator(".agent-virtual-row", { hasText: "Paragraph 80." });
+    const offsetInBody = (row: Locator) =>
+      row.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top -
+          (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
+      );
     await expect(agentTurnStart).toContainText("Opening update before the final response.");
-    await waitForBottom(page, body);
-    await expect
-      .poll(() =>
-        agentTurnStart.evaluate(
-          (element) =>
-            element.getBoundingClientRect().top -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeLessThan(0);
+    await expect.poll(async () => Math.abs(await offsetInBody(answerRow))).toBeLessThanOrEqual(1);
+    await expect.poll(() => offsetInBody(agentTurnStart)).toBeLessThan(0);
     await expect(turnButton).toHaveCount(0);
+    await expect(latestButton).toHaveCount(1);
 
     await page.locator("[data-agent-composer] textarea").focus();
+    await page.keyboard.press("Alt+ArrowDown");
+    await waitForBottom(page, body);
     await page.keyboard.press("Alt+ArrowUp");
     await waitForBottom(page, body);
     await expect(latestButton).toHaveCount(0);

@@ -1,0 +1,20 @@
+name: Set up macOS workload
+description: Restore the .NET macOS workload and select the Xcode its SDK pack requires.
+inputs:
+  restore:
+    description: Project or solution whose workloads to restore
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore macOS workload
+      shell: bash
+      run: dotnet workload restore "${{ inputs.restore }}"
+    # The SDK pack names the one Xcode it builds with; the image's newest Xcode may be a later beta.
+    - name: Select the workload's Xcode
+      shell: bash
+      run: |
+        plist=$(ls "$DOTNET_ROOT"/packs/Microsoft.macOS.Sdk.*/*/Versions.plist | sort -V | tail -1)
+        xcode=$(/usr/libexec/PlistBuddy -c 'Print :RecommendedXcodeVersion' "$plist")
+        sudo xcode-select -s "/Applications/Xcode_${xcode}.app"
+        xcodebuild -version

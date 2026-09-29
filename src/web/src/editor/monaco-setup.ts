@@ -13,7 +13,7 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
-import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
+import { editorWheelOptions } from "./wheel-scroll-options";
 
 type EditorConstruction = Pick<
   monaco.editor.IStandaloneEditorConstructionOptions,
@@ -62,10 +62,50 @@ function buildEditor(
   construction: EditorConstruction,
 ): monaco.editor.IStandaloneCodeEditor {
   // Typography + behavior are user settings, live-updated below.
-  const font = currentFonts().editor;
   const editorOptions = currentEditorOptions();
   const editor = monaco.editor.create(container, {
     model,
+    ...configuredEditorOptions(),
+    ...overrides,
+    ...construction,
+  });
+  // Linux PRIMARY paste runs on release, independently of Monaco's mousedown gesture.
+  const suppressMiddleClickPaste = (event: MouseEvent): void => {
+    if (event.button === 1 && editor.getOption(monaco.editor.EditorOption.scrollOnMiddleClick)) {
+      event.preventDefault();
+    }
+  };
+  container.addEventListener("mouseup", suppressMiddleClickPaste);
+  editor.onDidDispose(() => container.removeEventListener("mouseup", suppressMiddleClickPaste));
+  const definitions = editor.getContribution<GotoDefinitionAtPositionEditorContribution>(
+    GotoDefinitionAtPositionEditorContribution.ID,
+  );
+  if (definitions === null) {
+    throw new Error("Monaco definition contribution is not registered.");
+  }
+  definitions.enableAltClickPeek();
+  applySuggestExpandDocs(editorOptions.suggestExpandDocs);
+
+  const offFonts = onFontsChanged((config) =>
+    editor.updateOptions({
+      fontFamily: config.editor.family,
+      fontSize: config.editor.size,
+      fontWeight: config.editor.weight,
+    }),
+  );
+  editor.onDidDispose(offFonts);
+  const offEditorOptions = onEditorOptionsChanged((next) => {
+    editor.updateOptions({ ...toMonacoOptions(next), ...overrides });
+    applySuggestExpandDocs(next.suggestExpandDocs);
+  });
+  editor.onDidDispose(offEditorOptions);
+  return editor;
+}
+
+/** Shared settings and metrics for editor widgets and passive review text. */
+export function configuredEditorOptions(): monaco.editor.IEditorOptions {
+  const font = currentFonts().editor;
+  return {
     // No `theme` here on purpose: the active theme is global and owned by the theme controller. Passing a
     // `theme` option re-calls setTheme and would clobber the active theme back to that value.
     fontSize: font.size,
@@ -88,45 +128,8 @@ function buildEditor(
     // real, explicitly-selected completion still commits on Enter.
     acceptSuggestionOnEnter: "smart",
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
-    ...toMonacoOptions(editorOptions),
-    ...overrides,
-    ...construction,
-  });
-  // Linux PRIMARY paste runs on release, independently of Monaco's mousedown gesture.
-  const suppressMiddleClickPaste = (event: MouseEvent): void => {
-    if (event.button === 1 && editor.getOption(monaco.editor.EditorOption.scrollOnMiddleClick)) {
-      event.preventDefault();
-    }
+    ...toMonacoOptions(currentEditorOptions()),
   };
-  container.addEventListener("mouseup", suppressMiddleClickPaste);
-  editor.onDidDispose(() => container.removeEventListener("mouseup", suppressMiddleClickPaste));
-  const definitions = editor.getContribution<GotoDefinitionAtPositionEditorContribution>(
-    GotoDefinitionAtPositionEditorContribution.ID,
-  );
-  if (definitions === null) {
-    throw new Error("Monaco definition contribution is not registered.");
-  }
-  definitions.enableAltClickPeek();
-  applySuggestExpandDocs(editorOptions.suggestExpandDocs);
-
-  // Apply live font changes (Monaco re-lays out on updateOptions); drop the subscription with the editor.
-  const offFonts = onFontsChanged((config) =>
-    editor.updateOptions({
-      fontFamily: config.editor.family,
-      fontSize: config.editor.size,
-      fontWeight: config.editor.weight,
-    }),
-  );
-  editor.onDidDispose(offFonts);
-
-  // Apply live editor-option changes the same way fonts do.
-  const offEditorOptions = onEditorOptionsChanged((next) => {
-    editor.updateOptions({ ...toMonacoOptions(next), ...overrides });
-    applySuggestExpandDocs(next.suggestExpandDocs);
-  });
-  editor.onDidDispose(offEditorOptions);
-
-  return editor;
 }
 
 // Maps Weavie's flat editor-option settings onto Monaco's nested IEditorOptions shape. The string-union
@@ -140,11 +143,7 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
     cursorSmoothCaretAnimation: o.cursorSmoothCaretAnimation,
     renderWhitespace: o.renderWhitespace,
     scrollBeyondLastLine: o.scrollBeyondLastLine,
-    mouseWheelScrollSensitivity: wheelScrollSensitivity(
-      o.mouseWheelScrollSensitivity,
-      window.__WEAVIE_SHELL__?.platform,
-    ),
-    fastScrollSensitivity: o.fastScrollSensitivity,
+    ...editorWheelOptions(o, window.__WEAVIE_SHELL__?.platform),
     scrollOnMiddleClick: o.middleClickAutoscroll,
     // Linux's primary-selection gesture takes precedence over Monaco's middle-click scrolling.
     selectionClipboard: !o.middleClickAutoscroll,

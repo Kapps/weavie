@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor, reviewPaint } from "../harness/review-renderer";
 import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -57,10 +58,10 @@ test("wheel animation follows the live smooth scrolling setting in an existing r
 }) => {
   await page.clock.install();
   await page.locator(".editor-empty-review").click();
-  const editor = page.locator(".unified-review-file .monaco-editor");
-  await expect(editor).toBeVisible();
-  const mountedEditor = await editor.elementHandle();
-  await editor.hover();
+  const body = page.locator(".review-adaptive-body");
+  await expect(reviewPaint(page)).toBeVisible();
+  const mountedBody = await body.elementHandle();
+  await reviewPaint(page).locator(".view-line").first().hover();
   const initial = await wheelFrames(page);
   expect(new Set(initial).size, "enabled wheel scrolling animates across frames").toBeGreaterThan(
     2,
@@ -75,7 +76,8 @@ test("wheel animation follows the live smooth scrolling setting in an existing r
     expect(frames.at(-1)).toBeGreaterThan(frames[0]!);
     if (enabled) expect(new Set(frames).size).toBeGreaterThan(2);
     else expect(new Set(frames).size).toBe(2);
-    expect(await mountedEditor!.evaluate((element) => element.isConnected)).toBe(true);
+    expect(await mountedBody!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(reviewEditor(page)).toHaveCount(0);
   }
 });
 
@@ -86,12 +88,13 @@ test.describe("steady unified scrolling", () => {
     },
   });
 
-  test("wheel animation paints current text without resizing visible or offscreen viewports", async ({
+  test("wheel animation paints current text without resizing the sole live viewport", async ({
     page,
   }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("5");
     await page.locator(".editor-empty-review").click();
-    const editor = page.locator(".unified-review-file .monaco-editor").first();
+    await page.locator(".unified-review-tree-row.file").first().click();
+    const editor = reviewEditor(page);
     await expect(editor).toBeVisible();
     const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
     await scrollbar.press("PageDown");
@@ -148,7 +151,8 @@ test.describe("steady unified scrolling", () => {
     const { offsets, layouts, editorCount } = await observation.evaluate((sample) =>
       sample.finish(),
     );
-    expect(editorCount, "include the virtualizer's offscreen editor").toBeGreaterThan(1);
+    expect(editorCount, "only the activated file owns a live editor").toBe(1);
+    await expect(page.locator(".review-adaptive-body")).toHaveCount(5);
     expect(layouts, "scrolling inside one file must not re-layout its editor").toEqual([]);
     expect(offsets.length).toBeGreaterThan(25);
     expect(
@@ -158,15 +162,18 @@ test.describe("steady unified scrolling", () => {
   });
 });
 
-test("section header dimensions are measured in the resize phase, not during mounting", async ({
+test("header positioning measures in the resize phase and scrolling reads no section geometry", async ({
   page,
 }) => {
   const observation = await page.evaluateHandle(() => {
     const NativeObserver = window.ResizeObserver;
-    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientTop")!;
+    const rect = Element.prototype.getBoundingClientRect;
+    const computedStyle = window.getComputedStyle;
     let resizing = false;
     let synchronous = 0;
     let observed = 0;
+    let scrolling = false;
+    let scrollMeasurements = 0;
     window.ResizeObserver = new Proxy(NativeObserver, {
       construct(target, [callback]: [ResizeObserverCallback]) {
         return new target((entries, observer) => {
@@ -179,42 +186,73 @@ test("section header dimensions are measured in the resize phase, not during mou
         });
       },
     });
-    Object.defineProperty(Element.prototype, "clientTop", {
-      ...descriptor,
-      get() {
-        if (this.classList.contains("unified-review-file")) {
-          if (resizing) observed++;
-          else synchronous++;
-        }
-        return descriptor.get!.call(this);
-      },
-    });
+    Element.prototype.getBoundingClientRect = function () {
+      if (scrolling && this.matches(".unified-review-file, .unified-review-file-header"))
+        scrollMeasurements++;
+      return rect.call(this);
+    };
+    window.getComputedStyle = (element, pseudo) => {
+      if (element.matches(".unified-review-file")) {
+        if (resizing) observed++;
+        else synchronous++;
+        if (scrolling) scrollMeasurements++;
+      }
+      return computedStyle.call(window, element, pseudo);
+    };
     return {
+      observed: () => observed,
+      beginScroll: () => {
+        scrolling = true;
+      },
       finish: () => {
         window.ResizeObserver = NativeObserver;
-        Object.defineProperty(Element.prototype, "clientTop", descriptor);
-        return { synchronous, observed };
+        Element.prototype.getBoundingClientRect = rect;
+        window.getComputedStyle = computedStyle;
+        return { synchronous, observed, scrollMeasurements };
       },
     };
   });
   await page.locator(".editor-empty-review").click();
-  await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
+  await expect(reviewPaint(page)).toBeVisible();
+  await expect.poll(() => observation.evaluate((sample) => sample.observed())).toBeGreaterThan(0);
+  await reviewPaint(page).locator(".view-line").first().hover();
+  const before = (await reviewScroll(page)).top;
+  await observation.evaluate((sample) => sample.beginScroll());
+  for (let step = 0; step < 4; step++) {
+    await page.mouse.wheel(0, 120);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+  await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBeGreaterThan(before);
   const measurements = await observation.evaluate((sample) => sample.finish());
   expect(measurements.observed).toBeGreaterThan(0);
   expect(measurements.synchronous).toBe(0);
+  expect(measurements.scrollMeasurements).toBe(0);
 });
 
-test("scrolling a remounted review preserves its diff paint", async ({ page }) => {
+test("scrolling a re-expanded review preserves its live diff paint", async ({ page }) => {
   await page.locator(".editor-empty-review").click();
   const section = page.locator(".unified-review-file");
-  const editor = section.locator(".monaco-editor");
+  await page.locator(".unified-review-tree-row.file").click();
+  const editor = reviewEditor(section);
   await expect(editor).toBeVisible();
+  const original = await editor.elementHandle();
   const toggle = section.locator(".unified-review-file-toggle");
   await toggle.click();
-  await expect(editor).toHaveCount(0);
+  await expect(editor).toBeHidden();
+  await expect(section.locator(".review-adaptive-body")).toBeHidden();
   await toggle.click();
+  await reviewPaint(section)
+    .locator(".view-line")
+    .first()
+    .click({ position: { x: 5, y: 5 } });
   await expect(editor).toBeVisible();
-  const band = await section.locator(".weavie-inline-newfile").elementHandle();
+  expect(await original!.evaluate((node) => node.isConnected)).toBe(true);
+  const band = await reviewPaint(section).locator(".weavie-inline-newfile").elementHandle();
   expect(band).not.toBeNull();
   await editor.hover();
   const before = (await reviewScroll(page)).top;

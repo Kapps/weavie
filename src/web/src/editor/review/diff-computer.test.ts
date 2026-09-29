@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const worker = vi.hoisted(() => ({
   computeDiff: vi.fn(),
+  createModel: vi.fn(),
   models: [] as Array<{
     uri: { toString(): string };
     disposed: boolean;
@@ -9,9 +10,10 @@ const worker = vi.hoisted(() => ({
   }>,
 }));
 
-vi.mock("@codingame/monaco-vscode-api/services", () => ({
+vi.mock("@codingame/monaco-vscode-api", () => ({
   IEditorWorkerService: Symbol("IEditorWorkerService"),
-  StandaloneServices: { get: () => ({ computeDiff: worker.computeDiff }) },
+  IModelService: Symbol("IModelService"),
+  StandaloneServices: { get: () => worker },
 }));
 
 vi.mock("../monaco-setup", () => ({
@@ -22,27 +24,13 @@ vi.mock("../monaco-setup", () => ({
       }),
     },
     editor: {
-      createModel: (_value: string, _language: string, uri: { toString(): string }) => {
-        if (
-          worker.models.some((model) => !model.disposed && model.uri.toString() === uri.toString())
-        ) {
-          throw new Error(`Model already exists: ${uri.toString()}`);
-        }
-        const model = {
-          uri,
-          disposed: false,
-          dispose: vi.fn(() => {
-            model.disposed = true;
-          }),
-        };
-        worker.models.push(model);
-        return model;
-      },
+      OverviewRulerLane: { Left: 1 },
     },
   },
 }));
 
 const { DiffComputer } = await import("./diff-computer");
+const { ReviewDocument } = await import("./review-document");
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -69,6 +57,56 @@ describe("DiffComputer", () => {
   beforeEach(() => {
     worker.computeDiff.mockReset();
     worker.models.length = 0;
+    worker.createModel
+      .mockReset()
+      .mockImplementation((_value: string, _language: null, uri: { toString(): string }) => {
+        if (
+          worker.models.some((model) => !model.disposed && model.uri.toString() === uri.toString())
+        ) {
+          throw new Error(`Model already exists: ${uri.toString()}`);
+        }
+        const model = {
+          uri,
+          disposed: false,
+          dispose: vi.fn(() => {
+            model.disposed = true;
+          }),
+        };
+        worker.models.push(model);
+        return model;
+      });
+  });
+
+  it.each([
+    "failed",
+    "timed-out",
+  ])("retries a %s document while an editing lease is held", async (status) => {
+    if (status === "failed") worker.computeDiff.mockRejectedValueOnce(new Error("worker failed"));
+    else worker.computeDiff.mockResolvedValueOnce({ quitEarly: true, changes: [] });
+    let version = 1;
+    const model = {
+      ...liveModel("file:///leased"),
+      getVersionId: () => version,
+      getLineCount: () => 3,
+      isDisposed: () => false,
+    };
+    const document = new ReviewDocument(model as never, () => undefined);
+    const lease = document.retainSources();
+    const sources = { original: "before", claudeVersion: undefined, acceptedBaseline: "accepted" };
+    worker.computeDiff.mockResolvedValue({ quitEarly: false, changes: [] });
+    await expect(document.prepare(sources)).resolves.toMatchObject({ status });
+    expect(worker.models.every((model) => model.disposed)).toBe(true);
+    await expect(document.prepare(sources)).resolves.toMatchObject({ status: "ready" });
+    expect(worker.computeDiff).toHaveBeenCalledTimes(4);
+    const sourceCount = worker.models.length;
+    version++;
+    await expect(document.prepare(sources)).resolves.toMatchObject({ status: "ready" });
+    expect(worker.computeDiff).toHaveBeenCalledTimes(5);
+    expect(worker.models).toHaveLength(sourceCount);
+    expect(worker.models.slice(-2).every((model) => !model.disposed)).toBe(true);
+    lease.dispose();
+    expect(worker.models.every((model) => model.disposed)).toBe(true);
+    document.dispose();
   });
 
   it("retires source models only after their worker calculation settles", async () => {
@@ -84,6 +122,7 @@ describe("DiffComputer", () => {
     };
 
     const first = computer.compute("file:///first", sources, liveModel("file:///first") as never);
+    expect(worker.createModel).toHaveBeenCalledWith("before", null, worker.models[0]?.uri, false);
     computer.dispose();
     expect(worker.models[0]?.dispose).not.toHaveBeenCalled();
 
@@ -100,6 +139,35 @@ describe("DiffComputer", () => {
 
     computer.dispose();
     expect(worker.models[1]?.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("does not retire newer work when an older version fails against the same sources", async () => {
+    const previous = deferred<{ quitEarly: boolean; changes: [] }>();
+    const current = deferred<{ quitEarly: boolean; changes: [] }>();
+    worker.computeDiff
+      .mockReturnValueOnce(previous.promise)
+      .mockReturnValueOnce(current.promise)
+      .mockResolvedValue({ quitEarly: false, changes: [] });
+    let version = 1;
+    const model = { ...liveModel("file:///same-sources"), getVersionId: () => version };
+    const computer = new DiffComputer();
+    const sources = { original: "before", claudeVersion: undefined, acceptedBaseline: undefined };
+    const first = computer.compute("file:///same-sources", sources, model as never);
+    version++;
+    const next = computer.compute("file:///same-sources", sources, model as never);
+    previous.reject(new Error("older version failed"));
+    await expect(first).resolves.toMatchObject({ status: "failed" });
+    expect(worker.models).toHaveLength(1);
+    expect(worker.models[0]?.disposed).toBe(false);
+    current.resolve({ quitEarly: false, changes: [] });
+    await expect(next).resolves.toMatchObject({ status: "ready" });
+    version++;
+    await expect(
+      computer.compute("file:///same-sources", sources, model as never),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(worker.models).toHaveLength(1);
+    computer.dispose();
+    expect(worker.models[0]?.dispose).toHaveBeenCalledOnce();
   });
 
   it("waits for every worker pair before disposing a failed source set", async () => {

@@ -79,8 +79,7 @@ export function createNavHistory(
     if (
       !explicit &&
       current !== undefined &&
-      tabResourceKey({ ...current.tab, viewState: null }) ===
-        tabResourceKey({ ...loc.tab, viewState: null }) &&
+      tabResourceKey(current.tab) === tabResourceKey(loc.tab) &&
       ((current.view.text === null && loc.view.text === null) ||
         (current.view.text !== null &&
           loc.view.text !== null &&

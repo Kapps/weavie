@@ -11,7 +11,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 // mock host: an assistant markdown message that quotes a file path inside inline `code` must render that path
 // as a clickable link (an <a> INSIDE the <code>), a path whose filename contains `@` (the Playwright recording
 // naming) must match, and a path inside a FENCED code block must stay literal (no <a> in <pre>). Clicking an
-// inline-code link must post a `reveal-file` for that path. Regression cover for the fix that stopped excluding
+// inline-code link must resolve that path. Regression cover for the fix that stopped excluding
 // inline `code` from linkify and widened the path grammar to allow `@`.
 
 const acpSession = mockSession("cx", "acp", "acp");
@@ -72,6 +72,9 @@ test.describe("AgentMarkdown transcript links", () => {
       files: { [ABS_TSX_PATH]: "export const promptFocusProbe = true;\n" },
     });
     host.setMedia(acpSession.address.incarnation, ABS_AT_PATH, Buffer.from("focus probe"));
+    host.onSession(acpSession.address, "request", "editor", "commitFileOpens", (request) => {
+      host.respond(request, true);
+    });
   });
 
   test.afterEach(async () => {
@@ -248,7 +251,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await expect(page.locator(".agent-markdown pre")).toContainText(TSX_PATH);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true");
 
-    // Clicking an inline-code path posts a reveal-file for exactly that path. The file is already open, which
+    // Clicking an inline-code path resolves exactly that path. The file is already open, which
     // exercises the saved-view-state path rather than the fresh-tab line-placement path. Fullscreen also proves
     // the explicit open selects the destination pane before trying to focus it.
     const composer = page.locator("[data-agent-composer] textarea");
@@ -256,17 +259,25 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.keyboard.press("Alt+Shift+Enter");
     await expect(page.locator(".fullscreen-exit")).toBeVisible();
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
-    const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");
-    expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
+    const reveal = await host.waitForSession(
+      acpSession.address,
+      "request",
+      "files",
+      "resolveReference",
+    );
+    expect(reveal.payload).toEqual({ path: TSX_PATH, line: null });
     await expect(composer).toBeFocused();
 
-    // The host reply selects a different pane, so that new surface intentionally takes focus from the prompt.
-    host.publishSession(acpSession.address, "editor", "openFile", {
+    // Accepting the clicked destination selects the editor pane and transfers focus from the prompt.
+    host.respond(reveal, {
+      kind: "file",
       path: ABS_TSX_PATH,
       line: 1,
-      preview: true,
     });
     await expect(page.locator(".editor-tab", { hasText: "AgentMarkdown.tsx" })).toBeVisible();
+    await expect(page.locator(".editor-tab", { hasText: "AgentMarkdown.tsx" })).toHaveClass(
+      /\bpreview\b/,
+    );
     await expect
       .poll(async () =>
         (await page.locator(".editor").getAttribute("data-active-file"))?.replaceAll("\\", "/"),
@@ -295,17 +306,17 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.locator(".agent-markdown code a", { hasText: AT_PATH }).click();
     const mediaReveal = await host.waitForSession(
       acpSession.address,
-      "event",
+      "request",
       "files",
-      "reveal",
+      "resolveReference",
       checkpoint,
     );
-    expect(mediaReveal.payload).toMatchObject({ path: AT_PATH });
+    expect(mediaReveal.payload).toEqual({ path: AT_PATH, line: null });
     await expect(composer).toBeFocused();
-    host.publishSession(acpSession.address, "editor", "openFile", {
+    host.respond(mediaReveal, {
+      kind: "file",
       path: ABS_AT_PATH,
       line: 1,
-      preview: true,
     });
     await expect(media).toBeFocused();
 
@@ -337,14 +348,19 @@ test.describe("AgentMarkdown transcript links", () => {
     });
 
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
-    const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");
-    expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
+    const reveal = await host.waitForSession(
+      acpSession.address,
+      "request",
+      "files",
+      "resolveReference",
+    );
+    expect(reveal.payload).toEqual({ path: TSX_PATH, line: null });
     await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
-    host.publishSession(acpSession.address, "editor", "openFile", {
+    host.respond(reveal, {
+      kind: "file",
       path: ABS_TSX_PATH,
       line: 1,
-      preview: true,
     });
     await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
     await expect(editor).toBeVisible();

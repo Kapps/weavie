@@ -19,7 +19,7 @@ import type { EditorController } from "./editor-controller";
 import { basename } from "./fs-path";
 import { agentPlan } from "./plan/plan-store";
 import { canPreview } from "./preview/preview-registry";
-import type { EditorSessionEntry } from "./session-types";
+import type { EditorTab } from "./session-types";
 import { sourceTabIcon } from "./source/source-icons";
 import { sourceDoc } from "./source/source-store";
 import { captureTabCommands } from "./tab-command-bindings";
@@ -30,7 +30,7 @@ import { isPreviewMode } from "./view-mode-store";
 interface TabView {
   path: string;
   // "web" for an iframe web tab (globe icon + host label); a file tab otherwise.
-  kind?: NonNullable<EditorSessionEntry["kind"]>;
+  kind?: NonNullable<EditorTab["kind"]>;
   preview: boolean;
   pinned: boolean;
   // Unsaved changes: shows a `*` until autosave reaches disk.
@@ -62,7 +62,7 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
  */
 export function TabStrip(props: {
   session: () => ClientSession | null;
-  tabs: () => EditorSessionEntry[];
+  tabs: () => EditorTab[];
   activePath: () => string | null;
   controller: EditorController;
   // Persistent right-edge content (the pane-switch shortcut badge), placed past the scroll controls.

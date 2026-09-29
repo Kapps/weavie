@@ -1,12 +1,8 @@
 import { awaitEditorReady, createSession, expectRevealed } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// The structured agent pane's file links, full stack: a reference the agent printed is clicked in the
-// transcript and the editor actually opens that file at that line. The mock-host spec
-// (agent-markdown-links.spec.ts) stops at the published `reveal` and answers it with a scripted open, so
-// nothing pinned the rest of the journey — click → reveal → FileOpener → open-file → Monaco. Every reference
-// shape agents print is covered, because only the one WITH folders used to work: a bare filename and an
-// authored `[text](file.ts:3)` link were both misread as a `file.ts:` URI scheme and silently dropped.
+// Agent links exercise real reference resolution through to Monaco, including bare paths, line ranges and
+// authored Markdown links. The mock-host suite separately controls the resolution reply and pane focus.
 
 test("transcript file references open the file at their line", async ({ page }) => {
   await awaitEditorReady(page);

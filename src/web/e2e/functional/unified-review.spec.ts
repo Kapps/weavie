@@ -14,9 +14,7 @@ const HELLO =
   'const message = greet("weavie");\n' +
   "console.warn(message);\n";
 
-// Every changed file in the unified overview is a real Monaco editor on the file's live working copy, so it
-// carries the same tokenization, LSP and editing the file-review pane does. `.mtk<n>` spans are the proof
-// tokens were produced rather than plain text — same signal editor.spec.ts uses.
+// Passive paint and editable views share Monaco tokenization over the same working copy.
 const sectionFor = (page: Page, name: string): Locator =>
   page.locator(".unified-review-file", { has: page.locator(`text=${name}`) });
 
@@ -50,7 +48,7 @@ test.describe("Review Changes tab", () => {
     },
   });
 
-  test("renders each file in a highlighted editor and preserves the review tab when opening files", async ({
+  test("renders highlighted files and preserves the review tab when opening files", async ({
     page,
   }) => {
     const cue = page.locator(".editor-empty-review");
@@ -67,10 +65,9 @@ test.describe("Review Changes tab", () => {
     ).toContainText(/\+\d+.*−\d+/);
     await expect(overview.locator(".unified-review-file")).toHaveCount(2);
 
-    // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
     const hello = sectionFor(page, "hello.ts");
-    // See the 2026-09-03 flake note on the "completions" test below — same hardcoded-override defect.
-    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await expect(hello.locator(".review-adaptive-body")).toBeVisible();
+    await expect(hello.locator(".review-adaptive-live .monaco-editor")).toHaveCount(0);
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
     await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0);
 
@@ -83,15 +80,15 @@ test.describe("Review Changes tab", () => {
     await notesDisclosure.focus();
     await page.keyboard.press("Alt+[");
     await expect(notesDisclosure).toHaveAttribute("aria-expanded", "false");
-    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await expect(hello.locator(".review-adaptive-body")).toBeVisible();
     await notesDisclosure.click();
 
     const disclosure = hello.locator(".unified-review-file-toggle");
     await disclosure.click();
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    await expect(hello.locator(".monaco-editor")).toHaveCount(0);
+    await expect(hello.locator(".review-adaptive-body")).toBeHidden();
     await disclosure.click();
-    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await expect(hello.locator(".review-adaptive-body")).toBeVisible();
 
     await hello.locator(".unified-review-file-name").click();
     await expect(overview).toHaveCount(0);
@@ -127,7 +124,7 @@ test.describe("Review Changes tab", () => {
       "aria-expanded",
       "false",
     );
-    await expect(notes.locator(".monaco-editor")).toHaveCount(0);
+    await expect(notes.locator(".review-adaptive-body")).toBeHidden();
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
 
     await scrollReview(page, "start");
@@ -136,7 +133,10 @@ test.describe("Review Changes tab", () => {
       "aria-expanded",
       "true",
     );
-    await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
+    await expect(
+      notes.locator(".review-adaptive-live .weavie-inline-accepted").first(),
+    ).toBeVisible();
+    await expect(notes.locator(".review-adaptive-live .weavie-inline-accepted-undo")).toBeVisible();
 
     // The push that lands the keep must not throw away the measured section heights: doing so re-spaces every
     // row below on its estimate and opens dead space that never heals.
@@ -156,7 +156,7 @@ test.describe("Review Changes tab", () => {
     // own platform-aware `expect.timeout` (30s on Windows/macOS, raised there for exactly this kind of
     // full-stack mount latency) — every `.monaco-editor` wait in this file had the same override, so all
     // four are dropped to let them inherit that budget instead of capping it back down to the Linux value.
-    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await expect(hello.locator(".review-adaptive-body")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
 
     await page.evaluate(() => {
@@ -215,7 +215,7 @@ test.describe("Review Changes tab", () => {
     await page.locator(".editor-empty-review").click();
     const notes = sectionFor(page, "notes.txt");
     // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
-    await expect(notes.locator(".monaco-editor")).toBeVisible();
+    await expect(notes.locator(".review-adaptive-body")).toBeVisible();
 
     const marker = `edited-in-review-${Date.now()}`;
     await notes.locator(".view-line", { hasText: "a unified addition" }).click();
@@ -399,10 +399,10 @@ test("a deleted file starts collapsed and expands its review snapshot", async ({
   const notes = sectionFor(page, "notes.txt");
   const toggle = notes.locator(".unified-review-file-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(notes.locator(".monaco-editor")).toHaveCount(0);
+  await expect(notes.locator(".review-adaptive-body")).toBeHidden();
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(notes.locator(".monaco-editor")).toBeVisible();
+  await expect(notes.locator(".review-adaptive-body")).toBeVisible();
   await expect(notes.locator(".weavie-inline-removed").first()).toBeVisible();
   await expect(notes.locator(".unified-review-notice", { hasText: "Couldn't open" })).toHaveCount(
     0,
@@ -451,8 +451,11 @@ test.describe("Review Changes tab — large file set", () => {
     await targetLink.click();
     const targetSection = sectionFor(page, targetName);
     await expect(targetSection).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => overview.locator(".unified-review-file").count()).toBeLessThan(20);
-    // Only the mounted sections hold an editor — 100 files never means 100 live Monaco instances.
+    await expect(overview.locator(".unified-review-file")).toHaveCount(fileCount);
+    await expect.poll(() => overview.locator(".passive-review-chunk").count()).toBeLessThan(20);
+    await expect
+      .poll(() => overview.locator(".review-adaptive-live .monaco-editor").count())
+      .toBeLessThanOrEqual(1);
     await expect
       .poll(() =>
         page.evaluate(() => (window as WeavieWindow).__WEAVIE_MONACO__?.editor.getEditors().length),

@@ -75,6 +75,7 @@ function ActiveTabContent(props: {
               focusTabContent(view()!);
             },
             actions: () => undefined,
+            captureReviewAdvance: () => () => {},
           };
     const unregister = tab.mount(presenter);
     setContext("diffActive", false);

@@ -1,6 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor, reviewPaint } from "../harness/review-renderer";
 import { reviewScroll, scrollReview } from "../harness/review-scroll";
 
 const paths = ["a-first.txt", "b-second.txt", "c-third.txt"];
@@ -27,7 +28,7 @@ test("review viewport follows resizing and a preceding file's collapse", async (
   const second = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: paths[1] }),
   });
-  await expect(first.locator(".view-line").first()).toBeVisible();
+  await expect(reviewEditor(first).locator(".view-line").first()).toBeVisible();
   const assertAlignment = async (section: Locator): Promise<void> => {
     const header = section.locator(".unified-review-file-header");
     const start = await header.boundingBox();
@@ -48,7 +49,7 @@ test("review viewport follows resizing and a preceding file's collapse", async (
       .toBeLessThan(2);
     await expect
       .poll(async () => {
-        const editor = await section.locator(".monaco-editor").boundingBox();
+        const editor = await reviewEditor(section).boundingBox();
         const heading = await header.boundingBox();
         if (editor === null || heading === null) return Number.POSITIVE_INFINITY;
         return Math.abs(editor.y - heading.y - heading.height);
@@ -68,11 +69,16 @@ test("review viewport follows resizing and a preceding file's collapse", async (
   await first.locator(".unified-review-file-toggle").click();
   await expect(first).toHaveClass(/collapsed/);
   await expect.poll(secondTop).toBeLessThan(expandedTop);
-  await expect(second.locator(".view-line").first()).toBeVisible();
+  await expect(reviewPaint(second).locator(".view-line").first()).toBeVisible();
+  await reviewPaint(second)
+    .locator(".view-line")
+    .first()
+    .click({ position: { x: 5, y: 5 } });
+  await expect(reviewEditor(second)).toBeVisible();
   await assertAlignment(second);
   await scrollReview(page, "start");
   await first.locator(".unified-review-file-toggle").click();
   await expect(first).not.toHaveClass(/collapsed/);
   await expect.poll(secondTop).toBe(expandedTop);
-  await expect(first.locator(".view-line").first()).toBeVisible();
+  await expect(reviewPaint(first).locator(".view-line").first()).toBeVisible();
 });

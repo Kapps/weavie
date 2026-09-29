@@ -16,7 +16,7 @@ export function AgentPane(props: {
   providerId: string | null;
   active: boolean;
   shortcut: string;
-  onFocus: () => void;
+  restoreFocus: () => void;
   backendId: string;
 }): JSX.Element {
   const providerName = (): string =>
@@ -25,7 +25,7 @@ export function AgentPane(props: {
     "Agent";
 
   const focusPromptIn = (surface: EventTarget | null): void => {
-    props.onFocus();
+    props.restoreFocus();
     if (surface instanceof HTMLElement) {
       surface
         .querySelector<HTMLTextAreaElement>("[data-agent-composer] textarea")

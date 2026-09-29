@@ -5,9 +5,9 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Pushes a file open to the web to reveal at a line. Shared by clickable terminal file:line links and the
-/// MCP <c>openFile</c> tool; relative paths resolve against the workspace, absolute ones open wherever they
-/// point. A relative path that doesn't resolve is recovered by suffix match against the workspace index
+/// Resolves file references for client-owned navigation and host/MCP opens. Relative paths resolve against
+/// the workspace, absolute ones open wherever they point. A relative path that doesn't resolve is recovered
+/// by suffix match against the workspace index
 /// (see <see cref="OpenAsync(string,int?,bool,bool,EditorOpenIntent)"/>). A null line means "no target": an already-open tab
 /// keeps the user's scroll position instead of jumping.
 /// </summary>
@@ -65,72 +65,53 @@ public sealed class FileOpener : IAsyncDisposable {
 		bool scratch,
 		EditorOpenIntent intent,
 		CancellationToken ct) {
+		var result = await ResolveAsync(path, line, ct).ConfigureAwait(false);
+		ct.ThrowIfCancellationRequested();
+		switch (result) {
+			case FileReferenceResolution.File file:
+				_openFile(file.Path, file.Line, preview, scratch, intent);
+				break;
+			case FileReferenceResolution.Ambiguous ambiguous:
+				_view.TryPublish("focusOmnibar", new { query = ambiguous.Query, line = ambiguous.Line });
+				break;
+			case FileReferenceResolution.Missing missing:
+				_notifications.Publish("show", new { level = "warn", message = missing.Message });
+				break;
+			default:
+				throw new InvalidOperationException("Unknown file-reference resolution.");
+		}
+	}
+
+	/// <summary>Resolves a file or recovery query without opening tabs, publishing events, or taking focus.</summary>
+	public async Task<FileReferenceResolution> ResolveAsync(string path, int? line, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_index.Root, path));
 		if (_files.CanRead(resolved)) {
-			PostOpen(resolved, line, preview, scratch, intent);
-			return;
+			return new FileReferenceResolution.File(resolved, Clamp(line));
 		}
 
-		if (await TryOpenBySuffixAsync(path, line, preview, scratch, intent, ct).ConfigureAwait(false)) {
-			return;
+		if (!Path.IsPathRooted(path)) {
+			IReadOnlyList<string> matches;
+			try {
+				matches = await Task.Run(() => PathSuffixMatcher.Match(_index.List(), path), ct).ConfigureAwait(false);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				return new FileReferenceResolution.Missing($"Couldn't resolve {path}: {ex.Message}");
+			}
+
+			ct.ThrowIfCancellationRequested();
+			if (matches.Count > 1) {
+				return new FileReferenceResolution.Ambiguous(PathSuffixMatcher.Normalize(path), Clamp(line));
+			}
+			if (matches.Count == 1) {
+				resolved = matches[0];
+				if (_files.CanRead(resolved)) {
+					return new FileReferenceResolution.File(resolved, Clamp(line));
+				}
+			}
 		}
 
-		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
-		// reads as the app ignoring them.
-		Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
-		_notifications.Publish("show", new {
-			level = "warn",
-			message = $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable.",
-		});
+		return new FileReferenceResolution.Missing($"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable.");
 	}
-
-	/// <summary>
-	/// The recovery for a relative reference that didn't resolve: suffix-match it against the workspace index
-	/// (off the calling thread — the walk can be slow on a big worktree). One hit re-opens it; several push
-	/// <c>focus-omnibar</c> so the user picks from Go-to-File preloaded with the reference. False (→ the caller
-	/// toasts) for a rooted path, no match, or a failed walk.
-	/// </summary>
-	private async Task<bool> TryOpenBySuffixAsync(
-		string path,
-		int? line,
-		bool preview,
-		bool scratch,
-		EditorOpenIntent intent,
-		CancellationToken ct) {
-		if (Path.IsPathRooted(path)) {
-			return false;
-		}
-
-		IReadOnlyList<string> matches;
-		try {
-			matches = await Task
-				.Run(() => PathSuffixMatcher.Match(_index.List(), path), ct)
-				.ConfigureAwait(false);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Console.Error.WriteLine($"[weavie] reveal-file: suffix match failed: {ex.Message}");
-			return false;
-		}
-
-		if (matches.Count == 1) {
-			// Re-enter with the matched absolute path (rooted, so no recursion).
-			await OpenAsync(matches[0], line, preview, scratch, intent, ct).ConfigureAwait(false);
-			return true;
-		}
-
-		if (matches.Count > 1) {
-			_view.TryPublish("focusOmnibar", new {
-				query = PathSuffixMatcher.Normalize(path),
-				line = Clamp(line),
-			});
-			return true;
-		}
-
-		return false;
-	}
-
-	private void PostOpen(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
-		_openFile(path, Clamp(line), preview, scratch, intent);
 
 	private static int? Clamp(int? line) => line is { } value ? Math.Max(1, value) : null;
 

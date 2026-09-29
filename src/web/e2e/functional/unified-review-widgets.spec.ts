@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { IPosition, editor as MonacoEditor } from "monaco-editor";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor } from "../harness/review-renderer";
 import { scrollReview } from "../harness/review-scroll";
 
 const paths = ["a-widgets.ts", "b-widgets.ts"];
@@ -38,16 +39,27 @@ test("scrolled review completions stay at the caret and belong to their editor",
     });
   });
   await page.locator(".editor-empty-review").click();
+  const ownedPaths = () =>
+    page.evaluate(
+      (paths) =>
+        window
+          .__WEAVIE_MONACO__!.editor.getEditors()
+          .map((editor) => editor.getModel()?.uri.path.split("/").at(-1))
+          .filter((path) => path !== undefined && paths.includes(path)),
+      paths,
+    );
   for (const path of paths) {
     await scrollReview(page, "start");
     await page.locator(".unified-review-tree-row.file", { hasText: path }).click();
     const section = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: path }),
     });
-    await expect(section.locator(".view-line").first()).toBeVisible();
+    const editor = reviewEditor(section);
+    await expect(editor.locator(".view-line").first()).toBeVisible();
+    await expect.poll(ownedPaths).toEqual([path]);
     const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
     await scrollbar.press("PageDown");
-    await section
+    await editor
       .locator(".view-line")
       .nth(3)
       .click({ position: { x: 10, y: 8 } });
@@ -57,7 +69,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
     await expect(widget).toContainText("reviewCompletion");
     await expect(widget).toBeInViewport();
     const bounds = await widget.boundingBox();
-    const caret = await section.locator(".cursor").first().boundingBox();
+    const caret = await editor.locator(".cursor").first().boundingBox();
     if (bounds === null || caret === null) throw new Error("Completion or caret is missing");
     expect(Math.abs(bounds.x - caret.x)).toBeLessThan(10);
     expect(
@@ -70,7 +82,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
       await widget.evaluate((element) => element.closest(".unified-review-virtual-list")),
     ).toBeNull();
     await widget.getByRole("option", { name: /reviewCompletion/ }).click();
-    await expect(section.locator(".view-line", { hasText: "reviewCompletion" })).toBeVisible();
+    await expect(editor.locator(".view-line", { hasText: "reviewCompletion" })).toBeVisible();
     const focused = await page.evaluate(() =>
       (window.__WEAVIE_MONACO__!.editor.getEditors() as MonacoEditor.IStandaloneCodeEditor[])
         .filter((editor) => editor.hasWidgetFocus())
@@ -78,9 +90,13 @@ test("scrolled review completions stay at the caret and belong to their editor",
     );
     expect(focused).toHaveLength(1);
     expect(focused[0]).toMatch(new RegExp(`${path.replace(".", "\\.")}$`));
+    await page.keyboard.press("Control+Space");
+    await expect(widget).toBeVisible();
     await section.locator(".unified-review-file-toggle").click();
-    await expect(section.locator(".monaco-editor")).toHaveCount(0);
-    await expect(page.locator(".suggest-widget")).toHaveCount(0);
+    await expect(section.locator(".review-adaptive-body")).toBeHidden();
+    await expect(editor).toBeHidden();
+    await expect.poll(ownedPaths).toEqual([path]);
+    await expect(page.locator(".suggest-widget.visible")).toHaveCount(0);
     await expect
       .poll(async () =>
         page.evaluate(
@@ -91,6 +107,10 @@ test("scrolled review completions stay at the caret and belong to their editor",
       )
       .toBe(0);
   }
+  await page.keyboard.press("ControlOrMeta+w");
+  await expect(page.locator(".unified-review")).toHaveCount(0);
+  await expect(page.locator(".unified-review-overflow-widgets")).toHaveCount(0);
+  await expect.poll(ownedPaths).toEqual([]);
 });
 
 test("scrolled review rename accepts and cancels while a definition peek is open", async ({
@@ -135,16 +155,17 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: paths[1] }),
   });
-  await expect(section.locator(".view-line").first()).toBeVisible();
+  const editor = reviewEditor(section);
+  await expect(editor.locator(".view-line").first()).toBeVisible();
   await page.getByRole("scrollbar", { name: "Review scroll position" }).press("PageDown");
-  const original = await section
+  const original = await editor
     .locator(".view-line")
     .nth(3)
     .locator("span", { hasText: /^value\d+$/ })
     .last()
     .textContent();
   // Monaco recycles line elements as the peek opens, so pin the word by its text, not its position.
-  const word = section
+  const word = editor
     .locator(".view-line:not(.peekview-widget .view-line)")
     .filter({ hasText: `export const ${original} = ` })
     .locator("span", { hasText: new RegExp(`^${original}$`) });
@@ -165,7 +186,7 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   await input.fill("renamedReviewValue");
   await page.keyboard.press("Enter");
   await expect(input).toBeHidden();
-  await expect(section.locator(".view-line", { hasText: "renamedReviewValue" })).toBeVisible();
+  await expect(editor.locator(".view-line", { hasText: "renamedReviewValue" })).toBeVisible();
   await expect
     .poll(() => readFile(join(weavie.workspace, paths[1]!), "utf8"))
     .toContain("renamedReviewValue");

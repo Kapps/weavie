@@ -299,7 +299,12 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) =>
+		RevertHunk(path, baselineRange, currentRange, guardText, out _);
+
+	/// <summary>Reverts a hunk and captures navigation in the same decision transaction.</summary>
+	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText, out ReviewDecisionNavigation navigation) {
+		navigation = ReviewDecisionNavigation.None;
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return RevertHunkOutcome.GuardMismatch;
@@ -309,6 +314,7 @@ public sealed partial class SessionChangeTracker {
 		RevertHunkOutcome outcome;
 		lock (_gate) {
 			ReconcileReviewDisk();
+			string[] order = [.. TurnChangesLocked().Select(change => change.Path)];
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
 			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)
 				|| TrySplice(path, currentRange, guardText, replacement) is not { } spliced) {
@@ -335,6 +341,7 @@ public sealed partial class SessionChangeTracker {
 			CommitReviewProvenance(path);
 			Record(ReviewActionKind.Revert, touchesDisk: true, currentRange.Start, [before]);
 			ReportCurrentState(path);
+			navigation = DecisionNavigationLocked(path, order, outcome == RevertHunkOutcome.Deleted);
 		}
 
 		RaiseCorrected(edits);
@@ -346,7 +353,11 @@ public sealed partial class SessionChangeTracker {
 	/// truncated. No guard — the whole file is reset, not a single hunk against concurrent edits.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
-	public RevertHunkOutcome RevertFile(string path) {
+	public RevertHunkOutcome RevertFile(string path) => RevertFile(path, out _);
+
+	/// <summary>Reverts a file and captures navigation in the same decision transaction.</summary>
+	public RevertHunkOutcome RevertFile(string path, out ReviewDecisionNavigation navigation) {
+		navigation = ReviewDecisionNavigation.None;
 		if (!TryScope(path, out path)) {
 			return RevertHunkOutcome.GuardMismatch;
 		}
@@ -355,6 +366,7 @@ public sealed partial class SessionChangeTracker {
 		RevertHunkOutcome outcome;
 		lock (_gate) {
 			ReconcileReviewDisk();
+			string[] order = [.. TurnChangesLocked().Select(change => change.Path)];
 			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
@@ -363,6 +375,7 @@ public sealed partial class SessionChangeTracker {
 			var before = Capture(path, withDisk: true);
 			outcome = RevertFileLocked(path);
 			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, [before]);
+			navigation = DecisionNavigationLocked(path, order, outcome == RevertHunkOutcome.Deleted);
 		}
 
 		RaiseCorrected(edits);
@@ -371,7 +384,7 @@ public sealed partial class SessionChangeTracker {
 
 	/// <summary>
 	/// Reverts every file in the review set to its baseline on disk as a single undoable step (the whole-set
-	/// analogue of <see cref="RevertFile"/>). A no-op (and not recorded) when the set is empty.
+	/// analogue of <see cref="RevertFile(string)"/>). A no-op (and not recorded) when the set is empty.
 	/// </summary>
 	public ReviewHistoryResult RevertAll() {
 		List<CorrectionEdit> edits;
@@ -449,13 +462,18 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>
 	/// Keeps a single hunk: advances the file's review baseline over just that hunk so it leaves the pending diff
 	/// for good (and survives session switches), without touching disk. <paramref name="guardText"/> is the same
-	/// optimistic-concurrency check as <see cref="RevertHunk"/>; a mismatch aborts and returns <see langword="false"/>.
+	/// optimistic-concurrency check as <see cref="RevertHunk(string, LineRange, LineRange, string)"/>; a mismatch aborts and returns <see langword="false"/>.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) =>
+		KeepHunk(path, baselineRange, currentRange, guardText, out _);
+
+	/// <summary>Keeps a hunk and captures navigation in the same decision transaction.</summary>
+	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText, out ReviewDecisionNavigation navigation) {
+		navigation = ReviewDecisionNavigation.None;
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return false;
@@ -465,6 +483,7 @@ public sealed partial class SessionChangeTracker {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
 			ReconcileReviewDisk();
+			string[] order = [.. TurnChangesLocked().Select(change => change.Path)];
 			if (_nonText.ContainsKey(path)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
@@ -488,6 +507,7 @@ public sealed partial class SessionChangeTracker {
 			}
 			SetPending(path, currentRange, false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before]);
+			navigation = DecisionNavigationLocked(path, order, false);
 			return true;
 		}
 	}
@@ -497,15 +517,20 @@ public sealed partial class SessionChangeTracker {
 	/// good (and survives session switches), without touching disk. No-op for an untracked path.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
-	public void KeepFile(string path) {
+	public void KeepFile(string path) => KeepFile(path, out _);
+
+	/// <summary>Keeps a file and captures navigation in the same decision transaction.</summary>
+	public bool KeepFile(string path, out ReviewDecisionNavigation navigation) {
+		navigation = ReviewDecisionNavigation.None;
 		if (!TryScope(path, out path)) {
-			return;
+			return false;
 		}
 
 		lock (_gate) {
 			ReconcileReviewDisk();
+			string[] order = [.. TurnChangesLocked().Select(change => change.Path)];
 			if (_nonText.ContainsKey(path) || !_current.ContainsKey(path)) {
-				return;
+				return false;
 			}
 
 			var before = Capture(path, withDisk: false);
@@ -517,16 +542,19 @@ public sealed partial class SessionChangeTracker {
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
 			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal) || existenceChanged) {
 				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before]);
+				navigation = DecisionNavigationLocked(path, order, false);
+				return true;
 			} else {
 				CompleteAcceptanceLocked();
 				Checkpoint();
+				return false;
 			}
 		}
 	}
 
 	/// <summary>
 	/// Un-keeps a single accepted (faded) hunk: splices the accepted anchor's lines back into the review baseline
-	/// over that hunk, so it returns to the bright pending band. The inverse of <see cref="KeepHunk"/> — but it
+	/// over that hunk, so it returns to the bright pending band. The inverse of <see cref="KeepHunk(string, LineRange, LineRange, string)"/> — but it
 	/// operates on the accepted-anchor→review-baseline span (both Core-internal) and touches neither disk nor the
 	/// undo history, so it composes safely with the LIFO keep/revert stack (a stale stack entry just declines via
 	/// its own guard). Both sides are guarded: <paramref name="guardText"/> is the review-baseline text the web

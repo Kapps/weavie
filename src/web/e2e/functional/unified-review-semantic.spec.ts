@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
 
 const source = Array.from({ length: 100 }, (_, index) => `public class Value${index} {}`).join(
   "\n",
@@ -28,13 +29,13 @@ test.describe("review semantic-token requests", () => {
     },
   });
 
-  test("highlighting and spelling reuse semantic results when review editors remount", async ({
+  test("highlighting and spelling reuse semantic results across scrolling and activation", async ({
     page,
     weavie,
   }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("20");
     await page.locator(".editor-empty-review").click();
-    await expect(page.locator(".unified-review-file .monaco-editor").first()).toBeVisible();
+    await expect(reviewPaint(page).first()).toBeVisible();
     const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
     for (const key of ["Home", "End", "Home", "End", "Home"]) {
       await scrollbar.press(key);
@@ -52,11 +53,12 @@ test.describe("review semantic-token requests", () => {
     expect(requests.length).toBeGreaterThan(1);
     expect(
       requests.length,
-      "each unchanged model is requested only once across consumers and remounts",
+      "each unchanged model is requested only once across consumers and revisits",
     ).toBe(new Set(requests).size);
 
-    await page
-      .locator(".unified-review-file .view-line")
+    await reviewPaint(page)
+      .first()
+      .locator(".view-line")
       .first()
       .click({ position: { x: 40, y: 8 } });
     await page.keyboard.press("Home");
@@ -82,7 +84,9 @@ test.describe("semantic highlighting ownership", () => {
     },
   });
 
-  test("one Monaco controller requests highlighting for a model", async ({ page }) => {
+  test("one model-owned controller requests highlighting for a passive review", async ({
+    page,
+  }) => {
     await page.clock.install();
     await page.evaluate(() => {
       document.documentElement.dataset.highlightingRequests = "0";
@@ -98,7 +102,7 @@ test.describe("semantic highlighting ownership", () => {
       });
     });
     await page.locator(".editor-empty-review").click();
-    await expect(page.locator(".unified-review-file .monaco-editor")).toBeVisible();
+    await expect(reviewPaint(page)).toBeVisible();
     await page.clock.runFor(1_500);
     await expect(page.locator("html")).toHaveAttribute("data-highlighting-requests", "1");
   });

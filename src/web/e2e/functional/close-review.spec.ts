@@ -7,6 +7,7 @@ import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewPaint } from "../harness/review-renderer";
 import type { HeadlessHost } from "../harness/weavie-host";
 
 const ORIGINAL = "just plain text\n";
@@ -82,8 +83,8 @@ test.describe("close diff", () => {
         await expect(page.locator(".unified-review")).toBeVisible();
         await expect(page.locator(".weavie-inline-hist").first()).toBeEnabled();
         await runCommand(page, "Undo Revert (Review)");
-        await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
-        await page.locator(".unified-review .weavie-inline-pending-revert").click();
+        await expect(reviewPaint(page).locator(".weavie-inline-added")).toBeVisible();
+        await reviewPaint(page).locator(".weavie-inline-pending-revert").click();
         await expect
           .poll(() => readFile(join(weavie.workspace, "notes.txt"), "utf8"))
           .toBe(ORIGINAL);

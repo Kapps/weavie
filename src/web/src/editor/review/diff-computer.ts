@@ -1,13 +1,8 @@
 import { StandaloneServices } from "@codingame/monaco-vscode-api";
-import { IEditorWorkerService } from "@codingame/monaco-vscode-api/services";
+import { IEditorWorkerService, IModelService } from "@codingame/monaco-vscode-api/services";
 import { monaco } from "../monaco-setup";
 import { DIFF_ALGORITHM, DIFF_OPTIONS, type DiffLineChange } from "./diff-computation";
-
-export interface DiffSources {
-  original: string;
-  claudeVersion: string | undefined;
-  acceptedBaseline: string | undefined;
-}
+import { type DiffSources, sameSources } from "./review-sources";
 
 export type DiffCalculation =
   | {
@@ -48,20 +43,13 @@ const completed = new WeakMap<
   }
 >();
 
-function sameSources(left: DiffSources, right: DiffSources): boolean {
-  return (
-    left.original === right.original &&
-    left.claudeVersion === right.claudeVersion &&
-    left.acceptedBaseline === right.acceptedBaseline
-  );
-}
-
 let nextComputerId = 1;
 
 /** Computes review geometry in Monaco's existing editor worker. */
 export class DiffComputer {
   private readonly id = nextComputerId++;
   private readonly worker = StandaloneServices.get(IEditorWorkerService);
+  private readonly models = StandaloneServices.get(IModelService);
   private nextSourceSetId = 1;
   private active: ActiveSources | undefined;
 
@@ -79,6 +67,13 @@ export class DiffComputer {
     }
 
     const calculation = this.track(active, this.computeActive(active, liveModel)).then((result) => {
+      if (
+        result.status !== "ready" &&
+        this.active === active &&
+        active.live?.calculation === calculation
+      ) {
+        this.disposeActive();
+      }
       if (result.status === "ready" && liveModel.getVersionId() === version) {
         completed.set(liveModel, { version, sources: { ...sources }, result });
       }
@@ -141,7 +136,8 @@ export class DiffComputer {
       authority: String(this.id),
       path: `/${sourceSetId}/${name}`,
     });
-    return monaco.editor.createModel(value, "plaintext", uri);
+    // Immutable worker snapshots never track language-registry changes.
+    return this.models.createModel(value, null, uri, false);
   }
 
   private async computeActive(

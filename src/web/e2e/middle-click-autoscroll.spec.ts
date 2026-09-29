@@ -96,28 +96,51 @@ test("middle-click autoscrolls the agent transcript and responds live", async ({
   }
 });
 
-// A wheel listener on window or document — passive or not — takes the page off WebKit's async-scrolling
-// path, so every surface scrolls on the main thread. The autoscroll's must exist only while it is running.
-test("the autoscroll registers no global wheel listener unless it is running", async ({ page }) => {
+// The gesture's global wheel listener is scoped to active autoscroll; passive input observers are separate.
+test("the autoscroll registers no potentially blocking global wheel listener unless running", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
-    let live = 0;
-    (window as unknown as { __wheelListeners: () => number }).__wheelListeners = () => live;
+    const live = new Set<{
+      target: EventTarget;
+      listener: EventListenerOrEventListenerObject;
+      capture: boolean;
+      passive: boolean;
+    }>();
+    (window as unknown as { __wheelListeners: () => number }).__wheelListeners = () =>
+      [...live].filter((entry) => !entry.passive).length;
     const add = EventTarget.prototype.addEventListener;
     const remove = EventTarget.prototype.removeEventListener;
     const global = (target: EventTarget): boolean =>
       target === window || target === document || target === document.body;
     // These listeners are torn down by AbortController, which never calls removeEventListener.
     EventTarget.prototype.addEventListener = function (type, listener, options) {
-      if (type === "wheel" && global(this)) {
-        live++;
-        (options as { signal?: AbortSignal } | undefined)?.signal?.addEventListener("abort", () => {
-          live--;
-        });
+      const settings: AddEventListenerOptions =
+        typeof options === "object" ? options : { capture: options };
+      const capture = settings?.capture === true;
+      if (
+        type === "wheel" &&
+        global(this) &&
+        listener !== null &&
+        settings?.signal?.aborted !== true &&
+        ![...live].some(
+          (entry) =>
+            entry.target === this && entry.listener === listener && entry.capture === capture,
+        )
+      ) {
+        const entry = { target: this, listener, capture, passive: settings.passive === true };
+        live.add(entry);
+        settings?.signal?.addEventListener("abort", () => live.delete(entry), { once: true });
       }
       add.call(this, type, listener, options);
     };
     EventTarget.prototype.removeEventListener = function (type, listener, options) {
-      if (type === "wheel" && global(this)) live--;
+      const capture = typeof options === "boolean" ? options : options?.capture === true;
+      if (type === "wheel") {
+        for (const entry of live)
+          if (entry.target === this && entry.listener === listener && entry.capture === capture)
+            live.delete(entry);
+      }
       remove.call(this, type, listener, options);
     };
   });
@@ -131,13 +154,16 @@ test("the autoscroll registers no global wheel listener unless it is running", a
     expect(await wheelListeners()).toBe(0);
 
     const origin = await paneOrigin(body);
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(body).toHaveClass(/middle-click-autoscrolling/);
-    expect(await wheelListeners()).toBeGreaterThan(0);
+    for (const cancellation of ["Escape", "wheel"]) {
+      await page.mouse.click(origin.x, origin.y, { button: "middle" });
+      await expect(body).toHaveClass(/middle-click-autoscrolling/);
+      expect(await wheelListeners()).toBeGreaterThan(0);
 
-    await page.keyboard.press("Escape");
-    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
-    await expect.poll(wheelListeners).toBe(0);
+      if (cancellation === "wheel") await page.mouse.wheel(0, -40);
+      else await page.keyboard.press(cancellation);
+      await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
+      await expect.poll(wheelListeners).toBe(0);
+    }
   } finally {
     await host.close();
   }

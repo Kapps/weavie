@@ -1,7 +1,7 @@
-import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
   createEffect,
   createMemo,
+  createSelector,
   createSignal,
   For,
   type JSX,
@@ -11,7 +11,7 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
-import { setContext } from "../../commands/context";
+import type { InteractionIntent } from "../../chrome/interaction-intent";
 import {
   buildPathTree,
   type PathTreeNode,
@@ -20,17 +20,26 @@ import {
 } from "../../files/path-tree";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
-import type { InlineDiff, ReviewScopeState } from "../inline-diff";
+import type { InlineDiffOptions, ReviewScopeState } from "../inline-diff";
 import { activeTabFor } from "../session-store";
+import { createTabActivity } from "../tab-activity";
 import type { TabOwner } from "../tab-owner";
+import { ReviewCommentDrafts } from "./ReviewCommentDrafts";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
+import type { ReviewCommentDrafts as DraftStore } from "./review-comment-drafts";
 import { estimatedEditorHeight } from "./review-context";
+import type { ReviewDecision, ReviewDecisionCompletion } from "./review-decision";
+import { ReviewDocumentScope } from "./review-document";
+import { createReviewFileOwners } from "./review-file-owners";
 import { reviewHistoryHandlers } from "./review-history-handlers";
+import { ReviewHorizontalPositions } from "./review-horizontal-position";
+import { createReviewLayout } from "./review-layout";
+import { createReviewPreparationQueue } from "./review-preparation-queue";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
-import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
+import { createReviewToolbarPresenter } from "./review-toolbar-presenter";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
@@ -38,21 +47,22 @@ const TREE_HEADER_HEIGHT = 42;
 const TREE_ROW_HEIGHT = 28;
 
 export function UnifiedReview(props: {
+  interaction: InteractionIntent;
   scope: ReviewScopeState;
   overview: () => ReviewOverview;
+  drafts: DraftStore;
   session: ClientSession;
   tab: TabOwner;
   changed: () => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
   bindSurface: (surface: UnifiedReviewSurface) => () => void;
   clear: () => void;
-  configureDiff: (
-    tab: TabOwner,
-    inline: InlineDiff,
-    uri: string,
+  diffOptions: (
+    session: ClientSession,
     diff: ReviewFileDiff,
     reveal: (file: ReviewFile, line: number) => void,
-  ) => void;
+    captureAdvance: (decision: ReviewDecision) => ReviewDecisionCompletion,
+  ) => InlineDiffOptions;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
@@ -64,10 +74,11 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  const [committedEditor, setCommittedEditor] = createSignal<string>();
   const [viewTop, setViewTop] = createSignal(0);
   const [anchorPath, setAnchorPath] = createSignal<string>();
   // The selected file, else the first file on screen; none while only the file tree is in view.
-  const visibleFile = (): number | undefined => {
+  const visibleFile = createMemo((): number | undefined => {
     const path = selectedPath();
     if (path !== null) {
       const index = props.overview().files.findIndex((file) => samePath(file.summary().path, path));
@@ -75,23 +86,46 @@ export function UnifiedReview(props: {
     }
     const owner = scroll();
     if (owner === undefined) return undefined;
+    const height = layout.viewportHeight();
+    if (height === undefined || height === 0) return undefined;
     const top = viewTop();
-    const bottom = top + owner.viewport.clientHeight;
+    const bottom = top + height;
     const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
     return row === undefined ? undefined : row.index - 1;
-  };
+  });
+  const isActiveFile = createSelector(visibleFile);
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
 
   const copies = props.createCopyScope();
-  onCleanup(() => copies.dispose());
+  const documents = new ReviewDocumentScope();
+  const horizontal = new ReviewHorizontalPositions(props.changed);
+  onCleanup(() => {
+    documents.dispose();
+    copies.dispose();
+  });
+  const preparePassive = createReviewPreparationQueue();
 
   const displayPath = (path: string): string => {
     const workspace = props.session.state.lsp.current?.workspace;
     return workspace === undefined ? path : repoRelativePath(workspace, path);
   };
-  const files = (): ReviewFileView[] => props.overview().files;
+  const files = createMemo(() => props.overview().files);
+  const label = createMemo(() => props.overview().label);
+  const fileOwners = createReviewFileOwners({
+    files,
+    label,
+    documents,
+    optionsFor: (value) =>
+      props.diffOptions(
+        props.session,
+        value,
+        (target, line) => surface.reveal(target.path, line, props.interaction.begin()),
+        (decision) => surface.captureReviewAdvance(value.path, decision),
+      ),
+    resolve: (value) => copies.open(value.path, value.current, value.currentExists),
+  });
   const sessionKey = (): string =>
     `${props.session.address.slot}\0${props.session.address.incarnation}`;
   const treeNodes = createMemo<PathTreeNode<ReviewFileView>[]>(() =>
@@ -124,12 +158,28 @@ export function UnifiedReview(props: {
     }
     return SECTION_HEADER_HEIGHT + editorHeight(file);
   };
-  const rows = () => virtualizer.getVirtualItems();
-  const rowKeys = (): string[] => rows().map((row) => String(row.key));
-  const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
-    get count() {
-      return files().length + 1;
+  const rows = () => layout.rows();
+  const orderedKeys = createMemo(
+    () => [
+      `${sessionKey()}\0tree`,
+      ...files().map((file) => `${sessionKey()}\0${file.summary().path}`),
+    ],
+    undefined,
+    {
+      equals: (before, after) =>
+        before.length === after.length && before.every((key, index) => key === after[index]),
     },
+  );
+  const itemKey = createMemo(() => {
+    const keys = orderedKeys();
+    return (index: number) => keys[index]!;
+  });
+  const retainedRows = createMemo(() =>
+    Array.from({ length: files().length + 1 }, (_, index) => index),
+  );
+  const layout = createReviewLayout(() => ({
+    rangeExtractor: retainedRows,
+    count: files().length + 1,
     estimateSize: (index) => {
       if (index === 0) {
         const count = visiblePathTreeRows(
@@ -142,13 +192,7 @@ export function UnifiedReview(props: {
       const file = files()[index - 1];
       return file === undefined ? 120 : estimatedFileSize(file);
     },
-    getItemKey: (index) => {
-      if (index === 0) {
-        return `${sessionKey()}\0tree`;
-      }
-      const path = files()[index - 1]?.summary().path;
-      return path === undefined ? index : `${sessionKey()}\0${path}`;
-    },
+    getItemKey: itemKey(),
     getScrollElement: () => scroll()?.viewport ?? null,
     observeElementOffset: (_instance, callback) => {
       const owner = scroll()!;
@@ -172,8 +216,10 @@ export function UnifiedReview(props: {
         : entry.borderBoxSize[0]!.blockSize,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
-  });
-  createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
+  }));
+  const virtualizer = layout.instance;
+  const rowKeys = createMemo(() => rows().map((row) => String(row.key)));
+  createEffect(() => sizeVirtualList(layout.totalSize()));
 
   let collapseSnapshot = new Map<string, boolean>();
   createEffect(() => {
@@ -194,13 +240,12 @@ export function UnifiedReview(props: {
     props.onFileCollapsed(props.session, file.summary().path, collapsed);
   };
 
-  const [controlsRevision, setControlsRevision] = createSignal(0);
-  const changed = (): void => {
-    setControlsRevision((value) => value + 1);
-    props.changed();
-  };
+  const active = createTabActivity(props.tab);
   const surface = createReviewSurface({
-    active: () => selectedSession() === props.session && activeTabFor(props.session) === props.tab,
+    interaction: props.interaction,
+    horizontal,
+    active,
+    controls: { refresh: () => toolbar.refresh(), captureActions: () => toolbar.captureActions() },
     signal: props.tab.signal,
     clear: props.clear,
     getScrollTop: () => scroll()!.getScrollTop(),
@@ -209,7 +254,6 @@ export function UnifiedReview(props: {
       scroll()!.setScrollTop(top);
     },
     focus: () => scroller?.focus(),
-    changed,
     files,
     currentIndex: visibleFile,
     select: (index) => {
@@ -221,80 +265,65 @@ export function UnifiedReview(props: {
     scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }),
   });
   onCleanup(() => surface.dispose());
-  createEffect(() => {
-    files();
-    surface.refresh();
-  });
-  const summary = () => {
-    const overview = props.overview();
+  const summary = createMemo(() => {
+    const currentFiles = files();
+    const currentLabel = label();
     const index = visibleFile();
-    const count = overview.files.length;
+    const count = currentFiles.length;
     const reveal = (index: number): void => {
-      const file = overview.files[index]?.summary();
-      if (file !== undefined) surface.reveal(file.path, file.line);
+      const file = currentFiles[index]?.summary();
+      if (file !== undefined) surface.reveal(file.path, file.line, props.interaction.begin());
     };
     return {
-      fileCount: overview.files.length,
-      label: overview.label,
+      fileCount: count,
+      label: currentLabel,
       stepIn: () => reveal(index ?? 0),
       nextFile: () => reveal(index === undefined ? 0 : (index + 1) % count),
       prevFile: () => reveal(((index ?? 0) - 1 + count) % count),
     };
-  };
-  const history = reviewHistoryHandlers(props.session, () => {
+  });
+  const history = reviewHistoryHandlers(props.session, props.interaction.begin, () => {
     const presentation = props.tab.presentation;
-    return ({ path, line }) => {
+    return ({ path, line }, focus) => {
       if (
         !presentation?.signal.aborted &&
         selectedSession() === props.session &&
         activeTabFor(props.session) === props.tab
       )
-        surface.reveal(path, line);
+        surface.reveal(path, line, focus);
     };
   });
-  const parkedActions = () =>
-    files().length === 0
-      ? undefined
-      : {
-          ...createParkedNavigation(summary()),
-          undoKeep: () => {
-            history.onUndoKeep();
-            return true;
-          },
-          undoRevert: () => {
-            history.onUndoRevert();
-            return true;
-          },
-          redoReview: () => {
-            history.onRedo();
-            return true;
-          },
-        };
-  createEffect(() =>
-    onCleanup(
-      props.bindSurface({
-        ...surface,
-        actions: () => surface.actions() ?? parkedActions(),
-      }),
-    ),
-  );
+  const toolbar = createReviewToolbarPresenter({
+    host: () => toolbarHost ?? null,
+    active,
+    scope: props.scope,
+    target: () => {
+      const target = surface.target();
+      return target.kind !== "none"
+        ? target
+        : files().length > 0
+          ? { kind: "parked", summary: summary() }
+          : { kind: "none" };
+    },
+    reviewPending: () => files().length > 0,
+    composerFocused: () => {
+      const target = surface.target();
+      return target.kind === "file" && target.presentation.composerFocused();
+    },
+    history: () => props.overview().history,
+    historyHandlers: () => history,
+  });
+  onCleanup(toolbar.dispose);
   createEffect(() => {
-    controlsRevision();
+    files();
+    surface.refresh();
+  });
+  createEffect(() => onCleanup(props.bindSurface(surface)));
+  createEffect(() => {
     visibleFile();
-    const overview = props.overview();
-    setContext("diffActive", overview.files.length > 0);
-    if (surface.actions() !== undefined || overview.files.length === 0) return;
-    const controls = createParkedToolbar(
-      summary(),
-      {
-        ...summary(),
-        undo: history.onUndoLast,
-        redo: history.onRedo,
-      },
-      overview.history,
-    );
-    if (toolbarHost !== undefined) mountReviewToolbar(toolbarHost, controls.bar);
-    onCleanup(() => controls.bar.remove());
+    props.overview().history;
+    active();
+    toolbar.refresh();
   });
 
   // A navigated file holds its place while files above it measure, until the user takes over.
@@ -351,6 +380,7 @@ export function UnifiedReview(props: {
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
+      <ReviewCommentDrafts drafts={props.drafts} />
 
       <main class="unified-review-diffs" ref={scroller} tabIndex={-1}>
         <div
@@ -392,16 +422,28 @@ export function UnifiedReview(props: {
                               file={view}
                               index={item().index}
                               register={surface.sections}
-                              active={() => visibleFile() === item().index - 1}
-                              toolbarHost={() => toolbarHost ?? null}
-                              configureDiff={(inline, uri, diff) =>
-                                props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
-                                  surface.reveal(file.path, line),
-                                )
+                              active={() => isActiveFile(item().index - 1)}
+                              requestFocus={() => surface.requestFocus(view().summary().path)}
+                              ownsEditor={() =>
+                                committedEditor() === normalizePath(view().summary().path)
                               }
-                              openCopy={(diff) =>
-                                copies.open(diff.path, diff.current, diff.currentExists)
-                              }
+                              claimEditor={() => {
+                                const path = normalizePath(view().summary().path);
+                                setCommittedEditor(path);
+                              }}
+                              preparePassive={preparePassive}
+                              documents={documents}
+                              horizontal={horizontal.forPath(view().summary().path)}
+                              controlsChanged={toolbar.refresh}
+                              openCopy={async () => {
+                                const owner = fileOwners().get(view());
+                                if (owner === undefined)
+                                  throw new DOMException(
+                                    "Review file is no longer present",
+                                    "AbortError",
+                                  );
+                                return owner.open();
+                              }}
                               measure={measure}
                               observe={observe}
                               onFocus={() => {
@@ -420,7 +462,11 @@ export function UnifiedReview(props: {
                         measure={observe}
                         nodes={treeNodes}
                         onSelect={(file) =>
-                          surface.reveal(file.summary().path, file.summary().line)
+                          surface.reveal(
+                            file.summary().path,
+                            file.summary().line,
+                            props.interaction.begin(),
+                          )
                         }
                         onToggleDirectory={toggleDirectory}
                         overview={props.overview}

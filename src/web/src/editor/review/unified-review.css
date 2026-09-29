@@ -3,13 +3,14 @@
   inset: 0;
   z-index: 12;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
 }
 
 .unified-review-controls {
+  grid-row: 4;
   display: flex;
   min-width: 0;
   justify-content: center;
@@ -18,6 +19,14 @@
 
 .unified-review-controls:empty {
   display: none;
+}
+
+.weavie-review-drafts {
+  grid-row: 2;
+  max-height: 30vh;
+  overflow: auto;
+  padding: 0.5em 1em;
+  border-bottom: 1px solid var(--border);
 }
 
 .unified-review-controls > .weavie-inline-toolbar {
@@ -35,6 +44,7 @@
 }
 
 .unified-review-header {
+  grid-row: 1;
   z-index: 3;
   display: flex;
   align-items: center;
@@ -226,6 +236,7 @@
 }
 
 .unified-review-diffs {
+  grid-row: 3;
   --review-scroll-padding: 1em;
   position: relative;
   height: 100%;
@@ -345,6 +356,30 @@
   width: 100%;
 }
 
+.review-adaptive-body {
+  position: relative;
+}
+.review-file-comments {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+}
+.review-adaptive-passive,
+.review-adaptive-live {
+  position: absolute;
+  inset: 0;
+}
+.review-adaptive-live {
+  visibility: hidden;
+}
+.review-adaptive-body[data-presentation="live"] > .review-adaptive-live {
+  visibility: visible;
+}
+.review-adaptive-body[data-presentation="live"] > .review-adaptive-passive {
+  visibility: hidden;
+}
+
 .unified-review-editor-viewport {
   position: absolute;
   left: 0;
@@ -380,6 +415,14 @@
   color: var(--dim);
   font-size: var(--font-metadata-size);
   text-align: center;
+}
+
+.review-adaptive-passive > .unified-review-notice,
+.review-adaptive-notice {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .unified-review-rejection {

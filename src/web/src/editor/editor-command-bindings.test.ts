@@ -135,13 +135,14 @@ const tabs = new WeakMap<ClientSession, TabOwner>();
 function tab(session: ClientSession): TabOwner {
   let owner = tabs.get(session);
   if (owner === undefined) {
-    owner = new TabOwner(session, { kind: "review", path: "weavie:review", viewState: null });
+    owner = new TabOwner(session, { kind: "review", path: "weavie:review" }, null);
     owner.mount({
       text: true,
       capture: () => ({ state: null, text: { path: "file", line: 1 } }),
       restore: async () => {},
       focus: () => {},
       actions: () => undefined,
+      captureReviewAdvance: () => () => {},
     });
     tabs.set(session, owner);
   }

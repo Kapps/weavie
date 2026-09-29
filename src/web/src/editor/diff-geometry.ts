@@ -7,6 +7,11 @@ export interface LineSpan {
   endLineNumberExclusive: number;
 }
 
+/** EOF deletion anchors are beyond the working model; controls attach to its last line. */
+export function reviewHunkLine(anchorLine: number, lineCount: number): number {
+  return Math.min(lineCount, Math.max(1, anchorLine));
+}
+
 /**
  * Translate a review-baseline line into its live-model line using the bright diff (review baseline → model).
  * Each bright hunk shifts the lines after it by (added − removed); summing those deltas for every hunk entirely

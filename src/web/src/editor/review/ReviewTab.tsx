@@ -35,15 +35,17 @@ export default function ReviewTab(props: {
   };
   return (
     <UnifiedReview
+      interaction={controller.review.interaction}
       tab={tab}
       session={tab.session}
       scope={controller.review.scope}
       overview={overview}
+      drafts={controller.review.draftsFor(tab.session)}
       changed={() => controller.captureTab(tab)}
       bindSurface={bind}
       clear={props.host.clear}
       onFileCollapsed={controller.review.setFileCollapsed}
-      configureDiff={controller.review.configureDiff}
+      diffOptions={controller.review.diffOptions}
       createCopyScope={() => props.host.createReviewCopyScope(tab.session)}
     />
   );

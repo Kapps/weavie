@@ -5,6 +5,7 @@ import { pressDocumentEnd, pressDocumentStart } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor, reviewPaint } from "../harness/review-renderer";
 import { reviewScroll, scrollReview } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -12,12 +13,21 @@ const lineCount = 5_000;
 const lines = (prefix: string): string =>
   Array.from({ length: lineCount }, (_, index) => `${prefix} line ${index}`).join("\n");
 
-async function expectBoundedEditor(section: Locator, scroller: Locator): Promise<void> {
+async function expectBoundedPaint(section: Locator, scroller: Locator): Promise<void> {
   const viewportHeight = await scroller.evaluate((element) => element.clientHeight);
+  const paint = reviewPaint(section);
   await expect
-    .poll(() => section.locator(".monaco-editor").evaluate((element) => element.clientHeight))
-    .toBeLessThanOrEqual(viewportHeight);
-  await expect.poll(() => section.locator(".view-line").count()).toBeLessThan(250);
+    .poll(async () => {
+      const heights = await paint
+        .locator(".monaco-editor")
+        .evaluateAll((elements) => elements.map((element) => element.clientHeight));
+      return {
+        painted: heights.length > 0,
+        bounded: heights.every((height) => height <= viewportHeight),
+      };
+    })
+    .toEqual({ painted: true, bounded: true });
+  await expect.poll(() => paint.locator(".view-line").count()).toBeLessThan(250);
 }
 
 async function expectUnobscuredLine(line: Locator): Promise<void> {
@@ -67,28 +77,32 @@ test.describe("Review Changes tab — large addition", () => {
     weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
-    const section = page.locator(".unified-review-file");
+    const file = page.locator(".unified-review-file");
+    const section = file.locator(".review-adaptive-live");
     const scroller = page.locator(".unified-review-diffs");
     const lastLine = section.locator(".view-line", { hasText: "new line 4999" });
     const newFileBand = section.locator(".weavie-inline-newfile-tag");
-    await expect(section.locator(".monaco-editor")).toBeAttached();
+    await expect(file.locator(".review-adaptive-body")).toBeAttached();
     await workerRequested.promise;
     try {
-      await expect(section.locator(".monaco-editor")).toBeHidden();
-      await expect(section.locator(".unified-review-notice")).toHaveText("Calculating diff…");
+      await expect(section.locator(".monaco-editor")).toHaveCount(0);
+      await expect(file.locator(".unified-review-notice")).toHaveText("Preparing review…");
     } finally {
       releaseWorker.resolve();
     }
+    await expect(file.locator(".review-adaptive-body")).toHaveAttribute("aria-busy", "false");
+    await expect(file.locator(".passive-review-body .view-line").first()).toBeVisible();
+    await file.locator(".review-adaptive-body").focus();
     await expect(section.locator(".monaco-editor")).toBeVisible();
     await expect(newFileBand).toHaveText("New file");
-    await expectBoundedEditor(section, scroller);
+    await expectBoundedPaint(file, scroller);
     await expect(lastLine).toHaveCount(0);
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
     await pressDocumentEnd(page);
     await expectUnobscuredLine(lastLine);
-    await expectBoundedEditor(section, scroller);
+    await expectBoundedPaint(file, scroller);
     await scrollReview(page, "end");
     const bottomBeforeTyping = await reviewScroll(page).then(({ top }) => top);
     const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);
@@ -112,7 +126,7 @@ test.describe("Review Changes tab — large addition", () => {
     );
     await pressDocumentStart(page);
     await expectUnobscuredLine(firstLine);
-    await expectBoundedEditor(section, scroller);
+    await expectBoundedPaint(file, scroller);
     const paintedLines = section.locator(".view-line");
     const paintSamples = await section.evaluateHandle((element) => {
       const samples: { missing: number; rows: number }[] = [];
@@ -212,11 +226,13 @@ test.describe("Review Changes tab — large replacement", () => {
       has: page.locator(".unified-review-file-name", { hasText: "replacement.txt" }),
     });
     const scroller = page.locator(".unified-review-diffs");
-    const ghost = section.locator(".weavie-inline-removed-content");
+    const paint = reviewPaint(section);
+    const ghost = paint.locator(".weavie-inline-removed-content");
     const toolbar = page.locator(".weavie-inline-toolbar");
     const renderedGhostLines = (): Promise<number> =>
       ghost.evaluate((element) => (element.textContent ?? "").split("\n").length);
-    await expect(section.locator(".monaco-editor")).toBeVisible();
+    await section.locator(".review-adaptive-body").focus();
+    await expect(reviewEditor(section)).toBeVisible();
 
     for (const reviewed of [false, true]) {
       await expect(toolbar).toHaveCount(1);
@@ -224,8 +240,8 @@ test.describe("Review Changes tab — large replacement", () => {
       await scrollReview(page, "start");
       await expect(ghost).toContainText("old line 0");
       await expect.poll(renderedGhostLines).toBeLessThan(250);
-      await expectBoundedEditor(section, scroller);
-      await expect(section.locator(".weavie-inline-removed-faded")).toHaveCount(reviewed ? 1 : 0);
+      await expectBoundedPaint(section, scroller);
+      await expect(paint.locator(".weavie-inline-removed-faded")).toHaveCount(reviewed ? 1 : 0);
 
       const bounds = await scroller.boundingBox();
       if (bounds === null) throw new Error("review viewport is missing");
@@ -239,10 +255,10 @@ test.describe("Review Changes tab — large replacement", () => {
       await expect(ghost).toContainText("old line 4999");
       await expect.poll(renderedGhostLines).toBeLessThan(250);
       await scrollReview(page, "end");
-      await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 4999" }));
-      await expectBoundedEditor(section, scroller);
+      await expectUnobscuredLine(paint.locator(".view-line", { hasText: "new line 4999" }));
+      await expectBoundedPaint(section, scroller);
       if (reviewed) {
-        await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();
+        await expect(paint.locator(".weavie-inline-accepted").first()).toBeVisible();
       }
       await scrollReview(page, "start");
       await expect(ghost).toContainText("old line 0");
@@ -251,18 +267,20 @@ test.describe("Review Changes tab — large replacement", () => {
       if (!reviewed) {
         await toolbar.locator(".weavie-inline-accept").click();
         await expect(section.locator(".unified-review-status")).toHaveText("Reviewed");
-        await expect(section.locator(".monaco-editor")).toHaveCount(0);
+        await expect(reviewEditor(section)).toHaveCount(0);
+        await expect(section.locator(".review-adaptive-body")).toBeHidden();
         await section.locator(".unified-review-file-toggle").click();
-        await expect(section.locator(".monaco-editor")).toBeVisible();
+        await section.locator(".review-adaptive-body").focus();
+        await expect(reviewEditor(section)).toBeVisible();
       }
     }
     await toolbar.locator(".weavie-inline-hist").first().click();
     await expect(toolbar.locator(".weavie-inline-stack-sub")).toContainText("change 1/1");
     await scrollReview(page, "start");
     await expect(ghost).toContainText("old line 0");
-    await expect(section.locator(".weavie-inline-removed-faded")).toHaveCount(0);
+    await expect(paint.locator(".weavie-inline-removed-faded")).toHaveCount(0);
     await expect.poll(renderedGhostLines).toBeLessThan(250);
-    await expectBoundedEditor(section, scroller);
+    await expectBoundedPaint(section, scroller);
   });
 });
 
@@ -293,14 +311,16 @@ test.describe("Review Changes tab — large separated changes", () => {
     await expect(counter).toContainText("change 1/2");
     await toolbar.locator("button[title^='Next change']").click();
     await expect(counter).toContainText("change 2/2");
-    await expectBoundedEditor(section, scroller);
+    await expectBoundedPaint(section, scroller);
 
     await scrollReview(page, "start");
     await expect(counter).toContainText("change 1/2");
     await scroller.hover();
     await scrollReview(page, "end");
     await expect(counter).toContainText("change 2/2");
-    await expectUnobscuredLine(section.locator(".view-line", { hasText: "new line 4999" }));
+    await expectUnobscuredLine(
+      reviewPaint(section).locator(".view-line", { hasText: "new line 4999" }),
+    );
     await toolbar.locator(".weavie-inline-accept").click();
     await expect(counter).toContainText("change 1/1");
     await expect
@@ -317,6 +337,13 @@ test.describe("Review Changes tab — large separated changes", () => {
       .toBe(baseline.map((line, index) => (index < 1_000 ? `new line ${index}` : line)).join("\n"));
     await expect(counter).toContainText("change 1/1");
     await expect(toolbar).toHaveCount(1);
-    await expectBoundedEditor(section, scroller);
+    const rejected = section.locator(".unified-review-rejection");
+    await expect(rejected).toBeInViewport();
+    await expect(rejected.locator("pre")).toHaveText(content.split("\n").slice(3_000).join("\n"));
+    await toolbar.locator("button[title^='Next change']").click();
+    await expectUnobscuredLine(
+      reviewPaint(section).locator(".view-line", { hasText: /^new\sline\s0$/ }),
+    );
+    await expectBoundedPaint(section, scroller);
   });
 });

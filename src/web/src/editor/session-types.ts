@@ -21,6 +21,8 @@ export interface EditorSessionEntry {
   scratch?: boolean;
 }
 
+export type EditorTab = Readonly<Omit<EditorSessionEntry, "viewState">>;
+
 export interface EditorSession {
   active: string | null;
   open: EditorSessionEntry[];

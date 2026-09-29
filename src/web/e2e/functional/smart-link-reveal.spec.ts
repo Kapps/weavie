@@ -1,14 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { awaitEditorReady, expectRevealed } from "../harness/actions";
+import { awaitEditorReady, expectRevealed, openCommandPalette, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { type HeldResponse, holdHostResponse } from "../harness/held-response";
 
-// Smart link matching, full stack: a clicked terminal file link whose relative path doesn't resolve is
-// recovered by suffix match against the workspace index — one hit opens the file (line preserved), several
-// open Go-to-File preloaded with the term (text selected) listing the candidates. The host recovery is
-// unit-covered (FileOpenerTests/PathSuffixMatcherTests); this pins the cross-layer contract no unit test
-// sees: canvas link click → reveal-file → recovery → open-file / focus-omnibar → omnibar preload+selection.
+// Canvas links resolve through the host's suffix matcher; only the invoking client presents the file or
+// candidate palette. Both paths preserve the requested line and reject stale presentation intent.
 
 test.use({
   fakeScript: {
@@ -65,6 +63,16 @@ async function clickClaudeLink(page: Page, needle: string): Promise<void> {
   );
 }
 
+async function createAmbiguousConfigs(workspace: string): Promise<void> {
+  for (const dir of ["client", "server"]) {
+    await mkdir(join(workspace, "src", dir), { recursive: true });
+    await writeFile(
+      join(workspace, "src", dir, "config.ts"),
+      `// ${dir} config\n// settings\nexport const ${dir} = 1;\n`,
+    );
+  }
+}
+
 test("a link missing its leading folders opens the unique suffix match at its line", async ({
   page,
   weavie,
@@ -88,13 +96,7 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
   page,
   weavie,
 }) => {
-  for (const dir of ["client", "server"]) {
-    await mkdir(join(weavie.workspace, "src", dir), { recursive: true });
-    await writeFile(
-      join(weavie.workspace, "src", dir, "config.ts"),
-      `// ${dir} config\n// settings\nexport const ${dir} = 1;\n`,
-    );
-  }
+  await createAmbiguousConfigs(weavie.workspace);
   await awaitEditorReady(page);
   await showClaudeLinks(weavie.workspace);
 
@@ -126,4 +128,48 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
     .replaceAll("\\", "/");
   await input.press("Enter");
   await expectRevealed(page, `${picked}/config.ts`, 3);
+});
+
+test.describe("delayed reference ambiguity", () => {
+  const replies = new WeakMap<Page, HeldResponse>();
+  test.use({
+    preNavigate: {
+      run: async (page) => {
+        replies.set(page, await holdHostResponse(page));
+      },
+    },
+  });
+
+  test("an older ambiguous link cannot replace a newer command palette", async ({
+    page,
+    weavie,
+  }) => {
+    await createAmbiguousConfigs(weavie.workspace);
+    await openFile(page, "hello.ts");
+    await showClaudeLinks(weavie.workspace);
+    const reply = replies.get(page)!;
+    reply.hold((message) => message.feature === "files" && message.name === "resolveReference");
+    await clickClaudeLink(page, "config.ts:3");
+    await expect
+      .poll(() => reply.received()?.payload)
+      .toEqual({ kind: "ambiguous", query: "config.ts", line: 3 });
+    await openCommandPalette(page);
+    const input = page.locator(".tb-omnibar-input");
+    await input.fill(">Go Back");
+    await expect(input).toBeFocused();
+    const reading = await page.evaluate(() => ({
+      model: window.__WEAVIE_EDITOR__?.getModel()?.uri.toString(),
+      position: window.__WEAVIE_EDITOR__?.getPosition(),
+    }));
+    await reply.release();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(">Go Back");
+    await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
+    expect(
+      await page.evaluate(() => ({
+        model: window.__WEAVIE_EDITOR__?.getModel()?.uri.toString(),
+        position: window.__WEAVIE_EDITOR__?.getPosition(),
+      })),
+    ).toEqual(reading);
+  });
 });

@@ -1,5 +1,8 @@
+import { createComputed, createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { InteractionIntent } from "../chrome/interaction-intent";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import type { EditorSessionEntry } from "./session-types";
 
 interface Posted {
@@ -12,6 +15,7 @@ interface Posted {
 
 interface FakeSession {
   client: ClientSession;
+  filesOpened?: (message: { paths: string[]; originPageEpoch: string }) => void;
   restore?: (session: { active: string | null; open: EditorSessionEntry[] }) => void;
 }
 
@@ -21,6 +25,8 @@ const bridgeState = vi.hoisted(() => ({
   sessions: new Map<string, FakeSession>(),
   posted: [] as Posted[],
 }));
+
+vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 vi.mock("../bridge", () => ({
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
@@ -64,6 +70,10 @@ function fakeSession(backendId: string, owner: string): FakeSession {
       },
     },
     feature: (feature: string) => ({
+      on: (_name: string, handler: NonNullable<FakeSession["filesOpened"]>) => {
+        fake.filesOpened = handler;
+        return () => {};
+      },
       publish: (name: string, payload: Record<string, unknown>) => {
         bridgeState.posted.push({ backendId, slot: owner, feature, name, payload });
       },
@@ -240,6 +250,23 @@ describe("togglePin", () => {
 });
 
 describe("convertScratch", () => {
+  it.each([
+    false,
+    true,
+  ])("converts a background scratch without selecting it (destination open: %s)", (existing) => {
+    seed(
+      [
+        { path: "/tmp/U1", scratch: true, viewState: null },
+        { path: "/other.ts", viewState: null },
+        ...(existing ? [{ path: "/saved.ts", viewState: null }] : []),
+      ],
+      "/other.ts",
+    );
+    expect(store.convertScratch("/tmp/U1", "/saved.ts")).toBeNull();
+    expect(paths()).toContain("/saved.ts");
+    expect(paths()).not.toContain("/tmp/U1");
+    expect(store.activePath()).toBe("/other.ts");
+  });
   it("renames the scratch tab in place, keeping its position", () => {
     seed(
       [
@@ -291,7 +318,7 @@ describe("dropReviewTab", () => {
 describe("captureViewState", () => {
   it("records view state without re-pushing the tab set (no structure change)", () => {
     seed([{ path: "/a.ts", viewState: null }], "/a.ts");
-    store.captureViewState("/a.ts", { scroll: 3 });
+    store.captureViewState(store.activeTabFor(bridgeState.selected!)!, { scroll: 3 });
     expect(openEditorsPushes()).toHaveLength(0);
     // The data-only change still reaches the host as a debounced editor-session-changed.
     vi.advanceTimersByTime(300);
@@ -365,7 +392,7 @@ it("preserves the tab owner through metadata changes and retires it on close or 
   const session = bridgeState.selected!;
   store.openTab("https://example.test", { kind: "web", preview: true });
   const first = store.activeTabFor(session)!;
-  store.captureViewStateFor(session, first.entry.path, { reading: 12 });
+  store.captureViewState(first, { reading: 12 });
   store.togglePinFor(session, first.entry.path);
   expect(store.activeTabFor(session)).toBe(first);
   expect(first.signal.aborted).toBe(false);
@@ -379,6 +406,47 @@ it("preserves the tab owner through metadata changes and retires it on close or 
   store.openTab(replacement.entry.path, { kind: "source" });
   expect(store.activeTabFor(session)).not.toBe(replacement);
   expect(replacement.signal.aborted).toBe(true);
+});
+
+it("other pages add membership without replacing this page's preview, location, or pending save", () => {
+  seed([{ path: "/reading", preview: true, viewState: { reading: 12 } }], "/reading", "membership");
+  const session = bridgeState.selected!;
+  const tab = store.activeTabFor(session)!;
+  store.captureViewState(tab, { reading: 37 });
+  const receive = fakeSession("local", "membership").filesOpened!;
+  receive({ paths: ["/reading", "/other"], originPageEpoch: "another-page" });
+  expect(store.activeTabFor(session)).toBe(tab);
+  expect(tab.viewState).toEqual({ reading: 37 });
+  expect(store.openTabsFor(session)).toEqual([
+    { path: "/reading", preview: true },
+    { path: "/other" },
+  ]);
+  vi.runOnlyPendingTimers();
+  expect(
+    bridgeState.posted.find((message) => message.name === "sessionChanged")?.payload,
+  ).toMatchObject({
+    session: {
+      active: "/reading",
+      open: [{ path: "/reading", preview: true, viewState: { reading: 37 } }, { path: "/other" }],
+    },
+  });
+});
+
+it("the origin ignores delayed membership after closing, but a replacement page consumes it", () => {
+  seed([], null, "membership-echo");
+  const session = bridgeState.selected!;
+  store.openTabFor(session, "/closed", {});
+  store.closeTabFor(session, "/closed");
+  const receive = fakeSession("local", "membership-echo").filesOpened!;
+  receive({ paths: ["/closed"], originPageEpoch: PAGE_EPOCH });
+  expect(store.openTabsFor(session)).toEqual([]);
+  store.flushEditorSessionFor(session);
+  bridgeState.posted.length = 0;
+  receive({ paths: ["/closed"], originPageEpoch: "previous-page" });
+  expect(store.openTabsFor(session)).toEqual([{ path: "/closed" }]);
+  expect(store.activePathFor(session)).toBeNull();
+  vi.runOnlyPendingTimers();
+  expect(bridgeState.posted.filter((message) => message.name === "sessionChanged")).toEqual([]);
 });
 
 it("closing a captured batch never adopts tabs opened or reopened during its confirmation", async () => {
@@ -398,6 +466,7 @@ it("closing a captured batch never adopts tabs opened or reopened during its con
   const present = vi.fn();
   const release = vi.fn();
   const actions = createTabActions({
+    captureFocus: new InteractionIntent(new EventTarget()).begin,
     depart: () => {},
     present,
     capture: () => {},
@@ -434,4 +503,127 @@ it("a tab menu retains its owner across selection and rejects pinning a reopened
   store.closeTabFor(session, "/a");
   store.openTabFor(session, "/a", {});
   expect(() => first.assertLive()).toThrow("closed");
+});
+
+it("captures every exact position without invalidating reactive tab metadata or past snapshots", () => {
+  seed([{ path: "/scroll", viewState: { top: 0 } }], "/scroll");
+  const session = bridgeState.selected!;
+  const tab = store.activeTabFor(session)!;
+  const before = store.snapshotEditorSessionFor(session)!;
+  const topology = store.openTabsFor(session);
+  const structure = vi.fn();
+  const off = store.onEditorSessionChanged(session, structure);
+  createRoot((dispose) => {
+    const read = vi.fn();
+    createComputed(() => read(store.openTabsFor(session), store.activePathFor(session)));
+    for (let top = 0; top < 3000; top++) store.captureViewState(tab, { top: top + 0.25 });
+    expect(tab.viewState).toEqual({ top: 2999.25 });
+    expect(store.openTabsFor(session)).toBe(topology);
+    expect(topology[0]).not.toHaveProperty("viewState");
+    expect(read).toHaveBeenCalledOnce();
+    expect(structure).toHaveBeenCalledOnce();
+    const after = store.snapshotEditorSessionFor(session)!;
+    expect(after.open[0]!.viewState).toEqual({ top: 2999.25 });
+    expect(before.open[0]!.viewState).toEqual({ top: 0 });
+    expect(after.open).not.toBe(before.open);
+    expect(after.open[0]).not.toBe(before.open[0]);
+    expect(store.activateTabFor(session, tab.entry.path)?.placement).toEqual({
+      viewState: { top: 2999.25 },
+    });
+    dispose();
+  });
+  off();
+});
+
+it("persists the latest saved position across intervening metadata commits and explicit flushes", () => {
+  seed([{ path: "/scroll", viewState: null }], "/scroll");
+  const session = bridgeState.selected!;
+  const tab = store.activeTabFor(session)!;
+  store.captureViewState(tab, { top: 12.5 });
+  store.togglePinFor(session, tab.entry.path);
+  store.openTabFor(session, "/other", {});
+  store.captureViewState(tab, { top: 19.25 });
+  vi.advanceTimersByTime(300);
+  const changed = bridgeState.posted.filter((message) => message.name === "sessionChanged");
+  expect(changed).toHaveLength(1);
+  expect(changed[0]!.payload.session).toMatchObject({
+    active: "/other",
+    open: [{ path: "/scroll", pinned: true, viewState: { top: 19.25 } }, { path: "/other" }],
+  });
+  store.closeTabFor(session, "/other");
+  store.captureViewState(tab, { top: 33.75 });
+  store.flushEditorSessionFor(session);
+  expect(bridgeState.posted.at(-1)?.payload.session).toMatchObject({
+    active: "/scroll",
+    open: [{ path: "/scroll", viewState: { top: 33.75 } }],
+  });
+  expect(changed[0]!.payload.session).toMatchObject({ open: [{ viewState: { top: 19.25 } }, {}] });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("authoritative restore replaces saved positions and cancels an obsolete pending send", () => {
+  seed([{ path: "/scroll", viewState: null }], "/scroll");
+  const session = bridgeState.selected!;
+  const tab = store.activeTabFor(session)!;
+  store.captureViewState(tab, { top: 999 });
+  seed([{ path: "/scroll", viewState: { top: 3.5 } }], "/scroll");
+  expect(store.activeTabFor(session)).toBe(tab);
+  expect(tab.viewState).toEqual({ top: 3.5 });
+  vi.advanceTimersByTime(300);
+  expect(bridgeState.posted.filter((message) => message.name === "sessionChanged")).toEqual([]);
+});
+
+it("rejects a retired tab capture instead of overwriting its same-path replacement", () => {
+  seed([{ path: "/scroll", viewState: null }], "/scroll");
+  const session = bridgeState.selected!;
+  const old = store.activeTabFor(session)!;
+  store.closeTabFor(session, old.entry.path);
+  store.openTabFor(session, old.entry.path, {});
+  const current = store.activeTabFor(session)!;
+  store.captureViewState(current, { top: 4 });
+  store.captureViewState(old, { top: 900 });
+  expect(current.viewState).toEqual({ top: 4 });
+});
+
+it("captures an unselected owner without touching the same path in the selected session", () => {
+  seed([{ path: "/same", viewState: null }], "/same", "reading-a");
+  const a = store.activeTabFor(bridgeState.selected!)!;
+  seed([{ path: "/same", viewState: { top: 8 } }], "/same", "reading-b");
+  const b = store.activeTabFor(bridgeState.selected!)!;
+  store.captureViewState(a, { top: 16.5 });
+  store.flushEditorSessionFor(a.session);
+  expect(a.viewState).toEqual({ top: 16.5 });
+  expect(b.viewState).toEqual({ top: 8 });
+  expect(bridgeState.posted.at(-1)).toMatchObject({ slot: "reading-a" });
+});
+
+it("closed-tab undo restores the final synchronous capture into a new exact owner", async () => {
+  const { createTabActions } = await import("./tab-actions");
+  seed([{ path: "/scroll", viewState: { top: 1 } }], "/scroll");
+  const session = bridgeState.selected!;
+  const old = store.activeTabFor(session)!;
+  const present = vi.fn();
+  const actions = createTabActions({
+    captureFocus: new InteractionIntent(new EventTarget()).begin,
+    depart: () => {},
+    present,
+    capture: (tab) => store.captureViewState(tab, { top: 7.5, selection: [3, 6] }),
+    content: () => "",
+    release: () => {},
+    confirmDiscard: async () => true,
+  });
+  await actions.capture(session, "/scroll").close();
+  expect(old.signal.aborted).toBe(true);
+  expect(actions.capture(session, undefined).reopenClosed()).toBe(true);
+  const current = store.activeTabFor(session)!;
+  expect(current).not.toBe(old);
+  expect(current.viewState).toEqual({ top: 7.5, selection: [3, 6] });
+  expect(present).toHaveBeenLastCalledWith(
+    session,
+    {
+      path: "/scroll",
+      placement: { viewState: { top: 7.5, selection: [3, 6] } },
+    },
+    expect.objectContaining({ current: expect.any(Function) }),
+  );
 });

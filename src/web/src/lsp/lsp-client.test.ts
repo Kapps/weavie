@@ -65,6 +65,8 @@ const runtime = vi.hoisted(() => ({
   clients: [] as ClientRecord[],
   channels: [] as ChannelRecord[],
   resets: [] as Array<{ session: FakeSession; name: string; payload: unknown }>,
+  startError: undefined as Error | undefined,
+  notices: [] as Array<{ level: string; message: string; key: string | undefined }>,
 }));
 
 function fakeUri(owner: FakeSession, path: string): FakeUri {
@@ -192,7 +194,8 @@ vi.mock("./lsp-bridge-transport", () => ({
     return {
       reader: {},
       writer: {},
-      ready: Promise.resolve(),
+      ready:
+        runtime.startError === undefined ? Promise.resolve() : Promise.reject(runtime.startError),
       dispose: () => {
         record.disposed = true;
       },
@@ -205,7 +208,11 @@ vi.mock("vscode-languageclient");
 vi.mock("../editor/vscode-services", () => ({
   initEditorServices: () => Promise.resolve(),
 }));
-vi.mock("../notify/notify", () => ({ notify: () => undefined }));
+vi.mock("../notify/notify", () => ({
+  notify: (level: string, message: string, key: string | undefined) => {
+    runtime.notices.push({ level, message, key });
+  },
+}));
 
 function session(id: string, workspace: string): FakeSession {
   const listeners = new Set<(value: WeavieLspConfig | null) => void>();
@@ -277,6 +284,8 @@ beforeEach(() => {
   runtime.clients = [];
   runtime.channels = [];
   runtime.resets = [];
+  runtime.startError = undefined;
+  runtime.notices = [];
 });
 
 afterEach(() => {
@@ -358,6 +367,63 @@ describe("session-owned language clients", () => {
     const handler = runtime.clients[0]?.errorHandler;
     expect(handler?.error()).toEqual({ action: 1, handled: true });
     expect(handler?.closed()).toEqual({ action: 1, handled: true });
+  });
+
+  it("updates one keyed warning when later files retry an unavailable language server", async () => {
+    const owner = session("missing", "/repo");
+    const { LspStartError } = await import("./lsp-bridge-transport");
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+
+    runtime.startError = new LspStartError("no server installed");
+    openModel(model(owner, "/repo/First.cs"));
+    await settle();
+    runtime.startError = new LspStartError("server still unavailable");
+    openModel(model(owner, "/repo/Second.cs"));
+    await settle();
+
+    expect(runtime.channels).toHaveLength(2);
+    expect(runtime.channels.every((channel) => channel.disposed)).toBe(true);
+    expect(runtime.clients).toHaveLength(0);
+    expect(runtime.notices).toHaveLength(2);
+    const first = runtime.notices[0]!;
+    const second = runtime.notices[1]!;
+    expect(first.key).toEqual(expect.any(String));
+    expect(first.key).not.toBe("");
+    expect(second.key).toBe(first.key);
+    expect(first.message).toContain("no server installed");
+    expect(second.message).toContain("server still unavailable");
+    expect(second.level).toBe("warn");
+  });
+
+  it("keeps unavailable-server warnings separate by connection, slot, incarnation and server", async () => {
+    const first = session("a", "/repo");
+    const slot = session("b", "/repo");
+    slot.connection.id = first.connection.id;
+    slot.address.incarnation = first.address.incarnation;
+    const incarnation = session("c", "/repo");
+    incarnation.connection.id = first.connection.id;
+    incarnation.address.slot = first.address.slot;
+    const connection = session("d", "/repo");
+    connection.address = { ...first.address };
+    first.state.lsp.current!.servers.push({
+      id: "typescript",
+      languageIds: ["typescript"],
+      settings: null,
+    });
+    runtime.models = [first, slot, incarnation, connection].map((owner) =>
+      model(owner, "/repo/File.cs"),
+    );
+    runtime.models.push(model(first, "/repo/File.ts", "typescript"));
+    const { LspStartError } = await import("./lsp-bridge-transport");
+    runtime.startError = new LspStartError("no server installed");
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+    await settle();
+
+    expect(runtime.notices).toHaveLength(5);
+    expect(runtime.notices.every((notice) => typeof notice.key === "string")).toBe(true);
+    expect(new Set(runtime.notices.map((notice) => notice.key)).size).toBe(5);
   });
 
   it("reads the workspace root from the selected session's owned state", async () => {

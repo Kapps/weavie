@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
+import { reviewEditor } from "../harness/review-renderer";
 import { readReviewScroll, reviewScroll } from "../harness/review-scroll";
 
 const source = Array.from(
@@ -36,7 +37,7 @@ test.use({
   },
 });
 
-test("wheel scrolling preserves file order and geometry as review editors remount", async ({
+test("wheel scrolling preserves file order and geometry across retained sections", async ({
   page,
   weavie,
 }) => {
@@ -53,12 +54,13 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
   );
   await page.locator(".unified-review-tree-row.file").first().click();
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(`file 1/${paths.length}`);
-  const firstEditor = page.locator(".unified-review-file .monaco-editor").first();
+  const firstEditor = reviewEditor(page);
   await firstEditor
     .locator(".view-line")
     .first()
     .click({ position: { x: 4, y: 4 } });
   await expect(firstEditor).toHaveClass(/focused/);
+  const focusedEditor = await firstEditor.elementHandle();
   const observation = await scroller.evaluateHandle((element) => {
     const samples: number[][] = [];
     const sample = () => {
@@ -99,7 +101,9 @@ test("wheel scrolling preserves file order and geometry as review editors remoun
     );
     scroll = await position();
   }
-  await expect(scroller).toBeFocused();
+  expect(await focusedEditor!.evaluate((element) => element.contains(document.activeElement))).toBe(
+    true,
+  );
   const samples = await observation.jsonValue();
   const visited = [...new Set(samples.flat())].sort((a, b) => a - b);
   expect(visited).toEqual(paths.map((_, index) => index + 1));

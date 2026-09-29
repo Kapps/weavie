@@ -57,6 +57,12 @@ focusable while diff geometry is pending, but hunk navigation waits for current 
 Availability notifications settle navigation and refresh controls; they do not persist a new reading
 location. Scroll, cursor, horizontal-position, and tab-lifecycle changes own location persistence.
 
+Tab presenter ownership is observable independently of saved reading state. Mounting, replacing, or
+retiring a presenter refreshes its consumers; capturing scroll state does not. Ordinary-file history
+commands belong to the exact client session, not a rendering pass or history update. They read current
+availability and capture the current presentation when invoked, so an admitted command survives a
+same-session history refresh without granting a late response access to a replacement presentation.
+
 Explicit navigation expands a collapsed file. Restoring a collapsed tab preserves its saved outer
 position without restoring or focusing hidden content. Preparation failures retry only for a new
 explicit request; there is no independent background activation scheduler.

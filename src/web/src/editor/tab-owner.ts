@@ -1,3 +1,4 @@
+import { type Accessor, batch, createSignal, type Setter, untrack } from "solid-js";
 import type { ClientSession } from "../bridge";
 import type { InlineDiffActions } from "./inline-diff";
 import type { TabViewState } from "./nav-history";
@@ -18,13 +19,16 @@ export class TabOwner {
   private readonly lifetime = new AbortController();
   private readonly waiters = new Set<(value: TabPresenter | Error) => void>();
   private failure: Error | undefined;
-  private mounted: TabPresenter | undefined;
+  private readonly readPresentation: Accessor<TabPresenter | undefined>;
+  private readonly writePresentation: Setter<TabPresenter | undefined>;
 
   constructor(
     readonly session: ClientSession,
     public entry: EditorTab,
     private savedViewState: EditorViewState | null,
-  ) {}
+  ) {
+    [this.readPresentation, this.writePresentation] = createSignal<TabPresenter>();
+  }
 
   get viewState(): EditorViewState | null {
     return this.savedViewState;
@@ -42,7 +46,7 @@ export class TabOwner {
     return this.lifetime.signal;
   }
   get presentation(): TabPresenter | undefined {
-    return this.mounted;
+    return this.readPresentation();
   }
 
   assertLive(): void {
@@ -52,18 +56,23 @@ export class TabOwner {
 
   mount(view: Omit<TabPresenter, "signal">): () => void {
     this.assertLive();
-    if (this.mounted !== undefined) throw new Error("The tab already has a presenter.");
+    if (untrack(this.readPresentation) !== undefined)
+      throw new Error("The tab already has a presenter.");
     const lifetime = new AbortController();
     const presentation = {
       ...view,
       signal: AbortSignal.any([this.signal, this.session.signal, lifetime.signal]),
     };
     this.failure = undefined;
-    this.mounted = presentation;
-    for (const ready of this.waiters) ready(presentation);
+    batch(() => {
+      this.writePresentation(presentation);
+      for (const ready of this.waiters) ready(presentation);
+    });
     return () => {
-      lifetime.abort();
-      if (this.mounted === presentation) this.mounted = undefined;
+      batch(() => {
+        lifetime.abort();
+        if (untrack(this.readPresentation) === presentation) this.writePresentation(undefined);
+      });
     };
   }
 
@@ -76,7 +85,8 @@ export class TabOwner {
     const validity = AbortSignal.any([this.signal, this.session.signal, signal]);
     validity.throwIfAborted();
     if (this.failure !== undefined) return Promise.reject(this.failure);
-    if (this.mounted !== undefined) return Promise.resolve(this.mounted);
+    const presentation = untrack(this.readPresentation);
+    if (presentation !== undefined) return Promise.resolve(presentation);
     return new Promise((resolve, reject) => {
       const finish = (value: TabPresenter | Error): void => {
         this.waiters.delete(finish);
@@ -91,7 +101,10 @@ export class TabOwner {
   }
 
   dispose(): void {
-    this.lifetime.abort();
+    batch(() => {
+      this.lifetime.abort();
+      this.writePresentation(undefined);
+    });
   }
 }
 

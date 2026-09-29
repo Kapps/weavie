@@ -32,6 +32,7 @@ import type {
   HunkUnkeep,
   InlineDiff,
   InlineDiffOptions,
+  ReviewHistoryHandlers,
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
@@ -920,8 +921,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
-  const fileHistoryHandlers = (session: ClientSession) =>
-    reviewHistoryHandlers(session, () => {
+  const fileHistoryOwners = new WeakMap<ClientSession, ReviewHistoryHandlers>();
+  const fileHistoryHandlers = (session: ClientSession): ReviewHistoryHandlers => {
+    const existing = fileHistoryOwners.get(session);
+    if (existing !== undefined) return existing;
+    const handlers = reviewHistoryHandlers(session, () => {
       const connection = host === undefined ? undefined : editorContexts.fromEditor(host.editor);
       const presentation = connection?.tab.presentation;
       return ({ path, line }) => {
@@ -938,6 +942,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (file !== undefined) openReviewFile(session, file.summary(), line);
       };
     });
+    fileHistoryOwners.set(session, handlers);
+    return handlers;
+  };
 
   const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
     const history = reviews.board(session).history;
@@ -1315,6 +1322,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       offContext();
       navigation.detach(session);
       editorSessions.delete(session);
+      fileHistoryOwners.delete(session);
       commentOwners.get(session)?.dispose();
       commentOwners.delete(session);
       pendingReconciliations.delete(session);

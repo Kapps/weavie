@@ -16,6 +16,7 @@ import type { WeavieWindow } from "../harness/weavie-window";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const prReplies = new WeakMap<Page, MessageEnvelope[]>();
+const appliedHistory = new WeakMap<Page, { latest: string | undefined; undoRequests: number }>();
 
 const HELLO =
   "export function greet(name: string): string {\n" +
@@ -46,6 +47,23 @@ async function openPr(page: Page): Promise<void> {
 
 test.describe("durable applied review", () => {
   test.use({
+    preNavigate: {
+      async run(page) {
+        const history = { latest: undefined as string | undefined, undoRequests: 0 };
+        appliedHistory.set(page, history);
+        page.on("websocket", (socket) => {
+          socket.on("framereceived", (frame) => {
+            const raw = decodeTestWebSocketMessage(frame.payload);
+            const message = parseEnvelope(raw);
+            if (message?.feature === "review" && message.name === "history") history.latest = raw;
+          });
+          socket.on("framesent", (frame) => {
+            const message = parseEnvelope(decodeTestWebSocketMessage(frame.payload));
+            if (message?.feature === "review" && message.name === "undo") history.undoRequests++;
+          });
+        });
+      },
+    },
     fakeScript: {
       steps: [
         ...appliedEdit("hello.ts", HELLO),
@@ -157,7 +175,23 @@ test.describe("durable applied review", () => {
       .poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8"))
       .toBe(HELLO.replace("console.warn", "console.log"));
     await expect(page.locator(".weavie-inline-added")).toHaveCount(0);
-    await runCommand(page, "Undo Revert (Review)");
+    await openCommandPalette(page);
+    await page.locator(".tb-omnibar-input").fill(">Undo Revert (Review)");
+    const undo = page.locator(".tb-omnibar-row").filter({
+      has: page.locator(".tb-row-leaf", { hasText: /^Undo Revert \(Review\)$/ }),
+    });
+    await expect(undo).toBeVisible();
+    const history = appliedHistory.get(page)!;
+    const undoRequests = history.undoRequests;
+    if (history.latest === undefined) throw new Error("The host never published review history");
+    // A same-session history refresh must preserve the already-admitted command's owner.
+    await page.evaluate((raw) => {
+      if (window.__weavieReceive === undefined) throw new Error("The bridge receiver is missing");
+      window.__weavieReceive(raw);
+    }, history.latest);
+    await undo.click();
+    await expect(page.locator(".tb-omnibar-dropdown")).toHaveCount(0);
+    await expect.poll(() => history.undoRequests).toBe(undoRequests + 1);
     await expect.poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8")).toBe(HELLO);
     await expect(page.locator(".weavie-inline-added")).toHaveCount(1);
     await page.locator(".weavie-inline-accepted-undo").click();

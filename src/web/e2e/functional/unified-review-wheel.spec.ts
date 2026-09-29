@@ -48,6 +48,7 @@ test("wheel scrolling preserves file order and geometry across retained sections
   await page.locator(".editor-empty-review").click();
   const scroller = page.locator(".unified-review-diffs");
   await expect(scroller).toBeVisible();
+  await expect(page.locator('.unified-review-tree-row.file[aria-selected="true"]')).toHaveCount(0);
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText(
     `${paths.length} files · press ↓ to start`,
   );

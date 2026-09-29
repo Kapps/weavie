@@ -25,6 +25,8 @@ export function createReviewLayout(options: () => Options) {
   const instance = new Virtualizer<HTMLElement, HTMLElement>({ ...defaults, ...untrack(options) });
   const [rows, setRows] = createSignal<readonly Row[]>([]);
   const [totalSize, setTotalSize] = createSignal(0);
+  const [viewportHeight, setViewportHeight] = createSignal<number>();
+  let rectOwner: object | undefined;
   const publish = (): void => {
     const current = instance.getVirtualItems();
     const previous = untrack(rows);
@@ -52,6 +54,24 @@ export function createReviewLayout(options: () => Options) {
         ...defaults,
         ...next,
         getScrollElement: () => element,
+        observeElementRect: (current, callback) => {
+          const owner = {};
+          rectOwner = owner;
+          const off = (next.observeElementRect ?? observeElementRect)(current, (rect) => {
+            if (rectOwner !== owner) return;
+            batch(() => {
+              setViewportHeight(rect.height);
+              callback(rect);
+            });
+          });
+          return () => {
+            if (rectOwner === owner) {
+              rectOwner = undefined;
+              setViewportHeight(undefined);
+            }
+            off?.();
+          };
+        },
         onChange: (current, sync) =>
           untrack(() => {
             current._willUpdate();
@@ -63,5 +83,5 @@ export function createReviewLayout(options: () => Options) {
       publish();
     });
   });
-  return { instance, rows, totalSize };
+  return { instance, rows, totalSize, viewportHeight };
 }

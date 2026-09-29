@@ -57,6 +57,10 @@ focusable while diff geometry is pending, but hunk navigation waits for current 
 Availability notifications settle navigation and refresh controls; they do not persist a new reading
 location. Scroll, cursor, horizontal-position, and tab-lifecycle changes own location persistence.
 
+The active file is the selected file or the first file intersecting the cached viewport, not an
+offscreen first file. Only the current rect observer can publish viewport geometry. Explicit
+navigation anchors preceding measurements until user takeover or absolute scroll restoration.
+
 Tab presenter ownership is observable independently of saved reading state. Mounting, replacing, or
 retiring a presenter refreshes its consumers; capturing scroll state does not. Ordinary-file history
 commands belong to the exact client session, not a rendering pass or history update. They read current
@@ -65,7 +69,7 @@ same-session history refresh without granting a late response access to a replac
 
 Loading lifetime and permission to take focus are separate. The app owns an interaction epoch, advanced
 by pointer, key, wheel, selected-session changes, and explicit foreground navigation. A delayed action
-retains its initiating permission; programmatic focus return and ambient recovery cannot renew it.
+retains its initiating permission; programmatic focus return and ambient recovery cannot replace it.
 Newer input revokes focus without cancelling an already-selected file's model loading or placement.
 An Undo/Redo response cannot initiate a reveal after that permission is revoked. Background-session
 events mutate only their own state and cannot revoke foreground focus.

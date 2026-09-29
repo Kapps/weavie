@@ -48,7 +48,8 @@ export function createReviewSurface(surface: {
   getScrollTop(): number;
   setScrollTop(top: number): void;
   files(): ReviewFileView[];
-  currentIndex(): number;
+  /** The active file's index: the selected file, else the first on screen, else undefined. */
+  currentIndex(): number | undefined;
   select(index: number, path: string, line: number): void;
   expand(file: ReviewFileView): void;
   scrollToIndex(index: number): void;
@@ -134,8 +135,12 @@ export function createReviewSurface(surface: {
       changedWhileApplying = false;
     }
   };
+  const currentFile = (): ReviewFileView | undefined => {
+    const index = surface.currentIndex();
+    return index === undefined ? undefined : surface.files()[index];
+  };
   const activeSection = (): ReviewSection | undefined => {
-    const file = surface.files()[surface.currentIndex()];
+    const file = currentFile();
     return file && sections.get(normalizePath(file.summary().path))?.section;
   };
   const request = (
@@ -225,7 +230,7 @@ export function createReviewSurface(surface: {
     report(request(location, lifetime.signal, alignment, focus));
   };
   const captureReviewAdvance = (path: string): ReviewDecisionCompletion => {
-    const current = surface.files()[surface.currentIndex()];
+    const current = currentFile();
     if (current === undefined || normalizePath(current.summary().path) !== normalizePath(path))
       return () => {};
     return (location, focus) => {
@@ -243,7 +248,7 @@ export function createReviewSurface(surface: {
     text: true,
     captureReviewAdvance,
     capture: () => {
-      const file = surface.files()[surface.currentIndex()];
+      const file = currentFile();
       const location =
         activeSection()?.capture() ??
         (file === undefined ? null : { path: file.summary().path, line: file.summary().line });

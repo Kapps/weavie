@@ -41,7 +41,6 @@ function createHistory(session: ClientSession) {
   );
   const feature = session.feature("agent");
   let historyAbort: AbortController | null = null;
-  let historyComplete = false;
   let historyGeneration: number | null = null;
   let historyRevision: number | null = null;
 
@@ -54,7 +53,7 @@ function createHistory(session: ClientSession) {
   }
 
   const startHistory = (): void => {
-    if (historyAbort !== null || historyComplete) {
+    if (historyAbort !== null || model.historyComplete()) {
       return;
     }
     const abort = new AbortController();
@@ -80,7 +79,7 @@ function createHistory(session: ClientSession) {
   const model = models.get(session)!;
 
   const offHello = session.connection.onHello(() => {
-    historyComplete = false;
+    model.setHistoryComplete(false);
     historyAbort?.abort();
     historyAbort = null;
     accumulator.abandonHistory("pane");
@@ -116,7 +115,7 @@ function createHistory(session: ClientSession) {
       if (batch.complete) {
         historyGeneration = batch.generation;
         historyRevision = batch.revision;
-        historyComplete = true;
+        model.setHistoryComplete(true);
         clearNotification(errorKey);
         return;
       }
@@ -172,7 +171,7 @@ function createHistory(session: ClientSession) {
   function resyncPane(): void {
     historyAbort?.abort();
     historyAbort = null;
-    historyComplete = false;
+    model.setHistoryComplete(false);
     historyGeneration = null;
     historyRevision = null;
     appliedDrafts = 0;
@@ -187,7 +186,7 @@ function createHistory(session: ClientSession) {
     reload: () => {
       historyAbort?.abort();
       historyAbort = null;
-      historyComplete = false;
+      model.setHistoryComplete(false);
       accumulator.abandonHistory("pane");
       startHistory();
     },

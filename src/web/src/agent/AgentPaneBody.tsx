@@ -134,6 +134,9 @@ export function AgentPaneBody(props: {
     () => body,
     virtualizer,
     props.model.agentTurnStartIndex,
+    props.model.latestResultIndex,
+    props.model.historyComplete,
+    props.model.keyboardRequestKey,
     turnNavigable,
     props.model.revision,
     saved?.followingLatest ?? true,
@@ -257,7 +260,7 @@ export function AgentPaneBody(props: {
         session={props.model.session}
         turnActive={props.model.turnActive()}
         turnStartedAt={props.model.turnStartedAt()}
-        onSubmitted={scroll.followIfNearBottom}
+        onSubmitted={scroll.jumpToLatest}
       />
     </>
   );

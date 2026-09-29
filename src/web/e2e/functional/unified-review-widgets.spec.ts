@@ -158,12 +158,17 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   const editor = reviewEditor(section);
   await expect(editor.locator(".view-line").first()).toBeVisible();
   await page.getByRole("scrollbar", { name: "Review scroll position" }).press("PageDown");
-  const word = editor
+  const original = await editor
     .locator(".view-line")
     .nth(3)
     .locator("span", { hasText: /^value\d+$/ })
-    .last();
-  const original = await word.textContent();
+    .last()
+    .textContent();
+  // Monaco recycles line elements as the peek opens, so pin the word by its text, not its position.
+  const word = editor
+    .locator(".view-line:not(.peekview-widget .view-line)")
+    .filter({ hasText: `export const ${original} = ` })
+    .locator("span", { hasText: new RegExp(`^${original}$`) });
   await word.click({ modifiers: ["Alt"] });
   const peek = page.locator(".peekview-widget");
   await expect(peek).toBeVisible();

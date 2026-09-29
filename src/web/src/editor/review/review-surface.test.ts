@@ -11,7 +11,12 @@ vi.mock("../../notify/notify", () => ({ notify: vi.fn() }));
 function fixture() {
   const input = new EventTarget();
   const intents = new InteractionIntent(input);
-  const state = { index: 0, active: true, pending: [true, true, true], collapsed: false };
+  const state = {
+    index: 0 as number | undefined,
+    active: true,
+    pending: [true, true, true],
+    collapsed: false,
+  };
   const files: ReviewFileView[] = state.pending.map((_, index) => ({
     summary: () => ({
       path: `/work/${index}.ts`,
@@ -100,6 +105,26 @@ function interaction() {
 }
 
 describe("unified review completion navigation", () => {
+  it("does not treat a retained first file as active while only the tree is visible", () => {
+    const { surface, state, select, focus, intents } = fixture();
+    const { section, ready, navigation } = interaction();
+    state.index = undefined;
+    surface.sections.bind("/work/0.ts", section);
+    expect(surface.capture().text).toBeNull();
+    expect(surface.target()).toEqual({ kind: "none" });
+    surface.focus();
+    expect(focus).toHaveBeenCalledOnce();
+    expect(navigation.focus).not.toHaveBeenCalled();
+    expect(ready.enter).not.toHaveBeenCalled();
+    surface.captureReviewAdvance("/work/0.ts", "keepFile")(
+      { path: "/work/1.ts", line: 10 },
+      intents.begin(),
+      { sourceDeleted: false, sourceHasReview: true },
+    );
+    expect(select).not.toHaveBeenCalled();
+    surface.dispose();
+  });
+
   it("wraps past reviewed files from the decision response, not a snapshot", () => {
     const { surface, state, select, intents } = fixture();
     state.index = 2;

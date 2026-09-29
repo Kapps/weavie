@@ -102,6 +102,7 @@ function fixture(retain: boolean, count: number) {
       dispose,
       replaceElement: () => setElement(element()),
       resizeViewport: (height: number) => rect!({ width: 700, height }),
+      rectCallback: () => rect!,
       move: (value: number) => {
         top = value;
         offset!(value, false);
@@ -199,6 +200,44 @@ describe("review layout publication", () => {
     expect(after.length).toBeLessThan(10);
     f.resizeViewport(500);
     expect(f.layout.rows().length).toBeGreaterThan(after.length);
+  });
+
+  it("publishes viewport resize without replacing retained rows or accepting retired observers", () => {
+    const f = fixture(true, 105);
+    const rows = f.layout.rows();
+    const before = f.state();
+    const range = { ...f.layout.instance.range };
+    f.resizeViewport(100.5);
+    expect(f.layout.viewportHeight()).toBe(100.5);
+    expect(f.layout.instance.range).toEqual(range);
+    expect(f.layout.rows()).toBe(rows);
+    expect(f.state().rowUpdates).toBe(before.rowUpdates);
+    const oldRect = f.rectCallback();
+    f.replaceElement();
+    expect(f.layout.viewportHeight()).toBe(100);
+    oldRect({ width: 700, height: 900 });
+    expect(f.layout.viewportHeight()).toBe(100);
+    expect(f.layout.instance.scrollRect?.height).toBe(100);
+    f.dispose();
+    expect(f.layout.viewportHeight()).toBeUndefined();
+    expect(f.state().rectRemovals).toBe(2);
+  });
+
+  it("anchors preceding measurements until navigation yields to user scrolling", () => {
+    const f = fixture(true, 10);
+    const fileIndex = 3;
+    f.layout.instance.shouldAdjustScrollPositionOnItemSizeChange = (item) =>
+      item.index <= fileIndex;
+    f.layout.instance.scrollToIndex(fileIndex + 1, { align: "start" });
+    f.layout.instance.resizeItem(2, 110.75);
+    expect(f.state().top).toBe(f.layout.rows()[fileIndex + 1]!.start);
+    const top = f.state().top;
+    f.layout.instance.resizeItem(fileIndex + 1, 160);
+    expect(f.state().top).toBe(top);
+    f.layout.instance.shouldAdjustScrollPositionOnItemSizeChange = undefined;
+    f.move(0);
+    f.layout.instance.resizeItem(2, 200);
+    expect(f.state().top).toBe(0);
   });
 
   it("does not subscribe options to imperative notifications and cleans up replaced elements", () => {

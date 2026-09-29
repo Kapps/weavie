@@ -95,7 +95,7 @@ export function projectAgentTranscript(
       ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
       (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
-    if (turnKey !== null) {
+    if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
     }
 

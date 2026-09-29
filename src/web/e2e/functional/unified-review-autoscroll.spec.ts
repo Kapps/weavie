@@ -44,18 +44,19 @@ async function arm(page: Page, target: Locator): Promise<{ x: number; y: number 
   return origin;
 }
 
+// Flake 2026-09-29 03:34 UTC (main, https://github.com/Kapps/weavie/actions/runs/36517057959, shard 5/6):
+// scrollLeft stayed 0. The observed editor came from getEditors() (creation order) while the armed one was the
+// DOM-first editor, so they could differ. The observation now resolves the exact armed DOM node.
 test("middle scrolling crosses files after its starting editor unmounts, without editing text", async ({
   page,
 }) => {
   await openReview(page);
   const editor = page.locator(".unified-review-file .monaco-editor").first();
   const original = await editor.elementHandle();
-  const observation = await page.evaluateHandle(() => {
+  const observation = await page.evaluateHandle((armed) => {
     const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
       .__WEAVIE_MONACO__;
-    const editor = monaco.editor
-      .getEditors()
-      .find((editor) => editor.getDomNode()?.closest(".unified-review-file"))!;
+    const editor = monaco.editor.getEditors().find((editor) => editor.getDomNode() === armed)!;
     editor.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 7 });
     const selection = editor.getSelection();
     const model = editor.getModel()!;
@@ -70,7 +71,7 @@ test("middle scrolling crosses files after its starting editor unmounts, without
       unchangedText: () => model.getValue() === value,
       disposed: () => disposed,
     };
-  });
+  }, original);
   const origin = await arm(page, editor);
   await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
   await page.mouse.move(origin.x + 120, origin.y);

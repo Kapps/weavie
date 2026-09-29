@@ -82,6 +82,9 @@ interface ReviewEntry {
   reviewedAt: string | null;
   view: ReviewFileView | null;
   touch: (() => void) | null;
+  /** True from a local Monaco edit until the next diff push consumes it. Lets setDiff tell "the backend is
+   *  catching up with an edit this session's own buffer already rendered" from "the user hasn't seen this." */
+  outstandingEdit: boolean;
 }
 
 /** Identifies exactly what a file presents for review: its content, its existence, and whether it's pending. */
@@ -119,6 +122,7 @@ export interface ReviewStore {
   setComments(session: ClientSession, comments: ReviewComments): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
+  noteLocalEdit(session: ClientSession, path: string): void;
   reset(session: ClientSession): SessionReviewBoard;
 }
 
@@ -218,6 +222,7 @@ export function createReviewStore(
       reviewedAt: null,
       view: null,
       touch: null,
+      outstandingEdit: false,
     };
     state.entries.set(key, created);
     return created;
@@ -305,9 +310,17 @@ export function createReviewStore(
     // something the user hasn't seen. A file with nothing left pending is reviewed at whatever it now holds.
     const signature = reviewSignature(diff, pending);
     const moved = entry.signature !== signature;
+    const confirmsLocalEdit = entry.outstandingEdit;
+    entry.outstandingEdit = false;
     if (entry.reviewedAt !== null && entry.reviewedAt !== signature) {
-      entry.collapsed = false;
-      entry.reviewedAt = null;
+      if (confirmsLocalEdit) {
+        // This push is the backend catching up with an edit our own buffer already rendered and the user
+        // already saw — not a change to surface, so the fold stands.
+        entry.reviewedAt = signature;
+      } else {
+        entry.collapsed = false;
+        entry.reviewedAt = null;
+      }
     }
     entry.signature = signature;
     // Only the transition into "nothing left pending" folds a file away; a redundant re-push of the same state
@@ -352,6 +365,11 @@ export function createReviewStore(
     save(session, state);
     return state;
   };
+  const noteLocalEdit = (session: ClientSession, path: string): void => {
+    const entry = board(session).entries.get(normalizePath(path));
+    if (entry !== undefined) entry.outstandingEdit = true;
+  };
+
   const reset = (session: ClientSession): SessionReviewBoard => {
     const state = board(session);
     state.entries.clear();
@@ -388,6 +406,7 @@ export function createReviewStore(
     setComments,
     setHistory,
     setFileCollapsed,
+    noteLocalEdit,
     reset,
   };
 }

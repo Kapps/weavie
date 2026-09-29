@@ -13,6 +13,10 @@ const content = Array.from(
 
 test.use({ fakeScript: { steps: paths.flatMap((path) => appliedEdit(path, content)) } });
 
+// Was flaky (~20-27% failure rate): accepting the completion edits the buffer locally, and the file
+// toggle click right after it collapsed the file with a stale `reviewedAt` signature — the backend's
+// confirming diff then landed and wrongly un-collapsed it back out from under the test. Fixed in
+// review-store.ts (`noteLocalEdit`/`outstandingEdit`); see PR #945.
 test("scrolled review completions stay at the caret and belong to their editor", async ({
   page,
 }) => {

@@ -1247,9 +1247,9 @@ export default function App(): JSX.Element {
                 providerId={activeProviderId()}
                 active={focusedKind() === AGENT_PANE_KIND}
                 shortcut={paneShortcut(numberOf(kind))}
-                onFocus={() => {
+                restoreFocus={() => {
                   if (!compact() || mobileSurface() === kind) {
-                    focusPane(kind);
+                    restorePaneFocus(kind);
                   }
                 }}
               />

@@ -2,6 +2,7 @@ import { createComputed, createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { InteractionIntent } from "../chrome/interaction-intent";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import type { EditorSessionEntry } from "./session-types";
 
 interface Posted {
@@ -14,6 +15,7 @@ interface Posted {
 
 interface FakeSession {
   client: ClientSession;
+  filesOpened?: (message: { paths: string[]; originPageEpoch: string }) => void;
   restore?: (session: { active: string | null; open: EditorSessionEntry[] }) => void;
 }
 
@@ -68,6 +70,10 @@ function fakeSession(backendId: string, owner: string): FakeSession {
       },
     },
     feature: (feature: string) => ({
+      on: (_name: string, handler: NonNullable<FakeSession["filesOpened"]>) => {
+        fake.filesOpened = handler;
+        return () => {};
+      },
       publish: (name: string, payload: Record<string, unknown>) => {
         bridgeState.posted.push({ backendId, slot: owner, feature, name, payload });
       },
@@ -400,6 +406,47 @@ it("preserves the tab owner through metadata changes and retires it on close or 
   store.openTab(replacement.entry.path, { kind: "source" });
   expect(store.activeTabFor(session)).not.toBe(replacement);
   expect(replacement.signal.aborted).toBe(true);
+});
+
+it("other pages add membership without replacing this page's preview, location, or pending save", () => {
+  seed([{ path: "/reading", preview: true, viewState: { reading: 12 } }], "/reading", "membership");
+  const session = bridgeState.selected!;
+  const tab = store.activeTabFor(session)!;
+  store.captureViewState(tab, { reading: 37 });
+  const receive = fakeSession("local", "membership").filesOpened!;
+  receive({ paths: ["/reading", "/other"], originPageEpoch: "another-page" });
+  expect(store.activeTabFor(session)).toBe(tab);
+  expect(tab.viewState).toEqual({ reading: 37 });
+  expect(store.openTabsFor(session)).toEqual([
+    { path: "/reading", preview: true },
+    { path: "/other" },
+  ]);
+  vi.runOnlyPendingTimers();
+  expect(
+    bridgeState.posted.find((message) => message.name === "sessionChanged")?.payload,
+  ).toMatchObject({
+    session: {
+      active: "/reading",
+      open: [{ path: "/reading", preview: true, viewState: { reading: 37 } }, { path: "/other" }],
+    },
+  });
+});
+
+it("the origin ignores delayed membership after closing, but a replacement page consumes it", () => {
+  seed([], null, "membership-echo");
+  const session = bridgeState.selected!;
+  store.openTabFor(session, "/closed", {});
+  store.closeTabFor(session, "/closed");
+  const receive = fakeSession("local", "membership-echo").filesOpened!;
+  receive({ paths: ["/closed"], originPageEpoch: PAGE_EPOCH });
+  expect(store.openTabsFor(session)).toEqual([]);
+  store.flushEditorSessionFor(session);
+  bridgeState.posted.length = 0;
+  receive({ paths: ["/closed"], originPageEpoch: "previous-page" });
+  expect(store.openTabsFor(session)).toEqual([{ path: "/closed" }]);
+  expect(store.activePathFor(session)).toBeNull();
+  vi.runOnlyPendingTimers();
+  expect(bridgeState.posted.filter((message) => message.name === "sessionChanged")).toEqual([]);
 });
 
 it("closing a captured batch never adopts tabs opened or reopened during its confirmation", async () => {

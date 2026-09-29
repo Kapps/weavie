@@ -23,7 +23,7 @@ public sealed class ReviewDecisionNavigationTests {
 		string next = Edit("next.txt", "one\nbefore\n", "one\nafter\n");
 		_tracker.KeepFile(kept);
 		Assert.True(_tracker.KeepFile(first, out var navigation));
-		Assert.Equal(new ReviewDecisionNavigation(false, new(next, 2)), navigation);
+		Assert.Equal(new ReviewDecisionNavigation(false, true, new(next, 2)), navigation);
 	}
 
 	[Fact]
@@ -34,9 +34,22 @@ public sealed class ReviewDecisionNavigationTests {
 		_tracker.RecordChange(first);
 		string last = Edit("last.txt", "before\n", "after\n");
 		Assert.True(_tracker.KeepFile(last, out var navigation));
-		Assert.Equal(new ReviewDecisionNavigation(false, new(first, 1)), navigation);
+		Assert.Equal(new ReviewDecisionNavigation(false, true, new(first, 1)), navigation);
 		Assert.True(_tracker.KeepFile(first, out var finished));
 		Assert.Equal(ReviewDecisionNavigation.None, finished);
+	}
+
+	[Fact]
+	public void RevertFile_ReportsTheKeptBandRemainingAfterAnEarlierDecision() {
+		string source = Edit("source.txt", "one\ntwo\n", "kept\npending\n");
+		string next = Edit("next.txt", "before\n", "after\n");
+		Assert.True(_tracker.KeepHunk(source, new(1, 2), new(1, 2), "kept", out var partial));
+		Assert.Equal(new ReviewDecisionNavigation(false, true, null), partial);
+
+		Assert.Equal(RevertHunkOutcome.Reverted, _tracker.RevertFile(source, out var navigation));
+
+		Assert.Equal(new ReviewDecisionNavigation(false, true, new(next, 1)), navigation);
+		Assert.Equal("kept\ntwo\n", _files.ReadAllText(source));
 	}
 
 	[Fact]
@@ -47,7 +60,7 @@ public sealed class ReviewDecisionNavigationTests {
 		_tracker.RecordChange(source);
 		string next = Edit("next.txt", "before\n", "after\n");
 		Assert.Equal(RevertHunkOutcome.Deleted, _tracker.RevertFile(source, out var navigation));
-		Assert.Equal(new ReviewDecisionNavigation(true, new(next, 1)), navigation);
+		Assert.Equal(new ReviewDecisionNavigation(true, false, new(next, 1)), navigation);
 		Assert.False(_files.FileExists(source));
 		Assert.False(_tracker.KeepFile(source, out var unchanged));
 		Assert.Equal(ReviewDecisionNavigation.None, unchanged);
@@ -65,7 +78,7 @@ public sealed class ReviewDecisionNavigationTests {
 		};
 		Assert.Equal(RevertHunkOutcome.Reverted, _tracker.RevertFile(source, out var navigation));
 		Assert.True(observed);
-		Assert.Equal(new ReviewDecisionNavigation(false, new(next, 1)), navigation);
+		Assert.Equal(new ReviewDecisionNavigation(false, false, new(next, 1)), navigation);
 		var turn = _tracker.GetTurn(next)!;
 		Assert.Equal(turn.BaselineText, turn.CurrentText);
 	}

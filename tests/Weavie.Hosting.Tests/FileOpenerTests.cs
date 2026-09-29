@@ -205,4 +205,27 @@ public sealed class FileOpenerTests {
 		Assert.Null(bridge.LastEvent("editor", "openFile"));
 		Assert.NotNull(bridge.LastEvent("notifications", "show")); // refused loudly, not silently ignored
 	}
+
+	[Fact]
+	public async Task ResolvingAmbiguousReference_ReturnsTheChoiceWithoutPresentingIt() {
+		var (opener, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
+		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
+
+		var result = await opener.ResolveAsync("./foo.ts", 12, CancellationToken.None);
+
+		Assert.Equal(new FileReferenceResolution.Ambiguous("foo.ts", 12), result);
+		Assert.Empty(bridge.Posted);
+	}
+
+	[Fact]
+	public async Task ResolvingMissingReference_ReturnsTheFailureWithoutPublishingIt() {
+		var (opener, bridge, _) = New();
+		string path = Path.Combine(Workspace, "missing.ts");
+
+		var result = await opener.ResolveAsync(path, null, CancellationToken.None);
+
+		Assert.Contains("missing.ts", Assert.IsType<FileReferenceResolution.Missing>(result).Message);
+		Assert.Empty(bridge.Posted);
+	}
 }

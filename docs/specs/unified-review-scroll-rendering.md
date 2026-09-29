@@ -75,7 +75,21 @@ lock. Only that response may advance to another file, through its original prese
 permission. Neither snapshot publication nor painting initiates advancement. A deleted source file may
 disappear before its response; only that decision's explicit deletion disposition permits navigation to
 continue through the retired source. Data mutation and projection complete regardless of whether the
-user has moved on.
+user has moved on. The initiating presenter owns advancement policy: ordinary whole-file Keep stays
+on its faded changes, and whole-file Revert stays when the atomic outcome says kept review content
+remains. Last-hunk decisions and unified review can advance to the returned pending location.
+
+File-reference resolution is a side-effect-free request. The exact session's navigation owner accepts
+its result only while the original navigation and interaction remain current; a response cannot grant
+new focus authority. Resolution cancellation never cancels an already-selected file's model load.
+OS-delivered file batches have a separate durable lifetime: newer input cancels activation, not file
+membership. Accepted opens persist through a narrow host-owned delta, independent of the bound-view
+guard on whole editor snapshots. Persistence acknowledgements never navigate.
+
+Other pages receive membership only, preserving their active tab, preview, view state, and focus.
+The originating page epoch excludes its own echo, including if the user closed the tab meanwhile;
+a replacement page consumes the predecessor's event. This retains the existing single-bound-writer,
+last-snapshot persistence policy; it is not a linearizable multi-page topology protocol.
 
 Explicit navigation expands a collapsed file. Restoring a collapsed tab preserves its saved outer
 position without restoring or focusing hidden content. Preparation failures retry only for a new

@@ -147,3 +147,25 @@ test("a held file acquisition completes its placement without taking a newer pal
   );
   await expectPalette(page, ">Go Back");
 });
+
+test("a held same-file reference resolution cannot replace a newer palette", async ({
+  page,
+  weavie,
+}) => {
+  await openFile(page, "hello.ts");
+  await pressDocumentEnd(page);
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBe(7);
+  const reply = replies.get(page)!;
+  reply.hold((message) => message.feature === "files" && message.name === "resolveReference");
+  await openFile(page, "hello.ts");
+  await expect
+    .poll(() => reply.received()?.payload)
+    .toEqual({ kind: "file", path: join(weavie.workspace, "hello.ts"), line: null });
+  await openPalette(page, ">Go Back");
+  const reading = await readingState(page);
+  await reply.release();
+  expect(await readingState(page)).toEqual(reading);
+  await expectPalette(page, ">Go Back");
+});

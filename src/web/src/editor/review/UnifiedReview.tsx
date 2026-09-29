@@ -29,7 +29,7 @@ import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
 import type { ReviewCommentDrafts as DraftStore } from "./review-comment-drafts";
 import { estimatedEditorHeight } from "./review-context";
-import type { ReviewDecisionCompletion } from "./review-decision";
+import type { ReviewDecision, ReviewDecisionCompletion } from "./review-decision";
 import { ReviewDocumentScope } from "./review-document";
 import { createReviewFileOwners } from "./review-file-owners";
 import { reviewHistoryHandlers } from "./review-history-handlers";
@@ -61,7 +61,7 @@ export function UnifiedReview(props: {
     session: ClientSession,
     diff: ReviewFileDiff,
     reveal: (file: ReviewFile, line: number) => void,
-    captureAdvance: () => ReviewDecisionCompletion,
+    captureAdvance: (decision: ReviewDecision) => ReviewDecisionCompletion,
   ) => InlineDiffOptions;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
@@ -114,7 +114,7 @@ export function UnifiedReview(props: {
         props.session,
         value,
         (target, line) => surface.reveal(target.path, line, props.interaction.begin()),
-        () => surface.captureReviewAdvance(value.path),
+        (decision) => surface.captureReviewAdvance(value.path, decision),
       ),
     resolve: (value) => copies.open(value.path, value.current, value.currentExists),
   });

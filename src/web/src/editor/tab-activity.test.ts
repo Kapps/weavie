@@ -48,7 +48,7 @@ function fixture() {
             },
           },
         },
-        feature: () => ({ publish: () => {} }),
+        feature: () => ({ publish: () => {}, on: () => () => {} }),
       } as unknown as ClientSession;
       const teardown = bridge.installer!(client)!;
       onTestFinished(teardown);

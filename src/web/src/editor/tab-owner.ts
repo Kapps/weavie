@@ -2,7 +2,7 @@ import { type Accessor, batch, createSignal, type Setter, untrack } from "solid-
 import type { ClientSession } from "../bridge";
 import type { InlineDiffActions } from "./inline-diff";
 import type { TabViewState } from "./nav-history";
-import type { ReviewDecisionCompletion } from "./review/review-decision";
+import type { ReviewDecision, ReviewDecisionCompletion } from "./review/review-decision";
 import type { Placement } from "./session-store";
 import type { EditorSessionEntry, EditorTab, EditorViewState } from "./session-types";
 
@@ -13,7 +13,7 @@ export interface TabPresenter {
   restore(placement: Placement, signal: AbortSignal): Promise<void>;
   focus(): void;
   actions(): Partial<InlineDiffActions> | undefined;
-  captureReviewAdvance(path: string): ReviewDecisionCompletion;
+  captureReviewAdvance(path: string, decision: ReviewDecision): ReviewDecisionCompletion;
 }
 
 /** An open tab owns its mounted view; reopening a resource creates a new owner. */

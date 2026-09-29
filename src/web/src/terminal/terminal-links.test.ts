@@ -1,6 +1,7 @@
 import type { ILink, Terminal } from "@xterm/xterm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { ownFileNavigation } from "../files/reveal";
 
 const posted = vi.hoisted(() => [] as unknown[]);
 const postedLocal = vi.hoisted(() => [] as unknown[]);
@@ -32,19 +33,15 @@ const { openUrlExternal, wireTerminalLinks } = await import("./terminal-links");
 const owner = {
   connection: { id: "remote-a" },
   address: { slot: "session-a", incarnation: "incarnation-a" },
-  feature: (feature: string) => ({
-    publish: (name: string, payload: Record<string, unknown>) => {
-      routes.push({
-        scope: "session",
-        backendId: "remote-a",
-        slot: "session-a",
-        feature,
-        name,
-      });
-      posted.push({ type: "reveal-file", ...payload });
-    },
-  }),
 } as unknown as ClientSession;
+ownFileNavigation(owner, {
+  reveal: async (path, line, preview) => {
+    posted.push({ type: "reveal-file", path, line, preview });
+  },
+  openFiles: async () => {
+    throw new Error("Terminal links never open batches");
+  },
+});
 
 // A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
 // continuation of the row above), so the provider's logical-line reconstruction can be exercised. `provide`
@@ -103,7 +100,7 @@ beforeEach(() => {
 });
 
 describe("auto-link provider", () => {
-  it("links a bare file:line and posts reveal-file with the parsed line", () => {
+  it("links a bare file:line through its session's reveal owner", () => {
     const { provide } = oneLine("see src/foo.ts:42 for details");
     const links = provide();
     expect(links).toHaveLength(1);
@@ -115,13 +112,7 @@ describe("auto-link provider", () => {
       line: 42,
       preview: false,
     });
-    expect(routes).toContainEqual({
-      scope: "session",
-      backendId: "remote-a",
-      slot: "session-a",
-      feature: "files",
-      name: "reveal",
-    });
+    expect(routes).toEqual([]);
   });
 
   it("keeps a Windows drive colon in the path, splitting only the trailing :line", () => {
@@ -212,7 +203,7 @@ describe("auto-link provider", () => {
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/src/terminal/terminal-links.ts",
-      line: null,
+      line: undefined,
       preview: false,
     });
   });
@@ -252,7 +243,7 @@ describe("auto-link provider", () => {
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/e2e/.recordings/clip.webm",
-      line: null,
+      line: undefined,
       preview: false,
     });
   });

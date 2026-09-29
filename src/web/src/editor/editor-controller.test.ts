@@ -1,6 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { InteractionIntent } from "../chrome/interaction-intent";
+import { omnibarRequest } from "../chrome/omnibar-controller";
+import { type FileReferenceResolution, openFilesIn, revealFileIn } from "../files/reveal";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import type { EditorControllerDeps } from "./editor-controller";
 
 const env = vi.hoisted(() => ({
@@ -49,6 +52,7 @@ interface FakeFeature {
   handlers: Map<string, Array<(message: unknown) => void>>;
   requests: Map<string, (message: unknown) => unknown>;
   published: Array<{ name: string; payload: unknown }>;
+  requested: Array<{ name: string; payload: unknown }>;
   emit(name: string, message: unknown): void;
   handle(name: string, handler: (message: unknown) => unknown): () => void;
   on(name: string, handler: (message: unknown) => void): () => void;
@@ -65,10 +69,12 @@ function fakeSession(slot: string): ClientSession {
     }
     const handlers = new Map<string, Array<(message: unknown) => void>>();
     const requests = new Map<string, (message: unknown) => unknown>();
+    if (name === "editor") requests.set("commitFileOpens", () => true);
     current = {
       handlers,
       requests,
       published: [],
+      requested: [],
       emit(event, message) {
         for (const handler of handlers.get(event) ?? []) {
           handler(message);
@@ -90,6 +96,7 @@ function fakeSession(slot: string): ClientSession {
         current?.published.push({ name: event, payload });
       },
       request: async (event, payload) => {
+        current?.requested.push({ name: event, payload });
         const handler = requests.get(event);
         if (handler === undefined) throw new Error(`No test responder for ${event}`);
         return handler(payload);
@@ -219,6 +226,219 @@ it("background session open and close notifications cannot revoke foreground foc
   controller.dispose();
 });
 
+it.each<FileReferenceResolution>([
+  { kind: "file", path: "/work/resolved.ts", line: 9 },
+  { kind: "ambiguous", query: "resolved.ts", line: 9 },
+])("a stale file-reference result cannot initiate presentation: $kind", async (result) => {
+  const session = fakeSession(`resolution-${result.kind}`);
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  const response = Promise.withResolvers<FileReferenceResolution>();
+  (session.feature("files") as unknown as FakeFeature).requests.set(
+    "resolveReference",
+    () => response.promise,
+  );
+  const priorPalette = omnibarRequest();
+  const completion = revealFileIn(session, "resolved.ts", 9, true);
+  deps.interaction.invalidate();
+  response.resolve(result);
+  await completion;
+  expect(openTabsFor(session)).toHaveLength(0);
+  expect(omnibarRequest()).toBe(priorPalette);
+  expect((session.feature("editor") as unknown as FakeFeature).published).toHaveLength(0);
+  controller.dispose();
+});
+
+it("only the newest file resolver commits and immediately persists the owned tab", async () => {
+  const session = fakeSession("resolutions-out-of-order");
+  env.selected = session;
+  const controller = createEditorController(dependencies(async () => true));
+  for (const install of env.installers) install(session);
+  const older = Promise.withResolvers<FileReferenceResolution>();
+  const newer = Promise.withResolvers<FileReferenceResolution>();
+  (session.feature("files") as unknown as FakeFeature).requests.set(
+    "resolveReference",
+    (request) =>
+      (request as { path: string }).path === "older.ts" ? older.promise : newer.promise,
+  );
+  const first = revealFileIn(session, "older.ts", undefined, false);
+  const second = revealFileIn(session, "newer.ts", 7, true);
+  newer.resolve({ kind: "file", path: "/work/newer.ts", line: 7 });
+  await second;
+  older.resolve({ kind: "file", path: "/work/older.ts", line: null });
+  await first;
+  expect(activePathFor(session)).toBe("/work/newer.ts");
+  expect(openTabsFor(session).map((tab) => tab.path)).toEqual(["/work/newer.ts"]);
+  expect((session.feature("editor") as unknown as FakeFeature).requested.at(-1)).toMatchObject({
+    name: "commitFileOpens",
+    payload: {
+      activePath: "/work/newer.ts",
+      files: [{ path: "/work/newer.ts", preview: true }],
+    },
+  });
+  controller.dispose();
+});
+
+it("cancelling an unresolved destination cannot strand the selected file's ongoing load", async () => {
+  const session = fakeSession("loading-before-resolution");
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  controller.openFile("/work/loading.ts", 7);
+  const load = Promise.withResolvers<void>();
+  const restore = vi.fn((_placement: unknown, _signal: AbortSignal) => load.promise);
+  const focus = vi.fn();
+  tabOwnerFor(session, "/work/loading.ts")!.mount({
+    text: true,
+    capture: () => ({ state: null, text: null }),
+    restore,
+    focus,
+    actions: () => undefined,
+    captureReviewAdvance: () => () => {},
+  });
+  await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce());
+  const response = Promise.withResolvers<FileReferenceResolution>();
+  (session.feature("files") as unknown as FakeFeature).requests.set(
+    "resolveReference",
+    () => response.promise,
+  );
+  const completion = revealFileIn(session, "later.ts", undefined, false);
+  deps.interaction.invalidate();
+  response.resolve({ kind: "file", path: "/work/later.ts", line: null });
+  await completion;
+  expect(restore.mock.calls[0]![1].aborted).toBe(false);
+  expect(activePathFor(session)).toBe("/work/loading.ts");
+  expect(openTabsFor(session)).toHaveLength(1);
+  load.resolve();
+  await load.promise;
+  expect(focus).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+it("background file resolution persists to its owner without revoking foreground intent", async () => {
+  const foreground = fakeSession("foreground-resolver");
+  const background = fakeSession("background-resolver");
+  env.selected = foreground;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) {
+    install(foreground);
+    install(background);
+  }
+  (background.feature("files") as unknown as FakeFeature).requests.set("resolveReference", () => ({
+    kind: "file",
+    path: "/background.ts",
+    line: null,
+  }));
+  const focus = deps.interaction.begin();
+  await revealFileIn(background, "/background.ts", undefined, false);
+  expect(activePathFor(background)).toBe("/background.ts");
+  expect(activePathFor(foreground)).toBeNull();
+  expect(focus.current()).toBe(true);
+  expect((background.feature("editor") as unknown as FakeFeature).requested).toContainEqual({
+    name: "commitFileOpens",
+    payload: {
+      files: [{ path: "/background.ts", preview: false }],
+      activePath: "/background.ts",
+      originPageEpoch: PAGE_EPOCH,
+    },
+  });
+  controller.dispose();
+});
+
+it("late OS batches preserve every file without replacing newer navigation or focus", async () => {
+  const session = fakeSession("durable-batches");
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  const held = Promise.withResolvers<FileReferenceResolution>();
+  (session.feature("files") as unknown as FakeFeature).requests.set(
+    "resolveReference",
+    (message) => {
+      const { path } = message as { path: string };
+      return path === "one.ts" ? held.promise : { kind: "file", path: `/work/${path}`, line: null };
+    },
+  );
+  const first = openFilesIn(session, ["one.ts", "two.ts"]);
+  await openFilesIn(session, ["three.ts"]);
+  controller.openFile("/work/reading.ts", undefined);
+  const focus = deps.interaction.begin();
+  held.resolve({ kind: "file", path: "/work/one.ts", line: null });
+  await first;
+  expect(openTabsFor(session).map((tab) => tab.path)).toEqual([
+    "/work/three.ts",
+    "/work/reading.ts",
+    "/work/one.ts",
+    "/work/two.ts",
+  ]);
+  expect(activePathFor(session)).toBe("/work/reading.ts");
+  expect(focus.current()).toBe(true);
+  expect((session.feature("editor") as unknown as FakeFeature).requested.at(-1)).toEqual({
+    name: "commitFileOpens",
+    payload: {
+      files: [
+        { path: "/work/one.ts", preview: false },
+        { path: "/work/two.ts", preview: false },
+      ],
+      activePath: null,
+      originPageEpoch: PAGE_EPOCH,
+    },
+  });
+  controller.dispose();
+});
+
+it("file-open persistence failures stay visible after the accepted navigation departs", async () => {
+  const session = fakeSession("commit-failure");
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  deps.onOpenError = vi.fn();
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  (session.feature("files") as unknown as FakeFeature).requests.set("resolveReference", () => ({
+    kind: "file",
+    path: "/work/file.ts",
+    line: null,
+  }));
+  (session.feature("editor") as unknown as FakeFeature).requests.set("commitFileOpens", () => {
+    throw new Error("Persistence unavailable");
+  });
+  await revealFileIn(session, "file.ts", undefined, false);
+  expect(deps.onOpenError).toHaveBeenCalledWith(expect.stringContaining("Persistence unavailable"));
+  controller.dispose();
+});
+
+it("a batch keeps its valid files and shows ambiguity without activating over the picker", async () => {
+  const session = fakeSession("mixed-batch");
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  deps.onOpenError = vi.fn();
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  controller.openFile("/work/reading.ts", undefined);
+  (session.feature("files") as unknown as FakeFeature).requests.set(
+    "resolveReference",
+    (message) => {
+      const { path } = message as { path: string };
+      if (path === "missing") return { kind: "missing", message: "File is missing" };
+      if (path === "ambiguous") return { kind: "ambiguous", query: "config.ts", line: 3 };
+      return { kind: "file", path: "/work/valid.ts", line: null };
+    },
+  );
+  await openFilesIn(session, ["valid", "missing", "ambiguous"]);
+  expect(openTabsFor(session).map((tab) => tab.path)).toEqual([
+    "/work/reading.ts",
+    "/work/valid.ts",
+  ]);
+  expect(activePathFor(session)).toBe("/work/reading.ts");
+  expect(omnibarRequest()).toMatchObject({ mode: "file", query: "config.ts", line: 3 });
+  expect(deps.onOpenError).toHaveBeenCalledExactlyOnceWith("File is missing");
+  controller.dispose();
+});
+
 it.each([
   false,
   true,
@@ -244,12 +464,46 @@ it.each([
   openTabFor(session, "/source.ts", {});
   const tab = tabOwnerFor(session, "/source.ts")!;
   tab.mount(controller.filePresenter(tab, () => undefined));
-  const complete = tab.presentation!.captureReviewAdvance("/source.ts");
+  const complete = tab.presentation!.captureReviewAdvance("/source.ts", "revertFile");
   const focus = deps.interaction.begin();
   closeTabFor(session, "/source.ts");
   expect(activePathFor(session)).toBe("/neighbor.ts");
-  complete({ path: "/next.ts", line: 1 }, focus, sourceDeleted);
+  complete({ path: "/next.ts", line: 1 }, focus, { sourceDeleted, sourceHasReview: false });
   expect(activePathFor(session)).toBe(sourceDeleted ? "/next.ts" : "/neighbor.ts");
+  controller.dispose();
+});
+
+it.each([
+  ["keepFile", true, false],
+  ["keepHunk", true, true],
+  ["revertFile", true, false],
+  ["revertFile", false, true],
+] as const)("the ordinary presenter owns advancement for %s with remaining review=%s", (decision, sourceHasReview, advance) => {
+  const session = fakeSession(`ordinary-${decision}`);
+  env.selected = session;
+  const deps = dependencies(async () => true);
+  const controller = createEditorController(deps);
+  for (const install of env.installers) install(session);
+  (session.feature("review") as unknown as FakeFeature).emit("changes", {
+    label: "Review",
+    files: ["/source.ts", "/next.ts"].map((path) => ({
+      path,
+      name: path,
+      line: 1,
+      added: 1,
+      removed: 0,
+      currentExists: true,
+    })),
+  });
+  openTabFor(session, "/source.ts", {});
+  const tab = tabOwnerFor(session, "/source.ts")!;
+  tab.mount(controller.filePresenter(tab, () => undefined));
+  const complete = tab.presentation!.captureReviewAdvance("/source.ts", decision);
+  complete({ path: "/next.ts", line: 1 }, deps.interaction.begin(), {
+    sourceDeleted: false,
+    sourceHasReview,
+  });
+  expect(activePathFor(session)).toBe(advance ? "/next.ts" : "/source.ts");
   controller.dispose();
 });
 
@@ -289,13 +543,18 @@ it("routes a path-addressed Keep file completion through the selected review pre
   });
   const response = Promise.withResolvers<{
     sourceDeleted: boolean;
+    sourceHasReview: boolean;
     next: { path: string; line: number };
   }>();
   review.requests.set("keepFile", () => response.promise);
   expect(controller.review.keepFile(session, path)).toBe(true);
-  expect(captureReviewAdvance).toHaveBeenCalledExactlyOnceWith(path);
+  expect(captureReviewAdvance).toHaveBeenCalledExactlyOnceWith(path, "keepFile");
   expect(complete).not.toHaveBeenCalled();
-  response.resolve({ sourceDeleted: false, next: { path: "/work/next.ts", line: 1 } });
+  response.resolve({
+    sourceDeleted: false,
+    sourceHasReview: true,
+    next: { path: "/work/next.ts", line: 1 },
+  });
   await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
   controller.dispose();
 });

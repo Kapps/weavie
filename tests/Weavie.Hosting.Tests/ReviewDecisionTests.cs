@@ -55,7 +55,7 @@ public sealed class ReviewDecisionTests {
 			guardText,
 		});
 
-		Assert.Equal(ReviewDecisionNavigation.None, result);
+		Assert.Equal(new ReviewDecisionNavigation(false, applied, null), result);
 		if (!applied) Assert.Equal("new\nhello\nworld\n", File.ReadAllText(path));
 	}
 

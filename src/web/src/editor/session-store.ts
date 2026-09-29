@@ -1,5 +1,6 @@
 import { createSignal, untrack } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { samePath } from "./fs-path";
 import type { EditorSession, EditorTab, EditorViewState, ReviewResume } from "./session-types";
 import { isFileTab, matchesTab, tabKind, tabResourceKey } from "./tab-entry";
@@ -87,6 +88,15 @@ class OwnedEditorSession {
     return this.pendingLines.get(path);
   }
 
+  receiveFiles(paths: string[]): void {
+    const current = this.readState() ?? { active: null, open: [] };
+    const open = [...current.open];
+    for (const path of paths) {
+      if (!open.some((entry) => matchesTab(entry, path))) open.push({ path });
+    }
+    if (open.length !== current.open.length) this.update({ ...current, open });
+  }
+
   restore(session: EditorSession): void {
     this.cancelPending();
     const next = {
@@ -107,6 +117,7 @@ class OwnedEditorSession {
       line?: number;
       column?: number;
       focus?: boolean;
+      activate?: boolean;
       preview?: boolean;
       scratch?: boolean;
       kind?: "file" | "web" | "source" | "plan" | "review";
@@ -129,7 +140,7 @@ class OwnedEditorSession {
         existing.preview && !preview
           ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
           : current.open;
-      this.commit({ active: existing.path, open });
+      this.commit({ active: opts.activate === false ? current.active : existing.path, open });
       // A requested line always reveals — including line 1, a created file's whole diff. Only a positionless
       // open (file tree, recents, Go-to-File) restores where the user last was in the tab.
       return {
@@ -151,7 +162,7 @@ class OwnedEditorSession {
       replaced === -1
         ? normalize([...current.open, entry])
         : current.open.map((previous, index) => (index === replaced ? entry : previous));
-    this.commit({ active: path, open });
+    this.commit({ active: opts.activate === false ? current.active : path, open });
     return { path, placement };
   }
 
@@ -340,11 +351,15 @@ class OwnedEditorSession {
   }
 
   private commit(next: EditorTopology): void {
+    this.update(next);
+    this.schedulePost();
+  }
+
+  private update(next: EditorTopology): void {
     next = { review: this.readState()?.review ?? null, ...next };
     const structureChanged = structureKey(next) !== this.lastStructure;
     this.reconcileTabs(next);
     this.writeState(next);
-    this.schedulePost();
     if (structureChanged) {
       this.emitOpenEditors(next);
       this.notifyStructure();
@@ -419,8 +434,17 @@ registerSessionFeature((owner) => {
       state.restore(session);
     }
   });
+  const offFiles = owner
+    .feature("editor")
+    .on<{ paths: string[]; originPageEpoch: string }>(
+      "filesOpened",
+      ({ paths, originPageEpoch }) => {
+        if (originPageEpoch !== PAGE_EPOCH) state.receiveFiles(paths);
+      },
+    );
   return () => {
     off();
+    offFiles();
     state.closeState();
     states.delete(owner);
   };
@@ -505,14 +529,7 @@ export function flushEditorSessionFor(owner: ClientSession): void {
 
 export function openTab(
   path: string,
-  opts: {
-    line?: number;
-    column?: number;
-    focus?: boolean;
-    preview?: boolean;
-    scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review";
-  } = {},
+  opts: Parameters<OwnedEditorSession["openTab"]>[1] = {},
 ): ActivateResult {
   return (
     selectedState()?.openTab(path, opts) ?? {
@@ -525,14 +542,7 @@ export function openTab(
 export function openTabFor(
   owner: ClientSession,
   path: string,
-  opts: {
-    line?: number;
-    column?: number;
-    focus?: boolean;
-    preview?: boolean;
-    scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review";
-  } = {},
+  opts: Parameters<OwnedEditorSession["openTab"]>[1] = {},
 ): ActivateResult {
   return (
     stateFor(owner)?.openTab(path, opts) ?? {

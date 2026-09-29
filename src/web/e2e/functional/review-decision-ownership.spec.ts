@@ -36,7 +36,7 @@ async function observeNextEntry(page: Page) {
   return page.evaluateHandle((name) => {
     const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
       .__WEAVIE_MONACO__;
-    const state = { binds: 0, focuses: 0 };
+    const state = { binds: 0, focusEdges: 0 };
     const subscriptions: import("monaco-editor").IDisposable[] = [];
     const isNext = (editor: import("monaco-editor").editor.ICodeEditor): boolean =>
       editor.getModel()?.uri.path.endsWith(`/${name}`) === true;
@@ -46,7 +46,7 @@ async function observeNextEntry(page: Page) {
           if (isNext(editor)) state.binds++;
         }),
         editor.onDidFocusEditorText(() => {
-          if (isNext(editor)) state.focuses++;
+          if (isNext(editor)) state.focusEdges++;
         }),
       );
     };
@@ -105,6 +105,7 @@ for (const surface of ["file", "unified review"] as const) {
             .poll(() => reply.received()?.payload)
             .toEqual({
               sourceDeleted: action === "revert",
+              sourceHasReview: action === "keep",
               next: { path: join(weavie.workspace, next), line: 1 },
             });
 
@@ -163,7 +164,7 @@ for (const surface of ["file", "unified review"] as const) {
           }
           expect(await entered.evaluate((counter) => counter.state())).toEqual({
             binds: 0,
-            focuses: 0,
+            focusEdges: 0,
           });
 
           if (newerPalette) {
@@ -178,7 +179,7 @@ for (const surface of ["file", "unified review"] as const) {
             await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
             expect(await entered.evaluate((counter) => counter.state())).toEqual({
               binds: 0,
-              focuses: 0,
+              focusEdges: 0,
             });
           } else {
             await expect(page.locator(".weavie-inline-stack-name")).toHaveText(next);
@@ -196,9 +197,11 @@ for (const surface of ["file", "unified review"] as const) {
                 reviewEditor(section(page, next)).getByRole("textbox", { name: "Editor content" }),
               ).toBeFocused();
             }
-            await expect
-              .poll(() => entered.evaluate((counter) => counter.state()))
-              .toEqual({ binds: 1, focuses: 1 });
+            await expect.poll(() => entered.evaluate((counter) => counter.state().binds)).toBe(1);
+            // Changing the model of a focused widget does not emit another focus edge.
+            expect(
+              await entered.evaluate((counter) => counter.state().focusEdges),
+            ).toBeLessThanOrEqual(1);
           }
           expect(await readFile(join(weavie.workspace, next), "utf8")).toBe(contents[next]);
         } finally {
@@ -231,8 +234,9 @@ test.describe("unloaded completed review files", () => {
     await runCommand(page, "Keep File (Review)");
     await expect(page.locator(".editor")).toHaveAttribute(
       "data-active-file",
-      join(weavie.workspace, next),
+      join(weavie.workspace, middle),
     );
+    await expect(page.locator(".weavie-inline-accepted-undo")).toHaveCount(1);
     await openFile(page, source);
     await page.reload();
     await expect(page.locator("#splash")).toHaveCount(0);
@@ -245,12 +249,14 @@ test.describe("unloaded completed review files", () => {
       }, middle);
     expect(await middleLoaded()).toBe(false);
     const reply = replies.get(page)!;
-    reply.hold((message) => message.feature === "review" && message.name === "keepFile");
-    await runCommand(page, "Keep File (Review)");
+    reply.hold((message) => message.feature === "review" && message.name === "keepHunk");
+    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(1);
+    await page.locator(".weavie-inline-pending-keep").click();
     await expect
       .poll(() => reply.received()?.payload)
       .toEqual({
         sourceDeleted: false,
+        sourceHasReview: true,
         next: { path: join(weavie.workspace, next), line: 1 },
       });
     await expect(page.locator(".weavie-inline-accepted-undo")).toHaveCount(1);

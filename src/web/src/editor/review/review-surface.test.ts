@@ -104,14 +104,17 @@ describe("unified review completion navigation", () => {
     const { surface, state, select, intents } = fixture();
     state.index = 2;
     state.pending[0] = false;
-    const complete = surface.captureReviewAdvance("/work/2.ts");
+    const complete = surface.captureReviewAdvance("/work/2.ts", "keepFile");
     const focus = intents.begin();
     surface.refresh();
     state.pending[2] = false;
     surface.refresh();
     surface.refresh();
     expect(select).not.toHaveBeenCalled();
-    complete({ path: "/work/1.ts", line: 10 }, focus, false);
+    complete({ path: "/work/1.ts", line: 10 }, focus, {
+      sourceDeleted: false,
+      sourceHasReview: true,
+    });
     expect(select).toHaveBeenCalledExactlyOnceWith(1, "/work/1.ts", 10);
     surface.dispose();
   });
@@ -121,11 +124,14 @@ describe("unified review completion navigation", () => {
     "projection first",
   ])("advances after its source is removed (%s)", (order) => {
     const { surface, state, select, files, intents } = fixture();
-    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const complete = surface.captureReviewAdvance("/work/0.ts", "keepFile");
     const focus = intents.begin();
     if (order === "projection first") files.shift();
     state.pending[0] = false;
-    complete({ path: "/work/1.ts", line: 10 }, focus, true);
+    complete({ path: "/work/1.ts", line: 10 }, focus, {
+      sourceDeleted: true,
+      sourceHasReview: false,
+    });
     expect(select).toHaveBeenCalledExactlyOnceWith(
       order === "projection first" ? 0 : 1,
       "/work/1.ts",
@@ -136,12 +142,15 @@ describe("unified review completion navigation", () => {
 
   it("finishes background data changes without reclaiming newer interaction", () => {
     const { surface, state, select, input, intents } = fixture();
-    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const complete = surface.captureReviewAdvance("/work/0.ts", "keepFile");
     const focus = intents.begin();
     input.dispatchEvent(new Event("keydown"));
     state.pending[0] = false;
     surface.refresh();
-    complete({ path: "/work/1.ts", line: 10 }, focus, false);
+    complete({ path: "/work/1.ts", line: 10 }, focus, {
+      sourceDeleted: false,
+      sourceHasReview: true,
+    });
     expect(select).not.toHaveBeenCalled();
     surface.dispose();
   });
@@ -160,13 +169,16 @@ describe("unified review completion navigation", () => {
 
   it("does not replay a completion that arrived while another session or tab was active", () => {
     const { surface, state, select, intents } = fixture();
-    const complete = surface.captureReviewAdvance("/work/0.ts");
+    const complete = surface.captureReviewAdvance("/work/0.ts", "keepFile");
     const focus = intents.begin();
     surface.refresh();
     state.active = false;
     state.pending[0] = false;
     surface.refresh();
-    complete({ path: "/work/1.ts", line: 10 }, focus, false);
+    complete({ path: "/work/1.ts", line: 10 }, focus, {
+      sourceDeleted: false,
+      sourceHasReview: true,
+    });
     state.active = true;
     surface.refresh();
     expect(select).not.toHaveBeenCalled();

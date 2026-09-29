@@ -7,7 +7,7 @@ import {
   sessionForSlot,
 } from "../bridge";
 import { chooseOpenSlot } from "./open-target";
-import { revealFileIn } from "./reveal";
+import { openFilesIn } from "./reveal";
 
 // A path the OS handed a host — an "Open With", or `weavie <path>`. The host forwards it rather than opening
 // it itself, because the session the user is looking at may belong to a different backend than the one the
@@ -34,15 +34,19 @@ function flush(): void {
   if (selectedSession() === null) {
     return;
   }
+  const batches = new Map<ClientSession, string[]>();
   for (const open of pending.splice(0)) {
     const session = target(open);
     if (session === undefined) {
       continue;
     }
-    // Selected first: the editor only activates a tab for the session in front, so an unselected target
-    // would open the file where the user cannot see it.
+    const paths = batches.get(session) ?? [];
+    paths.push(open.path);
+    batches.set(session, paths);
+  }
+  for (const [session, paths] of batches) {
     selectClientSession(session);
-    revealFileIn(session, open.path, undefined, false);
+    void openFilesIn(session, paths);
   }
 }
 

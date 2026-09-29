@@ -98,17 +98,14 @@ public sealed partial class HostSession {
 			DirectoryWatches(peer).Reset(message.PageEpoch);
 			return Task.CompletedTask;
 		});
-		files.Handle<RevealFileMessage>(
-			"reveal",
-			(message, ct) => FileOpener.OpenAsync(
-				message.Path,
-				message.Line,
-				message.Preview,
-				scratch: false,
-				EditorOpenIntent.Navigation,
-				ct));
+		files.Handle<ResolveFileReferenceMessage, FileReferenceResolution>(
+			"resolveReference",
+			(message, ct) => FileOpener.ResolveAsync(message.Path, message.Line, ct));
 
 		var editor = Bus.Feature("editor");
+		editor.Handle<CommitFileOpensMessage, bool>(
+			"commitFileOpens",
+			(message, _) => Task.FromResult(CommitFileOpens(message)));
 		editor.HandleOwned<JsonElement>(
 			"activeChanged",
 			View.IsBound,
@@ -318,7 +315,7 @@ public sealed partial class HostSession {
 
 	private sealed record FileWriteMessage(string Path, string Content);
 
-	private sealed record RevealFileMessage(string Path, int? Line, bool Preview);
+	private sealed record ResolveFileReferenceMessage(string Path, int? Line);
 
 	private sealed record DiffResolutionMessage(string Id, bool Kept, string? FinalContents);
 

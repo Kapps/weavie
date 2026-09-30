@@ -109,6 +109,25 @@ The frame-time effect of this third fix is **not measured on the native build**:
 callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.
 The numbers in the table above therefore cover the first two fixes only.
 
+### Deferring a section's measurement is not viable — three attempts, three failures
+
+The insertion-path read is `measureElement`'s uncached branch, and headless attribution pins it exactly: of 10
+app-code geometry reads taken on the 10 boundary frames of a twelve-file scroll, **6 come from `measureElement`** —
+the same count as the 6 insertions among the 9 remaining native stalls, derived independently.
+
+Deferring that first measurement to a still frame removes the read (boundary-frame `measureElement` reads drop to 0)
+and **breaks navigation**: `unified-review-history.spec.ts:118` (all three of keyboard, palette and context-menu
+definition navigation restoring the review departure), `unified-review-history.spec.ts:176` (same-file definition),
+and `unified-review-wheel.spec.ts:39` (file order and geometry as editors remount). Reverted.
+
+That is the third deferral to fail the same way, after deferring the mount itself and after retaining departing
+sections. The invariant behind all three: **the review's navigation needs a section's measured size promptly at
+mount** — restoring a departure resolves an offset that depends on real sizes, and an estimate puts it in the wrong
+place. So this read cannot be postponed; it has to be obtained *without* forcing a layout, for instance from the
+ResizeObserver entry TanStack already receives (`borderBoxSize`, delivered post-layout), or made cheap by reserving
+a height close enough that the correction is trivial. Note also that a read inside a ResizeObserver callback is
+already unforced, so not every read the counter sees is costing a layout.
+
 So p50 4 ms clears 240 fps at the median and every frame over 40 ms is gone, but **p99 29 ms does not meet the
 under-10 ms goal**: 29 of 1206 frames still exceed 16 ms, and p99 under 10 ms allows at most 11 over 10 ms. The
 remaining forced reads are on the *insertion* path — `measureElement`'s uncached branch and `resizeItem`, both

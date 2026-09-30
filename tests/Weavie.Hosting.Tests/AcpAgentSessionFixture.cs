@@ -330,7 +330,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new CommandDispatcher(commandRegistry),
 			keybindings,
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
-			static () => "test-session");
+			static () => "test-session",
+			AgentConsultation.None);
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;

@@ -58,6 +58,10 @@ load it only when you need it.
   cost semantics. Strict typed JSON, one attempt, feature-owned failure handling. First consumer:
   convention-aware branch naming, which leaves the field blank for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
+- **Agent consultation** — any embedded agent can consult another configured agent by name ("check with
+  Astra") through the registry tools `listAgents`/`consultAgent`: a Core-owned model catalog (refreshed at
+  startup, on provider changes, and from live sessions — never on a timer) resolves the name, and one transient,
+  read-only ACP turn with no Weavie MCP answers it. See [docs/specs/agent-consultation.md](docs/specs/agent-consultation.md).
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom
   commands launch external ACP agents directly, with no private provider protocol inside Weavie. See
   [docs/concepts/native-acp-agents.md](docs/concepts/native-acp-agents.md).

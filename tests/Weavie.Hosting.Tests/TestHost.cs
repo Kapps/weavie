@@ -603,6 +603,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
 		agentProviders.Register(new FakeStructuredAgentProvider());
+		var agentModels = new AgentModelCatalog(agentProviders);
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
@@ -613,6 +614,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			AgentModels = agentModels,
+			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),
 			Inference = inferenceFor(settings),

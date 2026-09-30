@@ -141,8 +141,11 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
+	/// <summary>Whether an ACP tool kind changes files.</summary>
+	internal static bool MutatesFiles(string? kind) => kind is "edit" or "delete" or "move";
+
 	private static AgentMutation Mutation(AcpToolState tool) {
-		if (tool.Kind is not ("edit" or "delete" or "move")) {
+		if (!MutatesFiles(tool.Kind)) {
 			return new AgentMutation.None();
 		}
 		var paths = (tool.Locations ?? [])

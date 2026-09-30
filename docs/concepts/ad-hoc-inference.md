@@ -49,6 +49,9 @@ salvaged.
 Weavie starts exactly one process per query and never retries, repairs, escalates, or switches models or providers.
 The query deadline is the outer latency bound.
 
+The transient process transport and profile application are shared with
+[agent consultation](../specs/agent-consultation.md), its free-text, read-capable sibling.
+
 ## Provider-native profile
 
 ACP exposes model and reasoning-level selectors — `configOptions` carries the reserved `model` and `thought_level`

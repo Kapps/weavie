@@ -478,7 +478,8 @@ public sealed partial class AgentSessionHostTests {
 			new CommandDispatcher(commandRegistry),
 			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			slot);
+			slot,
+			AgentConsultation.None);
 		var session = new FakeStructuredSession();
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(

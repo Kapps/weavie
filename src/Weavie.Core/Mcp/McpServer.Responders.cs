@@ -4,6 +4,9 @@ namespace Weavie.Core.Mcp;
 
 public sealed partial class McpServer {
 	internal interface IMcpResponder {
+		// Scopes request ids: notifications/cancelled only reaches calls from the same client.
+		object Client { get; }
+
 		Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct);
 
 		Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct);
@@ -12,6 +15,8 @@ public sealed partial class McpServer {
 	}
 
 	private sealed class WebSocketResponder(McpServer server, WebSocket webSocket) : IMcpResponder {
+		public object Client => this;
+
 		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) {
 			if (idRaw is null) {
 				return Task.CompletedTask;
@@ -28,7 +33,9 @@ public sealed partial class McpServer {
 		public Task SendRawAsync(string json, CancellationToken ct) => server.SendRawAsync(webSocket, json, ct);
 	}
 
-	private sealed class HttpResponder : IMcpResponder {
+	private sealed class HttpResponder(string sessionId) : IMcpResponder {
+		public object Client => sessionId;
+
 		public string? ResponseJson { get; private set; }
 
 		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) {

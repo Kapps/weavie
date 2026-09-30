@@ -22,6 +22,12 @@ public sealed partial class HostCore {
 		session.WorkspaceRootVanished += () => _ = Task.Run(() => CloseVanishedSessionAsync(session));
 		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
+		if (session.Agent.Controls is { } controls) {
+			string provider = session.Agent.Provider.Id;
+			controls.ControlStateChanged += state => {
+				if (state.Ready) _agentModels.Observe(provider, state.Axes, AgentModelSource.Session);
+			};
+		}
 		session.EditorSessionChanged += state => {
 			if (SlotFor(session) is { } slot) {
 				slot.EditorSession = state;
@@ -499,6 +505,7 @@ public sealed partial class HostCore {
 				_themeOverrides,
 				_corrections,
 				_inference,
+				_agentConsultation,
 				_platform.PtyLauncher,
 				provider,
 				_runtime,

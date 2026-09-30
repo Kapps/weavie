@@ -95,7 +95,15 @@ whole-review traversal of 1206 moving frames, and 24 boundary bursts:
 So p50 4 ms clears 240 fps at the median and every frame over 40 ms is gone, but **p99 29 ms does not meet the
 under-10 ms goal**: 29 of 1206 frames still exceed 16 ms, and p99 under 10 ms allows at most 11 over 10 ms. The
 remaining forced reads are on the *insertion* path — `measureElement`'s uncached branch and `resizeItem`, both
-`getBoundingClientRect` — and the estimate error below makes every measurement correction large.
+`getBoundingClientRect` — and a section's reserved height is far from what it measures, which makes every
+correction large.
+
+That size gap is observed but **not yet explained**: unvisited sections sit ~55,212 px apart while a mounted one
+measures ~16,046 px, yet `estimatedEditorHeight` predicts ~28,725 px for that fixture. So the reservation is wrong
+by a large factor in both directions across fixtures (on the 30-file fixture it *under*-reserves), and neither the
+hardcoded `NOMINAL_LINE_HEIGHT = 19` (this machine renders 22) nor the fact that it counts `CONTEXT_LINES * 2` once
+per file rather than once per hunk accounts for the size of the discrepancy on its own. Measure the real
+`added`/`removed` and the post-collapse visible line count before changing the formula.
 
 ## The controls that matter
 

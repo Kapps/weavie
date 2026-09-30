@@ -101,6 +101,7 @@ export function AgentPaneBody(props: {
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
+  const liveResultIndex = createMemo(props.model.liveResultIndex);
   const layout = createAgentPaneLayout(props.model, () => body);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
@@ -114,7 +115,10 @@ export function AgentPaneBody(props: {
     },
     getScrollElement: () => body ?? null,
     estimateSize: (index) => estimateEntrySize(props.model.entries[index]),
-    anchorTo: "end",
+    // The virtualizer's own end anchoring would follow a streaming result past its top.
+    get anchorTo() {
+      return liveResultIndex() === null ? ("end" as const) : ("start" as const);
+    },
     initialMeasurementsCache: savedMeasurements,
     initialOffset: saved?.offset ?? 0,
     measureElement: (element): number => element.getBoundingClientRect().height,
@@ -134,8 +138,7 @@ export function AgentPaneBody(props: {
     () => body,
     virtualizer,
     props.model.agentTurnStartIndex,
-    props.model.latestResultIndex,
-    props.model.historyComplete,
+    liveResultIndex,
     props.model.keyboardRequestKey,
     turnNavigable,
     props.model.revision,

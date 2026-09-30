@@ -181,7 +181,19 @@ and dispose frames are only about 6 of the 34. Closing the gap needs all three c
 main-thread work at all. The ordinary editor pane measures p99 30-35 ms on the same machine, so class B and C
 are not review-specific either.
 
-**The identified next step, not taken here:** class A is addressable by constructing a section's editor only
+**Class A was attempted and reverted.** Constructing a section's editor only once the review scroll has held
+still for a frame (a `ReviewScroll.idle()` signal gating the work in `ReviewFileBody`) moves the ~55 ms off
+moving frames, and unit tests stay green — but it breaks `unified-review-history.spec.ts` "same-file definition
+opens the file and restores the review departure in both directions" deterministically, 2/2 in isolation, with
+"Review is not mounted".
+
+The reason is structural rather than incidental: a reveal *is* a scroll, so gating the mount on scroll-idle
+defers it exactly when navigation needs the target section mounted in order to restore a location. `settle()`
+waits for `sections.set`, which now arrives only after the gesture ends. Any workable version has to exempt
+navigation-driven mounts from the deferral, which is more surface than the measured benefit justifies — the
+change does not reach p99 under 10 ms on its own, since mounts are about 6 of the 34 frames over 10 ms.
+
+**The original description of the lever:** class A is addressable by constructing a section's editor only
 while the review scroll is idle, rather than in whatever task follows the working-copy open. That moves ~55 ms
 of JS off moving frames entirely and would cut burst p99 substantially, since one mount dominates a 26-frame
 burst. It is deliberately not in this change: it alters when a section's content appears, which is a UX

@@ -10,7 +10,12 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 
-vi.mock("../monaco-setup", () => ({ monaco: { editor: { ScrollType: { Immediate: 1 } } } }));
+vi.mock("../monaco-setup", async () => {
+  const { EditorOption: options } = await import(
+    "@codingame/monaco-vscode-api/vscode/vs/editor/common/config/editorOptions"
+  );
+  return { monaco: { editor: { ScrollType: { Immediate: 1 }, EditorOption: options } } };
+});
 
 function fixture() {
   vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "6" }));
@@ -120,6 +125,7 @@ function fixture() {
     getScrollHeight: () => view.getScrollHeight(),
     getScrollTop: () => view.getCurrentScrollTop(),
     getLayoutInfo: () => layoutInfo,
+    getOption: (id: EditorOption) => values.get(id),
     getDomNode: () => mount,
     setScrollTop: (top: number) => view.getScrollable().setScrollPositionNow({ scrollTop: top }),
     onDidScrollChange: view.onDidScroll,
@@ -267,18 +273,37 @@ describe("review viewport geometry ownership", () => {
     expect(current.editor.getLayoutInfo().height).toBe(562);
   });
 
-  it("sizes a partly visible file to the physical viewport intersection", () => {
+  it("rounds a band growing into view up to a step, and leaves a full one exact", () => {
     const current = fixture();
     current.state.containerOffset = 238;
     current.viewport.layout();
     current.scrollTo(0);
-    expect(current.editor.getLayoutInfo().height).toBe(362);
+    // 362 px of the section are visible; the band takes the next whole step and clips the rest.
+    expect(current.editor.getLayoutInfo().height).toBe(512);
     current.scrollTo(200);
     expect(current.editor.getLayoutInfo().height).toBe(562);
     current.state.containerOffset = 700;
     current.viewport.layout();
     current.scrollTo(0);
     expect(current.editor.getLayoutInfo().height).toBe(0);
+  });
+
+  it("relayouts once per step while a section grows into view", () => {
+    const current = fixture();
+    current.state.containerHeight = () => 1_000;
+    current.state.containerOffset = 1_100;
+    current.viewport.layout();
+    current.scrollTo(0);
+    current.editor.layout.mockClear();
+    const bands = new Set<number>();
+    // Walk the section up from entirely below the viewport until it is fully covered.
+    for (let top = 0; top <= 1_200; top += 25) {
+      current.scrollTo(top);
+      bands.add(current.editor.getLayoutInfo().height);
+    }
+    // Whole steps while it grows in, then the exact viewport extent — not a height per scroll position.
+    expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562, 768]);
+    expect(current.editor.layout.mock.calls.length).toBeLessThanOrEqual(6);
   });
 
   it("does not resize or repaint editors when measured dimensions are unchanged", () => {
@@ -340,7 +365,7 @@ describe("review viewport geometry ownership", () => {
     );
   });
 
-  it("clips fractional leading and trailing bands to the file extent", () => {
+  it("keeps a fractional band inside the file extent", () => {
     const current = fixture();
     current.state.headerHeight = 34.65625;
     current.state.containerOffset = 240.90625;
@@ -348,7 +373,7 @@ describe("review viewport geometry ownership", () => {
     current.viewport.layout();
     current.scrollTo(0);
     expect(current.mount.style.transform).toBe("translateY(0px)");
-    expect(current.editor.getLayoutInfo().height).toBe(359);
+    expect(current.editor.getLayoutInfo().height).toBe(512);
     current.scrollTo(700.375);
     expect(current.mount.style.transform).toBe("translateY(501px)");
     expect(current.editor.getLayoutInfo().height).toBe(499);

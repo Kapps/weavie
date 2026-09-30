@@ -1,0 +1,91 @@
+# Unified review scroll cost: where the frame time actually goes
+
+Measured on the real Linux GTK4/WebKitGTK desktop build (RTX 4090, 3840x2160 @ 240 Hz, logical 2560x1440,
+content viewport 1280x840 at DPR 2), in one isolated benchmark instance, five agent-applied 5,000-line files,
+page-dispatched wheel at one notch per animation frame.
+
+## The controls that matter
+
+| arm | p50 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|
+| idle, review open, nothing moving | 4 | 5 | 5 | 6 | 12 |
+| **ordinary editor pane**, same file, same wheel | **8** | **13** | **13** | 16 | 16 |
+| review mid-file | 8 | 9 | 10 | 28 | 31 |
+| review boundary burst | 5 | 9 | 9 | 30 | 47 |
+| the exact frame spanning a file boundary | 23 | 29 | 29 | — | 29 |
+
+Two conclusions worth keeping:
+
+1. **Idle rAF is 4 ms**, so 240 Hz is genuinely available — the host already disables WebKit's
+   `PreferPageRenderingUpdatesNear60Fps` (`WebKit.EnableNativeRefreshRate`). Pacing is not the limit.
+2. **The ordinary editor is as slow as the review mid-file.** Scrolling *any* Monaco editor in this WebKitGTK
+   build costs ~8 ms/frame. The ~8 ms floor is Monaco plus WebKit rasterisation, shared by every editor in the
+   app; what is genuinely review-specific is the boundary spike.
+
+Frame times land on vsync multiples (8.3 = 2 periods, 12.5 = 3, 16.7 = 4), so this is dropped frames from
+overshooting a 4.17 ms budget by a small margin, not continuous work.
+
+## Where a frame goes
+
+WebKit Timeline plus `FunctionCall` self-time, 40-notch mid-file burst (~46 moving frames, 208 ms of traced
+main-thread work — about **1.5 ms/frame**, far below the 8 ms interval):
+
+| ms | calls | site |
+|---|---|---|
+| 89.1 | 44 | Monaco's animation-frame runner — its own view render, ~2.0 ms per scroll tick |
+| 10.9 | 40 | Monaco worker message plumbing (tokenisation), one per notch |
+| 4.9 | 3 | Weavie spell-check `check()`, 1.6 ms each (visible-range only, so scroll must retrigger it) |
+| 1.9 | 40 | review viewport wheel handler |
+| 0.2 | 40 | **`UnifiedReview`'s scroll handler — 0.005 ms/frame** |
+
+Layout 35 ms / Paint 30 ms / RecalculateStyles 26 ms across the burst. The review's per-frame bookkeeping is
+measurably not a factor; the cost is Monaco's render plus WebKit style and raster.
+
+## The boundary, and why only half of it is fixable cheaply
+
+`review-editor-viewport.ts` sizes each section's Monaco band to the visible slice of that section. Mid-file the
+band is constantly `viewport.height`, so no layout — but a section entering from below grows
+(`viewport.height + viewport.top`) and one leaving shrinks (`contentHeight - top`), each forcing
+`editor.layout(dimension, true)` every frame. The windows overlap for a full viewport height of scrolling, so a
+boundary costs ~30 consecutive frames of two forced layouts.
+
+A **constant** band height removes all of it — measured 283 forced layouts to 10 over a five-boundary
+traversal — but it is not shippable. Holding height `H` requires clamping position into
+`[0, contentHeight - H]`, which removes the last `H` pixels from Monaco's own scroll range, and that range is
+the channel `onDidScrollChange` uses to carry Find / Go to Line / same-file definition reveals into the review.
+`unified-review-input.spec.ts` "partially visible small file" fails on it. Compensating with a cursor-driven
+reveal made things worse (distant Find, keyboard navigation across 5,000 lines, bounded allocations, wrong-file
+navigation in a large review set).
+
+What ships instead: quantise the band only while a section **grows into view from below** (`viewport.top < 0`),
+where `top` is pinned at content row 0 regardless of height, so `top` and Monaco's scroll range are unchanged.
+Every other position keeps the exact previous computation. The leaving half still resizes per frame, because
+shrinking the band without advancing `top` would leave the section's tail unrendered and advancing `top` is the
+clamp that breaks reveal.
+
+## Open, and deliberately not bundled here
+
+- **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or
+  WebKit's raster cost app-wide. Larger than a review scrolling change.
+- **Section height estimates use a hardcoded line height.** `review-context.ts` hardcodes 19 — Monaco's value
+  for font size 14, while Weavie defaults to 16 and derives `round(fontSize * ratio)` with ratio 1.35 off macOS
+  and **1.5 on macOS**: 22 and **24**. So every unmounted section reserves 14% too little room off Mac and
+  **21% on it**, and TanStack applies the estimate-to-actual delta as a scroll adjustment when a first-measured
+  section sits above the fold. Correcting it shifts virtualiser geometry enough to add one model attach in
+  `unified-review-measurement.spec.ts`, so it needs its own change that handles that.
+- **`diff-zones.ts` ghost start row is unbounded.** Monaco parks an invisible zone at a large negative top, so
+  the computed start exceeds the ghost's line count and the early-out never stabilises. Bounding it breaks
+  `diff-review.spec.ts` "renders and reviews a 5,000-line rewrite", which passes on main — the transform change
+  for a far-offscreen zone perturbs the layout that spec measures. Needs a fixture that exercises multi-line
+  ghosts.
+
+## Reproducing
+
+Native harness and page probe: `temp/diff-scroll-profile/crossing-native.mjs` and `crossing-probe.js` (both
+temporary, gitignored). One owned focus-protected instance via the scoped KWin rule; trusted input is
+page-local only. **Under a locked display the NVIDIA EGL compositor path segfaults the WebProcess** — six
+coredumps inside `libnvidia-eglcore`, reproducing identically on unmodified main — so native runs need the
+display awake. Work-count measurements run on the deterministic headless harness instead
+(`temp/diff-scroll-profile/probes/`); note that headless Chrome paces rAF at a fixed 16.7 ms and never drops a
+frame, so it measures work, never jank, and the host serves a `wwwroot` baked at build time — `vite build`
+alone is not enough.

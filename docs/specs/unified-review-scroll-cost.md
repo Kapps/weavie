@@ -109,6 +109,26 @@ The frame-time effect of this third fix is **not measured on the native build**:
 callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.
 The numbers in the table above therefore cover the first two fixes only.
 
+### The insertion-path read: the virtualiser was told the review was never scrolling
+
+`observeElementOffset` reported `isScrolling: false` unconditionally. The virtualiser gates its own synchronous
+measurement on that flag:
+
+```js
+this.observer.observe(node);                                       // registration: unconditional
+if ((!this.isScrolling || this.scrollState) && this.shouldMeasureDuringScroll(index)) {
+  this.resizeItem(index, this.options.measureElement(node, void 0, this));   // the forced read
+}
+```
+
+So claiming a settled scroll took a `getBoundingClientRect` on every section coming into view, right after the writes
+that mounted it. Reporting the gesture truthfully skips that read while keeping registration, and the observer path
+measures regardless of the flag with an `entry` in hand, so the real size arrives from `borderBoxSize` — no DOM read,
+within a frame. Headless attribution: `measureElement` leaves the read sites entirely and app reads fall 240 -> 234,
+exactly the six reads on the ten boundary frames.
+
+That "within a frame" is the whole difference from the deferral below, which withheld sizes indefinitely.
+
 ### Deferring a section's measurement is not viable — three attempts, three failures
 
 The insertion-path read is `measureElement`'s uncached branch, and headless attribution pins it exactly: of 10

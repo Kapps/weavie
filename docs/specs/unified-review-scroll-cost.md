@@ -124,13 +124,17 @@ Sixteen of the 32 carry an insertion or removal, which is what the read fixes ad
 they cluster in **adjacent pairs** — f664/f665, f932/f933, f1200/f1201 — a boundary's cost spilling into the frame
 after it, so some should fall with their neighbour.
 
-But the floor matters for feasibility: several 20-29 ms frames carry no set change, no `editor.layout`, and no
-create or dispose, which points at Monaco's own render of newly scrolled-in rows. The ordinary editor pane measures
-p99 30-35 ms on the same hardware, so **removing every set-change frame still leaves roughly sixteen above 10 ms
-against a budget of twelve.** Getting under 10 ms therefore needs the per-frame floor to come down too, and the
-measured decomposition of that floor is feature load: smooth scrolling 22% of main-thread scroll work, indent guides
-7%, sticky scroll 5%, inlay hints 5%, whitespace 4%, bracket colorization 1%. Trimming what a *review* editor renders
-is a product decision about how a diff should look, not a correctness fix, so it is left to the user.
+Whether that budget is reachable is **open, and this binning does not settle it**. Treating the sixteen
+non-set-change frames as a fixed floor would be wrong: thirteen of them sit in the 16-30 ms band as the second half of
+a pair whose first frame carried a boundary, so they are plausibly spillover that falls with it. The honest statement
+is that these bins come from the build carrying fixes 1-2 only, and the effect of fixes 3-5 on them is unmeasured.
+
+What *is* established about the floor: several 20-29 ms frames carry no set change, no `editor.layout`, and no create
+or dispose, which points at Monaco's own render of newly scrolled-in rows, and the ordinary editor pane measures p99
+30-35 ms on the same hardware. If the remaining tail does turn out to be that floor, the measured decomposition is
+feature load — smooth scrolling 22% of main-thread scroll work, indent guides 7%, sticky scroll 5%, inlay hints 5%,
+whitespace 4%, bracket colorization 1%. Trimming what a *review* editor renders changes how a diff looks and
+`smoothScrolling` is an explicit user setting, so that trade belongs to the user rather than to a benchmark.
 
 ### The insertion-path read: the virtualiser was told the review was never scrolling
 

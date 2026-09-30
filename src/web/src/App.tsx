@@ -123,6 +123,7 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
+import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -1556,6 +1557,7 @@ export default function App(): JSX.Element {
       ),
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
+      registerPrCommentCommands(),
       ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);

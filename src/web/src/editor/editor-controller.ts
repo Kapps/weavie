@@ -46,7 +46,6 @@ import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
   createReviewStore,
-  type ReviewComments,
   type ReviewFile,
   type ReviewFileDiff,
   type ReviewHistory,
@@ -936,42 +935,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
-  // The Comment/Reply actions for a PR file under review (nothing for a plain turn file), merged into the applied
-  // diff so commenting coexists with Accept/Reject on the one toolbar. `number` is the PR to post against.
-  const prCommentActions = (
-    session: ClientSession,
-    path: string,
-  ): Pick<InlineDiffOptions, "comments" | "onAddComment" | "onReply"> => {
-    const pr = reviews
-      .board(session)
-      .files.find((file) => samePath(file.summary().path, path))
-      ?.comments();
-    if (pr === null || pr === undefined) {
-      return {};
-    }
-    return {
-      comments: pr.comments,
-      onAddComment: (line, body) =>
-        session.feature("review").publish("addComment", {
-          number: pr.number,
-          path,
-          line,
-          side: "right",
-          inReplyTo: 0,
-          body,
-        }),
-      onReply: (inReplyTo, body) =>
-        session.feature("review").publish("addComment", {
-          number: pr.number,
-          path,
-          line: 0,
-          side: "right",
-          inReplyTo,
-          body,
-        }),
-    };
-  };
-
   const clearPresentedProposal = (): void => {
     const review = activeReview;
     if (review === undefined) {
@@ -1055,7 +1018,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       fileLabel: message.name,
       ...(state.label !== "" ? { reviewLabel: state.label } : {}),
       ...fileNavigation,
-      ...prCommentActions(session, message.path),
     };
   };
 
@@ -1125,17 +1087,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviews.setDiff(session, message);
     if (selectedSession() === session) {
       renderTurnDiff(session, message);
-    }
-  };
-
-  const setReviewCommentsFor = (session: ClientSession, message: ReviewComments): void => {
-    const state = reviews.setComments(session, message);
-    if (selectedSession() !== session) {
-      return;
-    }
-    const diff = state.files.find((file) => samePath(file.summary().path, message.path))?.diff();
-    if (diff !== null && diff !== undefined) {
-      renderTurnDiff(session, diff);
     }
   };
 
@@ -1278,7 +1229,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         setReviewFilesFor(session, files, label),
       ),
       review.on<ReviewFileDiff>("diff", (message) => setTurnDiffFor(session, message)),
-      review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
       revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>
         reviseMarks?.set(session, regions),

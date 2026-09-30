@@ -513,15 +513,6 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			if (session.Changes.Review is { PrNumber: > 0 } review) {
-				_ = session.Background.Run(async ct => {
-					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-					PostForSession(session, () => {
-						if (ReferenceEquals(ActiveReview(session), review))
-							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
-					});
-				});
-			}
 			_mediaRoutes.Register(session.Incarnation);
 			LogStartup($"session {slotId}: constructed");
 			return session;

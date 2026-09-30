@@ -97,6 +97,12 @@ export function createEditorCommands(
       },
     ],
     [
+      CommandIds.prComment,
+      (run) => {
+        return () => run(({ prComments }) => prComments.comment());
+      },
+    ],
+    [
       CommandIds.spellCorrect,
       (run) => {
         return (args) =>
@@ -153,6 +159,7 @@ export function createEditorCommands(
             disabled: !enabled(commandId, connection),
           })),
           { kind: "separator" },
+          ...(connection.prComments.commentable() ? [{ commandId: CommandIds.prComment }] : []),
           {
             commandId: CommandIds.reviseSelection,
             disabled: !enabled(CommandIds.reviseSelection, connection),

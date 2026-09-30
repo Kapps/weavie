@@ -12,8 +12,11 @@ public sealed record ReviewComment {
 	/// <summary>The repository-relative file path the comment is on.</summary>
 	public required string Path { get; init; }
 
-	/// <summary>The 1-based line in the file the comment anchors to (on <see cref="Side"/>).</summary>
+	/// <summary>The 1-based line in the file the comment anchors to (on <see cref="Side"/>); 0 when <see cref="Outdated"/>.</summary>
 	public required int Line { get; init; }
+
+	/// <summary>True when the forge says the anchor no longer exists in the PR's current diff.</summary>
+	public required bool Outdated { get; init; }
 
 	/// <summary>Which side of the diff the line is on: <c>"right"</c> (head) or <c>"left"</c> (base).</summary>
 	public required string Side { get; init; }
@@ -27,20 +30,20 @@ public sealed record ReviewComment {
 	/// <summary>ISO-8601 creation timestamp, as the forge returns it.</summary>
 	public required string CreatedAt { get; init; }
 
+	/// <summary>ISO-8601 last-edit timestamp, as the forge returns it.</summary>
+	public required string UpdatedAt { get; init; }
+
 	/// <summary>The id of the comment this replies to, or 0 for a top-level comment.</summary>
 	public required long InReplyTo { get; init; }
 }
 
-/// <summary>A new top-level review comment to post on a PR (the host supplies the commit id).</summary>
+/// <summary>A new top-level review comment on a PR-head line (the host supplies the commit id).</summary>
 public sealed record NewReviewComment {
 	/// <summary>The repository-relative file path to comment on.</summary>
 	public required string Path { get; init; }
 
-	/// <summary>The 1-based line to anchor the comment to.</summary>
+	/// <summary>The 1-based PR-head line to anchor the comment to.</summary>
 	public required int Line { get; init; }
-
-	/// <summary>Which side of the diff: <c>"right"</c> (head) or <c>"left"</c> (base).</summary>
-	public required string Side { get; init; }
 
 	/// <summary>The comment body.</summary>
 	public required string Body { get; init; }

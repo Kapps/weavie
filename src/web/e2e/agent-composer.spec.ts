@@ -1475,6 +1475,22 @@ test.describe("ACP composer", () => {
     await expect(link).toHaveAttribute("title", /last refresh failed: temporary network failure/);
     await expect(page.locator(".agent-status-unavailable")).toHaveCount(0);
 
+    const thread = { rootId: 1, path: "/w/a.ts", line: 1, side: "right", outdated: false };
+    host.publishSession(agentSession.address, "pullRequests", "comments", {
+      set: {
+        number: 123,
+        url,
+        headSha: "abc",
+        viewer: "me",
+        changedPaths: [],
+        threads: [thread, { ...thread, rootId: 2 }].map((t) => ({ ...t, comments: [] })),
+      },
+      error: "rate limited",
+    });
+    await expect(link).toHaveText("#123 · Merged · 2 threads");
+    await expect(link).toHaveAttribute("title", /review comments failed to load: rate limited/);
+    await expect(link).toHaveClass(/agent-status-warn/);
+
     host.publishSession(agentSession.address, "git", "status", {
       branch: "another-branch",
       dirty: false,

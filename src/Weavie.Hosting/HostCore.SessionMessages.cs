@@ -92,15 +92,11 @@ public sealed partial class HostCore {
 		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, _) =>
 			Task.FromResult(ReviewRedo(session)));
 		review.Handle<FilePathMessage>("showFile", (message, _) => {
-			PushReviewFileToWeb(session, message.Path);
+			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
 		review.Handle<DiffAgainstMessage>("diffAgainst", (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
-		review.Handle<ReviewCommentRequest, CommandWireResult>(
-			"addComment",
-			async (message, ct) => CommandWireResult.From(
-				await AddPrCommentAsync(session, message, ct).ConfigureAwait(false)));
 
 		session.Bus.Feature("revise").Handle<ReviseStartMessage>("start", (message, _) => {
 			StartRevise(session, message);
@@ -145,6 +141,7 @@ public sealed partial class HostCore {
 			"open",
 			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
+		HandlePullRequestComments(session, pullRequests);
 
 		var sources = session.Bus.Feature("sources");
 		sources.Handle<OpenTargetMessage>("open", (message, _) => {

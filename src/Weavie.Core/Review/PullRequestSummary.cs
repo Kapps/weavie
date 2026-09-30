@@ -17,6 +17,9 @@ public sealed record PullRequestSummary {
 	/// <summary>The head branch the PR is built from — the branch a session checks out.</summary>
 	public required string HeadRef { get; init; }
 
+	/// <summary>The forge's current head commit of the PR; empty for issue-shaped search results.</summary>
+	public required string HeadSha { get; init; }
+
 	/// <summary>The base branch the PR targets (e.g. <c>main</c>) — the other side of the diff.</summary>
 	public required string BaseRef { get; init; }
 

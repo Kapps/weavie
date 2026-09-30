@@ -296,13 +296,3 @@ export interface PullRequestInfo {
   url: string;
   draft: boolean;
 }
-
-export interface ReviewCommentInfo {
-  id: number;
-  line: number;
-  side: "left" | "right";
-  author: string;
-  body: string;
-  createdAt: string;
-  inReplyTo: number;
-}

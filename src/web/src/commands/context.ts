@@ -36,12 +36,14 @@ export function hasTextSelection(): boolean {
  * the live focusin tracker and the palette's prior-focus snapshot so both classify focus identically. */
 export function paneFocusContext(el: Element | null): ContextOverrides {
   const pane = el?.closest("[data-kind]");
+  const prComment = el?.closest("[data-pr-comment-input]") != null;
   const kind = pane?.getAttribute("data-kind") ?? null;
   const surface = pane?.getAttribute("data-surface") ?? null;
   return {
     focusedTool: el?.closest("[data-tool]")?.getAttribute("data-tool") ?? null,
     focusedPane: kind,
-    editorFocused: surface === "editor" || (surface === null && kind === "editor"),
+    editorFocused: !prComment && (surface === "editor" || (surface === null && kind === "editor")),
+    prCommentFocused: prComment,
     terminalFocused:
       surface === "terminal" || (surface === null && (kind?.startsWith("terminal:") ?? false)),
     agentFocused: surface === "structured-agent",

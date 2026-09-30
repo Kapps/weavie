@@ -27,7 +27,6 @@ test("Diff Against HEAD: Keep + Revert present, Revert backs the edit out", asyn
   // The point of the change: both action buttons are here (Comment absent — a local ref has no forge).
   await expect(toolbar.locator(".weavie-inline-accept")).toBeVisible();
   await expect(toolbar.locator(".weavie-inline-reject")).toBeVisible();
-  await expect(toolbar.locator(".weavie-inline-comment")).toHaveCount(0);
   await toolbar.locator(".weavie-inline-accept").hover(); // surface the "Keep" tooltip for the camera
   await hold(page, 2200);
   await toolbar.locator(".weavie-inline-reject").hover(); // surface the "Revert" tooltip

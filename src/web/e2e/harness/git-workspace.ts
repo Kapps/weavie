@@ -94,6 +94,7 @@ export interface PrSeed {
   baseRef: string;
   url: string;
   draft: boolean;
+  headSha: string;
 }
 
 // A git workspace wired for the Open-PR flow: a local bare repo stands in for `origin` (reached via an
@@ -104,12 +105,15 @@ export interface PrSeed {
 // One canned review comment for the Open-PR harness, anchored to a line of the head-branch diff.
 export interface CommentSeed {
   id: number;
+  number: number;
   path: string;
   line: number;
   side: "left" | "right";
   author: string;
   body: string;
   createdAt: string;
+  updatedAt: string;
+  outdated: boolean;
   inReplyTo: number;
 }
 
@@ -117,6 +121,7 @@ export async function createPrWorkspace(): Promise<{
   dir: string;
   prs: PrSeed[];
   comments: CommentSeed[];
+  viewer: string;
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
@@ -125,6 +130,11 @@ export async function createPrWorkspace(): Promise<{
   const originUrl = "https://github.com/acme/demo.git";
   const headRef = "pr-branch";
   const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  // Publishes the checked-out head as GitHub does (refs/pull/N/head) and returns its sha.
+  const publishPull = (branch: string, number: number): string => {
+    g(dir, "push", "-q", "origin", branch, `${branch}:refs/pull/${number}/head`);
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+  };
 
   g(bare, "init", "-q", "--bare");
   for (const [name, content] of Object.entries(SEED)) {
@@ -155,7 +165,7 @@ export async function createPrWorkspace(): Promise<{
   await writeFile(join(dir, "feature.ts"), "export const feature = true;\n");
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "pr changes");
-  g(dir, "push", "-q", "origin", headRef);
+  const headSha = publishPull(headRef, 101);
   // Back on base, head branch gone locally — opening the PR must fetch it fresh (the real path).
   g(dir, "checkout", "-q", "main");
   g(dir, "branch", "-q", "-D", headRef);
@@ -168,7 +178,7 @@ export async function createPrWorkspace(): Promise<{
   await writeFile(join(dir, "notes.txt"), "just plain text\nplus a second-PR line\n");
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "pr 102 changes");
-  g(dir, "push", "-q", "origin", headRef2);
+  const headSha2 = publishPull(headRef2, 102);
   g(dir, "checkout", "-q", "main");
   g(dir, "branch", "-q", "-D", headRef2);
 
@@ -183,6 +193,7 @@ export async function createPrWorkspace(): Promise<{
         baseRef: "main",
         url: "https://github.com/acme/demo/pull/101",
         draft: false,
+        headSha,
       },
       {
         number: 102,
@@ -192,21 +203,26 @@ export async function createPrWorkspace(): Promise<{
         baseRef: "main",
         url: "https://github.com/acme/demo/pull/102",
         draft: false,
+        headSha: headSha2,
       },
     ],
     // A review comment on the changed greeting line of hello.ts (right/head side).
     comments: [
       {
         id: 1,
+        number: 101,
         path: "hello.ts",
         line: 2,
         side: "right",
         author: "bob",
         body: "Why change this greeting?",
         createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        outdated: false,
         inReplyTo: 0,
       },
     ],
+    viewer: "you",
   };
 }
 

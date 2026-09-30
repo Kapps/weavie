@@ -3,22 +3,31 @@ namespace Weavie.Core.Review;
 /// <summary>
 /// An in-memory <see cref="IPullRequestProvider"/> + <see cref="IReviewCommentStore"/> — the deterministic
 /// stand-in for the headless integration harness and the capture recording, so a PR journey (list, diff,
-/// comment, reply) never touches the network. Adds/replies append to the in-memory thread and echo back, so the
-/// UI round-trips exactly as it would against the real forge.
+/// comment, reply, edit) never touches the network. Adds/replies append as <c>viewer</c> and echo back, so the UI
+/// round-trips exactly as it would against the real forge.
 /// </summary>
 public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCommentStore {
 	private readonly IReadOnlyList<PullRequestSummary> _pullRequests;
-	private readonly List<ReviewComment> _comments;
-	private readonly object _gate = new();
+	private readonly List<(int Number, ReviewComment Comment)> _comments;
+	private readonly string _viewer;
+	private readonly Lock _gate = new();
 	private long _nextId;
 
-	/// <summary>Creates a provider seeded with <paramref name="pullRequests"/> and <paramref name="comments"/>.</summary>
-	public StaticPullRequestProvider(IReadOnlyList<PullRequestSummary> pullRequests, IReadOnlyList<ReviewComment> comments) {
+	/// <summary>
+	/// Creates a provider seeded with <paramref name="pullRequests"/> and each PR's <paramref name="comments"/>,
+	/// authenticated as <paramref name="viewer"/>.
+	/// </summary>
+	public StaticPullRequestProvider(
+		IReadOnlyList<PullRequestSummary> pullRequests,
+		IReadOnlyList<(int Number, ReviewComment Comment)> comments,
+		string viewer) {
 		ArgumentNullException.ThrowIfNull(pullRequests);
 		ArgumentNullException.ThrowIfNull(comments);
+		ArgumentException.ThrowIfNullOrWhiteSpace(viewer);
 		_pullRequests = pullRequests;
 		_comments = [.. comments];
-		_nextId = comments.Count == 0 ? 1 : comments.Max(c => c.Id) + 1;
+		_viewer = viewer;
+		_nextId = comments.Count == 0 ? 1 : comments.Max(c => c.Comment.Id) + 1;
 	}
 
 	/// <inheritdoc/>
@@ -80,40 +89,64 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	/// <inheritdoc/>
 	public Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		lock (_gate) {
-			return Task.FromResult<IReadOnlyList<ReviewComment>>([.. _comments]);
+			return Task.FromResult<IReadOnlyList<ReviewComment>>([.. _comments.Where(c => c.Number == number).Select(c => c.Comment)]);
 		}
 	}
 
 	/// <inheritdoc/>
 	public Task<ReviewComment> AddAsync(RepoRef repo, int number, string commitId, NewReviewComment draft, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(draft);
-		var comment = Append(draft.Path, draft.Line, draft.Side, draft.Body, inReplyTo: 0);
-		return Task.FromResult(comment);
+		return Task.FromResult(Append(number, draft.Path, draft.Line, "right", draft.Body, 0));
 	}
 
 	/// <inheritdoc/>
-	public Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string replyBody, CancellationToken ct = default) {
+	public Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string body, CancellationToken ct = default) {
 		lock (_gate) {
-			var parent = _comments.FirstOrDefault(c => c.Id == inReplyTo);
-			var comment = Append(parent?.Path ?? string.Empty, parent?.Line ?? 1, parent?.Side ?? "right", replyBody, inReplyTo);
-			return Task.FromResult(comment);
+			var parent = Find(number, inReplyTo);
+			return Task.FromResult(Append(number, parent.Path, parent.Line, parent.Side, body, inReplyTo));
 		}
 	}
 
-	private ReviewComment Append(string path, int line, string side, string body, long inReplyTo) {
+	/// <inheritdoc/>
+	public Task<ReviewComment> EditAsync(RepoRef repo, long id, string body, CancellationToken ct = default) {
 		lock (_gate) {
+			int index = _comments.FindIndex(c => c.Comment.Id == id);
+			if (index < 0) {
+				throw new InvalidOperationException($"Review comment {id} doesn't exist.");
+			}
+
+			var edited = _comments[index] with { Comment = _comments[index].Comment with { Body = body, UpdatedAt = Now() } };
+			_comments[index] = edited;
+			return Task.FromResult(edited.Comment);
+		}
+	}
+
+	/// <inheritdoc/>
+	public Task<string> ViewerLoginAsync(RepoRef repo, CancellationToken ct = default) => Task.FromResult(_viewer);
+
+	private ReviewComment Find(int number, long id) =>
+		_comments.FirstOrDefault(c => c.Number == number && c.Comment.Id == id).Comment
+			?? throw new InvalidOperationException($"Review comment {id} isn't on PR #{number}.");
+
+	private ReviewComment Append(int number, string path, int line, string side, string body, long inReplyTo) {
+		lock (_gate) {
+			string now = Now();
 			var comment = new ReviewComment {
 				Id = _nextId++,
 				Path = path,
 				Line = line,
+				Outdated = false,
 				Side = side,
-				Author = "you",
+				Author = _viewer,
 				Body = body,
-				CreatedAt = "now",
+				CreatedAt = now,
+				UpdatedAt = now,
 				InReplyTo = inReplyTo,
 			};
-			_comments.Add(comment);
+			_comments.Add((number, comment));
 			return comment;
 		}
 	}
+
+	private static string Now() => DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 }

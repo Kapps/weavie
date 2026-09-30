@@ -1,9 +1,7 @@
-using System.Text.Json;
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
-using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -72,7 +70,7 @@ public sealed partial class HostCore {
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff (+ comments for a PR), and opens that file (a review surfaces its code — post-turn review
+	/// first file's diff, and opens that file (a review surfaces its code — post-turn review
 	/// parks). Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the
 	/// session usable.
 	/// </summary>
@@ -110,7 +108,7 @@ public sealed partial class HostCore {
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
 			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
-				PushReviewFileToWeb(session, path);
+				PushTurnDiffToWeb(session, path);
 			if (resuming || seeds.Count == 0) {
 				return Task.CompletedTask;
 			}
@@ -125,7 +123,7 @@ public sealed partial class HostCore {
 				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
 				: null;
 			session.FileOpener.Open(first, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
-			PushReviewFileToWeb(session, first);
+			PushTurnDiffToWeb(session, first);
 			return Task.CompletedTask;
 		}, ct).ConfigureAwait(false);
 	}
@@ -147,64 +145,6 @@ public sealed partial class HostCore {
 			: new WorktreeFileSnapshot(false, string.Empty);
 
 	private readonly record struct WorktreeFileSnapshot(bool Exists, string Content);
-
-	/// <summary>
-	/// Renders one review file: its comments (a PR only — a local ref has no forge behind it) then its inline diff,
-	/// so the file shows with its Comment affordance + threads. Used at arm (the opened first file) and on each
-	/// <c>get-turn-diff</c> step-in. On a plain turn (no active review) it's just the diff.
-	/// </summary>
-	private void PushReviewFileToWeb(HostSession session, string absolutePath) =>
-		PushReviewFileToWeb(session, absolutePath, session.Bus.BroadcastTarget);
-
-	private void PushReviewFileToWeb(
-		HostSession session,
-		string absolutePath,
-		MessageTarget target) {
-		if (ActiveReview(session) is { } review) {
-			PushReviewCommentsToWeb(review, absolutePath, target);
-		}
-
-		PushTurnDiffToWeb(session, absolutePath, target);
-	}
-
-	/// <summary>
-	/// Pushes one PR file's review comments (<c>review-comments</c>) so the inline diff anchors threads on it and
-	/// shows the Comment button. A no-op for a local ref review (no forge, so no comments and no comment affordance).
-	/// </summary>
-	private static void PushReviewCommentsToWeb(
-		HostSession session,
-		ReviewContext review,
-		string absolutePath) =>
-		PushReviewCommentsToWeb(
-			review,
-			absolutePath,
-			session.Bus.BroadcastTarget);
-
-	private static void PushReviewCommentsToWeb(
-		ReviewContext review,
-		string absolutePath,
-		MessageTarget target) {
-		if (review.PrNumber == 0) {
-			return;
-		}
-
-		string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
-		target.Feature("review").Publish("comments", new {
-			number = review.PrNumber,
-			path = absolutePath,
-			comments = review.Comments
-				.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
-				.Select(c => new {
-					id = c.Id,
-					line = c.Line,
-					side = c.Side,
-					author = c.Author,
-					body = c.Body,
-					createdAt = c.CreatedAt,
-					inReplyTo = c.InReplyTo,
-				}),
-		});
-	}
 
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
 }

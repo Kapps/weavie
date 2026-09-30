@@ -283,7 +283,10 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   }
   if (pr) {
     const prsPath = join(home, "fake-prs.json");
-    await writeFile(prsPath, JSON.stringify({ prs: pr.prs, comments: pr.comments }));
+    await writeFile(
+      prsPath,
+      JSON.stringify({ prs: pr.prs, comments: pr.comments, viewer: pr.viewer }),
+    );
     env.WEAVIE_FAKE_PRS = prsPath;
   }
   if (options.notionDoc) {

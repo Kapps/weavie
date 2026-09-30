@@ -127,9 +127,6 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await expect(page.locator(ADDED)).toHaveCount(1);
     await expect.poll(() => caretLine(page)).toBe(2);
 
-    // Wait for the host-pushed canUndoKeep before undoing (see the race noted in the first test above).
-    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
-
     // Undo the keep — the editor lands on the restored hunk 2, not the still-pending hunk 1.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
     await expect(page.locator(ADDED)).toHaveCount(2);
@@ -279,11 +276,7 @@ test.describe("applied review — revert & undo-revert (disk)", () => {
     await expect.poll(() => read(weavie.workspace, "hello.ts")).toContain("Hello, ${name}"); // baseline line is back on disk
     expect(read(weavie.workspace, "hello.ts")).toContain("console.warn"); // the other hunk is untouched
 
-    // The revert writes disk INSIDE Core, before its turn-diff/review-history messages reach the page — so
-    // syncing on disk alone races the undo: Ctrl+Shift+Backspace would consume the key but no-op while the
-    // client's canUndoRevert is still false. Wait for the web to reflect the revert before undoing it.
     await expect(page.locator(ADDED)).toHaveCount(1); // the reverted hunk left the bright band
-    await expect(page.locator(HIST_UNDO).first()).toBeEnabled(); // the revert is now undoable on the client
 
     // Undo the revert: the change is rewritten to disk.
     await page.keyboard.press("ControlOrMeta+Shift+Backspace");

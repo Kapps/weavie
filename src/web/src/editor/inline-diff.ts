@@ -895,18 +895,22 @@ export function createInlineDiff(
   // Review undo/redo (session-global; bound once via bindHistory). While a review surface is up the undo chords
   // CONSUME the key even with nothing to undo — never fall through and let Monaco insert a newline (Shift+Enter)
   // into the file under review. They only decline (fall through to the editor) when no review is up at all.
+  // The host owns the history: every chord is forwarded and the host declines a no-op, because the pushed
+  // availability lags the disk write it follows and gating on it would drop a chord sent in that gap.
   // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
   // case the undo chords are meaningful and must consume the key rather than type into the editor.
   const reviewUp = (): boolean =>
     parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
+  const consume = (action: (() => void) | undefined): true => {
+    runAction(action);
+    return true;
+  };
   const captureHistoryActions = () => {
     const handlers = historyHandlers;
     return {
-      undoKeep: (): boolean =>
-        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
-      undoRevert: (): boolean =>
-        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
-      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
+      undoKeep: (): boolean => reviewUp() && consume(handlers?.onUndoKeep),
+      undoRevert: (): boolean => reviewUp() && consume(handlers?.onUndoRevert),
+      redoReview: (): boolean => runAction(handlers?.onRedo),
     };
   };
   const undoLast = (): boolean =>

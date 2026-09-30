@@ -2074,14 +2074,60 @@ test.describe("ACP composer", () => {
     await expectFollowingLatest();
   });
 
-  // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):
-  // https://github.com/Kapps/weavie/actions/runs/31666115997/job/94341238717 — turnButton stuck
-  // visible after the jump-to-turn click. Root cause: AgentPaneScroll's agentTurnStartAbove
-  // compared the cached measurement start against virtualizer.scrollOffset with strict `<`, and
-  // the two can settle a sub-pixel apart (e.g. 745.671875 vs 746) even when aligned, flipping the
-  // signal back on with nothing left to correct it. Fixed by adding a 1px tolerance in
-  // AgentPaneScroll.ts's updateAgentTurnStartPosition. Reproduced locally at ~5-7% under worker
-  // contention before the fix; 80/80 passed after under the same contention.
+  const offsetInBody = (row: Locator) =>
+    row.evaluate(
+      (element) =>
+        element.getBoundingClientRect().top -
+        (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
+    );
+
+  test("a streaming response stops following once its top reaches the top", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const turn = { threadId: "thread-stream", turnId: "turn-stream" };
+    publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
+    publishPane(
+      paneMessage({ ...turn, type: "user-message", itemId: "prompt-stream", text: "Stream it" }),
+    );
+    for (let index = 1; index <= 60; index++) {
+      publishPane(
+        paneMessage({
+          ...turn,
+          type: "agent-message-delta",
+          itemId: "answer-stream",
+          itemType: "agentMessage",
+          text: `${index === 1 ? "" : "\n\n"}Streamed ${index}.`,
+        }),
+      );
+      await page.waitForTimeout(30);
+    }
+    const answer = page.locator(".agent-virtual-row", { hasText: "Streamed 60." });
+    await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
+    await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(1);
+  });
+
+  test("a reopened transcript ending in a long response opens at the bottom", async ({ page }) => {
+    const text = Array.from({ length: 60 }, (_, index) => `Stored ${index + 1}.`).join("\n\n");
+    host.setAgentHistory(agentSession.address, {
+      generation: 1,
+      messages: [
+        paneMessage({ type: "user-message", turnId: "turn-stored", itemId: "p", text: "Old" }),
+        paneMessage({
+          type: "item-completed",
+          turnId: "turn-stored",
+          itemId: "answer-stored",
+          itemType: "agentMessage",
+          status: "completed",
+          text,
+        }),
+      ],
+      batchSize: 100,
+    });
+    await mountAgent(page);
+    await expect(page.getByText("Stored 60.", { exact: true })).toBeVisible();
+    await waitForBottom(page, page.locator(".agent-body"));
+  });
+
   test("a request after a pinned long response brings the request into view", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();
@@ -2102,15 +2148,7 @@ test.describe("ACP composer", () => {
     );
     const body = page.locator(".agent-body");
     const planRow = page.locator(".agent-virtual-row", { hasText: "Step 60." });
-    await expect
-      .poll(() =>
-        planRow.evaluate(
-          (element) =>
-            element.getBoundingClientRect().top -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeCloseTo(0, 0);
+    await expect.poll(async () => Math.abs(await offsetInBody(planRow))).toBeLessThanOrEqual(1);
 
     publishPane(
       paneMessage({
@@ -2127,6 +2165,14 @@ test.describe("ACP composer", () => {
     await expect(page.locator(".agent-entry-request")).toBeInViewport();
   });
 
+  // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):
+  // https://github.com/Kapps/weavie/actions/runs/31666115997/job/94341238717 — turnButton stuck
+  // visible after the jump-to-turn click. Root cause: AgentPaneScroll's agentTurnStartAbove
+  // compared the cached measurement start against virtualizer.scrollOffset with strict `<`, and
+  // the two can settle a sub-pixel apart (e.g. 745.671875 vs 746) even when aligned, flipping the
+  // signal back on with nothing left to correct it. Fixed by adding a 1px tolerance in
+  // AgentPaneScroll.ts's updateAgentTurnStartPosition. Reproduced locally at ~5-7% under worker
+  // contention before the fix; 80/80 passed after under the same contention.
   test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();
@@ -2178,12 +2224,6 @@ test.describe("ACP composer", () => {
     });
 
     const answerRow = page.locator(".agent-virtual-row", { hasText: "Paragraph 80." });
-    const offsetInBody = (row: Locator) =>
-      row.evaluate(
-        (element) =>
-          element.getBoundingClientRect().top -
-          (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-      );
     await expect(agentTurnStart).toContainText("Opening update before the final response.");
     await expect.poll(async () => Math.abs(await offsetInBody(answerRow))).toBeLessThanOrEqual(1);
     await expect.poll(() => offsetInBody(agentTurnStart)).toBeLessThan(0);

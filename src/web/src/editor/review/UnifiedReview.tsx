@@ -152,10 +152,31 @@ export function UnifiedReview(props: {
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
     getScrollElement: () => scroll()?.viewport ?? null,
+    // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
+    // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
+    // entry instead of a `getBoundingClientRect` that forces a layout mid-gesture. Claiming a settled scroll, as
+    // this did before, took the forced read on every section that came into view.
     observeElementOffset: (_instance, callback) => {
       const owner = scroll()!;
       callback(owner.getScrollTop(), false);
-      return owner.onScroll(() => callback(owner.getScrollTop(), false));
+      let moved = false;
+      let settling = false;
+      const settle = (): void => {
+        if (moved) {
+          moved = false;
+          requestAnimationFrame(settle);
+          return;
+        }
+        settling = false;
+        callback(owner.getScrollTop(), false);
+      };
+      return owner.onScroll(() => {
+        moved = true;
+        callback(owner.getScrollTop(), true);
+        if (settling) return;
+        settling = true;
+        requestAnimationFrame(settle);
+      });
     },
     gap: 20,
     scrollToFn: (offset, options, instance) => {

@@ -66,8 +66,10 @@ export function UnifiedReview(props: {
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [viewTop, setViewTop] = createSignal(0);
   const [anchorPath, setAnchorPath] = createSignal<string>();
-  // The selected file, else the first file on screen; none while only the file tree is in view.
-  const visibleFile = (): number | undefined => {
+  // The selected file, else the first file on screen; none while only the file tree is in view. Memoised because
+  // several consumers ask per frame, and it takes the viewport height from the scroll owner rather than the DOM: a
+  // read there lands mid-gesture and forces a synchronous layout.
+  const visibleFile = createMemo((): number | undefined => {
     const path = selectedPath();
     if (path !== null) {
       const index = props.overview().files.findIndex((file) => samePath(file.summary().path, path));
@@ -76,10 +78,10 @@ export function UnifiedReview(props: {
     const owner = scroll();
     if (owner === undefined) return undefined;
     const top = viewTop();
-    const bottom = top + owner.viewport.clientHeight;
+    const bottom = top + owner.getViewportHeight();
     const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
     return row === undefined ? undefined : row.index - 1;
-  };
+  });
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };

@@ -142,6 +142,7 @@ function fixture() {
       getBoundingClientRect: () => ({ top: 6 }),
     } as unknown as HTMLElement,
     getScrollTop: () => rootTop,
+    getViewportHeight: () => state.viewportHeight,
     setScrollTop: (top) => {
       scroller.scrollTop = top;
       for (const listener of listeners) listener(false);

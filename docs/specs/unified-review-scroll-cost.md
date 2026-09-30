@@ -92,6 +92,23 @@ whole-review traversal of 1206 moving frames, and 24 boundary bursts:
 | burst frames over 40 ms | 9 | **0** |
 | burst worst frame (up / down) | 60 / 53 ms | **39 / 30 ms** |
 
+### A third site: the visible-file lookup
+
+`visibleFile()` read `owner.viewport.clientHeight`, and three reactive consumers asked for it every frame, so a
+scroll forced a synchronous layout **2.58 times per frame**. The scroll owner already knows its viewport height from
+its own scroll dimensions, maintained by its ResizeObserver, so it publishes that now and the lookup is a memo
+rather than a function each consumer re-runs.
+
+Measured in headless over a twelve-file review scroll (482 frames), counting only reads whose stack reaches Weavie's
+own bundles: **1244 reads -> 283**, and the visible-file sites leave the top offenders entirely. Counts are
+transport-independent, which is why headless answers this; its frame times are not representative and were not used
+for any timing claim. `unified-review-forced-reads.spec.ts` holds that path open — it fails at 2.58 reads per frame
+and passes at 0.59.
+
+The frame-time effect of this third fix is **not measured on the native build**: a locked display stops the frame
+callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.
+The numbers in the table above therefore cover the first two fixes only.
+
 So p50 4 ms clears 240 fps at the median and every frame over 40 ms is gone, but **p99 29 ms does not meet the
 under-10 ms goal**: 29 of 1206 frames still exceed 16 ms, and p99 under 10 ms allows at most 11 over 10 ms. The
 remaining forced reads are on the *insertion* path — `measureElement`'s uncached branch and `resizeItem`, both

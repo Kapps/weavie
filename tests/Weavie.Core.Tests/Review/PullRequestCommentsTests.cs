@@ -34,7 +34,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	public async Task NoPullRequest_PublishesAnEmptySet() {
 		var comments = Create(Store());
 
-		await comments.RefreshAsync(null, CancellationToken.None);
+		await comments.TrackAsync(null, CancellationToken.None);
 
 		Assert.Equal(new PullRequestCommentsSnapshot(null, null), Assert.Single(_published));
 	}
@@ -43,7 +43,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	public async Task Refresh_FetchesTheHeadAndLoadsOnlyThisPrsThreads() {
 		var comments = Create(Store());
 
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		var set = Assert.IsType<PullRequestCommentSet>(comments.Latest.Set);
 		Assert.Null(comments.Latest.Error);
@@ -57,7 +57,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	[Fact]
 	public async Task Sources_ReadTheHeadAndTheMergeBase() {
 		var comments = Create(Store());
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		Assert.Equal(new PullRequestSources("one\ntwo\n", "one\n"), await comments.SourcesAsync("a.txt", _headSha, CancellationToken.None));
 		Assert.Equal(new PullRequestSources("new\n", null), await comments.SourcesAsync("c.txt", _headSha, CancellationToken.None));
@@ -66,7 +66,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	[Fact]
 	public async Task Comment_RejectsAPathThePrDoesNotChange() {
 		var comments = Create(Store());
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		var result = await comments.CommentAsync(Number, _headSha, "b.txt", 1, "hi", CancellationToken.None);
 
@@ -77,7 +77,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	[Fact]
 	public async Task Comment_RejectsAStaleHead() {
 		var comments = Create(Store());
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		var result = await comments.CommentAsync(Number, new string('b', 40), "a.txt", 2, "hi", CancellationToken.None);
 
@@ -87,7 +87,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	[Fact]
 	public async Task Edit_OnlyTheViewersOwnComments() {
 		var comments = Create(Store());
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		var foreign = await comments.EditAsync(Number, 1, "rewritten", CancellationToken.None);
 		var own = await comments.EditAsync(Number, 2, "rewritten", CancellationToken.None);
@@ -101,29 +101,58 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	public async Task Post_AConcurrentRefreshNeverPublishesASetMissingThePost() {
 		var store = new GatedStore(Store());
 		var comments = Create(store);
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 
 		var post = comments.CommentAsync(Number, _headSha, "c.txt", 1, "posted", CancellationToken.None);
 		await store.AddStarted.Task;
-		var refresh = comments.RefreshAsync(Target, CancellationToken.None);
+		var refresh = comments.RefreshAsync(CancellationToken.None);
 		int before = _published.Count;
 		store.ReleaseAdd.SetResult();
 		Assert.True((await post).Ok);
 		await refresh;
 
-		Assert.Equal(before + 2, _published.Count);
+		// The post publishes; the refresh queued behind it finds nothing newer and stays quiet.
+		Assert.Equal(before + 1, _published.Count);
 		Assert.All(_published.Skip(before), snapshot =>
 			Assert.Contains(snapshot.Set!.Threads, t => t.Comments[0].Body == "posted"));
+	}
+
+	[Fact]
+	public async Task Track_TheSameTargetDoesNotReload() {
+		var store = new GatedStore(Store());
+		var comments = Create(store);
+		await comments.TrackAsync(Target, CancellationToken.None);
+		store.FailList = true;
+
+		await comments.TrackAsync(Target, CancellationToken.None);
+
+		Assert.Single(_published);
+		Assert.Null(comments.Latest.Error);
+	}
+
+	[Fact]
+	public async Task Refresh_PublishesOnlyWhenTheCommentsChanged() {
+		var store = Store();
+		var comments = Create(store);
+		await comments.TrackAsync(Target, CancellationToken.None);
+
+		await comments.RefreshAsync(CancellationToken.None);
+		Assert.Single(_published);
+
+		await store.ReplyAsync(Target.Repo, Number, 1, "from someone else", CancellationToken.None);
+		await comments.RefreshAsync(CancellationToken.None);
+		Assert.Equal(2, _published.Count);
+		Assert.Equal("from someone else", comments.Latest.Set?.Threads[0].Comments[^1].Body);
 	}
 
 	[Fact]
 	public async Task ForgeFailure_KeepsTheLastGoodSetAndReportsTheError() {
 		var store = new GatedStore(Store());
 		var comments = Create(store);
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.TrackAsync(Target, CancellationToken.None);
 		store.FailList = true;
 
-		await comments.RefreshAsync(Target, CancellationToken.None);
+		await comments.RefreshAsync(CancellationToken.None);
 
 		Assert.NotNull(comments.Latest.Set);
 		Assert.Contains("GitHub is down", comments.Latest.Error, StringComparison.Ordinal);

@@ -22,6 +22,8 @@ public sealed partial class HostCore {
 			"editComment",
 			async (message, ct) => CommandWireResult.From(
 				await comments.EditAsync(message.Number, message.Id, message.Body, ct).ConfigureAwait(false)));
+		// The web asks while the user can see the comments; a PR's comments aren't tied to the agent's activity.
+		pullRequests.Handle<EmptySessionMessage>("refresh", (_, ct) => comments.RefreshAsync(ct));
 		pullRequests.HandleConcurrent<PullRequestSourcesRequest, PullRequestSources>(
 			"sources",
 			(message, ct) => comments.SourcesAsync(

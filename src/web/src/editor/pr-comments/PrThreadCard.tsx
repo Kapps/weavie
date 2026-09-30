@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight, MessageSquare, Pencil } from "lucide-solid";
-import { createSignal, Index, type JSX, Show } from "solid-js";
+import { ChevronRight, ChevronUp, MessageSquare, Pencil } from "lucide-solid";
+import { createSignal, For, Index, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
@@ -17,6 +17,21 @@ const NOTES = {
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
+// A stable hue per login, so each participant reads as the same person across threads.
+function Avatar(props: { login: string }): JSX.Element {
+  const hue = () =>
+    [...props.login].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 360, 7);
+  return (
+    <span
+      class="weavie-pr-avatar"
+      style={{ background: `hsl(${hue()} 55% 48%)` }}
+      aria-hidden="true"
+    >
+      {props.login.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
 function CommentItem(props: {
   comment: PrComment;
   session: ClientSession;
@@ -26,18 +41,14 @@ function CommentItem(props: {
   const time = () => seconds(props.comment.createdAt);
   return (
     <div class="weavie-pr-comment">
-      <div class="weavie-pr-avatar" aria-hidden="true">
-        {props.comment.author.charAt(0).toUpperCase()}
-      </div>
+      <Avatar login={props.comment.author} />
       <div class="weavie-pr-comment-main">
         <div class="weavie-pr-comment-meta">
           <span class="weavie-pr-author">{props.comment.author}</span>
           <span class="weavie-pr-time" title={new Date(time() * 1000).toLocaleString()}>
             {relativeTime(time(), Date.now() / 1000)}
+            {seconds(props.comment.updatedAt) > time() ? " · edited" : ""}
           </span>
-          <Show when={seconds(props.comment.updatedAt) > time()}>
-            <span class="weavie-pr-time">· edited</span>
-          </Show>
           <Show when={props.comment.mine && !editing()}>
             <button
               type="button"
@@ -46,7 +57,7 @@ function CommentItem(props: {
               aria-label="Edit comment"
               onClick={() => setEditing(true)}
             >
-              <Pencil size={13} />
+              <Pencil size={12} />
             </button>
           </Show>
         </div>
@@ -84,47 +95,67 @@ function CommentItem(props: {
   );
 }
 
-/** One review thread: its comments, then a reply box. Outdated threads start collapsed. */
+/** One review thread: its comments, then a reply box. Outdated threads start collapsed to a one-line summary. */
 export function PrThreadCard(props: {
   placement: ThreadPlacement;
   session: ClientSession;
   number: number;
+  viewer: string;
   replying: boolean;
   onReplying: (open: boolean) => void;
 }): JSX.Element {
   const [collapsed, setCollapsed] = createSignal(props.placement.note === "outdated");
   const thread = () => props.placement.thread;
   const note = () => (props.placement.note === null ? null : NOTES[props.placement.note]);
-  const count = () => thread().comments.length;
+  const participants = () => [...new Set(thread().comments.map((comment) => comment.author))];
   return (
     <div class="weavie-pr-card" classList={{ "weavie-pr-card-collapsed": collapsed() }}>
-      <button
-        type="button"
-        class="weavie-pr-card-head"
-        aria-expanded={!collapsed()}
-        onClick={() => setCollapsed((value) => !value)}
-      >
-        {collapsed() ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        <MessageSquare size={13} />
-        <span class="weavie-pr-card-title">
-          {count() === 1 ? "1 comment" : `${count()} comments`}
-          <Show when={collapsed()}>
-            <span class="weavie-pr-card-count">
-              {` · ${thread().comments[0]?.author}: ${thread().comments[0]?.body.split("\n")[0]}`}
+      <Show
+        when={!collapsed()}
+        fallback={
+          <button
+            type="button"
+            class="weavie-pr-summary"
+            aria-expanded="false"
+            onClick={() => setCollapsed(false)}
+          >
+            <ChevronRight size={14} />
+            <span class="weavie-pr-avatars">
+              <For each={participants()}>{(login) => <Avatar login={login} />}</For>
             </span>
-          </Show>
-        </span>
+            <span class="weavie-pr-summary-text">
+              <b>{thread().comments[0]?.author}</b> {thread().comments[0]?.body.split("\n")[0]}
+            </span>
+            <Show when={note()}>
+              {(labels) => <span class="weavie-pr-badge">{labels()[0]}</span>}
+            </Show>
+            <span class="weavie-pr-summary-count">
+              <MessageSquare size={12} /> {thread().comments.length}
+            </span>
+          </button>
+        }
+      >
+        <button
+          type="button"
+          class="weavie-pr-collapse"
+          title="Collapse thread"
+          aria-label="Collapse thread"
+          aria-expanded="true"
+          onClick={() => setCollapsed(true)}
+        >
+          <ChevronUp size={14} />
+        </button>
         <Show when={note()}>
           {(labels) => (
-            <span class="weavie-pr-badge" title={labels()[1]}>
-              {labels()[0]}
-            </span>
+            <div class="weavie-pr-context">
+              <span class="weavie-pr-badge" title={labels()[1]}>
+                {labels()[0]}
+              </span>
+              <Show when={props.placement.quote}>
+                {(quote) => <code class="weavie-pr-quote">{quote()}</code>}
+              </Show>
+            </div>
           )}
-        </Show>
-      </button>
-      <Show when={!collapsed()}>
-        <Show when={props.placement.quote}>
-          {(quote) => <pre class="weavie-pr-quote">{quote()}</pre>}
         </Show>
         {/* Index, not For: each push rebuilds comment objects, which must not remount an open edit box. */}
         <Index each={thread().comments}>
@@ -133,6 +164,7 @@ export function PrThreadCard(props: {
           )}
         </Index>
         <div class="weavie-pr-card-foot">
+          <Avatar login={props.viewer} />
           <Show
             when={props.replying}
             fallback={
@@ -171,19 +203,17 @@ export function PrThreadCard(props: {
 /** A new comment being written on one line of the PR. */
 export function PrDraftCard(props: {
   line: number;
+  viewer: string;
   onSubmit: (body: string) => Promise<string | null>;
   onCancel: () => void;
 }): JSX.Element {
   return (
-    <div class="weavie-pr-card">
-      <div class="weavie-pr-card-head weavie-pr-card-head-static">
-        <MessageSquare size={13} />
-        <span class="weavie-pr-card-title">New comment on line {props.line}</span>
-      </div>
+    <div class="weavie-pr-card weavie-pr-card-draft">
       <div class="weavie-pr-card-foot">
+        <Avatar login={props.viewer} />
         <PrCommentComposer
           initial=""
-          placeholder="Leave a comment…"
+          placeholder={`Comment on line ${props.line}…`}
           submitLabel="Comment"
           onSubmit={props.onSubmit}
           onCancel={props.onCancel}

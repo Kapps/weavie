@@ -9,7 +9,8 @@ Supersedes the comment sections (Phase 2/3) of [open-pr.md](open-pr.md).
 
 ```mermaid
 flowchart LR
-  Mon[PullRequestStatusMonitor<br/>per session] -->|detected PR + head sha| PRC[PullRequestComments<br/>session-owned, Core]
+  Mon[PullRequestStatusMonitor<br/>per session] -->|PR / head / base changed| PRC[PullRequestComments<br/>session-owned, Core]
+  Web -->|refresh while visible| PRC
   PRC -->|list · add · reply · edit · viewer| Store[IReviewCommentStore<br/>GitHub / static fake]
   PRC -->|fetch pull/N/head · merge-base · show| Git[git]
   PRC -->|push pullRequests/comments| Web[pr-comments-store]
@@ -28,6 +29,10 @@ flowchart LR
   left-side comments) against the buffer, so threads follow local edits. A thread whose line changed locally
   sits after the replacement with a *Changed locally* badge and quotes the original line; left-side comments
   quote the removed line; outdated threads (the forge no longer anchors them) sit collapsed at the file's top.
+- **Refresh follows visibility, not the agent.** Comments reload when the monitor reports a different PR, head,
+  or base (a push moves their lines). Otherwise the web asks for a refresh while the user can see them — the
+  selected session in a visible window — on selection, on returning to the window, and every minute. Each page is
+  re-asked with its ETag, so an unchanged poll is a free 304, and an unchanged set isn't re-published.
 - **Errors surface on the PR status chip** (warning colour, reason in its tooltip) and inline in the composer
   (a failed save keeps the draft).
 

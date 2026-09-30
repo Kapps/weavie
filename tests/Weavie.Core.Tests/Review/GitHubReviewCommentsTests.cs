@@ -113,12 +113,31 @@ public sealed class GitHubReviewCommentsTests {
 		Assert.Contains("\"side\":\"RIGHT\"", handler.Requests[0].Body, StringComparison.Ordinal);
 	}
 
+	[Fact]
+	public async Task ListAsync_ReasksEachPageConditionallyAndReusesItOn304() {
+		var handler = new ScriptedHandler(
+			new Reply(HttpStatusCode.OK, Comment(1), null) { ETag = "\"v1\"" },
+			new Reply(HttpStatusCode.NotModified, string.Empty, null));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		var first = await provider.ListAsync(Repo, 7);
+		var second = await provider.ListAsync(Repo, 7);
+
+		Assert.Equal(first, second);
+		Assert.Null(handler.Requests[0].IfNoneMatch);
+		Assert.Equal("\"v1\"", handler.Requests[1].IfNoneMatch);
+	}
+
 	private static string Comment(long id) =>
 		$$"""[{ "id": {{id}}, "path": "a.ts", "line": 1, "side": "RIGHT", "user": { "login": "bob" }, "body": "b" }]""";
 
-	private sealed record Reply(HttpStatusCode Status, string Body, string? Link);
+	private sealed record Reply(HttpStatusCode Status, string Body, string? Link) {
+		public string? ETag { get; init; }
+	}
 
-	private sealed record Recorded(string Method, string Uri, string? Body);
+	private sealed record Recorded(string Method, string Uri, string? Body) {
+		public string? IfNoneMatch { get; init; }
+	}
 
 	private sealed class TokenSource : IGitHubTokenSource {
 		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>("token");
@@ -131,11 +150,17 @@ public sealed class GitHubReviewCommentsTests {
 
 		protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
 			string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
-			Requests.Add(new Recorded(request.Method.Method, request.RequestUri?.AbsoluteUri ?? string.Empty, body));
+			Requests.Add(new Recorded(request.Method.Method, request.RequestUri?.AbsoluteUri ?? string.Empty, body) {
+				IfNoneMatch = request.Headers.IfNoneMatch.FirstOrDefault()?.ToString(),
+			});
 			var reply = _replies.Dequeue();
 			var response = new HttpResponseMessage(reply.Status) { Content = new StringContent(reply.Body) };
 			if (reply.Link is not null) {
 				response.Headers.Add("Link", reply.Link);
+			}
+
+			if (reply.ETag is not null) {
+				response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(reply.ETag);
 			}
 
 			return response;

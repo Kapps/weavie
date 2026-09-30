@@ -71,7 +71,7 @@ test("a new comment on a PR line posts, then its author can edit it", async ({ p
   await openCommentedFile(page);
   await goToLine(page, 5);
   await runCommand(page, "Comment on Line (Pull Request)");
-  const draft = page.locator(".weavie-pr-card", { hasText: "New comment on line 5" });
+  const draft = page.locator(".weavie-pr-card-draft");
   const input = draft.locator(".weavie-pr-composer-input");
   await expect(input).toBeFocused();
   await input.fill("Nit: keep the period.");
@@ -101,7 +101,7 @@ test("Escape cancels a new comment without touching the review", async ({ page }
   const input = page.locator(".weavie-pr-card .weavie-pr-composer-input");
   await expect(input).toBeFocused();
   await input.press("Escape");
-  await expect(page.locator(".weavie-pr-card", { hasText: "New comment" })).toHaveCount(0);
+  await expect(page.locator(".weavie-pr-card-draft")).toHaveCount(0);
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
 });
 

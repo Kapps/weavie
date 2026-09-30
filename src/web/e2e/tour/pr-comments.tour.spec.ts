@@ -42,7 +42,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   if (!ruler) throw new Error("missing overview ruler");
   console.log("card right", box.x + box.width, "ruler left", ruler.x);
   expect(box.x + box.width).toBeLessThan(ruler.x);
-  await expect(thread.locator(".weavie-pr-card-title")).toHaveText("1 comment");
+  await expect(thread.locator(".weavie-pr-comment")).toHaveCount(1);
   const overflow = await thread.evaluate((el) => el.scrollWidth - el.clientWidth);
   console.log("card horizontal overflow px", overflow);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -66,7 +66,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
     thread.locator(".weavie-pr-comment-body", { hasText: "Addressed in the latest push." }),
   ).toBeVisible({ timeout: 10_000 });
   await hold(page, 1800);
-  await expect(thread.locator(".weavie-pr-card-title")).toHaveText("2 comments");
+  await expect(thread.locator(".weavie-pr-comment")).toHaveCount(2);
   await thread.screenshot({ path: `${shots}/pr-comments-replied.png` });
 
   // (3) Caret on line 5 → Comment on Line (Pull Request).
@@ -75,7 +75,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   for (let i = 1; i < 5; i++) await page.keyboard.press("ArrowDown");
   await hold(page, 600);
   await runCommand(page, "Comment on Line (Pull Request)");
-  const draft = card(page, "New comment on line 5");
+  const draft = page.locator(".weavie-pr-card-draft");
   const input = draft.locator(".weavie-pr-composer-input");
   await expect(input).toBeFocused();
   await hold(page, 800);

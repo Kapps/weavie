@@ -180,6 +180,7 @@ export function createPrComments(
         return (
           <PrDraftCard
             line={(card() as Extract<Card, { kind: "draft" }>).line}
+            viewer={set()?.viewer ?? ""}
             onSubmit={submitDraft}
             onCancel={() => setDraft(null)}
           />
@@ -194,6 +195,7 @@ export function createPrComments(
               placement={placement()}
               session={session}
               number={active().number}
+              viewer={active().viewer}
               replying={replying().has(rootId)}
               onReplying={(open) => reply(rootId, open)}
             />

@@ -1,23 +1,41 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text.Json;
 
 namespace Weavie.Core.Review;
 
 public sealed partial class GitHubReviewProvider {
 	private readonly ConcurrentDictionary<string, string> _viewers = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, CommentPage> _commentPages = new(StringComparer.Ordinal);
 
 	/// <inheritdoc/>
 	public async Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		var result = new List<ReviewComment>();
 		string? url = ApiBase(repo.Host) + $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments?per_page=100";
+		// Each page is re-asked conditionally: GitHub answers an unchanged page 304, which costs no rate limit.
 		while (url is not null) {
 			using var request = await BuildRequestAsync(HttpMethod.Get, url, null, ct).ConfigureAwait(false);
+			_commentPages.TryGetValue(url, out var cached);
+			if (cached is not null) {
+				request.Headers.TryAddWithoutValidation("If-None-Match", cached.EntityTag);
+			}
+
 			using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-			string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-			ThrowForFailure(response, repo, body);
-			result.AddRange(ParseComments(body));
-			url = NextPage(response, repo);
+			CommentPage page;
+			if (response.StatusCode == HttpStatusCode.NotModified && cached is not null) {
+				page = cached;
+			} else {
+				string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+				ThrowForFailure(response, repo, body);
+				page = new CommentPage(response.Headers.ETag?.ToString() ?? string.Empty, ParseComments(body), NextPage(response, repo));
+				if (page.EntityTag.Length > 0) {
+					_commentPages[url] = page;
+				}
+			}
+
+			result.AddRange(page.Comments);
+			url = page.Next;
 		}
 
 		// A comment posted mid-walk shifts the pages, so one can arrive twice.
@@ -120,4 +138,6 @@ public sealed partial class GitHubReviewProvider {
 		UpdatedAt = String(c, "updated_at"),
 		InReplyTo = Long(c, "in_reply_to_id"),
 	};
+
+	private sealed record CommentPage(string EntityTag, IReadOnlyList<ReviewComment> Comments, string? Next);
 }

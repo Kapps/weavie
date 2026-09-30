@@ -1,88 +1,107 @@
-/* Inline PR review threads (pr-comment-controller.tsx), rendered as zone cards. */
+/* Inline PR review threads (pr-comment-controller.tsx), rendered as zone cards: an elevated card with a notch
+   pointing up at the line it discusses, flat comment rows, and a reply row. */
 .weavie-pr-card {
-  display: flex;
-  flex-direction: column;
+  --pr-line: color-mix(in srgb, var(--fg) 12%, transparent);
+  position: relative;
+  margin-top: 5px;
   background: var(--bar, #101319);
-  border: 1px solid var(--border, #191c21);
-  border-left: 2px solid var(--accent);
-  border-radius: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 16%, transparent);
   font-family: var(--font-chrome-family);
   font-size: var(--font-chrome-size);
   color: var(--fg, #cdd5dc);
 }
 
-.weavie-pr-card-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+.weavie-pr-card::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 18px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-top: 1px solid var(--pr-line);
+  border-left: 1px solid var(--pr-line);
+  transform: rotate(45deg);
+}
+
+.weavie-pr-collapse,
+.weavie-pr-icon-button {
+  display: grid;
+  place-items: center;
+  padding: 3px;
   border: none;
+  border-radius: 4px;
   background: none;
-  font: inherit;
   color: var(--dim, #6f7884);
-  text-align: left;
   cursor: pointer;
 }
 
-.weavie-pr-card-head-static {
-  cursor: default;
+.weavie-pr-collapse {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
 }
 
-.weavie-pr-card-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.weavie-pr-card:hover .weavie-pr-collapse,
+.weavie-pr-collapse:focus-visible {
+  opacity: 1;
+}
+
+.weavie-pr-collapse:hover,
+.weavie-pr-icon-button:hover {
   color: var(--fg, #cdd5dc);
-  font-weight: 600;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
-.weavie-pr-card-count {
-  color: var(--dim, #6f7884);
-  font-weight: 400;
+.weavie-pr-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 40px 0 14px;
 }
 
 .weavie-pr-badge {
-  padding: 0 6px;
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  flex: none;
+  padding: 1px 7px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
-  font-size: var(--font-metadata-size);
+  font-size: var(--font-hint-size);
+  font-weight: 600;
 }
 
 .weavie-pr-quote {
-  margin: 0 10px 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
   color: var(--dim, #6f7884);
   font-family: var(--font-content-family);
   font-size: var(--font-metadata-size);
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--dim) 60%, transparent);
 }
 
 .weavie-pr-comment {
   display: flex;
-  gap: 8px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border, #191c21);
+  gap: 10px;
+  padding: 10px 40px 2px 14px;
 }
 
 .weavie-pr-avatar {
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  color: var(--fg, #cdd5dc);
-  font-size: var(--font-metadata-size);
-  font-weight: 600;
+  color: #fff;
+  font-size: var(--font-hint-size);
+  font-weight: 700;
 }
 
 .weavie-pr-comment-main {
@@ -92,9 +111,9 @@
 
 .weavie-pr-comment-meta {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 24px;
 }
 
 .weavie-pr-author {
@@ -106,21 +125,8 @@
   font-size: var(--font-metadata-size);
 }
 
-.weavie-pr-comment-main .agent-markdown {
-  max-width: none;
-  line-height: 1.45;
-}
-
 .weavie-pr-icon-button {
-  margin-left: auto;
-  display: grid;
-  place-items: center;
-  padding: 3px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--dim, #6f7884);
-  cursor: pointer;
+  align-self: center;
   opacity: 0;
 }
 
@@ -129,26 +135,36 @@
   opacity: 1;
 }
 
-.weavie-pr-icon-button:hover {
-  color: var(--fg, #cdd5dc);
-  background: color-mix(in srgb, var(--fg) 10%, transparent);
+/* Comment bodies read in the card's own voice; code keeps the editor's content role. */
+.weavie-pr-comment-body .agent-markdown {
+  max-width: none;
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+  line-height: 1.5;
 }
 
 .weavie-pr-card-foot {
-  padding: 6px 10px 8px;
-  border-top: 1px solid var(--border, #191c21);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px 12px;
 }
 
-/* One text box at a time: editing a comment hides the thread's reply box. */
+.weavie-pr-card-foot > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* One text box at a time: editing a comment hides the thread's reply row. */
 .weavie-pr-card:has(.weavie-pr-comment .weavie-pr-composer) .weavie-pr-card-foot {
   display: none;
 }
 
 .weavie-pr-reply-stub {
-  width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--border, #191c21);
-  border-radius: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 13px;
   background: var(--bg);
   font: inherit;
   color: var(--dim, #6f7884);
@@ -156,31 +172,88 @@
   cursor: text;
 }
 
+.weavie-pr-reply-stub:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.weavie-pr-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--dim, #6f7884);
+  text-align: left;
+  cursor: pointer;
+}
+
+.weavie-pr-summary:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.weavie-pr-avatars {
+  display: flex;
+}
+
+.weavie-pr-avatars .weavie-pr-avatar {
+  width: 18px;
+  height: 18px;
+  margin-right: -5px;
+  border: 2px solid var(--bar, #101319);
+  font-size: var(--font-hint-size);
+}
+
+.weavie-pr-summary-text {
+  flex: 1;
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weavie-pr-summary-text b {
+  color: var(--fg, #cdd5dc);
+  font-weight: 600;
+}
+
+.weavie-pr-summary-count {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-metadata-size);
+}
+
 .weavie-pr-composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .weavie-pr-composer-input {
   box-sizing: border-box;
   width: 100%;
-  min-height: 52px;
+  min-height: 60px;
   max-height: 320px;
   resize: none;
-  padding: 6px 8px;
-  border: 1px solid var(--border, #191c21);
-  border-radius: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
   background: var(--bg);
   color: var(--fg, #cdd5dc);
-  font-family: var(--font-prose-family);
-  font-size: var(--font-prose-size);
-  line-height: 1.45;
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+  line-height: 1.5;
 }
 
 .weavie-pr-composer-input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .weavie-pr-composer-error {
@@ -195,9 +268,9 @@
 }
 
 .weavie-pr-button {
-  padding: 3px 12px;
-  border: 1px solid var(--border, #191c21);
-  border-radius: 4px;
+  padding: 4px 14px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
   background: none;
   font: inherit;
   color: var(--fg, #cdd5dc);
@@ -209,12 +282,14 @@
 }
 
 .weavie-pr-button-primary {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
 }
 
 .weavie-pr-button-primary:hover {
-  background: color-mix(in srgb, var(--accent) 36%, transparent);
+  background: color-mix(in srgb, var(--accent) 85%, var(--fg));
 }
 
 .weavie-pr-button:disabled {

@@ -15,6 +15,8 @@ public sealed class PullRequestComments {
 	private readonly IReviewCommentStore _store;
 	private readonly Action<PullRequestCommentsSnapshot> _publish;
 	private volatile PullRequestTarget? _target;
+	private volatile bool _tracking;
+	private IReadOnlyList<ReviewComment> _comments = [];
 	private volatile PullRequestDiff? _diff;
 	private volatile PullRequestCommentsSnapshot _latest = new(null, null);
 
@@ -31,9 +33,22 @@ public sealed class PullRequestComments {
 	/// <summary>The most recently published snapshot.</summary>
 	public PullRequestCommentsSnapshot Latest => _latest;
 
-	/// <summary>Reloads the comments for <paramref name="target"/> (null: the branch has no PR) and publishes them.</summary>
-	public async Task RefreshAsync(PullRequestTarget? target, CancellationToken ct) {
+	/// <summary>
+	/// Follows the branch's PR (null: none). Comments reload only when the PR or its head/base changes — a push
+	/// moves their lines — never merely because the branch was re-checked.
+	/// </summary>
+	public Task TrackAsync(PullRequestTarget? target, CancellationToken ct) {
+		if (_tracking && _target == target) {
+			return Task.CompletedTask;
+		}
+
+		_tracking = true;
 		_target = target;
+		return RefreshAsync(ct);
+	}
+
+	/// <summary>Re-reads the current PR's comments, publishing only when something changed.</summary>
+	public async Task RefreshAsync(CancellationToken ct) {
 		await _gate.WaitAsync(ct).ConfigureAwait(false);
 		try {
 			await RefreshLockedAsync(ct).ConfigureAwait(false);
@@ -128,6 +143,13 @@ public sealed class PullRequestComments {
 			var diff = await DiffAsync(target, ct).ConfigureAwait(false);
 			var comments = await _store.ListAsync(target.Repo, target.Number, ct).ConfigureAwait(false);
 			string viewer = await _store.ViewerLoginAsync(target.Repo, ct).ConfigureAwait(false);
+			if (_latest is { Error: null, Set: { } current } && current.Number == target.Number
+				&& current.HeadSha == target.HeadSha && current.Viewer == viewer
+				&& ReferenceEquals(current.ChangedPaths, diff.Paths) && _comments.SequenceEqual(comments)) {
+				return;
+			}
+
+			_comments = comments;
 			Publish(new PullRequestCommentsSnapshot(
 				new PullRequestCommentSet(target.Number, target.Url, target.HeadSha, viewer, diff.Paths, ReviewThread.Group(comments)),
 				null));

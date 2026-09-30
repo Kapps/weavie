@@ -18,7 +18,7 @@ public sealed partial class HostCore {
 			ct => ResolvePullRequestStatusAsync(session, ct),
 			(status, ct) => {
 				session.Bus.BroadcastTarget.Feature("git").Publish("pullRequest", status);
-				return comments.RefreshAsync(status.Target, ct);
+				return comments.TrackAsync(status.Target, ct);
 			},
 			Task.Delay,
 			PullRequestPollInterval);

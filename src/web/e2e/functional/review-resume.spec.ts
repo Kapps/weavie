@@ -57,6 +57,12 @@ test.describe("durable applied review", () => {
     },
   });
 
+  // Flake: 2026-09-30 ~04:00 UTC, Windows e2e shard 4/6 of the release run
+  // https://github.com/Kapps/weavie/actions/runs/36665968659/job/109731472412 — the second "Undo Revert
+  // (Review)" (after Redo) never reached the host (host log shows review.undo and review.redo, no second
+  // undo) so hello.ts stayed reverted for the full 30s poll. Cause: the chord was gated on the client's
+  // pushed canUndoRevert, which lags the redo's disk write, and a gated chord was consumed silently. Fixed
+  // in inline-diff.ts by forwarding undo/redo to the host, which owns the history and declines a no-op.
   test("new turns, unloads, and host restarts resume decisions and the review view", async ({
     page,
     weavie,

@@ -4,6 +4,22 @@ Measured on the real Linux GTK4/WebKitGTK desktop build (RTX 4090, 3840x2160 @ 2
 content viewport 1280x840 at DPR 2), in one isolated benchmark instance, five agent-applied 5,000-line files,
 page-dispatched wheel at one notch per animation frame.
 
+## Chrome's layout counters cannot substitute for the native measurement
+
+Tempting, because CDP reports `LayoutCount` / `LayoutDuration` / `RecalcStyleCount` / `RecalcStyleDuration` and needs
+no display. It does not work, and a control proves it. The same 160-notch review scroll, same fixture, three builds:
+
+| build | LayoutCount | LayoutDuration | RecalcStyle | native traverse p99 |
+|---|---|---|---|---|
+| before any fix (`8e031281`) | 1296 | 72 ms | 1416 / 80 ms | **39 ms** |
+| fixes 1-2 | 1293 | 71 ms | 1413 / 78 ms | **29 ms** |
+| fixes 1-5 | 1295 | 72 ms | 1412 / 79 ms | unmeasured |
+
+Chrome reports the same layout and style work for a change that natively moved p99 by 10 ms and removed every frame
+over 40 ms. The counters are **blind to this class of improvement**, so a null result from them says nothing about the
+fixes — do not read one as evidence that a fix did nothing. Headless remains useful for *counts* of reads and DOM
+writes, which are transport-independent; it cannot stand in for WebKitGTK frame timing.
+
 ## Correction: the forced-layout framing below is wrong
 
 Later measurement on the same native build retracts the central claim of

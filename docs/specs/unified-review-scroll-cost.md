@@ -4,6 +4,62 @@ Measured on the real Linux GTK4/WebKitGTK desktop build (RTX 4090, 3840x2160 @ 2
 content viewport 1280x840 at DPR 2), in one isolated benchmark instance, five agent-applied 5,000-line files,
 page-dispatched wheel at one notch per animation frame.
 
+## Correction: the forced-layout framing below is wrong
+
+Later measurement on the same native build retracts the central claim of
+[The boundary](#the-boundary-and-why-only-half-of-it-is-fixable-cheaply). Forced Monaco layouts are **not** what
+makes a file boundary expensive, so the band quantisation that shipped for them is not justified by this cost.
+
+Timing every `editor.layout()` call rather than counting them: **253 calls, 137 ms total, mean 0.5 ms, max 2 ms,
+none over 20 ms** (ghost-heavy fixture, 24 bursts). The 48-83 ms boundary frames each contain exactly one such
+call, costing 0-1 ms. Counting layouts measured a correlate of the crossing, not its cost.
+
+What the boundary frame actually is, from the WebKit record tree of one 45.3 ms frame:
+
+```
+45.3ms  FireAnimationFrame
+  45.2ms  FunctionCall        (self ~10ms)
+    21.3ms  RecalculateStyles
+    13.6ms  Layout
+```
+
+A style-and-layout pass driven from JS, not Monaco's rendering. It lands on exactly one frame per crossing:
+down-crossings at a fixed +150 px past the boundary, up-crossings at -550 px before it.
+
+**The frame that stalls is the frame in which the set of rendered sections changes.** Sampling every rendered
+`.unified-review-file` per frame (from `style`, so sampling forces no layout): 24/24 bursts agree — where the
+section set changes, that frame is 45-83 ms; where it does not, the worst frame in the burst is 11-29 ms. On a
+30-file traversal (1206 frames, 21 stalls >=30 ms): 9 stalls carry a section insertion, 7 a removal, 5 neither —
+and of **1175 calm frames, none contains an insertion or a removal**. `monaco.editor.create`/`dispose` never land
+in a stall frame, so construction is not the cost; the DOM/style work around it is.
+
+Confirmed by ablation: preventing set changes outright (`overscan: 6` on a fixture with only 6 rows, so nothing
+ever unmounts) removes the whole tail.
+
+| | shipped | no set changes |
+|---|---|---|
+| boundary p99 / max | ~50 / 82 ms | **16 / 18 ms** |
+| mid-file p99 / max | ~49 / 66 ms | 15 / 24 ms |
+| traverse p99 / max | — | **13 / 21 ms** |
+| spanning-boundary p50 | 18-33 ms | **13 ms** |
+| frames over 40 ms | 47-51 | **0** |
+
+That is an ablation, not a fix — it just keeps every section mounted. Two candidate fixes were measured and
+**rejected**:
+
+- **Per-frame `aria-valuenow`/`aria-valuemax` writes on the review scrollbar.** Plausible on Linux, where at-spi
+  is live and an attribute change on `role=scrollbar` posts an accessibility notification. Ablated: frames over
+  40 ms 47 -> 51. Not the cause.
+- **Retaining a departing section until the review holds still** (released via a `whenStill` frame pump, unioned
+  in document order so the list never reorders). Traverse p50 improved 7 -> 5 ms but the tail got **worse**:
+  p99 39 -> 47 ms, max 57 -> 87 ms, frames over 40 ms 12 -> 17. Deferring removals does not help while
+  insertions remain, and retained sections add per-frame work.
+
+Still open: making a section enter and leave the rendered set without a full style-and-layout pass. Deferring the
+*mount* is the untried half, and it previously broke reveal-based navigation because a reveal is itself a scroll
+(see the note at the end of this document) — so it needs navigation to force a mount rather than wait for
+stillness.
+
 ## The controls that matter
 
 | arm | p50 | p90 | p95 | p99 | max |
@@ -47,7 +103,8 @@ measurably not a factor; the cost is Monaco's render plus WebKit style and raste
 band is constantly `viewport.height`, so no layout — but a section entering from below grows
 (`viewport.height + viewport.top`) and one leaving shrinks (`contentHeight - top`), each forcing
 `editor.layout(dimension, true)` every frame. The windows overlap for a full viewport height of scrolling, so a
-boundary costs ~30 consecutive frames of two forced layouts.
+boundary costs ~30 consecutive frames of two forced layouts. **Those layouts cost 0.5 ms each and are not the
+boundary's cost — see the correction above before using anything in this section.**
 
 A **constant** band height removes all of it — measured 283 forced layouts to 10 over a five-boundary
 traversal — but it is not shippable. Holding height `H` requires clamping position into
@@ -165,7 +222,9 @@ it only requires that at most 9 frames exceed 10 ms.
 
 Timing every `monaco.editor.create` and correlating against the frames that overran shows construction itself is
 cheap — **4-5 ms** — while the frames containing it run 62-65 ms. Disposal is 1-2 ms inside 29-39 ms frames. So
-mounting is implicated but `editor.create` is not the cost.
+mounting is implicated but `editor.create` is not the cost. On the later 30-file traversal, create and dispose do
+not land in a stall frame at all (see the correction at the top): what they accompany is a change to the rendered
+section set, which is the thing that costs.
 
 A traced traversal attributes the worst frames by record self-time (tracing inflates cadence, so it is used for
 attribution only):

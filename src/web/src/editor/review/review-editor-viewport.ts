@@ -16,6 +16,7 @@ export function createReviewEditorViewport(
   editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
+  shift(delta: number): void;
   reveal(top: number): void;
   update(change: () => void): void;
   dispose(): void;
@@ -96,6 +97,15 @@ export function createReviewEditorViewport(
     measure();
     sync();
   };
+  // Moving the section moves every descendant with it, so the container's offset shifts by exactly the same
+  // amount. Re-measuring instead would read geometry right after the write that moved it, forcing a synchronous
+  // layout mid-scroll.
+  const shift = (delta: number): void => {
+    if (disposed || delta === 0) return;
+    containerTop += delta;
+    // A deferred shift needs no sync: update() ends in layout(), which re-measures.
+    if (updateDepth === 0) sync();
+  };
   const observer = new ResizeObserver(layout);
   observer.observe(scroller);
   observer.observe(container);
@@ -156,6 +166,7 @@ export function createReviewEditorViewport(
     editor,
     bounds,
     layout,
+    shift,
     reveal,
     update: (change) => {
       const wasSyncing = syncing;

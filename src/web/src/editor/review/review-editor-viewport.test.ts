@@ -191,6 +191,21 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("follows a moved section by its known delta, landing where a re-measure would", () => {
+    const shifted = fixture();
+    shifted.scrollTo(600);
+    const measures = shifted.measure.mock.calls.length;
+    shifted.viewport.shift(-100);
+    expect(shifted.measure).toHaveBeenCalledTimes(measures);
+
+    // The same move applied to the DOM and re-measured has to put the band in the same place.
+    const measured = fixture();
+    measured.scrollTo(600);
+    measured.state.containerOffset -= 100;
+    measured.viewport.layout();
+    expect(shifted.mount.style.transform).toBe(measured.mount.style.transform);
+  });
+
   it("supplies the measured width at construction without remeasuring the section", () => {
     const current = fixture();
     expect(current.createEditor).toHaveBeenCalledExactlyOnceWith({ width: 716, height: 0 });

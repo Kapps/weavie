@@ -67,13 +67,16 @@ export function ReviewFileSection(props: {
     headerLimit = article!.clientHeight - header.offsetHeight;
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
+  let appliedTop = 0;
   createEffect(() => {
     const top = sectionTop();
     if (article !== undefined) {
       untrack(() => {
+        const delta = top - appliedTop;
+        appliedTop = top;
         article!.style.top = `${top}px`;
+        editor()?.shift(delta);
         layoutHeader();
-        editor()?.layout();
       });
     }
   });

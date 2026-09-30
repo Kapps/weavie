@@ -156,6 +156,38 @@ Not supported: **p99 under 10 ms.** Burst p99 stays at 35-44 ms in both arms and
 ghost-heavy mid-file case; the single-run p99 differences sit inside run-to-run noise. The ordinary editor pane
 measures p99 30-35 ms on the same machine, which places the residual tail outside the review.
 
+## The tail is three different things, and it decides the p99 question
+
+`p50` and `p99` are separate problems and conflating them leads to the wrong conclusion. On a whole-review
+traversal (945 moving frames, untraced): **p50 8 ms, 34 frames over 10 ms, 10 over 16 ms, 3 over 40 ms.** So the
+8 ms is the floor and the tail is ~2% of frames. p99 under 10 ms does **not** require 240 fps — with p50 at 8 ms
+it only requires that at most 9 frames exceed 10 ms.
+
+Timing every `monaco.editor.create` and correlating against the frames that overran shows construction itself is
+cheap — **4-5 ms** — while the frames containing it run 62-65 ms. Disposal is 1-2 ms inside 29-39 ms frames. So
+mounting is implicated but `editor.create` is not the cost.
+
+A traced traversal attributes the worst frames by record self-time (tracing inflates cadence, so it is used for
+attribution only):
+
+| class | evidence | cause |
+|---|---|---|
+| **A. section mount** | 95 ms and 85 ms frames with `FunctionCall` self-time 58.6 / 50.5 ms | ~55 ms of JS *around* `editor.create`: `connectTextEditor` (symbol source, git blame, spell check), `createInlineDiff`, decoration configure, `prepareGeometry` |
+| **B. style storms** | 46 / 34 / 31 / 27 ms frames with `RecalculateStyles` 9-12 ms and `Layout` 5-8 ms, small JS | style and layout recalculation |
+| **C. off main thread** | 106 ms and 92 ms frames with only ~13-16 ms of accounted records | raster, compositing or GC — nothing the main-thread timeline records |
+
+**Why p99 under 10 ms is not reachable from the review:** 34 frames exceed 10 ms and the budget allows 9. Mount
+and dispose frames are only about 6 of the 34. Closing the gap needs all three classes, and class C is not
+main-thread work at all. The ordinary editor pane measures p99 30-35 ms on the same machine, so class B and C
+are not review-specific either.
+
+**The identified next step, not taken here:** class A is addressable by constructing a section's editor only
+while the review scroll is idle, rather than in whatever task follows the working-copy open. That moves ~55 ms
+of JS off moving frames entirely and would cut burst p99 substantially, since one mount dominates a 26-frame
+burst. It is deliberately not in this change: it alters when a section's content appears, which is a UX
+behaviour change that wants validating against the full suite and a human eye, not a 2 a.m. commit. It is not a
+route to p99 under 10 ms on its own.
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

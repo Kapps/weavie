@@ -2,6 +2,9 @@ import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surf
 import { monaco } from "../monaco-setup";
 import type { ReviewScroll } from "./review-scroll";
 
+// Band growth quantum: a crossing relayouts once per step instead of once per frame.
+const BAND_STEP = 256;
+
 /** Keeps Monaco's rendered window inside a full-height section owned by the review scroller. */
 export function createReviewEditorViewport(
   container: HTMLElement,
@@ -61,10 +64,18 @@ export function createReviewEditorViewport(
       const contentHeight = Math.min(editor.getContentHeight(), containerHeight);
       const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top)));
       // Round the visible extent independently: fractional scrolling must not resize an interior band.
-      const height = Math.max(
+      const visible = Math.max(
         0,
         Math.floor(Math.min(viewport.height + Math.min(viewport.top, 0), contentHeight - top)),
       );
+      // A section growing into view from below is the half of a file boundary that can be de-thrashed without
+      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up
+      // to a coarse step costs a few clipped rows and saves a layout on most frames of the crossing. Every other
+      // position keeps the exact visible extent, so `top` and Monaco's scroll range are unchanged.
+      const height =
+        viewport.top < 0 && visible > 0
+          ? Math.min(contentHeight - top, Math.ceil(visible / BAND_STEP) * BAND_STEP)
+          : visible;
       const resized = dimension.width !== width || dimension.height !== height;
       // Let Monaco coordinate rendering after both the size and scroll position are updated.
       if (resized) {

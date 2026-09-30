@@ -320,3 +320,73 @@ test.describe("Review Changes tab — large separated changes", () => {
     await expectBoundedEditor(section, scroller);
   });
 });
+
+test.describe("Review Changes tab — many removed-line ghosts", () => {
+  // A six-line deletion every thirty lines, so the review carries scores of ghost zones and most of them sit
+  // offscreen while any one is in view.
+  const stride = 30;
+  const deleted = 6;
+  const baseline = Array.from({ length: 1_200 }, (_, index) => `old line ${index}`);
+  const content = baseline
+    .map((line, index) => (index % stride === deleted ? `new line ${index}` : line))
+    .filter((_, index) => index % stride >= deleted)
+    .join("\n");
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "edit", path: "{{WORKSPACE}}/ghosts.txt", content: baseline.join("\n") },
+        ...appliedEdit("ghosts.txt", content),
+      ],
+    },
+  });
+
+  test("an offscreen ghost stops rewriting its rows while the review scrolls", async ({ page }) => {
+    await awaitReviewSet(page, ["ghosts.txt"]);
+    await page.locator(".editor-empty-review").click();
+    const section = page.locator(".unified-review-file");
+    await expect(section.locator(".monaco-editor")).toBeVisible();
+    await expect(section.locator(".weavie-inline-removed-content").first()).toBeVisible();
+    const zones = await section.locator(".weavie-inline-removed-content").count();
+    expect(zones, "the fixture must produce many ghosts").toBeGreaterThan(20);
+
+    // Monaco calls every zone's onDomNodeTop during its render, so an unbounded window rewrites the rows of
+    // every parked zone on every frame. Count the writes the windowing actually performs.
+    const observation = await page.evaluateHandle(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!;
+      let writes = 0;
+      Object.defineProperty(Node.prototype, "textContent", {
+        ...descriptor,
+        set(this: Node, value: string) {
+          if (
+            this instanceof HTMLElement &&
+            this.classList.contains("weavie-inline-removed-content")
+          )
+            writes++;
+          descriptor.set!.call(this, value);
+        },
+      });
+      return {
+        finish: () => {
+          Object.defineProperty(Node.prototype, "textContent", descriptor);
+          return writes;
+        },
+      };
+    });
+    const scroller = page.locator(".unified-review-diffs");
+    const bounds = await scroller.boundingBox();
+    if (bounds === null) throw new Error("review viewport is missing");
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    const notches = 40;
+    for (let notch = 0; notch < notches; notch++) {
+      await page.mouse.wheel(0, 120);
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+    }
+    const writes = await observation.evaluate((handle) => handle.finish());
+    await expect.poll(() => reviewScroll(page).then(({ top }) => top)).toBeGreaterThan(0);
+    // Re-windowing the ghost under the caret is real work; rewriting every parked zone each frame is not, and
+    // that is what one write per zone per frame would mean.
+    expect(writes, `${zones} ghosts over ${notches} frames`).toBeLessThan(zones * 2);
+  });
+});

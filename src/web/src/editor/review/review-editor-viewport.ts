@@ -70,11 +70,13 @@ export function createReviewEditorViewport(
         Math.floor(Math.min(viewport.height + Math.min(viewport.top, 0), contentHeight - top)),
       );
       // A section growing into view from below is the half of a file boundary that can be de-thrashed without
-      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up
-      // to a coarse step costs a few clipped rows and saves a layout on most frames of the crossing. Every other
-      // position keeps the exact visible extent, so `top` and Monaco's scroll range are unchanged.
+      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up to a
+      // coarse step costs a few clipped rows and saves a layout on most frames of the crossing. A focused editor
+      // keeps the exact extent, because Monaco moves its own cursor against this height: a band taller than what is
+      // on screen would let ArrowDown or Find travel to rows the reader cannot see, and without Monaco scrolling
+      // there is no `onDidScrollChange` for the review to follow.
       const height =
-        viewport.top < 0 && visible > 0
+        viewport.top < 0 && visible > 0 && !editor.hasTextFocus()
           ? Math.min(contentHeight - top, Math.ceil(visible / BAND_STEP) * BAND_STEP)
           : visible;
       const resized = dimension.width !== width || dimension.height !== height;

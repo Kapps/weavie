@@ -46,7 +46,11 @@ test.describe("Review Changes tab — geometry reads while scrolling", () => {
         const frames = (new Error().stack ?? "").split("\n").slice(2, 8);
         if (frames.some((frame) => /\/assets\/(?!monaco-)/.test(frame))) counter.__appReads += 1;
       };
+      const restore: (() => void)[] = [];
       const rect = Element.prototype.getBoundingClientRect;
+      restore.push(() => {
+        Element.prototype.getBoundingClientRect = rect;
+      });
       Element.prototype.getBoundingClientRect = function (...args) {
         note();
         return rect.apply(this, args);
@@ -61,6 +65,9 @@ test.describe("Review Changes tab — geometry reads while scrolling", () => {
         const proto = name.startsWith("offset") ? HTMLElement.prototype : Element.prototype;
         const descriptor = Object.getOwnPropertyDescriptor(proto, name);
         if (descriptor?.get === undefined) continue;
+        restore.push(() => {
+          Object.defineProperty(proto, name, descriptor);
+        });
         Object.defineProperty(proto, name, {
           ...descriptor,
           get() {
@@ -69,6 +76,9 @@ test.describe("Review Changes tab — geometry reads while scrolling", () => {
           },
         });
       }
+      (counter as unknown as { __restore: () => void }).__restore = () => {
+        for (const undo of restore) undo();
+      };
       const tick = (): void => {
         counter.__frames += 1;
         requestAnimationFrame(tick);
@@ -86,10 +96,17 @@ test.describe("Review Changes tab — geometry reads while scrolling", () => {
     }
 
     const { appReads, frames } = await page.evaluate(() => {
-      const counter = window as unknown as { __appReads: number; __frames: number };
+      const counter = window as unknown as {
+        __appReads: number;
+        __frames: number;
+        __restore: () => void;
+      };
+      counter.__restore();
       return { appReads: counter.__appReads, frames: counter.__frames };
     });
     expect(frames, "the scroll must actually animate").toBeGreaterThan(40);
+    // A renamed bundle or a deeper stack would drive the count to zero, which would pass while measuring nothing.
+    expect(appReads, "the read counter must still see Weavie's own frames").toBeGreaterThan(0);
     // Averaging under one read per frame proves no read sits on the per-frame path: measured 2.58 per frame when
     // the visible-file lookup measured the DOM, against 0.59 once it took the height from the scroll owner.
     expect(appReads).toBeLessThan(frames);

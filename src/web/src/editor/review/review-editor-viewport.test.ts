@@ -80,6 +80,7 @@ function fixture() {
     containerOffset: 38,
     headerHeight: 32,
     viewportHeight: 594,
+    focused: false,
   };
   const measure = vi.fn();
   const scroller = {
@@ -127,6 +128,7 @@ function fixture() {
     getLayoutInfo: () => layoutInfo,
     getOption: (id: EditorOption) => values.get(id),
     getDomNode: () => mount,
+    hasTextFocus: () => state.focused,
     setScrollTop: (top: number) => view.getScrollable().setScrollPositionNow({ scrollTop: top }),
     onDidScrollChange: view.onDidScroll,
     render: vi.fn(),
@@ -320,6 +322,16 @@ describe("review viewport geometry ownership", () => {
     // Whole steps while it grows in, then the exact viewport extent — not a height per scroll position.
     expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562, 768]);
     expect(current.editor.layout.mock.calls.length).toBeLessThanOrEqual(6);
+  });
+
+  it("keeps the exact extent while a growing section holds the cursor", () => {
+    const current = fixture();
+    current.state.containerOffset = 238;
+    current.state.focused = true;
+    current.viewport.layout();
+    current.scrollTo(0);
+    // Monaco travels its own cursor against this height, so a focused band must not claim offscreen rows.
+    expect(current.editor.getLayoutInfo().height).toBe(362);
   });
 
   it("does not resize or repaint editors when measured dimensions are unchanged", () => {

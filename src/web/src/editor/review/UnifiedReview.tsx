@@ -161,7 +161,9 @@ export function UnifiedReview(props: {
       callback(owner.getScrollTop(), false);
       let moved = false;
       let settling = false;
+      let stopped = false;
       const settle = (): void => {
+        if (stopped) return;
         if (moved) {
           moved = false;
           requestAnimationFrame(settle);
@@ -170,13 +172,28 @@ export function UnifiedReview(props: {
         settling = false;
         callback(owner.getScrollTop(), false);
       };
-      return owner.onScroll(() => {
+      const unsubscribe = owner.onScroll((userInitiated) => {
+        // A programmatic scroll arriving while the review is still — a saved-position restore, a Find or
+        // go-to-line reveal, the scroll-into-view on focus — must let the virtualiser measure a section as it
+        // mounts, or it lands against an estimate. One arriving mid-gesture belongs to that gesture: the
+        // virtualiser's own size corrections write the scroll position this way, and flapping the flag per frame
+        // would re-render the list on every edge.
+        if (!userInitiated && !settling) {
+          callback(owner.getScrollTop(), false);
+          return;
+        }
         moved = true;
         callback(owner.getScrollTop(), true);
         if (settling) return;
         settling = true;
         requestAnimationFrame(settle);
       });
+      // The pending frame outlives the subscription, so it has to be stopped too: reporting a settled scroll after
+      // teardown would call back into a virtualiser that is already gone.
+      return () => {
+        stopped = true;
+        unsubscribe();
+      };
     },
     gap: 20,
     scrollToFn: (offset, options, instance) => {

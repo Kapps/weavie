@@ -65,7 +65,6 @@ export function ReviewFileSection(props: {
   const measureHeader = (): void => {
     borderTop = article!.clientTop;
     headerLimit = article!.clientHeight - header.offsetHeight;
-    layoutHeader();
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
   createEffect(() => {
@@ -90,6 +89,7 @@ export function ReviewFileSection(props: {
     const observer = new ResizeObserver(() => {
       measureHeader();
       editor()?.layout();
+      layoutHeader();
     });
     observer.observe(article!);
     observer.observe(header);

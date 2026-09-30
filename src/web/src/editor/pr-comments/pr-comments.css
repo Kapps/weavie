@@ -89,7 +89,7 @@
 .weavie-pr-comment {
   display: flex;
   gap: 10px;
-  padding: 10px 40px 2px 14px;
+  padding: 10px 14px 2px;
 }
 
 .weavie-pr-avatar {
@@ -135,11 +135,20 @@
   opacity: 1;
 }
 
-/* Comment bodies read in the card's own voice; code keeps the editor's content role. */
+/* What people wrote sits in its own box in the document voice, apart from the card's chrome around it. */
+.weavie-pr-comment-body {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--pr-line);
+  border-radius: 2px 8px 8px 8px;
+  background: var(--bg);
+}
+
 .weavie-pr-comment-body .agent-markdown {
   max-width: none;
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-chrome-size);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
   line-height: 1.5;
 }
 
@@ -245,8 +254,8 @@
   border-radius: 6px;
   background: var(--bg);
   color: var(--fg, #cdd5dc);
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-chrome-size);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
   line-height: 1.5;
 }
 

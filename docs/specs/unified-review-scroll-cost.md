@@ -60,6 +60,43 @@ Still open: making a section enter and leave the rendered set without a full sty
 (see the note at the end of this document) — so it needs navigation to force a mount rather than wait for
 stillness.
 
+## What the boundary frame was: a forced synchronous layout
+
+The stall is a **forced synchronous layout**, and the record tree proves it: `RecalculateStyles` and `Layout` are
+*children* of the rAF's `FunctionCall`, not siblings, so they ran inside the JS call. In WebKit that only happens
+when script reads geometry while layout is dirty. Two sites on the review's own path did exactly that, both firing
+when a section's box or offset changes — which is the boundary frame:
+
+1. `ReviewFileSection`'s ResizeObserver read `clientTop` / `clientHeight` / `offsetHeight`, **wrote** the sticky
+   header transform, then called the editor's `layout()`, which reads geometry again.
+2. The section's offset effect wrote `article.style.top` and then called `layout()`, which reads *because of* that
+   write, so it could not simply be reordered.
+
+The first is fixed by ordering every read ahead of every write. The second by shifting the band by the offset
+delta: moving a section moves every descendant with it, so the container's offset changes by exactly that amount —
+which holds regardless of which notices are rendered above the editor and of the section's box model. A
+`containerTop` derived from header height would **not** hold, because `ReviewFileBody` renders
+`.unified-review-notice` siblings above the editor. Structural changes still re-measure through the observer, and
+`.unified-review-file` is content-driven (`position: absolute`, no height), so a notice appearing resizes the
+article and triggers that re-measure.
+
+Measured on the 30-file fixture (`CROSSING_FILES=30 CROSSING_LINES=600 CROSSING_DELETED=6 CROSSING_HUNK_STRIDE=30`),
+whole-review traversal of 1206 moving frames, and 24 boundary bursts:
+
+| | before | after |
+|---|---|---|
+| traverse p50 | 7 ms | **4 ms** |
+| traverse p95 / p99 | 12 / 39 ms | 9 / **29 ms** |
+| traverse max | 57 ms | **38 ms** |
+| traverse frames over 40 ms | 12 | **0** |
+| burst frames over 40 ms | 9 | **0** |
+| burst worst frame (up / down) | 60 / 53 ms | **39 / 30 ms** |
+
+So p50 4 ms clears 240 fps at the median and every frame over 40 ms is gone, but **p99 29 ms does not meet the
+under-10 ms goal**: 29 of 1206 frames still exceed 16 ms, and p99 under 10 ms allows at most 11 over 10 ms. The
+remaining forced reads are on the *insertion* path — `measureElement`'s uncached branch and `resizeItem`, both
+`getBoundingClientRect` — and the estimate error below makes every measurement correction large.
+
 ## The controls that matter
 
 | arm | p50 | p90 | p95 | p99 | max |

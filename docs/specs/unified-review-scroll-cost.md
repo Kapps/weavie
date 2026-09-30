@@ -63,6 +63,34 @@ Every other position keeps the exact previous computation. The leaving half stil
 shrinking the band without advancing `top` would leave the section's tail unrendered and advancing `top` is the
 clamp that breaks reveal.
 
+## What the floor is made of
+
+Toggling one editor setting at a time through the real settings path and reading CDP's cumulative main-thread
+counters across an identical 120-notch burst (three edited 1,200-line files). Headless Chrome cannot show jank,
+so these rank features by work, not by frame time — but the ranking is what transfers.
+
+| setting disabled | TaskDuration | saving | ScriptDuration |
+|---|---:|---:|---:|
+| — (all on) | 1358 ms | — | 270 ms |
+| `editor.bracketPairColorization` | 1339 ms | 18 ms (1%) | 235 ms |
+| `editor.renderWhitespace` | 1297 ms | 61 ms (4%) | 224 ms |
+| `editor.inlayHints` | 1296 ms | 62 ms (5%) | 225 ms |
+| `editor.stickyScroll` | 1284 ms | 74 ms (5%) | 207 ms |
+| `editor.indentGuides` | 1265 ms | 93 ms (7%) | 200 ms |
+| **`editor.smoothScrolling`** | **1058 ms** | **299 ms (22%)** | **151 ms** |
+
+**Smooth scrolling dominates, by about 3x the next feature.** The review's scroll owner
+(`review-scroll.ts`, `SMOOTH_SCROLL_MS = 125`) interpolates each wheel notch over 125 ms, so the scroll position
+changes on *every* frame — forcing `sync()` on every mounted section plus a Monaco `setScrollTop` and render
+each time. With it off a notch resolves in one frame rather than roughly eight. Monaco's own smooth scrolling is
+already disabled for review editors (`createReviewEditor` passes `smoothScrolling: false`), so this is Weavie's
+animation, not Monaco's.
+
+That reframes the 240 Hz question: the per-frame budget is tight in large part *because* smooth scrolling asks
+for a render on every frame. It is a user-facing preference, so the tradeoff — visibly smooth interpolation
+against roughly a fifth of the main-thread scroll cost — belongs to the user rather than to this change.
+Worth confirming natively once a display is available; the ranking here is Blink.
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

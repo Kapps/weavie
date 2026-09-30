@@ -40,7 +40,7 @@ function CommentItem(props: {
   const [editing, setEditing] = createSignal(false);
   const time = () => seconds(props.comment.createdAt);
   return (
-    <div class="weavie-pr-comment">
+    <div class="weavie-pr-comment" classList={{ "weavie-pr-comment-mine": props.comment.mine }}>
       <Avatar login={props.comment.author} />
       <div class="weavie-pr-comment-main">
         <div class="weavie-pr-comment-meta">

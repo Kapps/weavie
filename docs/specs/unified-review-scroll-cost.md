@@ -172,6 +172,16 @@ exactly the six reads on the ten boundary frames.
 
 That "within a frame" is the whole difference from the deferral below, which withheld sizes indefinitely.
 
+### The removal stalls are not a teardown-size problem
+
+Three of the nine remaining stalls carry a section *removal*, so the obvious guess is that a whole Monaco subtree is
+being removed mid-gesture and that disposing it earlier would help. It would not: instrumenting the virtual list with
+a MutationObserver shows every removed `.unified-review-file` holds **12 nodes, 0 `.monaco-editor`, 0 `.view-line`**.
+The editor is already disposed before its section leaves the DOM, and removing twelve nodes cannot cost 30-47 ms.
+
+So the removal frame's cost is the style and layout the list mutation invalidates, not the size of what is removed —
+the same class the read fixes address, which means no separate change is justified on this path.
+
 ### Deferring a section's measurement is not viable — three attempts, three failures
 
 The insertion-path read is `measureElement`'s uncached branch, and headless attribution pins it exactly: of 10

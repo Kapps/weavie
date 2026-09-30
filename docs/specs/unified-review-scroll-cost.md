@@ -122,6 +122,40 @@ for a render on every frame. It is a user-facing preference, so the tradeoff —
 against roughly a fifth of the main-thread scroll cost — belongs to the user rather than to this change.
 Worth confirming natively once a display is available; the ranking here is Blink.
 
+## Native before/after, measured
+
+Same isolated focus-protected instance, display awake, one run per arm. Two fixtures: `edit` (a hunk every 120
+lines, one removed row each) and a ghost-heavy one (a hunk every 30 lines, six removed rows each).
+
+`edit`, one removed row per hunk:
+
+| metric | before | after |
+|---|---|---|
+| idle p50 / p99 | 4 / 7 | 4 / 8 |
+| ordinary editor pane p50 / p99 | 12 / 35 | 12 / 30 |
+| whole traversal p50 / p99 | 8 / 21 | 8 / 24 |
+| mid-file p50 / p99 | 7 / 36 | 7 / 38 |
+| boundary p50 / p99 | 8 / 41 | 8 / 44 |
+| **frame spanning a boundary, p50** | **33** | **18** |
+| boundary forced layouts | 254 | 158 |
+
+Ghost-heavy, six removed rows per hunk:
+
+| metric | before | after |
+|---|---|---|
+| **mid-file median p50** | **8** | **5** |
+| mid-file forced layouts | 101 | 62 |
+| boundary median p50 / p99 | 8 / 39 | 8 / 38 |
+| boundary forced layouts | 315 | 192 |
+| whole traversal p95 / p99 | 9 / 13 | 12 / 16 |
+
+Supported: the boundary-spanning frame roughly halves (33 → 18 ms), forced layouts fall about 40% in both
+motions, and mid-file p50 improves 8 → 5 ms once ghosts are multi-row.
+
+Not supported: **p99 under 10 ms.** Burst p99 stays at 35-44 ms in both arms and p50 at 7-8 ms outside the
+ghost-heavy mid-file case; the single-run p99 differences sit inside run-to-run noise. The ordinary editor pane
+measures p99 30-35 ms on the same machine, which places the residual tail outside the review.
+
 ## Open, and deliberately not bundled here
 
 - **The ~8 ms floor.** Shared with the ordinary editor, so closing it means Monaco's per-frame render or

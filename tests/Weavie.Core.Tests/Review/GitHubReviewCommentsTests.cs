@@ -13,8 +13,8 @@ public sealed class GitHubReviewCommentsTests {
 	public void ParseComments_MapsFieldsAndFlagsNullLinesOutdated() {
 		var comments = GitHubReviewProvider.ParseComments("""
 		[
-		  { "id": 5, "path": "src/a.ts", "line": 12, "original_line": 9, "side": "RIGHT", "user": { "login": "bob" },
-		    "body": "why?", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-03T00:00:00Z", "in_reply_to_id": null },
+		  { "id": 5, "path": "src/a.ts", "line": 12, "original_line": 9, "side": "RIGHT", "user": { "login": "bob", "avatar_url": "https://avatars.githubusercontent.com/u/1" },
+		    "html_url": "https://github.com/Kapps/weavie/pull/7#discussion_r5", "body": "why?", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-03T00:00:00Z", "in_reply_to_id": null },
 		  { "id": 6, "path": "src/a.ts", "line": null, "original_line": 4, "side": "LEFT", "user": { "login": "ann" },
 		    "body": "reply", "created_at": "2026-01-02T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z", "in_reply_to_id": 5 }
 		]
@@ -28,6 +28,8 @@ public sealed class GitHubReviewCommentsTests {
 				Outdated = false,
 				Side = "right",
 				Author = "bob",
+				AuthorAvatarUrl = "https://avatars.githubusercontent.com/u/1",
+				Url = "https://github.com/Kapps/weavie/pull/7#discussion_r5",
 				Body = "why?",
 				CreatedAt = "2026-01-01T00:00:00Z",
 				UpdatedAt = "2026-01-03T00:00:00Z",
@@ -88,12 +90,12 @@ public sealed class GitHubReviewCommentsTests {
 	}
 
 	[Fact]
-	public async Task ViewerLoginAsync_AsksOnceAndCaches() {
-		var handler = new ScriptedHandler(new Reply(HttpStatusCode.OK, """{ "login": "Kapps" }""", null));
+	public async Task ViewerAsync_AsksOnceAndCaches() {
+		var handler = new ScriptedHandler(new Reply(HttpStatusCode.OK, """{ "login": "Kapps", "avatar_url": "https://a/k" }""", null));
 		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
 
-		Assert.Equal("Kapps", await provider.ViewerLoginAsync(Repo));
-		Assert.Equal("Kapps", await provider.ViewerLoginAsync(Repo));
+		Assert.Equal(new ForgeUser("Kapps", "https://a/k"), await provider.ViewerAsync(Repo));
+		Assert.Equal(new ForgeUser("Kapps", "https://a/k"), await provider.ViewerAsync(Repo));
 		Assert.Equal("https://api.github.com/user", Assert.Single(handler.Requests).Uri);
 	}
 

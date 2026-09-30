@@ -10,7 +10,7 @@ namespace Weavie.Headless;
 /// </summary>
 internal static class FakePullRequests {
 	/// <summary>
-	/// Reads <paramref name="path"/> — <c>{ viewer, prs: [...], comments: [...] }</c> — into a static provider that
+	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], comments: [...] }</c> — into a static provider that
 	/// serves the PR list and each PR's review comments (a comment's <c>number</c> names its PR) as <c>viewer</c>.
 	/// </summary>
 	public static StaticPullRequestProvider FromFile(string path) {
@@ -20,7 +20,9 @@ internal static class FakePullRequests {
 		var provider = new StaticPullRequestProvider(
 			ParsePrs(prsEl),
 			ParseComments(root.TryGetProperty("comments", out var c) ? c : default),
-			root.GetProperty("viewer").GetString() ?? throw new InvalidDataException($"{path}: 'viewer' must be a login."));
+			new ForgeUser(
+				root.GetProperty("viewer").GetString() ?? throw new InvalidDataException($"{path}: 'viewer' must be a login."),
+				Str(root, "viewerAvatarUrl")));
 		SeedCommits(provider, prsEl);
 		return provider;
 	}
@@ -77,6 +79,8 @@ internal static class FakePullRequests {
 					Outdated = outdated,
 					Side = Str(cm, "side") is { Length: > 0 } side ? side : "right",
 					Author = Str(cm, "author"),
+					AuthorAvatarUrl = Str(cm, "avatarUrl"),
+					Url = Str(cm, "url"),
 					Body = Str(cm, "body"),
 					CreatedAt = Str(cm, "createdAt"),
 					UpdatedAt = Str(cm, "updatedAt") is { Length: > 0 } updated ? updated : Str(cm, "createdAt"),

@@ -29,6 +29,7 @@ export function createZoneCards<T>(
   editor: monaco.editor.ICodeEditor,
   cards: Accessor<ZoneCard<T>[]>,
   renderCard: (data: Accessor<T>) => JSX.Element,
+  bottomInset: () => number,
 ): () => void {
   const slots = new Map<string, Slot<T>>();
   const [list, setList] = createSignal<Slot<T>[]>([]);
@@ -68,12 +69,24 @@ export function createZoneCards<T>(
     setList([...slots.values()]);
   });
 
+  // Keeps the card holding focus fully in view — clear of whatever the caller says floats over the editor's
+  // bottom edge — by scrolling the editor, the only thing that moves cards and code together.
+  const reveal = (slot: Slot<T>, node: HTMLElement): void => {
+    if (!node.contains(document.activeElement)) return;
+    const top = slot.top();
+    const overflow = top + node.offsetHeight - (editor.getLayoutInfo().height - bottomInset());
+    const scroll = top < 0 ? top : Math.max(0, Math.min(overflow, top));
+    if (scroll !== 0) editor.setScrollTop(editor.getScrollTop() + scroll);
+  };
+
   const measured = (slot: Slot<T>) => (node: HTMLElement) => {
     const observer = new ResizeObserver(() => {
+      reveal(slot, node);
       if (Math.abs(slot.zone.heightInPx - node.offsetHeight) < 1) return;
       slot.zone.heightInPx = node.offsetHeight;
       editor.changeViewZones((accessor) => accessor.layoutZone(slot.zoneId));
     });
+    node.addEventListener("focusin", () => requestAnimationFrame(() => reveal(slot, node)));
     observer.observe(node);
     onCleanup(() => observer.disconnect());
   };
@@ -84,7 +97,8 @@ export function createZoneCards<T>(
   for (const type of ["keydown", "keypress", "keyup"]) {
     layer.addEventListener(type, (event) => event.stopPropagation());
   }
-  // The layer sits outside Monaco's scrollable element, so a wheel over a card scrolls the code explicitly.
+  // The layer sits outside Monaco's scrollable element, so a wheel over a card scrolls the code explicitly —
+  // unless something in the card (a long draft, a wide code block) can scroll that way itself.
   layer.addEventListener(
     "wheel",
     (event) => {
@@ -92,13 +106,34 @@ export function createZoneCards<T>(
         event.deltaMode === WheelEvent.DOM_DELTA_LINE
           ? editor.getOption(monaco.editor.EditorOption.lineHeight)
           : 1;
+      // Shift turns a vertical wheel sideways, as it does over the code.
+      const [dx, dy] =
+        event.shiftKey && event.deltaX === 0 ? [event.deltaY, 0] : [event.deltaX, event.deltaY];
+      if (scrollsItself(event.target as Element, dx, dy)) return;
       editor.setScrollPosition({
-        scrollTop: editor.getScrollTop() + event.deltaY * scale,
-        scrollLeft: editor.getScrollLeft() + event.deltaX * scale,
+        scrollTop: editor.getScrollTop() + dy * scale,
+        scrollLeft: editor.getScrollLeft() + dx * scale,
       });
     },
     { passive: true },
   );
+  const scrollsItself = (target: Element, dx: number, dy: number): boolean => {
+    for (let el: Element | null = target; el !== null && el !== layer; el = el.parentElement) {
+      // Only a real scroll container counts: clipped content (a folded body, an ellipsis) can't be scrolled.
+      const style = getComputedStyle(el);
+      const scrolls = (overflow: string) => overflow === "auto" || overflow === "scroll";
+      const canY =
+        scrolls(style.overflowY) &&
+        ((dy < 0 && el.scrollTop > 0) ||
+          (dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight));
+      const canX =
+        scrolls(style.overflowX) &&
+        ((dx < 0 && el.scrollLeft > 0) ||
+          (dx > 0 && el.scrollLeft + el.clientWidth < el.scrollWidth));
+      if (canY || canX) return true;
+    }
+    return false;
+  };
   const container = editor.getContainerDomNode();
   container.insertBefore(layer, container.firstChild);
   const unmount = render(

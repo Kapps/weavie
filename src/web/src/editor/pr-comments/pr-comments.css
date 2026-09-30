@@ -1,7 +1,7 @@
 /* Inline PR review threads (pr-comment-controller.tsx), rendered as zone cards: an elevated card with a notch
    pointing up at the line it discusses, flat comment rows, and a reply row. */
 .weavie-pr-card {
-  --pr-line: color-mix(in srgb, var(--fg) 12%, transparent);
+  --pr-line: color-mix(in srgb, var(--fg) 16%, transparent);
   position: relative;
   margin-top: 5px;
   background: var(--bar, #101319);
@@ -99,6 +99,7 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
+  object-fit: cover;
   color: #fff;
   font-size: var(--font-hint-size);
   font-weight: 700;
@@ -113,25 +114,34 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
+  min-width: 0;
   line-height: 24px;
 }
 
 .weavie-pr-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
 }
 
 .weavie-pr-time {
+  flex: none;
+  white-space: nowrap;
   color: var(--dim, #6f7884);
   font-size: var(--font-metadata-size);
 }
 
-.weavie-pr-icon-button {
+.weavie-pr-comment-actions {
+  display: flex;
+  gap: 2px;
   align-self: center;
   opacity: 0;
 }
 
-.weavie-pr-comment:hover .weavie-pr-icon-button,
-.weavie-pr-icon-button:focus-visible {
+.weavie-pr-comment:hover .weavie-pr-comment-actions,
+.weavie-pr-comment-actions:focus-within {
   opacity: 1;
 }
 
@@ -141,7 +151,36 @@
   margin-top: 4px;
   padding: 7px 12px;
   border-radius: 2px 10px 10px 10px;
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+
+.weavie-pr-comment-text-capped {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.weavie-pr-comment-text-capped.weavie-pr-fade {
+  mask-image: linear-gradient(to bottom, #000 75%, transparent);
+}
+
+.weavie-pr-more,
+.weavie-pr-fold {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-metadata-size);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.weavie-pr-more:hover,
+.weavie-pr-fold:hover {
+  text-decoration: underline;
+}
+
+.weavie-pr-fold {
+  margin: 8px 0 0 48px;
 }
 
 .weavie-pr-comment-mine .weavie-pr-comment-body {
@@ -154,6 +193,11 @@
   font-size: var(--font-prose-size);
   font-weight: var(--font-prose-weight);
   line-height: 1.5;
+}
+
+/* Code inside prose sits a step smaller than the prose, so it doesn't shout over the words around it. */
+.weavie-pr-comment-body .agent-markdown code {
+  font-size: var(--font-metadata-size);
 }
 
 .weavie-pr-card-foot {

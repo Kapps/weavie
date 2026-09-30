@@ -49,11 +49,22 @@ visible code width instead of the longest line.
 |---|---|---|
 | `weavie.pullRequest.comment` — reply to the thread on the cursor's line, else start a new comment | `$mod+alt+c` | `prCommentable` |
 | `weavie.pullRequest.submitComment` | `$mod+Enter` | `prCommentFocused` |
-| `weavie.pullRequest.cancelComment` | `Escape` | `prCommentFocused` |
+| `weavie.pullRequest.cancelComment` — closes the box; its draft is kept for reopening | `Escape` | `prCommentFocused` |
 | `weavie.pullRequest.toggleComments` — hide/show inline threads | `$mod+alt+Shift+c` | — |
+| `weavie.pullRequest.nextComment` / `prevComment` — jump between threads in the file | `$mod+alt+]` / `$mod+alt+[` | `prCommentable` |
 
 `prCommentFocused` comes from focus (`[data-pr-comment-input]`), and the review chords exclude it, so
 Ctrl+Enter in a comment box submits the comment instead of keeping a hunk.
+
+## Card behaviour
+
+- Avatars are the forge's profile photos (the URL rides along with each comment, so no extra requests); a
+  monogram in a stable per-login hue stands in when there's none or it fails to load.
+- Threads longer than four comments show the opening comment and the latest two behind "Show N more replies";
+  bodies taller than ~220px are capped behind "Show more".
+- The layer clips with `overflow: clip` so nothing — focus, caret-follow — can scroll it and drift cards off their
+  lines; a focused card is revealed by scrolling the editor, clear of the floating review toolbar. A wheel over a
+  card scrolls the editor unless something in the card (a long draft, a wide code block) can scroll that way.
 
 ## Out of scope
 

@@ -294,11 +294,17 @@ public static class CoreCommands {
 	/// <summary>Posts the focused PR comment box; bound to <c>$mod+Enter</c> while it has focus.</summary>
 	public const string PullRequestSubmitComment = "weavie.pullRequest.submitComment";
 
-	/// <summary>Discards the focused PR comment box; bound to <c>Escape</c> while it has focus.</summary>
+	/// <summary>Closes the focused PR comment box, keeping its draft; bound to <c>Escape</c> while it has focus.</summary>
 	public const string PullRequestCancelComment = "weavie.pullRequest.cancelComment";
 
-	/// <summary>Shows or hides the session PR's review comments in the editor; palette only, no default keybinding.</summary>
+	/// <summary>Shows or hides PR review comments in every editor; bound to <c>$mod+alt+Shift+c</c>.</summary>
 	public const string PullRequestToggleComments = "weavie.pullRequest.toggleComments";
+
+	/// <summary>Moves the cursor to the next PR review thread in the file; bound to <c>$mod+alt+]</c>.</summary>
+	public const string PullRequestNextComment = "weavie.pullRequest.nextComment";
+
+	/// <summary>Moves the cursor to the previous PR review thread in the file; bound to <c>$mod+alt+[</c>.</summary>
+	public const string PullRequestPrevComment = "weavie.pullRequest.prevComment";
 
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
@@ -1627,11 +1633,27 @@ public static class CoreCommands {
 			Title = "Cancel Comment",
 			RunsIn = CommandLocation.Web,
 			Category = "Pull Request",
-			Description = "Discard the focused pull request comment box.",
+			Description = "Close the focused pull request comment box; its draft is kept for when it reopens.",
 			Aliases = ["cancel comment", "discard comment", "close comment box"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "Escape", When = "prCommentFocused" }],
 			ShowInPalette = false,
 		});
+
+		foreach (var (id, title, direction, key) in new[] {
+			(PullRequestNextComment, "Next Pull Request Comment", "next", "$mod+alt+]"),
+			(PullRequestPrevComment, "Previous Pull Request Comment", "previous", "$mod+alt+["),
+		}) {
+			registry.Register(new CommandDefinition {
+				Id = id,
+				Title = title,
+				RunsIn = CommandLocation.Web,
+				Category = "Pull Request",
+				When = "prCommentable",
+				Description = $"Move the cursor to the {direction} pull request review thread in this file.",
+				Aliases = [$"{direction} pr comment", $"{direction} review comment", $"{direction} thread"],
+				DefaultKeybindings = [new CommandKeybinding { Key = key, When = "prCommentable && editorFocused" }],
+			});
+		}
 
 		registry.Register(new CommandDefinition {
 			Id = PullRequestToggleComments,

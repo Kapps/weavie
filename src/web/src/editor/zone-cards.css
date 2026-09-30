@@ -8,7 +8,9 @@
 
 .weavie-zone-cards-clip {
   position: relative;
-  overflow: hidden;
+  /* clip, not hidden: a hidden box is still scrollable by focus or caret-follow, which would drift every card
+     off its line. */
+  overflow: clip;
 }
 
 .weavie-zone-card {

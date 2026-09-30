@@ -15,10 +15,10 @@ public sealed class HostCorePullRequestCommentsTests {
 		var provider = new StaticPullRequestProvider(
 			pullRequests,
 			[(42, new ReviewComment {
-				Id = 1, Path = "feature.txt", Line = 1, Outdated = false, Side = "right", Author = "ann", Body = "why?",
+				Id = 1, Path = "feature.txt", Line = 1, Outdated = false, Side = "right", Author = "ann", AuthorAvatarUrl = "https://a/ann", Url = string.Empty, Body = "why?",
 				CreatedAt = "2026-01-01T00:00:00Z", UpdatedAt = "2026-01-01T00:00:00Z", InReplyTo = 0,
 			})],
-			"kapps");
+			new ForgeUser("kapps", "https://a/kapps"));
 		await using var host = await TestHost.StartAsync(
 			repo => {
 				string remote = Path.Combine(Path.GetDirectoryName(repo)!, "remote");
@@ -48,11 +48,13 @@ public sealed class HostCorePullRequestCommentsTests {
 		var loaded = await CommentsAsync(host, set => set.GetProperty("threads").GetArrayLength() == 1);
 
 		Assert.Equal(42, loaded.GetProperty("number").GetInt32());
-		Assert.Equal("kapps", loaded.GetProperty("viewer").GetString());
+		Assert.Equal("kapps", loaded.GetProperty("viewer").GetProperty("login").GetString());
+		Assert.Equal("https://a/kapps", loaded.GetProperty("viewer").GetProperty("avatarUrl").GetString());
 		Assert.Equal([feature], loaded.GetProperty("changedPaths").EnumerateArray().Select(p => p.GetString()));
 		var thread = loaded.GetProperty("threads")[0];
 		Assert.Equal(feature, thread.GetProperty("path").GetString());
 		Assert.False(thread.GetProperty("comments")[0].GetProperty("mine").GetBoolean());
+		Assert.Equal("https://a/ann", thread.GetProperty("comments")[0].GetProperty("avatarUrl").GetString());
 
 		var posted = await host.SessionRequestAsync<JsonElement>(
 			host.WorkspaceSession,

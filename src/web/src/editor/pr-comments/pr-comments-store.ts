@@ -4,9 +4,18 @@ import type { CommandResult } from "../../commands/types";
 import { describeError } from "../../lsp/lsp-errors";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
 
+export interface PrUser {
+  login: string;
+  /** Empty when the forge has no avatar for this user. */
+  avatarUrl: string;
+}
+
 export interface PrComment {
   id: number;
   author: string;
+  avatarUrl: string;
+  /** The comment's forge page; empty when it has none. */
+  url: string;
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -27,7 +36,7 @@ export interface PrCommentSet {
   number: number;
   url: string;
   headSha: string;
-  viewer: string;
+  viewer: PrUser;
   changedPaths: string[];
   threads: PrThread[];
 }
@@ -57,6 +66,10 @@ export const prCommentsVisible = visible;
 
 export function togglePrComments(): void {
   setVisible((shown) => !shown);
+}
+
+export function showPrComments(): void {
+  setVisible(true);
 }
 
 /** Posts one comment mutation; resolves to the host's error, or null once it landed. */

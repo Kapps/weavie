@@ -38,7 +38,7 @@ public sealed partial class HostCore {
 				number = set.Number,
 				url = set.Url,
 				headSha = set.HeadSha,
-				viewer = set.Viewer,
+				viewer = new { login = set.Viewer.Login, avatarUrl = set.Viewer.AvatarUrl },
 				changedPaths = set.ChangedPaths.Select(path => AbsolutePath(session, path)),
 				threads = set.Threads.Select(thread => new {
 					rootId = thread.RootId,
@@ -49,6 +49,8 @@ public sealed partial class HostCore {
 					comments = thread.Comments.Select(comment => new {
 						id = comment.Id,
 						author = comment.Author,
+						avatarUrl = comment.AuthorAvatarUrl,
+						url = comment.Url,
 						body = comment.Body,
 						createdAt = comment.CreatedAt,
 						updatedAt = comment.UpdatedAt,

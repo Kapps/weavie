@@ -142,7 +142,7 @@ public sealed class PullRequestComments {
 		try {
 			var diff = await DiffAsync(target, ct).ConfigureAwait(false);
 			var comments = await _store.ListAsync(target.Repo, target.Number, ct).ConfigureAwait(false);
-			string viewer = await _store.ViewerLoginAsync(target.Repo, ct).ConfigureAwait(false);
+			var viewer = await _store.ViewerAsync(target.Repo, ct).ConfigureAwait(false);
 			if (_latest is { Error: null, Set: { } current } && current.Number == target.Number
 				&& current.HeadSha == target.HeadSha && current.Viewer == viewer
 				&& ReferenceEquals(current.ChangedPaths, diff.Paths) && _comments.SequenceEqual(comments)) {

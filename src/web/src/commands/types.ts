@@ -151,6 +151,8 @@ export const CommandIds = {
   prSubmitComment: "weavie.pullRequest.submitComment",
   prCancelComment: "weavie.pullRequest.cancelComment",
   prToggleComments: "weavie.pullRequest.toggleComments",
+  prNextComment: "weavie.pullRequest.nextComment",
+  prPrevComment: "weavie.pullRequest.prevComment",
   closeTab: "weavie.editor.closeTab",
   nextTab: "weavie.editor.nextTab",
   prevTab: "weavie.editor.prevTab",

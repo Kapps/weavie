@@ -187,7 +187,7 @@ public sealed class HostCoreGitBlameTests {
 				},
 			],
 			[],
-			"viewer");
+			new ForgeUser("viewer", string.Empty));
 		string sha = string.Empty;
 		await using var host = await TestHost.StartAsync(
 			repo => {

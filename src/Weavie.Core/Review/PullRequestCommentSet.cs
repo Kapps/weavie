@@ -13,20 +13,20 @@ public sealed record PullRequestTarget(RepoRef Repo, string Remote, int Number, 
 /// <param name="Number">The PR number.</param>
 /// <param name="Url">The PR's web URL.</param>
 /// <param name="HeadSha">The PR head every post is made against.</param>
-/// <param name="Viewer">The authenticated forge login.</param>
+/// <param name="Viewer">The authenticated forge user.</param>
 /// <param name="ChangedPaths">Repository-relative paths changed between the merge-base and <paramref name="HeadSha"/>.</param>
 /// <param name="Threads">The PR's review threads.</param>
 public sealed record PullRequestCommentSet(
 	int Number,
 	string Url,
 	string HeadSha,
-	string Viewer,
+	ForgeUser Viewer,
 	IReadOnlyList<string> ChangedPaths,
 	IReadOnlyList<ReviewThread> Threads) {
 	/// <summary>Whether <paramref name="comment"/> was written by <see cref="Viewer"/>.</summary>
 	public bool IsMine(ReviewComment comment) {
 		ArgumentNullException.ThrowIfNull(comment);
-		return string.Equals(comment.Author, Viewer, StringComparison.OrdinalIgnoreCase);
+		return string.Equals(comment.Author, Viewer.Login, StringComparison.OrdinalIgnoreCase);
 	}
 }
 

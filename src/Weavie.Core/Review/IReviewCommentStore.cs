@@ -18,6 +18,11 @@ public interface IReviewCommentStore {
 	/// <summary>Replaces the body of review comment <paramref name="id"/>; returns the edited comment.</summary>
 	Task<ReviewComment> EditAsync(RepoRef repo, long id, string body, CancellationToken ct = default);
 
-	/// <summary>The login of the user the forge authenticates these calls as.</summary>
-	Task<string> ViewerLoginAsync(RepoRef repo, CancellationToken ct = default);
+	/// <summary>The user the forge authenticates these calls as.</summary>
+	Task<ForgeUser> ViewerAsync(RepoRef repo, CancellationToken ct = default);
 }
+
+/// <summary>A forge account: its login and avatar image URL (empty when it has none).</summary>
+/// <param name="Login">The account login.</param>
+/// <param name="AvatarUrl">The avatar image URL, or empty.</param>
+public sealed record ForgeUser(string Login, string AvatarUrl);

@@ -110,6 +110,8 @@ export interface CommentSeed {
   line: number;
   side: "left" | "right";
   author: string;
+  avatarUrl: string;
+  url: string;
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -117,11 +119,16 @@ export interface CommentSeed {
   inReplyTo: number;
 }
 
+// An offline stand-in for a forge profile photo.
+const avatar = (color: string): string =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="${color}"/><circle cx="4" cy="3" r="1.6" fill="#fff"/><rect x="1.5" y="5.2" width="5" height="3" rx="1.5" fill="#fff"/></svg>`)}`;
+
 export async function createPrWorkspace(): Promise<{
   dir: string;
   prs: PrSeed[];
   comments: CommentSeed[];
   viewer: string;
+  viewerAvatarUrl: string;
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
@@ -215,6 +222,8 @@ export async function createPrWorkspace(): Promise<{
         line: 2,
         side: "right",
         author: "bob",
+        avatarUrl: avatar("#8e44ad"),
+        url: "https://github.com/acme/demo/pull/101#discussion_r1",
         body: "Why change this greeting?",
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -223,6 +232,8 @@ export async function createPrWorkspace(): Promise<{
       },
     ],
     viewer: "you",
+    // Only bob has a photo, so both the image and the monogram paths render.
+    viewerAvatarUrl: "",
   };
 }
 

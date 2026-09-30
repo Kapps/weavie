@@ -48,7 +48,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		var set = Assert.IsType<PullRequestCommentSet>(comments.Latest.Set);
 		Assert.Null(comments.Latest.Error);
 		Assert.Equal(["a.txt", "c.txt"], set.ChangedPaths);
-		Assert.Equal("me", set.Viewer);
+		Assert.Equal("me", set.Viewer.Login);
 		var thread = Assert.Single(set.Threads);
 		Assert.Equal([1L, 2L], thread.Comments.Select(c => c.Id));
 		Assert.Equal([false, true], thread.Comments.Select(set.IsMine));
@@ -172,7 +172,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 			(Number, Comment(2, 1, "Me")),
 			(8, Comment(3, 0, "ann")),
 		],
-		"me");
+		new ForgeUser("me", string.Empty));
 
 	private static ReviewComment Comment(long id, long inReplyTo, string author) => new() {
 		Id = id,
@@ -181,6 +181,8 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		Outdated = false,
 		Side = "right",
 		Author = author,
+		AuthorAvatarUrl = string.Empty,
+		Url = string.Empty,
 		Body = $"comment {id}",
 		CreatedAt = $"2026-01-0{id}T00:00:00Z",
 		UpdatedAt = $"2026-01-0{id}T00:00:00Z",
@@ -207,6 +209,6 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		public Task<ReviewComment> EditAsync(RepoRef repo, long id, string body, CancellationToken ct = default) =>
 			inner.EditAsync(repo, id, body, ct);
 
-		public Task<string> ViewerLoginAsync(RepoRef repo, CancellationToken ct = default) => inner.ViewerLoginAsync(repo, ct);
+		public Task<ForgeUser> ViewerAsync(RepoRef repo, CancellationToken ct = default) => inner.ViewerAsync(repo, ct);
 	}
 }

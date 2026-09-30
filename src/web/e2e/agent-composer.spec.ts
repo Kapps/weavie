@@ -1481,7 +1481,7 @@ test.describe("ACP composer", () => {
         number: 123,
         url,
         headSha: "abc",
-        viewer: "me",
+        viewer: { login: "me", avatarUrl: "" },
         changedPaths: [],
         threads: [thread, { ...thread, rootId: 2 }].map((t) => ({ ...t, comments: [] })),
       },

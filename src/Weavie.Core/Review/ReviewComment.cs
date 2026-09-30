@@ -24,6 +24,12 @@ public sealed record ReviewComment {
 	/// <summary>The comment author's login.</summary>
 	public required string Author { get; init; }
 
+	/// <summary>The author's avatar image URL as the forge serves it, or empty when it has none.</summary>
+	public required string AuthorAvatarUrl { get; init; }
+
+	/// <summary>The comment's web page on the forge, or empty when it has none.</summary>
+	public required string Url { get; init; }
+
 	/// <summary>The comment body (markdown; sanitized before render).</summary>
 	public required string Body { get; init; }
 

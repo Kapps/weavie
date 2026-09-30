@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Weavie.Core.Review;
 
 public sealed partial class GitHubReviewProvider {
-	private readonly ConcurrentDictionary<string, string> _viewers = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, ForgeUser> _viewers = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, CommentPage> _commentPages = new(StringComparer.Ordinal);
 
 	/// <inheritdoc/>
@@ -77,12 +77,12 @@ public sealed partial class GitHubReviewProvider {
 	}
 
 	/// <inheritdoc/>
-	public async Task<string> ViewerLoginAsync(RepoRef repo, CancellationToken ct = default) {
+	public async Task<ForgeUser> ViewerAsync(RepoRef repo, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		// Keyed by credential too, so switching accounts re-asks who "mine" is.
 		string token = await ResolveTokenAsync(ct).ConfigureAwait(false);
 		string key = $"{repo.Host}\n{token}";
-		if (_viewers.TryGetValue(key, out string? cached)) {
+		if (_viewers.TryGetValue(key, out var cached)) {
 			return cached;
 		}
 
@@ -93,7 +93,7 @@ public sealed partial class GitHubReviewProvider {
 		using var doc = JsonDocument.Parse(body);
 		string login = String(doc.RootElement, "login");
 		return login.Length > 0
-			? _viewers.GetOrAdd(key, login)
+			? _viewers.GetOrAdd(key, new ForgeUser(login, String(doc.RootElement, "avatar_url")))
 			: throw new InvalidOperationException("GitHub didn't report the signed-in user's login.");
 	}
 
@@ -132,7 +132,9 @@ public sealed partial class GitHubReviewProvider {
 		Line = Int(c, "line"),
 		Outdated = !c.TryGetProperty("line", out var line) || line.ValueKind != JsonValueKind.Number,
 		Side = String(c, "side").Equals("LEFT", StringComparison.OrdinalIgnoreCase) ? "left" : "right",
-		Author = c.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
+		Author = UserField(c, "login"),
+		AuthorAvatarUrl = UserField(c, "avatar_url"),
+		Url = String(c, "html_url"),
 		Body = String(c, "body"),
 		CreatedAt = String(c, "created_at"),
 		UpdatedAt = String(c, "updated_at"),
@@ -140,4 +142,7 @@ public sealed partial class GitHubReviewProvider {
 	};
 
 	private sealed record CommentPage(string EntityTag, IReadOnlyList<ReviewComment> Comments, string? Next);
+
+	private static string UserField(JsonElement comment, string name) =>
+		comment.TryGetProperty("user", out var user) ? String(user, name) : string.Empty;
 }

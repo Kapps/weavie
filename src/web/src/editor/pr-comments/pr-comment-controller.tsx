@@ -27,6 +27,7 @@ import {
   prCommentsFor,
   prCommentsVisible,
   sendPrComment,
+  showPrComments,
 } from "./pr-comments-store";
 import "./pr-comments.css";
 
@@ -35,6 +36,8 @@ export interface PrCommentController {
   commentable(): boolean;
   /** Opens a comment box on the cursor's line: the reply of the thread anchored there, else a new comment. */
   comment(): boolean;
+  /** Moves the cursor to the next (1) or previous (-1) thread in this file; false when there's none that way. */
+  navigate(direction: 1 | -1): boolean;
   dispose(): void;
 }
 
@@ -43,6 +46,7 @@ type Card = { kind: "thread"; placement: ThreadPlacement } | { kind: "draft"; li
 const inert: PrCommentController = {
   commentable: () => false,
   comment: () => false,
+  navigate: () => false,
   dispose: () => {},
 };
 
@@ -126,7 +130,17 @@ export function createPrComments(
       setDrafting(line !== null);
     };
     const [replying, setReplying] = createSignal<ReadonlySet<number>>(new Set());
+    // Outdated threads start collapsed; the user's own collapse/expand wins from then on.
+    const [collapsedByUser, setCollapsedByUser] = createSignal<ReadonlyMap<number, boolean>>(
+      new Map(),
+    );
+    const collapsed = (placement: ThreadPlacement): boolean =>
+      collapsedByUser().get(placement.thread.rootId) ?? placement.note === "outdated";
+    const collapse = (rootId: number, value: boolean): void => {
+      setCollapsedByUser((current) => new Map(current).set(rootId, value));
+    };
     const reply = (rootId: number, open: boolean): void => {
+      if (open) collapse(rootId, false);
       setReplying((current) => {
         const next = new Set(current);
         if (open) next.add(rootId);
@@ -174,40 +188,63 @@ export function createPrComments(
       return error;
     };
 
-    const disposeCards = createZoneCards(editor, cards, (card: Accessor<Card>) => {
-      const current = card();
-      if (current.kind === "draft") {
-        return (
-          <PrDraftCard
-            line={(card() as Extract<Card, { kind: "draft" }>).line}
-            viewer={set()?.viewer ?? ""}
-            onSubmit={submitDraft}
-            onCancel={() => setDraft(null)}
-          />
-        );
-      }
-      const placement = () => (card() as Extract<Card, { kind: "thread" }>).placement;
-      const rootId = placement().thread.rootId;
-      return (
-        <Show when={set()}>
-          {(active) => (
-            <PrThreadCard
-              placement={placement()}
-              session={session}
-              number={active().number}
-              viewer={active().viewer}
-              replying={replying().has(rootId)}
-              onReplying={(open) => reply(rootId, open)}
+    // The applied review's floating toolbar covers the bottom of the editor it reviews.
+    const reviewToolbarInset = (): number => {
+      const editorBox = editor.getDomNode()?.getBoundingClientRect();
+      const toolbar = editor
+        .getContainerDomNode()
+        .closest("[data-kind]")
+        ?.querySelector(".weavie-inline-toolbar")
+        ?.getBoundingClientRect();
+      return editorBox === undefined || toolbar == null || toolbar.top >= editorBox.bottom
+        ? 0
+        : editorBox.bottom - toolbar.top;
+    };
+
+    const disposeCards = createZoneCards(
+      editor,
+      cards,
+      (card: Accessor<Card>) => {
+        const current = card();
+        if (current.kind === "draft") {
+          return (
+            <PrDraftCard
+              draftKey={`new:${set()?.number}:${path}:${current.line}`}
+              line={(card() as Extract<Card, { kind: "draft" }>).line}
+              viewer={set()?.viewer ?? { login: "", avatarUrl: "" }}
+              onSubmit={submitDraft}
+              onCancel={() => setDraft(null)}
             />
-          )}
-        </Show>
-      );
-    });
+          );
+        }
+        const placement = () => (card() as Extract<Card, { kind: "thread" }>).placement;
+        const rootId = placement().thread.rootId;
+        return (
+          <Show when={set()}>
+            {(active) => (
+              <PrThreadCard
+                placement={placement()}
+                session={session}
+                number={active().number}
+                viewer={active().viewer}
+                collapsed={collapsed(placement())}
+                onCollapsed={(value) => collapse(rootId, value)}
+                replying={replying().has(rootId)}
+                onReplying={(open) => reply(rootId, open)}
+              />
+            )}
+          </Show>
+        );
+      },
+      reviewToolbarInset,
+    );
 
     const comment = (): boolean => {
       const current = set();
       const line = editor.getPosition()?.lineNumber;
       if (current === null || line === undefined || !commentable()) return false;
+      // Commenting while threads are hidden would post into nothing visible.
+      showPrComments();
       const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
       if (thread?.data.kind === "thread") {
         reply(thread.data.placement.thread.rootId, true);
@@ -228,9 +265,28 @@ export function createPrComments(
       return true;
     };
 
+    const navigate = (direction: 1 | -1): boolean => {
+      showPrComments();
+      const line = editor.getPosition()?.lineNumber ?? 0;
+      const anchors = [...new Set(cards().map((card) => Math.max(1, card.afterLine)))].sort(
+        (a, b) => (a - b) * direction,
+      );
+      const target = anchors.find((anchor) => (anchor - line) * direction > 0);
+      if (target === undefined) {
+        const where = direction === 1 ? "below" : "above";
+        notify("info", `No more PR comments ${where} in this file.`, "pr-comments");
+        return true;
+      }
+      editor.setPosition({ lineNumber: target, column: 1 });
+      editor.revealLineInCenterIfOutsideViewport(target);
+      editor.focus();
+      return true;
+    };
+
     return {
       commentable,
       comment,
+      navigate,
       dispose: () => {
         clearTimeout(recompute);
         onContent.dispose();

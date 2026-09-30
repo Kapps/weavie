@@ -285,7 +285,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     const prsPath = join(home, "fake-prs.json");
     await writeFile(
       prsPath,
-      JSON.stringify({ prs: pr.prs, comments: pr.comments, viewer: pr.viewer }),
+      JSON.stringify({
+        prs: pr.prs,
+        comments: pr.comments,
+        viewer: pr.viewer,
+        viewerAvatarUrl: pr.viewerAvatarUrl,
+      }),
     );
     env.WEAVIE_FAKE_PRS = prsPath;
   }

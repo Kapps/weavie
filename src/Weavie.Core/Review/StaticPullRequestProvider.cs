@@ -9,7 +9,7 @@ namespace Weavie.Core.Review;
 public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCommentStore {
 	private readonly IReadOnlyList<PullRequestSummary> _pullRequests;
 	private readonly List<(int Number, ReviewComment Comment)> _comments;
-	private readonly string _viewer;
+	private readonly ForgeUser _viewer;
 	private readonly Lock _gate = new();
 	private long _nextId;
 
@@ -20,10 +20,11 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	public StaticPullRequestProvider(
 		IReadOnlyList<PullRequestSummary> pullRequests,
 		IReadOnlyList<(int Number, ReviewComment Comment)> comments,
-		string viewer) {
+		ForgeUser viewer) {
 		ArgumentNullException.ThrowIfNull(pullRequests);
 		ArgumentNullException.ThrowIfNull(comments);
-		ArgumentException.ThrowIfNullOrWhiteSpace(viewer);
+		ArgumentNullException.ThrowIfNull(viewer);
+		ArgumentException.ThrowIfNullOrWhiteSpace(viewer.Login);
 		_pullRequests = pullRequests;
 		_comments = [.. comments];
 		_viewer = viewer;
@@ -122,7 +123,7 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	}
 
 	/// <inheritdoc/>
-	public Task<string> ViewerLoginAsync(RepoRef repo, CancellationToken ct = default) => Task.FromResult(_viewer);
+	public Task<ForgeUser> ViewerAsync(RepoRef repo, CancellationToken ct = default) => Task.FromResult(_viewer);
 
 	private ReviewComment Find(int number, long id) =>
 		_comments.FirstOrDefault(c => c.Number == number && c.Comment.Id == id).Comment
@@ -137,7 +138,9 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 				Line = line,
 				Outdated = false,
 				Side = side,
-				Author = _viewer,
+				Author = _viewer.Login,
+				AuthorAvatarUrl = _viewer.AvatarUrl,
+				Url = string.Empty,
 				Body = body,
 				CreatedAt = now,
 				UpdatedAt = now,

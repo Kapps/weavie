@@ -50,6 +50,8 @@ public sealed class ReviewThreadTests {
 		Outdated = outdated,
 		Side = "right",
 		Author = "ann",
+		AuthorAvatarUrl = string.Empty,
+		Url = string.Empty,
 		Body = $"comment {id}",
 		CreatedAt = createdAt,
 		UpdatedAt = createdAt,

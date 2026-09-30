@@ -109,6 +109,29 @@ The frame-time effect of this third fix is **not measured on the native build**:
 callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.
 The numbers in the table above therefore cover the first two fixes only.
 
+### What p99 under 10 ms would still require
+
+Binning every moving frame of the traversal that carried fixes 1-2 (1206 frames; p99 under 10 ms allows at most 12
+above 10 ms, and 32 exceed it):
+
+| band | frames | with a section-set change | without |
+|---|---|---|---|
+| 10-16 ms | 3 | 0 | 3 |
+| 16-30 ms | 20 | 7 | 13 |
+| 30 ms+ | 9 | 9 | 0 |
+
+Sixteen of the 32 carry an insertion or removal, which is what the read fixes address. The other sixteen do not, and
+they cluster in **adjacent pairs** — f664/f665, f932/f933, f1200/f1201 — a boundary's cost spilling into the frame
+after it, so some should fall with their neighbour.
+
+But the floor matters for feasibility: several 20-29 ms frames carry no set change, no `editor.layout`, and no
+create or dispose, which points at Monaco's own render of newly scrolled-in rows. The ordinary editor pane measures
+p99 30-35 ms on the same hardware, so **removing every set-change frame still leaves roughly sixteen above 10 ms
+against a budget of twelve.** Getting under 10 ms therefore needs the per-frame floor to come down too, and the
+measured decomposition of that floor is feature load: smooth scrolling 22% of main-thread scroll work, indent guides
+7%, sticky scroll 5%, inlay hints 5%, whitespace 4%, bracket colorization 1%. Trimming what a *review* editor renders
+is a product decision about how a diff should look, not a correctness fix, so it is left to the user.
+
 ### The insertion-path read: the virtualiser was told the review was never scrolling
 
 `observeElementOffset` reported `isScrolling: false` unconditionally. The virtualiser gates its own synchronous

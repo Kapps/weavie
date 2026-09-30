@@ -24,7 +24,7 @@ namespace Weavie.Hosting;
 /// theme overrides. Most hosts use <see cref="CreateDefault"/>; a multi-window host shares one instance across
 /// windows, so they're passed in rather than owned by the core.
 /// </summary>
-public sealed record HostServices {
+public sealed record HostServices : IDisposable {
 	/// <summary>User settings (<c>~/.weavie/settings.toml</c>) — the change hub the host reacts to.</summary>
 	public required SettingsStore Settings { get; init; }
 
@@ -155,6 +155,13 @@ public sealed record HostServices {
 			PreviousCrashFile = WeaviePaths.PreviousCrashFile,
 			ExitJournalFile = WeaviePaths.ExitJournalFile,
 		};
+	}
+
+	/// <summary>Stops model probes and the settings/keybinding watchers; called once the hosts are torn down.</summary>
+	public void Dispose() {
+		AgentModels.Dispose();
+		Keybindings.Dispose();
+		Settings.Dispose();
 	}
 
 	private static void Log(string line) {

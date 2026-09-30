@@ -14,7 +14,7 @@ terminal Claude and every native ACP agent — can consult. Skills were rejected
 ## Tools
 
 - `listAgents` returns every registered provider with whether it can be consulted (and why not) and its cached model
-  catalog: state (`ready`, `probing`, `failed`), the advertised model options, the current default, when and how the
+  catalog: state (`ready`, `probing`, `failed`), the advertised model options, when and how the
   catalog was observed, and the failure detail when the last refresh failed.
 - `consultAgent({provider, model, prompt})` runs one consult turn in the session's worktree and returns the consulted
   agent's final message. `model` may be omitted to keep the provider's default.
@@ -84,11 +84,15 @@ Terminal Claude is listed but not consultable. Consulting Claude goes through th
 Long tool calls own a per-call cancellation source, cancelled by:
 
 - `notifications/cancelled` from the same client — scoped per WebSocket connection, or per `Mcp-Session-Id`, which
-  the server now issues on the HTTP `initialize` response;
+  the server issues on the HTTP `initialize` response;
 - the calling connection closing;
 - server disposal on session unload.
 
 The stdio MCP proxy has no client-side request timeout: the caller's cancellation owns a tool call's lifetime.
+
+The calling agent's own tool timeout still applies. Codex defaults MCP tool calls to 60 seconds, and codex-acp
+configures client-supplied MCP servers without a timeout, so a Codex caller gives up on a longer consult. Codex
+reaches the registry over HTTP, so abandoning the request closes the connection and cancels the consult.
 
 ## Deferred
 

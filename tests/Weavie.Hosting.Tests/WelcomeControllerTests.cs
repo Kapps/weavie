@@ -132,8 +132,7 @@ public sealed class WelcomeControllerTests : IDisposable {
 
 	public void Dispose() {
 		_controller.Detach();
-		_services.Keybindings.Dispose();
-		_services.Settings.Dispose();
+		_services.Dispose();
 		_temp.Dispose();
 	}
 

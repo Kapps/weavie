@@ -12,29 +12,29 @@ namespace Weavie.AgentClientProtocol;
 /// disposal. Owners decide how agent requests and notifications are answered.
 /// </summary>
 internal sealed class AcpTransientConnection : IAsyncDisposable {
+	private const int StderrTailLines = 12;
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+	private readonly Queue<string> _stderr = new();
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly OwnedProcess _process;
+	private readonly Task _stderrDrained;
 	private long _nextId;
 	private volatile bool _disposed;
 
-	private AcpTransientConnection(AcpAgentDefinition definition, OwnedProcess process, Task stderrDrained) {
+	private AcpTransientConnection(AcpAgentDefinition definition, OwnedProcess process) {
 		Definition = definition;
 		_process = process;
-		StderrDrained = stderrDrained;
+		_stderrDrained = DrainStderrAsync();
 	}
 
 	/// <summary>The agent this process runs.</summary>
 	public AcpAgentDefinition Definition { get; }
 
-	/// <summary>Completes once the agent's stderr has been read to its end.</summary>
-	public Task StderrDrained { get; }
+	/// <summary>The user-facing failure for an agent that demands a sign-in a transient client can't perform.</summary>
+	public string AuthenticationRequired => $"{Definition.Name} requires authentication. Open a session with it to sign in.";
 
 	/// <summary>Launches the agent in <paramref name="workspace"/>; call <see cref="Listen"/> before any request.</summary>
-	public static AcpTransientConnection Start(
-		AcpAgentDefinition definition,
-		string workspace,
-		Action<string> onStderrLine) {
+	public static AcpTransientConnection Start(AcpAgentDefinition definition, string workspace) {
 		string directory = Path.GetFullPath(workspace);
 		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, directory, []);
 		var info = new ProcessStartInfo(invocation.Command) {
@@ -51,8 +51,18 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 		foreach (string argument in invocation.Arguments) info.ArgumentList.Add(argument);
 		foreach (var entry in definition.Environment) info.Environment[entry.Key] = entry.Value;
 
-		var process = OwnedProcess.Start(info);
-		return new AcpTransientConnection(definition, process, DrainStderrAsync(process, onStderrLine));
+		return new AcpTransientConnection(definition, OwnedProcess.Start(info));
+	}
+
+	/// <summary>Stops the agent and describes <paramref name="failure"/> with the agent's own last stderr lines.</summary>
+	public async Task<InvalidOperationException> FailureAsync(string summary, Exception failure) {
+		await DisposeAsync().ConfigureAwait(false);
+		// The agent's own explanation (e.g. an npm error) is on stderr, which can still be flushing after stdout closes.
+		await _stderrDrained.ConfigureAwait(false);
+		string output;
+		lock (_stderr) output = string.Join('\n', _stderr).Trim();
+		return new InvalidOperationException(
+			$"{summary}: {failure.Message}" + (output.Length > 0 ? $"\n{output}" : string.Empty), failure);
 	}
 
 	/// <summary>True when launching failed because the agent's command could not be started.</summary>
@@ -63,11 +73,14 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 	public void Listen(Action<long, string, JsonElement> onRequest, Action<string, JsonElement> onNotification) =>
 		_ = ReadStdoutAsync(onRequest, onNotification);
 
-	// Read stderr so a chatty agent cannot fill its pipe buffer and stall; each line goes to the caller's sink.
-	private static async Task DrainStderrAsync(OwnedProcess process, Action<string> onLine) {
+	// Read stderr so a chatty agent cannot fill its pipe buffer and stall; its tail explains a failed start.
+	private async Task DrainStderrAsync() {
 		try {
-			while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
-				onLine(line);
+			while (await _process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
+				lock (_stderr) {
+					_stderr.Enqueue(line);
+					if (_stderr.Count > StderrTailLines) _stderr.Dequeue();
+				}
 			}
 		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
 			// The process ended first.

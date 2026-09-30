@@ -29,12 +29,14 @@ internal sealed class AcpConsultClient {
 	/// <summary>Opens one throwaway session and returns the controls it advertises, or throws why it couldn't.</summary>
 	public static async Task<IReadOnlyList<AgentControlAxis>> ProbeAsync(AcpAgentDefinition definition, CancellationToken ct) {
 		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		await using var connection = AcpTransientConnection.Start(definition, home, static _ => { });
-		var client = new AcpConsultClient(connection);
+		await using var connection = AcpTransientConnection.Start(definition, home);
 		try {
-			return AcpConfigurationOptions.ReadIfPresent(await client.OpenSessionAsync(home, ct).ConfigureAwait(false));
+			var setup = await new AcpConsultClient(connection).OpenSessionAsync(home, ct).ConfigureAwait(false);
+			return AcpConfigurationOptions.ReadIfPresent(setup);
 		} catch (AcpAuthenticationRequiredException) {
-			throw new InvalidOperationException(client.AuthenticationRequired);
+			throw new InvalidOperationException(connection.AuthenticationRequired);
+		} catch (Exception ex) when (ex is IOException or AcpProtocolException) {
+			throw await connection.FailureAsync($"{definition.Name} didn't open a session", ex).ConfigureAwait(false);
 		}
 	}
 
@@ -45,7 +47,7 @@ internal sealed class AcpConsultClient {
 		CancellationToken ct) {
 		AcpTransientConnection connection;
 		try {
-			connection = AcpTransientConnection.Start(definition, request.Workspace, static _ => { });
+			connection = AcpTransientConnection.Start(definition, request.Workspace);
 		} catch (Exception ex) when (AcpTransientConnection.IsStartFailure(ex)) {
 			return Failure(request.Model, [], $"{definition.Name} could not be started: {ex.Message}");
 		}
@@ -54,8 +56,6 @@ internal sealed class AcpConsultClient {
 			return await new AcpConsultClient(connection).RunAsync(request, ct).ConfigureAwait(false);
 		}
 	}
-
-	private string AuthenticationRequired => $"{Name} requires authentication. Open a session with it to sign in.";
 
 	private async Task<JsonElement> OpenSessionAsync(string workspace, CancellationToken ct) {
 		await _connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters, ct).ConfigureAwait(false);
@@ -92,7 +92,7 @@ internal sealed class AcpConsultClient {
 		} catch (OperationCanceledException) {
 			throw;
 		} catch (AcpAuthenticationRequiredException) {
-			return Failure(request.Model, controls, AuthenticationRequired);
+			return Failure(request.Model, controls, _connection.AuthenticationRequired);
 		} catch (Exception ex) when (ex is AcpProtocolException or IOException or InvalidOperationException) {
 			return Failure(request.Model, controls, $"{Name} did not complete the consult: {ex.Message}");
 		}
@@ -113,7 +113,7 @@ internal sealed class AcpConsultClient {
 	}
 
 	private void OnRequest(long id, string method, JsonElement parameters) {
-		if (method != "session/request_permission") {
+		if (method != "session/request_permission" || parameters.ValueKind != JsonValueKind.Object) {
 			_ = _connection.RefuseAsync(id, method);
 			return;
 		}
@@ -131,7 +131,10 @@ internal sealed class AcpConsultClient {
 	}
 
 	private void OnNotification(string method, JsonElement parameters) {
-		if (method != "session/update" || !parameters.TryGetProperty("update", out var update)) return;
+		if (method != "session/update" || parameters.ValueKind != JsonValueKind.Object
+			|| !parameters.TryGetProperty("update", out var update)) {
+			return;
+		}
 		switch (update.GetStringOrNull("sessionUpdate")) {
 			case "agent_message_chunk" when update.TryGetProperty("content", out var content):
 				lock (_gate) _reply.Append(content.GetStringOrEmpty("text"));
@@ -154,7 +157,8 @@ internal sealed class AcpConsultClient {
 			.SelectMany(property => tool.GetProperty(property).EnumerateArray())
 			.Select(item => item.GetStringOrNull("path"))
 			.OfType<string>()
-			.DefaultIfEmpty(tool.GetStringOrEmpty("title"));
+			.DefaultIfEmpty(tool.GetStringOrNull("title") is { Length: > 0 } title ? title : "an unnamed file")
+			.Where(path => path.Length > 0);
 		bool first;
 		lock (_gate) {
 			first = _mutated.Count == 0;

@@ -211,8 +211,7 @@ internal sealed class AppController : ApplicationContext {
 		if (disposing) {
 			_hotkeys.Dispose(); // unregisters the OS hotkeys + tears down the message window
 			Notifications.Dispose();
-			Services.Settings.Dispose();
-			Services.Keybindings.Dispose();
+			Services.Dispose();
 		}
 
 		base.Dispose(disposing);

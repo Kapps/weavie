@@ -50,9 +50,8 @@ public sealed class AgentModelCatalog : IDisposable {
 	private readonly AgentProviderRegistry _providers;
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, Slot> _slots = new(StringComparer.Ordinal);
-	// Cancelled, never disposed: probes still unwinding at shutdown hold tokens linked to it.
-	private readonly CancellationTokenSource _lifetime = new();
 	private long _sequence;
+	private bool _disposed;
 
 	/// <summary>Creates the catalog over <paramref name="providers"/>; call <see cref="Start"/> to begin probing.</summary>
 	public AgentModelCatalog(AgentProviderRegistry providers) {
@@ -82,24 +81,30 @@ public sealed class AgentModelCatalog : IDisposable {
 	}
 
 	private void Refresh() {
-		var consultable = _providers.Providers.OfType<IAgentConsultProvider>().Where(p => p.Info.Available).ToArray();
 		var probes = new List<(IAgentConsultProvider Provider, Slot Slot, long Version, CancellationTokenSource Probe)>();
+		CancellationTokenSource[] superseded;
 		lock (_gate) {
-			if (_lifetime.IsCancellationRequested) return;
-			foreach (var slot in _slots.Values) slot.Probe?.Cancel();
-			_slots.Clear();
-			foreach (var provider in consultable) {
-				var probe = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+			if (_disposed) return;
+			superseded = TakeProbes();
+			foreach (var provider in _providers.Providers.OfType<IAgentConsultProvider>().Where(p => p.Info.Available)) {
 				var slot = new Slot {
-					Probe = probe,
+					Probe = new CancellationTokenSource(),
 					Version = ++_sequence,
 					Entry = State(AgentModelStatus.Probing, [], null),
 				};
 				_slots[provider.Info.Id] = slot;
-				probes.Add((provider, slot, slot.Version, probe));
+				probes.Add((provider, slot, slot.Version, slot.Probe));
 			}
 		}
+		foreach (var probe in superseded) probe.Cancel();
 		foreach (var (provider, slot, version, probe) in probes) _ = ProbeAsync(provider, slot, version, probe);
+	}
+
+	// Callers cancel the taken probes after leaving the lock: a probe may complete inline on cancellation.
+	private CancellationTokenSource[] TakeProbes() {
+		var probes = _slots.Values.Select(slot => slot.Probe).OfType<CancellationTokenSource>().ToArray();
+		_slots.Clear();
+		return probes;
 	}
 
 	private async Task ProbeAsync(IAgentConsultProvider provider, Slot slot, long version, CancellationTokenSource probe) {
@@ -113,7 +118,6 @@ public sealed class AgentModelCatalog : IDisposable {
 		}
 		lock (_gate) {
 			slot.Probe = null;
-			probe.Dispose();
 			// A newer observation or a refresh supersedes this probe's result.
 			if (entry is not null && slot.Version == version && _slots.ContainsValue(slot)) slot.Entry = entry;
 		}
@@ -130,13 +134,16 @@ public sealed class AgentModelCatalog : IDisposable {
 	/// <inheritdoc/>
 	public void Dispose() {
 		_providers.Changed -= Refresh;
+		CancellationTokenSource[] probes;
 		lock (_gate) {
-			_lifetime.Cancel();
-			_slots.Clear();
+			_disposed = true;
+			probes = TakeProbes();
 		}
+		foreach (var probe in probes) probe.Cancel();
 	}
 
 	private sealed class Slot {
+		// Unlinked and timer-free, so it needs no disposal; null once its probe has finished.
 		public required CancellationTokenSource? Probe { get; set; }
 		public required long Version { get; set; }
 		public required AgentModelEntry Entry { get; set; }

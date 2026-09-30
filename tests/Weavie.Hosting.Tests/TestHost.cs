@@ -37,6 +37,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
 
 	private readonly HostServices _services;
+
+	/// <summary>The app-global model catalog this host's sessions report into.</summary>
+	internal AgentModelCatalog AgentModels => _services.AgentModels;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
@@ -656,8 +659,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Core.DisposeAsync().ConfigureAwait(false);
-		_services.Keybindings.Dispose();
-		_services.Settings.Dispose();
+		_services.Dispose();
 		_temp.Dispose();
 	}
 }

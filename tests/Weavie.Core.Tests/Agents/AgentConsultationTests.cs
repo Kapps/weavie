@@ -23,9 +23,10 @@ public sealed class AgentConsultationTests : IDisposable {
 
 		Assert.Equal(AgentModelStatus.Probing, _models.Find("codex")!.Status);
 		Assert.Null(_models.Find("claude"));
-		_codex.Probes.Single().Result.SetResult([FakeConsultProvider.Models("gpt", "astra")]);
+		await _codex.CompleteProbe(0, FakeConsultProvider.Models("gpt", "astra"));
 
-		var entry = await Eventually(() => _models.Find("codex") is { Status: AgentModelStatus.Ready } ready ? ready : null);
+		var entry = _models.Find("codex")!;
+		Assert.Equal(AgentModelStatus.Ready, entry.Status);
 		Assert.Equal(["gpt", "astra"], entry.Models.Select(model => model.Id));
 		Assert.Equal(AgentModelSource.Probe, entry.Source);
 	}
@@ -33,13 +34,14 @@ public sealed class AgentConsultationTests : IDisposable {
 	[Fact]
 	public async Task AFailedRefreshReplacesTheReadySnapshot() {
 		_models.Start();
-		_codex.Probes[0].Result.SetResult([FakeConsultProvider.Models("astra")]);
-		await Eventually(() => _models.Find("codex") is { Status: AgentModelStatus.Ready } ready ? ready : null);
+		await _codex.CompleteProbe(0, FakeConsultProvider.Models("astra"));
+		Assert.Equal(AgentModelStatus.Ready, _models.Find("codex")!.Status);
 
 		_providers.ReplaceAll(_providers.Providers);
-		_codex.Probes[1].Result.SetException(new InvalidOperationException("Fake codex requires authentication."));
+		await _codex.FailProbe(1, "Fake codex requires authentication.");
 
-		var entry = await Eventually(() => _models.Find("codex") is { Status: AgentModelStatus.Failed } failed ? failed : null);
+		var entry = _models.Find("codex")!;
+		Assert.Equal(AgentModelStatus.Failed, entry.Status);
 		Assert.Empty(entry.Models);
 		Assert.Equal("Fake codex requires authentication.", entry.Error);
 	}
@@ -49,8 +51,7 @@ public sealed class AgentConsultationTests : IDisposable {
 		_models.Start();
 		_models.Observe("codex", [FakeConsultProvider.Models("astra")], AgentModelSource.Session);
 
-		_codex.Probes.Single().Result.SetResult([FakeConsultProvider.Models("stale")]);
-		await Task.Delay(50);
+		await _codex.CompleteProbe(0, FakeConsultProvider.Models("stale"));
 
 		var entry = _models.Find("codex")!;
 		Assert.Equal(AgentModelSource.Session, entry.Source);
@@ -103,14 +104,6 @@ public sealed class AgentConsultationTests : IDisposable {
 	}
 
 	private static AgentConsultRequest Request() => new() { Workspace = "/work", Model = "astra", Prompt = "Review it." };
-
-	private static async Task<T> Eventually<T>(Func<T?> read) where T : class {
-		for (int attempt = 0; attempt < 200; attempt++) {
-			if (read() is { } value) return value;
-			await Task.Delay(10);
-		}
-		throw new TimeoutException("The catalog never reached the expected state.");
-	}
 
 	private sealed class TerminalProvider : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {

@@ -38,7 +38,7 @@ internal sealed class AcpInferenceClient {
 		CancellationToken ct) {
 		AcpTransientConnection connection;
 		try {
-			connection = AcpTransientConnection.Start(definition, request.Workspace, static _ => { });
+			connection = AcpTransientConnection.Start(definition, request.Workspace);
 		} catch (Exception ex) when (AcpTransientConnection.IsStartFailure(ex)) {
 			return Failure(definition.Id, InferenceFailureKind.NotConfigured,
 				$"The ACP agent '{definition.Name}' could not be started.");
@@ -100,7 +100,7 @@ internal sealed class AcpInferenceClient {
 			throw;
 		} catch (AcpAuthenticationRequiredException) {
 			return Failure(model, InferenceFailureKind.AuthenticationFailed,
-				$"The ACP agent '{_connection.Definition.Name}' requires authentication. Open a session with it to sign in.");
+				_connection.AuthenticationRequired);
 		} catch (AcpInferenceProfileException ex) {
 			return Failure(model, InferenceFailureKind.NotConfigured, ex.Message);
 		} catch (AcpProtocolException ex) {

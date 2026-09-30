@@ -63,6 +63,37 @@ Every other position keeps the exact previous computation. The leaving half stil
 shrinking the band without advancing `top` would leave the section's tail unrendered and advancing `top` is the
 clamp that breaks reveal.
 
+## Removed-line ghosts rewrote every parked zone, every frame
+
+Monaco calls each view zone's `onDomNodeTop` during its own render pass, so work there is charged to Monaco's
+render and never appears as a separate Timeline record. `diff-zones.ts` windows a ghost's rows from the zone's
+top, and Monaco parks an invisible zone at a large negative top — so the computed start row ran past the
+ghost's last row and kept climbing, the `start === renderedStart` early-out never matched, and every parked
+zone rewrote its `transform` and `textContent` on every render.
+
+Measured on a review shaped like a real one (a six-line deletion every thirty lines across three 1,200-line
+files, 123 ghost zones, one 400-notch traversal):
+
+| | before | after |
+|---|---:|---:|
+| frames sampled | 939 | 940 |
+| frames performing ghost row writes | **861 (92%)** | **134 (14%)** |
+| `textContent` replacements | **33,018** | **216** |
+| mean per frame | ~35 | **0.23** |
+
+The remaining writes are a ghost the view is genuinely scrolling through. Settling on one empty write — and
+leaving the transform alone — is what makes it stable; an earlier attempt clamped the start row to the line
+count, which changed the transform for far-offscreen zones and broke `diff-review.spec.ts` "renders and reviews
+a 5,000-line rewrite". `unified-review-scroll.spec.ts` now guards the invariant and fails loudly without the fix
+(3,214 writes against an 80 threshold).
+
+**This also corrects the profile above.** The 89 ms of `FunctionCall` self-time attributed to Monaco's
+animation-frame runner includes this work, because a plain callback invoked inside Monaco's render produces no
+child record. Every fixture used for the native timing runs was built from wholly-new files, which produce no
+removed-line ghosts at all, so that code path was switched off in exactly the measurements used to conclude the
+floor was Monaco's own render. How much of the ~8 ms it accounts for on WebKitGTK is unmeasured — the display
+locked before a native arm could run.
+
 ## What the floor is made of
 
 Toggling one editor setting at a time through the real settings path and reading CDP's cumulative main-thread

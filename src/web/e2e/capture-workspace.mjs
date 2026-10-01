@@ -1,31 +1,12 @@
-export function waitForWorkspace(proc, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    const finish = () => {
-      clearTimeout(timer);
-      proc.stdout.off("data", onData);
-      proc.off("exit", onExit);
-    };
-    const onData = (chunk) => {
-      output += chunk.toString("utf8");
-      const pageUrl = output.match(/\[weavie-headless\] open\s+(http:\/\/\S+)/)?.[1];
-      const token = output.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-      if (pageUrl && token) {
-        finish();
-        resolve({ pageUrl, token });
-      }
-    };
-    const onExit = (code) => {
-      finish();
-      reject(new Error(`host exited early with code ${code}`));
-    };
-    const timer = setTimeout(() => {
-      finish();
-      reject(new Error("host did not report its page and token in time"));
-    }, timeoutMs);
-    proc.stdout.on("data", onData);
-    proc.on("exit", onExit);
-  });
+import { waitForOutputLines } from "./harness/process-output.mjs";
+
+export async function waitForWorkspace(proc, timeoutMs) {
+  const [pageUrl, token] = await waitForOutputLines(
+    proc,
+    [/\[weavie-headless\] open\s+(http:\/\/\S+)/, /\[weavie-headless\] token ([^\s]+)/],
+    timeoutMs,
+  );
+  return { pageUrl, token };
 }
 
 export async function openWorkspace(page, workspace) {

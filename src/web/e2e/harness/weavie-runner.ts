@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Agent } from "node:http";
+import { waitForOutputLines } from "./process-output.mjs";
 import { headlessProgram, programExists, runnerProgram } from "./test-programs";
 import {
   getOverAgent,
@@ -9,7 +10,6 @@ import {
   prepareFake,
   type WeavieHost,
   waitForHttp,
-  waitForPortLine,
 } from "./weavie-host";
 
 export function runnerBuilt(): boolean {
@@ -44,13 +44,12 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
   proc.stdout?.on("data", collect);
   proc.stderr?.on("data", collect);
 
-  let runnerPort: number;
+  let controlUrl: string;
   try {
     // Port 0 makes the listener allocation race-free; the ready line reports the chosen port.
-    runnerPort = await waitForPortLine(
+    [controlUrl] = await waitForOutputLines(
       proc,
-      () => log,
-      /control plane:\s+http:\/\/127\.0\.0\.1:(\d+)/,
+      [/\[weavie-runner\] control plane:\s+(http:\/\/\S+)/],
       12_000,
     );
   } catch (error) {
@@ -60,7 +59,7 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
   }
 
   return {
-    url: `http://127.0.0.1:${runnerPort}`,
+    url: controlUrl,
     token: runnerToken,
     workspace: fake.workspace,
     home: fake.home,

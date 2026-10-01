@@ -1,8 +1,10 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createWriteStream } from "node:fs";
 import { cp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { test as base } from "@playwright/test";
+import { finished } from "node:stream/promises";
+import { test as base, expect } from "@playwright/test";
 import { killProcessTree, prepareFake } from "../harness/weavie-host";
 
 type Desktop = { workspace: string; exited: Promise<never> };
@@ -17,7 +19,8 @@ export const test = base.extend<{
       automaticInference: false,
       setupCompleted: true,
     });
-    let log = "";
+    const logPath = info.outputPath("desktop.log");
+    const log = createWriteStream(logPath);
     let proc: ChildProcess | null = null;
     let launch: Promise<Desktop> | null = null;
     try {
@@ -53,10 +56,7 @@ export const test = base.extend<{
           env: { ...process.env, ...fake.env, WEAVIE_WORKSPACE: `${fake.workspace}.missing` },
           stdio: ["ignore", "pipe", "pipe"],
         });
-        for (const stream of [proc.stdout, proc.stderr])
-          stream?.on("data", (chunk) => {
-            log += chunk;
-          });
+        for (const stream of [proc.stdout, proc.stderr]) stream?.pipe(log, { end: false });
         const exited = once(proc, "exit").then(([code, signal]): never => {
           throw new Error(`Desktop exited (${code ?? signal}); see desktop.log`);
         });
@@ -71,11 +71,19 @@ export const test = base.extend<{
     } finally {
       try {
         await Promise.allSettled(launch ? [launch] : []);
-        if (proc) await killProcessTree(proc);
+        if (proc) {
+          await killProcessTree(proc);
+          if (process.platform !== "win32")
+            expect(proc.exitCode, `Desktop exited via ${proc.signalCode ?? "exit code"}`).toBe(0);
+        }
       } finally {
-        await writeFile(info.outputPath("desktop.log"), log);
-        await info.attach("desktop.log", { path: info.outputPath("desktop.log") });
-        await fake.cleanup();
+        log.end();
+        try {
+          await finished(log);
+          await info.attach("desktop.log", { path: logPath });
+        } finally {
+          await fake.cleanup();
+        }
       }
     }
   },

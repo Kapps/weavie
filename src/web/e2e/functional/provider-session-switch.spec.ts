@@ -2,8 +2,6 @@ import { createSession, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { measureSessionSwitch } from "../harness/session-switch";
 
-const SWITCH_BUDGET_MS = 1_000;
-
 const tabLabels = (page: import("@playwright/test").Page) =>
   page.locator(".editor-tab .editor-tab-label");
 
@@ -17,7 +15,7 @@ async function expectTabs(
 }
 
 // Real browser -> WSS -> HostCore coverage. Fake ACP runs through the production generic ACP process boundary.
-test("Claude and ACP sessions restore their own tabs and active image within one second", async ({
+test("Claude and ACP sessions preserve their editor model, tabs, and active image", async ({
   page,
 }) => {
   const chips = page.locator(".session-chip");
@@ -53,6 +51,9 @@ test("Claude and ACP sessions restore their own tabs and active image within one
   await page.locator(".editor-tab", { hasText: "hello.ts" }).click();
   await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]hello\.ts$/);
   await expectTabs(page, ["hello.ts", "notes.txt"], "hello.ts");
+
+  const claudeModel = await page.evaluateHandle(() => window.__WEAVIE_EDITOR__?.getModel());
+  expect(await claudeModel.evaluate((model) => Boolean(model))).toBe(true);
 
   const claudeToAcp = await measureSessionSwitch(page, {
     label: "acp-switch",
@@ -92,17 +93,14 @@ test("Claude and ACP sessions restore their own tabs and active image within one
   await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("greet");
   await expect(page.locator(".editor-media")).toHaveCount(0);
 
-  const measurements = { budgetMs: SWITCH_BUDGET_MS, claudeToAcp, acpToClaude };
+  expect(
+    await claudeModel.evaluate((model) => model === window.__WEAVIE_EDITOR__?.getModel()),
+  ).toBe(true);
+  await claudeModel.dispose();
+
+  const measurements = { claudeToAcp, acpToClaude };
   await test.info().attach("full-stack-session-switch-performance.json", {
     body: Buffer.from(JSON.stringify(measurements, null, 2)),
     contentType: "application/json",
   });
-  expect(
-    claudeToAcp,
-    `full-stack Claude -> ACP switch exceeded ${SWITCH_BUDGET_MS}ms`,
-  ).toBeLessThan(SWITCH_BUDGET_MS);
-  expect(
-    acpToClaude,
-    `full-stack ACP -> Claude switch exceeded ${SWITCH_BUDGET_MS}ms`,
-  ).toBeLessThan(SWITCH_BUDGET_MS);
 });

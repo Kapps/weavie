@@ -541,7 +541,12 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		public Task<string?> GetCurrentBranchAsync(string directory, CancellationToken ct = default) => Task.FromResult(DefaultBranch);
 
-		public Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default) => Task.CompletedTask;
+		public Task FetchCommitAsync(string repositoryDirectory, string remote, string sha, CancellationToken ct = default) => Task.CompletedTask;
+
+		public Task<string?> RemoteBranchCommitAsync(string repositoryDirectory, string remote, string branch, CancellationToken ct = default) =>
+			Task.FromResult<string?>(null);
+
+		public Task CreateBranchAsync(string repositoryDirectory, string branch, string sha, CancellationToken ct = default) => Task.CompletedTask;
 
 		public Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default) => Task.FromResult<string?>(null);
 

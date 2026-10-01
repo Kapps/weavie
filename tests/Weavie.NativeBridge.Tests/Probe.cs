@@ -41,7 +41,7 @@ internal sealed class Probe(string appUrl, string foreignUrl, string scenario, s
 			"redirect-app-frame" => foreignUrl + "/redirect-app?target=" + Uri.EscapeDataString(appUrl),
 			_ => throw new ArgumentException("Unknown native probe: " + scenario),
 		};
-		string literal = JsonSerializer.Serialize(target);
+		string literal = $"\"{JsonEncodedText.Encode(target)}\"";
 		Console.WriteLine("Attempting " + scenario + ": " + target);
 		// Chromium blocks renderer-initiated data navigation before native policy observes it.
 		if (scenario == "data") {

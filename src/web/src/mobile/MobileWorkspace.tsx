@@ -17,7 +17,11 @@ export function MobileWorkspace(props: {
   sessions: RailSession[];
   initialBackendId: string;
   onOpen: (session: RailSession) => Promise<boolean>;
-  onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
+  onCreate: (
+    seed: () => Promise<NewSessionSeed | null>,
+    backendId: string,
+    providerId: string,
+  ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
   onSurface: (surface: MobileSurface) => void;
   onDismiss: () => void;

@@ -15,7 +15,7 @@ import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { chromeVars } from "../theme/chrome-vars";
 import { savedAppearance, savedPalette } from "../theme/controller";
-import { SELECT_THEME, type ThemeChoice, themeRequest } from "../theme/picker-state";
+import { type ThemeChoice, themeRequest } from "../theme/picker-state";
 import { browseThemes, readSetting, writeSetting } from "./state";
 
 /** What the steps of one setup run share: its error line, and choices that must outlive a step's view. */
@@ -95,8 +95,8 @@ export function ThemeStep(props: { run: SetupRun }): JSX.Element {
         </button>
       </p>
       <p class="gs-later">
-        Change it anytime with <CommandName id={SELECT_THEME} />
-        <Keycaps label={liveKeyLabel(SELECT_THEME)} />
+        Change it anytime with <CommandName id={CommandIds.selectTheme} />
+        <Keycaps label={liveKeyLabel(CommandIds.selectTheme)} />
       </p>
     </>
   );

@@ -1,9 +1,8 @@
 import { createSignal } from "solid-js";
 import { hostConnection, LOCAL_BACKEND_ID, type ThemeSlot } from "../bridge";
 import { registerCommand } from "../commands/registry";
-import type { CommandResult } from "../commands/types";
+import { CommandIds, type CommandResult } from "../commands/types";
 
-export const SELECT_THEME = "weavie.theme.select";
 export interface ThemeChoice {
   id: string;
   label: string;
@@ -64,7 +63,7 @@ export const setThemePickerOpen = (open: boolean): void => {
 export const openThemeRegistry = (): void => {
   setPickerSource("registry");
 };
-registerCommand(SELECT_THEME, async (args) => {
+registerCommand(CommandIds.selectTheme, async (args) => {
   const id = (args as { id?: unknown } | undefined)?.id;
   if (id !== undefined) {
     if (typeof id !== "string" || id.length === 0)

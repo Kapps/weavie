@@ -43,9 +43,6 @@ public static class SessionCommands {
 	/// <summary>Switches to the previous session on the rail; <c>ctrl+Shift+Tab</c> whenever the editor isn't focused.</summary>
 	public const string PrevSession = "weavie.session.prev";
 
-	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
-	public const string SwitchSession = "weavie.session.switch";
-
 	/// <summary>Focuses a session by <c>id</c> (+ optional <c>backendId</c>/<c>incarnation</c>); the notification click-through target. Web-handled.</summary>
 	public const string FocusSession = "weavie.session.focus";
 
@@ -106,7 +103,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
 			Description = "Show all sessions and the shared new-session composer.",
-			Aliases = ["new session", "show sessions"],
+			Aliases = ["new session", "show sessions", "switch session", "go to session", "change session", "pick session"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
 		});
 
@@ -214,15 +211,6 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = SwitchSession,
-			Title = "Switch Session…",
-			RunsIn = CommandLocation.Web,
-			Category = "Session",
-			Description = "Open the omnibar to pick a session to switch to.",
-			Aliases = ["switch session", "go to session", "change session", "pick session"],
-		});
-
-		registry.Register(new CommandDefinition {
 			Id = FocusSession,
 			Title = "Focus Session",
 			RunsIn = CommandLocation.Web,
@@ -230,10 +218,10 @@ public static class SessionCommands {
 			Description = "Bring a specific session to the foreground by 'id' (its rail slot id), optionally "
 				+ "naming the 'backendId' it lives on for a session on a connected remote backend. The "
 				+ "optional 'incarnation' rejects a stale activation after a slot is reused. The "
-				+ "programmatic counterpart of Switch Session… — notification click-through uses it; humans "
-				+ "pick from the omnibar instead.",
+				+ "programmatic counterpart of the Sessions surface — notification click-through uses it; humans "
+				+ "pick from Sessions instead.",
 			Aliases = ["focus session", "bring session to front", "go to session by id"],
-			// Target-specific (which session) with no meaningful no-arg palette row; the human entry is the omnibar.
+			// Target-specific (which session) with no meaningful no-arg palette row; the human entry is Sessions.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id (rail slot id) to focus\"},"
 				+ "\"backendId\":{\"type\":\"string\",\"description\":\"Backend the session lives on; omit for the page-serving backend\"},"
@@ -269,7 +257,7 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Load a dormant session's backend (agent / terminals / LSP) in the background, by 'id', "
 				+ "WITHOUT switching the page to it — so its agent runs and reports status while you stay where you "
-				+ "are. Use Switch Session to bring it to the foreground instead.",
+				+ "are. Use Sessions to bring it to the foreground instead.",
 			Aliases = ["load session", "start session", "wake session", "resume session in background"],
 			// id-targeted (a specific dormant chip); loading the selected session is meaningless, so not in the palette.
 			ShowInPalette = false,

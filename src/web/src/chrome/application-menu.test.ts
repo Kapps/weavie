@@ -26,6 +26,12 @@ describe("application menu", () => {
         CommandIds.runTestsInFile,
         CommandIds.newTerminal,
         CommandIds.showSessions,
+        CommandIds.openPr,
+        CommandIds.openCurrentPr,
+        CommandIds.reopenClosed,
+        CommandIds.findInFiles,
+        CommandIds.selectTheme,
+        CommandIds.reviewClose,
       ]),
     );
   });

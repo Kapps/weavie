@@ -47,7 +47,9 @@ public sealed class SessionCommandsTests {
 		Assert.True(registry.TryGet(SessionCommands.NextSession, out var nextDef));
 		Assert.Equal(CommandLocation.Web, nextDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.PrevSession, out _));
-		Assert.True(registry.TryGet(SessionCommands.SwitchSession, out _));
+		Assert.True(registry.TryGet(SessionCommands.ShowSessions, out var showDef));
+		Assert.Equal(CommandLocation.Web, showDef!.RunsIn);
+		Assert.Contains("switch session", showDef.Aliases);
 		// Disconnecting a remote agent is web-handled (the agent registry is client-side); no Core handler.
 		Assert.True(registry.TryGet(SessionCommands.DisconnectRemote, out var disconnectDef));
 		Assert.Equal(CommandLocation.Web, disconnectDef!.RunsIn);

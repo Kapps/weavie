@@ -1184,6 +1184,10 @@ label.agent-input-choice:hover {
   color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
+.agent-status-warn {
+  color: var(--warn);
+}
+
 .agent-status-diff {
   gap: 0;
 }

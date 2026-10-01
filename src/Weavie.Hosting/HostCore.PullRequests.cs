@@ -156,7 +156,6 @@ public sealed partial class HostCore {
 		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
-		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
 		try {
 			await SeedAndArmReviewAsync(
 				review,
@@ -168,69 +167,6 @@ public sealed partial class HostCore {
 			return null;
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";
-		}
-	}
-
-	private async Task<CommandResult> AddPrCommentAsync(
-		HostSession session,
-		ReviewCommentRequest request,
-		CancellationToken ct) {
-		if (string.IsNullOrWhiteSpace(request.Body)
-			|| ActiveReview(session) is not { } review
-			|| review.PrNumber != request.Number
-			|| review.Repo is not { } repo) {
-			return CommandResult.Failure("That pull-request review is not active in this session.");
-		}
-
-		try {
-			if (request.InReplyTo > 0) {
-				await _reviewComments
-					.ReplyAsync(repo, request.Number, request.InReplyTo, request.Body, ct)
-					.ConfigureAwait(false);
-			} else {
-				string relative = Path
-					.GetRelativePath(review.Worktree, request.Path)
-					.Replace('\\', '/');
-				string side = request.Side.Equals("left", StringComparison.OrdinalIgnoreCase)
-					? "left"
-					: "right";
-				await _reviewComments.AddAsync(
-					repo,
-					request.Number,
-					review.HeadSha,
-					new NewReviewComment {
-						Path = relative,
-						Line = request.Line,
-						Side = side,
-						Body = request.Body,
-					},
-					ct).ConfigureAwait(false);
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
-			return CommandResult.Failure($"Couldn't post the comment: {ex.Message}");
-		}
-
-		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-		if (ReferenceEquals(ActiveReview(session), review)) {
-			PushReviewCommentsToWeb(session, review, request.Path);
-			PushTurnDiffToWeb(session, request.Path);
-		}
-
-		return CommandResult.Success();
-	}
-
-	private async Task RefreshCommentsAsync(ReviewContext review, CancellationToken ct) {
-		if (review.Repo is not { } repo) {
-			return;
-		}
-
-		try {
-			var comments = await _reviewComments
-				.ListAsync(repo, review.PrNumber, ct)
-				.ConfigureAwait(false);
-			review.Comments = comments.ToArray();
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
-			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}
 	}
 
@@ -281,12 +217,4 @@ public sealed partial class HostCore {
 		string HeadRef,
 		string Url,
 		bool Draft);
-
-	private sealed record ReviewCommentRequest(
-		int Number,
-		string Path,
-		int Line,
-		string Side,
-		long InReplyTo,
-		string Body);
 }

@@ -1,0 +1,355 @@
+/* Inline PR review threads (pr-comment-controller.tsx), rendered as zone cards: an elevated card with a notch
+   pointing up at the line it discusses, flat comment rows, and a reply row. */
+.weavie-pr-card {
+  --pr-line: color-mix(in srgb, var(--fg) 16%, transparent);
+  position: relative;
+  margin-top: 5px;
+  background: var(--bar, #101319);
+  border: 1px solid var(--pr-line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 16%, transparent);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+  color: var(--fg, #cdd5dc);
+}
+
+.weavie-pr-card::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 18px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-top: 1px solid var(--pr-line);
+  border-left: 1px solid var(--pr-line);
+  transform: rotate(45deg);
+}
+
+.weavie-pr-collapse,
+.weavie-pr-icon-button {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--dim, #6f7884);
+  cursor: pointer;
+}
+
+.weavie-pr-collapse {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+}
+
+.weavie-pr-card:hover .weavie-pr-collapse,
+.weavie-pr-collapse:focus-visible {
+  opacity: 1;
+}
+
+.weavie-pr-collapse:hover,
+.weavie-pr-icon-button:hover {
+  color: var(--fg, #cdd5dc);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.weavie-pr-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 40px 0 14px;
+}
+
+.weavie-pr-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+}
+
+.weavie-pr-quote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--dim, #6f7884);
+  font-family: var(--font-content-family);
+  font-size: var(--font-metadata-size);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--dim) 60%, transparent);
+}
+
+.weavie-pr-comment {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px 2px;
+}
+
+.weavie-pr-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  color: #fff;
+  font-size: var(--font-hint-size);
+  font-weight: 700;
+}
+
+.weavie-pr-comment-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.weavie-pr-comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  line-height: 24px;
+}
+
+.weavie-pr-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.weavie-pr-time {
+  flex: none;
+  white-space: nowrap;
+  color: var(--dim, #6f7884);
+  font-size: var(--font-metadata-size);
+}
+
+.weavie-pr-comment-actions {
+  display: flex;
+  gap: 2px;
+  align-self: center;
+  opacity: 0;
+}
+
+.weavie-pr-comment:hover .weavie-pr-comment-actions,
+.weavie-pr-comment-actions:focus-within {
+  opacity: 1;
+}
+
+/* What people wrote is a message bubble in the document voice on the editor's own paper: a borderless fill
+   (inputs keep the only borders), its corner pinched toward the author. The viewer's own carry the accent. */
+.weavie-pr-comment-body {
+  margin-top: 4px;
+  padding: 7px 12px;
+  border-radius: 2px 10px 10px 10px;
+  background: var(--bg);
+}
+
+.weavie-pr-comment-text-capped {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.weavie-pr-comment-text-capped.weavie-pr-fade {
+  mask-image: linear-gradient(to bottom, #000 75%, transparent);
+}
+
+.weavie-pr-more,
+.weavie-pr-fold {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-metadata-size);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.weavie-pr-more:hover,
+.weavie-pr-fold:hover {
+  text-decoration: underline;
+}
+
+.weavie-pr-fold {
+  margin: 8px 0 0 48px;
+}
+
+.weavie-pr-comment-mine .weavie-pr-comment-body {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.weavie-pr-comment-body .agent-markdown {
+  max-width: none;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
+  line-height: 1.5;
+}
+
+/* Code inside prose sits a step smaller than the prose, so it doesn't shout over the words around it. */
+.weavie-pr-comment-body .agent-markdown code {
+  font-size: var(--font-metadata-size);
+}
+
+.weavie-pr-card-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px 12px;
+}
+
+.weavie-pr-card-foot > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* One text box at a time: editing a comment hides the thread's reply row. */
+.weavie-pr-card:has(.weavie-pr-comment .weavie-pr-composer) .weavie-pr-card-foot {
+  display: none;
+}
+
+.weavie-pr-reply-stub {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 13px;
+  background: var(--bg);
+  font: inherit;
+  color: var(--dim, #6f7884);
+  text-align: left;
+  cursor: text;
+}
+
+.weavie-pr-reply-stub:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.weavie-pr-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--dim, #6f7884);
+  text-align: left;
+  cursor: pointer;
+}
+
+.weavie-pr-summary:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.weavie-pr-avatars {
+  display: flex;
+}
+
+.weavie-pr-avatars .weavie-pr-avatar {
+  width: 18px;
+  height: 18px;
+  margin-right: -5px;
+  border: 2px solid var(--bar, #101319);
+  font-size: var(--font-hint-size);
+}
+
+.weavie-pr-summary-text {
+  flex: 1;
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weavie-pr-summary-text b {
+  color: var(--fg, #cdd5dc);
+  font-weight: 600;
+}
+
+.weavie-pr-summary-count {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-metadata-size);
+}
+
+.weavie-pr-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weavie-pr-composer-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 60px;
+  max-height: 320px;
+  resize: none;
+  padding: 7px 10px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg, #cdd5dc);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  line-height: 1.5;
+}
+
+.weavie-pr-composer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.weavie-pr-composer-error {
+  color: var(--danger);
+  font-size: var(--font-metadata-size);
+}
+
+.weavie-pr-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.weavie-pr-button {
+  padding: 4px 14px;
+  border: 1px solid var(--pr-line);
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: var(--fg, #cdd5dc);
+  cursor: pointer;
+}
+
+.weavie-pr-button:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.weavie-pr-button-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.weavie-pr-button-primary:hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--fg));
+}
+
+.weavie-pr-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

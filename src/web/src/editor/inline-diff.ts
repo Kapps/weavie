@@ -2,7 +2,7 @@
 // highlights, an action toolbar). The modified side is always the live model content, so the diff tracks edits
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
-import { type ClientSession, log, type ReviewCommentInfo } from "../bridge";
+import { type ClientSession, log } from "../bridge";
 import { setContext } from "../commands/context";
 import { IS_MAC } from "../commands/keybindings";
 import { CommandIds } from "../commands/types";
@@ -97,12 +97,6 @@ export interface InlineDiffOptions {
   fileCount?: number;
   /** Applied review: names the review in the toolbar subtitle — "PR #12" or "vs main" ("diff against"). */
   reviewLabel?: string;
-  /** A PR file's review comments anchored to its lines, rendered as threads below their line (applied mode). */
-  comments?: ReviewCommentInfo[];
-  /** Applied mode (PR file): post a new comment on `line` (the current side). */
-  onAddComment?: (line: number, body: string) => void;
-  /** Applied mode (PR file): reply to the thread rooted at `inReplyTo`. */
-  onReply?: (inReplyTo: number, body: string) => void;
 }
 
 /** Diff navigation and actions exposed to commands, keybindings, the palette, and Claude. */
@@ -121,8 +115,6 @@ export interface InlineDiffActions {
   revertFile(): boolean;
   /** Keep the whole accumulated review set (applied review). */
   keepAll(): boolean;
-  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
-  comment(): boolean;
   /** Undo the most recent keep / revert, or redo the last undone action; false when none. */
   undoKeep(): boolean;
   undoRevert(): boolean;
@@ -284,20 +276,6 @@ export function createInlineDiff(
   // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
   let parkedReview: ParkedReview | undefined;
   let showingParked = false;
-  // The transient "new comment" composer zone (a PR file under review), opened by the toolbar Comment button.
-  // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
-  // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
-  let composerZoneId: string | undefined;
-  // How many composer textareas (the new-comment composer AND every thread's reply composer) currently hold
-  // focus, tracked by focus/blur since the editor's shadow root hides the real activeElement. A live composer
-  // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
-  // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
-  let focusedComposers = 0;
-  // Content observers for the sized zones (threads in zoneIds, plus the new-comment composer's own),
-  // disconnected when their zone is removed.
-  let zoneObservers: ResizeObserver[] = [];
-  let composerObserver: ResizeObserver | undefined;
-
   const replaceToolbar = (next: HTMLElement | undefined): void => {
     const previous = toolbarNode;
     toolbarNode = next;
@@ -334,9 +312,6 @@ export function createInlineDiff(
   const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
-    // NB: a new-comment composer is deliberately NOT closed here — a routine same-model re-render (a keep, the
-    // faded band, a fresh diff push) would otherwise wipe the half-typed comment. It's closed on submit/cancel,
-    // a model swap (onModel), and clearAll instead.
     if (zoneIds.length > 0) {
       changeViewZones((accessor) => {
         for (const id of zoneIds) {
@@ -344,14 +319,7 @@ export function createInlineDiff(
         }
       });
       zoneIds = [];
-      // The reply composers lived in those zones — removing a focused one may not fire blur, so clear their
-      // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
-      focusedComposers = 0;
     }
-    for (const observer of zoneObservers) {
-      observer.disconnect();
-    }
-    zoneObservers = [];
   };
 
   const clearRenderState = (): void => {
@@ -362,177 +330,6 @@ export function createInlineDiff(
   const clearRender = (): void => {
     clearRenderState();
     replaceToolbar(undefined);
-  };
-
-  // A comment composer: a textarea + a submit button. onSubmit fires with the trimmed body (ignored when empty);
-  // Ctrl/Cmd+Enter submits too. Used for both a new comment and a thread reply.
-  const buildComposer = (
-    placeholder: string,
-    submitLabel: string,
-    onSubmit: (body: string) => void,
-  ): HTMLElement => {
-    const wrap = document.createElement("div");
-    wrap.className = "weavie-pr-composer";
-    const input = document.createElement("textarea");
-    input.className = "weavie-pr-composer-input";
-    input.placeholder = placeholder;
-    input.rows = 2;
-    // Track focus so composerFocused() covers every composer (new comment + each reply), not just the new-comment
-    // zone — else a review chord typed into a reply would Keep/Revert a hunk instead of reaching the textarea.
-    input.addEventListener("focus", () => {
-      focusedComposers++;
-    });
-    input.addEventListener("blur", () => {
-      focusedComposers = Math.max(0, focusedComposers - 1);
-    });
-    const submit = (): void => {
-      const body = input.value.trim();
-      if (body.length > 0) {
-        onSubmit(body);
-        input.value = "";
-      }
-    };
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        submit();
-      }
-    });
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "weavie-pr-composer-submit";
-    button.textContent = submitLabel;
-    button.addEventListener("click", submit);
-    wrap.append(input, button);
-    return wrap;
-  };
-
-  // A view zone sized by its content. Monaco force-sets the zone node's own height, so `content` lives inside a
-  // bare wrapper and its measured height (margins included) drives heightInPx via layoutZone; the ResizeObserver
-  // keeps the zone in sync as comment bodies wrap on editor resize.
-  const addContentSizedZone = (
-    accessor: monaco.editor.IViewZoneChangeAccessor,
-    afterLineNumber: number,
-    content: HTMLElement,
-  ): { id: string; observer: ResizeObserver } => {
-    const domNode = document.createElement("div");
-    domNode.appendChild(content);
-    const zone: monaco.editor.IViewZone & { heightInPx: number } = {
-      afterLineNumber,
-      heightInPx: 0,
-      domNode,
-    };
-    const id = accessor.addZone(zone);
-    const observer = new ResizeObserver(() => {
-      const style = getComputedStyle(content);
-      const height =
-        content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
-      if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
-        zone.heightInPx = height;
-        changeViewZones((a) => a.layoutZone(id));
-      }
-    });
-    observer.observe(content);
-    return { id, observer };
-  };
-
-  // A comment thread for one line: its comments (root + replies, in order) and a reply composer. The reply posts
-  // against the thread's root id (onReply); the host re-fetches and re-renders.
-  const buildCommentThread = (
-    comments: ReviewCommentInfo[],
-    options: InlineDiffOptions,
-  ): HTMLElement => {
-    const node = document.createElement("div");
-    node.className = "weavie-pr-thread";
-    const rootId = comments.find((c) => c.inReplyTo === 0)?.id ?? comments[0]?.id ?? 0;
-    for (const comment of comments) {
-      const item = document.createElement("div");
-      item.className = "weavie-pr-comment";
-      const author = document.createElement("span");
-      author.className = "weavie-pr-comment-author";
-      author.textContent = `@${comment.author}`;
-      const body = document.createElement("span");
-      body.className = "weavie-pr-comment-body";
-      body.textContent = comment.body;
-      item.append(author, body);
-      node.appendChild(item);
-    }
-    if (options.onReply !== undefined) {
-      const onReply = options.onReply;
-      node.appendChild(buildComposer("Reply…", "Reply", (text) => onReply(rootId, text)));
-    }
-    return node;
-  };
-
-  // Remove the transient new-comment composer zone, if one is open.
-  const closeNewComposer = (): void => {
-    composerObserver?.disconnect();
-    composerObserver = undefined;
-    if (composerZoneId !== undefined) {
-      const id = composerZoneId;
-      composerZoneId = undefined;
-      changeViewZones((accessor) => accessor.removeZone(id));
-    }
-  };
-
-  // Open a new-comment composer below `line` (the toolbar Comment action). Submit posts via onAddComment then
-  // closes it; Cancel removes it. clearRender no longer drops it, so a background re-render can't wipe a draft.
-  const openNewComposer = (line: number, options: InlineDiffOptions): void => {
-    if (options.onAddComment === undefined) {
-      return;
-    }
-    const onAddComment = options.onAddComment;
-    closeNewComposer();
-    const node = document.createElement("div");
-    node.className = "weavie-pr-thread weavie-pr-thread-new";
-    // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
-    // keeps every review chord declining (composerFocused stays true).
-    const composer = buildComposer("Add a comment…", "Comment", (body) => {
-      onAddComment(line, body);
-      closeNewComposer();
-    });
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "weavie-pr-composer-cancel";
-    cancel.textContent = "Cancel";
-    cancel.addEventListener("click", closeNewComposer);
-    composer.appendChild(cancel);
-    node.appendChild(composer);
-    changeViewZones((accessor) => {
-      const { id, observer } = addContentSizedZone(accessor, line, node);
-      composerZoneId = id;
-      composerObserver = observer;
-    });
-    queueMicrotask(() => node.querySelector("textarea")?.focus());
-  };
-
-  // Add each commented line's thread to the same zone transaction as the diff paint.
-  const addPrCommentZones = (
-    model: monaco.editor.ITextModel,
-    options: InlineDiffOptions,
-    accessor: monaco.editor.IViewZoneChangeAccessor,
-    nextZoneIds: string[],
-    nextZoneObservers: ResizeObserver[],
-  ): void => {
-    if (options.comments === undefined || options.comments.length === 0) {
-      return;
-    }
-    const byLine = new Map<number, ReviewCommentInfo[]>();
-    for (const comment of options.comments) {
-      const group = byLine.get(comment.line) ?? [];
-      group.push(comment);
-      byLine.set(comment.line, group);
-    }
-    for (const [line, comments] of byLine) {
-      const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-      const { id, observer } = addContentSizedZone(
-        accessor,
-        clamped,
-        buildCommentThread(comments, options),
-      );
-      nextZoneIds.push(id);
-      nextZoneObservers.push(observer);
-    }
   };
 
   // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
@@ -797,16 +594,8 @@ export function createInlineDiff(
   const parkedNavigation = () =>
     parkedReview === undefined ? undefined : createParkedNavigation(parkedReview);
   const stepIn = (): boolean => parkedNavigation()?.accept() ?? false;
-  // While a new-comment composer is open, the review chords fall through to it: its own keydown handler owns
-  // Ctrl+Enter (submit), Ctrl+Backspace (delete word), and arrows (caret). Gate on the zone being open, not
-  // document.activeElement — the editor lives in a shadow root, so activeElement is the shadow host, never the
-  // composer textarea inside it.
-  const composerFocused = (): boolean => composerZoneId !== undefined || focusedComposers > 0;
-
-  const nextChange = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : goToChange(1);
-  const prevChange = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : goToChange(-1);
+  const nextChange = (): boolean => (showingParked ? stepIn() : goToChange(1));
+  const prevChange = (): boolean => (showingParked ? stepIn() : goToChange(-1));
   const undo = (): boolean => runAction(currentOptions?.onUndo);
   const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
   // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
@@ -815,17 +604,13 @@ export function createInlineDiff(
   const fileOptions = (): InlineDiffOptions | undefined => currentOptions ?? fallbackNavigation;
   const swallowFileNav = (): boolean => IS_MAC && fileOptions()?.mode === "applied";
   const nextFile = (): boolean =>
-    composerFocused()
-      ? false
-      : showingParked
-        ? (parkedNavigation()?.nextFile() ?? false)
-        : runAction(fileOptions()?.onNextFile) || swallowFileNav();
+    showingParked
+      ? (parkedNavigation()?.nextFile() ?? false)
+      : runAction(fileOptions()?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
-    composerFocused()
-      ? false
-      : showingParked
-        ? (parkedNavigation()?.prevFile() ?? false)
-        : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
+    showingParked
+      ? (parkedNavigation()?.prevFile() ?? false)
+      : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.
@@ -844,23 +629,10 @@ export function createInlineDiff(
     );
   };
 
-  // Comment on the current cursor line (a PR file under review, which carries onAddComment). Returns false (the
-  // key falls through) for a plain turn file or when no diff is active.
-  const comment = (): boolean => {
-    if (currentOptions?.onAddComment === undefined) {
-      return false;
-    }
-    openNewComposer(editor.getPosition()?.lineNumber ?? 1, currentOptions);
-    return true;
-  };
-
   // Keep / Revert act at the toolbar's sticky scope in applied mode (change → hunk, file → whole file, all →
   // the set); in review mode they resolve the openDiff proposal. The plain keys and the toolbar buttons share
   // these, so a keypress always matches the picker.
   const accept = (): boolean => {
-    if (composerFocused()) {
-      return false; // typing a comment: let the composer's own Ctrl+Enter submit instead of Keeping the diff
-    }
     if (showingParked) {
       return stepIn(); // Keep at "change 0" enters the review rather than acting
     }
@@ -875,9 +647,6 @@ export function createInlineDiff(
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
   };
   const reject = (): boolean => {
-    if (composerFocused()) {
-      return false; // typing a comment: let Ctrl+Backspace delete a word instead of Reverting the diff
-    }
     if (showingParked) {
       return false; // nothing to revert from "change 0"
     }
@@ -1121,18 +890,6 @@ export function createInlineDiff(
       trackScopeAction(revert);
     }
     bar.append(keep, revert);
-    // A PR file also carries review comments, so Comment/Reply sit beside Keep/Revert on the one toolbar (a plain
-    // turn file has no onAddComment, so no button).
-    if (options.onAddComment !== undefined) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-comment",
-          "Comment",
-          withShortcut("Add a comment on the current line", CommandIds.reviewComment),
-          () => openNewComposer(editor.getPosition()?.lineNumber ?? 1, options),
-        ),
-      );
-    }
     // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
     // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
     const histDivider = document.createElement("span");
@@ -1275,35 +1032,20 @@ export function createInlineDiff(
     renderedUri = uriString;
   };
 
-  const replacePaint = (
-    model: monaco.editor.ITextModel,
-    options: InlineDiffOptions,
-    markers: ReturnType<typeof computeDiffMarkers>,
-  ): void => {
+  const replacePaint = (markers: ReturnType<typeof computeDiffMarkers>): void => {
     if (decorations === undefined) {
       decorations = editor.createDecorationsCollection(markers.decorations);
     } else {
       decorations.set(markers.decorations);
     }
 
-    for (const observer of zoneObservers) {
-      observer.disconnect();
-    }
     const previousZoneIds = zoneIds;
-    const nextZoneIds: string[] = [];
-    const nextZoneObservers: ResizeObserver[] = [];
     changeViewZones((accessor) => {
       for (const id of previousZoneIds) {
         accessor.removeZone(id);
       }
-      nextZoneIds.push(...addDiffZones(editor, accessor, markers));
-      addPrCommentZones(model, options, accessor, nextZoneIds, nextZoneObservers);
+      zoneIds = addDiffZones(editor, accessor, markers);
     });
-    if (previousZoneIds.length > 0) {
-      focusedComposers = 0;
-    }
-    zoneIds = nextZoneIds;
-    zoneObservers = nextZoneObservers;
   };
 
   const render = async (uriString: string, generation: number): Promise<void> => {
@@ -1369,7 +1111,7 @@ export function createInlineDiff(
       }
       const { acceptedHunks, hunks } = markers;
 
-      replacePaint(model, options, markers);
+      replacePaint(markers);
 
       currentOptions = options;
       currentHunks = hunks;
@@ -1530,9 +1272,7 @@ export function createInlineDiff(
     }, DIFF_RECOMPUTE_DEBOUNCE_MS);
   };
 
-  // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
   const onModel = editor.onDidChangeModel(() => {
-    closeNewComposer();
     scopeMenuOpen = false;
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
@@ -1622,7 +1362,6 @@ export function createInlineDiff(
     keepFile,
     revertFile,
     keepAll,
-    comment,
   };
   return {
     captureActions() {
@@ -1722,7 +1461,6 @@ export function createInlineDiff(
       presentation.scope.current = "change";
       scopeMenuOpen = false;
       parkedReview = undefined;
-      closeNewComposer();
       clearRender();
       syncDiffContext();
     },
@@ -1754,7 +1492,6 @@ export function createInlineDiff(
       onModel.dispose();
       onContent.dispose();
       offFonts();
-      closeNewComposer();
       clearRender();
     },
   };

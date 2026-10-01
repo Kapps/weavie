@@ -236,19 +236,17 @@ describe("review store", () => {
     });
   });
 
-  it("retains a diff or comments that arrive before the review file list", () => {
+  it("retains a diff that arrives before the review file list", () => {
     createRoot((dispose) => {
       const store = createReviewStore(() => {});
       const client = session();
       const pushed = diff(firstFile);
       store.setDiff(client, pushed);
-      store.setComments(client, { number: 42, path: firstFile.path, comments: [] });
       store.setFiles(client, [firstFile], "PR #42");
       store.select(client);
 
       const view = store.overview().files[0]!;
       expect(view.diff()).toBe(pushed);
-      expect(view.comments()?.number).toBe(42);
       expect(store.overview().fullyLoaded()).toBe(true);
       expect(store.overview().added).toBe(3);
       expect(store.overview().removed).toBe(1);

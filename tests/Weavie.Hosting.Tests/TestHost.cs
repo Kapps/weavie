@@ -30,6 +30,10 @@ namespace Weavie.Hosting.Tests;
 /// files still land in the real Weavie dirs and are cleaned on dispose (lock) or harmlessly overwritten.
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
+	private static readonly ForgeUser Viewer = new("viewer", string.Empty);
+
+	private static StaticPullRequestProvider NoPullRequests() => new([], [], Viewer);
+
 	internal const string TestPageId = "test-page";
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly TempDirectory _temp;
@@ -85,7 +89,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(acpAgents);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -104,7 +108,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(dialogs);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -122,7 +126,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			dispatcher,
 			notifications);
 		await host.Core.StartAsync().ConfigureAwait(false);
@@ -144,7 +148,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(inferenceFor);
 		var host = Create(
 			prepareRepo,
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			inferenceFor);
@@ -155,7 +159,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with deterministic pull requests exposed by the host.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IReadOnlyList<PullRequestSummary> pullRequests) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, []), sendReady: true);
+		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, [], Viewer), sendReady: true);
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled pull request provider.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
@@ -167,7 +171,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// that a startup push is held rather than dropped), then call <c>Send</c> with a <c>ready</c> message.
 	/// </summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
+		StartAsync(prepareRepo, NoPullRequests(), sendReady);
 
 	// Flaked 2026-07-19 ~16:09 UTC (https://github.com/Kapps/weavie/actions/runs/29694172917): every test in
 	// this project failed from the very first one onward with FileNotFoundException loading
@@ -188,17 +192,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Builds the real host graph without starting it, for startup/shutdown lifecycle tests.</summary>
-	public static TestHost CreateUnstarted() => Create(_ => { }, new StaticPullRequestProvider([], []));
+	public static TestHost CreateUnstarted() => Create(_ => { }, NoPullRequests());
 
 	/// <summary>Builds an unstarted host over a test-controlled UI dispatcher.</summary>
 	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
-		Create(_ => { }, new StaticPullRequestProvider([], []), dispatcher);
+		Create(_ => { }, NoPullRequests(), dispatcher);
 
 	/// <summary>Builds an unstarted host over a test-controlled native application menu.</summary>
 	public static TestHost CreateUnstarted(IApplicationMenu applicationMenu) =>
 		Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -579,7 +583,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		tempRoot,
 		new StubHttpMessageHandler(),
 		Path.Combine(tempRoot, "sources"),
-		new StaticPullRequestProvider([], []),
+		NoPullRequests(),
 		static settings => InferenceComposition.CreateDisabled(settings),
 		EmptyAcpAgentCatalog.Instance);
 
@@ -620,7 +624,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			RailState = railState,
 			SearchState = searchState,
 			PullRequests = pullRequests,
-			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
+			ReviewComments = pullRequests as IReviewCommentStore ?? NoPullRequests(),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),

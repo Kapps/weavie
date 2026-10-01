@@ -1,0 +1,21 @@
+/* Cards between editor lines (zone-cards.tsx). The layer sits at the editor's top-left beside `.monaco-editor`,
+   above the code but below Monaco's sticky scroll, scrollbars, and overflow widgets. */
+.weavie-zone-cards {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.weavie-zone-cards-clip {
+  position: relative;
+  /* clip, not hidden: a hidden box is still scrollable by focus or caret-follow, which would drift every card
+     off its line. */
+  overflow: clip;
+}
+
+.weavie-zone-card {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 6px 0;
+  pointer-events: auto;
+}

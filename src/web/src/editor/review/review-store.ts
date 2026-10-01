@@ -1,5 +1,5 @@
 import { type Accessor, createSignal } from "solid-js";
-import type { ClientSession, ReviewCommentInfo } from "../../bridge";
+import type { ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { normalizePath } from "../fs-path";
 import type { ReviewResume } from "../session-types";
@@ -28,12 +28,6 @@ export interface ReviewFileDiff {
   currentExists: boolean;
 }
 
-export interface ReviewComments {
-  number: number;
-  path: string;
-  comments: ReviewCommentInfo[];
-}
-
 export interface ReviewHistory {
   canUndo: boolean;
   canUndoKeep: boolean;
@@ -52,7 +46,6 @@ export const EMPTY_REVIEW_HISTORY: ReviewHistory = {
 export interface ReviewFileView {
   summary: Accessor<ReviewFile>;
   diff: Accessor<ReviewFileDiff | null>;
-  comments: Accessor<ReviewComments | null>;
   collapsed: Accessor<boolean>;
   /** Whether the host has pushed this file's diff yet — a fully reviewed file has no diff but is loaded. */
   loaded: Accessor<boolean>;
@@ -73,7 +66,6 @@ export interface ReviewOverview {
 interface ReviewEntry {
   summary: ReviewFile | null;
   diff: ReviewFileDiff | null;
-  comments: ReviewComments | null;
   pending: boolean | null;
   collapsed: boolean;
   /** This file's last pushed state, so "reviewed" can be pinned to the exact thing the user reviewed. */
@@ -116,7 +108,6 @@ export interface ReviewStore {
   select(session: ClientSession | null): void;
   setFiles(session: ClientSession, files: ReviewFile[], label: string): SessionReviewBoard;
   setDiff(session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard;
-  setComments(session: ClientSession, comments: ReviewComments): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   reset(session: ClientSession): SessionReviewBoard;
@@ -211,7 +202,6 @@ export function createReviewStore(
     const created: ReviewEntry = {
       summary: null,
       diff: null,
-      comments: null,
       pending: null,
       collapsed,
       signature: "",
@@ -239,10 +229,6 @@ export function createReviewStore(
       diff: () => {
         revision();
         return entry.diff;
-      },
-      comments: () => {
-        revision();
-        return entry.comments;
       },
       collapsed: () => {
         revision();
@@ -322,14 +308,6 @@ export function createReviewStore(
     return state;
   };
 
-  const setComments = (session: ClientSession, comments: ReviewComments): SessionReviewBoard => {
-    const state = board(session);
-    const entry = ensureEntry(state, comments.path, false);
-    entry.comments = comments;
-    entry.touch?.();
-    return state;
-  };
-
   const setHistory = (session: ClientSession, history: ReviewHistory): SessionReviewBoard => {
     const state = board(session);
     state.history = history;
@@ -385,7 +363,6 @@ export function createReviewStore(
     select,
     setFiles,
     setDiff,
-    setComments,
     setHistory,
     setFileCollapsed,
     reset,

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 using Xunit;
 
@@ -13,7 +14,7 @@ public sealed class PullRequestStatusMonitorTests {
 		var monitor = new PullRequestStatusMonitor(
 			background,
 			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
-			_ => { },
+			(_, _) => Task.CompletedTask,
 			delay.WaitAsync,
 			TimeSpan.FromSeconds(30));
 
@@ -46,7 +47,7 @@ public sealed class PullRequestStatusMonitorTests {
 
 				return Snapshot(calls);
 			},
-			_ => { },
+			(_, _) => Task.CompletedTask,
 			Task.Delay,
 			TimeSpan.FromSeconds(30));
 
@@ -68,14 +69,18 @@ public sealed class PullRequestStatusMonitorTests {
 			new PullRequestStatusSnapshot(
 				"feature",
 				new PullRequestStatusInfo(123, "https://example.test/pull/123", "open"),
-				null),
-			new PullRequestStatusSnapshot("feature", null, "network unavailable"),
+				null,
+				Target),
+			new PullRequestStatusSnapshot("feature", null, "network unavailable", null),
 		]);
 		var published = new List<PullRequestStatusSnapshot>();
 		var monitor = new PullRequestStatusMonitor(
 			background,
 			_ => Task.FromResult(snapshots.Dequeue()),
-			published.Add,
+			(snapshot, _) => {
+				published.Add(snapshot);
+				return Task.CompletedTask;
+			},
 			Task.Delay,
 			TimeSpan.FromSeconds(30));
 
@@ -86,12 +91,17 @@ public sealed class PullRequestStatusMonitorTests {
 
 		Assert.Equal(123, published[1].PullRequest?.Number);
 		Assert.Equal("network unavailable", published[1].Error);
+		Assert.Equal(Target, published[1].Target);
 	}
+
+	private static readonly PullRequestTarget Target = new(
+		new RepoRef("github.com", "Kapps", "weavie"), "origin", 123, new string('a', 40), "main", "https://example.test/pull/123");
 
 	private static PullRequestStatusSnapshot Snapshot(int number) =>
 		new(
 			"feature",
 			new PullRequestStatusInfo(number, $"https://example.test/pull/{number}", "open"),
+			null,
 			null);
 
 	private sealed class ManualDelay {

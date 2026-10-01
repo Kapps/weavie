@@ -21,6 +21,9 @@ import type { LineSpan, ReviewFileDiff } from "./review-store";
 
 const HIDDEN_AREAS_SOURCE = "weavie.review";
 const GAP_HEIGHT = 24;
+// Lucide's chevrons-up-down.
+const EXPAND_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>';
 type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
   setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
 };
@@ -103,16 +106,22 @@ export function createReviewEditor(options: {
   const editor = viewport.editor as CollapsingEditor;
   // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
   let markers: DiffMarkers | null | undefined;
+  let hidden: monaco.IRange[] = [];
   // Each band's zone id → the stretch it reveals; Monaco's text layer owns clicks on zones.
-  let gaps = new Map<string, { span: LineSpan; band: HTMLElement }>();
-  let hovered: HTMLElement | undefined;
-  const hover = (band: HTMLElement | undefined): void => {
-    if (hovered === band) return;
-    hovered?.classList.remove("hover");
-    band?.classList.add("hover");
-    hovered = band;
-    mount.classList.toggle("gap-hover", band !== undefined);
-    mount.title = band?.title ?? "";
+  interface Gap {
+    span: LineSpan;
+    zone: monaco.editor.IViewZone & { marginDomNode: HTMLElement };
+  }
+  let gaps = new Map<string, Gap>();
+  let hovered: Gap | undefined;
+  const hover = (gap: Gap | undefined): void => {
+    if (hovered === gap) return;
+    for (const node of [hovered?.zone.domNode, hovered?.zone.marginDomNode])
+      node?.classList.remove("hover");
+    for (const node of [gap?.zone.domNode, gap?.zone.marginDomNode]) node?.classList.add("hover");
+    hovered = gap;
+    mount.classList.toggle("gap-hover", gap !== undefined);
+    mount.title = gap?.zone.domNode.title ?? "";
   };
   let constructing = true;
   let disposed = false;
@@ -134,23 +143,31 @@ export function createReviewEditor(options: {
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
     viewport.reveal(editor.getTopForLineNumber(line) - (viewport.bounds().height - lineHeight) / 2);
   };
-  const gapZone = (span: LineSpan): monaco.editor.IViewZone => {
+  const gapZone = (span: LineSpan): Gap["zone"] => {
     const count = span.end - span.start + 1;
+    // Monaco forces zone nodes to display:block, so each half lays out through an inner row.
     const band = document.createElement("div");
     band.className = "unified-review-gap";
-    band.textContent = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
-    band.title = `${band.textContent} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`;
+    const label = document.createElement("span");
+    label.textContent = `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
+    band.append(label);
+    band.title = `${label.textContent} — show the whole file${keyHint(CommandIds.reviewToggleContext)}`;
+    // The gutter half carries the band across the line numbers, with its expand glyph under them.
+    const margin = document.createElement("div");
+    margin.className = "unified-review-gap-margin";
+    margin.innerHTML = `<span>${EXPAND_ICON}</span>`;
     // The band sits just above the hidden stretch it stands for.
     return {
       afterLineNumber: span.start - 1,
       heightInPx: GAP_HEIGHT,
       domNode: band,
+      marginDomNode: margin,
       showInHiddenAreas: true,
     };
   };
   const applyContext = (): void => {
     if (markers === undefined) return;
-    const hidden = collapseUnchanged(markers, model.getLineCount(), options.context());
+    hidden = collapseUnchanged(markers, model.getLineCount(), options.context());
     editor.setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
     editor.changeViewZones((accessor) => {
       for (const id of gaps.keys()) accessor.removeZone(id);
@@ -159,7 +176,7 @@ export function createReviewEditor(options: {
         hidden.map((range) => {
           const span = { start: range.startLineNumber, end: range.endLineNumber };
           const zone = gapZone(span);
-          return [accessor.addZone(zone), { span, band: zone.domNode }];
+          return [accessor.addZone(zone), { span, zone }];
         }),
       );
     });
@@ -178,7 +195,11 @@ export function createReviewEditor(options: {
       const top = Math.max(0, bounds.top);
       const bottom = bounds.bottom;
       const cursorTop = editor.getTopForLineNumber(cursor);
-      if (cursorTop >= top && cursorTop < bottom) return cursor;
+      // A collapsed line reports the top of the band that replaced it, so it never counts as on screen.
+      const collapsed = hidden.some(
+        (range) => range.startLineNumber <= cursor && cursor <= range.endLineNumber,
+      );
+      if (!collapsed && cursorTop >= top && cursorTop < bottom) return cursor;
       const center = (top + bottom) / 2;
       let first = 1;
       let last = model.getLineCount();
@@ -246,7 +267,10 @@ export function createReviewEditor(options: {
   let bandAnchor: number | undefined;
   const clickTarget = (event: monaco.editor.IEditorMouseEvent): string => {
     const { target } = event;
-    if (target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE)
+    if (
+      target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE ||
+      target.type === monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE
+    )
       return gaps.has(target.detail.viewZoneId) ? target.detail.viewZoneId : "";
     return isLineNumber(target) ? `line:${target.position!.lineNumber}` : "";
   };
@@ -255,7 +279,7 @@ export function createReviewEditor(options: {
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
     editor.onMouseLeave(() => hover(undefined)),
     editor.onMouseMove((event) => {
-      hover(gaps.get(clickTarget(event))?.band);
+      hover(gaps.get(clickTarget(event)));
       if (options.diff.currentExists && isLineNumber(event.target))
         event.target.element!.title = `Open file at this line${keyHint(CommandIds.reviewOpenLine)}`;
     }),

@@ -375,12 +375,9 @@
 }
 
 /* A collapsed unchanged stretch: a dashed band that reveals its lines when clicked. */
-.unified-review-gap {
+.unified-review-gap,
+.unified-review-gap-margin {
   box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  height: 100%;
-  padding: 0 1em;
   border-block: 1px dashed color-mix(in srgb, var(--border) 80%, var(--fg));
   background: color-mix(in srgb, var(--border) 25%, transparent);
   color: var(--dim);
@@ -389,13 +386,33 @@
   cursor: pointer;
 }
 
+.unified-review-gap > span,
+.unified-review-gap-margin > span {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Right-aligns the glyph with the line numbers, clear of the decorations lane. */
+.unified-review-gap-margin > span {
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+
+.unified-review-gap-margin svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* Monaco's text layer covers view zones, so hover is driven from its mouse events (review-editor.ts). */
-.unified-review-gap.hover {
+.unified-review-gap.hover,
+.unified-review-gap-margin.hover {
   background: var(--list-active-bg);
   color: var(--fg);
 }
 
-.unified-review-editor-viewport.gap-hover .monaco-editor .view-lines {
+.unified-review-editor-viewport.gap-hover .monaco-editor .view-lines,
+.unified-review-editor-viewport.gap-hover .monaco-editor .margin {
   cursor: pointer;
 }
 

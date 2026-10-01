@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-solid";
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-solid";
 import {
   type Accessor,
   createEffect,
@@ -165,8 +165,8 @@ export function ReviewFileSection(props: {
             void runCommandWithFeedback(CommandIds.reviewToggleContext, { path: summary().path })
           }
         >
-          <Show when={fullContext()} fallback={<UnfoldVertical />}>
-            <FoldVertical />
+          <Show when={fullContext()} fallback={<ChevronsUpDown />}>
+            <ChevronsDownUp />
           </Show>
         </button>
         <span class="unified-review-file-stats">

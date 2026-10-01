@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import { deferredToolOutput } from "./AgentPaneHistoryAccumulator";
 import { MaximumIndex } from "./AgentPaneMaximumIndex";
 import { hasItemId, normalizeStatus, normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep } from "./AgentPaneTranscriptTypes";
@@ -160,6 +161,7 @@ function activityStep(message: AgentPaneUpdate, category: string): AgentActivity
 
 function hasReviewTarget(message: AgentPaneUpdate): boolean {
   return (
+    deferredToolOutput(message) !== null ||
     (message.locations?.length ?? 0) > 0 ||
     (message.diffs?.length ?? 0) > 0 ||
     (message.content?.length ?? 0) > 0

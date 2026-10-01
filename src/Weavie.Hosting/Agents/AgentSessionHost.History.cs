@@ -13,4 +13,14 @@ public sealed partial class AgentSessionHost {
 			return new AgentPaneHistory(_paneGeneration, _nextPaneRevision, PaneSnapshotLocked(afterRevision));
 		}
 	}
+
+	internal AgentPaneRecord ReadRecord(AgentPaneRecordRequest request) {
+		lock (_paneGate) {
+			int index = _paneOrdinals.BinarySearch(request.Ordinal);
+			if (request.Generation != _paneGeneration || index < 0) {
+				throw new InvalidOperationException("The agent transcript record no longer exists.");
+			}
+			return SnapshotRecordAtLocked(index);
+		}
+	}
 }

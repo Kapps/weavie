@@ -118,6 +118,8 @@ export interface AgentPaneWireUpdate extends AgentPaneUpdate {
   revision: number;
   textOffset: number;
   textLength: number;
+  /** A history record whose tool output is fetched on expand via `agent.toolOutput`. */
+  outputDeferred?: boolean;
 }
 
 export interface AgentInputQuestion {

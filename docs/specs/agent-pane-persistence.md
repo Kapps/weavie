@@ -56,6 +56,10 @@ The response is newline-delimited JSON: newest-first batches of up to 64 typed r
 explicit completion marker. Every batch carries the same generation, revision, and total record count.
 There are no cursor requests, retained readers, or JSON-inside-JSON record fragments.
 
+Completed tool records omit their `text` and `content` from history and carry `outputDeferred`: that output
+renders only inside an expanded tool row, which requests the full record with `agent.toolOutput` by
+generation and ordinal. Live records always arrive complete.
+
 Serialization, writes, and flushes are awaited. HTTP/network buffering supplies producer backpressure;
 the browser reads and applies batches sequentially rather than queueing detached work. This does not
 require browser-render acknowledgements. Request cancellation and session shutdown cancel the stream.

@@ -163,3 +163,34 @@ test("reconnect uses completed HTTP history revision without duplicating live ou
     transcript.locator(".agent-tone-assistant", { hasText: "echo: new live response" }),
   ).toHaveCount(1);
 });
+
+test("restored tool output is fetched only when expanded", async ({ page }) => {
+  await createSession(page, { branch: "deferred-tool-output", provider: "fake-acp" });
+  const slot = await activeSessionSlot(page);
+  const transcript = page.locator('[data-surface="structured-agent"]');
+  const composer = page.locator("[data-agent-composer] textarea");
+  await composer.fill("tool-content");
+  await composer.press("Enter");
+  const activity = transcript.locator(".agent-entry-activity").last();
+  await expect(activity).toBeVisible();
+
+  const history = Promise.withResolvers<string>();
+  await page.route(/\/weavie-agent-history\?/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    if (new URL(route.request().url()).searchParams.get("slot") === slot) history.resolve(body);
+    await route.fulfill({ response, body });
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const restored = await history.promise;
+  expect(restored).toContain("Rich tool content");
+  expect(restored).not.toContain("tool text");
+
+  await activity.locator("summary").first().click();
+  const step = activity.locator(".agent-activity-step", { hasText: "Rich tool content" });
+  await step.getByText("show output", { exact: true }).click();
+  const output = step.locator(".agent-tool-output");
+  await expect(output).toContainText("tool text");
+  await expect(output).toContainText("embedded text");
+  await expect(output.locator("img.agent-entry-media")).toHaveCount(1);
+});

@@ -1,5 +1,6 @@
 import { For, type JSX } from "solid-js";
 import { startsOnBrowserEdge } from "./browser-edge";
+import { SWIPE_INTENT_DISTANCE } from "./mobile-back-swipe";
 
 export type MobileSurface = "inbox" | "terminal:claude" | "terminal:shell" | "editor";
 
@@ -54,17 +55,16 @@ export function MobileSurfaceBar(props: {
         const dx = event.clientX - start.x;
         const dy = event.clientY - start.y;
         if (direction === null) {
-          if (Math.abs(dx) <= Math.abs(dy) || dx === 0) {
+          if (Math.abs(dx) < SWIPE_INTENT_DISTANCE || Math.abs(dx) <= Math.abs(dy)) {
             return;
           }
-          direction = dx < 0 ? 1 : -1;
-        } else if (dx !== 0) {
+          // One gesture has one destination: its history entry moves as soon as the direction is known.
           direction = dx < 0 ? 1 : -1;
         }
         props.onSwipeProgress(
           adjacent(direction),
           direction,
-          Math.min(1, Math.abs(dx) / event.currentTarget.clientWidth),
+          Math.min(1, Math.max(0, -direction * dx) / event.currentTarget.clientWidth),
         );
       }}
       onPointerUp={(event) => {
@@ -74,12 +74,12 @@ export function MobileSurfaceBar(props: {
         const dx = event.clientX - start.x;
         const dy = event.clientY - start.y;
         start = null;
-        if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          direction = dx < 0 ? 1 : -1;
+        direction ??= dx < 0 ? 1 : -1;
+        if (-direction * dx >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
           props.onSwipeProgress(
             adjacent(direction),
             direction,
-            Math.min(1, Math.abs(dx) / event.currentTarget.clientWidth),
+            Math.min(1, (-direction * dx) / event.currentTarget.clientWidth),
           );
           swiped = true;
           event.currentTarget.focus({ preventScroll: true });

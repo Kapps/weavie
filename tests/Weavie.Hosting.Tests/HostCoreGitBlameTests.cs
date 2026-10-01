@@ -181,6 +181,7 @@ public sealed class HostCoreGitBlameTests {
 					HeadRef = "feature",
 					HeadSha = string.Empty,
 					BaseRef = "main",
+					BaseSha = string.Empty,
 					Url = PullRequestUrl,
 					IsDraft = false,
 					State = PullRequestState.Merged,

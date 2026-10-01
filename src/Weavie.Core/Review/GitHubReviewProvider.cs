@@ -223,6 +223,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		HeadRef = pr.TryGetProperty("head", out var head) ? String(head, "ref") : string.Empty,
 		HeadSha = pr.TryGetProperty("head", out var headSha) ? String(headSha, "sha") : string.Empty,
 		BaseRef = pr.TryGetProperty("base", out var bse) ? String(bse, "ref") : string.Empty,
+		BaseSha = pr.TryGetProperty("base", out var baseSha) ? String(baseSha, "sha") : string.Empty,
 		Url = String(pr, "html_url"),
 		IsDraft = pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
 		State = PullRequestStateFor(pr),

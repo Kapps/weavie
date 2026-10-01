@@ -166,30 +166,21 @@ public sealed class PullRequestComments {
 		_publish(snapshot);
 	}
 
-	// Commentable paths are the PR's own diff (merge-base..head), fetched once per head/base pair.
+	// Commentable paths are the PR's own diff (merge-base..head), computed once per head/base pair.
 	private async Task<PullRequestDiff> DiffAsync(PullRequestTarget target, CancellationToken ct) {
-		if (_diff is { } cached && cached.Number == target.Number && cached.HeadSha == target.HeadSha && cached.BaseRef == target.BaseRef) {
+		if (_diff is { } cached && cached.Number == target.Number && cached.HeadSha == target.HeadSha && cached.BaseSha == target.BaseSha) {
 			return cached;
 		}
 
-		if (!GitService.IsCommitSha(target.HeadSha) || !GitService.IsValidBranchName(target.BaseRef)) {
-			throw new InvalidOperationException($"the forge reported head '{target.HeadSha}' onto '{target.BaseRef}'.");
-		}
-
-		if (await _git.ResolveCommitAsync(_worktree, target.HeadSha, ct).ConfigureAwait(false) is null) {
-			await _git.FetchAsync(_worktree, target.Remote, $"pull/{target.Number}/head", ct).ConfigureAwait(false);
-			_ = await _git.ResolveCommitAsync(_worktree, target.HeadSha, ct).ConfigureAwait(false)
-				?? throw new InvalidOperationException($"its head {target.HeadSha[..7]} isn't on '{target.Remote}'.");
-		}
-
-		await _git.FetchAsync(_worktree, target.Remote, target.BaseRef, ct).ConfigureAwait(false);
-		string mergeBase = await _git.MergeBaseAsync(_worktree, $"{target.Remote}/{target.BaseRef}", target.HeadSha, ct).ConfigureAwait(false)
-			?? throw new InvalidOperationException($"its head shares no history with '{target.Remote}/{target.BaseRef}'.");
+		await _git.FetchCommitAsync(_worktree, target.Remote, target.HeadSha, ct).ConfigureAwait(false);
+		await _git.FetchCommitAsync(_worktree, target.Remote, target.BaseSha, ct).ConfigureAwait(false);
+		string mergeBase = await _git.MergeBaseAsync(_worktree, target.BaseSha, target.HeadSha, ct).ConfigureAwait(false)
+			?? throw new InvalidOperationException($"its head shares no history with its base {target.BaseSha[..7]}.");
 		var changes = await _git.DiffRefsAsync(_worktree, mergeBase, target.HeadSha, ct).ConfigureAwait(false);
-		return _diff = new PullRequestDiff(target.Number, target.HeadSha, target.BaseRef, mergeBase, [.. changes.Select(c => c.Path)]);
+		return _diff = new PullRequestDiff(target.Number, target.HeadSha, target.BaseSha, mergeBase, [.. changes.Select(c => c.Path)]);
 	}
 
 	private static string Stale(int number) => $"PR #{number} has new commits — comments reloaded; try again.";
 
-	private sealed record PullRequestDiff(int Number, string HeadSha, string BaseRef, string MergeBase, IReadOnlyList<string> Paths);
+	private sealed record PullRequestDiff(int Number, string HeadSha, string BaseSha, string MergeBase, IReadOnlyList<string> Paths);
 }

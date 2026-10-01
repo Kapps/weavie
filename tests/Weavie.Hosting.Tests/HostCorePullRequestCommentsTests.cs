@@ -36,6 +36,7 @@ public sealed class HostCorePullRequestCommentsTests {
 					Author = "ann",
 					HeadRef = "main",
 					BaseRef = "base",
+					BaseSha = TempGitRepo.Run(repo, "rev-parse", "base").Trim(),
 					Url = "u",
 					HeadSha = TempGitRepo.Run(repo, "rev-parse", "HEAD").Trim(),
 					IsDraft = false,

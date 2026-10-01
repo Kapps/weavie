@@ -330,13 +330,36 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default) {
+	public async Task FetchCommitAsync(string repositoryDirectory, string remote, string sha, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(remote);
-		ArgumentException.ThrowIfNullOrEmpty(refName);
-		// remote ("origin") is host-derived; refName is a branch name validated upstream — pass both as explicit
-		// args so neither can be read as an option, and never accept a raw web-supplied refspec.
-		await RunCheckedAsync(repositoryDirectory, ["fetch", remote, refName], ct).ConfigureAwait(false);
+		if (!IsCommitSha(sha)) {
+			throw new GitException($"'{sha}' isn't a commit sha.");
+		}
+
+		if (await ResolveCommitAsync(repositoryDirectory, sha, ct).ConfigureAwait(false) is null) {
+			await RunCheckedAsync(repositoryDirectory, ["fetch", "--no-write-fetch-head", remote, sha], ct).ConfigureAwait(false);
+		}
+	}
+
+	/// <inheritdoc/>
+	public async Task<string?> RemoteBranchCommitAsync(string repositoryDirectory, string remote, string branch, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(remote);
+		ArgumentException.ThrowIfNullOrEmpty(branch);
+		var result = await RunCheckedAsync(repositoryDirectory, ["ls-remote", remote, HeadsPrefix + branch], ct).ConfigureAwait(false);
+		string sha = result.StdOut.Split('\t', 2)[0].Trim();
+		return sha.Length == 0 ? null : sha;
+	}
+
+	/// <inheritdoc/>
+	public async Task CreateBranchAsync(string repositoryDirectory, string branch, string sha, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		if (!IsValidBranchName(branch) || !IsCommitSha(sha)) {
+			throw new GitException($"Can't create branch '{branch}' at '{sha}'.");
+		}
+
+		await RunCheckedAsync(repositoryDirectory, ["branch", branch, sha], ct).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc/>

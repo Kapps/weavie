@@ -1402,17 +1402,18 @@ public sealed partial class HostCore {
 
 		if (string.IsNullOrWhiteSpace(baseSpec)
 			|| string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
-			// origin's tip, read from FETCH_HEAD: the local ref is only as new as the last pull, and a
-			// single-branch clone's refspec never writes origin/<branch>.
+			// origin's tip, by sha: the local ref is only as new as the last pull, and a single-branch clone's
+			// refspec never writes origin/<branch>.
 			string branch = await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException("This repository has no default branch.");
 			if (await git.GetRemoteUrlAsync(WorkspaceRoot, "origin", ct).ConfigureAwait(false) is null) {
 				return branch;
 			}
 
-			await git.FetchAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false);
-			return await git.ResolveCommitAsync(WorkspaceRoot, "FETCH_HEAD", ct).ConfigureAwait(false)
+			string sha = await git.RemoteBranchCommitAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException($"origin has no '{branch}'.");
+			await git.FetchCommitAsync(WorkspaceRoot, "origin", sha, ct).ConfigureAwait(false);
+			return sha;
 		}
 
 		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");

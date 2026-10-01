@@ -142,10 +142,16 @@ public interface IGitService {
 	Task DeleteBranchAsync(string repositoryDirectory, string branch, bool force, CancellationToken ct = default);
 
 	/// <summary>
-	/// Fetches <paramref name="refName"/> from <paramref name="remote"/> (<c>git fetch &lt;remote&gt; &lt;ref&gt;</c>),
-	/// so a PR's head branch exists locally before a worktree checks it out.
+	/// Ensures commit <paramref name="sha"/> is local, fetching it from <paramref name="remote"/> by sha when it isn't.
+	/// Moves no ref: sessions share one ref store, and racing fetches of a branch name make git reject the loser.
 	/// </summary>
-	Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default);
+	Task FetchCommitAsync(string repositoryDirectory, string remote, string sha, CancellationToken ct = default);
+
+	/// <summary>The commit <paramref name="branch"/> points at on <paramref name="remote"/> (<c>git ls-remote</c>), or <c>null</c> when it has none.</summary>
+	Task<string?> RemoteBranchCommitAsync(string repositoryDirectory, string remote, string branch, CancellationToken ct = default);
+
+	/// <summary>Creates local <paramref name="branch"/> at commit <paramref name="sha"/>.</summary>
+	Task CreateBranchAsync(string repositoryDirectory, string branch, string sha, CancellationToken ct = default);
 
 	/// <summary>The configured URL of <paramref name="remote"/> (<c>git remote get-url</c>), or <c>null</c> when it has none.</summary>
 	Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default);

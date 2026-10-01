@@ -76,7 +76,7 @@ public sealed partial class HostCore {
 				branch,
 				new PullRequestStatusInfo(found.Number, url, StateName(found.State)),
 				null,
-				new PullRequestTarget(baseRepo, baseRemote, found.Number, found.HeadSha, found.BaseRef, url));
+				new PullRequestTarget(baseRepo, baseRemote, found.Number, found.HeadSha, found.BaseSha, url));
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {

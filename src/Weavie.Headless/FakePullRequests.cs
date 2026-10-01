@@ -57,6 +57,7 @@ internal static class FakePullRequests {
 					HeadRef = Str(pr, "headRef"),
 					HeadSha = Str(pr, "headSha"),
 					BaseRef = Str(pr, "baseRef"),
+					BaseSha = Str(pr, "baseSha"),
 					Url = Str(pr, "url"),
 					IsDraft = pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
 					State = ParseState(Str(pr, "state")),

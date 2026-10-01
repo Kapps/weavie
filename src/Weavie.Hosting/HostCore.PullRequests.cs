@@ -78,11 +78,8 @@ public sealed partial class HostCore {
 		try {
 			var git = new GitService();
 			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, ct).ConfigureAwait(false)) {
-				await git.FetchAsync(
-					WorkspaceRoot,
-					"origin",
-					$"{headRef}:{headRef}",
-					ct).ConfigureAwait(false);
+				await git.FetchCommitAsync(WorkspaceRoot, "origin", pullRequest.HeadSha, ct).ConfigureAwait(false);
+				await git.CreateBranchAsync(WorkspaceRoot, headRef, pullRequest.HeadSha, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure(
@@ -112,7 +109,7 @@ public sealed partial class HostCore {
 			target,
 			request.Number,
 			headRef,
-			pullRequest.BaseRef,
+			pullRequest.BaseSha,
 			ct).ConfigureAwait(false);
 		return reviewError is null
 			? created
@@ -123,26 +120,22 @@ public sealed partial class HostCore {
 		HostSession session,
 		int number,
 		string headRef,
-		string baseRef,
+		string baseSha,
 		CancellationToken ct) {
 		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		string? mergeBase = null;
+		string reason = "its head shares no history with it";
 		try {
-			if (GitService.IsValidBranchName(baseRef)) {
-				await git.FetchAsync(WorkspaceRoot, "origin", baseRef, ct).ConfigureAwait(false);
-				mergeBase = await git
-					.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, ct)
-					.ConfigureAwait(false)
-					?? await git.MergeBaseAsync(worktree, baseRef, headRef, ct).ConfigureAwait(false);
-			}
+			await git.FetchCommitAsync(worktree, "origin", baseSha, ct).ConfigureAwait(false);
+			mergeBase = await git.MergeBaseAsync(worktree, baseSha, headRef, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
-			Log($"[weavie] pr #{number}: couldn't resolve base '{baseRef}': {ex.Message}");
+			reason = ex.Message;
 		}
 
 		if (mergeBase is null) {
-			return $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.";
+			return $"Opened PR #{number}, but couldn't compute its diff against its base: {reason}";
 		}
 
 		string headSha;

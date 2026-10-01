@@ -12,6 +12,10 @@ test.skip(
 // Flake 2026-09-30 23:41 UTC, Windows: https://github.com/Kapps/weavie/actions/runs/36791916298/job/110146557556
 // The editor chunk took ~32s to initialise (editor-ready +34108ms vs ~2.6s when green) and the 60s test
 // budget ran out. Root cause not yet proven; desktop.log lines now carry elapsed time to locate the stall.
+// Flake 2026-10-01 02:54 UTC, Windows: https://github.com/Kapps/weavie/actions/runs/36807392855/job/110194950561
+// Same stall, now with startup marks: module-eval +9684ms and splash-dismissed +24889ms after navigation, so the
+// time goes to WebView2 loading the virtual-host assets (no Weavie code on that path), twice per run (reload).
+// Not fixed; the timestamps from the next occurrence should separate asset load from editor init.
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }) => {

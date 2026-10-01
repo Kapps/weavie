@@ -1,3 +1,4 @@
+import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import { scrollReview } from "../harness/review-scroll";
@@ -97,6 +98,7 @@ test.describe("wrapped review construction", () => {
     page,
   }) => {
     await expect(page.locator(".editor-empty-review")).toContainText("3");
+    await awaitEditorReady(page);
     const observation = await page.evaluateHandle(() => {
       const monaco = window.__WEAVIE_MONACO__!;
       const samples: { path: string; width: number; wrappingColumn: number }[] = [];

@@ -157,6 +157,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public int Restarts { get; private set; }
 
+		public IReadOnlyList<AgentPaneMessage> Restore() => [];
+
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
 
 		public void Submit(AgentTurnSubmission submission) => Submissions.Add(submission);

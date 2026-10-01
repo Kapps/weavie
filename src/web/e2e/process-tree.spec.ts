@@ -1,10 +1,49 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "@playwright/test";
-import { test } from "./harness/network-fixtures";
+import { expect, test } from "@playwright/test";
 import { killProcessTree } from "./harness/weavie-host";
+
+test("POSIX shutdown waits for inherited pipes after the root exits", async () => {
+  test.skip(process.platform === "win32", "POSIX graceful shutdown contract");
+  const childScript = "process.send('ready'); setInterval(() => {}, 1000)";
+  const root = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const {spawn} = require('child_process');
+       const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}],
+         {stdio: ['ignore', 'inherit', 'inherit', 'ipc']});
+       process.on('SIGINT', () => process.exit(0));
+       child.once('message', () => process.send(child.pid));`,
+    ],
+    { stdio: ["ignore", "pipe", "pipe", "ipc"] },
+  );
+  root.stdout?.resume();
+  root.stderr?.resume();
+  const rootClosed = once(root, "close");
+  const [childPid] = await once(root, "message");
+  const rootExited = once(root, "exit");
+  let stopped = false;
+  const stopping = killProcessTree(root).then(() => {
+    stopped = true;
+  });
+  try {
+    await rootExited;
+    await new Promise(setImmediate);
+    expect(stopped).toBe(false);
+    expect(root.stdout?.closed).toBe(false);
+  } finally {
+    process.kill(childPid, "SIGTERM");
+    await rootClosed;
+    await stopping;
+  }
+  expect(stopped).toBe(true);
+  expect(root.stdout?.closed).toBe(true);
+  await killProcessTree(root);
+});
 
 test("Windows process-tree shutdown rejects an exited root with a surviving child", async () => {
   test.skip(process.platform !== "win32", "Windows process ownership regression");

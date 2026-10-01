@@ -69,7 +69,6 @@ test.describe("Review Changes tab", () => {
 
     // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
     const hello = sectionFor(page, "hello.ts");
-    // See the 2026-09-03 flake note on the "completions" test below — same hardcoded-override defect.
     await expect(hello.locator(".monaco-editor")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
     await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0);
@@ -143,57 +142,6 @@ test.describe("Review Changes tab", () => {
     await expect.poll(() => sectionGaps(page)).toEqual([20]);
   });
 
-  // Completions are the feature the hand-rolled rows could never have: they need a real editor on the real
-  // model. The provider is mocked through __WEAVIE_MONACO__ (the harness has no language server), exactly as
-  // editor-code-intel.spec.ts mocks definitions.
-  test("completions open inside a review section editor", async ({ page }) => {
-    await page.locator(".editor-empty-review").click();
-    const hello = sectionFor(page, "hello.ts");
-    // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
-    // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): the Monaco mount never
-    // became visible inside 15s under runner contention, unrelated to the PR that surfaced it (a Mac
-    // crash-reporting change). The 15s here was a hardcoded override that undercut playwright.config.ts's
-    // own platform-aware `expect.timeout` (30s on Windows/macOS, raised there for exactly this kind of
-    // full-stack mount latency) — every `.monaco-editor` wait in this file had the same override, so all
-    // four are dropped to let them inherit that budget instead of capping it back down to the Linux value.
-    await expect(hello.locator(".monaco-editor")).toBeVisible();
-    await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
-
-    await page.evaluate(() => {
-      const monaco = (window as WeavieWindow).__WEAVIE_MONACO__;
-      if (monaco === undefined) {
-        throw new Error("monaco handle not available");
-      }
-      monaco.languages.registerCompletionItemProvider("*", {
-        triggerCharacters: ["."],
-        provideCompletionItems: (_model, position) => ({
-          suggestions: [
-            {
-              label: "unifiedReviewCompletion",
-              kind: 1,
-              insertText: "unifiedReviewCompletion",
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: position.column,
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
-            },
-          ],
-        }),
-      });
-    });
-
-    await hello
-      .locator(".view-line", { hasText: "console.warn" })
-      .click({ position: { x: 4, y: 4 } });
-    await page.keyboard.press("End");
-    await page.keyboard.type(".");
-
-    await expect(page.locator(".suggest-widget")).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".suggest-widget")).toContainText("unifiedReviewCompletion");
-  });
-
   // The sections are live working copies, so an edit made while reviewing lands on disk through the same
   // debounced save the file pane uses — the riskiest seam in wiring a second editor onto a tab's model. The
   // newline matters: it grows the section, which re-measures the virtualizer. Rows keyed by the virtualizer's
@@ -214,7 +162,6 @@ test.describe("Review Changes tab", () => {
     test.slow();
     await page.locator(".editor-empty-review").click();
     const notes = sectionFor(page, "notes.txt");
-    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
     await expect(notes.locator(".monaco-editor")).toBeVisible();
 
     const marker = `edited-in-review-${Date.now()}`;

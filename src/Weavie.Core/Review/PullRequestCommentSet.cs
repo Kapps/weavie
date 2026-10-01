@@ -5,9 +5,9 @@ namespace Weavie.Core.Review;
 /// <param name="Remote">The git remote that hosts <paramref name="Repo"/> (fetches the PR head and base).</param>
 /// <param name="Number">The PR number.</param>
 /// <param name="HeadSha">The forge's current PR head commit.</param>
-/// <param name="BaseRef">The branch the PR targets.</param>
+/// <param name="BaseSha">The forge's tip of the branch the PR targets.</param>
 /// <param name="Url">The PR's web URL.</param>
-public sealed record PullRequestTarget(RepoRef Repo, string Remote, int Number, string HeadSha, string BaseRef, string Url);
+public sealed record PullRequestTarget(RepoRef Repo, string Remote, int Number, string HeadSha, string BaseSha, string Url);
 
 /// <summary>One PR's loaded review comments plus what a new comment may anchor to.</summary>
 /// <param name="Number">The PR number.</param>

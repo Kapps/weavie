@@ -9,7 +9,7 @@ public sealed class AcpCommandReadinessTests {
 	public async Task SideCommandsWaitForSessionSetupAfterCapabilitiesAreKnown() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
 		AssertLoading(fixture.Session.ControlState);
-		fixture.Session.Start();
+		fixture.Start();
 		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 		AssertLoading(fixture.Session.ControlState);
 

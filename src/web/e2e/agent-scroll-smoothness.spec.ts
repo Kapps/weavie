@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect } from "@playwright/test";
+import { expect, type JSHandle, type Locator, type Page } from "@playwright/test";
 import { test } from "./harness/network-fixtures";
 import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
@@ -167,33 +167,29 @@ test.describe("native wheel scrolling", () => {
         host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling }));
         const body = page.locator(".agent-body");
         await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
+        const paint = await pauseAnimationClock(page);
         await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-        await page.waitForTimeout(500);
+        await page.clock.runFor(500);
+        await paint.evaluate((afterPaint) => afterPaint());
         await body.hover();
         const overlaps: number[] = [];
         const distances: number[] = [];
         const movingFrames: number[] = [];
         for (let notch = 0; notch < 32; notch++) {
           const anchor = await body.evaluate(readVisibleAnchor);
-          const sampling = body.evaluate(sampleWheelFrames);
-          await page.mouse.wheel(0, -120);
-          const sample = await sampling;
+          const sample = await sampleWheelFrames(page, body, paint, [-120]);
           overlaps.push(sample.overlap);
           movingFrames.push(sample.frames);
           distances.push(await body.evaluate(anchorDistance, anchor));
         }
         const rapidAnchor = await body.evaluate(readVisibleAnchor);
-        const rapidSampling = body.evaluate(sampleWheelFrames);
-        for (let notch = 0; notch < 3; notch++) await page.mouse.wheel(0, -120);
-        overlaps.push((await rapidSampling).overlap);
+        overlaps.push((await sampleWheelFrames(page, body, paint, [-120, -120, -120])).overlap);
         const rapidDistance = await body.evaluate(anchorDistance, rapidAnchor);
         expect(
           Math.abs(rapidDistance - 360),
           "rapid notches must retain accumulated distance",
         ).toBeLessThanOrEqual(1);
-        const burstSampling = body.evaluate(sampleWheelFrames);
-        await page.mouse.wheel(0, -2000);
-        overlaps.push((await burstSampling).overlap);
+        overlaps.push((await sampleWheelFrames(page, body, paint, [-2000])).overlap);
         expect(
           Math.max(...overlaps),
           "visible transcript rows must never paint over each other",
@@ -221,7 +217,8 @@ test.describe("native wheel scrolling", () => {
           button.click();
         });
         await expect(latest).toBeHidden();
-        await page.waitForTimeout(200);
+        await page.clock.runFor(200);
+        await paint.evaluate((afterPaint) => afterPaint());
         expect(
           await body.evaluate(
             (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
@@ -244,27 +241,66 @@ test.describe("native wheel scrolling", () => {
   }
 });
 
+async function pauseAnimationClock(page: Page): Promise<JSHandle<() => Promise<void>>> {
+  const paint = await page.evaluateHandle(() => {
+    const frame = window.requestAnimationFrame.bind(window);
+    const defer = window.setTimeout.bind(window);
+    // Native frames preserve ResizeObserver and paint ordering while animation time is controlled.
+    return () => new Promise<void>((resolve) => frame(() => defer(resolve, 0)));
+  });
+  const time = new Date("2026-01-01T00:00:00Z");
+  await page.clock.setFixedTime(time);
+  await page.clock.pauseAt(time);
+  await page.clock.setSystemTime(time);
+  return paint;
+}
+
 async function sampleWheelFrames(
-  element: HTMLElement,
+  page: Page,
+  body: Locator,
+  paint: JSHandle<() => Promise<void>>,
+  deltas: number[],
 ): Promise<{ overlap: number; frames: number }> {
-  let overlap = 0;
-  const offsets = new Set<number>();
-  const start = performance.now();
-  while (performance.now() - start < 400) {
-    // ResizeObserver runs after animation callbacks but before paint; sample after rendering so
-    // intermediate layout that never reaches the screen is not counted as a visible overlap.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-    offsets.add(element.scrollTop);
-    const viewport = element.getBoundingClientRect();
-    const rows = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row"))
-      .map((row) => row.getBoundingClientRect())
-      .filter((row) => row.bottom > viewport.top && row.top < viewport.bottom)
-      .sort((a, b) => a.top - b.top);
-    for (let index = 1; index < rows.length; index++) {
-      overlap = Math.max(overlap, rows[index - 1]!.bottom - rows[index]!.top);
+  const observation = await body.evaluateHandle((element) => {
+    let received = 0;
+    let overlap = 0;
+    const offsets = new Set<number>();
+    const wheel = () => received++;
+    element.addEventListener("wheel", wheel);
+    return {
+      received: () => received,
+      sample: () => {
+        offsets.add(element.scrollTop);
+        const viewport = element.getBoundingClientRect();
+        const rows = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row"))
+          .map((row) => row.getBoundingClientRect())
+          .filter((row) => row.bottom > viewport.top && row.top < viewport.bottom)
+          .sort((a, b) => a.top - b.top);
+        for (let index = 1; index < rows.length; index++) {
+          overlap = Math.max(overlap, rows[index - 1]!.bottom - rows[index]!.top);
+        }
+      },
+      finish: () => {
+        element.removeEventListener("wheel", wheel);
+        return { overlap, frames: offsets.size };
+      },
+    };
+  });
+  try {
+    for (const [index, delta] of deltas.entries()) {
+      await page.mouse.wheel(0, delta);
+      await expect.poll(() => observation.evaluate((sample) => sample.received())).toBe(index + 1);
     }
+    for (let frame = 0; frame < 25; frame++) {
+      await page.clock.runFor(16);
+      await paint.evaluate((afterPaint) => afterPaint());
+      await observation.evaluate((sample) => sample.sample());
+    }
+    return await observation.evaluate((sample) => sample.finish());
+  } finally {
+    await observation.evaluate((sample) => sample.finish());
+    await observation.dispose();
   }
-  return { overlap, frames: offsets.size };
 }
 
 function readVisibleAnchor(element: HTMLElement): { id: string; top: number } {

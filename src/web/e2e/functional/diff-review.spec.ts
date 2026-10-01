@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { awaitReviewSet, navChord, walkToChangedFile } from "../harness/navigator";
+import { awaitReviewSet, focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -585,24 +585,6 @@ test.describe("multi-file review walk", () => {
     await expect(page.locator(".weavie-inline-file")).toHaveCount(2);
   });
 
-  // Keeping the last bright hunk of a file fades it but the file stays in the review set (faded band), so the
-  // host's re-emit won't advance — Keep must step to the next file itself, or the walk strands on a file with
-  // nothing left to review.
-  test("keeping the last change in a file advances to the next file", async ({ page }) => {
-    await openFile(page, "hello.ts");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
-    await expect(page.locator(ADDED)).toHaveCount(2); // two bright pending hunks
-
-    await focusFirstHunk(page);
-    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → fades; caret lands on hunk 2
-    await expect(page.locator(ADDED)).toHaveCount(1);
-
-    await page.keyboard.press("ControlOrMeta+Enter"); // keep the last bright hunk → advance to the next file
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
-      timeout: 15_000,
-    });
-  });
-
   // Same strand on revert: once a hunk is kept (faded band present), reverting the file's last bright hunk
   // leaves acceptedBaseline != current, so the host's re-emit won't advance — revert must step on itself.
   test("reverting the last pending change after a keep advances to the next file", async ({
@@ -621,6 +603,55 @@ test.describe("multi-file review walk", () => {
     await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
       timeout: 15_000,
     });
+  });
+});
+
+// Issue #946: a fully-kept file lingers in the review set at "change 0/0". Keep must walk past it to the next
+// file with pending changes, and at 0/0 with nothing pending anywhere it finishes the review instead of sticking.
+test.describe("multi-file review walk — fully-kept files", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\nand a second changed line\n"),
+        ...appliedEdit("long.ts", fourHunks()),
+      ],
+    },
+  });
+
+  const keepNotes = async (page: import("@playwright/test").Page) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt", "long.ts"]);
+    await openFile(page, "notes.txt");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+  };
+
+  test("Keep at 0/0 steps to a file with pending changes", async ({ page }) => {
+    await keepNotes(page);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText(/^(hello|long)\.ts$/, {
+      timeout: 15_000,
+    });
+  });
+
+  test("keeping skips fully-kept files, then finishes at 0/0", async ({ page }) => {
+    await keepNotes(page);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+Enter"); // last hunk → past the kept notes.txt
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("long.ts", {
+      timeout: 15_000,
+    });
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // 0/0 everywhere → finish
+    await expect(page.locator(TOOLBAR)).toHaveCount(0, { timeout: 15_000 });
   });
 });
 

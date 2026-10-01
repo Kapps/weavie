@@ -92,6 +92,7 @@ export interface PrSeed {
   author: string;
   headRef: string;
   baseRef: string;
+  baseSha: string;
   url: string;
   draft: boolean;
   headSha: string;
@@ -158,6 +159,7 @@ export async function createPrWorkspace(): Promise<{
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "seed");
   g(dir, "push", "-q", "-u", "origin", "main");
+  const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
 
   // The PR's head branch: a modified file (a two-hunk diff) plus a new file — a multi-file changeset to walk.
   g(dir, "checkout", "-q", "-b", headRef);
@@ -198,6 +200,7 @@ export async function createPrWorkspace(): Promise<{
         author: "alice",
         headRef,
         baseRef: "main",
+        baseSha,
         url: "https://github.com/acme/demo/pull/101",
         draft: false,
         headSha,
@@ -208,6 +211,7 @@ export async function createPrWorkspace(): Promise<{
         author: "carol",
         headRef: headRef2,
         baseRef: "main",
+        baseSha,
         url: "https://github.com/acme/demo/pull/102",
         draft: false,
         headSha: headSha2,

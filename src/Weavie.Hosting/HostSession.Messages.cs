@@ -138,6 +138,8 @@ public sealed partial class HostSession {
 			acceptInput(true, static () => { });
 			return Task.CompletedTask;
 		});
+		messages.Handle<AgentPaneRecordRequest, object>("toolOutput", (message, _) =>
+			Task.FromResult(AgentPaneProtocol.Message(Agent.ReadRecord(message))));
 		messages.Handle<EmptyMessage>("interrupt", (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;

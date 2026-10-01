@@ -73,7 +73,7 @@ public sealed class AcpTranscriptRecoveryTests {
 			command.CommandText = "UPDATE pane_events SET message = 'broken'";
 			command.ExecuteNonQuery();
 		} else File.WriteAllText(fixture.Sessions.FilePath, "temporarily unreadable database");
-		fixture.Session.Start();
+		fixture.Start();
 		await fixture.WaitForMessageAsync(message => message.Type == "error");
 		File.WriteAllBytes(fixture.Sessions.FilePath, database);
 

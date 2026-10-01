@@ -46,8 +46,12 @@ import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   canCloseReview,
   createReviewStore,
+  FULL_CONTEXT,
+  isFullContext,
+  type LineSpan,
   type ReviewFile,
   type ReviewFileDiff,
+  type ReviewFileView,
   type ReviewHistory,
   type ReviewOverview,
 } from "./review/review-store";
@@ -192,6 +196,9 @@ export interface EditorController {
     ): void;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
+    /** Shows every unchanged line of the file, or collapses them back when it already shows them all. */
+    toggleFileContext(session: ClientSession, path: string | undefined): boolean;
+    revealFileContext(session: ClientSession, path: string, span: LineSpan): void;
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
@@ -708,6 +715,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session.feature("review").publish("showFile", { path: file.path });
   };
 
+  const reviewFileView = (
+    session: ClientSession,
+    path: string | undefined,
+  ): ReviewFileView | undefined =>
+    reviews
+      .board(session)
+      .files.find((candidate) => path !== undefined && samePath(candidate.summary().path, path));
+
   const showUnifiedReview = (session: ClientSession): boolean => {
     if (!activateDestinationFor(session, "navigation")) return false;
     const result = openTabFor(session, REVIEW_TAB_KEY, { kind: "review" });
@@ -774,22 +789,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const revealReviewFile = openReviewFile;
 
-  // A file's diff just cleared (its last hunk was kept or reverted) while other changed files remain under
-  // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
-  // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
-  // since the host drops it from the review set right after.
-  const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
-    const idx = files.findIndex((file) => samePath(file.path, fromPath));
-    const start = idx === -1 ? 0 : idx;
+  // Reveal the next file (wrapping, on its first change) that still has something to review, skipping `fromPath`
+  // and every fully-kept file; a file whose diff hasn't arrived yet counts as pending. False when none remains.
+  const advanceToNextPendingFile = (
+    session: ClientSession,
+    fromPath: string,
+    reveal: (file: ReviewFile, line: number) => void,
+  ): boolean => {
+    const files = reviews.board(session).files;
+    const idx = files.findIndex((file) => samePath(file.summary().path, fromPath));
     for (let step = 1; step <= files.length; step++) {
-      const candidate = files[(start + step) % files.length];
-      if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
-        revealReviewFile(session, candidate, candidate.line);
-        return;
+      const candidate = files[(idx + step) % files.length]!;
+      const summary = candidate.summary();
+      if (!samePath(summary.path, fromPath) && (!candidate.loaded() || candidate.pending())) {
+        reveal(summary, summary.line);
+        return true;
       }
     }
+    return false;
   };
 
   // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
@@ -1007,6 +1024,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
       onKeepAll: () => session.feature("review").publish("accept", {}),
+      onNextPendingFile: () => advanceToNextPendingFile(session, message.path, reveal),
       onUndo: () => revertAllFor(session),
       fileLabel: message.name,
       ...(state.label !== "" ? { reviewLabel: state.label } : {}),
@@ -1015,8 +1033,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
     if (
       message.acceptedBaseline === message.current &&
       message.acceptedBaselineExists === message.currentExists
@@ -1024,8 +1040,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
       const active = activePathFor(session);
-      if (active !== null && samePath(active, message.path) && files.length > 1) {
-        advanceToNextPendingFile(session, message.path);
+      if (active !== null && samePath(active, message.path)) {
+        advanceToNextPendingFile(session, message.path, (file, line) =>
+          revealReviewFile(session, file, line),
+        );
       }
       return;
     }
@@ -1410,9 +1428,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (path === undefined) {
         return showUnifiedReview(session);
       }
-      const view = reviews
-        .board(session)
-        .files.find((candidate) => samePath(candidate.summary().path, path));
+      const view = reviewFileView(session, path);
       if (view === undefined) {
         return false;
       }
@@ -1462,10 +1478,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         });
       },
       toggleFileCollapsed: (session, path) => {
-        const state = reviews.board(session);
-        const target = state.files.find(
-          (candidate) => path !== undefined && samePath(candidate.summary().path, path),
-        );
+        const target = reviewFileView(session, path);
         if (target === undefined) {
           return false;
         }
@@ -1474,6 +1487,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       },
       setFileCollapsed: (session, path, collapsed) => {
         reviews.setFileCollapsed(session, path, collapsed);
+      },
+      toggleFileContext: (session, path) => {
+        const target = reviewFileView(session, path);
+        if (target === undefined) {
+          return false;
+        }
+        const full = isFullContext(target.context());
+        reviews.setFileContext(session, target.summary().path, full ? [] : [FULL_CONTEXT]);
+        if (!full) reviews.setFileCollapsed(session, target.summary().path, false);
+        return true;
+      },
+      revealFileContext: (session, path, span) => {
+        const target = reviewFileView(session, path);
+        if (target !== undefined)
+          reviews.setFileContext(session, path, [...target.context(), span]);
       },
       revert: tryRevertAll,
       keepFile: (session, path) => {

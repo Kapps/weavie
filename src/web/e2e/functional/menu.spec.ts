@@ -45,7 +45,9 @@ test("application menus support keyboard traversal, shortcuts, submenus, and dis
   const review = page.getByRole("menuitem", { name: /^Review Changes/ });
   await expect(review).toBeDisabled();
   await expect(review.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+U`);
+  await expect(page.getByRole("menuitem", { name: /^Close Diff/ })).toBeDisabled();
 
+  await page.getByRole("menuitem", { name: "Compare", exact: true }).click();
   const diffAgainst = page.getByRole("menuitem", { name: /^Diff Against…/ });
   await expect(diffAgainst).toBeVisible();
   await expect(diffAgainst.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+D`);
@@ -55,8 +57,14 @@ test("application menus support keyboard traversal, shortcuts, submenus, and dis
   });
 
   await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Find in Files/ }).click();
+  await expect(page.locator(".search-panel")).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
   await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
   const increase = page.getByRole("menuitem", { name: /^Increase Font Size/ });
   await expect(increase).toBeVisible();
   await expect(increase.locator(".context-menu-keys")).toContainText(`${modifier}+`);
+  await page.getByRole("menuitem", { name: /^Select Color Theme/ }).click();
+  await expect(page.getByRole("dialog", { name: "Select Color Theme" })).toBeVisible();
 });

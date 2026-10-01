@@ -79,6 +79,8 @@ export interface InlineDiffOptions {
   onUnkeepHunk?: (hunk: HunkUnkeep) => void;
   /** Applied mode — accept all remaining changes and close the review. */
   onKeepAll?: () => void;
+  /** Applied review: open the next file with changes left to review; false when none remains. */
+  onNextPendingFile?: () => boolean;
   /** The file walk is truncated, so whole-review actions would reach unseen files. */
   allActionsDisabled?: boolean;
   /** Applied mode — Keep-file: keep ALL of this file's changes, advancing its review baseline to current. */
@@ -464,11 +466,11 @@ export function createInlineDiff(
 
   // After a per-hunk keep/revert clears the file's LAST bright hunk, the file lingers in the review set while a
   // faded band remains, so the host's re-emit has acceptedBaseline != current and won't advance — step to the
-  // next file ourselves (a no-op for a single-file review). With no faded band the file clears and the
-  // controller advances, so callers pass fadedRemains=false there to avoid a double-step.
+  // next pending file ourselves. With no faded band the file clears and the controller advances, so callers pass
+  // fadedRemains=false there to avoid a double-step.
   const advanceIfExhausted = (kept: DiffHunk, fadedRemains: boolean): void => {
     if (fadedRemains && !currentHunks.some((h) => h !== kept)) {
-      nextFile();
+      currentOptions?.onNextPendingFile?.();
     }
   };
 
@@ -560,9 +562,10 @@ export function createInlineDiff(
     const hunk = hunkAtReviewLine();
     if (hunk !== undefined) {
       keepHunkNow(hunk);
+    } else if (!geometryStale() && currentOptions.onNextPendingFile?.() !== true) {
+      // Nothing left at "change 0/0" nor in any other file: Keep finishes the review.
+      currentOptions.onKeepAll?.();
     }
-    // Fully-kept file at "change 0/0": the toolbar is up, so consume the key — never fall through
-    // and let Monaco type into the file under review.
     return true;
   };
 
@@ -575,7 +578,7 @@ export function createInlineDiff(
     if (hunk !== undefined) {
       revertHunkNow(hunk);
     }
-    // Same as keepHunk: at "change 0/0" consume the key rather than fall through to the editor.
+    // At "change 0/0" consume the key rather than fall through to the editor.
     return true;
   };
 

@@ -19,6 +19,7 @@ function fixture() {
     pending: () => state.pending[index]!,
     loaded: () => true,
     collapsed: () => state.collapsed,
+    context: () => [],
     diff: () => ({
       revision: "1",
       rejected: [],

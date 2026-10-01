@@ -160,6 +160,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
+		_window = IntPtr.Zero;
 		GtkMain.Quit();
 	}
 

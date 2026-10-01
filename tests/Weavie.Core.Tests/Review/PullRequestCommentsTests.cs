@@ -8,6 +8,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	private readonly TempGitRepo _author = new("weavie-pr-author");
 	private readonly TempDirectory _temp = new("weavie-pr-comments");
 	private readonly string _worktree;
+	private readonly string _baseSha;
 	private readonly string _headSha;
 	private readonly List<PullRequestCommentsSnapshot> _published = [];
 
@@ -16,19 +17,19 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		TempGitRepo.Run(bare, "init", "--quiet", "--bare");
 		_author.Write("a.txt", "one\n");
 		_author.Write("b.txt", "unchanged\n");
-		_author.Commit("base");
+		_baseSha = _author.Commit("base");
 		_author.Git("checkout", "--quiet", "-b", "feature");
 		_author.Write("a.txt", "one\ntwo\n");
 		_author.Write("c.txt", "new\n");
 		_headSha = _author.Commit("feature");
 		_author.Git("push", "--quiet", bare, "main", $"feature:refs/pull/{Number}/head");
-		// The session's clone has only main, so the PR head must be fetched from the forge's pull ref.
+		// The session's clone has only main, so the PR head must be fetched by sha.
 		_worktree = _temp.Combine("work");
 		TempGitRepo.Run(_temp.Path, "clone", "--quiet", bare, _worktree);
 	}
 
 	private PullRequestTarget Target => new(
-		new RepoRef("github.com", "Kapps", "weavie"), "origin", Number, _headSha, "main", "https://github.com/Kapps/weavie/pull/7");
+		new RepoRef("github.com", "Kapps", "weavie"), "origin", Number, _headSha, _baseSha, "https://github.com/Kapps/weavie/pull/7");
 
 	[Fact]
 	public async Task NoPullRequest_PublishesAnEmptySet() {
@@ -40,10 +41,13 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Refresh_FetchesTheHeadAndLoadsOnlyThisPrsThreads() {
+	public async Task Refresh_FetchesTheHeadWithoutMovingARefAndLoadsOnlyThisPrsThreads() {
 		var comments = Create(Store());
+		string refs = TempGitRepo.Run(_worktree, "for-each-ref");
 
 		await comments.TrackAsync(Target, CancellationToken.None);
+
+		Assert.Equal(refs, TempGitRepo.Run(_worktree, "for-each-ref"));
 
 		var set = Assert.IsType<PullRequestCommentSet>(comments.Latest.Set);
 		Assert.Null(comments.Latest.Error);

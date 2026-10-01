@@ -974,17 +974,56 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await agentFileLink.click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
-  // The browser navigating mid-swipe — its own edge gesture, the OS back button — takes the surface the
-  // transition was moving off, so the transition goes rather than committing a second move on top of it.
+  // WebKit snapshots an entry for its swipe preview as the page leaves it, so a swipe moves history at its
+  // start, while the surface it leaves is still on screen, and a cancelled swipe moves it back.
+  const navigationStack = () => page.evaluate(() => history.state.__weavieMobileNavigation.stack);
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 100, y: 240 });
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude"]);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 100, y: 240 });
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude", "editor"]);
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
+  // A tap landing while a cancelled swipe's history move is still in flight queues behind it.
+  await editorChrome.evaluate((chrome) => {
+    const touch = (clientX: number) =>
+      new Touch({ identifier: 1, target: chrome, clientX, clientY: 240 });
+    const fire = (type: string, clientX: number) =>
+      chrome.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          changedTouches: [touch(clientX)],
+          touches: type === "touchend" ? [] : [touch(clientX)],
+        }),
+      );
+    fire("touchstart", 80);
+    fire("touchmove", 100);
+    fire("touchend", 100);
+    document.querySelector<HTMLButtonElement>(".mobile-surface-button:nth-child(3)")!.click();
+  });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude", "terminal:shell"]);
+  await page.evaluate(() => history.back());
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await page.getByRole("button", { name: "Code" }).click();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
+  // The browser navigating mid-swipe — the OS back button — moves history from where the swipe took it,
+  // so the transition goes and the surface follows the browser rather than committing a second move.
   await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
   await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
   await page.evaluate(() => history.back());
-  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
   await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
+  await page.goForward();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
-  await expect(inbox).toBeHidden();
   await page.goForward();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
@@ -1018,8 +1057,26 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
   await expect(inbox).toContainText("bug/mobile-navigation");
-  await inbox.locator(".session-inbox-row").first().click();
+  // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
+  const tapped = await inbox
+    .locator(".session-inbox-open")
+    .first()
+    .evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      return { length: history.length, state: history.state.__weavieMobileNavigation };
+    });
+  expect(tapped.state).toEqual({
+    hasForward: false,
+    reservation: expect.any(Number),
+    stack: ["inbox"],
+  });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  expect(await page.evaluate(() => history.length)).toBe(tapped.length);
+  expect(await page.evaluate(() => history.state.__weavieMobileNavigation)).toEqual({
+    hasForward: false,
+    reservation: null,
+    stack: ["inbox", "terminal:claude"],
+  });
 
   const bar = page.locator(".mobile-surface-bar");
   // The bar swipes both ways and reaches both screen edges, which the browser navigates history from.

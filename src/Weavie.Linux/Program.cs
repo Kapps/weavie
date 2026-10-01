@@ -1,4 +1,6 @@
 using Weavie.Core;
+using Weavie.Core.Shell;
+using Weavie.Hosting;
 using Weavie.Hosting.Desktop;
 using Weavie.Linux;
 using Weavie.Linux.Hosting;
@@ -42,6 +44,8 @@ if (!GStreamer.HasAutoAudioSink()) {
 }
 
 var host = new WorkspaceHost();
+using var lifetime = new PosixApplicationLifetime(
+	new DelegateUiDispatcher(GtkMain.Invoke), ((IShellMenuActions)host).Quit);
 host.SetLaunchPaths(launch.Paths);
 host.Start();
 GtkMain.Run();

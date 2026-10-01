@@ -41,7 +41,11 @@ export function SessionInbox(props: {
   active: boolean;
   compact: boolean;
   onOpen: (session: RailSession) => Promise<boolean>;
-  onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
+  onCreate: (
+    seed: () => Promise<NewSessionSeed | null>,
+    backendId: string,
+    providerId: string,
+  ) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
 }): JSX.Element {
   const [prompt, setPrompt] = createSignal("");
@@ -185,20 +189,20 @@ export function SessionInbox(props: {
       return;
     }
     setSubmitting("new");
-    // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
-    const branch = (await branchActions?.resolve()) ?? "";
-    if (branch.length === 0) {
-      setSubmitting(null);
-      return;
-    }
     if (
       await props.onCreate(
-        {
-          branch,
-          base: base(),
-          existing: false,
-          prompt: text,
-          attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
+        async () => {
+          // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
+          const branch = (await branchActions?.resolve()) ?? "";
+          return branch.length === 0
+            ? null
+            : {
+                branch,
+                base: base(),
+                existing: false,
+                prompt: text,
+                attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
+              };
         },
         backendId(),
         providerId(),
@@ -217,7 +221,7 @@ export function SessionInbox(props: {
     setSubmitting("existing");
     if (
       await props.onCreate(
-        { branch, base: "main", existing: true, prompt: "", attachments: [] },
+        async () => ({ branch, base: "main", existing: true, prompt: "", attachments: [] }),
         backendId(),
         providerId(),
       )

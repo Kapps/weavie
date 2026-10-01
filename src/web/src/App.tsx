@@ -971,6 +971,11 @@ export default function App(): JSX.Element {
       .finally(endSelection);
   };
 
+  // The tap that opens a session claims its Agent history entry; presenting the session fills it.
+  const openFromInbox = (open: () => Promise<boolean>): Promise<boolean> => {
+    const release = mobileHistory.reserve();
+    return open().finally(release);
+  };
   const openSession = (session: RailSession): Promise<boolean> => {
     if (!session.active) {
       return switchToSession(session);
@@ -1845,19 +1850,25 @@ export default function App(): JSX.Element {
           inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
-          onOpen={openSession}
-          onCreate={(seed, backendId, providerId) => {
-            setLastLocation(backendId);
-            promoteNextSessionOn(backendId);
-            return createSessionAt(backendId, {
-              branch: seed.branch,
-              base: seed.base,
-              existing: seed.existing,
-              prompt: seed.prompt,
-              attachments: seed.attachments,
-              agentProviderId: providerId,
-            });
-          }}
+          onOpen={(session) => openFromInbox(() => openSession(session))}
+          onCreate={(resolveSeed, backendId, providerId) =>
+            openFromInbox(async () => {
+              const seed = await resolveSeed();
+              if (seed === null) {
+                return false;
+              }
+              setLastLocation(backendId);
+              promoteNextSessionOn(backendId);
+              return createSessionAt(backendId, {
+                branch: seed.branch,
+                base: seed.base,
+                existing: seed.existing,
+                prompt: seed.prompt,
+                attachments: seed.attachments,
+                agentProviderId: providerId,
+              });
+            })
+          }
           onManageAcp={openAcpRegistry}
           surfaceTitle={mobileSurfaceTitle}
           onDismiss={closeSessions}

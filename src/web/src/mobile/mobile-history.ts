@@ -6,6 +6,8 @@ const ROOT_STACK: readonly MobileSurface[] = ["inbox"];
 
 interface NavigationState {
   hasForward: boolean;
+  // A drill-in entry pushed inside the user's gesture before its async destination is known.
+  reservation: number | null;
   stack: readonly MobileSurface[];
 }
 
@@ -13,6 +15,7 @@ export interface MobileHistory {
   back: () => void;
   backTarget: Accessor<MobileSurface | null>;
   drill: (surface: MobileSurface) => void;
+  reserve: () => () => void;
   select: (surface: MobileSurface) => void;
   surface: Accessor<MobileSurface>;
 }
@@ -22,19 +25,33 @@ export function createMobileHistory(compact: Accessor<boolean>): MobileHistory {
   const [stack, setStack] = createSignal<readonly MobileSurface[]>(ROOT_STACK);
   const surface = createMemo<MobileSurface>(() => stack().at(-1) ?? "inbox");
   const backTarget = createMemo<MobileSurface | null>(() => stack().at(-2) ?? null);
+  let nextReservation = 0;
 
   const currentNavigation = (): NavigationState => {
     const current = readNavigation(history.state);
     if (current !== null) {
       return current;
     }
-    const root = { hasForward: false, stack: ROOT_STACK };
+    const root = { hasForward: false, reservation: null, stack: ROOT_STACK };
     history.replaceState(withNavigation(history.state, root), "");
     return root;
   };
-  const push = (current: readonly MobileSurface[], next: readonly MobileSurface[]): void => {
-    history.replaceState(withNavigation(history.state, { hasForward: true, stack: current }), "");
-    history.pushState(withNavigation(history.state, { hasForward: false, stack: next }), "");
+  const replace = (stack: readonly MobileSurface[]): void => {
+    history.replaceState(
+      withNavigation(history.state, { hasForward: false, reservation: null, stack }),
+      "",
+    );
+  };
+  // A reserved entry already sits above the one it was claimed from, so it is reused rather than pushed.
+  const advance = (navigation: NavigationState): void => {
+    if (navigation.reservation === null) {
+      history.replaceState(withNavigation(history.state, { ...navigation, hasForward: true }), "");
+      history.pushState(history.state, "");
+    }
+  };
+  const push = (next: readonly MobileSurface[]): void => {
+    advance(currentNavigation());
+    replace(next);
   };
   const restoreCurrentStack = (): void => {
     if (!compact()) {
@@ -61,6 +78,26 @@ export function createMobileHistory(compact: Accessor<boolean>): MobileHistory {
     history.back();
   };
 
+  // WebKit's back gesture skips entries pushed without a recent user gesture, so opening a session from
+  // the inbox claims its drill-in entry here, inside the tap, and the async open fills it.
+  const reserve = (): (() => void) => {
+    if (!compact()) {
+      return () => {};
+    }
+    const navigation = currentNavigation();
+    const reservation = ++nextReservation;
+    advance(navigation);
+    history.replaceState(
+      withNavigation(history.state, { hasForward: false, reservation, stack: navigation.stack }),
+      "",
+    );
+    return () => {
+      if (readNavigation(history.state)?.reservation === reservation) {
+        history.back();
+      }
+    };
+  };
+
   const select = (next: MobileSurface): void => {
     if (!compact()) {
       setStack([next]);
@@ -82,17 +119,12 @@ export function createMobileHistory(compact: Accessor<boolean>): MobileHistory {
       back();
       return;
     }
-    const nextStack =
-      active === "inbox" || navigation.hasForward
-        ? [...current, next]
-        : [...current.slice(0, -1), next];
-    if (active === "inbox" || navigation.hasForward) {
-      push(current, nextStack);
+    const drills = active === "inbox" || navigation.hasForward;
+    const nextStack = drills ? [...current, next] : [...current.slice(0, -1), next];
+    if (drills) {
+      push(nextStack);
     } else {
-      history.replaceState(
-        withNavigation(history.state, { hasForward: false, stack: nextStack }),
-        "",
-      );
+      replace(nextStack);
     }
     setStack(nextStack);
   };
@@ -111,11 +143,11 @@ export function createMobileHistory(compact: Accessor<boolean>): MobileHistory {
       return;
     }
     const nextStack = [...current, next];
-    push(current, nextStack);
+    push(nextStack);
     setStack(nextStack);
   };
 
-  return { back, backTarget, drill, select, surface };
+  return { back, backTarget, drill, reserve, select, surface };
 }
 
 function readNavigation(state: unknown): NavigationState | null {
@@ -126,9 +158,10 @@ function readNavigation(state: unknown): NavigationState | null {
   if (navigation === null || typeof navigation !== "object") {
     return null;
   }
-  const { hasForward, stack } = navigation as Record<string, unknown>;
+  const { hasForward, reservation, stack } = navigation as Record<string, unknown>;
   if (
     typeof hasForward !== "boolean" ||
+    (reservation !== null && typeof reservation !== "number") ||
     !Array.isArray(stack) ||
     stack.length === 0 ||
     stack[0] !== "inbox" ||
@@ -137,7 +170,7 @@ function readNavigation(state: unknown): NavigationState | null {
   ) {
     return null;
   }
-  return { hasForward, stack };
+  return { hasForward, reservation, stack };
 }
 
 function isMobileSurface(value: unknown): value is MobileSurface {

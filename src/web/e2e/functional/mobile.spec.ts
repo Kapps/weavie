@@ -1018,8 +1018,26 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
   await expect(inbox).toContainText("bug/mobile-navigation");
-  await inbox.locator(".session-inbox-row").first().click();
+  // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
+  const tapped = await inbox
+    .locator(".session-inbox-open")
+    .first()
+    .evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      return { length: history.length, state: history.state.__weavieMobileNavigation };
+    });
+  expect(tapped.state).toEqual({
+    hasForward: false,
+    reservation: expect.any(Number),
+    stack: ["inbox"],
+  });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  expect(await page.evaluate(() => history.length)).toBe(tapped.length);
+  expect(await page.evaluate(() => history.state.__weavieMobileNavigation)).toEqual({
+    hasForward: false,
+    reservation: null,
+    stack: ["inbox", "terminal:claude"],
+  });
 
   const bar = page.locator(".mobile-surface-bar");
   // The bar swipes both ways and reaches both screen edges, which the browser navigates history from.

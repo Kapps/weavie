@@ -19,6 +19,8 @@ export interface ReviewScroll {
   readonly element: HTMLElement;
   readonly viewport: HTMLElement;
   getScrollTop(): number;
+  /** The viewport's height from the owner's own scroll dimensions, so callers never measure the DOM. */
+  getViewportHeight(): number;
   setScrollTop(top: number): void;
   setContentHeight(height: number): void;
   onScroll(listener: (userInitiated: boolean) => void): () => void;
@@ -164,6 +166,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     element,
     viewport: node,
     getScrollTop,
+    getViewportHeight: () => scrollable.getScrollDimensions().height,
     setScrollTop,
     setContentHeight: (height) => {
       if (contentHeight === height) return;

@@ -80,6 +80,7 @@ function fixture() {
     containerOffset: 38,
     headerHeight: 32,
     viewportHeight: 594,
+    focused: false,
   };
   const measure = vi.fn();
   const scroller = {
@@ -127,6 +128,7 @@ function fixture() {
     getLayoutInfo: () => layoutInfo,
     getOption: (id: EditorOption) => values.get(id),
     getDomNode: () => mount,
+    hasTextFocus: () => state.focused,
     setScrollTop: (top: number) => view.getScrollable().setScrollPositionNow({ scrollTop: top }),
     onDidScrollChange: view.onDidScroll,
     render: vi.fn(),
@@ -142,6 +144,7 @@ function fixture() {
       getBoundingClientRect: () => ({ top: 6 }),
     } as unknown as HTMLElement,
     getScrollTop: () => rootTop,
+    getViewportHeight: () => state.viewportHeight,
     setScrollTop: (top) => {
       scroller.scrollTop = top;
       for (const listener of listeners) listener(false);
@@ -191,6 +194,21 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
+  it("follows a moved section by its known delta, landing where a re-measure would", () => {
+    const shifted = fixture();
+    shifted.scrollTo(600);
+    const measures = shifted.measure.mock.calls.length;
+    shifted.viewport.shift(-100);
+    expect(shifted.measure).toHaveBeenCalledTimes(measures);
+
+    // The same move applied to the DOM and re-measured has to put the band in the same place.
+    const measured = fixture();
+    measured.scrollTo(600);
+    measured.state.containerOffset -= 100;
+    measured.viewport.layout();
+    expect(shifted.mount.style.transform).toBe(measured.mount.style.transform);
+  });
+
   it("supplies the measured width at construction without remeasuring the section", () => {
     const current = fixture();
     expect(current.createEditor).toHaveBeenCalledExactlyOnceWith({ width: 716, height: 0 });
@@ -304,6 +322,16 @@ describe("review viewport geometry ownership", () => {
     // Whole steps while it grows in, then the exact viewport extent — not a height per scroll position.
     expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562, 768]);
     expect(current.editor.layout.mock.calls.length).toBeLessThanOrEqual(6);
+  });
+
+  it("keeps the exact extent while a growing section holds the cursor", () => {
+    const current = fixture();
+    current.state.containerOffset = 238;
+    current.state.focused = true;
+    current.viewport.layout();
+    current.scrollTo(0);
+    // Monaco travels its own cursor against this height, so a focused band must not claim offscreen rows.
+    expect(current.editor.getLayoutInfo().height).toBe(362);
   });
 
   it("does not resize or repaint editors when measured dimensions are unchanged", () => {

@@ -66,8 +66,10 @@ export function UnifiedReview(props: {
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [viewTop, setViewTop] = createSignal(0);
   const [anchorPath, setAnchorPath] = createSignal<string>();
-  // The selected file, else the first file on screen; none while only the file tree is in view.
-  const visibleFile = (): number | undefined => {
+  // The selected file, else the first file on screen; none while only the file tree is in view. Memoised because
+  // several consumers ask per frame, and it takes the viewport height from the scroll owner rather than the DOM: a
+  // read there lands mid-gesture and forces a synchronous layout.
+  const visibleFile = createMemo((): number | undefined => {
     const path = selectedPath();
     if (path !== null) {
       const index = props.overview().files.findIndex((file) => samePath(file.summary().path, path));
@@ -76,10 +78,10 @@ export function UnifiedReview(props: {
     const owner = scroll();
     if (owner === undefined) return undefined;
     const top = viewTop();
-    const bottom = top + owner.viewport.clientHeight;
+    const bottom = top + owner.getViewportHeight();
     const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
     return row === undefined ? undefined : row.index - 1;
-  };
+  });
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -150,10 +152,48 @@ export function UnifiedReview(props: {
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
     getScrollElement: () => scroll()?.viewport ?? null,
+    // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
+    // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
+    // entry instead of a `getBoundingClientRect` that forces a layout mid-gesture. Claiming a settled scroll, as
+    // this did before, took the forced read on every section that came into view.
     observeElementOffset: (_instance, callback) => {
       const owner = scroll()!;
       callback(owner.getScrollTop(), false);
-      return owner.onScroll(() => callback(owner.getScrollTop(), false));
+      let moved = false;
+      let settling = false;
+      let stopped = false;
+      const settle = (): void => {
+        if (stopped) return;
+        if (moved) {
+          moved = false;
+          requestAnimationFrame(settle);
+          return;
+        }
+        settling = false;
+        callback(owner.getScrollTop(), false);
+      };
+      const unsubscribe = owner.onScroll((userInitiated) => {
+        // A programmatic scroll arriving while the review is still — a saved-position restore, a Find or
+        // go-to-line reveal, the scroll-into-view on focus — must let the virtualiser measure a section as it
+        // mounts, or it lands against an estimate. One arriving mid-gesture belongs to that gesture: the
+        // virtualiser's own size corrections write the scroll position this way, and flapping the flag per frame
+        // would re-render the list on every edge.
+        if (!userInitiated && !settling) {
+          callback(owner.getScrollTop(), false);
+          return;
+        }
+        moved = true;
+        callback(owner.getScrollTop(), true);
+        if (settling) return;
+        settling = true;
+        requestAnimationFrame(settle);
+      });
+      // The pending frame outlives the subscription, so it has to be stopped too: reporting a settled scroll after
+      // teardown would call back into a virtualiser that is already gone.
+      return () => {
+        stopped = true;
+        unsubscribe();
+      };
     },
     gap: 20,
     scrollToFn: (offset, options, instance) => {

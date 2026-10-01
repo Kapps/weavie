@@ -9,6 +9,9 @@ test.skip(
   "Navigation probes overlap WebKit cancellation; font replies do not acknowledge navigation completion.",
 );
 
+// Flake 2026-09-30 23:41 UTC, Windows: https://github.com/Kapps/weavie/actions/runs/36791916298/job/110146557556
+// The editor chunk took ~32s to initialise (editor-ready +34108ms vs ~2.6s when green) and the 60s test
+// budget ran out. Root cause not yet proven; desktop.log lines now carry elapsed time to locate the stall.
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }) => {

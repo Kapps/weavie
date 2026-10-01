@@ -554,7 +554,7 @@ public sealed partial class HostCore {
 
 	private static void RestoreSlotEditor(HostSession session, SessionSlot slot) {
 		session.DisplayLabel = slot.Label;
-		session.EditorSession = slot.EditorSession;
+		session.SeedEditorSession(slot.EditorSession);
 		session.Scratch.GarbageCollect(
 			slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 	}
@@ -897,15 +897,16 @@ public sealed partial class HostCore {
 
 	private async Task<CommandResult?> FlushSessionViewAsync(HostSession session, CancellationToken ct) {
 		try {
-			var result = await session.View.Feature("editor")
-				.TryRequestAsync<EmptySessionMessage, EditorFlushResult>(
-					"flush",
-					new EmptySessionMessage(),
-					ct)
-				.ConfigureAwait(false);
-			if (result is not null) {
-				HandleEditorSessionChanged(session, result.Session);
-			}
+			// A reply taken before a host edit the page had not yet applied is refused; the next one includes it.
+			EditorFlushResult? result;
+			do {
+				result = await session.View.Feature("editor")
+					.TryRequestAsync<EmptySessionMessage, EditorFlushResult>(
+						"flush",
+						new EmptySessionMessage(),
+						ct)
+					.ConfigureAwait(false);
+			} while (result is not null && !HandleEditorSessionChanged(session, result.Session, result.Basis));
 
 			return null;
 		} catch (OperationCanceledException) {

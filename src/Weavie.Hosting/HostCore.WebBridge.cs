@@ -101,15 +101,15 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("layout").PublishJson("state", $"{{\"document\":{documentJson}}}");
 	}
 
-	/// <summary>Applies editor state sent through its owning session bus.</summary>
-	private void HandleEditorSessionChanged(HostSession target, JsonElement sessionElement) {
+	/// <summary>Applies editor state sent through its owning session bus; false when it predates a host edit.</summary>
+	private bool HandleEditorSessionChanged(HostSession target, JsonElement sessionElement, long basis) {
 		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
 			|| session is null) {
 			Log($"[bridge] invalid editor session for {target.SlotId}: {error}");
-			return;
+			return true;
 		}
 
-		target.EditorSession = session;
+		return target.ApplyPageSnapshot(session, basis);
 	}
 
 	/// <summary>

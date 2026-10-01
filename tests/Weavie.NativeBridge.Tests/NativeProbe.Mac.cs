@@ -21,9 +21,9 @@ internal static class NativeProbe {
 		using var observer = new PolicyObserver((WKNavigationDelegate)view.NavigationDelegate!, probe);
 		view.NavigationDelegate = observer;
 		bridge.MessageReceived += (_, message) => probe.Receive(message);
-		probe.Execute += script => view.EvaluateJavaScript(script, (_, error) => {
+		probe.Execute += script => NSApplication.SharedApplication.BeginInvokeOnMainThread(() => view.EvaluateJavaScript(script, (_, error) => {
 			if (error is not null) probe.Fail(error.LocalizedDescription);
-		});
+		}));
 		bridge.Security.LoadAsync(probe.AppUrl, string.Empty, "this.webkit.messageHandlers.weavie.postMessage.bind(this.webkit.messageHandlers.weavie)",
 			script => {
 				configuration.UserContentController.AddUserScript(new WKUserScript(new NSString(script), WKUserScriptInjectionTime.AtDocumentStart, true));

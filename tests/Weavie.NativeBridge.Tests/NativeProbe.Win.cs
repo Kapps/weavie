@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Weavie.Hosting;
 using Weavie.Win.Hosting;
 
 namespace Weavie.NativeBridge.Tests;
@@ -10,6 +11,7 @@ internal static class NativeProbe {
 		using var window = new Form();
 		using var view = new WebView2 { Dock = DockStyle.Fill };
 		using var bridge = new HostBridge();
+		var dispatcher = new ControlUiDispatcher(window);
 		window.Controls.Add(view);
 		window.Shown += async (_, _) => {
 			try {
@@ -32,12 +34,14 @@ internal static class NativeProbe {
 				};
 				probe.Execute += script => _ = core.ExecuteScriptAsync(script);
 				await bridge.Security.LoadAsync(probe.AppUrl, string.Empty, "this.chrome.webview.postMessage.bind(this.chrome.webview)",
-					async script => await core.AddScriptToExecuteOnDocumentCreatedAsync(script), core.Navigate);
+					script => dispatcher.InvokeAsync(() => core.AddScriptToExecuteOnDocumentCreatedAsync(script), CancellationToken.None),
+					url => dispatcher.Post(() => core.Navigate(url)));
 			} catch (Exception error) {
 				probe.Fail(error.ToString());
 			}
 		};
 		Application.Run(window);
+		dispatcher.Close();
 		return probe.ExitCode;
 	}
 }

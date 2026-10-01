@@ -11,8 +11,9 @@ import { killProcessTree } from "../harness/weavie-host";
 let executable: string;
 test.beforeAll(() => {
   const project = resolve(import.meta.dirname, "../../../../tests/Weavie.NativeBridge.Tests");
+  const runtime = process.platform === "darwin" ? [`-p:RuntimeIdentifier=osx-${process.arch}`] : [];
   try {
-    execFileSync("dotnet", ["build", project, "-c", "Release"], { encoding: "utf8" });
+    execFileSync("dotnet", ["build", project, "-c", "Release", ...runtime], { encoding: "utf8" });
   } catch (error) {
     if (error instanceof Error && "stdout" in error)
       throw new Error(String(error.stdout), { cause: error });
@@ -21,7 +22,13 @@ test.beforeAll(() => {
   const properties = JSON.parse(
     execFileSync(
       "dotnet",
-      ["msbuild", project, "-p:Configuration=Release", "-getProperty:TargetDir,AssemblyName"],
+      [
+        "msbuild",
+        project,
+        "-p:Configuration=Release",
+        ...runtime,
+        "-getProperty:TargetDir,AssemblyName",
+      ],
       { encoding: "utf8" },
     ),
   ).Properties;

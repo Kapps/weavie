@@ -16,6 +16,7 @@ export function createReviewEditorViewport(
   editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
+  shift(delta: number): void;
   reveal(top: number): void;
   update(change: () => void): void;
   dispose(): void;
@@ -69,11 +70,13 @@ export function createReviewEditorViewport(
         Math.floor(Math.min(viewport.height + Math.min(viewport.top, 0), contentHeight - top)),
       );
       // A section growing into view from below is the half of a file boundary that can be de-thrashed without
-      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up
-      // to a coarse step costs a few clipped rows and saves a layout on most frames of the crossing. Every other
-      // position keeps the exact visible extent, so `top` and Monaco's scroll range are unchanged.
+      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up to a
+      // coarse step costs a few clipped rows and saves a layout on most frames of the crossing. A focused editor
+      // keeps the exact extent, because Monaco moves its own cursor against this height: a band taller than what is
+      // on screen would let ArrowDown or Find travel to rows the reader cannot see, and without Monaco scrolling
+      // there is no `onDidScrollChange` for the review to follow.
       const height =
-        viewport.top < 0 && visible > 0
+        viewport.top < 0 && visible > 0 && !editor.hasTextFocus()
           ? Math.min(contentHeight - top, Math.ceil(visible / BAND_STEP) * BAND_STEP)
           : visible;
       const resized = dimension.width !== width || dimension.height !== height;
@@ -95,6 +98,15 @@ export function createReviewEditorViewport(
     if (disposed || updateDepth !== 0) return;
     measure();
     sync();
+  };
+  // Moving the section moves every descendant with it, so the container's offset shifts by exactly the same
+  // amount. Re-measuring instead would read geometry right after the write that moved it, forcing a synchronous
+  // layout mid-scroll.
+  const shift = (delta: number): void => {
+    if (disposed || delta === 0) return;
+    containerTop += delta;
+    // A deferred shift needs no sync: update() ends in layout(), which re-measures.
+    if (updateDepth === 0) sync();
   };
   const observer = new ResizeObserver(layout);
   observer.observe(scroller);
@@ -156,6 +168,7 @@ export function createReviewEditorViewport(
     editor,
     bounds,
     layout,
+    shift,
     reveal,
     update: (change) => {
       const wasSyncing = syncing;

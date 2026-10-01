@@ -4,6 +4,22 @@ Measured on the real Linux GTK4/WebKitGTK desktop build (RTX 4090, 3840x2160 @ 2
 content viewport 1280x840 at DPR 2), in one isolated benchmark instance, five agent-applied 5,000-line files,
 page-dispatched wheel at one notch per animation frame.
 
+## Chrome's layout counters cannot substitute for the native measurement
+
+Tempting, because CDP reports `LayoutCount` / `LayoutDuration` / `RecalcStyleCount` / `RecalcStyleDuration` and needs
+no display. It does not work, and a control proves it. The same 160-notch review scroll, same fixture, three builds:
+
+| build | LayoutCount | LayoutDuration | RecalcStyle | native traverse p99 |
+|---|---|---|---|---|
+| before any fix (`8e031281`) | 1296 | 72 ms | 1416 / 80 ms | **39 ms** |
+| fixes 1-2 | 1293 | 71 ms | 1413 / 78 ms | **29 ms** |
+| fixes 1-5 | 1295 | 72 ms | 1412 / 79 ms | unmeasured |
+
+Chrome reports the same layout and style work for a change that natively moved p99 by 10 ms and removed every frame
+over 40 ms. The counters are **blind to this class of improvement**, so a null result from them says nothing about the
+fixes — do not read one as evidence that a fix did nothing. Headless remains useful for *counts* of reads and DOM
+writes, which are transport-independent; it cannot stand in for WebKitGTK frame timing.
+
 ## Correction: the forced-layout framing below is wrong
 
 Later measurement on the same native build retracts the central claim of
@@ -59,6 +75,144 @@ Still open: making a section enter and leave the rendered set without a full sty
 *mount* is the untried half, and it previously broke reveal-based navigation because a reveal is itself a scroll
 (see the note at the end of this document) — so it needs navigation to force a mount rather than wait for
 stillness.
+
+## What the boundary frame was: a forced synchronous layout
+
+The stall is a **forced synchronous layout**, and the record tree proves it: `RecalculateStyles` and `Layout` are
+*children* of the rAF's `FunctionCall`, not siblings, so they ran inside the JS call. In WebKit that only happens
+when script reads geometry while layout is dirty. Two sites on the review's own path did exactly that, both firing
+when a section's box or offset changes — which is the boundary frame:
+
+1. `ReviewFileSection`'s ResizeObserver read `clientTop` / `clientHeight` / `offsetHeight`, **wrote** the sticky
+   header transform, then called the editor's `layout()`, which reads geometry again.
+2. The section's offset effect wrote `article.style.top` and then called `layout()`, which reads *because of* that
+   write, so it could not simply be reordered.
+
+The first is fixed by ordering every read ahead of every write. The second by shifting the band by the offset
+delta: moving a section moves every descendant with it, so the container's offset changes by exactly that amount —
+which holds regardless of which notices are rendered above the editor and of the section's box model. A
+`containerTop` derived from header height would **not** hold, because `ReviewFileBody` renders
+`.unified-review-notice` siblings above the editor. Structural changes still re-measure through the observer, and
+`.unified-review-file` is content-driven (`position: absolute`, no height), so a notice appearing resizes the
+article and triggers that re-measure.
+
+Measured on the 30-file fixture (`CROSSING_FILES=30 CROSSING_LINES=600 CROSSING_DELETED=6 CROSSING_HUNK_STRIDE=30`),
+whole-review traversal of 1206 moving frames, and 24 boundary bursts:
+
+| | before | after |
+|---|---|---|
+| traverse p50 | 7 ms | **4 ms** |
+| traverse p95 / p99 | 12 / 39 ms | 9 / **29 ms** |
+| traverse max | 57 ms | **38 ms** |
+| traverse frames over 40 ms | 12 | **0** |
+| burst frames over 40 ms | 9 | **0** |
+| burst worst frame (up / down) | 60 / 53 ms | **39 / 30 ms** |
+
+### A third site: the visible-file lookup
+
+`visibleFile()` read `owner.viewport.clientHeight`, and three reactive consumers asked for it every frame, so a
+scroll forced a synchronous layout **2.58 times per frame**. The scroll owner already knows its viewport height from
+its own scroll dimensions, maintained by its ResizeObserver, so it publishes that now and the lookup is a memo
+rather than a function each consumer re-runs.
+
+Measured in headless over a twelve-file review scroll (482 frames), counting only reads whose stack reaches Weavie's
+own bundles: **1244 reads -> 283**, and the visible-file sites leave the top offenders entirely. Counts are
+transport-independent, which is why headless answers this; its frame times are not representative and were not used
+for any timing claim. `unified-review-forced-reads.spec.ts` holds that path open — it fails at 2.58 reads per frame
+and passes at 0.59.
+
+The frame-time effect of this third fix is **not measured on the native build**: a locked display stops the frame
+callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.
+The numbers in the table above therefore cover the first two fixes only.
+
+### What p99 under 10 ms would still require
+
+Binning every moving frame of the traversal that carried fixes 1-2 (1206 frames; p99 under 10 ms allows at most 12
+above 10 ms, and 32 exceed it):
+
+| band | frames | with a section-set change | without |
+|---|---|---|---|
+| 10-16 ms | 3 | 0 | 3 |
+| 16-30 ms | 20 | 7 | 13 |
+| 30 ms+ | 9 | 9 | 0 |
+
+Sixteen of the 32 carry an insertion or removal, which is what the read fixes address. The other sixteen do not, and
+they cluster in **adjacent pairs** — f664/f665, f932/f933, f1200/f1201 — a boundary's cost spilling into the frame
+after it, so some should fall with their neighbour.
+
+Whether that budget is reachable is **open, and this binning does not settle it**. Treating the sixteen
+non-set-change frames as a fixed floor would be wrong: thirteen of them sit in the 16-30 ms band as the second half of
+a pair whose first frame carried a boundary, so they are plausibly spillover that falls with it. The honest statement
+is that these bins come from the build carrying fixes 1-2 only, and the effect of fixes 3-5 on them is unmeasured.
+
+What *is* established about the floor: several 20-29 ms frames carry no set change, no `editor.layout`, and no create
+or dispose, which points at Monaco's own render of newly scrolled-in rows, and the ordinary editor pane measures p99
+30-35 ms on the same hardware. If the remaining tail does turn out to be that floor, the measured decomposition is
+feature load — smooth scrolling 22% of main-thread scroll work, indent guides 7%, sticky scroll 5%, inlay hints 5%,
+whitespace 4%, bracket colorization 1%. Trimming what a *review* editor renders changes how a diff looks and
+`smoothScrolling` is an explicit user setting, so that trade belongs to the user rather than to a benchmark.
+
+### The insertion-path read: the virtualiser was told the review was never scrolling
+
+`observeElementOffset` reported `isScrolling: false` unconditionally. The virtualiser gates its own synchronous
+measurement on that flag:
+
+```js
+this.observer.observe(node);                                       // registration: unconditional
+if ((!this.isScrolling || this.scrollState) && this.shouldMeasureDuringScroll(index)) {
+  this.resizeItem(index, this.options.measureElement(node, void 0, this));   // the forced read
+}
+```
+
+So claiming a settled scroll took a `getBoundingClientRect` on every section coming into view, right after the writes
+that mounted it. Reporting the gesture truthfully skips that read while keeping registration, and the observer path
+measures regardless of the flag with an `entry` in hand, so the real size arrives from `borderBoxSize` — no DOM read,
+within a frame. Headless attribution: `measureElement` leaves the read sites entirely and app reads fall 240 -> 234,
+exactly the six reads on the ten boundary frames.
+
+That "within a frame" is the whole difference from the deferral below, which withheld sizes indefinitely.
+
+### The removal stalls are not a teardown-size problem
+
+Three of the nine remaining stalls carry a section *removal*, so the obvious guess is that a whole Monaco subtree is
+being removed mid-gesture and that disposing it earlier would help. It would not: instrumenting the virtual list with
+a MutationObserver shows every removed `.unified-review-file` holds **12 nodes, 0 `.monaco-editor`, 0 `.view-line`**.
+The editor is already disposed before its section leaves the DOM, and removing twelve nodes cannot cost 30-47 ms.
+
+So the removal frame's cost is the style and layout the list mutation invalidates, not the size of what is removed —
+the same class the read fixes address, which means no separate change is justified on this path.
+
+### Deferring a section's measurement is not viable — three attempts, three failures
+
+The insertion-path read is `measureElement`'s uncached branch, and headless attribution pins it exactly: of 10
+app-code geometry reads taken on the 10 boundary frames of a twelve-file scroll, **6 come from `measureElement`** —
+the same count as the 6 insertions among the 9 remaining native stalls, derived independently.
+
+Deferring that first measurement to a still frame removes the read (boundary-frame `measureElement` reads drop to 0)
+and **breaks navigation**: `unified-review-history.spec.ts:118` (all three of keyboard, palette and context-menu
+definition navigation restoring the review departure), `unified-review-history.spec.ts:176` (same-file definition),
+and `unified-review-wheel.spec.ts:39` (file order and geometry as editors remount). Reverted.
+
+That is the third deferral to fail the same way, after deferring the mount itself and after retaining departing
+sections. The invariant behind all three: **the review's navigation needs a section's measured size promptly at
+mount** — restoring a departure resolves an offset that depends on real sizes, and an estimate puts it in the wrong
+place. So this read cannot be postponed; it has to be obtained *without* forcing a layout, for instance from the
+ResizeObserver entry TanStack already receives (`borderBoxSize`, delivered post-layout), or made cheap by reserving
+a height close enough that the correction is trivial. Note also that a read inside a ResizeObserver callback is
+already unforced, so not every read the counter sees is costing a layout.
+
+So p50 4 ms clears 240 fps at the median and every frame over 40 ms is gone, but **p99 29 ms does not meet the
+under-10 ms goal**: 29 of 1206 frames still exceed 16 ms, and p99 under 10 ms allows at most 11 over 10 ms. The
+remaining forced reads are on the *insertion* path — `measureElement`'s uncached branch and `resizeItem`, both
+`getBoundingClientRect` — and a section's reserved height is far from what it measures, which makes every
+correction large.
+
+That size gap is observed but **not yet explained**: unvisited sections sit ~55,212 px apart while a mounted one
+measures ~16,046 px, yet `estimatedEditorHeight` predicts ~28,725 px for that fixture. So the reservation is wrong
+by a large factor in both directions across fixtures (on the 30-file fixture it *under*-reserves), and neither the
+hardcoded `NOMINAL_LINE_HEIGHT = 19` (this machine renders 22) nor the fact that it counts `CONTEXT_LINES * 2` once
+per file rather than once per hunk accounts for the size of the discrepancy on its own. Measure the real
+`added`/`removed` and the post-collapse visible line count before changing the formula.
 
 ## The controls that matter
 

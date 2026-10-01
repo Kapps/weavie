@@ -26,6 +26,8 @@ export interface ReviewEditor {
   revealFileStart(line: number): void;
   focus(): void;
   layout(): void;
+  /** Applies a known change to the section's own offset without re-reading the DOM. */
+  shift(delta: number): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -207,6 +209,7 @@ export function createReviewEditor(options: {
       editor.focus();
     },
     layout: viewport.layout,
+    shift: viewport.shift,
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {

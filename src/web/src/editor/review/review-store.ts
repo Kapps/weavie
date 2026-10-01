@@ -1,4 +1,4 @@
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createSignal, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { normalizePath } from "../fs-path";
@@ -28,6 +28,18 @@ export interface ReviewFileDiff {
   currentExists: boolean;
 }
 
+/** A 1-based inclusive line range of a file's live model. */
+export interface LineSpan {
+  start: number;
+  end: number;
+}
+
+/** The revealed span that shows every unchanged line, however long the file grows. */
+export const FULL_CONTEXT: LineSpan = { start: 1, end: Number.POSITIVE_INFINITY };
+
+export const isFullContext = (spans: readonly LineSpan[]): boolean =>
+  spans.some((span) => span.start <= 1 && span.end === Number.POSITIVE_INFINITY);
+
 export interface ReviewHistory {
   canUndo: boolean;
   canUndoKeep: boolean;
@@ -47,6 +59,8 @@ export interface ReviewFileView {
   summary: Accessor<ReviewFile>;
   diff: Accessor<ReviewFileDiff | null>;
   collapsed: Accessor<boolean>;
+  /** Unchanged lines the user expanded; everything else beyond the changes' context stays collapsed. */
+  context: Accessor<readonly LineSpan[]>;
   /** Whether the host has pushed this file's diff yet — a fully reviewed file has no diff but is loaded. */
   loaded: Accessor<boolean>;
   /** Whether anything in this file still needs review. The authoritative answer; never re-derive it. */
@@ -68,6 +82,7 @@ interface ReviewEntry {
   diff: ReviewFileDiff | null;
   pending: boolean | null;
   collapsed: boolean;
+  context: Signal<readonly LineSpan[]>;
   /** This file's last pushed state, so "reviewed" can be pinned to the exact thing the user reviewed. */
   signature: string;
   /** The signature the file was marked reviewed at; null while it still needs review. */
@@ -110,6 +125,7 @@ export interface ReviewStore {
   setDiff(session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
+  setFileContext(session: ClientSession, path: string, context: readonly LineSpan[]): void;
   reset(session: ClientSession): SessionReviewBoard;
 }
 
@@ -204,6 +220,7 @@ export function createReviewStore(
       diff: null,
       pending: null,
       collapsed,
+      context: createSignal<readonly LineSpan[]>([]),
       signature: "",
       reviewedAt: null,
       view: null,
@@ -234,6 +251,7 @@ export function createReviewStore(
         revision();
         return entry.collapsed;
       },
+      context: entry.context[0],
       loaded: () => {
         revision();
         return entry.pending !== null;
@@ -330,6 +348,13 @@ export function createReviewStore(
     save(session, state);
     return state;
   };
+  const setFileContext = (
+    session: ClientSession,
+    path: string,
+    context: readonly LineSpan[],
+  ): void => {
+    board(session).entries.get(normalizePath(path))?.context[1](context);
+  };
   const reset = (session: ClientSession): SessionReviewBoard => {
     const state = board(session);
     state.entries.clear();
@@ -365,6 +390,7 @@ export function createReviewStore(
     setDiff,
     setHistory,
     setFileCollapsed,
+    setFileContext,
     reset,
   };
 }

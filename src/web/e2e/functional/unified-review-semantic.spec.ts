@@ -55,10 +55,8 @@ test.describe("review semantic-token requests", () => {
       "each unchanged model is requested only once across consumers and remounts",
     ).toBe(new Set(requests).size);
 
-    await page
-      .locator(".unified-review-file .view-line")
-      .first()
-      .click({ position: { x: 40, y: 8 } });
+    await page.locator(".unified-review-tree-row.file", { hasText: paths[0]! }).click();
+    await expect(page.locator(".unified-review-file .monaco-editor.focused")).toHaveCount(1);
     await page.keyboard.press("Home");
     await page.keyboard.insertText("/* Updated */ ");
     await page.waitForTimeout(1_500);

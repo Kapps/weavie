@@ -4,6 +4,7 @@ import {
   createEffect,
   createSignal,
   type JSX,
+  on,
   onCleanup,
   Show,
   untrack,
@@ -14,7 +15,12 @@ import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
-import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
+import {
+  hasReviewChanges,
+  type LineSpan,
+  type ReviewFileDiff,
+  type ReviewFileView,
+} from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileBody(props: {
@@ -27,6 +33,7 @@ export function ReviewFileBody(props: {
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onCursor: (line: number) => void;
+  revealContext: (span: LineSpan) => void;
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
@@ -66,6 +73,14 @@ export function ReviewFileBody(props: {
     const editor = mounted();
     untrack(() => editor?.inline.refreshPresentation());
   });
+  // A remounted editor applies the context itself; only a change while mounted needs a refresh.
+  createEffect(
+    on(
+      () => props.file().context(),
+      () => untrack(mounted)?.refreshContext(),
+      { defer: true },
+    ),
+  );
   createEffect(() => {
     const editor = mounted();
     const value = diff();
@@ -126,6 +141,8 @@ export function ReviewFileBody(props: {
             active: props.active,
             toolbarHost: () => (props.active() ? props.toolbarHost() : null),
             configure: props.configureDiff,
+            context: props.file().context,
+            revealContext: props.revealContext,
             onCursor: props.onCursor,
           });
           setMounted(live);

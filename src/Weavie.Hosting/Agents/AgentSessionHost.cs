@@ -64,6 +64,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			structuredSession.PaneMessage += PublishPaneMessage;
 			structuredSession.PaneSnapshot += RestorePaneSnapshot;
 			structuredSession.QueuedSubmissionsChanged += PublishQueuedSubmissions;
+			LoadSavedTranscript(structuredSession.Restore());
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}

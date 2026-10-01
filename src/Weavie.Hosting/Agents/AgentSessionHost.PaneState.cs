@@ -18,6 +18,20 @@ public sealed partial class AgentSessionHost {
 		}
 	}
 
+	// No client can address the session yet, so the saved transcript reaches pages only through paged history.
+	private void LoadSavedTranscript(IReadOnlyList<AgentPaneMessage> messages) {
+		lock (_paneGate) {
+			foreach (var message in messages) StorePaneMessageLocked(message);
+		}
+	}
+
+	/// <summary>Publishes the restored plans to the session's restored editor tabs, then starts the runtime.</summary>
+	internal void StartStructured() {
+		if (Structured is null) return;
+		lock (_paneGate) PublishPlanDocumentsLocked();
+		Structured.Start();
+	}
+
 	private void RestorePaneSnapshot(IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
 		lock (_paneGate) {

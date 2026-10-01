@@ -314,6 +314,30 @@ public sealed partial class AgentSessionHostTests {
 		Assert.Equal(6, Batched(bridge).Count);
 	}
 
+	// A saved transcript can be megabytes of streamed deltas; pages read it as paged history, never as live traffic.
+	[Fact]
+	public async Task SavedTranscript_IsServedAsHistoryWithoutLiveTraffic() {
+		AgentPaneMessage delta = new() {
+			Type = "agent-message-delta",
+			ProviderId = "structured",
+			ThreadId = "thread",
+			TurnId = "turn",
+			ItemId = "reply",
+			ItemType = "agentMessage",
+		};
+		await using var fixture = CreateFixture(static () => "slot-1", 0, withAuthenticationTerminal: false,
+			saved: [delta with { Text = "saved " }, delta with { Text = "reply" }, Completed("done", "finished")]);
+		var (bridge, host) = (fixture.Bridge, fixture.Host);
+
+		host.StartStructured();
+		await host.DrainPaneAsync(CancellationToken.None);
+
+		Assert.Empty(bridge.PostedEventsNamed("paneBatch"));
+		Assert.Single(bridge.PostedEventsNamed("pane"), message => message.GetProperty("type").GetString() == "started");
+		Assert.Equal(new string?[] { "saved reply", "finished", null },
+			(await History(host)).Select(message => message.GetProperty("text").GetString()));
+	}
+
 	// The regression that stranded live pages: a provider replay used to reset the pane, and every client holding
 	// the old ordinals was told to throw them away mid-load. Filling an empty pane invalidates nothing.
 	[Fact]
@@ -454,12 +478,16 @@ public sealed partial class AgentSessionHostTests {
 	};
 
 	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs) =>
-		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false);
+		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false, saved: []);
+
+	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs, bool withAuthenticationTerminal) =>
+		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal, saved: []);
 
 	private static HostFixture CreateFixture(
 		Func<string> slot,
 		long paneCoalesceMs,
-		bool withAuthenticationTerminal) {
+		bool withAuthenticationTerminal,
+		IReadOnlyList<AgentPaneMessage> saved) {
 		var dir = new TempDirectory("weavie-agent-host-tests");
 		var fileSystem = new InMemoryFileSystem();
 		var settings = CoreSettings.CreateStore(dir.Combine("settings.toml"), enableWatcher: false);
@@ -480,7 +508,7 @@ public sealed partial class AgentSessionHostTests {
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			slot,
 			AgentConsultation.None);
-		var session = new FakeStructuredSession();
+		var session = new FakeStructuredSession { Saved = saved };
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(
 				bridge.SessionFeature("agent"),
@@ -559,6 +587,10 @@ public sealed partial class AgentSessionHostTests {
 		public AgentUsageSnapshot Snapshot { get; private set; } = new(null, []);
 
 		public bool Started { get; private set; }
+
+		public IReadOnlyList<AgentPaneMessage> Saved { get; init; } = [];
+
+		public IReadOnlyList<AgentPaneMessage> Restore() => Saved;
 
 		public void Start() {
 			Started = true;

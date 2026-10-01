@@ -16,7 +16,7 @@ public sealed partial class AcpAgentSession {
 	private void Restart(bool clearSubmissions) {
 		lock (_turnTransitionGate) {
 			if (_role is SideRole) throw new InvalidOperationException("Restart the owning primary conversation.");
-			if (!_displayRestored) RestoreDisplay();
+			if (!_displayRestored) PaneSnapshot?.Invoke(RestoreDisplay());
 			else if (_storageFailed) SaveContinuation();
 			_storageFailed = false;
 			long generation;

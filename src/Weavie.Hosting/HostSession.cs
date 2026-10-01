@@ -283,7 +283,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal void ActivateOwnedRuntimeAndMessages() {
 		_endpoint.Activate();
 		_ = Background.Run(RunWorkspaceObservationAsync);
-		Agent.Structured?.Start();
+		Agent.StartStructured();
 	}
 
 	private async Task RunWorkspaceObservationAsync(CancellationToken ct) {

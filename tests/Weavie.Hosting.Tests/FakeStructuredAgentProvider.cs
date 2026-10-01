@@ -87,6 +87,11 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			Slash = [],
 		};
 
+		public IReadOnlyList<AgentPaneMessage> Restore() {
+			_turns = transcript.Count(message => message.Type == "user-message");
+			return [.. transcript];
+		}
+
 		public void Start() {
 			if (_started) {
 				return;
@@ -94,10 +99,6 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			_started = true;
 			events.Observe(new AgentSessionStarted("startup"));
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "structured", Status = "ready" });
-			if (transcript.Count > 0) {
-				_turns = transcript.Count(message => message.Type == "user-message");
-				PaneSnapshot?.Invoke([.. transcript]);
-			}
 
 			ControlStateChanged?.Invoke(ControlState);
 		}

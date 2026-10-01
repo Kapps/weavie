@@ -109,12 +109,10 @@ public sealed class StructuredPanePersistenceTests {
 		Assert.Empty(missing);
 	}
 
-	// A provider emits its own chrome (thread-ready) before it replays, so a restore always lands over a
-	// non-empty pane and does void the ordinals a client holds. paneReset says so, but it is a broadcast a page
-	// reconnecting mid-load can miss, and a bare reset leaves nothing else to notice. The restored records must
-	// therefore be readable straight off the live stream, without the client ever asking for history.
+	// The saved transcript is loaded before the session is addressable, so it reaches pages only as paged history:
+	// replaying it live would push the whole journal over the bridge on every session open.
 	[Fact]
-	public async Task ProviderReplay_RepublishesRestoredRecordsLive() {
+	public async Task SavedTranscript_IsReadFromHistoryNotTheLiveStream() {
 		await using var host = await StartWithStructuredSessionAsync("structured-branch");
 		var session = host.Session("structured-branch");
 		Submit(host, session, "hello");
@@ -122,7 +120,8 @@ public sealed class StructuredPanePersistenceTests {
 		await host.RestartAsync();
 		session = host.Session("structured-branch");
 
-		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+		Assert.True(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
+		Assert.False(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
 	}
 
 	[Fact]

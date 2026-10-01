@@ -7,12 +7,18 @@ import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 // navigator. See docs/specs/open-pr.md (Phase 2).
 test.use({ prScenario: true });
 
-test("opening a PR checks out its branch and pops up the diff navigator", async ({ page }) => {
+test("File → Open Pull Request checks out its branch and pops up the diff navigator", async ({
+  page,
+}) => {
   // The repo starts with one session on the workspace checkout.
   await expect(page.locator(".session-chip")).toHaveCount(1);
 
-  // Open the picker; it lists the stubbed PR #101.
-  await runCommand(page, "Open Pull Request…");
+  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: /^Open Current Pull Request/ })).toBeDisabled();
+  const openPr = page.getByRole("menuitem", { name: /^Open Pull Request…/ });
+  const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
+  await expect(openPr.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+R`);
+  await openPr.click();
   await expect(page.locator(".session-prompt")).toBeVisible();
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
 
@@ -61,6 +67,13 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
     .not.toBe(first);
   // The modified file (hello.ts) still shows the per-line added wash.
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: /^Open Current Pull Request/ })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("menuitem", { name: "Diff", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Close Diff/ }).click();
+  await expect(toolbar).toBeHidden();
 });
 
 test("typing #N opens a PR directly by number", async ({ page }) => {

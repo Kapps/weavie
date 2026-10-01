@@ -16,6 +16,15 @@ public static class EmbeddedAgentGuidance {
 		Do not resume the primary conversation's work while waiting for another side request.
 		""";
 
+	/// <summary>Frames the one request a consulted agent receives from another agent.</summary>
+	public const string ConsultInstructions =
+		"""
+		Another coding agent working in this repository is consulting you on the user's behalf. Answer only the
+		request below. You may read and search the repository, but do not modify, create, or delete any file:
+		this consultation is read-only, and actions that need approval will be denied. Your final message is
+		returned verbatim to the agent that consulted you, so make it a complete, self-contained answer.
+		""";
+
 	/// <summary>The instruction text shared by embedded providers.</summary>
 	public const string Instructions =
 		"""
@@ -38,6 +47,11 @@ public static class EmbeddedAgentGuidance {
 		session - e.g. deleting or unloading it when you're done - first call `mcp__weavie__currentSession` to
 		get your session's id, then pass that id explicitly, rather than assuming the focused session is yours.
 		Deleting a session (weavie.session.delete) requires an explicit id for exactly this reason.
+
+		When the user asks you to check with, ask, or get a second opinion from another agent or model by name
+		(e.g. "check with Astra"), call `mcp__weavie__listAgents` to resolve that name to an exact provider id and
+		model id, then call `mcp__weavie__consultAgent`. The consulted agent can't see this conversation, so give
+		it everything it needs in the prompt.
 
 		When you reference a file in your replies, write its path relative to the repository root with the line
 		number (e.g. `src/web/src/editor/preview/preview.css:22`), never a bare filename. Weavie turns

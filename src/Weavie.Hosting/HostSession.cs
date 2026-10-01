@@ -75,6 +75,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
 		IInferenceService inference,
+		AgentConsultation agentConsultation,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
@@ -95,6 +96,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(corrections);
 		ArgumentNullException.ThrowIfNull(inference);
+		ArgumentNullException.ThrowIfNull(agentConsultation);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
@@ -215,7 +217,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Commands,
 			keybindings,
 			themeOverrides,
-			() => SlotId);
+			() => SlotId,
+			agentConsultation);
 
 		Agent = new AgentSessionHost(
 			agentProvider,

@@ -5,7 +5,7 @@ using Weavie.Core.Sessions;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>Creates native structured sessions for one installed ACP agent.</summary>
-public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
+public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, IAgentConsultProvider {
 	private readonly Func<AcpAgentDefinition> _currentDefinition;
 	private readonly AcpSessionStore _sessions;
 	private readonly AcpControlStore _controls;
@@ -72,5 +72,15 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		return AcpInferenceClient.QueryAsync(_currentDefinition(), request, ct);
+	}
+
+	/// <inheritdoc/>
+	public Task<IReadOnlyList<AgentControlAxis>> ProbeControlsAsync(CancellationToken ct) =>
+		AcpConsultClient.ProbeAsync(_currentDefinition(), ct);
+
+	/// <inheritdoc/>
+	public Task<AgentConsultOutcome> ConsultAsync(AgentConsultRequest request, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(request);
+		return AcpConsultClient.ConsultAsync(_currentDefinition(), request, ct);
 	}
 }

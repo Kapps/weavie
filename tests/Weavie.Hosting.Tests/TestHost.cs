@@ -41,6 +41,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
 
 	private readonly HostServices _services;
+
+	/// <summary>The app-global model catalog this host's sessions report into.</summary>
+	internal AgentModelCatalog AgentModels => _services.AgentModels;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
@@ -607,6 +610,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
 		agentProviders.Register(new FakeStructuredAgentProvider());
+		var agentModels = new AgentModelCatalog(agentProviders);
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
@@ -617,6 +621,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			AgentModels = agentModels,
+			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),
 			Inference = inferenceFor(settings),
@@ -657,8 +663,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Core.DisposeAsync().ConfigureAwait(false);
-		_services.Keybindings.Dispose();
-		_services.Settings.Dispose();
+		_services.Dispose();
 		_temp.Dispose();
 	}
 }

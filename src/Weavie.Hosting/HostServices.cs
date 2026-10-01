@@ -24,7 +24,7 @@ namespace Weavie.Hosting;
 /// theme overrides. Most hosts use <see cref="CreateDefault"/>; a multi-window host shares one instance across
 /// windows, so they're passed in rather than owned by the core.
 /// </summary>
-public sealed record HostServices {
+public sealed record HostServices : IDisposable {
 	/// <summary>User settings (<c>~/.weavie/settings.toml</c>) — the change hub the host reacts to.</summary>
 	public required SettingsStore Settings { get; init; }
 
@@ -42,6 +42,12 @@ public sealed record HostServices {
 
 	/// <summary>The required embedded-agent provider catalog.</summary>
 	public required AgentProviderRegistry AgentProviders { get; init; }
+
+	/// <summary>The advertised models of every consultable provider, refreshed from probes and live sessions.</summary>
+	public required AgentModelCatalog AgentModels { get; init; }
+
+	/// <summary>Resolves embedded agents' requests to consult another configured agent.</summary>
+	public required AgentConsultation AgentConsultation { get; init; }
 
 	/// <summary>The installed ACP catalog and official registry operations.</summary>
 	public required IAcpAgentCatalog AcpAgents { get; init; }
@@ -117,6 +123,8 @@ public sealed record HostServices {
 		var acpAgents = AcpDistributionService.CreateDefault();
 		var acpSessions = new AcpSessionStore(WeaviePaths.AcpSessionsFile);
 		var agentProviders = AgentProviderComposition.Create(settings, claudeSessions, acpAgents, acpSessions);
+		var agentModels = new AgentModelCatalog(agentProviders);
+		agentModels.Start();
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
@@ -131,6 +139,8 @@ public sealed record HostServices {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			AgentModels = agentModels,
+			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = acpSessions,
 			Inference = InferenceComposition.CreateDefault(settings, agentProviders),
@@ -145,6 +155,13 @@ public sealed record HostServices {
 			PreviousCrashFile = WeaviePaths.PreviousCrashFile,
 			ExitJournalFile = WeaviePaths.ExitJournalFile,
 		};
+	}
+
+	/// <summary>Stops model probes and the settings/keybinding watchers; called once the hosts are torn down.</summary>
+	public void Dispose() {
+		AgentModels.Dispose();
+		Keybindings.Dispose();
+		Settings.Dispose();
 	}
 
 	private static void Log(string line) {

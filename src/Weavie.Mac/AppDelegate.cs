@@ -109,8 +109,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		_windows.Clear();
 		_hotkeys?.Dispose(); // also disposes the global hotkey registrar
 		_notifications?.Dispose();
-		_services?.Keybindings.Dispose();
-		_services?.Settings.Dispose();
+		_services?.Dispose();
 	}
 
 	/// <summary>Records the key window and selects its native command-menu snapshot.</summary>

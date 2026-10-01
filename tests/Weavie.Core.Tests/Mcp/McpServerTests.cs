@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Xunit;
@@ -261,6 +262,8 @@ public sealed class McpServerTests {
 	}
 
 	private sealed class FailingResponder : McpServer.IMcpResponder {
+		public object Client => this;
+
 		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) =>
 			Task.FromException(new IOException("peer disconnected"));
 

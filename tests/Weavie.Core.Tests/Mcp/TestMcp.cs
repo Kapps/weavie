@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -29,8 +30,9 @@ internal static class TestMcp {
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
 		ThemeOverridesStore? themeOverrides = null,
-		Func<string>? currentSessionId = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, currentSessionId);
+		Func<string>? currentSessionId = null,
+		AgentConsultation? agents = null) =>
+		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, currentSessionId, agents ?? AgentConsultation.None);
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -52,6 +54,7 @@ internal static class TestMcp {
 			new CommandDispatcher(registry),
 			new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => "test-session");
+			() => "test-session",
+			AgentConsultation.None);
 	}
 }

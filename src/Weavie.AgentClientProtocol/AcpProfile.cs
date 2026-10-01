@@ -3,30 +3,37 @@ using Weavie.Core.Inference;
 
 namespace Weavie.AgentClientProtocol;
 
-internal sealed partial class AcpInferenceClient {
-	private async Task<IReadOnlyList<AgentControlAxis>> ApplyProfileAsync(
+/// <summary>Applies explicit provider-native profile values to a transient session, failing on any unadvertised value.</summary>
+internal sealed class AcpProfile(AcpTransientConnection connection, string sessionId) {
+	/// <summary>Applies <paramref name="profile"/> over the controls <paramref name="setup"/> advertised.</summary>
+	public static Task<IReadOnlyList<AgentControlAxis>> ApplyAsync(
+		AcpTransientConnection connection,
 		string sessionId,
 		System.Text.Json.JsonElement setup,
 		InferenceProviderProfile profile,
+		CancellationToken ct) =>
+		new AcpProfile(connection, sessionId).ApplyAsync(AcpConfigurationOptions.ReadIfPresent(setup), profile, ct);
+
+	private async Task<IReadOnlyList<AgentControlAxis>> ApplyAsync(
+		IReadOnlyList<AgentControlAxis> state,
+		InferenceProviderProfile profile,
 		CancellationToken ct) {
-		var state = AcpConfigurationOptions.ReadIfPresent(setup);
 		if (profile.Model.Length > 0) {
 			state = await SetSelectAsync(
-				sessionId, state, "model", "model", profile.Model, ct).ConfigureAwait(false);
+				state, "model", "model", profile.Model, ct).ConfigureAwait(false);
 		}
 		if (profile.Effort.Length > 0) {
 			state = await SetSelectAsync(
-				sessionId, state, "thought_level", "effort", profile.Effort, ct).ConfigureAwait(false);
+				state, "thought_level", "effort", profile.Effort, ct).ConfigureAwait(false);
 		}
 		if (profile.FastMode != InferenceFastMode.Inherit) {
-			state = await SetFastModeAsync(sessionId, state, profile.FastMode, ct).ConfigureAwait(false);
+			state = await SetFastModeAsync(state, profile.FastMode, ct).ConfigureAwait(false);
 		}
 		ValidateAppliedProfile(state, profile);
 		return state;
 	}
 
 	private async Task<IReadOnlyList<AgentControlAxis>> SetSelectAsync(
-		string sessionId,
 		IReadOnlyList<AgentControlAxis> state,
 		string category,
 		string description,
@@ -41,11 +48,10 @@ internal sealed partial class AcpInferenceClient {
 		}
 		return control.Value == value
 			? state
-			: await SetConfigurationAsync(sessionId, control, value, description, ct).ConfigureAwait(false);
+			: await SetConfigurationAsync(control, value, description, ct).ConfigureAwait(false);
 	}
 
 	private async Task<IReadOnlyList<AgentControlAxis>> SetFastModeAsync(
-		string sessionId,
 		IReadOnlyList<AgentControlAxis> state,
 		InferenceFastMode fastMode,
 		CancellationToken ct) {
@@ -60,22 +66,21 @@ internal sealed partial class AcpInferenceClient {
 		}
 		return control.Value == value
 			? state
-			: await SetConfigurationAsync(sessionId, control, value, "Fast Mode", ct).ConfigureAwait(false);
+			: await SetConfigurationAsync(control, value, "Fast Mode", ct).ConfigureAwait(false);
 	}
 
 	private async Task<IReadOnlyList<AgentControlAxis>> SetConfigurationAsync(
-		string sessionId,
 		AgentControlAxis control,
 		string value,
 		string description,
 		CancellationToken ct) {
-		var result = await RequestAsync(
+		var result = await connection.RequestAsync(
 			"session/set_config_option",
 			AcpConfigurationOptions.SetParameters(sessionId, control, value),
 			ct).ConfigureAwait(false);
 		return AcpConfigurationOptions.ReadRequired(
 			result,
-			$"The ACP inference {description} response is missing configOptions for session '{sessionId}'.");
+			$"The ACP {description} response is missing configOptions for session '{sessionId}'.");
 	}
 
 	private AgentControlAxis FindControl(
@@ -128,7 +133,7 @@ internal sealed partial class AcpInferenceClient {
 	}
 
 	private AcpInferenceProfileException ProfileFailure(string detail) =>
-		new($"The ACP agent '{_definition.Name}' cannot apply the configured inference profile: {detail}.");
+		new($"The ACP agent '{connection.Definition.Name}' cannot apply the configured profile: {detail}.");
 }
 
 internal sealed class AcpInferenceProfileException(string message) : Exception(message);

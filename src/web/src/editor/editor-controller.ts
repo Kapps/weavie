@@ -774,22 +774,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const revealReviewFile = openReviewFile;
 
-  // A file's diff just cleared (its last hunk was kept or reverted) while other changed files remain under
-  // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
-  // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
-  // since the host drops it from the review set right after.
-  const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
-    const idx = files.findIndex((file) => samePath(file.path, fromPath));
-    const start = idx === -1 ? 0 : idx;
+  // Reveal the next file (wrapping, on its first change) that still has something to review, skipping `fromPath`
+  // and every fully-kept file; a file whose diff hasn't arrived yet counts as pending. False when none remains.
+  const advanceToNextPendingFile = (
+    session: ClientSession,
+    fromPath: string,
+    reveal: (file: ReviewFile, line: number) => void,
+  ): boolean => {
+    const files = reviews.board(session).files;
+    const idx = files.findIndex((file) => samePath(file.summary().path, fromPath));
     for (let step = 1; step <= files.length; step++) {
-      const candidate = files[(start + step) % files.length];
-      if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
-        revealReviewFile(session, candidate, candidate.line);
-        return;
+      const candidate = files[(idx + step) % files.length]!;
+      const summary = candidate.summary();
+      if (!samePath(summary.path, fromPath) && (!candidate.loaded() || candidate.pending())) {
+        reveal(summary, summary.line);
+        return true;
       }
     }
+    return false;
   };
 
   // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
@@ -1014,6 +1016,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
       onKeepAll: () => session.feature("review").publish("accept", {}),
+      onNextPendingFile: () => advanceToNextPendingFile(session, message.path, reveal),
       onUndo: () => revertAllFor(session),
       fileLabel: message.name,
       ...(state.label !== "" ? { reviewLabel: state.label } : {}),
@@ -1022,8 +1025,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
-    const state = reviews.board(session);
-    const files = state.files.map((file) => file.summary());
     if (
       message.acceptedBaseline === message.current &&
       message.acceptedBaselineExists === message.currentExists
@@ -1031,8 +1032,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
       const active = activePathFor(session);
-      if (active !== null && samePath(active, message.path) && files.length > 1) {
-        advanceToNextPendingFile(session, message.path);
+      if (active !== null && samePath(active, message.path)) {
+        advanceToNextPendingFile(session, message.path, (file, line) =>
+          revealReviewFile(session, file, line),
+        );
       }
       return;
     }

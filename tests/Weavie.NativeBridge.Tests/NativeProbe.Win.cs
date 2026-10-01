@@ -33,6 +33,7 @@ internal static class NativeProbe {
 					else probe.Fail("Native popup was not handled");
 				};
 				probe.Execute += script => _ = core.ExecuteScriptAsync(script);
+				probe.Navigate += url => window.BeginInvoke(() => core.Navigate(url));
 				await bridge.Security.LoadAsync(probe.AppUrl, string.Empty, "this.chrome.webview.postMessage.bind(this.chrome.webview)",
 					script => dispatcher.InvokeAsync(() => core.AddScriptToExecuteOnDocumentCreatedAsync(script), CancellationToken.None),
 					url => dispatcher.Post(() => core.Navigate(url)));

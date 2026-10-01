@@ -41,6 +41,7 @@ internal static partial class NativeProbe {
 		GLib.g_signal_connect_data(view, "load-changed", Marshal.GetFunctionPointerForDelegate(loaded), IntPtr.Zero, IntPtr.Zero, 0);
 		probe.Execute += script => GtkMain.Invoke(() => WebKit.webkit_web_view_evaluate_javascript(
 			view, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
+		probe.Navigate += url => GtkMain.Invoke(() => WebKit.webkit_web_view_load_uri(view, url));
 		bridge.Security.LoadAsync(probe.AppUrl, string.Empty, "this.webkit.messageHandlers.weavie.postMessage.bind(this.webkit.messageHandlers.weavie)",
 			script => {
 				IntPtr userScript = WebKit.webkit_user_script_new(script, WebKit.InjectTopFrame, WebKit.InjectAtDocumentStart, IntPtr.Zero, IntPtr.Zero);

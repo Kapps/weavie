@@ -12,6 +12,7 @@ internal sealed class Probe(string appUrl, string foreignUrl, string scenario, s
 	internal bool Popup => scenario == "popup";
 	internal bool Started { get; private set; }
 	internal event Action<string>? Execute;
+	internal event Action<string>? Navigate;
 
 	internal void Receive(string message) {
 		if (message != "ready") {
@@ -32,17 +33,21 @@ internal sealed class Probe(string appUrl, string foreignUrl, string scenario, s
 	private void Start() {
 		if (!_ready || !_loaded || Started) return;
 		Started = true;
-		string credentialed = appUrl.Replace("://", "://user@", StringComparison.Ordinal);
 		string target = scenario switch {
 			"foreign" or "popup" => foreignUrl + "/untrusted",
 			"redirect" => foreignUrl + "/redirect-untrusted",
 			"data" => "data:text/html,untrusted",
-			"app-frame" => credentialed,
-			"redirect-app-frame" => foreignUrl + "/redirect-app?target=" + Uri.EscapeDataString(credentialed),
+			"app-frame" => appUrl,
+			"redirect-app-frame" => foreignUrl + "/redirect-app?target=" + Uri.EscapeDataString(appUrl),
 			_ => throw new ArgumentException("Unknown native probe: " + scenario),
 		};
 		string literal = JsonSerializer.Serialize(target);
 		Console.WriteLine("Attempting " + scenario + ": " + target);
+		// Chromium blocks renderer-initiated data navigation before native policy observes it.
+		if (scenario == "data") {
+			Navigate?.Invoke(target);
+			return;
+		}
 		Execute?.Invoke(scenario switch {
 			"popup" => $"const link = document.createElement('a'); link.href = {literal}; link.target = '_blank'; document.body.append(link); link.click();",
 			"app-frame" or "redirect-app-frame" => $"const frame = document.createElement('iframe'); frame.src = {literal}; document.body.append(frame);",

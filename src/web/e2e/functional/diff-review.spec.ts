@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { awaitReviewSet, navChord, walkToChangedFile } from "../harness/navigator";
+import { awaitReviewSet, focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -621,6 +621,55 @@ test.describe("multi-file review walk", () => {
     await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
       timeout: 15_000,
     });
+  });
+});
+
+// Issue #946: a fully-kept file lingers in the review set at "change 0/0". Keep must walk past it to the next
+// file with pending changes, and at 0/0 with nothing pending anywhere it finishes the review instead of sticking.
+test.describe("multi-file review walk — fully-kept files", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\nand a second changed line\n"),
+        ...appliedEdit("long.ts", fourHunks()),
+      ],
+    },
+  });
+
+  const keepNotes = async (page: import("@playwright/test").Page) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt", "long.ts"]);
+    await openFile(page, "notes.txt");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+  };
+
+  test("Keep at 0/0 steps to a file with pending changes", async ({ page }) => {
+    await keepNotes(page);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText(/^(hello|long)\.ts$/, {
+      timeout: 15_000,
+    });
+  });
+
+  test("keeping skips fully-kept files, then finishes at 0/0", async ({ page }) => {
+    await keepNotes(page);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+Enter"); // last hunk → past the kept notes.txt
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("long.ts", {
+      timeout: 15_000,
+    });
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // 0/0 everywhere → finish
+    await expect(page.locator(TOOLBAR)).toHaveCount(0, { timeout: 15_000 });
   });
 });
 

@@ -55,6 +55,8 @@ test("curated Python and Rust keep their language ids and shared-scope highlight
 // halves are pinned here: the damage the container does, and that the helper's target cannot do it.
 test("clicking into the editor never scrolls the file away", async ({ page }) => {
   await openFile(page, "hello.ts");
+  await clickIntoEditor(page);
+  await expect(page.locator(".monaco-editor .view-line")).toHaveCount(7);
 
   const sizes = await page.evaluate(() => {
     const box = (selector: string) =>
@@ -84,12 +86,6 @@ test("clicking into the editor never scrolls the file away", async ({ page }) =>
     };
   });
   expect(scrolled).toEqual({ guardScrollTop: 0, renderedLines: 1 });
-
-  // The helper leaves the whole file on screen.
-  await page.reload();
-  await openFile(page, "hello.ts");
-  await clickIntoEditor(page);
-  await expect(page.locator(".monaco-editor .view-line")).toHaveCount(7);
 });
 
 // Highlighting must survive an EDIT, not just first render. monaco-vscode-api's incremental re-tokenizer loads

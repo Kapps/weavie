@@ -18,6 +18,7 @@ export const test = base.extend<{
       setupCompleted: true,
     });
     let log = "";
+    const began = Date.now();
     let proc: ChildProcess | null = null;
     let launch: Promise<Desktop> | null = null;
     try {
@@ -55,7 +56,7 @@ export const test = base.extend<{
         });
         for (const stream of [proc.stdout, proc.stderr])
           stream?.on("data", (chunk) => {
-            log += chunk;
+            log += `[+${Date.now() - began}ms] ${chunk}`;
           });
         const exited = once(proc, "exit").then(([code, signal]): never => {
           throw new Error(`Desktop exited (${code ?? signal}); see desktop.log`);

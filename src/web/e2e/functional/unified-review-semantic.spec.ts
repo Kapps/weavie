@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -81,6 +82,7 @@ test.describe("semantic highlighting ownership", () => {
   });
 
   test("one Monaco controller requests highlighting for a model", async ({ page }) => {
+    await awaitEditorReady(page);
     await page.clock.install();
     await page.evaluate(() => {
       document.documentElement.dataset.highlightingRequests = "0";

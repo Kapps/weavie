@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { IPosition, editor as MonacoEditor } from "monaco-editor";
+import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import { scrollReview } from "../harness/review-scroll";
@@ -17,6 +18,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
   page,
 }) => {
   await expect(page.locator(".editor-empty-review")).toContainText("2");
+  await awaitEditorReady(page);
   await page.evaluate(() => {
     window.__WEAVIE_MONACO__!.languages.registerCompletionItemProvider("typescript", {
       triggerCharacters: ["."],
@@ -98,6 +100,7 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   weavie,
 }) => {
   await expect(page.locator(".editor-empty-review")).toContainText("2");
+  await awaitEditorReady(page);
   await page.evaluate(() => {
     const location = (model: MonacoEditor.ITextModel, position: IPosition) => {
       const word = model.getWordAtPosition(position)!;

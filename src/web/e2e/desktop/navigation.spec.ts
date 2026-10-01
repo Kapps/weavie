@@ -88,9 +88,9 @@ const test = base.extend<{ runProbe: (scenario: string) => Promise<string> }>({
 
 test.beforeAll(() => {
   const project = resolve(import.meta.dirname, "../../../../tests/Weavie.NativeBridge.Tests");
-  const runtime = process.platform === "darwin" ? [`-p:RuntimeIdentifier=osx-${process.arch}`] : [];
+  const configuration = "Debug";
   try {
-    execFileSync("dotnet", ["build", project, "-c", "Release", ...runtime], { encoding: "utf8" });
+    execFileSync("dotnet", ["build", project, "-c", configuration], { encoding: "utf8" });
   } catch (error) {
     if (error instanceof Error && "stdout" in error)
       throw new Error(String(error.stdout), { cause: error });
@@ -102,8 +102,7 @@ test.beforeAll(() => {
       [
         "msbuild",
         project,
-        "-p:Configuration=Release",
-        ...runtime,
+        `-p:Configuration=${configuration}`,
         "-getProperty:TargetDir,AssemblyName",
       ],
       { encoding: "utf8" },

@@ -145,13 +145,13 @@
   opacity: 1;
 }
 
-/* What people wrote is a message bubble in the document voice: a borderless fill (inputs keep the only
-   borders), its corner pinched toward the author. The viewer's own messages carry the accent. */
+/* What people wrote is a message bubble in the document voice on the editor's own paper: a borderless fill
+   (inputs keep the only borders), its corner pinched toward the author. The viewer's own carry the accent. */
 .weavie-pr-comment-body {
   margin-top: 4px;
   padding: 7px 12px;
   border-radius: 2px 10px 10px 10px;
-  background: color-mix(in srgb, var(--fg) 9%, transparent);
+  background: var(--bg);
 }
 
 .weavie-pr-comment-text-capped {

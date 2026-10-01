@@ -63,12 +63,7 @@ function fixture() {
     onDidChangeContent: content.subscribe,
     onDidChangeLanguage: language.subscribe,
     onWillDispose: disposed.subscribe,
-    getFullModelRange: () => ({
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: 9,
-      endColumn: 80,
-    }),
+    getLineMaxColumn: () => 81,
   } as unknown as monaco.editor.ITextModel;
   const changed = vi.fn();
   const source = createSpellingTokens(changed);
@@ -199,20 +194,39 @@ it("disposal removes subscriptions and aborts pending metadata", async () => {
   expect(f.registered.listeners.size).toBe(0);
 });
 
-it("uses range-only providers and prefers document providers when both are supported", async () => {
+it("requests each visible line run from range providers, preferring them over documents", async () => {
   const f = fixture();
-  const provideRange = vi.fn().mockResolvedValue({ data: new Uint32Array([0, 6, 9, 0, 2]) });
+  const provideRange = vi.fn().mockResolvedValue({ data: new Uint32Array([3, 6, 9, 0, 2]) });
   f.setRangeProviders([
     { getLegend: f.provider.getLegend, provideDocumentRangeSemanticTokens: provideRange },
   ]);
-  await f.source.read(f.model, f.ranges, f.signal);
-  expect(provideRange).not.toHaveBeenCalled();
-  f.setProviders([]);
   f.registered.fire();
-  expect(await f.source.read(f.model, f.ranges, f.signal)).toEqual([
-    { line: 1, startIndex: 6, endIndex: 15 },
+  const viewport = [4, 5, 6, 7].map((line) => ({
+    line,
+    offset: 0,
+    text: "x".repeat(80),
+    identifier: false,
+  }));
+  expect(await f.source.read(f.model, viewport, f.signal)).toEqual([
+    { line: 4, startIndex: 6, endIndex: 15 },
   ]);
+  await f.source.read(f.model, viewport, f.signal);
+  expect(f.provide).not.toHaveBeenCalled();
   expect(provideRange).toHaveBeenCalledTimes(1);
+  expect({ ...provideRange.mock.calls[0]![1] }).toEqual({
+    startLineNumber: 4,
+    startColumn: 1,
+    endLineNumber: 7,
+    endColumn: 81,
+  });
+  await f.source.read(f.model, f.ranges, f.signal);
+  expect(provideRange).toHaveBeenCalledTimes(2);
+  const folded = [2, 3, 900].map((line) => ({ line, offset: 0, text: "x", identifier: false }));
+  await f.source.read(f.model, folded, f.signal);
+  expect(provideRange.mock.calls.slice(2).map(([, range]) => ({ ...range }))).toEqual([
+    { startLineNumber: 2, startColumn: 1, endLineNumber: 3, endColumn: 81 },
+    { startLineNumber: 900, startColumn: 1, endLineNumber: 900, endColumn: 81 },
+  ]);
 });
 
 it("does not guess declarations when the provider has no declaration metadata", async () => {

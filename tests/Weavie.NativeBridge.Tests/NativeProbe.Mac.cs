@@ -1,8 +1,8 @@
 using AppKit;
 using CoreGraphics;
 using Foundation;
-using WebKit;
 using Weavie.Mac.Hosting;
+using WebKit;
 
 namespace Weavie.NativeBridge.Tests;
 

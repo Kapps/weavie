@@ -62,9 +62,6 @@ internal static class ConsultFake {
 						+ $"framed={text.Contains("consulting you", StringComparison.Ordinal)};"
 						+ $"asked={text[(text.LastIndexOf('\n') + 1)..]}", id);
 					break;
-				case "session/cancel":
-					Respond(pendingPrompt, new JsonObject { ["stopReason"] = "cancelled" });
-					break;
 			}
 		}
 	}
@@ -82,15 +79,6 @@ internal static class ConsultFake {
 						["options"] = new JsonArray(
 							Option("yes", "allow_once"), Option("never", "reject_always"), Option("no", "reject_once")),
 					},
-				});
-				break;
-			case "edit":
-				Update(new JsonObject {
-					["sessionUpdate"] = "tool_call",
-					["toolCallId"] = "t1",
-					["title"] = "Edit a.cs",
-					["kind"] = "edit",
-					["locations"] = new JsonArray(new JsonObject { ["path"] = "/work/src/a.cs" }),
 				});
 				break;
 			case "max-tokens":

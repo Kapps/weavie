@@ -8,15 +8,14 @@ using Weavie.Core.Mcp;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>
-/// One read-only consult turn on a transient ACP process: no filesystem, terminal, or MCP servers are offered, every
-/// permission request is rejected, and a reported file mutation cancels the turn. See docs/specs/agent-consultation.md.
+/// One read-only consult turn on a transient ACP process: no filesystem, terminal, or MCP servers are offered and every
+/// permission request is rejected. See docs/specs/agent-consultation.md.
 /// </summary>
 internal sealed class AcpConsultClient {
 	private readonly AcpTransientConnection _connection;
 	private readonly Lock _gate = new();
 	private readonly StringBuilder _reply = new();
 	private readonly List<string> _denied = [];
-	private readonly SortedSet<string> _mutated = new(StringComparer.Ordinal);
 	private volatile string _sessionId = string.Empty;
 
 	private AcpConsultClient(AcpTransientConnection connection) {
@@ -100,10 +99,6 @@ internal sealed class AcpConsultClient {
 
 	private AgentConsultOutcome Complete(string stopReason, string model, IReadOnlyList<AgentControlAxis> controls) {
 		lock (_gate) {
-			if (_mutated.Count > 0) {
-				return Failure(model, controls,
-					$"{Name} tried to change files ({string.Join(", ", _mutated)}); consults are read-only, so Weavie stopped it.");
-			}
 			if (stopReason != "end_turn") return Failure(model, controls, $"{Name} stopped with '{stopReason}' before replying.");
 			string reply = _reply.ToString().Trim();
 			return reply.Length == 0
@@ -142,29 +137,8 @@ internal sealed class AcpConsultClient {
 			case "tool_call":
 				// The reply is the agent's final message, so narration before a tool call is dropped.
 				lock (_gate) _reply.Clear();
-				StopOnMutation(update);
-				break;
-			case "tool_call_update":
-				StopOnMutation(update);
 				break;
 		}
-	}
-
-	private void StopOnMutation(JsonElement tool) {
-		if (!AcpAgentSession.MutatesFiles(tool.GetStringOrNull("kind"))) return;
-		var paths = new[] { "locations", "content" }
-			.Where(property => tool.TryGetProperty(property, out var items) && items.ValueKind == JsonValueKind.Array)
-			.SelectMany(property => tool.GetProperty(property).EnumerateArray())
-			.Select(item => item.GetStringOrNull("path"))
-			.OfType<string>()
-			.DefaultIfEmpty(tool.GetStringOrNull("title") is { Length: > 0 } title ? title : "an unnamed file")
-			.Where(path => path.Length > 0);
-		bool first;
-		lock (_gate) {
-			first = _mutated.Count == 0;
-			_mutated.UnionWith(paths);
-		}
-		if (first) _ = _connection.NotifyAsync("session/cancel", new { sessionId = _sessionId });
 	}
 
 	private static string Model(IReadOnlyList<AgentControlAxis> controls, string requested) =>

@@ -63,19 +63,17 @@ The consulted agent is read-only by construction as far as the protocol allows:
 - Weavie advertises no filesystem or terminal capability and passes **no MCP servers**, so the consulted agent has
   no Weavie registry and cannot consult further. Recursion is impossible rather than checked.
 - Every permission request is answered with the agent's own reject option and listed in the reply's footer.
-- A reported `edit`, `delete`, or `move` tool call cancels the turn and fails the consult, naming the paths.
 - Every other agent request is refused.
 
 The consulted agent still reads and searches with its own tools. A provider configured to act without asking can
-change files before reporting the tool call; Weavie cannot prevent what the agent never reports, and does not guess
-provider mode ids to select a read-only mode.
+still change files; Weavie does not guess provider mode ids to select a read-only mode.
 
 The prompt is prefixed with consultation framing: the agent was consulted on the user's behalf, must not modify
 files, and its final message is returned. The reply is the agent message text after the last tool call.
 
 Failures are values surfaced to the calling agent as tool errors naming the cause: the provider is unknown,
 unavailable, or not consultable; the agent could not start; it requires authentication; the model is not advertised
-(listing what is); it attempted a mutation; it stopped early; or it returned nothing.
+(listing what is); it stopped early; or it returned nothing.
 
 Terminal Claude is listed but not consultable. Consulting Claude goes through the Claude ACP agent.
 

@@ -48,14 +48,6 @@ public sealed class AcpConsultTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task ReportedEditCancelsTheTurnAndFailsNamingThePath() {
-		var result = Assert.IsType<AgentConsultFailure>(await Consult("edit", string.Empty));
-
-		Assert.Contains("/work/src/a.cs", result.Detail, StringComparison.Ordinal);
-		Assert.Contains("read-only", result.Detail, StringComparison.Ordinal);
-	}
-
-	[Fact]
 	public async Task EarlyStopFails() {
 		var result = Assert.IsType<AgentConsultFailure>(await Consult("max-tokens", string.Empty));
 

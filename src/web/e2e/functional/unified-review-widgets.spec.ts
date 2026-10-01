@@ -69,7 +69,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
     expect(
       await widget.evaluate((element) => element.closest(".unified-review-virtual-list")),
     ).toBeNull();
-    await widget.getByRole("option", { name: /reviewCompletion/ }).click();
+    await widget.getByText("reviewCompletion", { exact: true }).click();
     await expect(section.locator(".view-line", { hasText: "reviewCompletion" })).toBeVisible();
     const focused = await page.evaluate(() =>
       (window.__WEAVIE_MONACO__!.editor.getEditors() as MonacoEditor.IStandaloneCodeEditor[])

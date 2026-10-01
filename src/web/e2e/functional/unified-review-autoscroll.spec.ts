@@ -50,12 +50,10 @@ test("middle scrolling crosses files after its starting editor unmounts, without
   await openReview(page);
   const editor = page.locator(".unified-review-file .monaco-editor").first();
   const original = await editor.elementHandle();
-  const observation = await page.evaluateHandle(() => {
+  const observation = await page.evaluateHandle((armed) => {
     const monaco = (window as unknown as { __WEAVIE_MONACO__: typeof import("monaco-editor") })
       .__WEAVIE_MONACO__;
-    const editor = monaco.editor
-      .getEditors()
-      .find((editor) => editor.getDomNode()?.closest(".unified-review-file"))!;
+    const editor = monaco.editor.getEditors().find((editor) => editor.getDomNode() === armed)!;
     editor.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 7 });
     const selection = editor.getSelection();
     const model = editor.getModel()!;
@@ -70,7 +68,7 @@ test("middle scrolling crosses files after its starting editor unmounts, without
       unchangedText: () => model.getValue() === value,
       disposed: () => disposed,
     };
-  });
+  }, original);
   const origin = await arm(page, editor);
   await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
   await page.mouse.move(origin.x + 120, origin.y);

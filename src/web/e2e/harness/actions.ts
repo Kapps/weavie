@@ -179,7 +179,7 @@ export async function createSession(
   page: Page,
   seed: { branch: string; provider: string },
 ): Promise<void> {
-  await runCommand(page, "Sessions");
+  await page.locator(".session-rail-add").click();
   const inbox = page.locator(".session-inbox");
   await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption(seed.provider);
   await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(seed.branch);

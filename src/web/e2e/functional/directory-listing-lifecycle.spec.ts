@@ -97,22 +97,26 @@ test("switching sessions releases directory watches on their owning session", as
   await mkdir(directory);
   await writeFile(join(directory, "original-child.txt"), "original");
   const row = (name: string) => page.locator(".browser-row", { hasText: name });
+  const selectSession = async (slot: string): Promise<void> => {
+    await page.locator(`.session-chip[data-session-slot="${slot}"]`).press("Enter");
+    await expect(page.locator(".session-chip.active")).toHaveAttribute("data-session-slot", slot);
+  };
   const originalSlot = await activeSessionSlot(page);
   await createSession(page, { branch: "e2e/directory-owner", provider: "claude" });
   const otherSlot = await activeSessionSlot(page);
-  await page.locator(`.session-chip[data-session-slot="${originalSlot}"]`).click();
+  await selectSession(originalSlot);
   await runCommand(page, "Toggle File Browser");
   await row("owned-folder").click();
   await expect(row("original-child.txt")).toBeVisible();
   const owner = directoryMessages("listDirectory", directory)[0].session;
   expect(owner?.slot).toBe(await activeSessionSlot(page));
 
-  await page.locator(`.session-chip[data-session-slot="${otherSlot}"]`).click();
+  await selectSession(otherSlot);
   expect(await activeSessionSlot(page)).not.toBe(owner?.slot);
   await expect.poll(() => directoryMessages("unwatchDirectory", directory).length).toBe(1);
   expect(directoryMessages("unwatchDirectory", directory)[0].session).toEqual(owner);
 
-  await page.locator(`.session-chip[data-session-slot="${owner?.slot}"]`).click();
+  await selectSession(originalSlot);
   await expect(row("owned-folder")).toBeVisible();
   await row("owned-folder").click();
   await expect(row("original-child.txt")).toBeVisible();

@@ -60,24 +60,34 @@ test("copying rendered code trims the fence newline but preserves internal inden
   await expect.poll(() => copiedText(page)).toBe("first  word\n    second");
 });
 
-test("terminal selection copy and OSC 52 share the trimming policy", async ({ page }) => {
-  await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .xterm')).toBeVisible();
-  await page.evaluate(async () => {
-    const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
-      key.endsWith(":claude"),
-    )?.[1];
-    if (!terminal) throw new Error("Agent terminal is unavailable");
-    await new Promise<void>((resolve) => terminal.write("\r\n  terminal  words  ", resolve));
-    terminal.select(0, terminal.buffer.active.baseY + terminal.buffer.active.cursorY, 19);
-    terminal.focus();
+test.describe("terminal clipboard", () => {
+  const text = "  terminal  words  ";
+  test.use({ fakeScript: { steps: [{ op: "print", text }] } });
+
+  test("terminal selection copy and OSC 52 share the trimming policy", async ({ page }) => {
+    const target = await page.waitForFunction((text) => {
+      const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+        key.endsWith(":claude"),
+      )?.[1];
+      if (!terminal) return null;
+      const buffer = terminal.buffer.active;
+      for (let row = 0; row < buffer.length; row++) {
+        const column = buffer.getLine(row)!.translateToString().indexOf(text);
+        if (column !== -1) return { terminal, row, column };
+      }
+      return null;
+    }, text);
+    await target.evaluate((target, length) => {
+      const { terminal, row, column } = target!;
+      terminal.select(column, row, length);
+      terminal.focus();
+    }, text.length);
+    await page.keyboard.press("Control+Shift+c");
+    await expect.poll(() => copiedText(page)).toBe("terminal  words");
+    await target.evaluate((target) => {
+      target!.terminal.write(`\u001b]52;c;${btoa("  OSC  text\n\n")}\u0007`);
+    });
+    await expect.poll(() => copiedText(page)).toBe("OSC  text");
+    await target.dispose();
   });
-  await page.keyboard.press("Control+Shift+c");
-  await expect.poll(() => copiedText(page)).toBe("terminal  words");
-  await page.evaluate(() => {
-    const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
-      key.endsWith(":claude"),
-    )?.[1];
-    terminal?.write(`\u001b]52;c;${btoa("  OSC  text\n\n")}\u0007`);
-  });
-  await expect.poll(() => copiedText(page)).toBe("OSC  text");
 });

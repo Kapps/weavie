@@ -11,13 +11,15 @@ export function createAgentPaneScroll(
   body: Accessor<HTMLDivElement | undefined>,
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
   turnStartIndex: Accessor<number | null>,
+  liveResultIndex: Accessor<number | null>,
+  pendingRequestKey: Accessor<string | null>,
   turnNavigable: Accessor<boolean>,
   revision: Accessor<number>,
   initiallyFollowingLatest: boolean,
   wheel: { cancel: () => void; isActive: () => boolean },
 ) {
-  let bottomCorrectionScheduled = false;
-  let anchorAtBottom = initiallyFollowingLatest;
+  let anchorCorrectionScheduled = false;
+  let anchor: "bottom" | { row: number } | null = initiallyFollowingLatest ? "bottom" : null;
   let controllerScrolls: Array<{ top: number }> = [];
   let scrollScheduled = false;
   let viewportHeight = 0;
@@ -40,14 +42,16 @@ export function createAgentPaneScroll(
     );
   };
 
-  const updateAgentTurnStartPosition = (): void => {
-    const index = turnStartIndex();
+  const rowStart = (index: number | null): number | undefined => {
     if (index === null) {
-      setAgentTurnStartAbove(false);
-      return;
+      return undefined;
     }
     virtualizer.getTotalSize();
-    const start = virtualizer.measurementsCache[index]?.start;
+    return virtualizer.measurementsCache[index]?.start;
+  };
+
+  const updateAgentTurnStartPosition = (): void => {
+    const start = rowStart(turnStartIndex());
     // Sub-pixel tolerance: scrollOffset and the cached start can settle a fraction of a pixel
     // apart (e.g. 745.671875 vs 746) even when the turn start is exactly at the viewport top,
     // which without slack flips this above-the-fold long after a jump with nothing left to
@@ -70,14 +74,14 @@ export function createAgentPaneScroll(
     });
   };
 
-  const assign = (action: () => void, followsLatest: boolean): void => {
+  const assign = (action: () => void, target: typeof anchor): void => {
     const element = body();
     if (element === undefined) {
       return;
     }
     wheel.cancel();
-    setFollowingLatest(followsLatest);
-    anchorAtBottom = followsLatest;
+    setFollowingLatest(target === "bottom");
+    anchor = target;
     action();
     noteControllerScroll(element.scrollTop);
     updateAgentTurnStartPosition();
@@ -89,9 +93,38 @@ export function createAgentPaneScroll(
       if (element !== undefined) {
         element.scrollTop = element.scrollHeight;
       }
-    }, true);
+    }, "bottom");
 
-  const scrollToBottom = (): void => {
+  const pinRow = (row: number, start: number): void =>
+    assign(
+      () => {
+        const element = body();
+        if (element !== undefined) {
+          element.scrollTop = start;
+        }
+      },
+      { row },
+    );
+
+  // Following stops at the latest live result's top so a long response is read from its start.
+  const followLatest = (): void => {
+    const element = body();
+    const row = liveResultIndex();
+    const start = rowStart(row);
+    if (
+      element !== undefined &&
+      row !== null &&
+      start !== undefined &&
+      element.scrollTop <= start &&
+      element.scrollHeight - element.clientHeight > start
+    ) {
+      pinRow(row, start);
+    } else {
+      assignBottom();
+    }
+  };
+
+  const scheduleFollow = (follow: () => void): void => {
     if (scrollScheduled) {
       return;
     }
@@ -99,7 +132,7 @@ export function createAgentPaneScroll(
     requestAnimationFrame(() => {
       scrollScheduled = false;
       if (followingLatest()) {
-        assignBottom();
+        follow();
       }
     });
   };
@@ -111,7 +144,7 @@ export function createAgentPaneScroll(
       return false;
     }
     const previous = element.scrollTop;
-    assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), false);
+    assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), null);
     setAgentTurnStartAbove(false);
     return Math.abs(element.scrollTop - previous) >= 1;
   };
@@ -130,7 +163,7 @@ export function createAgentPaneScroll(
     if (height === viewportHeight && width === viewportWidth) return;
     viewportHeight = height;
     viewportWidth = width;
-    if (followingLatest()) assignBottom();
+    if (followingLatest()) followLatest();
   };
 
   // Measurement anchoring also emits scroll events; every unowned scroll is the user's intent.
@@ -148,25 +181,28 @@ export function createAgentPaneScroll(
       controllerScrolls.splice(assigned, 1);
     } else {
       controllerScrolls = [];
-      anchorAtBottom = false;
+      anchor = null;
       setFollowingLatest(!wheel.isActive() && isNearBottom());
     }
     updateAgentTurnStartPosition();
   };
 
   const onVirtualizerChange = (sync: boolean): void => {
-    if (anchorAtBottom && followingLatest() && !sync && !bottomCorrectionScheduled) {
-      bottomCorrectionScheduled = true;
+    if (anchor !== null && !sync && !anchorCorrectionScheduled) {
+      anchorCorrectionScheduled = true;
       requestAnimationFrame(() => {
-        bottomCorrectionScheduled = false;
+        anchorCorrectionScheduled = false;
         const element = body();
-        if (
-          anchorAtBottom &&
-          followingLatest() &&
-          element !== undefined &&
-          element.scrollHeight - element.clientHeight - element.scrollTop > 1
-        ) {
-          assignBottom();
+        if (element === undefined) {
+          return;
+        }
+        if (anchor === "bottom") {
+          if (element.scrollHeight - element.clientHeight - element.scrollTop > 1) followLatest();
+        } else if (anchor !== null) {
+          const start = rowStart(anchor.row);
+          if (start !== undefined && Math.abs(element.scrollTop - start) > 1) {
+            pinRow(anchor.row, start);
+          }
         }
       });
     }
@@ -178,13 +214,21 @@ export function createAgentPaneScroll(
       revision,
       () => {
         if (followingLatest()) {
-          scrollToBottom();
+          scheduleFollow(followLatest);
         } else {
           updateAgentTurnStartPosition();
         }
       },
       { defer: true },
     ),
+  );
+
+  // A request needs the user, so it releases a result pin; a position the user chose is kept.
+  createEffect(
+    on(pendingRequestKey, (key) => {
+      const pinned = (): boolean => anchor !== null && anchor !== "bottom";
+      if (key !== null && pinned()) requestAnimationFrame(() => pinned() && assignBottom());
+    }),
   );
 
   createEffect(
@@ -199,7 +243,7 @@ export function createAgentPaneScroll(
 
   onMount(() => {
     if (followingLatest()) {
-      scrollToBottom();
+      scheduleFollow(assignBottom);
     } else {
       updateAgentTurnStartPosition();
     }
@@ -221,18 +265,13 @@ export function createAgentPaneScroll(
   return {
     agentTurnStartAbove,
     followingLatest,
-    followIfNearBottom: (): void => {
-      if (isNearBottom()) {
-        setFollowingLatest(true);
-      }
-    },
     jumpToLatest,
     jumpToTurn,
     noteControllerScroll,
     onScroll,
     onWheelIntent: (): void => {
       controllerScrolls = [];
-      anchorAtBottom = false;
+      anchor = null;
       setFollowingLatest(false);
     },
     onWheelSettled: (): void => {

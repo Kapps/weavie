@@ -16,14 +16,15 @@ or leave a new comment without leaving Weavie.
 >   tracker** (`SeedRefBaseline`), so the PR reviews through the **same Keep/Revert engine as a turn** (walk
 >   files ←/→, hunks ↑/↓; later Claude edits accumulate). See [diff-against.md](diff-against.md); the original
 >   read-only `pr` mode is superseded (Phase 2 section below).
-> - **Phase 3 — comments.** The forge-neutral `IReviewCommentStore` (GitHub impl + in-memory fake) loads a PR's
->   review comments; they anchor as threads (view-zones) on the diff lines, with a composer to **reply** and a
->   toolbar **Comment** action to add a new one (`add-pr-comment` → re-fetch → re-render).
+> - **Phase 3 — comments.** Superseded by [pr-comments.md](pr-comments.md): comments load for any session whose
+>   branch has a PR, render as inline cards in every editor, and support reply, new comment, and edit. The
+>   comment sections below are historical.
 > - **Branch status.** Every loaded session owns a coalesced PR monitor that keeps the status-line chip current
 >   through long agent turns and retains open/merged/closed state.
 >
 > A Playwright spec (`open-pr.spec.ts`, against a stubbed provider + a local base/head workspace) drives the
-> whole journey: pick PR → checkout → diff navigator → walk files → see a comment → reply → add.
+> whole journey: pick PR → checkout → diff navigator → walk files → see a comment (`pr-comments.spec.ts` covers
+> reply, new comment, and edit).
 >
 > **Deferred** until the source-tab system ([web-and-source-tabs.md](web-and-source-tabs.md)) lands: the PR
 > *overview source tab* and host-run *OAuth* (token discovery covers auth meanwhile).

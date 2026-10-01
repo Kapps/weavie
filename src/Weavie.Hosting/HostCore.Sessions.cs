@@ -22,6 +22,12 @@ public sealed partial class HostCore {
 		session.WorkspaceRootVanished += () => _ = Task.Run(() => CloseVanishedSessionAsync(session));
 		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
+		if (session.Agent.Controls is { } controls) {
+			string provider = session.Agent.Provider.Id;
+			controls.ControlStateChanged += state => {
+				if (state.Ready) _agentModels.Observe(provider, state.Axes, AgentModelSource.Session);
+			};
+		}
 		session.EditorSessionChanged += state => {
 			if (SlotFor(session) is { } slot) {
 				slot.EditorSession = state;
@@ -348,13 +354,6 @@ public sealed partial class HostCore {
 	/// registered provider sticks — including one only installed on a remote backend, where the session actually
 	/// runs; local availability is irrelevant to a preselection the prompt always lets the user change. Only an
 	/// unregistered id is dropped, as garbage that would fail session creation.</summary>
-	private void RememberDefaultProvider(string? requestedProvider) {
-		string? provider = requestedProvider?.Trim();
-		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is not null) {
-			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
-		}
-	}
-
 	private void EnsureProviderCanBeRemoved(string providerId) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 		bool isDefault = string.Equals(
@@ -506,6 +505,7 @@ public sealed partial class HostCore {
 				_themeOverrides,
 				_corrections,
 				_inference,
+				_agentConsultation,
 				_platform.PtyLauncher,
 				provider,
 				_runtime,
@@ -520,15 +520,6 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			if (session.Changes.Review is { PrNumber: > 0 } review) {
-				_ = session.Background.Run(async ct => {
-					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-					PostForSession(session, () => {
-						if (ReferenceEquals(ActiveReview(session), review))
-							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
-					});
-				});
-			}
 			_mediaRoutes.Register(session.Incarnation);
 			LogStartup($"session {slotId}: constructed");
 			return session;
@@ -640,7 +631,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
-		RememberDefaultProvider(provider);
+		_global.RememberDefaultProvider(provider);
 		return RunSessionLifecycleAsync(() => {
 			var source = sourceAddress is null ? null : _sessions?.Find(sourceAddress.Slot);
 			if (sourceAddress is not null && source?.Session?.Address != sourceAddress) {

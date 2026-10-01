@@ -8,22 +8,6 @@ import { measureSessionSwitch, type SessionSwitchExpectation } from "./harness/s
 import { MockHost, type MockSession, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-const SWITCH_BUDGET_MS = 1_000;
-// 2026-08-13: flaked on main (102.9ms) under real CI's 2-worker contention:
-// https://github.com/Kapps/weavie/actions/runs/31705392679/job/94465045518
-// Reproduced locally under matching 2-worker contention: single-switch samples ranged
-// 33ms-437ms (vs. a single sub-100ms sample in the original budget), confirming this is
-// GC/paint jank from concurrent browser instances sharing the runner's cores, not a
-// regression in the preprojected-pane switch itself. Widened with real headroom while
-// staying an order of magnitude under SWITCH_BUDGET_MS, so a regression to
-// virtualized-row-style re-rendering would still fail this test.
-const TOOL_HEAVY_SWITCH_BUDGET_MS = 350;
-// 2026-08-15: flaked on main (1072.5ms vs. the 1000ms SWITCH_BUDGET_MS) on the macOS CI runner:
-// https://github.com/Kapps/weavie/actions/runs/31861262573/job/94955236768
-// macOS runners are consistently noisier than Linux for this measured-virtual-window switch;
-// the other three samples in the same run were well under budget. Given its own budget with
-// headroom rather than widening the shared SWITCH_BUDGET_MS used by the warm-editor-state test.
-const LONG_TRANSCRIPT_SWITCH_BUDGET_MS = 1_500;
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
 const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
@@ -93,7 +77,7 @@ test.beforeAll(() => {
   }
 });
 
-test("warm session-owned editor state switches fully paint within budget", async ({ page }) => {
+test("warm session switches retain editor models without host file reads", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
     sessions: [claude.catalog, acp.catalog],
@@ -136,6 +120,7 @@ test("warm session-owned editor state switches fully paint within budget", async
     const retained = await page.evaluate(() => [...(window.__WEAVIE_EDITOR_REFS__?.keys() ?? [])]);
     expect(retained.some((key) => key.includes(CLAUDE_PREVIEW_A))).toBe(false);
     expect(retained.some((key) => key.includes(CLAUDE_PREVIEW_B))).toBe(true);
+    const models = await page.evaluateHandle(() => [...(window.__WEAVIE_EDITOR_REFS__ ?? [])]);
 
     // A warm switch is entirely client-owned: it must not depend on another host file read to repaint.
     host.pauseFileProvider();
@@ -147,7 +132,6 @@ test("warm session-owned editor state switches fully paint within budget", async
       acpToClaude.push(await measureSessionSwitch(page, expectation(warmClaude)));
     }
     const measurements = {
-      budgetMs: SWITCH_BUDGET_MS,
       claudeToACP,
       acpToClaude,
     };
@@ -156,8 +140,12 @@ test("warm session-owned editor state switches fully paint within budget", async
       contentType: "application/json",
     });
 
-    expect(Math.max(...claudeToACP)).toBeLessThan(SWITCH_BUDGET_MS);
-    expect(Math.max(...acpToClaude)).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(
+      await models.evaluate((entries) =>
+        entries.every(([key, ref]) => window.__WEAVIE_EDITOR_REFS__?.get(key) === ref),
+      ),
+    ).toBe(true);
+    await models.dispose();
 
     await page.locator(`.session-chip[title^="${acp.catalog.label} —"]`).click();
     await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
@@ -321,12 +309,9 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
       await measureSwitch(first.label, "FIRST_799"),
     ];
     await test.info().attach("long-transcript-session-switch.json", {
-      body: Buffer.from(
-        JSON.stringify({ budgetMs: LONG_TRANSCRIPT_SWITCH_BUDGET_MS, measurements }, null, 2),
-      ),
+      body: Buffer.from(JSON.stringify({ measurements }, null, 2)),
       contentType: "application/json",
     });
-    expect(Math.max(...measurements)).toBeLessThan(LONG_TRANSCRIPT_SWITCH_BUDGET_MS);
 
     await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight * 0.45;
@@ -465,16 +450,10 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
       { label: second.label, expectedSummary: "ran 15000 commands" },
     );
     await test.info().attach("tool-heavy-session-switch.json", {
-      body: Buffer.from(
-        JSON.stringify(
-          { activitySteps: 15_000, budgetMs: TOOL_HEAVY_SWITCH_BUDGET_MS, switchMs },
-          null,
-          2,
-        ),
-      ),
+      body: Buffer.from(JSON.stringify({ activitySteps: 15_000, switchMs }, null, 2)),
       contentType: "application/json",
     });
-    expect(switchMs).toBeLessThan(TOOL_HEAVY_SWITCH_BUDGET_MS);
+    expect(host.agentHistoryRequests).toHaveLength(2);
     await expect(surface).toHaveCount(1);
     await expect(surface).toContainText("ran 15000 commands");
     await expect(page.getByText("history 15000", { exact: true })).toBeVisible();

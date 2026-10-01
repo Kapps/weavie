@@ -13,6 +13,7 @@ using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Review;
 using Weavie.Core.Revise;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
@@ -38,6 +39,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private EditorSession _editorSession = EditorSession.Empty;
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
+	private PullRequestComments? _pullRequestComments;
 	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
@@ -73,6 +75,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
 		IInferenceService inference,
+		AgentConsultation agentConsultation,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
@@ -93,6 +96,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(corrections);
 		ArgumentNullException.ThrowIfNull(inference);
+		ArgumentNullException.ThrowIfNull(agentConsultation);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
@@ -213,7 +217,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Commands,
 			keybindings,
 			themeOverrides,
-			() => SlotId);
+			() => SlotId,
+			agentConsultation);
 
 		Agent = new AgentSessionHost(
 			agentProvider,
@@ -278,7 +283,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal void ActivateOwnedRuntimeAndMessages() {
 		_endpoint.Activate();
 		_ = Background.Run(RunWorkspaceObservationAsync);
-		Agent.Structured?.Start();
+		Agent.StartStructured();
 	}
 
 	private async Task RunWorkspaceObservationAsync(CancellationToken ct) {
@@ -356,6 +361,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal PullRequestStatusMonitor PullRequestStatus =>
 		_pullRequestStatus ?? throw new InvalidOperationException("Pull request status was not attached.");
 
+	internal PullRequestComments PullRequestComments =>
+		_pullRequestComments ?? throw new InvalidOperationException("Pull request comments were not attached.");
+
 	internal GitStatusMonitor GitStatus =>
 		_gitStatus ?? throw new InvalidOperationException("Git status was not attached.");
 
@@ -366,9 +374,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 		}
 	}
 
-	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor) {
+	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor, PullRequestComments comments) {
 		ArgumentNullException.ThrowIfNull(monitor);
-		if (Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
+		ArgumentNullException.ThrowIfNull(comments);
+		if (Interlocked.CompareExchange(ref _pullRequestComments, comments, null) is not null
+			|| Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
 			throw new InvalidOperationException("Pull request status is already attached.");
 		}
 	}

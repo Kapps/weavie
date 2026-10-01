@@ -69,7 +69,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
     expect(
       await widget.evaluate((element) => element.closest(".unified-review-virtual-list")),
     ).toBeNull();
-    await widget.getByRole("option", { name: /reviewCompletion/ }).click();
+    await widget.getByText("reviewCompletion", { exact: true }).click();
     await expect(section.locator(".view-line", { hasText: "reviewCompletion" })).toBeVisible();
     const focused = await page.evaluate(() =>
       (window.__WEAVIE_MONACO__!.editor.getEditors() as MonacoEditor.IStandaloneCodeEditor[])
@@ -137,12 +137,17 @@ test("scrolled review rename accepts and cancels while a definition peek is open
   });
   await expect(section.locator(".view-line").first()).toBeVisible();
   await page.getByRole("scrollbar", { name: "Review scroll position" }).press("PageDown");
-  const word = section
+  const original = await section
     .locator(".view-line")
     .nth(3)
     .locator("span", { hasText: /^value\d+$/ })
-    .last();
-  const original = await word.textContent();
+    .last()
+    .textContent();
+  // Monaco recycles line elements as the peek opens, so pin the word by its text, not its position.
+  const word = section
+    .locator(".view-line:not(.peekview-widget .view-line)")
+    .filter({ hasText: `export const ${original} = ` })
+    .locator("span", { hasText: new RegExp(`^${original}$`) });
   await word.click({ modifiers: ["Alt"] });
   const peek = page.locator(".peekview-widget");
   await expect(peek).toBeVisible();

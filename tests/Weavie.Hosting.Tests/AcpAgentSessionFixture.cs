@@ -330,7 +330,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new CommandDispatcher(commandRegistry),
 			keybindings,
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
-			static () => "test-session");
+			static () => "test-session",
+			AgentConsultation.None);
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
@@ -394,8 +395,14 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			Failed = false,
 		});
 
-	public async Task<AgentControlState> StartAsync() {
+	public void Start() {
+		var restored = Session.Restore();
+		if (restored.Count > 0) _snapshots.Writer.TryWrite(restored);
 		Session.Start();
+	}
+
+	public async Task<AgentControlState> StartAsync() {
+		Start();
 		return await WaitForControlsAsync(state => state.Ready).ConfigureAwait(false);
 	}
 

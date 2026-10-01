@@ -7,6 +7,7 @@ public sealed partial class AcpAgentSession {
 	private readonly Dictionary<string, AcpConversationState> _sideConversations = new(StringComparer.Ordinal);
 	private bool _storageFailed;
 	private bool _displayRestored;
+	private Exception? _restoreFailure;
 
 	private AcpConversationState ContinuationState() {
 		lock (_gate) return new() {
@@ -59,7 +60,7 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private void RestoreDisplay() {
+	private List<AgentPaneMessage> RestoreDisplay() {
 		lock (_turnTransitionGate) {
 			try {
 				var states = _sessions.ReadConversations(_definition.Id, _context.Workspace);
@@ -82,8 +83,8 @@ public sealed partial class AcpAgentSession {
 					_sideConversations[state.ConversationId] = failed;
 					recovery.Add(terminal);
 				}
-				PaneSnapshot?.Invoke([.. messages, .. recovery]);
 				_displayRestored = true;
+				return [.. messages, .. recovery];
 			} catch (AcpSessionStoreException) {
 				_storageFailed = true;
 				throw;

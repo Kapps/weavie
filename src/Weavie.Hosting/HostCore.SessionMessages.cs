@@ -27,7 +27,7 @@ public sealed partial class HostCore {
 					RawJson(message.Args),
 					ct).ConfigureAwait(false);
 				return new ResponseWithCompletion<CommandWireResult>(
-					ToWireResult(execution.Result),
+					CommandWireResult.From(execution.Result),
 					execution.CompleteAsync);
 			});
 
@@ -92,15 +92,11 @@ public sealed partial class HostCore {
 		review.Handle<EmptySessionMessage, ReviewHistoryLocation?>("redo", (_, _) =>
 			Task.FromResult(ReviewRedo(session)));
 		review.Handle<FilePathMessage>("showFile", (message, _) => {
-			PushReviewFileToWeb(session, message.Path);
+			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
 		review.Handle<DiffAgainstMessage>("diffAgainst", (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
-		review.Handle<ReviewCommentRequest, CommandWireResult>(
-			"addComment",
-			async (message, ct) => ToWireResult(
-				await AddPrCommentAsync(session, message, ct).ConfigureAwait(false)));
 
 		session.Bus.Feature("revise").Handle<ReviseStartMessage>("start", (message, _) => {
 			StartRevise(session, message);
@@ -143,8 +139,9 @@ public sealed partial class HostCore {
 			(message, ct) => GetPullRequestAsync(message, ct));
 		pullRequests.Handle<PullRequestReference, CommandWireResult>(
 			"open",
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
+		HandlePullRequestComments(session, pullRequests);
 
 		var sources = session.Bus.Feature("sources");
 		sources.Handle<OpenTargetMessage>("open", (message, _) => {
@@ -183,16 +180,6 @@ public sealed partial class HostCore {
 		session.Shells.Resync(target);
 	}
 
-	private static CommandWireResult ToWireResult(CommandResult result) {
-		JsonElement? data = null;
-		if (!string.IsNullOrWhiteSpace(result.DataJson)) {
-			using var document = JsonDocument.Parse(result.DataJson);
-			data = document.RootElement.Clone();
-		}
-
-		return new CommandWireResult(result.Ok, result.Message, result.Error, data);
-	}
-
 	private static CommandResult FromWireResult(CommandWireResult result) =>
 		new(result.Ok, result.Message, result.Error) {
 			DataJson = RawJson(result.Data),
@@ -208,12 +195,6 @@ public sealed partial class HostCore {
 	private sealed record SessionSyncRequest;
 
 	private sealed record SessionSyncResult(bool Ok);
-
-	private sealed record CommandWireResult(
-		bool Ok,
-		string? Message,
-		string? Error,
-		JsonElement? Data);
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
 

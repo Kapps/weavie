@@ -88,6 +88,7 @@ describe("paneFocusContext", () => {
       agentFocused: true,
       agentComposerFocused: false,
       agentPasteTargetFocused: false,
+      prCommentFocused: false,
     });
   });
 
@@ -108,6 +109,12 @@ describe("paneFocusContext", () => {
     expect(context.agentComposerFocused).toBe(false);
   });
 
+  it("takes a PR comment box out of editor focus so editor chords don't fire while typing", () => {
+    const context = paneFocusContext(elementInPane("editor", "editor", true));
+    expect(context.prCommentFocused).toBe(true);
+    expect(context.editorFocused).toBe(false);
+  });
+
   it("classifies Claude in the same persisted pane as a terminal surface", () => {
     const pane = elementInPane("terminal:claude", "terminal", false);
 
@@ -119,6 +126,7 @@ describe("paneFocusContext", () => {
       agentFocused: false,
       agentComposerFocused: false,
       agentPasteTargetFocused: false,
+      prCommentFocused: false,
     });
   });
 });
@@ -131,7 +139,9 @@ function elementInPane(kind: string, surface: string, inComposer: boolean): Elem
     closest: (selector: string) =>
       selector === "[data-tool]"
         ? null
-        : selector === "[data-agent-composer]" || selector === "[data-agent-paste-target]"
+        : selector === "[data-agent-composer]" ||
+            selector === "[data-agent-paste-target]" ||
+            selector === "[data-pr-comment-input]"
           ? inComposer
             ? pane
             : null

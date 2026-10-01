@@ -72,16 +72,18 @@ export function ReviewFileSection(props: {
   const measureHeader = (): void => {
     borderTop = article!.clientTop;
     headerLimit = article!.clientHeight - header.offsetHeight;
-    layoutHeader();
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
+  let appliedTop = 0;
   createEffect(() => {
     const top = sectionTop();
     if (article !== undefined) {
       untrack(() => {
+        const delta = top - appliedTop;
+        appliedTop = top;
         article!.style.top = `${top}px`;
+        editor()?.shift(delta);
         layoutHeader();
-        editor()?.layout();
       });
     }
   });
@@ -97,6 +99,7 @@ export function ReviewFileSection(props: {
     const observer = new ResizeObserver(() => {
       measureHeader();
       editor()?.layout();
+      layoutHeader();
     });
     observer.observe(article!);
     observer.observe(header);

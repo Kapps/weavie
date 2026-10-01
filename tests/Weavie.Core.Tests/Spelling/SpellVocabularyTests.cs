@@ -10,6 +10,7 @@ public sealed class SpellVocabularyTests {
 	[InlineData("backend frontend middleware namespace nullable serializer serializers codebase whitespace autocomplete")]
 	[InlineData("onboarding discoverability observability JSON async mutex bool enum const init args config params")]
 	[InlineData("OAuth OAuthToken JSONs APIs JSONsCount TypeScript JavaScript GitHub iPhone macOS")]
+	[InlineData("the delay's request’s commit's build's middleware's GitHub's cat's users' it's")]
 	public void MixedEnglishAcceptsRegionalAndTechnicalWords(string text) {
 		Assert.Empty(SpellChecker.Check(SpellVocabulary.English.Value, [new(0, 0, text, false)],
 			new HashSet<string>(), new HashSet<string>(), CancellationToken.None));
@@ -22,6 +23,7 @@ public sealed class SpellVocabularyTests {
 	[InlineData("middlewre")]
 	[InlineData("namespcae")]
 	[InlineData("ZZTYPOOs")]
+	[InlineData("recieve's")]
 	public void BroaderVocabularyStillRejectsTypos(string word) {
 		Assert.Equal([new Misspelling(0, 0, word)], SpellChecker.Check(SpellVocabulary.English.Value,
 			[new(0, 0, word, false)], new HashSet<string>(), new HashSet<string>(), CancellationToken.None));

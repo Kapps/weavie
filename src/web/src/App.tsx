@@ -123,6 +123,7 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
+import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -156,6 +157,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "./files/session-files";
+import { GettingStartedModal } from "./getting-started/GettingStarted";
 import { ThemePicker } from "./theme/ThemePicker";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
@@ -169,7 +171,7 @@ import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
-import { createMobileHistory } from "./mobile/mobile-history";
+import { createMobileHistory, type MobilePreview } from "./mobile/mobile-history";
 import { createMobileVisualViewportStyle } from "./mobile/mobile-visual-viewport";
 import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
@@ -218,7 +220,8 @@ const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claud
 
 interface MobileTransition {
   direction: MobileSwipeDirection;
-  navigation: "back" | "select";
+  gesture: "back" | "bar";
+  move: MobilePreview;
   phase: "tracking" | "canceling" | "committing";
   progress: number;
   source: MobileSurface;
@@ -297,26 +300,41 @@ export default function App(): JSX.Element {
     direction: MobileSwipeDirection,
     progress: number,
   ): void => {
-    if (!compact() || target === mobileSurface()) {
+    const transition = mobileTransition();
+    if (transition?.phase === "tracking" && transition.target === target) {
+      setMobileTransition({ ...transition, direction, progress });
       return;
     }
-    setMobileTransition({
-      direction,
-      navigation: "select",
-      phase: "tracking",
-      progress,
-      source: mobileSurface(),
-      target,
-    });
+    if (transition?.phase === "committing") {
+      transition.move.commit();
+    } else {
+      transition?.move.cancel();
+    }
+    const move = mobileHistory.preview(target);
+    setMobileTransition(
+      move === null
+        ? null
+        : {
+            direction,
+            gesture: "bar",
+            move,
+            phase: "tracking",
+            progress,
+            source: mobileSurface(),
+            target,
+          },
+    );
   };
   const beginMobileBack = (): void => {
     const target = mobileHistory.backTarget();
-    if (!compact() || target === null) {
+    const move = target === null ? null : mobileHistory.preview(target);
+    if (target === null || move === null) {
       return;
     }
     setMobileTransition({
       direction: -1,
-      navigation: "back",
+      gesture: "back",
+      move,
       phase: "tracking",
       progress: 0,
       source: mobileSurface(),
@@ -327,21 +345,10 @@ export default function App(): JSX.Element {
   // transition was dropped mid-swipe therefore commits nothing instead of re-deriving a second move.
   const previewMobileBack = (progress: number): void => {
     const transition = mobileTransition();
-    if (
-      transition === null ||
-      transition.navigation !== "back" ||
-      transition.phase !== "tracking"
-    ) {
+    if (transition === null || transition.gesture !== "back" || transition.phase !== "tracking") {
       return;
     }
     setMobileTransition({ ...transition, progress });
-  };
-  const commitMobileTransition = (transition: MobileTransition): void => {
-    if (transition.navigation === "back") {
-      mobileHistory.back();
-    } else {
-      navigateMobileSurface(transition.target);
-    }
   };
   const settleMobileTransition = (commit: boolean): void => {
     const transition = mobileTransition();
@@ -349,9 +356,12 @@ export default function App(): JSX.Element {
       return;
     }
     const progress = commit ? 1 : 0;
+    if (!commit) {
+      transition.move.cancel();
+    }
     if (REDUCED_MOTION || transition.progress === progress) {
       if (commit) {
-        commitMobileTransition(transition);
+        transition.move.commit();
       }
       setMobileTransition(null);
       return;
@@ -378,7 +388,7 @@ export default function App(): JSX.Element {
       return;
     }
     if (transition.phase === "committing") {
-      commitMobileTransition(transition);
+      transition.move.commit();
     }
     setMobileTransition(null);
   };
@@ -386,12 +396,15 @@ export default function App(): JSX.Element {
   // neither preview nor commit — dropping it is what keeps one browser gesture from landing two moves.
   createEffect(() => {
     const transition = mobileTransition();
-    if (transition !== null && transition.source !== mobileSurface()) {
+    if (
+      transition !== null &&
+      (transition.move.dropped() || transition.source !== mobileSurface())
+    ) {
       setMobileTransition(null);
     }
   });
   const mobileBackSwipe = createMobileBackSwipe({
-    canStart: () => compact() && mobileHistory.backTarget() !== null,
+    canStart: () => compact() && mobileTransition() === null && mobileHistory.backTarget() !== null,
     onCancel: () => settleMobileTransition(false),
     onCommit: () => settleMobileTransition(true),
     onProgress: previewMobileBack,
@@ -969,6 +982,11 @@ export default function App(): JSX.Element {
       .finally(endSelection);
   };
 
+  // The tap that opens a session claims its Agent history entry; presenting the session fills it.
+  const openFromInbox = (open: () => Promise<boolean>): Promise<boolean> => {
+    const release = mobileHistory.reserve();
+    return open().finally(release);
+  };
   const openSession = (session: RailSession): Promise<boolean> => {
     if (!session.active) {
       return switchToSession(session);
@@ -1555,6 +1573,7 @@ export default function App(): JSX.Element {
       ),
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
+      registerPrCommentCommands(),
       ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);
@@ -1842,19 +1861,25 @@ export default function App(): JSX.Element {
           inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
-          onOpen={openSession}
-          onCreate={(seed, backendId, providerId) => {
-            setLastLocation(backendId);
-            promoteNextSessionOn(backendId);
-            return createSessionAt(backendId, {
-              branch: seed.branch,
-              base: seed.base,
-              existing: seed.existing,
-              prompt: seed.prompt,
-              attachments: seed.attachments,
-              agentProviderId: providerId,
-            });
-          }}
+          onOpen={(session) => openFromInbox(() => openSession(session))}
+          onCreate={(resolveSeed, backendId, providerId) =>
+            openFromInbox(async () => {
+              const seed = await resolveSeed();
+              if (seed === null) {
+                return false;
+              }
+              setLastLocation(backendId);
+              promoteNextSessionOn(backendId);
+              return createSessionAt(backendId, {
+                branch: seed.branch,
+                base: seed.base,
+                existing: seed.existing,
+                prompt: seed.prompt,
+                attachments: seed.attachments,
+                agentProviderId: providerId,
+              });
+            })
+          }
           onManageAcp={openAcpRegistry}
           surfaceTitle={mobileSurfaceTitle}
           onDismiss={closeSessions}
@@ -2023,6 +2048,7 @@ export default function App(): JSX.Element {
         }
       />
       <ThemePicker />
+      <GettingStartedModal />
       <Show when={updateRestarting()}>
         <UpdateOverlay />
       </Show>

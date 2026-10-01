@@ -36,6 +36,8 @@ export interface ReviewEditor {
   layout(): void;
   /** Re-applies the collapsed stretches after the file's revealed context changed. */
   refreshContext(): void;
+  /** Applies a known change to the section's own offset without re-reading the DOM. */
+  shift(delta: number): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -328,6 +330,7 @@ export function createReviewEditor(options: {
       viewport.update(applyContext);
       restore(location);
     },
+    shift: viewport.shift,
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {

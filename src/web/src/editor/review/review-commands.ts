@@ -73,7 +73,6 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
         [CommandIds.prevChange, "prevChange"],
         [CommandIds.acceptChange, "accept"],
         [CommandIds.rejectChange, "reject"],
-        [CommandIds.reviewComment, "comment"],
         [CommandIds.reviewNextFile, "nextFile"],
         [CommandIds.reviewPrevFile, "prevFile"],
         [CommandIds.undoKeep, "undoKeep"],

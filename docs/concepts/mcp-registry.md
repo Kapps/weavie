@@ -64,3 +64,5 @@ hand-written MCP tools per capability:
 - Commands registry — [implemented](../specs/commands.md) (Core + Windows + macOS hosts + web). Registers
   onto the same registry server (`listCommands`/`runCommand`); the one declaration also drives keybindings
   (`~/.weavie/keybindings.json`) + the omnibar command palette.
+- Agent consultation — [implemented](../specs/agent-consultation.md). `listAgents`/`consultAgent` let the
+  embedded agent resolve another configured agent or model by name and run one read-only consult turn with it.

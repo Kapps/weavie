@@ -40,9 +40,8 @@ public sealed partial class GitHubReviewProvider {
 			state);
 		_branchCache.TryGetValue(key, out var cached);
 		using var request = BuildRequest(
-			repo,
 			HttpMethod.Get,
-			$"/repos/{repo.Owner}/{repo.Name}/pulls?state={state}&head={head}&sort=updated&direction=desc&per_page=1",
+			ApiBase(repo.Host) + $"/repos/{repo.Owner}/{repo.Name}/pulls?state={state}&head={head}&sort=updated&direction=desc&per_page=1",
 			null,
 			token);
 		if (cached?.EntityTag is { Length: > 0 } entityTag) {
@@ -58,7 +57,7 @@ public sealed partial class GitHubReviewProvider {
 		}
 
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		ThrowForFailure(response, repo);
+		ThrowForFailure(response, repo, body);
 		var result = ParsePullRequests(body).FirstOrDefault();
 		_branchCache[key] = new BranchCache(response.Headers.ETag?.ToString(), result);
 		return result;

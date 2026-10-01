@@ -1,8 +1,9 @@
 import { For, onCleanup, Show } from "solid-js";
 import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
+import { CommandIds } from "../commands/types";
 import { createThemePicker } from "./picker-model";
-import { SELECT_THEME, type ThemeSearchOrder, themePickerOpen } from "./picker-state";
+import { type ThemeSearchOrder, themePickerOpen } from "./picker-state";
 import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
 import { ThemeChoiceList } from "./ThemeChoiceList";
 import { ThemeExtensionDetails } from "./ThemeExtensionDetails";
@@ -86,10 +87,13 @@ function Picker() {
       onKeyDown={keys}
     >
       <div class="theme-picker-header">
-        <strong id="theme-picker-title" title={`Select Color Theme${keyHint(SELECT_THEME)}`}>
+        <strong
+          id="theme-picker-title"
+          title={`Select Color Theme${keyHint(CommandIds.selectTheme)}`}
+        >
           Select Color Theme
         </strong>
-        <span>{keyHint(SELECT_THEME)}</span>
+        <span>{keyHint(CommandIds.selectTheme)}</span>
       </div>
       <div class="theme-picker-sources">
         <button

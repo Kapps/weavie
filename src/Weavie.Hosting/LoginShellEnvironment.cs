@@ -16,24 +16,31 @@ public static class LoginShellEnvironment {
 	// Transient session noise describing the probe subshell, not config worth propagating to children.
 	private static readonly HashSet<string> Skip = new(StringComparer.Ordinal) { "_", "SHLVL", "PWD", "OLDPWD" };
 
-	private static bool _imported;
+	private static readonly Lock Gate = new();
+	private static Task<string>? _import;
 	private static string _failure = string.Empty;
 
 	/// <summary>Marks the import as already done, so a test host never spawns the developer's real shell.</summary>
-	internal static void MarkImported() => _imported = true;
+	internal static void MarkImported() {
+		lock (Gate) {
+			_import = Task.FromResult(string.Empty);
+		}
+	}
 
 	/// <summary>
-	/// Imports the login-shell environment on the first call (macOS/Linux); a no-op on Windows and on later calls.
-	/// Returns a user-facing explanation of why the environment could not be read, empty when it was.
+	/// Imports the login-shell environment on the first call (macOS/Linux); a no-op on Windows. Later calls, including
+	/// ones made while the first is still running, share its result. Returns a user-facing explanation of why the
+	/// environment could not be read, empty when it was.
 	/// </summary>
 	/// <param name="log">Sink for a one-line note of what was imported.</param>
-	public static async Task<string> ImportOnceAsync(Action<string> log) {
+	public static Task<string> ImportOnceAsync(Action<string> log) {
 		ArgumentNullException.ThrowIfNull(log);
-		if (_imported) {
-			return _failure;
+		lock (Gate) {
+			return _import ??= ImportAsync(log);
 		}
+	}
 
-		_imported = true;
+	private static async Task<string> ImportAsync(Action<string> log) {
 		if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux()) {
 			return _failure;
 		}

@@ -430,6 +430,38 @@ describe("BTW reply composers", () => {
     await flushAsyncWork();
   });
 
+  it("closes an open reply when it's accepted, whichever view of the reply is mounted", () => {
+    const session = owner("reply-open", "slot");
+    const reply = store.replyComposer(session, "aside");
+    const submit = (text: string): string => {
+      reply.setDraft(text);
+      expect(reply.submit()).toBe(true);
+      return reply.state().pendingSubmission!.id;
+    };
+    const settle = (id: string, status: "accepted" | "rejected") =>
+      deliver("reply-open", "slot", "submissionState", {
+        id,
+        status,
+        attachmentIds: [],
+        error: status === "rejected" ? "Try again" : "",
+      });
+
+    reply.setOpen(true);
+    settle(submit("first"), "rejected");
+    expect(reply.state().replyOpen).toBe(true);
+
+    const typedWhileSending = submit("second");
+    reply.setDraft("more");
+    settle(typedWhileSending, "accepted");
+    expect(reply.state().replyOpen).toBe(true);
+
+    const accepted = submit("third");
+    // A rebuilt aside card reacquires the same reply rather than holding its own copy.
+    const remounted = store.replyComposer(session, "aside");
+    settle(accepted, "accepted");
+    expect(remounted.state().replyOpen).toBe(false);
+  });
+
   it("releases every draft owner's preview when the session is disposed", async () => {
     const current = ensureSession("reply-dispose", "slot");
     const revoke = vi.spyOn(URL, "revokeObjectURL");

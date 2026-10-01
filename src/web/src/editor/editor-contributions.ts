@@ -7,6 +7,7 @@ import { editorContexts, type TextEditorConnection } from "./editor-context";
 import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
 import type { TextLocation } from "./nav-history";
+import { createPrComments } from "./pr-comments/pr-comment-controller";
 import { sharedReviseMarks } from "./revise-marks";
 import { SESSION_FILE_SCHEME } from "./session-uri-owner";
 import { createSpellCheck } from "./spell-check";
@@ -29,6 +30,7 @@ export function connectTextEditor(options: {
     symbols: createSymbolSource(session, model, lifetime.signal),
     blame: createGitBlame(editor),
     spelling: createSpellCheck(editor),
+    prComments: createPrComments(session, editor, model),
   };
   const unregister = editorContexts.register(connection);
   const offRevise = sharedReviseMarks.attach(connection);
@@ -85,6 +87,7 @@ export function connectTextEditor(options: {
       for (const subscription of subscriptions) subscription.dispose();
       connection.blame.dispose();
       connection.spelling.dispose();
+      connection.prComments.dispose();
     },
   };
 }

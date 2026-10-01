@@ -266,7 +266,7 @@ public sealed partial class HostCore {
 		var changes = session.Changes.TurnChanges();
 		PushTurnChangesToWeb(session, target);
 		foreach (var change in changes) {
-			PushReviewFileToWeb(session, change.Path, target);
+			PushTurnDiffToWeb(session, change.Path, target);
 		}
 
 		PushReviewHistoryToWeb(session, target);

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import { canonicalFsPath } from "../../src/editor/fs-path";
 import {
   activeSessionSlot,
   createSession,
@@ -10,7 +11,7 @@ import {
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { persistedSessions } from "../harness/persisted-sessions";
+import { persistedActiveTabs } from "../harness/persisted-sessions";
 
 let server: Server;
 let origin: string;
@@ -196,7 +197,9 @@ test("restored inactive web tab stays dormant until activation", async ({ page, 
   await openUrl(page, url);
   await expect(activeFrame(page).locator("#load-count")).toHaveText("Page loads: 1");
   await openFile(page, "README.md");
-  await expect.poll(() => persistedSessions(weavie.home)).toContain(path);
+  await expect
+    .poll(() => persistedActiveTabs(weavie.home))
+    .toContain(canonicalFsPath(join(weavie.workspace, "README.md")));
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });

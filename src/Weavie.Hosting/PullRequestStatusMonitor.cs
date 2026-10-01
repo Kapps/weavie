@@ -1,4 +1,6 @@
+using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
@@ -9,7 +11,7 @@ internal sealed class PullRequestStatusMonitor {
 	private readonly Channel<bool?> _signals = Channel.CreateUnbounded<bool?>(
 		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 	private readonly Func<CancellationToken, Task<PullRequestStatusSnapshot>> _resolve;
-	private readonly Action<PullRequestStatusSnapshot> _publish;
+	private readonly Func<PullRequestStatusSnapshot, CancellationToken, Task> _publish;
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 	private readonly TimeSpan _pollInterval;
 	private PullRequestStatusSnapshot? _latest;
@@ -17,7 +19,7 @@ internal sealed class PullRequestStatusMonitor {
 	public PullRequestStatusMonitor(
 		SessionTaskScope background,
 		Func<CancellationToken, Task<PullRequestStatusSnapshot>> resolve,
-		Action<PullRequestStatusSnapshot> publish,
+		Func<PullRequestStatusSnapshot, CancellationToken, Task> publish,
 		Func<TimeSpan, CancellationToken, Task> delay,
 		TimeSpan pollInterval) {
 		ArgumentNullException.ThrowIfNull(background);
@@ -74,7 +76,7 @@ internal sealed class PullRequestStatusMonitor {
 				_latest = snapshot;
 			}
 
-			_publish(snapshot);
+			await _publish(snapshot, ct).ConfigureAwait(false);
 		}
 	}
 
@@ -84,7 +86,7 @@ internal sealed class PullRequestStatusMonitor {
 				&& snapshot.PullRequest is null
 				&& _latest?.PullRequest is { } previous
 				&& string.Equals(snapshot.Branch, _latest.Branch, StringComparison.Ordinal)
-					? snapshot with { PullRequest = previous }
+					? snapshot with { PullRequest = previous, Target = _latest.Target }
 					: snapshot;
 		}
 	}
@@ -119,7 +121,8 @@ internal sealed class PullRequestStatusMonitor {
 internal sealed record PullRequestStatusSnapshot(
 	string? Branch,
 	PullRequestStatusInfo? PullRequest,
-	string? Error);
+	string? Error,
+	[property: JsonIgnore] PullRequestTarget? Target);
 
 internal sealed record PullRequestStatusInfo(
 	int Number,

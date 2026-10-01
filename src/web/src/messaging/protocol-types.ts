@@ -53,6 +53,7 @@ export interface AgentProviderInfo {
   name: string;
   available: boolean;
   unavailableReason: string | null;
+  warning: string | null;
   surface: "terminal" | "structured";
 }
 
@@ -294,14 +295,4 @@ export interface PullRequestInfo {
   headRef: string;
   url: string;
   draft: boolean;
-}
-
-export interface ReviewCommentInfo {
-  id: number;
-  line: number;
-  side: "left" | "right";
-  author: string;
-  body: string;
-  createdAt: string;
-  inReplyTo: number;
 }

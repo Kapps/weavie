@@ -97,6 +97,18 @@ export function createEditorCommands(
       },
     ],
     [
+      CommandIds.prComment,
+      (run) => {
+        return () => run(({ prComments }) => prComments.comment());
+      },
+    ],
+    ...([1, -1] as const).map((direction): [string, Factory] => [
+      direction === 1 ? CommandIds.prNextComment : CommandIds.prPrevComment,
+      (run) => {
+        return () => run(({ prComments }) => prComments.navigate(direction));
+      },
+    ]),
+    [
       CommandIds.spellCorrect,
       (run) => {
         return (args) =>
@@ -153,6 +165,7 @@ export function createEditorCommands(
             disabled: !enabled(commandId, connection),
           })),
           { kind: "separator" },
+          ...(connection.prComments.commentable() ? [{ commandId: CommandIds.prComment }] : []),
           {
             commandId: CommandIds.reviseSelection,
             disabled: !enabled(CommandIds.reviseSelection, connection),

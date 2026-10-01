@@ -95,8 +95,7 @@ try {
 	Console.CancelKeyPress -= Cancel;
 }
 
-services.Keybindings.Dispose();
-services.Settings.Dispose();
+services.Dispose();
 return 0;
 
 static int ResolvePort(string[] args) {

@@ -112,6 +112,9 @@ public static class CoreCommands {
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
 
+	/// <summary>Opens the Getting Started setup (theme, default agent, inference).</summary>
+	public const string GettingStarted = "weavie.gettingStarted.open";
+
 	/// <summary>Reloads installed and custom ACP agent definitions while the registry manager is open.</summary>
 	public const string ReloadAcpAgents = "weavie.agent.reloadAcp";
 
@@ -291,8 +294,23 @@ public static class CoreCommands {
 	/// <summary>Redoes the most recently undone review action; palette/toolbar only, no default keybinding.</summary>
 	public const string RedoReview = "weavie.review.redo";
 
-	/// <summary>Comments on the current line of a PR file under review; palette/toolbar only, no default keybinding.</summary>
-	public const string ReviewComment = "weavie.review.comment";
+	/// <summary>Opens a comment box on the cursor's line of a file the session's PR changes; bound to <c>$mod+alt+c</c>.</summary>
+	public const string PullRequestComment = "weavie.pullRequest.comment";
+
+	/// <summary>Posts the focused PR comment box; bound to <c>$mod+Enter</c> while it has focus.</summary>
+	public const string PullRequestSubmitComment = "weavie.pullRequest.submitComment";
+
+	/// <summary>Closes the focused PR comment box, keeping its draft; bound to <c>Escape</c> while it has focus.</summary>
+	public const string PullRequestCancelComment = "weavie.pullRequest.cancelComment";
+
+	/// <summary>Shows or hides PR review comments in every editor; bound to <c>$mod+alt+Shift+c</c>.</summary>
+	public const string PullRequestToggleComments = "weavie.pullRequest.toggleComments";
+
+	/// <summary>Moves the cursor to the next PR review thread in the file; bound to <c>$mod+alt+]</c>.</summary>
+	public const string PullRequestNextComment = "weavie.pullRequest.nextComment";
+
+	/// <summary>Moves the cursor to the previous PR review thread in the file; bound to <c>$mod+alt+[</c>.</summary>
+	public const string PullRequestPrevComment = "weavie.pullRequest.prevComment";
 
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
@@ -862,6 +880,17 @@ public static class CoreCommands {
 			KeybindingsActiveInModal = true,
 		});
 
+		// No default keybinding: a rarely-run setup flow, reachable from the palette, the welcome screen, and Claude.
+		registry.Register(new CommandDefinition {
+			Id = GettingStarted,
+			Title = "Getting Started",
+			RunsIn = CommandLocation.Web,
+			Category = "Help",
+			Description = "Open the Getting Started setup: pick a color theme, choose or install the default agent, "
+				+ "and configure AI inference.",
+			Aliases = ["setup", "onboarding", "first run", "tutorial", "welcome"],
+		});
+
 		// No default keybinding: only meaningful while an update is pending (the update indicator's
 		// button is the primary affordance; the handler fails cleanly otherwise).
 		registry.Register(new CommandDefinition {
@@ -1333,7 +1362,7 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1356,7 +1385,7 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the previous change in the inline diff.",
 			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Up", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Up", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1368,7 +1397,7 @@ public static class CoreCommands {
 			Description = "Keep the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — keep at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["accept change", "keep change", "keep edit", "keep hunk", "accept edit"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1380,7 +1409,7 @@ public static class CoreCommands {
 			Description = "Reject the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — revert at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["reject change", "revert hunk", "reject edit", "discard proposal"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1525,7 +1554,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the next changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["next file in review", "next changed file", "next review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Right", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Right", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1535,7 +1564,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		// File-scoped review actions. Scope now rides the toolbar's sticky picker (Keep/Revert at file scope =
@@ -1580,7 +1609,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Undo the most recent Keep — bring its change back into the pending review set.",
 			Aliases = ["undo keep", "undo accept", "unkeep", "undo last keep"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1590,7 +1619,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Undo the most recent Revert — restore its change on disk.",
 			Aliases = ["undo revert", "undo reject", "restore reverted", "undo last revert"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace", When = "!terminalFocused && !prCommentFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1602,14 +1631,68 @@ public static class CoreCommands {
 			Aliases = ["redo review", "redo keep", "redo revert", "redo change"],
 		});
 
+		// Pull request comments: the session branch's PR threads render inline wherever its changed files are
+		// open. Submit/Cancel only bind while a comment box has focus, and every Keep/Revert/nav chord above
+		// carries `!prCommentFocused`, so typing in a comment never acts on the review.
 		registry.Register(new CommandDefinition {
-			Id = ReviewComment,
-			Title = "Comment on Line (Review)",
+			Id = PullRequestComment,
+			Title = "Comment on Line (Pull Request)",
 			RunsIn = CommandLocation.Web,
-			Category = "Review",
-			When = "diffActive",
-			Description = "Add a review comment on the current line of a PR file under review (declines outside a PR review).",
-			Aliases = ["comment", "add comment", "review comment", "comment on line", "reply"],
+			Category = "Pull Request",
+			When = "prCommentable",
+			Description = "Open a comment box on the cursor's line of a file this session's pull request changes; "
+				+ "submitting posts it to the pull request.",
+			Aliases = ["comment", "add comment", "pr comment", "review comment", "comment on line", "comment on pull request"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+c", When = "prCommentable && !prCommentFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestSubmitComment,
+			Title = "Submit Comment",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Post the focused pull request comment, reply, or edit.",
+			Aliases = ["submit comment", "post comment", "send comment", "save comment"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "prCommentFocused" }],
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestCancelComment,
+			Title = "Cancel Comment",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Close the focused pull request comment box; its draft is kept for when it reopens.",
+			Aliases = ["cancel comment", "discard comment", "close comment box"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape", When = "prCommentFocused" }],
+			ShowInPalette = false,
+		});
+
+		foreach (var (id, title, direction, key) in new[] {
+			(PullRequestNextComment, "Next Pull Request Comment", "next", "$mod+alt+]"),
+			(PullRequestPrevComment, "Previous Pull Request Comment", "previous", "$mod+alt+["),
+		}) {
+			registry.Register(new CommandDefinition {
+				Id = id,
+				Title = title,
+				RunsIn = CommandLocation.Web,
+				Category = "Pull Request",
+				When = "prCommentable",
+				Description = $"Move the cursor to the {direction} pull request review thread in this file.",
+				Aliases = [$"{direction} pr comment", $"{direction} review comment", $"{direction} thread"],
+				DefaultKeybindings = [new CommandKeybinding { Key = key, When = "prCommentable && editorFocused" }],
+			});
+		}
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestToggleComments,
+			Title = "Toggle Pull Request Comments",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Show or hide pull request review comments in every editor.",
+			Aliases = ["toggle pr comments", "show pr comments", "hide pr comments", "toggle review comments",
+				"pull request comments"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+Shift+c" }],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab are gated to editor focus (a tab key shouldn't act while a

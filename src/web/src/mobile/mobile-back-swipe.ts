@@ -1,7 +1,8 @@
 import { BROWSER_EDGE_WIDTH, startsOnBrowserEdge } from "./browser-edge";
 
 const MIN_DISTANCE = 48;
-const INTENT_DISTANCE = 12;
+/** How far a touch travels before it commits to being a swipe. */
+export const SWIPE_INTENT_DISTANCE = 12;
 const HORIZONTAL_DOMINANCE = 1.5;
 // xterm owns the terminal body, so a terminal back swipe gets the strip just inside the browser's edge.
 const TERMINAL_EDGE_LIMIT = BROWSER_EDGE_WIDTH + 32;
@@ -73,7 +74,7 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     const dx = touch.clientX - origin.x;
     const dy = touch.clientY - origin.y;
     if (state === "pending") {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < INTENT_DISTANCE) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_INTENT_DISTANCE) {
         return;
       }
       if (dx <= 0 || Math.abs(dx) <= Math.abs(dy) * HORIZONTAL_DOMINANCE) {

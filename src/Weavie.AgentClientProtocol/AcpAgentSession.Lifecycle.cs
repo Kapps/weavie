@@ -8,18 +8,36 @@ public sealed partial class AcpAgentSession {
 	private bool IsUntouchedPrimary => _role is PrimaryRole && _turnNumber == 0;
 
 	/// <inheritdoc/>
+	public IReadOnlyList<AgentPaneMessage> Restore() {
+		if (_role is SideRole) throw new InvalidOperationException("Side conversations restore with their owner.");
+		try {
+			return RestoreDisplay();
+		} catch (Exception error) {
+			// Reported by Start, once the session's failure observers are wired.
+			_restoreFailure = error;
+			return [];
+		}
+	}
+
+	/// <inheritdoc/>
 	public void Start() {
+		bool restored;
 		lock (_gate) {
 			if (_started) {
 				return;
+			}
+			restored = _displayRestored;
+			if (_role is PrimaryRole && !restored && _restoreFailure is null) {
+				throw new InvalidOperationException("Restore the saved transcript before starting.");
 			}
 			_started = true;
 		}
 		if (_role is SideRole side) {
 			OnProcessStarted(new AcpProcessGeneration(side.Generation, 0));
+		} else if (!restored) {
+			FailRuntime(_restoreFailure!); // The runtime stays failed until Restart retries the restore.
 		} else {
 			try {
-				RestoreDisplay();
 				_connection.Start();
 			} catch (Exception error) {
 				FailRuntime(error);

@@ -6,6 +6,7 @@ import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { prCommentsFor } from "../editor/pr-comments/pr-comments-store";
 import { AgentControlPicker } from "./AgentControlPicker";
 import { AgentUsageIndicator } from "./AgentUsageIndicator";
 import { agentControlCommand } from "./agent-control-commands";
@@ -38,12 +39,17 @@ export function AgentStatusLine(props: {
     commandsVersion();
     const state = pr.state === "open" ? "" : ` ${pr.state}`;
     const refreshError = prError() === null ? "" : ` — last refresh failed: ${prError()}`;
-    return `Open${state} PR #${pr.number} in browser${keyHint(CommandIds.openCurrentPr)}${refreshError}`;
+    const commentError = comments()?.error;
+    const commentNote =
+      commentError == null ? "" : ` — review comments failed to load: ${commentError}`;
+    return `Open${state} PR #${pr.number} in browser${keyHint(CommandIds.openCurrentPr)}${refreshError}${commentNote}`;
   };
-  const pullRequestLabel = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string =>
-    pr.state === "open"
-      ? `#${pr.number}`
-      : `#${pr.number} · ${pr.state === "merged" ? "Merged" : "Closed"}`;
+  const comments = () => prCommentsFor(props.session);
+  const pullRequestLabel = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string => {
+    const threads = comments()?.set?.threads.length ?? 0;
+    const state = pr.state === "open" ? "" : ` · ${pr.state === "merged" ? "Merged" : "Closed"}`;
+    return `#${pr.number}${state}${threads === 0 ? "" : ` · ${threads} ${threads === 1 ? "thread" : "threads"}`}`;
+  };
   const diffAdded = (): number | null => gitStatus()?.added ?? null;
   const diffRemoved = (): number | null => gitStatus()?.removed ?? null;
   const hasDiff = (): boolean => {
@@ -146,6 +152,7 @@ export function AgentStatusLine(props: {
               <button
                 type="button"
                 class="agent-status-segment agent-status-pr"
+                classList={{ "agent-status-warn": comments()?.error != null }}
                 title={pullRequestTitle(pr())}
                 onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
               >

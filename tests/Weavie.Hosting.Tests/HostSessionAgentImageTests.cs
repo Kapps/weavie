@@ -119,6 +119,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("theme-overrides.json")),
 			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
+			AgentConsultation.None,
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
@@ -155,6 +156,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		public int Interruptions { get; private set; }
 
 		public int Restarts { get; private set; }
+
+		public IReadOnlyList<AgentPaneMessage> Restore() => [];
 
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
 

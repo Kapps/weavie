@@ -16,6 +16,8 @@ type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
   inference: FakeInference;
   automaticInference: boolean;
+  // False boots with first-run setup pending, so Getting Started opens over the workspace.
+  setupCompleted: boolean;
   dismissInferenceOffer: boolean;
   dismissStartupTip: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
@@ -89,6 +91,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
   inference: ["disabled", { option: true }],
   automaticInference: [false, { option: true }],
+  setupCompleted: [true, { option: true }],
   dismissInferenceOffer: [true, { option: true }],
   dismissStartupTip: [true, { option: true }],
   preNavigate: [null, { option: true }],
@@ -102,6 +105,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         workspaceSeed,
         inference,
         automaticInference,
+        setupCompleted,
         dismissInferenceOffer,
         dismissStartupTip,
         preNavigate,
@@ -133,6 +137,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         workspaceSeed,
         inference,
         automaticInference,
+        setupCompleted,
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });
@@ -307,7 +312,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (blockedLoads.length > 0) {
           throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
         }
-        if (dismissInferenceOffer && !automaticInference) {
+        if (dismissInferenceOffer && !automaticInference && setupCompleted) {
           await dismissAutomaticInferenceOffer(page);
         }
       } catch (error) {

@@ -35,8 +35,15 @@ public interface IAcpAgentCatalog {
 	/// <summary>Reads the current official registry and joins it with local install state.</summary>
 	Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct);
 
-	/// <summary>Installs or updates one exact registry distribution.</summary>
-	Task InstallAsync(string id, string distribution, CancellationToken ct);
+	/// <summary>
+	/// Installs or updates one exact registry distribution, saving it only after <paramref name="verify"/> accepts its
+	/// launch recipe (a throw rejects the install and leaves the installed set unchanged).
+	/// </summary>
+	Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct);
 
 	/// <summary>Removes one installed registry agent.</summary>
 	void Remove(string id);

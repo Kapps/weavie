@@ -44,6 +44,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Linux.Tests" />
+    <InternalsVisibleTo Include="Weavie.NativeBridge.Tests" />
   </ItemGroup>
 
   <!--

@@ -17,6 +17,8 @@ internal sealed class HostBridge : IWebTransportHub {
 	/// <summary>The shared document and message authentication boundary.</summary>
 	public NativeBridgeSecurity Security { get; } = new();
 
+	internal event Action<int>? PolicyDenied;
+
 	/// <summary>Call <see cref="RegisterOn"/> with the view's user-content manager to wire inbound messages.</summary>
 	internal HostBridge() {
 		_onScriptMessage = OnScriptMessage;
@@ -63,6 +65,7 @@ internal sealed class HostBridge : IWebTransportHub {
 		}
 		if (!deny) return 0;
 		WebKit.webkit_policy_decision_ignore(decision);
+		PolicyDenied?.Invoke(type);
 		return 1;
 	}
 

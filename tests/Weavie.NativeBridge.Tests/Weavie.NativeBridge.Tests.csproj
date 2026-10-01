@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <NativePlatform Condition="$([MSBuild]::IsOSPlatform('Linux'))">Linux</NativePlatform>
+    <NativePlatform Condition="$([MSBuild]::IsOSPlatform('Windows'))">Win</NativePlatform>
+    <NativePlatform Condition="$([MSBuild]::IsOSPlatform('OSX'))">Mac</NativePlatform>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework Condition="'$(NativePlatform)' == 'Win'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(NativePlatform)' == 'Mac'">net10.0-macos</TargetFramework>
+    <UseWindowsForms Condition="'$(NativePlatform)' == 'Win'">true</UseWindowsForms>
+    <UseWPF Condition="'$(NativePlatform)' == 'Win'">true</UseWPF>
+    <SupportedOSPlatformVersion Condition="'$(NativePlatform)' == 'Mac'">$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
+    <ApplicationId Condition="'$(NativePlatform)' == 'Mac'">io.github.kapps.weavie.nativebridgetests</ApplicationId>
+    <LinkMode Condition="'$(NativePlatform)' == 'Mac'">None</LinkMode>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Weavie.$(NativePlatform)/Weavie.$(NativePlatform).csproj" />
+    <Compile Remove="NativeProbe.*.cs" />
+    <Compile Include="NativeProbe.$(NativePlatform).cs" />
+    <Using Include="System.IO" />
+  </ItemGroup>
+  <Import Project="../../src/MacPty.targets" />
+</Project>

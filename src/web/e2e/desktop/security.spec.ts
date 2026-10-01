@@ -4,145 +4,149 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
-test.skip(
-  process.platform === "linux",
-  "Navigation probes overlap WebKit cancellation; font replies do not acknowledge navigation completion.",
-);
-
-test("only the app can use the native bridge, across welcome, previews and reload", async ({
+test("native bridge isolates foreign frames across welcome, workspace and reload", async ({
   desktop,
-}) => {
+}, info) => {
   const nonce = randomUUID();
-  const acks = new Set<string>();
   const complete = Promise.withResolvers<string>();
-  let workspace = "";
-  const fontRequest = (requestId: string) =>
-    JSON.stringify({
-      scope: "host",
-      session: null,
-      kind: "request",
-      requestId,
-      feature: "commands",
-      name: "invoke",
-      payload: { id: "weavie.font.increase", args: null },
-      error: null,
-    });
-  const attack = (reportOrigin: string) => `
-    const report = path => fetch(${JSON.stringify(reportOrigin)} + path, {mode:'no-cors'});
-    const leak = () => report('/leak');
+  const stages: string[] = [];
+  const attack = `
+    let leaked = false;
+    const leak = () => { leaked = true; parent.postMessage({kind:'leak'}, '*'); };
     window.__weavieReceive = leak;
     try { Object.defineProperty(window, '__weavieDeliver', {value:leak}); } catch {}
     window.chrome?.webview?.addEventListener('message', leak);
-    if (location.pathname === '/opaque' && self.origin !== 'null') report('/leak');
-    if (['__weaviePostMessage','__WEAVIE_WELCOME__','__WEAVIE_RESOURCE_BASE__'].some(key => key in window)) report('/leak');
-    const body = ${JSON.stringify(fontRequest("attack"))};
-    try { top.__weaviePostMessage(body); report('/leak'); } catch {}
-    const menu = JSON.stringify({scope:'host',session:null,kind:'event',requestId:null,feature:'window',name:'menu',payload:{action:'open-recent',path:${JSON.stringify(workspace)}},error:null});
-    for (const value of [body, menu, '0'.repeat(64) + ':' + body, '0'.repeat(64) + ':' + menu]) {
-      try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
-      try { chrome.webview.postMessage(value); } catch {}
-    }
-    if (location.pathname === '/top' && (window.chrome?.webview || window.webkit?.messageHandlers?.weavie)) report('/leak');
-    report(location.pathname === '/top' ? '/external' : '/ack' + location.pathname);
-    if (location.pathname === '/preview') document.body.insertAdjacentHTML('beforeend', '<iframe sandbox="allow-scripts" src="/opaque"></iframe>');
-    addEventListener('message', () => { try { top.location = location.origin + '/top'; } catch {} window.open('/top'); report('/ack/interactive'); });
+    if (['__weaviePostMessage','__WEAVIE_WELCOME__','__WEAVIE_RESOURCE_BASE__'].some(key => key in window)) leak();
+    try { top.__weaviePostMessage; leak(); } catch {}
+    addEventListener('message', event => {
+      if (event.data === 'inspect') parent.postMessage({kind:'inspected',leaked}, '*');
+      if (event.data !== 'attack') return;
+      const body = JSON.stringify({scope:'host',session:null,kind:'request',requestId:'attack',
+        feature:'settings',name:'set',payload:{key:'theme.mode',value:'light'},error:null});
+      for (const value of [body, '0'.repeat(64) + ':' + body]) {
+        try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
+        try { chrome.webview.postMessage(value); } catch {}
+      }
+      parent.postMessage({kind:'attacked',opaque:self.origin === 'null'}, '*');
+    });
+    parent.postMessage({kind:'ready'}, '*');
   `;
   const server = createServer((req, res) => {
     const url = new URL(req.url!, "http://localhost");
     res.setHeader("Access-Control-Allow-Origin", "*");
-    if (url.pathname === "/done" && url.searchParams.get("nonce") === nonce)
-      complete.resolve(url.searchParams.get("result")!);
-    if (url.pathname.startsWith("/ack/")) acks.add(url.pathname);
-    if (url.pathname === "/leak") complete.resolve("Untrusted document received bridge access");
-    if (url.pathname === "/state") return void res.end(JSON.stringify([...acks]));
-    if (url.pathname === "/redirect")
-      return void res.writeHead(302, { Location: "/preview" }).end();
-    if (url.pathname === "/app-frame") {
-      const target = new URL(url.searchParams.get("target")!);
-      if (
-        !(
-          (target.protocol === "app:" && target.host === "app") ||
-          (target.protocol === "https:" && target.host === "weavie.dev") ||
-          (target.protocol === "http:" && target.hostname === "127.0.0.1")
-        ) ||
-        !["/welcome.html", "/index.html"].includes(target.pathname)
-      )
-        return void res.writeHead(400).end();
-      acks.add("/ack/app-frame");
-      return void res.writeHead(302, { Location: target.href }).end();
+    if (url.pathname === "/report" && url.searchParams.get("nonce") === nonce) {
+      const result = url.searchParams.get("result")!;
+      stages.push(result);
+      if (result === "pass" || result.startsWith("FAIL:")) complete.resolve(result);
+      return void res.end();
     }
+    if (url.pathname === "/redirect")
+      return void res.writeHead(302, { Location: "/foreign" }).end();
     if (url.pathname === "/opaque")
       res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
     res.setHeader("Content-Type", "text/html");
-    res.end(
-      `<h1>Untrusted preview</h1><input placeholder="Preview still works"><script>${attack(origin)}</script>`,
-    );
+    res.end(`<h2>Untrusted ${url.pathname} frame</h2><script>${attack}</script>`);
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   try {
-    expect((await fetch(`${origin}/app-frame?target=https://example.com/index.html`)).status).toBe(
-      400,
-    );
-    const app = await desktop((path) => {
-      workspace = path;
-      return `
+    const app = await desktop(
+      (workspace) => `
       (async () => {
         const origin = ${JSON.stringify(origin)}, nonce = ${JSON.stringify(nonce)};
-        if (self !== top) { ${attack(origin)} return; }
-        const wait = async condition => { while (!await condition()) await new Promise(resolve => setTimeout(resolve, 25)); };
-        const query = selector => document.querySelector(selector);
-        const command = async label => {
-          const input = query('.tb-omnibar-input'); input.focus(); input.click(); input.value = '>' + label;
-          input.dispatchEvent(new Event('input', {bubbles:true}));
-          const row = () => [...document.querySelectorAll('.tb-omnibar-row')].find(row => row.querySelector('.tb-row-leaf')?.textContent === label);
-          await wait(row); row().dispatchEvent(new MouseEvent('mousedown', {bubbles:true,button:0}));
+        const report = result => {
+          document.querySelector('#results').textContent += result + '\\n';
+          return fetch(origin + '/report?nonce=' + nonce + '&result=' + encodeURIComponent(result));
         };
-        const frame = url => { const f = document.createElement('iframe'); f.src = url; document.body.append(f); return f; };
-        const target = location.href.replace('://', '://user@');
-        frame(target); frame(origin + '/app-frame?target=' + encodeURIComponent(target));
-        if (location.pathname === '/welcome.html') {
-          await wait(() => document.querySelectorAll('.welcome-row').length === 2);
-          frame(origin + '/welcome');
-          await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/welcome'));
-          document.querySelectorAll('.welcome-row')[1].click(); return;
+        const fail = error => report('FAIL: ' + error);
+        addEventListener('error', event => fail(event.message));
+        addEventListener('unhandledrejection', event => fail(event.reason));
+        const check = (condition, message) => { if (!condition) throw Error(message); };
+        check(self === top, 'The app document must be the top frame');
+        check(typeof window.__weaviePostMessage === 'function', 'Native startup capability missing');
+        check(window.__WEAVIE_BRIDGE_WS__ === undefined, 'Expected native transport');
+        const pending = new Map();
+        window.__weavieReceive = raw => {
+          const message = JSON.parse(raw);
+          if (message.requestId === 'attack') fail('Untrusted request received a response');
+          if (message.kind !== 'response') return;
+          const response = pending.get(message.requestId);
+          if (!response) return;
+          pending.delete(message.requestId);
+          message.error ? response.reject(Error(JSON.stringify(message.error))) : response.resolve(message.payload);
+        };
+        let sequence = 0;
+        const send = message => window.__weaviePostMessage(JSON.stringify({scope:'host',session:null,error:null,...message}));
+        const request = (name, payload) => new Promise((resolve, reject) => {
+          const requestId = 'trusted-' + (++sequence);
+          pending.set(requestId, {resolve, reject});
+          send({kind:'request',requestId,feature:'settings',name,payload});
+        });
+        const page = location.pathname === '/welcome.html' ? 'welcome' :
+          sessionStorage.getItem('bridge-reloaded') ? 'reloaded workspace' : 'workspace';
+        check((page === 'welcome') === !!window.__WEAVIE_WELCOME__, 'Welcome startup escaped its document');
+        await request('set', {key:'theme.mode',value:'dark'});
+        check((await request('get', {key:'theme.mode'})).value === 'dark', 'Trusted setting write failed');
+        await report(page + ': trusted roundtrip');
+        const frames = new Map();
+        addEventListener('message', event => {
+          const frame = frames.get(event.source);
+          if (!frame) return;
+          if (event.data.kind === 'leak') { fail('Untrusted frame received bridge authority or a reply'); return; }
+          if (event.data.kind === 'ready') frame.ready();
+          if (event.data.kind === 'attacked') frame.attacked(event.data.opaque);
+          if (event.data.kind === 'inspected') frame.inspected(event.data.leaked);
+        });
+        for (const path of ['/redirect', '/opaque']) {
+          const frame = document.createElement('iframe');
+          let ready, attacked, inspected;
+          const loaded = new Promise(resolve => ready = resolve);
+          const attempted = new Promise(resolve => attacked = resolve);
+          const isolated = new Promise(resolve => inspected = resolve);
+          document.body.append(frame);
+          frames.set(frame.contentWindow, {ready, attacked, inspected, isolated});
+          frame.src = origin + path;
+          await loaded;
+          frame.contentWindow.postMessage('attack', '*');
+          check(await attempted === (path === '/opaque'), 'Frame origin did not match its sandbox');
+          check((await request('get', {key:'theme.mode'})).value === 'dark', 'Untrusted frame changed host settings');
+          await report(page + ': ' + path + ' attack rejected');
         }
-        await wait(() => query('.editor[data-ready="true"]') && !query('#splash'));
-        if (window.__WEAVIE_BRIDGE_WS__ !== undefined) throw Error('Expected native transport');
-        const replies = new Set();
-        window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies.add(message.requestId); receive(raw); })(window.__weavieReceive);
-        const font = () => getComputedStyle(document.documentElement).getPropertyValue('--font-content-size').trim();
-        if (!sessionStorage.getItem('bridge-reloaded')) {
-          await command('Open URL…'); await wait(() => query('.url-prompt-input'));
-          const input = query('.url-prompt-input'); input.value = origin + '/redirect'; input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
-          await wait(() => query('.editor-web:not([hidden]) iframe'));
-          await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/opaque'));
-          query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
-          await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
-          for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
-            const request = ${fontRequest("trusted")}; request.requestId += index;
-            window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
-            await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
-          }
-          sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
+        // A second trusted roundtrip runs with both hostile reply listeners still installed.
+        check((await request('get', {key:'theme.mode'})).value === 'dark', 'Reply isolation failed');
+        for (const [frame, state] of frames) {
+          frame.postMessage('inspect', '*');
+          check(!await state.isolated, 'Reply reached an untrusted frame');
         }
-        await command('Increase Font Size'); await wait(() => font() === '20px' && replies.size > 0);
-        await fetch(origin + '/done?nonce=' + nonce + '&result=pass');
-      })().catch(error => fetch(${JSON.stringify(origin)} + '/done?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent(String(error))));
-    `;
-    });
-    expect(await Promise.race([complete.promise, app.exited])).toBe("pass");
-    expect(acks).toEqual(
-      new Set([
-        "/ack/welcome",
-        "/ack/preview",
-        "/ack/opaque",
-        "/ack/interactive",
-        "/ack/app-frame",
-      ]),
+        await report(page + ': replies isolated');
+        if (page === 'welcome') {
+          check(window.__WEAVIE_WELCOME__.recents.includes(${JSON.stringify(workspace)}), 'Welcome recents missing');
+          send({kind:'event',requestId:null,feature:'window',name:'menu',
+            payload:{action:'open-recent',path:${JSON.stringify(workspace)}}});
+        } else if (page === 'workspace') {
+          sessionStorage.setItem('bridge-reloaded', 'yes'); location.reload();
+        } else {
+          await report('pass');
+        }
+      })().catch(error => fetch(${JSON.stringify(origin)} + '/report?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent('FAIL: ' + error)));
+    `,
     );
+    expect(await Promise.race([complete.promise, app.exited])).toBe("pass");
+    expect(stages).toEqual([
+      ...["welcome", "workspace", "reloaded workspace"].flatMap((page) => [
+        `${page}: trusted roundtrip`,
+        `${page}: /redirect attack rejected`,
+        `${page}: /opaque attack rejected`,
+        `${page}: replies isolated`,
+      ]),
+      "pass",
+    ]);
   } finally {
+    await info.attach("bridge-stages.json", {
+      body: JSON.stringify(stages, null, 2),
+      contentType: "application/json",
+    });
     server.closeAllConnections();
     server.close();
   }

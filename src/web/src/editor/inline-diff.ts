@@ -115,7 +115,7 @@ export interface InlineDiffActions {
   revertFile(): boolean;
   /** Keep the whole accumulated review set (applied review). */
   keepAll(): boolean;
-  /** Undo the most recent keep / revert, or redo the last undone action; false when none. */
+  /** Request history movement from the owning session; false when no handler is bound. */
   undoKeep(): boolean;
   undoRevert(): boolean;
   redoReview(): boolean;
@@ -661,21 +661,13 @@ export function createInlineDiff(
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
   };
 
-  // Review undo/redo (session-global; bound once via bindHistory). While a review surface is up the undo chords
-  // CONSUME the key even with nothing to undo — never fall through and let Monaco insert a newline (Shift+Enter)
-  // into the file under review. They only decline (fall through to the editor) when no review is up at all.
-  // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
-  // case the undo chords are meaningful and must consume the key rather than type into the editor.
-  const reviewUp = (): boolean =>
-    parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
   const captureHistoryActions = () => {
     const handlers = historyHandlers;
+    // Availability pushes can lag the completed mutation; the host decides whether history can move.
     return {
-      undoKeep: (): boolean =>
-        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
-      undoRevert: (): boolean =>
-        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
-      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
+      undoKeep: (): boolean => runAction(handlers?.onUndoKeep),
+      undoRevert: (): boolean => runAction(handlers?.onUndoRevert),
+      redoReview: (): boolean => runAction(handlers?.onRedo),
     };
   };
   const undoLast = (): boolean =>

@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cp, readFile, writeFile } from "node:fs/promises";
+import { cp, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { test as base } from "@playwright/test";
 import { killProcessTree, prepareFake } from "../harness/weavie-host";
@@ -38,8 +38,12 @@ export const test = base.extend<{
         const script = `<script>${driver(fake.workspace).replace(/<\/script/gi, "<\\/script")}</script>`;
         for (const name of ["index.html", "welcome.html"]) {
           const file = join(assets, name);
-          const html = await readFile(file, "utf8");
-          await writeFile(file, html.replace("</body>", `${script}</body>`));
+          // Exercise the native bridge without coupling its readiness to the editor's module graph.
+          await writeFile(
+            file,
+            `<!doctype html><html><head><title>Native bridge conformance</title></head>
+            <body><h1>Native bridge conformance</h1><pre id="results"></pre>${script}</body></html>`,
+          );
         }
         const signing = ["--force", "--sign", "-", "--preserve-metadata=entitlements"];
         if (mac) execFileSync("codesign", [...signing, app]);

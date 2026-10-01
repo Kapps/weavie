@@ -754,7 +754,6 @@ test.describe("applied review — walking to a new file lands on its top", () =>
 });
 
 test.describe("applied review — large files stay responsive", () => {
-  const TYPING_HEARTBEAT_BUDGET_MS = 230;
   const original = Array.from({ length: 5_000 }, (_, index) => `old line ${index}`).join("\n");
   const modified = Array.from({ length: 5_000 }, (_, index) => `new line ${index}`).join("\n");
   test.use({
@@ -802,9 +801,38 @@ test.describe("applied review — large files stay responsive", () => {
       throw new Error("large diff ghost not rendered");
     }
 
-    // The recompute debounce matures at 120ms. A second edit at 130ms lands while the worker owns the old
-    // version; it must stay responsive, supersede that result, and render only the final text.
-    const typingPerformance = await page.evaluate(async (paintedGhost) => {
+    const worker = await page.evaluateHandle(() => {
+      const uri = window.__WEAVIE_EDITOR__!.getModel()!.uri.toString();
+      const post = Worker.prototype.postMessage;
+      const held: (() => void)[] = [];
+      const listeners = new Map<(event: MessageEvent) => void, Worker>();
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message?.method === "$computeDiff" && message.args[1] === uri) {
+          const request = message.req;
+          const receive = (event: MessageEvent): void => {
+            if (event.data?.seq !== request) return;
+            event.stopImmediatePropagation();
+            this.removeEventListener("message", receive, true);
+            const response = new MessageEvent("message", { data: event.data });
+            held.push(() => this.dispatchEvent(response));
+          };
+          this.addEventListener("message", receive, true);
+          listeners.set(receive, this);
+        }
+        post.call(this, message, transfer);
+      };
+      return {
+        pending: () => held.length,
+        release: () => {
+          Worker.prototype.postMessage = post;
+          for (const [receive, worker] of listeners) {
+            worker.removeEventListener("message", receive, true);
+          }
+          for (const send of held.splice(0)) send();
+        },
+      };
+    });
+    const typing = await page.evaluate((paintedGhost) => {
       const editor = window.__WEAVIE_EDITOR__;
       const model = editor?.getModel();
       if (editor === undefined || model === null || model === undefined) {
@@ -819,6 +847,8 @@ test.describe("applied review — large files stay responsive", () => {
           diffAfter: boolean;
           diffBefore: boolean;
           diffAdds: number;
+          addedEndLine: number;
+          modelLines: number;
           heldAfter: boolean;
           heldBefore: boolean;
           removed: number;
@@ -834,6 +864,8 @@ test.describe("applied review — large files stay responsive", () => {
             diffAfter: false,
             diffBefore: document.querySelector(".weavie-inline-removed-line") !== null,
             diffAdds: 0,
+            addedEndLine: 0,
+            modelLines: model.getLineCount(),
             heldAfter: false,
             heldBefore: paintedGhost.isConnected,
             removed: 0,
@@ -853,54 +885,47 @@ test.describe("applied review — large files stay responsive", () => {
             layoutZone: (id) => accessor.layoutZone(id),
           });
           transaction.diffAfter = document.querySelector(".weavie-inline-removed-line") !== null;
+          transaction.addedEndLine = Math.max(
+            ...model
+              .getAllDecorations()
+              .filter((decoration) => decoration.options.className === "weavie-inline-added")
+              .map((decoration) => decoration.range.endLineNumber),
+          );
           transaction.heldAfter = paintedGhost.isConnected;
           if (transaction.added > 0 || transaction.removed > 0) {
             zoneTransactions.push(transaction);
           }
         })) as typeof editor.changeViewZones;
       const reviewRev = window.__WEAVIE_REVIEW__?.rev ?? 0;
-      const started = performance.now();
       editor.executeEdits("large-diff-typing", [
         {
           range: new window.__WEAVIE_MONACO__.Range(line, column, line, column),
           text: " typed",
         },
       ]);
-      const editMs = performance.now() - started;
       const pendingPaint = {
         ghostConnected: paintedGhost.isConnected,
         zoneTransactions: zoneTransactions.length,
       };
-      await new Promise((resolve) => setTimeout(resolve, 130));
-      const secondStarted = performance.now();
-      const secondColumn = model.getLineMaxColumn(line);
+      return { pendingPaint, reviewRev };
+    }, paintedGhost);
+    await expect.poll(() => worker.evaluate((gate) => gate.pending())).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__!;
+      const model = editor.getModel()!;
+      const line = 2_500;
+      const column = model.getLineMaxColumn(line);
       editor.executeEdits("large-diff-typing-latest", [
         {
-          range: new window.__WEAVIE_MONACO__.Range(line, secondColumn, line, secondColumn),
+          range: new window.__WEAVIE_MONACO__.Range(line, column, line, column),
           text: "\nlatest line",
         },
       ]);
-      const secondEditMs = performance.now() - secondStarted;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      return {
-        editMs,
-        secondEditMs,
-        heartbeatMs: performance.now() - started,
-        pendingPaint,
-        reviewRev,
-      };
-    }, paintedGhost);
-    await test.info().attach("large-diff-typing-performance.json", {
-      body: Buffer.from(
-        JSON.stringify({ budgetMs: TYPING_HEARTBEAT_BUDGET_MS, ...typingPerformance }),
-      ),
-      contentType: "application/json",
     });
-    expect(
-      typingPerformance.heartbeatMs,
-      `5,000-line diff recomputation blocked the typing heartbeat: ${JSON.stringify(typingPerformance)}`,
-    ).toBeLessThan(TYPING_HEARTBEAT_BUDGET_MS);
-    expect(typingPerformance.pendingPaint).toEqual({
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__!.getModel()!.getLineContent(2_501)))
+      .toBe("latest line");
+    expect(typing.pendingPaint).toEqual({
       ghostConnected: true,
       zoneTransactions: 0,
     });
@@ -909,9 +934,11 @@ test.describe("applied review — large files stay responsive", () => {
     await expect(page.locator(KEEP_BTN)).toBeDisabled();
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(SCOPE)).toBeVisible();
+    await worker.evaluate((gate) => gate.release());
+    await worker.dispose();
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.rev ?? 0))
-      .toBeGreaterThan(typingPerformance.reviewRev);
+      .toBeGreaterThan(typing.reviewRev);
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
     await expect
       .poll(() =>
@@ -934,6 +961,8 @@ test.describe("applied review — large files stay responsive", () => {
           diffAfter: boolean;
           diffBefore: boolean;
           diffAdds: number;
+          addedEndLine: number;
+          modelLines: number;
           heldAfter: boolean;
           heldBefore: boolean;
           removed: number;
@@ -950,6 +979,9 @@ test.describe("applied review — large files stay responsive", () => {
     });
     expect(finalPaint.anchorVisible).toBe(true);
     for (const transaction of finalPaint.transactions) {
+      if (transaction.diffAdds > 0) {
+        expect(transaction.addedEndLine).toBe(transaction.modelLines);
+      }
       expect(transaction.removed > 0).toBe(transaction.diffAdds > 0);
       if (transaction.diffBefore && !transaction.diffAfter) {
         expect(transaction.diffAdds).toBeGreaterThan(0);

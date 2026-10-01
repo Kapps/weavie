@@ -103,13 +103,14 @@ public sealed class MessageOperationSupervisionTests {
 	public async Task TimedOutHandlerIsDiagnosedSettledAndFencesItsEndpoint() {
 		var transport = new RecordingTransport();
 		var logs = new ConcurrentQueue<string>();
+		var time = new ManualTimeProvider();
 		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(150));
 		await using var router = new HostMessageRouter(
 			transport,
 			new InlineUiDispatcher(),
 			logs.Enqueue,
 			policy,
-			TimeProvider.System);
+			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i2"));
 		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -129,33 +130,36 @@ public sealed class MessageOperationSupervisionTests {
 			JsonSerializer.SerializeToElement(new Empty()));
 
 		var dispatch = router.RouteAsync(new WebPeer("page"), request.ToJson());
-		await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-		await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
+		try {
+			await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.Deadline);
+			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
 
-		// The timeout settles the operation and writes its response on the supervision path, which can outlive
-		// RouteAsync returning. Wait for it instead of racing the scheduler -- still exactly one response.
-		await Wait.UntilAsync(() => transport.Envelopes(MessageKind.Response).Any());
-		var response = Assert.Single(transport.Envelopes(MessageKind.Response));
-		Assert.Contains("msg-", response.Error, StringComparison.Ordinal);
-		Assert.Contains("lifecycle.sync", response.Error, StringComparison.Ordinal);
-		Assert.Contains("stage handler", response.Error, StringComparison.Ordinal);
-		await Wait.UntilAsync(() => transport.Events("notifications", "show")
-			.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
-		Assert.Contains(
-			transport.Events("notifications", "show"),
-			eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
-		Assert.Contains(
-			transport.Events("notifications", "show"),
-			eventPayload => eventPayload.GetProperty("level").GetString() == "error"
-				&& eventPayload.GetProperty("message").GetString()!.Contains("lifecycle.sync", StringComparison.Ordinal));
-		Assert.Contains(logs, line => line.Contains("stage=handler", StringComparison.Ordinal));
-		Assert.True(endpoint.Bus.Closed);
-		var health = router.Health(ingressResponsive: true);
-		Assert.False(health.Healthy);
-		Assert.Equal("handler", health.LastFailure!.Stage);
-		Assert.Equal("lifecycle", health.LastFailure.Feature);
-
-		release.TrySetResult();
+			// The timeout settles the operation and writes its response on the supervision path, which can outlive
+			// RouteAsync returning. Wait for it instead of racing the scheduler -- still exactly one response.
+			await Wait.UntilAsync(() => transport.Envelopes(MessageKind.Response).Any());
+			var response = Assert.Single(transport.Envelopes(MessageKind.Response));
+			Assert.Contains("msg-", response.Error, StringComparison.Ordinal);
+			Assert.Contains("lifecycle.sync", response.Error, StringComparison.Ordinal);
+			Assert.Contains("stage handler", response.Error, StringComparison.Ordinal);
+			await Wait.UntilAsync(() => transport.Events("notifications", "show")
+				.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
+			Assert.Contains(
+				transport.Events("notifications", "show"),
+				eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
+			Assert.Contains(
+				transport.Events("notifications", "show"),
+				eventPayload => eventPayload.GetProperty("level").GetString() == "error"
+					&& eventPayload.GetProperty("message").GetString()!.Contains("lifecycle.sync", StringComparison.Ordinal));
+			await Wait.UntilAsync(() => logs.Any(line => line.Contains("stage=handler", StringComparison.Ordinal)));
+			Assert.True(endpoint.Bus.Closed);
+			var health = router.Health(ingressResponsive: true);
+			Assert.False(health.Healthy);
+			Assert.Equal("handler", health.LastFailure!.Stage);
+			Assert.Equal("lifecycle", health.LastFailure.Feature);
+		} finally {
+			release.TrySetResult();
+		}
 	}
 
 	[Fact]
@@ -292,6 +296,8 @@ public sealed class MessageOperationSupervisionTests {
 
 	[Fact]
 	public async Task CompletionDoesNotWaitForBlockedSlowCallback() {
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(2));
 		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -304,8 +310,8 @@ public sealed class MessageOperationSupervisionTests {
 				"test",
 				"complete",
 				JsonSerializer.SerializeToElement(new Empty())),
-			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(2)),
-			TimeProvider.System,
+			policy,
+			time,
 			_ => {
 				slowEntered.TrySetResult();
 				releaseSlow.Task.GetAwaiter().GetResult();
@@ -313,9 +319,10 @@ public sealed class MessageOperationSupervisionTests {
 			(_, _) => { },
 			(_, wasSlow) => completed.TrySetResult(wasSlow));
 		operation.StartWatchdog();
-		await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
 		try {
+			time.Advance(policy.SlowAfter);
+			await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 			await Task.Run(operation.Complete).WaitAsync(TimeSpan.FromSeconds(1));
 			Assert.True(await completed.Task.WaitAsync(TimeSpan.FromSeconds(1)));
 		} finally {
@@ -325,6 +332,8 @@ public sealed class MessageOperationSupervisionTests {
 
 	[Fact]
 	public async Task TimeoutReservesTheResponseBeforeRunningItsCallback() {
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(50));
 		var timeoutEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseTimeout = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var operation = new MessageOperation(
@@ -337,8 +346,8 @@ public sealed class MessageOperationSupervisionTests {
 				"test",
 				"responseRace",
 				JsonSerializer.SerializeToElement(new Empty())),
-			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(50)),
-			TimeProvider.System,
+			policy,
+			time,
 			_ => { },
 			(_, _) => {
 				timeoutEntered.TrySetResult();
@@ -348,6 +357,7 @@ public sealed class MessageOperationSupervisionTests {
 		operation.StartWatchdog();
 
 		try {
+			time.Advance(policy.Deadline);
 			await timeoutEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 			Assert.True(operation.HasTimedOut);
 			Assert.True(operation.TimeoutOwnsResponse);

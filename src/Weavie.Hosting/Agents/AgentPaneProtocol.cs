@@ -7,13 +7,13 @@ namespace Weavie.Hosting.Agents;
 internal static class AgentPaneProtocol {
 	public static object Message(AgentPaneRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
-		return Body(record);
+		return Body(record, outputDeferred: false);
 	}
 
 	/// <summary>Builds one coalesced live-update payload.</summary>
 	public static object Batch(IReadOnlyList<AgentPaneRecord> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
-		return new { messages = messages.Select(Body) };
+		return new { messages = messages.Select(Message) };
 	}
 
 	internal static async Task WriteHistoryAsync(AgentPaneHistory history, Stream output, CancellationToken ct) {
@@ -29,7 +29,7 @@ internal static class AgentPaneProtocol {
 				generation = history.Generation,
 				revision = history.Revision,
 				count = history.Messages.Count,
-				messages = records.Select(Body),
+				messages = records.Select(HistoryBody),
 				complete,
 			}, cancellationToken: ct).ConfigureAwait(false);
 			await output.WriteAsync("\n"u8.ToArray(), ct).ConfigureAwait(false);
@@ -37,10 +37,17 @@ internal static class AgentPaneProtocol {
 		}
 	}
 
-	private static object Body(AgentPaneRecord record) => new {
+	// Completed tool output only renders once expanded, so history leaves it for the `toolOutput` request.
+	private static object HistoryBody(AgentPaneRecord record) =>
+		record.Message is { Type: "item-completed", ItemType: "tool" } tool && (tool.Text is not null || tool.Content is { Count: > 0 })
+			? Body(record with { Message = tool with { Text = null, Content = null } }, outputDeferred: true)
+			: Body(record, outputDeferred: false);
+
+	private static object Body(AgentPaneRecord record, bool outputDeferred) => new {
 		generation = record.Generation,
 		ordinal = record.Ordinal,
 		revision = record.Revision,
+		outputDeferred,
 		textOffset = 0,
 		textLength = record.Message.Text?.Length ?? 0,
 		type = record.Message.Type,
@@ -115,6 +122,8 @@ internal sealed record AgentPaneRecord(
 	long Ordinal,
 	long Revision,
 	AgentPaneMessage Message);
+
+internal sealed record AgentPaneRecordRequest(long Generation, long Ordinal);
 
 internal sealed record AgentPaneHistoryRequest(long? KnownGeneration, long? KnownRevision);
 

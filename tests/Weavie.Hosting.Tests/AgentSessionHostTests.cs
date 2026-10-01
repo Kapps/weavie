@@ -17,7 +17,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed partial class AgentSessionHostTests {
 	[Fact]
-	public async Task Pane_wire_keeps_review_paths_and_output_without_transmitting_diff_contents() {
+	public async Task Pane_wire_keeps_review_paths_and_defers_history_tool_output() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		fixture.Session.Emit(Completed("tool", "tool output") with {
 			ItemType = "tool",
@@ -30,13 +30,21 @@ public sealed partial class AgentSessionHostTests {
 		var batches = await HistoryBatches(fixture.Host.ReadHistory(new(null, null)));
 		Assert.True(batches.Sum(batch => Encoding.UTF8.GetByteCount(batch.GetRawText())) < 4096);
 		var history = Assert.Single(HistoryRecords(batches));
-		Assert.Equal(live.GetRawText(), history.GetRawText());
-		var diff = Assert.Single(history.GetProperty("diffs").EnumerateArray());
+		Assert.True(history.GetProperty("outputDeferred").GetBoolean());
+		Assert.Equal(JsonValueKind.Null, history.GetProperty("text").ValueKind);
+		Assert.Equal(JsonValueKind.Null, history.GetProperty("content").ValueKind);
+		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+
+		var expanded = JsonSerializer.SerializeToElement(AgentPaneProtocol.Message(fixture.Host.ReadRecord(new(
+			history.GetProperty("generation").GetInt64(), history.GetProperty("ordinal").GetInt64()))));
+		Assert.Equal(live.GetRawText(), expanded.GetRawText());
+		Assert.False(expanded.GetProperty("outputDeferred").GetBoolean());
+		var diff = Assert.Single(expanded.GetProperty("diffs").EnumerateArray());
 		Assert.Equal("path", Assert.Single(diff.EnumerateObject()).Name);
 		Assert.Equal("/file", diff.GetProperty("path").GetString());
-		Assert.Equal("tool output", history.GetProperty("text").GetString());
-		Assert.Equal("rich output", Assert.Single(history.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
-		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+		Assert.Equal("tool output", expanded.GetProperty("text").GetString());
+		Assert.Equal("rich output", Assert.Single(expanded.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
+		Assert.Throws<InvalidOperationException>(() => fixture.Host.ReadRecord(new(history.GetProperty("generation").GetInt64() + 1, 1)));
 	}
 
 	[Fact]

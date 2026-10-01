@@ -207,6 +207,19 @@ registerCommand(CommandIds.reloadAgentHistory, (_args, { session }) => {
   histories.get(session)?.reload();
 });
 
+/** Fetches the complete record behind a history row whose tool output was deferred. */
+export function loadToolOutput(
+  session: ClientSession,
+  message: AgentPaneWireUpdate,
+): Promise<AgentPaneWireUpdate> {
+  return session
+    .feature("agent")
+    .request<AgentPaneWireUpdate, { generation: number; ordinal: number }>("toolOutput", {
+      generation: message.generation,
+      ordinal: message.ordinal,
+    });
+}
+
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {
   return models.get(session) ?? null;
 }

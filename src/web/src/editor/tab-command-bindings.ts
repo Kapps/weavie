@@ -15,17 +15,19 @@ export const commandPath = (args: unknown): string | undefined => {
   return typeof path === "string" ? path : undefined;
 };
 
-export function tabCommandBindings(editor: EditorController): [string, CommandCapture][] {
+type TabCommandCapture = (...args: Parameters<CommandCapture>) => CommandHandler;
+
+export function tabCommandBindings(editor: EditorController): [string, TabCommandCapture][] {
   type Commands = ReturnType<EditorController["tabs"]["capture"]>;
   const bind =
-    (factory: (commands: Commands, session: ClientSession) => CommandHandler): CommandCapture =>
+    (factory: (commands: Commands, session: ClientSession) => CommandHandler): TabCommandCapture =>
     ({ session }, args) =>
       session === null
         ? () => false
         : factory(editor.tabs.capture(session, commandPath(args)), session);
   const file = (
     action: (tab: NonNullable<Commands["target"]>) => ReturnType<CommandHandler>,
-  ): CommandCapture =>
+  ): TabCommandCapture =>
     bind(({ target }) => () => {
       if (target === undefined || !isFileTab(target.entry)) return false;
       target.assertLive();
@@ -82,6 +84,9 @@ export function captureTabCommands(
   path: string | undefined,
 ): Map<string, CommandHandler> {
   return new Map(
-    tabCommandBindings(editor).map(([id, capture]) => [id, capture({ session }, { path })]),
+    tabCommandBindings(editor).map(([id, capture]) => [
+      id,
+      capture({ session, trigger: "command" }, { path }),
+    ]),
   );
 }

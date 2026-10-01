@@ -934,10 +934,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
 
   const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
-    const history = reviews.board(session).history;
-    if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
-      return false;
-    }
     const handlers = reviewHistoryHandlers(session, () => () => {});
     if (kind === "keep") handlers.onUndoKeep();
     else handlers.onUndoRevert();
@@ -945,9 +941,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const redoReview = (session: ClientSession): boolean => {
-    if (!reviews.board(session).history.canRedo) {
-      return false;
-    }
     reviewHistoryHandlers(session, () => () => {}).onRedo();
     return true;
   };

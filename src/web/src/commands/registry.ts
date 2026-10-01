@@ -37,6 +37,7 @@ const SESSION_LIFECYCLE = new Set([...SELECTED_SESSION_TARGETS, CommandIds.recre
 // anything else, including a Promise or undefined, consumes the event.
 export interface CommandContext {
   session: ClientSession | null;
+  trigger: "keybinding" | "command";
 }
 
 export type CommandHandler = (
@@ -61,7 +62,8 @@ const catalogs = new Map<string, CommandCatalog>([
     },
   ],
 ]);
-export type CommandCapture = (context: CommandContext, args: unknown) => CommandHandler;
+/** A false capture declines keyboard ownership before the command enters an execution lane. */
+export type CommandCapture = (context: CommandContext, args: unknown) => CommandHandler | false;
 const handlers = new Map<string, CommandCapture>();
 const executionLanes = new Map<string, Promise<void>>();
 const changeSubscribers = new Set<() => void>();
@@ -202,7 +204,7 @@ function captureHandler(
   capture: CommandCapture,
   args: unknown,
   context: CommandContext,
-): CommandHandler {
+): CommandHandler | false {
   try {
     return capture(context, args);
   } catch (error) {
@@ -210,6 +212,15 @@ function captureHandler(
       throw error;
     };
   }
+}
+
+function captureExplicitHandler(
+  capture: CommandCapture,
+  args: unknown,
+  session: ClientSession | null,
+): CommandHandler {
+  const handler = captureHandler(capture, args, { session, trigger: "command" });
+  return handler === false ? () => false : handler;
 }
 
 interface CommandScope {
@@ -222,10 +233,9 @@ function captureScope(
   overrides: ReadonlyMap<string, CommandHandler>,
   args: unknown,
 ): CommandScope {
-  const context = { session };
   const bound = new Map<string, CommandHandler>();
   for (const [id, capture] of handlers)
-    bound.set(id, overrides.get(id) ?? captureHandler(capture, args, context));
+    bound.set(id, overrides.get(id) ?? captureExplicitHandler(capture, args, session));
   return { session, handlers: bound };
 }
 
@@ -445,8 +455,10 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
     return false;
   }
   const session = selectedSession();
-  const captured = captureHandler(handler, args, { session });
-  const invoke = () => captured(args, { session });
+  const context: CommandContext = { session, trigger: "keybinding" };
+  const captured = captureHandler(handler, args, context);
+  if (captured === false) return false;
+  const invoke = () => captured(args, context);
   const lane = executionLaneKey(command, backendId, session);
   if (executionLanes.has(lane)) {
     void runInExecutionLane(lane, async () => invoke()).catch((error: unknown) =>
@@ -518,7 +530,7 @@ function executeWebCommand(
 ): Promise<CommandResult> {
   return runInExecutionLane(executionLaneKey(command, backendId, session), async () => {
     try {
-      return { ok: (await handler(args, { session })) !== false };
+      return { ok: (await handler(args, { session, trigger: "command" })) !== false };
     } catch (error) {
       log("error", `command '${command.id}' failed: ${String(error)}`);
       return { ok: false, error: String(error) };
@@ -618,7 +630,7 @@ async function runBoundWebCommand(
     command,
     session.connection.id,
     session,
-    captureHandler(handler, args, { session }),
+    captureExplicitHandler(handler, args, session),
     args,
   );
   return !result.ok && result.error === undefined

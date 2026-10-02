@@ -1,3 +1,76 @@
+diff --git a/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts b/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts
+index 9b19ddbaa64f625bd2667bd71344bfecfbdc4f23..73f388491a3e270b08659878858e6b6c46221270 100644
+--- a/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts
++++ b/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts
+@@ -76,13 +76,14 @@ declare class MouseDownOperation extends Disposable {
+     constructor(_context: ViewContext, _viewController: ViewController, _viewHelper: IPointerHandlerHelper, _mouseTargetFactory: MouseTargetFactory, createMouseTarget: (e: EditorMouseEvent, testEventTarget: boolean) => IMouseTarget, getMouseColumn: (e: EditorMouseEvent) => number);
+     isActive(): boolean;
+     private _onMouseDownThenMove;
+-    start(targetType: MouseTargetType, e: EditorMouseEvent, pointerId: number): void;
++    start(target: IMouseTarget, e: EditorMouseEvent, pointerId: number): void;
+     private _stop;
+     onHeightChanged(): void;
+     onPointerUp(): void;
+     onCursorStateChanged(e: viewEvents.ViewCursorStateChangedEvent): void;
+     private _getPositionOutsideEditor;
+     private _findMousePosition;
++    private _positionAtTarget;
+     private _helpPositionJumpOverViewZone;
+     private _dispatchMouse;
+ }
+diff --git a/vscode/src/vs/editor/browser/controller/mouseHandler.js b/vscode/src/vs/editor/browser/controller/mouseHandler.js
+index 2630cee01bdbca0cf4bfc89f43b2d64134db7cbd..6314a60d893cf77b8f3d342f357fe739202c23dc 100644
+--- a/vscode/src/vs/editor/browser/controller/mouseHandler.js
++++ b/vscode/src/vs/editor/browser/controller/mouseHandler.js
+@@ -229,14 +229,14 @@ class MouseHandler extends ViewEventHandler {
+         };
+         if (shouldHandle && (targetIsContent || (targetIsLineNumbers && selectOnLineNumbers))) {
+             focus();
+-            this._mouseDownOperation.start(t.type, e, pointerId);
++            this._mouseDownOperation.start(t, e, pointerId);
+         } else if (targetIsGutter) {
+             e.preventDefault();
+         } else if (targetIsViewZone) {
+             const viewZoneData = t.detail;
+             if (shouldHandle && this.viewHelper.shouldSuppressMouseDownOnViewZone(viewZoneData.viewZoneId)) {
+                 focus();
+-                this._mouseDownOperation.start(t.type, e, pointerId);
++                this._mouseDownOperation.start(t, e, pointerId);
+                 e.preventDefault();
+             }
+         } else if (targetIsWidget && this.viewHelper.shouldSuppressMouseDownOnWidget(t.detail)) {
+@@ -317,12 +317,13 @@ class MouseDownOperation extends Disposable {
+             }
+         }
+     }
+-    start(targetType, e, pointerId) {
++    start(target, e, pointerId) {
+         this._lastMouseEvent = e;
+-        this._mouseState.setStartedOnLineNumbers(targetType === MouseTargetType.GUTTER_LINE_NUMBERS);
++        this._mouseState.setStartedOnLineNumbers(target.type === MouseTargetType.GUTTER_LINE_NUMBERS);
+         this._mouseState.setStartButtons(e);
+         this._mouseState.setModifiers(e);
+-        const position = this._findMousePosition(e, true);
++        // Re-hit-testing could flush a pending render that detaches e.target, losing the press.
++        const position = this._getPositionOutsideEditor(e) ?? this._positionAtTarget(target);
+         if (!position || !position.position) {
+             return;
+         }
+@@ -430,11 +431,9 @@ class MouseDownOperation extends Disposable {
+         return null;
+     }
+     _findMousePosition(e, testEventTarget) {
+-        const positionOutsideEditor = this._getPositionOutsideEditor(e);
+-        if (positionOutsideEditor) {
+-            return positionOutsideEditor;
+-        }
+-        const t = this._createMouseTarget(e, testEventTarget);
++        return this._getPositionOutsideEditor(e) ?? this._positionAtTarget(this._createMouseTarget(e, testEventTarget));
++    }
++    _positionAtTarget(t) {
+         const hintedPosition = t.position;
+         if (!hintedPosition) {
+             return null;
 diff --git a/vscode/src/vs/editor/browser/view.js b/vscode/src/vs/editor/browser/view.js
 index 656a607fd6c30ba85969fc73fde17031b1bbef1b..cfc9f0cc1ff602146da24c998a5d4c24f85ae1ad 100644
 --- a/vscode/src/vs/editor/browser/view.js

@@ -101,7 +101,6 @@ public sealed class AcpConsultTests : IDisposable {
 			Command = AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
 			Arguments = ["consult", variant],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-			Distribution = "custom",
 		},
 		new AcpSessionStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
 		new AcpControlStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),

@@ -181,7 +181,6 @@ public sealed class AcpInferenceTests : IDisposable {
 			Command = command,
 			Arguments = arguments,
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-			Distribution = "custom",
 		},
 		new AcpSessionStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
 		new AcpControlStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),

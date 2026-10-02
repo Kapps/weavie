@@ -69,10 +69,9 @@ internal sealed class AcpInstallationStore {
 				throw new InvalidDataException("A binary installation requires an absolute command.");
 			case "binary":
 				return;
-			case "npx" when agent.Command != "npx" || agent.Arguments.FirstOrDefault() != "--yes":
-				throw new InvalidDataException("An npx installation requires the exact npx runner and --yes.");
+			case "npx" when !Path.IsPathFullyQualified(agent.Command) && !agent.Arguments.Any(Path.IsPathFullyQualified):
+				throw new InvalidDataException("An npx installation requires its absolute installed executable.");
 			case "npx":
-				AcpDistributionService.PackageProcess("npx", agent.Arguments, OperatingSystem.IsWindows());
 				return;
 			case "uvx" when agent.Command == "uvx":
 				return;

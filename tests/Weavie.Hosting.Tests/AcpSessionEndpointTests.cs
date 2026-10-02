@@ -12,7 +12,6 @@ public sealed class AcpSessionEndpointTests {
 			Command = "unused",
 			Arguments = [],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-			Distribution = "custom",
 		}, Directory.GetCurrentDirectory(), _ => { });
 		var endpoint = connection.OpenEndpoint(1, "primary", (_, _) => { }, _ => { });
 		var child = connection.OpenEndpoint(1, null, (_, _) => { }, _ => { });

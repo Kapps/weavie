@@ -16,7 +16,4 @@ public sealed record AcpAgentDefinition {
 
 	/// <summary>Environment entries declared by the installed launch recipe.</summary>
 	public required IReadOnlyDictionary<string, string> Environment { get; init; }
-
-	/// <summary>The registry distribution runner, or <c>custom</c> for a user-defined command.</summary>
-	public required string Distribution { get; init; }
 }

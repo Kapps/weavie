@@ -64,9 +64,8 @@ public sealed class AcpDistributionSnapshotTests : IDisposable {
 	public void Package_recipes_and_custom_agents_round_trip_without_copying_external_commands() {
 		string source = _root.CreateDirectory("production");
 		string destination = _root.CreateDirectory("preview");
-		WriteInstallations(source, [Launch("sample", "npx", "npx") with {
-			Arguments = ["--yes", "sample-acp@1.0.0"],
-		}]);
+		string script = Path.Combine(source, "cli.js");
+		WriteInstallations(source, [Launch("sample", "node", "npx") with { Arguments = [script, "--acp"] }]);
 		Write(
 			Under(source, WeaviePaths.AcpCustomAgentsFile),
 			"""{"version":1,"agents":[{"id":"custom","name":"Custom","command":"custom-acp","args":["serve"],"env":{"MODE":"acp"}}]}""");
@@ -74,7 +73,8 @@ public sealed class AcpDistributionSnapshotTests : IDisposable {
 		var projected = AcpDistributionSnapshot.Materialize(source, destination);
 
 		Assert.Equal(["sample", "custom"], projected.Select(agent => agent.Id));
-		Assert.Equal("npx", projected[0].Command);
+		Assert.Equal("node", projected[0].Command);
+		Assert.Equal([script, "--acp"], projected[0].Arguments);
 		Assert.Equal("custom-acp", projected[1].Command);
 		Assert.Equal("acp", projected[1].Environment["MODE"]);
 	}

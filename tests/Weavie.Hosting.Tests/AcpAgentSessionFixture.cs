@@ -353,7 +353,6 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			Command = executable,
 			Arguments = [],
 			Environment = processEnvironment,
-			Distribution = "custom",
 		};
 		var session = new AcpAgentSession(
 			new AgentSessionContext {

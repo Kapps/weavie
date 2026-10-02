@@ -66,7 +66,6 @@ public static class AgentProviderComposition {
 		Command = launch.Command,
 		Arguments = launch.Arguments,
 		Environment = launch.Environment,
-		Distribution = launch.Distribution,
 	};
 
 	private sealed class UnavailableProvider : IAgentProvider {

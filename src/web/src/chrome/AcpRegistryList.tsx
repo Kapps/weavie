@@ -170,8 +170,8 @@ export function acpRegistryFeature(backendId: string) {
 }
 
 /**
- * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (a first
- * npx/uvx start downloads it, so this can take a while); rejects with the agent's own error output otherwise.
+ * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (an npm
+ * install or first uvx start downloads it, so this can take a while); rejects with the error output otherwise.
  */
 let installSequence = 0;
 

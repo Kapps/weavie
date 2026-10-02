@@ -9,9 +9,11 @@ import { killProcessTree, prepareFake } from "../harness/weavie-host";
 
 type Desktop = { workspace: string; exited: Promise<never> };
 export const test = base.extend<{
+  desktopDocument: "app" | "bridge";
   desktop: (driver: (workspace: string) => string) => Promise<Desktop>;
 }>({
-  desktop: async ({ browserName: _browserName }, use, info) => {
+  desktopDocument: ["app", { option: true }],
+  desktop: async ({ browserName: _browserName, desktopDocument }, use, info) => {
     const fake = await prepareFake({
       fakeScript: null,
       workspaceSeed: null,
@@ -41,7 +43,10 @@ export const test = base.extend<{
         const script = `<script>${driver(fake.workspace).replace(/<\/script/gi, "<\\/script")}</script>`;
         for (const name of ["index.html", "welcome.html"]) {
           const file = join(assets, name);
-          const html = await readFile(file, "utf8");
+          const html =
+            desktopDocument === "app"
+              ? await readFile(file, "utf8")
+              : "<!doctype html><body><h1>Native bridge navigation test</h1></body>";
           await writeFile(file, html.replace("</body>", `${script}</body>`));
         }
         const signing = ["--force", "--sign", "-", "--preserve-metadata=entitlements"];

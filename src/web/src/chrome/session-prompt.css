@@ -269,6 +269,11 @@
   color: var(--accent);
 }
 
+.acp-registry-agent-title > span.acp-registry-broken,
+.acp-registry-agent p.acp-registry-broken-reason {
+  color: var(--danger);
+}
+
 .acp-registry-agent-actions {
   flex: 0 0 auto;
   gap: 7px;

@@ -128,12 +128,82 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 			Distribution = "npx",
 		};
 
-		store.Save([launch]);
+		Save(store, launch);
 
-		Assert.Equal(launch.Arguments, Assert.Single(store.Load()).Arguments);
-		store.Save([launch with { Command = _root.Combine("droid"), Arguments = ["acp"] }]);
-		Assert.Throws<JsonException>(() => store.Save([launch with { Command = "npx", Arguments = ["--yes", "sample-acp@1.2.3"] }]));
+		Assert.Equal(launch.Arguments, Assert.Single(store.Load().Agents).Arguments);
+		Save(store, launch with { Command = _root.Combine("droid"), Arguments = ["acp"] });
+		Assert.Throws<JsonException>(() => Save(store, launch with { Command = "npx", Arguments = ["--yes", "sample-acp@1.2.3"] }));
 	}
+
+	[Fact]
+	public async Task AnUnlaunchableInstallIsKeptVerbatimAndRecoveredByReinstalling() {
+		var fileSystem = new InMemoryFileSystem();
+		string installations = _root.Combine("installations.json");
+		const string legacy = """{"id":"sample","name":"Sample","version":"1.0.0","command":"npx","arguments":["--yes","sample-acp@1.0.0"],"environment":{},"distribution":"npx"}""";
+		fileSystem.WriteAllText(installations, $$"""{"version":1,"agents":[{{legacy}},{"id":"mine","name":"Mine","version":"2.0.0","command":"uvx","arguments":["mine"],"environment":{},"distribution":"uvx"}]}""");
+		var handler = new RegistryHandler(PackageRegistry("1.2.3"));
+		var service = Service(fileSystem, handler);
+
+		Assert.Equal("mine", Assert.Single(service.LaunchSpecs).Id);
+		var broken = Assert.Single(service.BrokenAgents);
+		Assert.Equal(("sample", "Sample", "npx"), (broken.Id, broken.Name, broken.Distribution));
+		Assert.Equal("This npx install is from an older Weavie and can't be launched.", broken.Reason);
+		var listed = Assert.Single(await service.ListRegistryAsync(CancellationToken.None));
+		Assert.Equal(("npx", broken.Reason), (listed.InstalledDistribution, listed.Broken));
+
+		service.Remove("mine");
+		Assert.Contains(legacy, fileSystem.ReadAllText(installations), StringComparison.Ordinal);
+
+		await service.InstallAsync("sample", "npx", Accept, CancellationToken.None);
+
+		Assert.Equal("node", Assert.Single(service.LaunchSpecs).Command);
+		Assert.Empty(service.BrokenAgents);
+		Assert.Null(Assert.Single(await service.ListRegistryAsync(CancellationToken.None)).Broken);
+		Assert.Empty(Service(fileSystem, handler).BrokenAgents);
+	}
+
+	[Fact]
+	public async Task AnUnlaunchableInstallTheRegistryNoLongerOffersIsListedForRemoval() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"),
+			"""{"version":1,"agents":[{"id":"gone","name":"Gone","command":"npx","unknown":true}]}""");
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+
+		var listed = await service.ListRegistryAsync(CancellationToken.None);
+
+		var gone = Assert.Single(listed, agent => agent.Id == "gone");
+		Assert.Empty(gone.Distributions);
+		Assert.Null(gone.InstalledDistribution);
+		Assert.NotNull(gone.Broken);
+	}
+
+	[Fact]
+	public void AnUnlaunchableInstallCanBeRemoved() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"),
+			"""{"version":1,"agents":[{"id":"sample","name":"Sample","command":"npx","unknown":true}]}""");
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+		Assert.Equal("sample", Assert.Single(service.BrokenAgents).Id);
+
+		service.Remove("sample");
+
+		Assert.Empty(service.BrokenAgents);
+		Assert.Empty(Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3"))).BrokenAgents);
+	}
+
+	[Theory]
+	[InlineData("""{"version":1,"agents":[{"name":"No id","command":"npx"}]}""")]
+	[InlineData("""{"version":1,"agents":[{"id":"sample","command":"npx"},{"id":"sample","command":"uvx"}]}""")]
+	[InlineData("""{"version":1,"agents":[null]}""")]
+	public void InstallationFilesWithoutAddressableEntriesStayUnavailable(string document) {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"), document);
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+
+		Assert.Throws<JsonException>(() => service.LaunchSpecs);
+	}
+
+	private static void Save(AcpInstallationStore store, AcpLaunchSpec launch) => store.Save(new AcpInstallations([launch], []));
 
 	[Fact]
 	public void CustomProfilesUseExactPathCommandsAndEnvironment() {

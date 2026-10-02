@@ -125,7 +125,7 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		acpRegistry.Handle<EmptyMessage>("reload", (_, _) => {
-			var currentIds = _acpAgents.LaunchSpecs.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+			var currentIds = _acpAgents.ProviderIds;
 			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
 			return Task.CompletedTask;
 		});

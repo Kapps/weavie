@@ -51,6 +51,13 @@ update.
 
 Registry removal deletes the installed recipe. User-defined agents are independent and remain untouched.
 
+A recorded installation this build can't launch (an older recipe format, an unknown field) does not take down the
+catalog: it stays on disk verbatim and becomes an unavailable provider under its own id, with the reason, so its
+sessions stay bound to it. Manage ACP Agents marks it "Needs reinstall"; reinstalling replaces it under the same id
+and its sessions open again, and removing it follows the usual referenced-provider rule. A document-level failure
+(unreadable JSON, wrong version, duplicate ids, an entry without an id) still makes ACP agents unavailable as a
+whole, because no single agent can be named.
+
 ## Custom commands
 
 User-defined ACP commands live at `~/.weavie/acp/custom.json`:

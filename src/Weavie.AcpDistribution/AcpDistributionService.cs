@@ -19,7 +19,7 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 	private readonly AcpCustomAgentStore _custom;
 	private readonly INpmInstaller _npm;
 	private readonly string _packages;
-	private IReadOnlyList<AcpLaunchSpec>? CachedLaunchSpecs { get; set; }
+	private Catalog? Cached { get; set; }
 
 	/// <summary>Creates the app-global official ACP catalog.</summary>
 	public static AcpDistributionService CreateDefault() {
@@ -55,31 +55,51 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 	public event Action? Changed;
 
 	/// <inheritdoc/>
-	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs {
+	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs => Current.LaunchSpecs;
+
+	/// <inheritdoc/>
+	public IReadOnlyList<AcpBrokenAgent> BrokenAgents => Current.Broken;
+
+	/// <inheritdoc/>
+	public IReadOnlySet<string> ProviderIds => Current.Ids;
+
+	private Catalog Current {
 		get {
-			lock (_gate) return CachedLaunchSpecs ??= Merge(_installations.Load(), _custom.Load());
+			lock (_gate) return Cached ??= Merge(_installations.Load(), _custom.Load());
 		}
 	}
 
 	/// <inheritdoc/>
 	public async Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) {
 		var registry = await _registry.FetchAsync(ct).ConfigureAwait(false);
-		IReadOnlyList<AcpLaunchSpec> installed;
+		AcpInstallations installed;
 		lock (_gate) installed = _installations.Load();
-		var byId = installed.ToDictionary(agent => agent.Id, StringComparer.Ordinal);
+		var byId = installed.Agents.ToDictionary(agent => agent.Id, StringComparer.Ordinal);
+		var broken = installed.Broken.ToDictionary(entry => entry.Agent.Id, entry => entry.Agent, StringComparer.Ordinal);
 		string target = AcpPlatformTarget.Current();
+		var listed = registry.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
 		return [.. registry.Select(entry => {
 			string id = AcpRegistryClient.Require(entry.Id, "agent id");
 			byId.TryGetValue(id, out var local);
+			broken.TryGetValue(id, out var unlaunchable);
 			return new AcpRegistryAgent {
 				Id = id,
 				Name = AcpRegistryClient.Require(entry.Name, $"agent '{id}' name"),
 				Version = AcpRegistryClient.Require(entry.Version, $"agent '{id}' version"),
 				Description = entry.Description ?? string.Empty,
 				Distributions = DistributionKinds(entry.Distribution!, target),
-				InstalledDistribution = local?.Distribution,
+				InstalledDistribution = local?.Distribution ?? unlaunchable?.Distribution,
 				InstalledVersion = local?.Version,
+				Broken = unlaunchable?.Reason,
 			};
+		}), .. broken.Values.Where(agent => !listed.Contains(agent.Id)).Select(agent => new AcpRegistryAgent {
+			Id = agent.Id,
+			Name = agent.Name,
+			Version = string.Empty,
+			Description = "No longer offered by the ACP Registry.",
+			Distributions = [],
+			InstalledDistribution = agent.Distribution,
+			Broken = agent.Reason,
 		})];
 	}
 
@@ -103,10 +123,11 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		};
 		await verify(launch, ct).ConfigureAwait(false);
 		lock (_gate) {
-			var agents = _installations.Load().Where(agent => agent.Id != id).Append(launch).ToArray();
-			var merged = Merge(agents, _custom.Load());
-			_installations.Save(agents);
-			CachedLaunchSpecs = merged;
+			var current = _installations.Load().Without(id);
+			var installations = current with { Agents = [.. current.Agents, launch] };
+			var merged = Merge(installations, _custom.Load());
+			_installations.Save(installations);
+			Cached = merged;
 		}
 		Changed?.Invoke();
 	}
@@ -117,24 +138,24 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		bool removed;
 		lock (_gate) {
 			var current = _installations.Load();
-			var remaining = current.Where(agent => agent.Id != id).ToArray();
-			removed = remaining.Length != current.Count;
+			removed = current.Ids.Contains(id);
 			if (removed) {
+				var remaining = current.Without(id);
 				var merged = Merge(remaining, _custom.Load());
 				_installations.Save(remaining);
-				CachedLaunchSpecs = merged;
+				Cached = merged;
 			}
 		}
 		if (removed) Changed?.Invoke();
 	}
 
 	/// <inheritdoc/>
-	public void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate) {
+	public void Reload(Action<IReadOnlySet<string>> validate) {
 		ArgumentNullException.ThrowIfNull(validate);
 		lock (_gate) {
 			var merged = Merge(_installations.Load(), _custom.Load());
-			validate(merged);
-			CachedLaunchSpecs = merged;
+			validate(merged.Ids);
+			Cached = merged;
 		}
 		Changed?.Invoke();
 	}
@@ -231,17 +252,18 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		return kinds;
 	}
 
-	private static IReadOnlyList<AcpLaunchSpec> Merge(
-		IReadOnlyList<AcpLaunchSpec> installed,
-		IReadOnlyList<AcpLaunchSpec> custom) {
+	private static Catalog Merge(AcpInstallations installed, IReadOnlyList<AcpLaunchSpec> custom) {
 		var ids = new HashSet<string>(StringComparer.Ordinal);
-		var result = new List<AcpLaunchSpec>(installed.Count + custom.Count);
-		foreach (var agent in installed.Concat(custom)) {
-			if (!ids.Add(agent.Id)) throw new InvalidDataException($"ACP agent '{agent.Id}' is configured twice.");
-			result.Add(agent);
+		foreach (string id in installed.Ids.Concat(custom.Select(agent => agent.Id))) {
+			if (!ids.Add(id)) throw new InvalidDataException($"ACP agent '{id}' is configured twice.");
 		}
-		return result;
+		return new Catalog([.. installed.Agents, .. custom], [.. installed.Broken.Select(entry => entry.Agent)], ids);
 	}
+
+	private sealed record Catalog(
+		IReadOnlyList<AcpLaunchSpec> LaunchSpecs,
+		IReadOnlyList<AcpBrokenAgent> Broken,
+		IReadOnlySet<string> Ids);
 
 	private static IReadOnlyList<string> Values(IReadOnlyList<string?>? values, string id) {
 		if (values is null) return [];

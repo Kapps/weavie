@@ -35,20 +35,22 @@ public static class AgentProviderComposition {
 		AcpSessionStore sessions,
 		AcpControlStore controls) {
 		IReadOnlyList<AcpLaunchSpec> launches;
+		IReadOnlyList<AcpBrokenAgent> broken;
 		try {
 			launches = catalog.LaunchSpecs;
+			broken = catalog.BrokenAgents;
 		} catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException
 			or InvalidDataException) {
 			return [new UnavailableProvider("acp-config", "ACP agents", ex.Message)];
 		}
-		var providers = new List<IAgentProvider>(launches.Count);
+		if (launches.Any(launch => launch.Id == "claude") || broken.Any(agent => agent.Id == "claude")) {
+			return [new UnavailableProvider(
+				"acp-config",
+				"ACP agents",
+				"The ACP provider id 'claude' is reserved by the terminal provider.")];
+		}
+		var providers = new List<IAgentProvider>(launches.Count + broken.Count);
 		foreach (var launch in launches) {
-			if (launch.Id == "claude") {
-				return [new UnavailableProvider(
-					"acp-config",
-					"ACP agents",
-					"The ACP provider id 'claude' is reserved by the terminal provider.")];
-			}
 			providers.Add(new AcpAgentProvider(
 				Definition(launch),
 				() => Definition(catalog.LaunchSpecs.Single(candidate => candidate.Id == launch.Id)),
@@ -56,6 +58,10 @@ public static class AgentProviderComposition {
 				controls,
 				Console.WriteLine));
 		}
+		providers.AddRange(broken.Select(agent => new UnavailableProvider(
+			agent.Id,
+			agent.Name,
+			$"{agent.Name} can't start: {agent.Reason} Reinstall or remove it from Manage ACP Agents.")));
 		return providers;
 	}
 

@@ -9,10 +9,7 @@ public sealed partial class HostCore {
 		string? sessionId,
 		string? agentProviderId,
 		CommandInvocationContext context,
-		CancellationToken ct) => RunSessionLifecycleAsync(async () => {
-			if (string.IsNullOrWhiteSpace(sessionId) || _sessions?.Find(sessionId) is not { } target) {
-				return CommandResult.Failure("Recreate needs an existing session id.");
-			}
+		CancellationToken ct) => RunSlotLifecycleAsync(sessionId, "Recreate needs an existing session id.", async target => {
 			if (string.IsNullOrWhiteSpace(agentProviderId)) {
 				return CommandResult.Failure("Recreate needs an agent provider id.");
 			}
@@ -29,7 +26,7 @@ public sealed partial class HostCore {
 			}
 			if (source is not null && ReferenceEquals(target.Session, source)) {
 				context.AfterReply(async cancellation => {
-					var result = await RunSessionLifecycleAsync(async () => {
+					var result = await GatedAsync(target.Lifecycle, async () => {
 						if (!ReferenceEquals(_sessions?.Find(target.Id), target) || !ReferenceEquals(target.Session, source)) {
 							return CommandResult.Failure("The session changed before it could be recreated.");
 						}

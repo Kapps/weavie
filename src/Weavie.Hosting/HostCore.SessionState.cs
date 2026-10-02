@@ -66,10 +66,12 @@ public sealed partial class HostCore {
 		await Parallel.ForEachAsync(
 			toLoad.Distinct(),
 			new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentSessionRestores },
-			(slot, _) => {
-				RestoreSlot(slot, publicationGate);
-				return ValueTask.CompletedTask;
-			}).ConfigureAwait(false);
+			async (slot, _) => await GatedAsync(slot.Lifecycle, () => {
+				if (!slot.Loaded && ReferenceEquals(_sessions.Find(slot.Id), slot)) {
+					RestoreSlot(slot, publicationGate);
+				}
+				return Task.CompletedTask;
+			}, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
 
 		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
 		// workspace with no available agent provider still opens, with its other sessions and the reason why.

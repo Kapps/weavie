@@ -7,7 +7,8 @@ public sealed partial class HostCore {
 	private async Task CloseVanishedSessionAsync(HostSession session) {
 		bool closed = false;
 		try {
-			closed = await RunSessionLifecycleAsync(
+			closed = SlotFor(session) is { } slot && await GatedAsync(
+				slot.Lifecycle,
 				() => CloseVanishedSessionCoreAsync(session),
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) {
@@ -23,7 +24,7 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<bool> CloseVanishedSessionCoreAsync(HostSession session) {
-		// Read the slot under the lifecycle gate: a delete of this same session may already have taken it, and
+		// Re-read the slot under its lifecycle gate: a delete of this same session may already have taken it, and
 		// the directory may have come back inside the window.
 		if (SlotFor(session) is not { } slot || Directory.Exists(slot.WorktreePath)) {
 			return false;

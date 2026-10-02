@@ -36,7 +36,7 @@ public sealed partial class HostCore {
 			"sessionChanged",
 			session.View.IsBound,
 			(message, _, _) => {
-				HandleEditorSessionChanged(session, message.Session);
+				HandleEditorSessionChanged(session, message.Session, message.Basis);
 				return Task.CompletedTask;
 			});
 		editor.Handle<EmptySessionMessage>("newScratch", (_, _) => {
@@ -212,9 +212,9 @@ public sealed partial class HostCore {
 		public static BranchPreviewResult Failed(string error) => new(string.Empty, error, false);
 	}
 
-	private sealed record EditorSessionMessage(JsonElement Session);
+	private sealed record EditorSessionMessage(JsonElement Session, long Basis);
 
-	private sealed record EditorFlushResult(JsonElement Session);
+	private sealed record EditorFlushResult(JsonElement Session, long Basis);
 
 	private sealed record FilePathMessage(string Path);
 

@@ -457,6 +457,11 @@ internal sealed class TestHost : IAsyncDisposable {
 			&& name == "sessionChanged"
 			&& element.TryGetProperty("session", out var editorSession)) {
 			_clientEditorSessions[session.Address] = editorSession.Clone();
+			if (!element.TryGetProperty("basis", out _)) {
+				element = JsonSerializer.SerializeToElement(
+					new { session = editorSession, basis = Bridge.EditorRevision(session.Address) },
+					JsonOptions);
+			}
 		}
 
 		SendEnvelope(MessageEnvelope.Event(
@@ -545,7 +550,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			? current
 			: JsonSerializer.SerializeToElement(new { active = (string?)null, open = Array.Empty<object>() });
 		return new FakeWebResponse(
-			JsonSerializer.SerializeToElement(new { session }, JsonOptions),
+			JsonSerializer.SerializeToElement(new { session, basis = Bridge.EditorRevision(address) }, JsonOptions),
 			null);
 	}
 

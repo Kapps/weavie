@@ -66,9 +66,10 @@ import {
   closeTabFor,
   convertScratchFor,
   dropReviewTabFor,
-  editorSessionFor,
+  editorSnapshotFor,
   flushEditorSessionFor,
   onEditorSessionChanged,
+  onHostEditorEdit,
   openTabFor,
   openTabsFor,
   tabOwnerFor,
@@ -1191,18 +1192,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const files = session.feature("files");
     const revise = session.feature("revise");
     const cleanups = [
-      editor.handle<Record<string, never>, { session: EditorSession }>("flush", async () => {
-        flushEditorSessionFor(session);
-        await host?.flushSession(session);
-        return { session: editorSessionFor(session) ?? { active: null, open: [] } };
-      }),
-      editor.on<{
+      editor.handle<Record<string, never>, { session: EditorSession; basis: number } | null>(
+        "flush",
+        async () => {
+          flushEditorSessionFor(session);
+          await host?.flushSession(session);
+          return editorSnapshotFor(session);
+        },
+      ),
+      onHostEditorEdit<{
         path: string;
         line: number | null;
         preview?: boolean;
         scratch?: boolean;
         intent: EditorOpenIntent;
-      }>("openFile", (message) => {
+      }>(session, "openFile", (message) => {
         openFileFor(
           session,
           message.path,
@@ -1221,7 +1225,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      editor.on<{ path: string; kind: "web" | "source" | "plan" }>(
+      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
+        session,
         "openOverlay",
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
@@ -1235,7 +1240,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         replaceProposals(session, proposals),
       ),
       editor.on<{ id: string }>("closeDiff", ({ id }) => closeProposal(session, id)),
-      editor.on<{ path: string }>("closeTab", ({ path }) => tabs.capture(session, path).close()),
+      onHostEditorEdit<{ path: string }>(session, "closeTab", ({ path }) =>
+        tabs.capture(session, path).close(),
+      ),
       review.on<{ label: string; files: ReviewFile[] }>("changes", ({ label, files }) =>
         setReviewFilesFor(session, files, label),
       ),
@@ -1261,8 +1268,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }>("changed", ({ changes }) => handleFileChanges(session, changes)),
       onEditorSessionChanged(session, () => scheduleReconciliation(session)),
       session.state.editor.subscribe((restored) => {
-        if (restored?.review != null) {
-          reviews.restore(session, restored.review);
+        if (restored?.session.review != null) {
+          reviews.restore(session, restored.session.review);
         }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session).catch((error: unknown) => {

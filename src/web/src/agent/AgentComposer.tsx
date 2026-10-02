@@ -231,6 +231,7 @@ export function AgentComposer(props: {
     );
   });
 
+  // A refusal shows its reason in the composer and still consumes Enter, so it never types a newline.
   const submit = (): boolean => {
     const session = props.session;
     if (!props.active || session === null) {
@@ -248,9 +249,7 @@ export function AgentComposer(props: {
           setComposerError(session, `/${inner.entry.name} cannot run in a side conversation.`);
           return true;
         }
-        if (!submitAgentAside(session, input ?? "", invocationForAction(inner))) return false;
-        setHistoryCursor(IDLE_CURSOR);
-        props.onSubmitted();
+        if (submitAgentAside(session, input ?? "", invocationForAction(inner))) submitted();
         return true;
       }
       if (weavieCommand.inputName !== null && input === null) {
@@ -258,7 +257,7 @@ export function AgentComposer(props: {
           session,
           `${weavieCommand.name} requires ${weavieCommand.inputHint ?? "input"}.`,
         );
-        return false;
+        return true;
       }
       const args =
         weavieCommand.inputName === null || input === null
@@ -272,7 +271,7 @@ export function AgentComposer(props: {
     if (props.inputProtocol < 2) {
       const state = composerState(session);
       if (state.draft.trim().length === 0 && props.pendingLegacyImageCount === 0) {
-        return false;
+        return true;
       }
       session.feature("agent").publish("submit", {
         id: "",
@@ -282,12 +281,16 @@ export function AgentComposer(props: {
         attachmentIds: [],
       });
       setComposerDraft(session, "");
-    } else {
-      if (!submitAgentTurn(session, invocationForAction(action))) return false;
+      submitted();
+    } else if (submitAgentTurn(session, invocationForAction(action))) {
+      submitted();
     }
+    return true;
+  };
+
+  const submitted = (): void => {
     setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();
-    return true;
   };
 
   const interrupt = (): boolean => {

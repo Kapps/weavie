@@ -228,7 +228,7 @@ public sealed partial class HostCore {
 
 	private string CommandExecutionLane(CommandRequest message) =>
 		_commandRegistry.TryGet(message.Id, out var definition)
-			? definition.ExecutionLane
+			? definition.ExecutionLaneFor(message.Args?.GetRawText())
 			: "unknown-command";
 
 	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {

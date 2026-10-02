@@ -47,9 +47,10 @@ public static class EditorSessionSerialization {
 		}
 	}
 
-	/// <summary>Builds the bridge restore payload, dropping files that no longer exist.</summary>
+	/// <summary>Builds the bridge restore payload at the host's editor revision, dropping files that no longer exist.</summary>
 	public static string BuildRestoreJson(
 		EditorSession session,
+		long revision,
 		IFileSystem fileSystem,
 		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(session);
@@ -76,6 +77,6 @@ public static class EditorSessionSerialization {
 		}
 
 		string? active = session.Active is { } path && surviving.Contains(path) ? path : null;
-		return JsonSerializer.Serialize(new { session = new { active, open, review = session.Review } }, MessageOptions);
+		return JsonSerializer.Serialize(new { session = new { active, open, review = session.Review }, revision }, MessageOptions);
 	}
 }

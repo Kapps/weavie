@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Weavie.Core.Commands;
 
 /// <summary>
@@ -94,6 +96,23 @@ public sealed record CommandDefinition {
 	public string ExecutionLane => SharedExecutionLane ?? Id;
 
 	internal string? SharedExecutionLane { get; init; }
+
+	/// <summary>When true, an invocation naming a session <c>id</c> queues only behind work on that same session.</summary>
+	internal bool LanePerSession { get; init; }
+
+	/// <summary>The lane one invocation with <paramref name="argsJson"/> executes in.</summary>
+	public string ExecutionLaneFor(string? argsJson) {
+		if (!LanePerSession || argsJson is null) {
+			return ExecutionLane;
+		}
+
+		using var args = JsonDocument.Parse(argsJson);
+		return args.RootElement is { ValueKind: JsonValueKind.Object } root
+			&& root.TryGetProperty("id", out var id)
+			&& id.ValueKind == JsonValueKind.String
+				? $"{ExecutionLane}\0{id.GetString()}"
+				: ExecutionLane;
+	}
 
 	/// <summary>The palette label, e.g. "Toggle Diff: Inline / Side-by-Side".</summary>
 	public required string Title { get; init; }

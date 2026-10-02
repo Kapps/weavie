@@ -426,6 +426,23 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public async Task SessionLifecycleCommands_QueueOnlyBehindTheSameSession() {
+		var dispatcher = new CommandDispatcher(CoreCommands.CreateRegistry());
+		dispatcher.RegisterHandler(SessionCommands.DeleteSession, (_, _) => Task.FromResult(CommandResult.Success()));
+		dispatcher.RegisterHandler(SessionCommands.UnloadSession, (_, _) => Task.FromResult(CommandResult.Success()));
+
+		var first = await dispatcher.PrepareAsync(SessionCommands.DeleteSession, """{"id":"a"}""", CancellationToken.None);
+		var other = await dispatcher.PrepareAsync(SessionCommands.DeleteSession, """{"id":"b"}""", CancellationToken.None)
+			.WaitAsync(TimeSpan.FromSeconds(2));
+		var same = dispatcher.PrepareAsync(SessionCommands.UnloadSession, """{"id":"a"}""", CancellationToken.None);
+
+		Assert.False(same.IsCompleted);
+		await first.CompleteAsync(CancellationToken.None);
+		await (await same.WaitAsync(TimeSpan.FromSeconds(2))).CompleteAsync(CancellationToken.None);
+		await other.CompleteAsync(CancellationToken.None);
+	}
+
+	[Fact]
 	public void CommandCatalog_EmitsClientOwnership() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.IncreaseFontSize);
 

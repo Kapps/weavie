@@ -80,6 +80,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = NewSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Scope = CommandScope.Host,
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
@@ -174,6 +175,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = ForkSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Title = "Fork Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
@@ -251,6 +253,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = LoadSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Scope = CommandScope.Host,
 			Title = "Load Session",
 			RunsIn = CommandLocation.Core,
@@ -267,6 +270,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = UnloadSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Scope = CommandScope.Host,
 			Title = "Unload Session",
 			RunsIn = CommandLocation.Core,
@@ -282,6 +286,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = DeleteSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Scope = CommandScope.Host,
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
@@ -305,6 +310,7 @@ public static class SessionCommands {
 		registry.Register(new CommandDefinition {
 			Id = RecreateSession,
 			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
 			Scope = CommandScope.Host,
 			Title = "Recreate Session",
 			RunsIn = CommandLocation.Core,

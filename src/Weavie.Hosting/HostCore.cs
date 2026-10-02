@@ -96,7 +96,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
-	private readonly SemaphoreSlim _sessionLifecycle = new(1, 1);
+	// Serializes catalog growth (create, fork, restore); taken before any slot's own lifecycle gate, never after.
+	private readonly SemaphoreSlim _sessionCatalog = new(1, 1);
 	private readonly Stopwatch _startupClock = Stopwatch.StartNew();
 	private Task? _startTask;
 	private Task? _disposeTask;
@@ -324,7 +325,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_sessions = new SessionManager(_worktrees);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		LogStartup("worktrees discovered");
-		await RunSessionLifecycleAsync(RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
+		await GatedAsync(_sessionCatalog, RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
 		LogStartup("sessions restored");
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.

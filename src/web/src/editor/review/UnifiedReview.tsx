@@ -282,6 +282,7 @@ export function UnifiedReview(props: {
     };
     return {
       fileCount: overview.files.length,
+      fileIndex: index + 1,
       label: overview.label,
       stepIn: () => reveal(index ?? 0),
       nextFile: () => reveal(index === undefined ? 0 : (index + 1) % count),

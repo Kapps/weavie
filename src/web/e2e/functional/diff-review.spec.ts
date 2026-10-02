@@ -578,7 +578,7 @@ test.describe("multi-file review walk", () => {
 
   test("the parked navigator counts every changed file", async ({ page }) => {
     await openFile(page, "README.md"); // unchanged → parks
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("2 files", {
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/2", {
       timeout: 15_000,
     });
     // ← / → file buttons render for a multi-file review.

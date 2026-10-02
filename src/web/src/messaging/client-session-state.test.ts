@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { ClientSessionState } from "./client-session-state";
 import { MessageBus } from "./message-bus";
 
-it("restores review metadata alongside normalized editor tabs", async () => {
+it("restores review metadata and the host revision alongside normalized editor tabs", async () => {
   const address = { slot: "main", incarnation: "restored" };
   const bus = new MessageBus("session", address, () => {});
   const state = new ClientSessionState(bus);
@@ -25,13 +25,13 @@ it("restores review metadata alongside normalized editor tabs", async () => {
         open: [{ path: "/w/file", kind: null, viewState: null }],
         review,
       },
+      revision: 4,
     },
   });
   await restored.promise;
   expect(state.editor.current).toEqual({
-    active: "/w/file",
-    open: [{ path: "/w/file", viewState: null }],
-    review,
+    session: { active: "/w/file", open: [{ path: "/w/file", viewState: null }], review },
+    revision: 4,
   });
   unsubscribe();
   bus.close("Test complete");

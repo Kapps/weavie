@@ -173,6 +173,7 @@ export class MockHost {
   private readonly agentItems = new Map<string, Map<string, number>>();
   private readonly agentOrdinals = new Map<string, number>();
   private readonly agentRevisions = new Map<string, number>();
+  private readonly editorRevisions = new Map<string, number>();
   private readonly pausedAgentHistory = new Set<() => void>();
   private readonly pausedFileRequests: MessageEnvelope[] = [];
   private socket: WebSocket | null = null;
@@ -293,7 +294,29 @@ export class MockHost {
     name: string,
     payload: unknown,
   ): void {
-    this.send(this.sessionEvent(session, feature, name, payload));
+    this.send(
+      this.sessionEvent(
+        session,
+        feature,
+        name,
+        this.stampEditorEdit(session, feature, name, payload),
+      ),
+    );
+  }
+
+  // Like the real host: every tab edit carries the next editor revision and a restore the current one.
+  private stampEditorEdit(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+  ): unknown {
+    const edit = ["openFile", "openOverlay", "closeTab"].includes(name);
+    if (feature !== "editor" || (!edit && name !== "restore")) return payload;
+    const key = this.addressKey(typeof session === "string" ? this.address(session) : session);
+    const revision = (this.editorRevisions.get(key) ?? 1) + (edit ? 1 : 0);
+    this.editorRevisions.set(key, revision);
+    return { ...(payload as object), revision };
   }
 
   publishAgentPane(session: string | SessionAddress, message: Record<string, unknown>): void {

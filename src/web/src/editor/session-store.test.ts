@@ -12,7 +12,11 @@ interface Posted {
 
 interface FakeSession {
   client: ClientSession;
-  restore?: (session: { active: string | null; open: EditorSessionEntry[] }) => void;
+  restore?: (restored: {
+    session: { active: string | null; open: EditorSessionEntry[] };
+    revision: number;
+  }) => void;
+  handlers: Map<string, (message: Record<string, unknown>) => unknown>;
 }
 
 const bridgeState = vi.hoisted(() => ({
@@ -40,7 +44,7 @@ function fakeSession(backendId: string, owner: string): FakeSession {
   if (existing !== undefined) {
     return existing;
   }
-  const fake = {} as FakeSession;
+  const fake = { handlers: new Map() } as FakeSession;
   const client = {
     signal: new AbortController().signal,
     connection: {
@@ -55,9 +59,7 @@ function fakeSession(backendId: string, owner: string): FakeSession {
     },
     state: {
       editor: {
-        subscribe: (
-          listener: (session: { active: string | null; open: EditorSessionEntry[] }) => void,
-        ) => {
+        subscribe: (listener: NonNullable<FakeSession["restore"]>) => {
           fake.restore = listener;
           return () => {};
         },
@@ -66,6 +68,10 @@ function fakeSession(backendId: string, owner: string): FakeSession {
     feature: (feature: string) => ({
       publish: (name: string, payload: Record<string, unknown>) => {
         bridgeState.posted.push({ backendId, slot: owner, feature, name, payload });
+      },
+      on: (name: string, handler: (message: Record<string, unknown>) => unknown) => {
+        fake.handlers.set(`${feature}.${name}`, handler);
+        return () => fake.handlers.delete(`${feature}.${name}`);
       },
     }),
   } as unknown as ClientSession;
@@ -79,7 +85,7 @@ function fakeSession(backendId: string, owner: string): FakeSession {
 function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
   const fake = fakeSession(backendId, owner);
   bridgeState.selected = fake.client;
-  fake.restore?.({ active, open });
+  fake.restore?.({ session: { active, open }, revision: 1 });
   bridgeState.posted.length = 0;
 }
 
@@ -153,6 +159,56 @@ describe("openTab", () => {
       open: [{ path: "agent-plan:1", kind: "plan", viewState: null }],
       review: null,
     });
+  });
+});
+
+describe("host edits", () => {
+  const lastSnapshot = (): Record<string, unknown> | undefined =>
+    bridgeState.posted.findLast((message) => message.name === "sessionChanged")?.payload;
+
+  it("reports the edit with its revision as the snapshot's basis", () => {
+    seed([], null);
+    const fake = fakeSession("local", "sess-1");
+    store.onHostEditorEdit<{ path: string }>(fake.client, "openOverlay", ({ path }) =>
+      store.openTabFor(fake.client, path, { kind: "plan" }),
+    );
+    fake.handlers.get("editor.openOverlay")?.({ path: "agent-plan:1", revision: 5 });
+    vi.advanceTimersByTime(300);
+
+    expect(lastSnapshot()).toMatchObject({
+      basis: 5,
+      session: { active: "agent-plan:1", open: [{ path: "agent-plan:1", kind: "plan" }] },
+    });
+  });
+
+  it("reports a host edit that changes nothing, so a refused snapshot is replaced", () => {
+    seed([{ path: "/a.ts", viewState: null }], "/a.ts");
+    const fake = fakeSession("local", "sess-1");
+    store.onHostEditorEdit<{ path: string }>(fake.client, "closeTab", ({ path }) =>
+      store.closeTabFor(fake.client, path),
+    );
+    fake.handlers.get("editor.closeTab")?.({ path: "/missing.ts", revision: 6 });
+    vi.advanceTimersByTime(300);
+
+    expect(lastSnapshot()).toMatchObject({ basis: 6, session: { active: "/a.ts" } });
+  });
+
+  it("advances the basis only once an asynchronous edit settles", async () => {
+    seed([{ path: "/a.ts", viewState: null }], "/a.ts");
+    const fake = fakeSession("local", "sess-1");
+    const confirmed = Promise.withResolvers<void>();
+    store.onHostEditorEdit<{ path: string }>(fake.client, "closeTab", () => confirmed.promise);
+    const pending = fake.handlers.get("editor.closeTab")?.({ path: "/a.ts", revision: 7 });
+    store.togglePinFor(fake.client, "/a.ts");
+    vi.advanceTimersByTime(300);
+    expect(lastSnapshot()).toMatchObject({ basis: 1 });
+    expect(pending).toBeInstanceOf(Promise);
+
+    confirmed.resolve();
+    await pending;
+    vi.advanceTimersByTime(300);
+    expect(lastSnapshot()).toMatchObject({ basis: 7 });
+    expect(store.editorSnapshotFor(fake.client)?.basis).toBe(7);
   });
 });
 

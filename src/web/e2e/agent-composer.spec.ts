@@ -1774,6 +1774,33 @@ test.describe("ACP composer", () => {
     });
   });
 
+  test("Enter while a prompt is sending is consumed, so acceptance clears the draft", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("hello");
+    await page.keyboard.press("Enter");
+    const submit = await waitForAgentPayload("submit");
+    await expect(page.getByRole("button", { name: "Run" })).toHaveText("Sending…");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".agent-compose-error")).toHaveText(
+      "The previous prompt is still sending.",
+    );
+    await expect(textarea).toHaveValue("hello");
+
+    host.publishSession(agentSession.address, "agent", "submissionState", {
+      id: submit.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    await expect(textarea).toHaveValue("");
+    await expect(page.locator(".agent-compose-error")).toHaveCount(0);
+  });
+
   test("a manually typed /clear dispatches the Weavie command instead of an agent prompt", async ({
     page,
   }) => {

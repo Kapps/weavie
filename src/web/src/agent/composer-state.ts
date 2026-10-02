@@ -147,13 +147,16 @@ export function prepareSubmission(
   if (!isLive(owner)) return null;
   const state = stateFor(owner);
   const command = invocation?.kind === "providerCommand";
-  if (
-    state.pendingSubmission !== null ||
-    (!command && state.attachments.some((attachment) => attachment.status !== "ready"))
-  )
-    return null;
-  if (prompt.length === 0 && !command && state.attachments.length === 0) {
-    setComposerError(owner, "Write a prompt or attach an image before running the agent.");
+  const refusal =
+    state.pendingSubmission !== null
+      ? "The previous prompt is still sending."
+      : !command && state.attachments.some((attachment) => attachment.status !== "ready")
+        ? "Wait for attachments to finish uploading."
+        : prompt.length === 0 && !command && state.attachments.length === 0
+          ? "Write a prompt or attach an image before running the agent."
+          : null;
+  if (refusal !== null) {
+    setComposerError(owner, refusal);
     return null;
   }
   const id = nextId("submission");

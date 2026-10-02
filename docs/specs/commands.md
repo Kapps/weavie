@@ -171,7 +171,8 @@ the host catalog even when they target a dormant session; session-scoped command
 session. `ExecutionLane` is the command's consistency boundary. Different lanes run concurrently, while
 commands sharing a lane retain receive-order FIFO within the exact owning host or session. Theme mutation,
 font mutation, agent input, and session lifecycle each declare shared lanes; every other command defaults to
-its own id. The dispatcher retains the lane through after-reply work, so endpoint teardown cannot overlap the
+its own id. Session lifecycle invocations naming a session `id` partition that lane by the id, so work on one
+session never waits on another's. The dispatcher retains the lane through after-reply work, so endpoint teardown cannot overlap the
 next related command.
 
 ## The command registry & dispatcher

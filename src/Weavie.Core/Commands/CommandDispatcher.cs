@@ -93,7 +93,7 @@ public sealed class CommandDispatcher {
 	public async Task<CommandExecution> PrepareAsync(string id, string? argsJson, CancellationToken ct) {
 		var definition = Registry.Require(id);
 		return await PrepareInExecutionLaneAsync(
-			definition,
+			definition.ExecutionLaneFor(argsJson),
 			() => PrepareCoreAsync(definition, id, argsJson, ct),
 			ct).ConfigureAwait(false);
 	}
@@ -138,7 +138,7 @@ public sealed class CommandDispatcher {
 		}
 
 		return await PrepareInExecutionLaneAsync(
-			definition,
+			definition.ExecutionLaneFor(argsJson),
 			async () => {
 				var invoker = ClientInvoker;
 				var result = invoker is null
@@ -151,14 +151,14 @@ public sealed class CommandDispatcher {
 	}
 
 	private async Task<CommandExecution> PrepareInExecutionLaneAsync(
-		CommandDefinition definition,
+		string laneKey,
 		Func<Task<CommandExecution>> prepare,
 		CancellationToken ct) {
 		CommandExecutionLane lane;
 		lock (_gate) {
-			if (!_executionLanes.TryGetValue(definition.ExecutionLane, out lane!)) {
+			if (!_executionLanes.TryGetValue(laneKey, out lane!)) {
 				lane = new CommandExecutionLane();
-				_executionLanes.Add(definition.ExecutionLane, lane);
+				_executionLanes.Add(laneKey, lane);
 			}
 		}
 

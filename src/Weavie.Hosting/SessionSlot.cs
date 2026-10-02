@@ -32,4 +32,7 @@ public sealed class SessionSlot {
 
 	/// <summary>True when the slot has a live backend.</summary>
 	public bool Loaded => Session is not null;
+
+	/// <summary>Serializes this slot's lifecycle work (load, unload, delete, recreate) without blocking other slots.</summary>
+	internal SemaphoreSlim Lifecycle { get; } = new(1, 1);
 }

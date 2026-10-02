@@ -934,22 +934,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       };
     });
 
-  const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
-    const history = reviews.board(session).history;
-    if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
+  const runReviewHistory = (
+    session: ClientSession,
+    action: "onUndoKeep" | "onUndoRevert" | "onRedo",
+  ): boolean => {
+    const board = reviews.board(session);
+    if (!canCloseReview(board) && !board.history.canUndo && !board.history.canRedo) {
       return false;
     }
-    const handlers = reviewHistoryHandlers(session, () => () => {});
-    if (kind === "keep") handlers.onUndoKeep();
-    else handlers.onUndoRevert();
-    return true;
-  };
-
-  const redoReview = (session: ClientSession): boolean => {
-    if (!reviews.board(session).history.canRedo) {
-      return false;
-    }
-    reviewHistoryHandlers(session, () => () => {}).onRedo();
+    reviewHistoryHandlers(session, () => () => {})[action]();
     return true;
   };
 
@@ -1549,9 +1542,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       revertAll: (session) => {
         return tryRevertAll(session);
       },
-      undoKeep: (session) => undoReview(session, "keep"),
-      undoRevert: (session) => undoReview(session, "revert"),
-      redo: redoReview,
+      undoKeep: (session) => runReviewHistory(session, "onUndoKeep"),
+      undoRevert: (session) => runReviewHistory(session, "onUndoRevert"),
+      redo: (session) => runReviewHistory(session, "onRedo"),
     },
     tabs,
     nav: {

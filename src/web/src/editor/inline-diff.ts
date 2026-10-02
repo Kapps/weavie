@@ -664,21 +664,18 @@ export function createInlineDiff(
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
   };
 
-  // Review undo/redo (session-global; bound once via bindHistory). While a review surface is up the undo chords
-  // CONSUME the key even with nothing to undo — never fall through and let Monaco insert a newline (Shift+Enter)
-  // into the file under review. They only decline (fall through to the editor) when no review is up at all.
-  // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
-  // case the undo chords are meaningful and must consume the key rather than type into the editor.
+  // Review context owns these chords; per-action availability can lag a completed host mutation.
   const reviewUp = (): boolean =>
-    parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
+    parkedReview !== undefined ||
+    fileOptions()?.mode === "applied" ||
+    history.canUndo ||
+    history.canRedo;
   const captureHistoryActions = () => {
     const handlers = historyHandlers;
     return {
-      undoKeep: (): boolean =>
-        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
-      undoRevert: (): boolean =>
-        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
-      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
+      undoKeep: (): boolean => reviewUp() && runAction(handlers?.onUndoKeep),
+      undoRevert: (): boolean => reviewUp() && runAction(handlers?.onUndoRevert),
+      redoReview: (): boolean => reviewUp() && runAction(handlers?.onRedo),
     };
   };
   const undoLast = (): boolean =>

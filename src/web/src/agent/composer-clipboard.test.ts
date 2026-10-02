@@ -1,4 +1,4 @@
-import { afterEach, assert, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import type { CommandCapture } from "../commands/registry";
 
@@ -49,11 +49,10 @@ describe("composer clipboard ownership", () => {
     const unregister = registerComposerPasteTarget(textarea, () => current);
     const uninstall = installComposerClipboardCommand();
     try {
-      const run = mocks.capture!({ session, trigger: "command" }, undefined);
-      assert(run !== false);
+      const run = mocks.capture!({ session }, undefined);
       current = main;
       document.activeElement = {};
-      const pending = run(undefined, { session, trigger: "command" });
+      const pending = run(undefined, { session });
       resolve(
         kind === "image" ? { kind, mime: "image/png", dataB64: "image" } : { kind, text: "new" },
       );

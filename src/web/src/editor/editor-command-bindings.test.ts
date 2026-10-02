@@ -64,22 +64,19 @@ it("editable proposals retain text mutations while Revise requires a working-cop
   source.binding.tab.presentation!.capture = () => ({ state: null, text: null });
   const commands = createEditorCommands({} as EditorController, vi.fn());
   const captured = commands.capture(source.binding);
-  captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected, trigger: "command" });
+  captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected });
   expect(source.editor.trigger).toHaveBeenCalledWith(
     "weavie-command",
     "editor.action.clipboardPasteAction",
     null,
   );
   expect(() =>
-    captured.get(CommandIds.reviseSelection)!(undefined, {
-      session: env.selected,
-      trigger: "command",
-    }),
+    captured.get(CommandIds.reviseSelection)!(undefined, { session: env.selected }),
   ).toThrow("Revise requires an editable file");
   source.options.readOnly = true;
-  expect(() =>
-    captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected, trigger: "command" }),
-  ).toThrow("read-only");
+  expect(() => captured.get(CommandIds.editorPaste)!(undefined, { session: env.selected })).toThrow(
+    "read-only",
+  );
   expect(source.editor.trigger).toHaveBeenCalledTimes(1);
 });
 

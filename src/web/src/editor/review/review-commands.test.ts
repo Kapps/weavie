@@ -1,9 +1,8 @@
-import { assert, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../../bridge";
 import { CommandIds } from "../../commands/types";
 import type { EditorController } from "../editor-controller";
 import type { TabOwner } from "../tab-owner";
-import { EMPTY_REVIEW_HISTORY, type ReviewOverview } from "./review-store";
 
 const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
@@ -30,10 +29,8 @@ const inline = {
   prevFile: vi.fn(() => true),
   undoKeep: vi.fn(() => true),
   undoRevert: vi.fn(() => true),
-  redoReview: vi.fn(() => true),
 };
 const review = {
-  overviewFor: vi.fn<() => ReviewOverview>(),
   revert: vi.fn(() => true),
   keepFile: vi.fn(() => true),
   revertFile: vi.fn(() => true),
@@ -54,61 +51,18 @@ const presentation = {
 };
 const editor = { review, openReview } as unknown as EditorController;
 const bindings = new Map(reviewCommandBindings(editor));
-const capture = (id: string, args: unknown, session: ClientSession) => {
-  const handler = bindings.get(id)!({ session, trigger: "command" }, args);
-  assert(handler !== false);
-  return handler;
-};
+const capture = (id: string, args: unknown, session: ClientSession) =>
+  bindings.get(id)!({ session }, args);
 const run = async (id: string, args: unknown, session: ClientSession): Promise<unknown> =>
-  capture(id, args, session)(args, { session, trigger: "command" });
+  capture(id, args, session)(args, { session });
 
 beforeEach(() => {
   vi.clearAllMocks();
   env.selected = left;
   env.tab = { presentation } as unknown as TabOwner;
-  review.overviewFor.mockReturnValue({
-    files: [],
-    label: "",
-    history: EMPTY_REVIEW_HISTORY,
-    added: 0,
-    removed: 0,
-    fullyLoaded: () => true,
-    hasPending: () => false,
-  });
 });
 
 describe("review command bindings", () => {
-  it.each([
-    true,
-    false,
-  ])("declines empty-history shortcuts with an editor present: %s", (hasEditor) => {
-    if (!hasEditor) env.tab = undefined;
-    for (const id of [CommandIds.undoKeep, CommandIds.undoRevert, CommandIds.redoReview]) {
-      expect(bindings.get(id)!({ session: left, trigger: "keybinding" }, undefined)).toBe(false);
-    }
-    expect(inline.undoKeep).not.toHaveBeenCalled();
-    expect(review.undoKeep).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    "review",
-    "undo",
-    "redo",
-  ])("claims history shortcuts when the session owns %s", (state) => {
-    const overview = review.overviewFor();
-    review.overviewFor.mockReturnValue({
-      ...overview,
-      label: state === "review" ? "Review" : "",
-      history: { ...EMPTY_REVIEW_HISTORY, canUndo: state === "undo", canRedo: state === "redo" },
-    });
-    for (const id of [CommandIds.undoKeep, CommandIds.undoRevert, CommandIds.redoReview]) {
-      const context = { session: left, trigger: "keybinding" } as const;
-      const handler = bindings.get(id)!(context, undefined);
-      assert(handler !== false);
-      expect(handler(undefined, context)).toBe(true);
-    }
-  });
-
   it("routes mutations to the captured session even while another session is selected", async () => {
     await run(CommandIds.undoChange, undefined, right);
     await run(CommandIds.keepFile, { path: "/right/one.ts" }, right);
@@ -186,15 +140,13 @@ it("keeps a captured file action addressed after switching tabs and sessions", (
   const keep = capture(CommandIds.keepFile, undefined, left);
   env.selected = right;
   env.tab = { presentation } as unknown as TabOwner;
-  keep(undefined, { session: right, trigger: "command" });
+  keep(undefined, { session: right });
   expect(review.keepFile).toHaveBeenCalledWith(left, "/left/one.ts");
 });
 
 it("rejects a captured presentation action after its tab is replaced", () => {
   const accept = capture(CommandIds.acceptChange, undefined, left);
   env.tab = { presentation } as unknown as TabOwner;
-  expect(() => accept(undefined, { session: left, trigger: "command" })).toThrow(
-    "no longer displayed",
-  );
+  expect(() => accept(undefined, { session: left })).toThrow("no longer displayed");
   expect(inline.accept).not.toHaveBeenCalled();
 });

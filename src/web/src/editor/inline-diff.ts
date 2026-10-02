@@ -117,7 +117,7 @@ export interface InlineDiffActions {
   revertFile(): boolean;
   /** Keep the whole accumulated review set (applied review). */
   keepAll(): boolean;
-  /** Request history movement from the owning session; false when no handler is bound. */
+  /** Undo the most recent keep / revert, or redo the last undone action; false when none. */
   undoKeep(): boolean;
   undoRevert(): boolean;
   redoReview(): boolean;
@@ -664,13 +664,18 @@ export function createInlineDiff(
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
   };
 
+  // Review context owns these chords; per-action availability can lag a completed host mutation.
+  const reviewUp = (): boolean =>
+    parkedReview !== undefined ||
+    fileOptions()?.mode === "applied" ||
+    history.canUndo ||
+    history.canRedo;
   const captureHistoryActions = () => {
     const handlers = historyHandlers;
-    // Availability pushes can lag the completed mutation; the host decides whether history can move.
     return {
-      undoKeep: (): boolean => runAction(handlers?.onUndoKeep),
-      undoRevert: (): boolean => runAction(handlers?.onUndoRevert),
-      redoReview: (): boolean => runAction(handlers?.onRedo),
+      undoKeep: (): boolean => reviewUp() && runAction(handlers?.onUndoKeep),
+      undoRevert: (): boolean => reviewUp() && runAction(handlers?.onUndoRevert),
+      redoReview: (): boolean => reviewUp() && runAction(handlers?.onRedo),
     };
   };
   const undoLast = (): boolean =>

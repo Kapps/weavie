@@ -1,27 +1,17 @@
 import { selectedSession } from "../../bridge";
-import type { CommandCapture, CommandContext, CommandHandler } from "../../commands/registry";
+import type { CommandCapture, CommandHandler } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { EditorController } from "../editor-controller";
 import type { InlineDiffActions } from "../inline-diff";
 import { activeTabFor } from "../session-store";
 import { commandPath } from "../tab-command-bindings";
-import { canCloseReview } from "./review-store";
 
 export type ReviewCommandBinding = readonly [id: string, capture: CommandCapture];
 
 export function reviewCommandBindings(editor: EditorController): ReviewCommandBinding[] {
   const atView =
     (action: keyof InlineDiffActions): CommandCapture =>
-    ({ session, trigger }) => {
-      if (
-        trigger === "keybinding" &&
-        (action === "undoKeep" || action === "undoRevert" || action === "redoReview")
-      ) {
-        if (session === null) return false;
-        const overview = editor.review.overviewFor(session);
-        if (!canCloseReview(overview) && !overview.history.canUndo && !overview.history.canRedo)
-          return false;
-      }
+    ({ session }) => {
       const tab = session === null ? undefined : activeTabFor(session);
       const presentation = tab?.presentation;
       const run = presentation?.actions()?.[action];
@@ -48,8 +38,8 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
         path: string | undefined,
         args: unknown,
       ) => ReturnType<CommandHandler>,
-    ) =>
-    ({ session }: CommandContext, args: unknown): CommandHandler => {
+    ): CommandCapture =>
+    ({ session }, args) => {
       const path =
         commandPath(args) ??
         (session === null ? undefined : activeTabFor(session)?.presentation?.capture().text?.path);
@@ -63,7 +53,6 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       const tab = session === null ? undefined : activeTabFor(session);
       const presentation = tab?.presentation;
       const run = inner(context, args);
-      if (run === false) return false;
       return () =>
         presentation !== undefined &&
         !presentation.signal.aborted &&

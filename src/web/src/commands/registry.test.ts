@@ -468,38 +468,6 @@ describe("runCommandWithFeedback", () => {
 });
 
 describe("runForKeybinding", () => {
-  it("declines inapplicable shortcuts before queueing while explicit commands retain their owner", async () => {
-    const block = { ...cmd("web.block", "web"), executionLane: "review" };
-    const history = { ...cmd("web.history", "web"), executionLane: "review" };
-    setCatalog("local", [block, history]);
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const owner = env.selected;
-    const ran = vi.fn();
-    reg.registerCommand(block.id, () => blocked);
-    reg.registerCapturedCommand(history.id, ({ trigger, session }) =>
-      trigger === "keybinding"
-        ? false
-        : () => {
-            ran(session);
-          },
-    );
-    const pending = reg.dispatchCommand(block.id);
-    let explicit: Promise<unknown> | undefined;
-    try {
-      expect(reg.runForKeybinding(history.id, undefined)).toBe(false);
-      explicit = reg.dispatchCommand(history.id);
-      env.selected = fakeSession("other", "other-incarnation");
-      expect(ran).not.toHaveBeenCalled();
-    } finally {
-      release();
-      await Promise.all([pending, explicit]);
-    }
-    expect(ran).toHaveBeenCalledExactlyOnceWith(owner);
-  });
-
   it("consumes the key when a web handler does not decline", () => {
     setCatalog("local", [cmd("web.k", "web")]);
     reg.registerCommand("web.k", () => undefined);
@@ -709,10 +677,7 @@ it("an explicit surface runner never recaptures an overridden command from the c
   env.selected = fakeSession("other", "other-incarnation");
   expect(await run("web.owned-menu", { replacement: "word" })).toEqual({ ok: true });
   expect(recapture).not.toHaveBeenCalled();
-  expect(captured).toHaveBeenCalledWith(
-    { replacement: "word" },
-    { session: owner, trigger: "command" },
-  );
+  expect(captured).toHaveBeenCalledWith({ replacement: "word" }, { session: owner });
 });
 
 it("does not infer a different session from an explicit backend on a session command", async () => {

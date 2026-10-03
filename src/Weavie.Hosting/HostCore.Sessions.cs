@@ -67,6 +67,17 @@ public sealed partial class HostCore {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
 			}
 		});
+		session.Commands.RegisterHandler(CoreCommands.RewindAgentConversation, async (argsJson, _) => {
+			try {
+				if (session.Agent.Rewind is not { } rewind) return CommandResult.Failure("This agent cannot rewind its conversation.");
+				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				string? turnId = JsonSerializer.Deserialize<AgentRewindCommand>(argsJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))?.TurnId;
+				await (turnId is null ? rewind.RewindLatestAsync() : rewind.RewindBeforeAsync(turnId)).ConfigureAwait(false);
+				return CommandResult.Success("Rewound the agent conversation.");
+			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException or IOException) {
+				return CommandResult.Failure(ex.Message);
+			}
+		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
 		// running shell jobs); fails cleanly when no update is pending.
 		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
@@ -111,6 +122,7 @@ public sealed partial class HostCore {
 	}
 
 	private sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds, string? Kind, string? CommandName);
+	private sealed record AgentRewindCommand(string? TurnId);
 
 	private void PostForSession(HostSession session, Action action) {
 		_ = session.Background.Run(ct => _ui.InvokeAsync(() => {

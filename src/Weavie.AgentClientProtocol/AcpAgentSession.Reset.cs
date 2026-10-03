@@ -50,7 +50,7 @@ public sealed partial class AcpAgentSession {
 			}
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sideSessions);
-				_sessions.Clear(_definition.Id, _context.Workspace);
+				_sessions.Replace(_definition.Id, _context.Workspace, [], []);
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error, generation, sideSessions);
 				throw;

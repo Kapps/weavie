@@ -131,6 +131,15 @@ different lifecycle: it clears the exact persisted association, resets the pane 
 without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
 deleted.
 
+**Rewind** (a prompt row's Rewind button, or `/rewind` and the palette for the latest prompt) continues from
+just before a prompt and returns that prompt to the composer; files are untouched. It forks the primary with the
+AIR fork point `_meta.jetbrains.air.fork = { version: 1, messageId }`, naming the last agent message before the
+prompt (supported by claude-agent-acp ≥ 0.71.0 and codex-acp). ACP advertises no capability for the fork point,
+so Weavie loads the fork first and commits only if its replay ends at that message; otherwise the rewind fails
+and the conversation is unchanged. The commit atomically replaces the journal and continuation with the kept
+history, drops side conversations anchored at or after the prompt, and restarts onto the fork. Rewinding the first
+prompt starts a fresh conversation. The original provider session is left intact.
+
 Side conversations share the primary conversation's ACP process and run concurrently with one another and
 the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's
 submission queue. Collapsible cards retain independent drafts and history expansion. Interrupt stops the

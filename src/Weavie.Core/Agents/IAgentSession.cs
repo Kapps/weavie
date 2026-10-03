@@ -85,3 +85,12 @@ public interface IStructuredAgentSideConversations {
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, AgentTurnSubmission submission);
 }
+
+/// <summary>Rewinds one structured agent's primary conversation to just before an earlier prompt.</summary>
+public interface IStructuredAgentRewind {
+	/// <summary>Continues on a branch holding only the history before <paramref name="turnId"/>, prefilling its prompt.</summary>
+	Task RewindBeforeAsync(string turnId);
+
+	/// <summary>Rewinds to just before the latest primary prompt.</summary>
+	Task RewindLatestAsync();
+}

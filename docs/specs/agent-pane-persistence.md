@@ -90,6 +90,8 @@ conversation. Missing provider sessions fail visibly while the saved conversatio
 Provider identities are committed as soon as creation/fork succeeds, before a prompt can be submitted. A host
 interruption during initial fork setup leaves the card explicitly interrupted. `/clear` retires current work,
 atomically removes the primary and side descriptors and journal, resets the pane, and starts a new conversation.
+Rewind uses the same atomic replacement, writing the forked primary, surviving side descriptors, and the journal
+before the rewound prompt.
 Late events from retired generations and side runtimes cannot write into the replacement conversation.
 Deleting a Weavie session removes its stored display and continuation data for all providers, including
 uninstalled providers; unloading retains them. Cleanup errors are visible and leave the session entry for retry.

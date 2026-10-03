@@ -78,6 +78,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			usage.UsageChanged += PublishUsage;
 		}
 		SideConversations = Session as IStructuredAgentSideConversations;
+		Rewind = Session as IStructuredAgentRewind;
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -103,6 +104,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The context-preserving side-conversation surface, when the structured agent supports it.</summary>
 	public IStructuredAgentSideConversations? SideConversations { get; }
+
+	/// <summary>The conversation-rewind surface, when the structured agent supports it.</summary>
+	public IStructuredAgentRewind? Rewind { get; }
 
 	internal AgentAuthenticationTerminal? AuthenticationTerminal { get; }
 

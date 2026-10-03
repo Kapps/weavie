@@ -165,10 +165,9 @@ public sealed partial class AcpAgentSession :
 			lock (_gate) {
 				return new AgentControlState {
 					Ready = _ready,
+					Rewindable = RewindableLocked,
 					Axes = [.. _controls.Values],
-					Slash = AgentControlCommands.ComposeSlash(
-						_commands,
-						_role is PrimaryRole && _ready && _supportsFork && _supportsLoad),
+					Slash = AgentControlCommands.ComposeSlash(_commands, ForkableLocked, RewindableLocked),
 				};
 			}
 		}
@@ -490,6 +489,7 @@ public sealed partial class AcpAgentSession :
 		public required string Id { get; init; }
 		public required string ItemType { get; init; }
 		public required string TurnId { get; init; }
+		public required string? MessageId { get; init; }
 		public StringBuilder Text { get; } = new();
 		public string? MediaType { get; set; }
 		public string? MediaData { get; set; }

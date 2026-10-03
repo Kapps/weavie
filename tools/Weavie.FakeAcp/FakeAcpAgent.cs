@@ -315,7 +315,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		string sessionId = "fake-fork-" + NewSessionId();
 		File.WriteAllText(StatePath(sessionId + ".owner"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		string sourceTranscript = TranscriptPath(source);
-		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
+		if (File.Exists(sourceTranscript)) File.WriteAllLines(TranscriptPath(sessionId), ForkedTranscript(parameters, sourceTranscript));
 		File.AppendAllText(
 			StatePath("forks.log"),
 			$"{source}->{sessionId}{Environment.NewLine}");
@@ -337,6 +337,18 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			});
 		}
 		return new JsonObject { ["sessionId"] = sessionId };
+	}
+
+	// Honours ACP's AIR fork point: the branch keeps the turns through the named `fork-agent-N` reply.
+	private string[] ForkedTranscript(JsonElement parameters, string sourceTranscript) {
+		string[] turns = File.ReadAllLines(sourceTranscript);
+		if (_fakeMode == "fork-ignores-message" || !parameters.TryGetProperty("_meta", out var meta)) return turns;
+		string? messageId = AcpJson.OptionalString(meta.GetProperty("jetbrains").GetProperty("air").GetProperty("fork"), "messageId");
+		return messageId?.StartsWith("fork-agent-", StringComparison.Ordinal) == true
+			&& int.TryParse(messageId["fork-agent-".Length..], System.Globalization.CultureInfo.InvariantCulture, out int kept)
+			&& kept <= turns.Length
+			? turns[..kept]
+			: throw AcpAdapterException.InvalidParams($"Fork point message {messageId} was not found.");
 	}
 
 	private async Task<JsonNode> AuthenticateAsync(CancellationToken ct) {
@@ -476,15 +488,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			  block => AcpJson.OptionalString(block, "type") == "image"));
 		else if (text == "crash") Environment.Exit(19);
 		else {
-			Message("echo: " + text);
-			RecordTranscriptTurn(prompt);
+			File.AppendAllText(TranscriptPath(_sessionId!), JsonSerializer.Serialize(prompt) + Environment.NewLine);
+			Update(new JsonObject {
+				["sessionUpdate"] = "agent_message_chunk",
+				["messageId"] = $"fork-agent-{File.ReadLines(TranscriptPath(_sessionId!)).Count()}",
+				["content"] = Text("echo: " + text),
+			});
 		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
-	}
-
-	private void RecordTranscriptTurn(JsonElement prompt) {
-		if (_sessionId is null) return;
-		File.AppendAllText(TranscriptPath(_sessionId), JsonSerializer.Serialize(prompt) + Environment.NewLine);
 	}
 
 	private static void CrashWhenReleased() => _ = Task.Run(async () => {

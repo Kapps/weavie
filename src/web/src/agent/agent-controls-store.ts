@@ -7,6 +7,7 @@ import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 const EMPTY: AgentControlState = {
   ready: false,
+  rewindable: false,
   axes: [],
   slash: [],
 };

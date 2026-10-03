@@ -51,28 +51,39 @@ public sealed class AcpSessionStore(string path) {
 			command.Parameters.AddWithValue("$id", state.ConversationId);
 			command.Parameters.AddWithValue("$state", JsonSerializer.Serialize(state, JsonOptions));
 			command.ExecuteNonQuery();
-			command.CommandText = "INSERT INTO pane_events(owner, message) VALUES ($owner, $message)";
-			var messageParameter = command.Parameters.Add("$message", SqliteType.Text);
-			foreach (var message in messages) {
-				messageParameter.Value = JsonSerializer.Serialize(message, MessageJsonOptions);
-				command.ExecuteNonQuery();
-			}
+			InsertMessages(command, messages);
 			transaction.Commit();
 			return true;
 		});
 	}
 
-	/// <summary>Atomically discards the primary association, all side identities, and their display history.</summary>
-	public void Clear(string providerId, string workspace) => Execute(connection => {
-		using var transaction = connection.BeginTransaction();
-		using var command = connection.CreateCommand();
-		command.Transaction = transaction;
-		command.CommandText = "DELETE FROM conversations WHERE owner = $owner; DELETE FROM pane_events WHERE owner = $owner";
-		command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
-		command.ExecuteNonQuery();
-		transaction.Commit();
-		return true;
-	});
+	/// <summary>Atomically replaces every continuation identity and the whole display history for this owner.</summary>
+	public void Replace(string providerId, string workspace, IReadOnlyList<AcpConversationState> states, IReadOnlyList<AgentPaneMessage> messages) {
+		ArgumentNullException.ThrowIfNull(states);
+		ArgumentNullException.ThrowIfNull(messages);
+		Execute(connection => {
+			using var transaction = connection.BeginTransaction();
+			using var command = connection.CreateCommand();
+			command.Transaction = transaction;
+			command.CommandText = "DELETE FROM conversations WHERE owner = $owner; DELETE FROM pane_events WHERE owner = $owner";
+			command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
+			command.ExecuteNonQuery();
+			command.CommandText = "INSERT INTO conversations VALUES ($owner, $id, $state)";
+			var id = command.Parameters.Add("$id", SqliteType.Text);
+			var state = command.Parameters.Add("$state", SqliteType.Text);
+			foreach (var value in states) {
+				ArgumentOutOfRangeException.ThrowIfNegative(value.TurnNumber);
+				id.Value = value.ConversationId;
+				state.Value = JsonSerializer.Serialize(value, JsonOptions);
+				command.ExecuteNonQuery();
+			}
+			command.Parameters.Remove(id);
+			command.Parameters.Remove(state);
+			InsertMessages(command, messages);
+			transaction.Commit();
+			return true;
+		});
+	}
 
 	/// <summary>Deletes display and continuation data for every provider attached to a deleted workspace.</summary>
 	public void ClearWorkspace(string workspace) => Execute(connection => {
@@ -85,6 +96,15 @@ public sealed class AcpSessionStore(string path) {
 		transaction.Commit();
 		return true;
 	});
+
+	private static void InsertMessages(SqliteCommand command, IReadOnlyList<AgentPaneMessage> messages) {
+		command.CommandText = "INSERT INTO pane_events(owner, message) VALUES ($owner, $message)";
+		var message = command.Parameters.Add("$message", SqliteType.Text);
+		foreach (var value in messages) {
+			message.Value = JsonSerializer.Serialize(value, MessageJsonOptions);
+			command.ExecuteNonQuery();
+		}
+	}
 
 	private IReadOnlyList<T> Read<T>(string providerId, string workspace, string query) => Execute(connection => {
 		using var command = connection.CreateCommand();

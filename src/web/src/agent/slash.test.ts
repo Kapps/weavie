@@ -59,13 +59,16 @@ describe("side command completion", () => {
     expect(slashQuery(scope.draft)).toBeNull();
     expect(
       invocationForAction(
-        classifyAgentDraft({ ready: true, axes: [], slash: [...scope.entries] }, scope.draft),
+        classifyAgentDraft(
+          { ready: true, rewindable: false, axes: [], slash: [...scope.entries] },
+          scope.draft,
+        ),
       ),
     ).toEqual({ kind: "mcpPrompt", name: "report-weavie-bug" });
   });
 
   it("uses the inner command kind for submission readiness", () => {
-    const state = { ready: true, axes: [], slash: entries };
+    const state = { ready: true, rewindable: false, axes: [], slash: entries };
     expect(classifyAgentSubmission(state, "/btw /review tests")).toEqual(
       classifyAgentDraft(state, "/review tests"),
     );
@@ -155,6 +158,7 @@ describe("filterSlash", () => {
 describe("classifyAgentDraft", () => {
   const controls = (ready: boolean, slash: AgentSlashEntry[]): AgentControlState => ({
     ready,
+    rewindable: false,
     axes: [],
     slash,
   });
@@ -207,10 +211,16 @@ describe("MCP prompt invocation", () => {
   it("is discoverable before readiness and resolves arguments after initialization", () => {
     expect(filterSlash([prompt], "bug")).toEqual([prompt]);
     expect(
-      classifyAgentDraft({ ready: false, axes: [], slash: [prompt] }, "/report-weavie-bug"),
+      classifyAgentDraft(
+        { ready: false, rewindable: false, axes: [], slash: [prompt] },
+        "/report-weavie-bug",
+      ),
     ).toEqual({ kind: "loading" });
     expect(
-      classifyAgentDraft({ ready: true, axes: [], slash: [prompt] }, "/REPORT-WEAVIE-BUG details"),
+      classifyAgentDraft(
+        { ready: true, rewindable: false, axes: [], slash: [prompt] },
+        "/REPORT-WEAVIE-BUG details",
+      ),
     ).toEqual({ kind: "command", entry: prompt });
     expect(agentInvocationForDraft([prompt], "/report-weavie-bug-extra")).toBeNull();
   });

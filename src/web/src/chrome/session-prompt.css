@@ -220,6 +220,16 @@
   cursor: pointer;
 }
 
+.acp-registry-heading > select {
+  margin-left: auto;
+  padding: 0.3em 0.5em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
 .acp-registry-filter {
   width: 100%;
   margin-top: 18px;

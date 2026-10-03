@@ -2004,7 +2004,7 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={acpRegistryOpen()}>
         <AcpRegistryModal
-          backendId={acpRegistryBackendId()}
+          initialBackendId={acpRegistryBackendId()}
           onClose={() => setAcpRegistryOpen(false)}
         />
       </Show>

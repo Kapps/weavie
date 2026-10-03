@@ -6,6 +6,10 @@ namespace Weavie.Hosting;
 
 /// <summary>Owns the native bridge capability and the sole document allowed to receive it.</summary>
 public sealed class NativeBridgeSecurity {
+	/// <summary>Records a native policy cancellation without exposing the destination or bridge capability.</summary>
+	public static void ReportBlockedNavigation(bool mainFrame) =>
+		Console.WriteLine($"[native-bridge] Blocked {(mainFrame ? "main-frame" : "subframe/popup")} navigation.");
+
 	private readonly SemaphoreSlim _loads = new(1);
 	private Uri? _document;
 	private string _token = string.Empty;

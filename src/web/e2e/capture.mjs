@@ -100,8 +100,10 @@ async function main() {
   console.log(`[capture] launching host on 127.0.0.1:${port} (workspace: ${workspace})…`);
   const host = spawn("dotnet", [hostDll], {
     env: { ...process.env, WEAVIE_SERVE_PORT: String(port), WEAVIE_SERVE_WORKSPACE: workspace },
-    stdio: ["ignore", "pipe", "inherit"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  host.stdout.pipe(process.stdout);
+  host.stderr.pipe(process.stderr);
 
   try {
     const workspacePage = await waitForWorkspace(host, 60_000);

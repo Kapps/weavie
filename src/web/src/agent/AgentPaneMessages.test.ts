@@ -36,6 +36,16 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
   });
 
+  it("marks only primary prompts as rewind points", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "alpha" },
+      { type: "user-command", providerId: "acp", turnId: "2", text: "/compact" },
+      { type: "user-steer", providerId: "acp", turnId: "2", text: "steer" },
+    ]);
+
+    expect(transcript.map((entry) => entry.promptTurnId)).toEqual(["1", "2", undefined]);
+  });
+
   it("groups a side conversation at its first recorded position without mixing primary turns", () => {
     const conversation = {
       conversationId: "aside-1",

@@ -29,6 +29,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The item id associated with this update, when any.</summary>
 	public string? ItemId { get; init; }
 
+	/// <summary>The provider's message identity for a completed agent message, when reported.</summary>
+	public string? MessageId { get; init; }
+
 	/// <summary>The provider request id associated with an interactive pane item, when any.</summary>
 	public string? RequestId { get; init; }
 

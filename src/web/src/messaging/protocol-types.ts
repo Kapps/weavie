@@ -184,6 +184,7 @@ export type AgentSlashEntry =
 
 export interface AgentControlState {
   ready: boolean;
+  rewindable: boolean;
   axes: AgentControlAxis[];
   slash: AgentSlashEntry[];
 }

@@ -67,6 +67,7 @@ public sealed partial class AcpAgentSession {
 			throw new InvalidOperationException(
 				$"{_definition.Name} does not support context-preserving side conversations.");
 		}
+		if (_rewinding) throw new InvalidOperationException("Wait for the rewind to finish.");
 	}
 
 	private bool HasWork() {

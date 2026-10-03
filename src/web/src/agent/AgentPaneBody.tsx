@@ -20,6 +20,7 @@ import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
+import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
@@ -151,6 +152,10 @@ export function AgentPaneBody(props: {
 
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
+  createEffect(() =>
+    setContext("agentRewindable", agentControlState(props.model.session).rewindable),
+  );
+  onCleanup(() => setContext("agentRewindable", false));
   onMount(() => {
     const element = body;
     if (element === undefined) {

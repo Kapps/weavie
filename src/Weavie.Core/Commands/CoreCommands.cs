@@ -109,6 +109,9 @@ public static class CoreCommands {
 	/// <summary>Asks a context-preserving question outside the primary structured-agent transcript.</summary>
 	public const string AskAgentAside = "weavie.agent.askAside";
 
+	/// <summary>Rewinds the structured agent's conversation to just before a prompt.</summary>
+	public const string RewindAgentConversation = "weavie.agent.rewind";
+
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
 
@@ -868,6 +871,19 @@ public static class CoreCommands {
 			Aliases = ["btw", "ask aside", "side question"],
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context; may be empty with an image\"},\"submissionId\":{\"type\":\"string\",\"description\":\"Submission identity for a composer request\"},\"kind\":{\"type\":\"string\",\"enum\":[\"prompt\",\"providerCommand\",\"mcpPrompt\"],\"description\":\"Submission type; ordinary prompt when omitted\"},\"commandName\":{\"type\":\"string\",\"description\":\"Exact catalog name for a command invocation\"},\"attachmentIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Staged image ids owned by this session\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RewindAgentConversation,
+			Title = "Rewind Agent Conversation",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Continue the agent conversation from just before a prompt, with that prompt back in the composer. "
+				+ "Files are not changed.",
+			Aliases = ["rewind", "undo prompt", "edit last prompt"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+z" }],
+			When = "agentFocused && agentRewindable",
+			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

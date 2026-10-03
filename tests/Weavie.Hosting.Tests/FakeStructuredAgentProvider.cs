@@ -76,6 +76,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 		public AgentControlState ControlState { get; } = new() {
 			Ready = true,
+			Rewindable = false,
 			Axes = [
 				Axis("model", "Model", "GPT Test") with {
 					Category = "model",

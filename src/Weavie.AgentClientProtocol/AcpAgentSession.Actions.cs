@@ -44,7 +44,7 @@ public sealed partial class AcpAgentSession {
 		bool steer = false;
 		long epoch;
 		lock (_gate) {
-			if (!_ready || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
+			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
 				|| _steering && !_promptActive) {
 				return;
 			}
@@ -64,6 +64,7 @@ public sealed partial class AcpAgentSession {
 			}
 			epoch = _submissionEpoch;
 		}
+		if (!steer && TurnId() == "1") RaiseControls(); // The first prompt makes the conversation rewindable.
 		var delivery = steer
 			? DeliverSteeringAsync(submission, epoch)
 			: DeliverPromptAsync(sessionId, submission, epoch);

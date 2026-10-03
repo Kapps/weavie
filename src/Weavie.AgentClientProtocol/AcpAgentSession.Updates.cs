@@ -74,13 +74,14 @@ public sealed partial class AcpAgentSession {
 
 		if (!AcpContentAnnotations.IsUserVisible(content)) return;
 		string turnId = TurnId();
-		string id = $"{itemType}:{OptionalString(update, "messageId") ?? turnId}";
+		string? messageId = OptionalString(update, "messageId");
+		string id = $"{itemType}:{messageId ?? turnId}";
 		string? type = OptionalString(content, "type");
 		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
 		AcpContentState state;
 		lock (_gate) {
 			if (!_content.TryGetValue(id, out state!)) {
-				state = new AcpContentState { Id = id, ItemType = itemType, TurnId = turnId };
+				state = new AcpContentState { Id = id, ItemType = itemType, TurnId = turnId, MessageId = messageId };
 				_content.Add(id, state);
 			}
 			state.Text.Append(text);
@@ -119,6 +120,7 @@ public sealed partial class AcpAgentSession {
 				ThreadId = SessionId(),
 				TurnId = state.TurnId,
 				ItemId = state.Id,
+				MessageId = state.MessageId,
 				ItemType = state.ItemType,
 				Category = state.ItemType is "thought" or "plan" ? state.ItemType : null,
 				Summary = state.ItemType switch {

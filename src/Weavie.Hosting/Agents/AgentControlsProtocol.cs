@@ -9,6 +9,7 @@ internal static class AgentControlsProtocol {
 		return new {
 			state = new {
 				ready = state.Ready,
+				rewindable = state.Rewindable,
 				axes = state.Axes.Select(axis => new {
 					id = axis.Id,
 					label = axis.Label,

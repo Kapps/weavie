@@ -70,6 +70,7 @@ export function AsideEntry(props: {
                 expandedDetails={props.expandedDetails}
                 entry={entry}
                 keyboardRequestKey={props.keyboardRequestKey}
+                latestPromptTurn={null}
                 onDetailsToggle={props.onDetailsToggle}
                 sectionLabel={null}
                 session={props.session}

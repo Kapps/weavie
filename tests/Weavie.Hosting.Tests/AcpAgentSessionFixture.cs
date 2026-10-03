@@ -249,6 +249,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		persistedSessionId: null,
 		failSessionPersistence: false);
 
+	public static AcpAgentSessionFixture CreateForkIgnoresMessageAdapter() => Create(
+		"fake", "Whole-fork ACP", ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_FAKE_ACP_MODE"] = "fork-ignores-message" },
+		allowAllPermissions: true, persistedSessionId: null, failSessionPersistence: false);
+
 	public static AcpAgentSessionFixture CreateHeldForkAdapter(bool authenticationRequired) => Create(
 		"fake", "Held fork ACP",
 		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),

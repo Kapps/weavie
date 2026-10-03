@@ -32,6 +32,7 @@ export interface AgentTranscriptEntry {
   text: string | null;
   tone: AgentTranscriptTone;
   turnStart?: true;
+  promptTurnId?: string;
   asideActive?: boolean;
   asideEntries?: AgentTranscriptEntry[];
   asideReplyable?: boolean;

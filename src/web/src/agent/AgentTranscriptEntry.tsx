@@ -1,5 +1,9 @@
+import { RotateCcw } from "lucide-solid";
 import { type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { runCommandWithFeedback } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
 import { ResolvedInputSummary } from "./AgentInputSummary";
@@ -8,12 +12,14 @@ import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./A
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { agentControlState } from "./agent-controls-store";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
   expandedDetails: ReadonlySet<string>;
   entry: AgentTranscriptEntry;
   keyboardRequestKey: string | null;
+  latestPromptTurn: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
@@ -46,6 +52,11 @@ export function TranscriptEntry(props: {
           </span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
+          </Show>
+          <Show when={agentControlState(props.session).rewindable && props.entry.promptTurnId}>
+            {(turnId) => (
+              <RewindAction latest={turnId() === props.latestPromptTurn} turnId={turnId()} />
+            )}
           </Show>
         </div>
       </Show>
@@ -92,6 +103,23 @@ export function TranscriptEntry(props: {
         />
       </div>
     </article>
+  );
+}
+
+function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
+  const key = (): string => (props.latest ? liveKeyLabel(CommandIds.rewindAgentConversation) : "");
+  return (
+    <button
+      type="button"
+      class="agent-entry-rewind"
+      title={key() === "" ? "Rewind to here" : `Rewind to here (${key()})`}
+      onClick={() =>
+        void runCommandWithFeedback(CommandIds.rewindAgentConversation, { turnId: props.turnId })
+      }
+    >
+      <RotateCcw size={12} aria-hidden="true" />
+      Rewind
+    </button>
   );
 }
 

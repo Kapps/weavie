@@ -21,6 +21,7 @@ const agentSession = mockSession("cx", "acp", "acp");
 const controls = {
   state: {
     ready: true,
+    rewindable: false,
     axes: [
       {
         id: "model",

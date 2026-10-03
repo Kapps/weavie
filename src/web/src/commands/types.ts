@@ -85,6 +85,7 @@ export const CommandIds = {
   restartAgent: "weavie.agent.restart",
   clearAgentConversation: "weavie.agent.clearConversation",
   askAgentAside: "weavie.agent.askAside",
+  rewindAgentConversation: "weavie.agent.rewind",
   reloadAgentHistory: "weavie.agent.reloadHistory",
   manageAcpAgents: "weavie.agent.manageAcp",
   reloadAcpAgents: "weavie.agent.reloadAcp",

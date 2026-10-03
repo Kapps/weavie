@@ -314,6 +314,29 @@
   text-transform: lowercase;
 }
 
+.agent-entry-rewind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.agent-entry:hover .agent-entry-rewind,
+.agent-entry-rewind:focus-visible {
+  opacity: 1;
+}
+
+.agent-entry-rewind:hover {
+  color: var(--fg);
+}
+
 .agent-entry-main {
   min-width: 0;
 }

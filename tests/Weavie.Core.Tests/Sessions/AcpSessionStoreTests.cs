@@ -37,7 +37,7 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Equal("1", savedSide.PlanTurns["plan"]);
 		Assert.Equal(new[] { first, second }, reloaded.ReadMessages("provider", "/workspace"));
 
-		reloaded.Clear("provider", "/workspace");
+		reloaded.Replace("provider", "/workspace", [], []);
 		Assert.Empty(store.ReadConversations("provider", "/workspace"));
 		Assert.Empty(store.ReadMessages("provider", "/workspace"));
 		Assert.Single(store.ReadMessages("other-provider", "/workspace"));
@@ -45,6 +45,24 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Empty(reloaded.ReadMessages("other-provider", "/workspace"));
 		Assert.Empty(reloaded.ReadConversations("other-provider", "/workspace"));
 		Assert.Single(reloaded.ReadMessages("provider", "/another-workspace"));
+	}
+
+	[Fact]
+	public void ReplaceSwapsOneOwnersConversationsAndHistoryTogether() {
+		var store = new AcpSessionStore(Database);
+		var kept = Message("agent-message-delta", "kept") with { MessageId = "msg-1" };
+		store.Save("provider", "/workspace", State("", "old-id", 3), [Message("user-message", "old")]);
+		store.Save("provider", "/workspace", State("btw-1", "fork-id", 1), []);
+		store.Save("other-provider", "/workspace", State("", "other-id", 2), [Message("user-message", "other")]);
+
+		store.Replace("provider", "/workspace", [State("", "rewound-id", 1)], [kept]);
+
+		var reloaded = new AcpSessionStore(Database);
+		var primary = Assert.Single(reloaded.ReadConversations("provider", "/workspace"));
+		Assert.Equal(("rewound-id", 1L), (primary.SessionId, primary.TurnNumber));
+		Assert.Equal("msg-1", Assert.Single(reloaded.ReadMessages("provider", "/workspace")).MessageId);
+		Assert.Equal("other-id", reloaded.Resolve("other-provider", "/workspace"));
+		Assert.Single(reloaded.ReadMessages("other-provider", "/workspace"));
 	}
 
 	[Theory]

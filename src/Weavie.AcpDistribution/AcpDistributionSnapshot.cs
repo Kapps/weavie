@@ -9,14 +9,19 @@ public static class AcpDistributionSnapshot {
 	/// <summary>Strictly reads and cross-validates the installed and custom provider catalog without writing.</summary>
 	public static IReadOnlyList<AcpLaunchSpec> ReadCatalog(string sourceRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(sourceRoot);
-		string source = Path.GetFullPath(sourceRoot);
+		var (installed, custom) = Read(Path.GetFullPath(sourceRoot));
+		return [.. installed.Agents, .. custom];
+	}
+
+	private static (AcpInstallations Installed, IReadOnlyList<AcpLaunchSpec> Custom) Read(string source) {
 		var fileSystem = new LocalFileSystem();
-		var installed = new AcpInstallationStore(
-			fileSystem,
-			Under(source, WeaviePaths.AcpInstallationsFile)).Load();
+		var installed = new AcpInstallationStore(fileSystem, Under(source, WeaviePaths.AcpInstallationsFile)).Load();
 		var custom = new AcpCustomAgentStore(fileSystem, Under(source, WeaviePaths.AcpCustomAgentsFile)).Load();
-		ValidateUniqueIds(installed, custom);
-		return [.. installed, .. custom];
+		var ids = new HashSet<string>(StringComparer.Ordinal);
+		foreach (string id in installed.Ids.Concat(custom.Select(agent => agent.Id))) {
+			if (!ids.Add(id)) throw new JsonException($"ACP provider '{id}' is configured more than once.");
+		}
+		return (installed, custom);
 	}
 
 	/// <summary>
@@ -29,17 +34,16 @@ public static class AcpDistributionSnapshot {
 		string source = Path.GetFullPath(sourceRoot);
 		string destination = Path.GetFullPath(destinationRoot);
 		var fileSystem = new LocalFileSystem();
-		var catalog = ReadCatalog(source);
-		var installed = catalog.Where(agent => agent.Distribution != "custom").ToArray();
-		var custom = catalog.Where(agent => agent.Distribution == "custom").ToArray();
+		var (installations, custom) = Read(source);
 
 		string sourcePackages = Under(source, WeaviePaths.AcpPackages);
 		string destinationPackages = Under(destination, WeaviePaths.AcpPackages);
-		var projected = installed.Select(agent => agent.Distribution == "binary"
+		var projected = installations.Agents.Select(agent => agent.Distribution == "binary"
 			? MaterializeBinary(agent, sourcePackages, destinationPackages, destination)
 			: agent).ToArray();
 
-		new AcpInstallationStore(fileSystem, Under(destination, WeaviePaths.AcpInstallationsFile)).Save(projected);
+		new AcpInstallationStore(fileSystem, Under(destination, WeaviePaths.AcpInstallationsFile))
+			.Save(installations with { Agents = projected });
 		new AcpCustomAgentStore(fileSystem, Under(destination, WeaviePaths.AcpCustomAgentsFile)).Save(custom);
 		return [.. projected, .. custom];
 	}
@@ -66,17 +70,6 @@ public static class AcpDistributionSnapshot {
 			throw new JsonException($"ACP binary installation '{id}' is missing its command.");
 		}
 		return agent with { Command = command };
-	}
-
-	private static void ValidateUniqueIds(
-		IReadOnlyList<AcpLaunchSpec> installed,
-		IReadOnlyList<AcpLaunchSpec> custom) {
-		var ids = new HashSet<string>(StringComparer.Ordinal);
-		foreach (var agent in installed.Concat(custom)) {
-			if (!ids.Add(agent.Id)) {
-				throw new JsonException($"ACP provider '{agent.Id}' is configured more than once.");
-			}
-		}
 	}
 
 	private static string RequireSegment(string? value, string name) {

@@ -114,8 +114,8 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		var acpRegistry = _host.Feature("acpRegistry");
 		_handlers.Add(acpRegistry.Handle<EmptyRequest, IReadOnlyList<AcpRegistryAgent>>(
 			"list", (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
-		// A first npx/uvx start downloads the agent, which can outlast a request, so installs answer at once and
-		// report through "installed" when the check finishes.
+		// An npm install or a first uvx start downloads the agent, which can outlast a request, so installs answer at
+		// once and report through "installed" when the check finishes.
 		_handlers.Add(acpRegistry.Handle<AcpInstallMessage>("install", (message, ct) => {
 			_ = InstallAsync(message);
 			return Task.CompletedTask;

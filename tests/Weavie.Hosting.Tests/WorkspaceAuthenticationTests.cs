@@ -48,6 +48,7 @@ public sealed class WorkspaceAuthenticationTests {
 		var document = await client.GetAsync(host.Core.WorkspacePageUrl);
 		Assert.Equal(HttpStatusCode.OK, document.StatusCode);
 		Assert.DoesNotContain("Connect to Weavie", await document.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+		Assert.Equal("frame-ancestors 'none'", document.Headers.GetValues("Content-Security-Policy").Single());
 		Assert.Empty(new Uri(host.Core.WorkspacePageUrl).Query);
 	}
 

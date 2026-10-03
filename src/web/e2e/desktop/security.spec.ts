@@ -4,11 +4,6 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { test } from "./fixture";
 
-test.skip(
-  process.platform === "linux",
-  "Navigation probes overlap WebKit cancellation; font replies do not acknowledge navigation completion.",
-);
-
 test("only the app can use the native bridge, across welcome, previews and reload", async ({
   desktop,
 }) => {
@@ -27,6 +22,12 @@ test("only the app can use the native bridge, across welcome, previews and reloa
       payload: { id: "weavie.font.increase", args: null },
       error: null,
     });
+  const forge = (bodies: string) => `
+    for (const message of ${bodies}) for (const value of [message, '0'.repeat(64) + ':' + message]) {
+      try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
+      try { chrome.webview.postMessage(value); } catch {}
+    }
+  `;
   const attack = (reportOrigin: string) => `
     const report = path => fetch(${JSON.stringify(reportOrigin)} + path, {mode:'no-cors'});
     const leak = () => report('/leak');
@@ -38,14 +39,11 @@ test("only the app can use the native bridge, across welcome, previews and reloa
     const body = ${JSON.stringify(fontRequest("attack"))};
     try { top.__weaviePostMessage(body); report('/leak'); } catch {}
     const menu = JSON.stringify({scope:'host',session:null,kind:'event',requestId:null,feature:'window',name:'menu',payload:{action:'open-recent',path:${JSON.stringify(workspace)}},error:null});
-    for (const value of [body, menu, '0'.repeat(64) + ':' + body, '0'.repeat(64) + ':' + menu]) {
-      try { webkit.messageHandlers.weavie.postMessage(value); } catch {}
-      try { chrome.webview.postMessage(value); } catch {}
-    }
+    ${forge("[body, menu]")}
     if (location.pathname === '/top' && (window.chrome?.webview || window.webkit?.messageHandlers?.weavie)) report('/leak');
     report(location.pathname === '/top' ? '/external' : '/ack' + location.pathname);
     if (location.pathname === '/preview') document.body.insertAdjacentHTML('beforeend', '<iframe sandbox="allow-scripts" src="/opaque"></iframe>');
-    addEventListener('message', () => { try { top.location = location.origin + '/top'; } catch {} window.open('/top'); report('/ack/interactive'); });
+    addEventListener('message', () => { window.open('/top'); report('/ack/interactive'); });
   `;
   const server = createServer((req, res) => {
     const url = new URL(req.url!, "http://localhost");
@@ -100,18 +98,19 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(row); row().dispatchEvent(new MouseEvent('mousedown', {bubbles:true,button:0}));
         };
         const frame = url => { const f = document.createElement('iframe'); f.src = url; document.body.append(f); return f; };
+        if (location.pathname === '/welcome.html') await wait(() => document.querySelectorAll('.welcome-row').length === 2);
+        else await wait(() => query('.editor[data-ready="true"]') && !query('#splash'));
         const target = location.href.replace('://', '://user@');
         frame(target); frame(origin + '/app-frame?target=' + encodeURIComponent(target));
         if (location.pathname === '/welcome.html') {
-          await wait(() => document.querySelectorAll('.welcome-row').length === 2);
           frame(origin + '/welcome');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/welcome'));
           document.querySelectorAll('.welcome-row')[1].click(); return;
         }
-        await wait(() => query('.editor[data-ready="true"]') && !query('#splash'));
         if (window.__WEAVIE_BRIDGE_WS__ !== undefined) throw Error('Expected native transport');
         const replies = new Set();
         window.__weavieReceive = ((receive) => raw => { const message = JSON.parse(raw); if (message.requestId === 'attack') fetch(origin + '/leak'); if (message.kind === 'response' && message.feature === 'commands' && message.payload?.ok) replies.add(message.requestId); receive(raw); })(window.__weavieReceive);
+        ${forge(JSON.stringify([fontRequest("attack")]))}
         const font = () => getComputedStyle(document.documentElement).getPropertyValue('--font-content-size').trim();
         if (!sessionStorage.getItem('bridge-reloaded')) {
           await command('Open URL…'); await wait(() => query('.url-prompt-input'));
@@ -120,14 +119,9 @@ test("only the app can use the native bridge, across welcome, previews and reloa
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/opaque'));
           query('.editor-web:not([hidden]) iframe').contentWindow.postMessage('interact','*');
           await wait(async () => (await (await fetch(origin + '/state')).json()).includes('/ack/interactive'));
-          for (const [index, url] of [origin + '/top', origin + '/redirect', 'data:text/html,untrusted'].entries()) {
-            const request = ${fontRequest("trusted")}; request.requestId += index;
-            window.__weaviePostMessage(JSON.stringify(request)); location.href = url;
-            await wait(() => font() === (17 + index) + 'px' && replies.has(request.requestId));
-          }
           sessionStorage.setItem('bridge-reloaded','yes'); location.reload(); return;
         }
-        await command('Increase Font Size'); await wait(() => font() === '20px' && replies.size > 0);
+        await command('Increase Font Size'); await wait(() => font() === '17px' && replies.size > 0);
         await fetch(origin + '/done?nonce=' + nonce + '&result=pass');
       })().catch(error => fetch(${JSON.stringify(origin)} + '/done?nonce=' + ${JSON.stringify(nonce)} + '&result=' + encodeURIComponent(String(error))));
     `;

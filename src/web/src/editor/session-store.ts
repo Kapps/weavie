@@ -34,6 +34,8 @@ class OwnedEditorSession {
   private readonly readState;
   private readonly writeState;
   private postTimer: ReturnType<typeof setTimeout> | undefined;
+  // The newest host edit this state includes; the host refuses snapshots that predate one.
+  private basis = 0;
   private lastStructure = "";
   private readonly structureListeners = new Set<() => void>();
   // A line explicitly requested for a tab that hasn't captured a real Monaco viewState yet. A tab's persisted
@@ -80,11 +82,12 @@ class OwnedEditorSession {
     return this.pendingLines.get(path);
   }
 
-  restore(session: EditorSession): void {
+  restore(session: EditorSession, revision: number): void {
     this.cancelPending();
     const next = { ...session, open: normalize(session.open) };
     this.reconcileTabs(next);
     this.writeState(next);
+    this.basis = revision;
     this.emitOpenEditors(next);
     this.notifyStructure();
   }
@@ -302,10 +305,35 @@ class OwnedEditorSession {
       return;
     }
     this.cancelPending();
-    const current = this.readState();
-    if (current !== null) {
-      this.send(current);
+    this.send();
+  }
+
+  snapshot(): { session: EditorSession; basis: number } | null {
+    const session = this.readState();
+    return session === null ? null : { session, basis: this.basis };
+  }
+
+  /** Applies a host edit, then reports even if nothing changed, so a refused snapshot is always replaced. */
+  hostEdit(revision: number, apply: () => unknown): Promise<void> | undefined {
+    const settle = (): void => {
+      this.basis = Math.max(this.basis, revision);
+      this.schedule();
+    };
+    let result: unknown;
+    try {
+      result = apply();
+    } catch (error) {
+      settle();
+      throw error;
     }
+    if (result instanceof Promise) {
+      return result.then(settle, (error: unknown) => {
+        settle();
+        throw error;
+      });
+    }
+    settle();
+    return undefined;
   }
 
   closeState(): void {
@@ -331,18 +359,27 @@ class OwnedEditorSession {
     const structureChanged = structureKey(next) !== this.lastStructure;
     this.reconcileTabs(next);
     this.writeState(next);
-    this.cancelPending();
-    this.postTimer = setTimeout(() => {
-      this.postTimer = undefined;
-      this.send(next);
-    }, 300);
+    this.schedule();
     if (structureChanged) {
       this.emitOpenEditors(next);
       this.notifyStructure();
     }
   }
 
-  private send(session: EditorSession): void {
+  private schedule(): void {
+    this.cancelPending();
+    this.postTimer = setTimeout(() => {
+      this.postTimer = undefined;
+      this.send();
+    }, 300);
+  }
+
+  private send(): void {
+    const snapshot = this.snapshot();
+    if (snapshot === null) {
+      return;
+    }
+    const { session, basis } = snapshot;
     const active =
       session.active !== null && session.open.some((entry) => entry.path === session.active)
         ? session.active
@@ -360,6 +397,7 @@ class OwnedEditorSession {
           ...(entry.scratch ? { scratch: true } : {}),
         })),
       },
+      basis,
     });
   }
 
@@ -400,9 +438,9 @@ class OwnedEditorSession {
 registerSessionFeature((owner) => {
   const state = new OwnedEditorSession(owner);
   states.set(owner, state);
-  const off = owner.state.editor.subscribe((session) => {
-    if (session !== null) {
-      state.restore(session);
+  const off = owner.state.editor.subscribe((restored) => {
+    if (restored !== null) {
+      state.restore(restored.session, restored.revision);
     }
   });
   return () => {
@@ -496,6 +534,24 @@ export function flushEditorSession(): void {
 
 export function flushEditorSessionFor(owner: ClientSession): void {
   stateFor(owner)?.flush();
+}
+
+export const editorSnapshotFor = (
+  owner: ClientSession,
+): { session: EditorSession; basis: number } | null => stateFor(owner)?.snapshot() ?? null;
+
+/** Subscribes to a host editor edit; the only path that may apply one, so the page's basis tracks it.
+ * Returning the pending edit keeps the bus from applying the next one before it settles. */
+export function onHostEditorEdit<T>(
+  owner: ClientSession,
+  name: string,
+  apply: (message: T) => unknown,
+): () => void {
+  return owner
+    .feature("editor")
+    .on<T & { revision: number }>(name, (message) =>
+      stateFor(owner)?.hostEdit(message.revision, () => apply(message)),
+    );
 }
 
 export function openTab(

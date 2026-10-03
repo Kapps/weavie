@@ -4,8 +4,8 @@ namespace Weavie.AgentClientProtocol;
 public static class AcpAgentCheck {
 	/// <summary>
 	/// Starts <paramref name="definition"/> once as a throwaway process and completes the ACP <c>initialize</c>
-	/// handshake; a package-runner agent (npx/uvx) downloads its package on this first start. Throws with the
-	/// agent's own error output when it can't start or doesn't answer.
+	/// handshake; a uvx agent downloads its package on this first start. Throws with the agent's own error output
+	/// when it can't start or doesn't answer.
 	/// </summary>
 	public static async Task VerifyAsync(AcpAgentDefinition definition, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(definition);

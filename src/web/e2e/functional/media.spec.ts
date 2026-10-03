@@ -235,7 +235,8 @@ test("same-named scratch media switches to the incoming session route", async ({
             requestId: null,
             feature: "editor",
             name: "openFile",
-            payload: { path, line: 1, scratch: true },
+            // Injected straight into the page, not a host edit: revision 0 keeps the page on the host's basis.
+            payload: { path, line: 1, scratch: true, revision: 0 },
             error: null,
           }),
         );

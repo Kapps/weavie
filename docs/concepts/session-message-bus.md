@@ -66,6 +66,11 @@ Snapshots authored by the shared editor widget are admitted only from the peer b
 session. That check establishes who may write the host snapshot; it does not decide which session
 receives the message, and it cannot invalidate work after admission.
 
+Host tab edits (`openFile`, `openOverlay`, `closeTab`) carry an increasing editor revision, and `restore`
+carries the current one. A page snapshot (`sessionChanged`, the `flush` reply) names the newest revision it
+includes as its `basis`; the host refuses one taken before its latest edit, and the page reports again
+after applying every host edit, so neither writer can erase the other's change.
+
 The one durable view interaction is teardown: unload/delete asks the exact attached editor view to
 save dirty models and return its final session snapshot. If no view is attached, the host-owned state
 is already sufficient. A save failure leaves the session live.

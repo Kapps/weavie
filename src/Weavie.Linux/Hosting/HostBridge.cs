@@ -56,13 +56,16 @@ internal sealed class HostBridge : IWebTransportHub {
 
 	private int OnPolicy(IntPtr view, IntPtr decision, int type, IntPtr data) {
 		bool deny = type == 1;
+		bool mainFrame = false;
 		if (type == 2) {
 			string? url = Marshal.PtrToStringUTF8(WebKit.webkit_uri_response_get_uri(
 				WebKit.webkit_response_policy_decision_get_response(decision)));
-			deny = !Security.Allows(url, WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision));
+			mainFrame = WebKit.webkit_response_policy_decision_is_main_frame_main_resource(decision);
+			deny = !Security.Allows(url, mainFrame);
 		}
 		if (!deny) return 0;
 		WebKit.webkit_policy_decision_ignore(decision);
+		NativeBridgeSecurity.ReportBlockedNavigation(mainFrame);
 		return 1;
 	}
 

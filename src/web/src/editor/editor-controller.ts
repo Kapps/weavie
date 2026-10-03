@@ -66,9 +66,10 @@ import {
   closeTabFor,
   convertScratchFor,
   dropReviewTabFor,
-  editorSessionFor,
+  editorSnapshotFor,
   flushEditorSessionFor,
   onEditorSessionChanged,
+  onHostEditorEdit,
   openTabFor,
   openTabsFor,
   tabOwnerFor,
@@ -933,22 +934,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       };
     });
 
-  const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
-    const history = reviews.board(session).history;
-    if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
+  const runReviewHistory = (
+    session: ClientSession,
+    action: "onUndoKeep" | "onUndoRevert" | "onRedo",
+  ): boolean => {
+    const board = reviews.board(session);
+    if (!canCloseReview(board) && !board.history.canUndo && !board.history.canRedo) {
       return false;
     }
-    const handlers = reviewHistoryHandlers(session, () => () => {});
-    if (kind === "keep") handlers.onUndoKeep();
-    else handlers.onUndoRevert();
-    return true;
-  };
-
-  const redoReview = (session: ClientSession): boolean => {
-    if (!reviews.board(session).history.canRedo) {
-      return false;
-    }
-    reviewHistoryHandlers(session, () => () => {}).onRedo();
+    reviewHistoryHandlers(session, () => () => {})[action]();
     return true;
   };
 
@@ -1198,18 +1192,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const files = session.feature("files");
     const revise = session.feature("revise");
     const cleanups = [
-      editor.handle<Record<string, never>, { session: EditorSession }>("flush", async () => {
-        flushEditorSessionFor(session);
-        await host?.flushSession(session);
-        return { session: editorSessionFor(session) ?? { active: null, open: [] } };
-      }),
-      editor.on<{
+      editor.handle<Record<string, never>, { session: EditorSession; basis: number } | null>(
+        "flush",
+        async () => {
+          flushEditorSessionFor(session);
+          await host?.flushSession(session);
+          return editorSnapshotFor(session);
+        },
+      ),
+      onHostEditorEdit<{
         path: string;
         line: number | null;
         preview?: boolean;
         scratch?: boolean;
         intent: EditorOpenIntent;
-      }>("openFile", (message) => {
+      }>(session, "openFile", (message) => {
         openFileFor(
           session,
           message.path,
@@ -1228,7 +1225,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      editor.on<{ path: string; kind: "web" | "source" | "plan" }>(
+      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
+        session,
         "openOverlay",
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
@@ -1242,7 +1240,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         replaceProposals(session, proposals),
       ),
       editor.on<{ id: string }>("closeDiff", ({ id }) => closeProposal(session, id)),
-      editor.on<{ path: string }>("closeTab", ({ path }) => tabs.capture(session, path).close()),
+      onHostEditorEdit<{ path: string }>(session, "closeTab", ({ path }) =>
+        tabs.capture(session, path).close(),
+      ),
       review.on<{ label: string; files: ReviewFile[] }>("changes", ({ label, files }) =>
         setReviewFilesFor(session, files, label),
       ),
@@ -1268,8 +1268,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }>("changed", ({ changes }) => handleFileChanges(session, changes)),
       onEditorSessionChanged(session, () => scheduleReconciliation(session)),
       session.state.editor.subscribe((restored) => {
-        if (restored?.review != null) {
-          reviews.restore(session, restored.review);
+        if (restored?.session.review != null) {
+          reviews.restore(session, restored.session.review);
         }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session).catch((error: unknown) => {
@@ -1542,9 +1542,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       revertAll: (session) => {
         return tryRevertAll(session);
       },
-      undoKeep: (session) => undoReview(session, "keep"),
-      undoRevert: (session) => undoReview(session, "revert"),
-      redo: redoReview,
+      undoKeep: (session) => runReviewHistory(session, "onUndoKeep"),
+      undoRevert: (session) => runReviewHistory(session, "onUndoRevert"),
+      redo: (session) => runReviewHistory(session, "onRedo"),
     },
     tabs,
     nav: {

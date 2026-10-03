@@ -36,8 +36,7 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 	/// <summary>Launches the agent in <paramref name="workspace"/>; call <see cref="Listen"/> before any request.</summary>
 	public static AcpTransientConnection Start(AcpAgentDefinition definition, string workspace) {
 		string directory = Path.GetFullPath(workspace);
-		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, directory, []);
-		var info = new ProcessStartInfo(invocation.Command) {
+		var info = new ProcessStartInfo(definition.Command) {
 			WorkingDirectory = directory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
@@ -48,7 +47,7 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 			UseShellExecute = false,
 			CreateNoWindow = true,
 		};
-		foreach (string argument in invocation.Arguments) info.ArgumentList.Add(argument);
+		foreach (string argument in definition.Arguments) info.ArgumentList.Add(argument);
 		foreach (var entry in definition.Environment) info.Environment[entry.Key] = entry.Value;
 
 		return new AcpTransientConnection(definition, OwnedProcess.Start(info));

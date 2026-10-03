@@ -20,10 +20,11 @@ public sealed class EditorSessionSerializationTests {
 		};
 
 		using var message = JsonDocument.Parse(
-			EditorSessionSerialization.BuildRestoreJson(session, fs, _ => { }));
+			EditorSessionSerialization.BuildRestoreJson(session, 7, fs, _ => { }));
 		var restored = message.RootElement.GetProperty("session");
 		var entry = Assert.Single(restored.GetProperty("open").EnumerateArray());
 
+		Assert.Equal(7, message.RootElement.GetProperty("revision").GetInt64());
 		Assert.Equal("/root/file.ts", restored.GetProperty("active").GetString());
 		Assert.Equal(42, entry.GetProperty("viewState").GetProperty("scrollTop").GetInt32());
 		Assert.False(entry.TryGetProperty("content", out _));
@@ -46,7 +47,7 @@ public sealed class EditorSessionSerializationTests {
 		};
 
 		using var message = JsonDocument.Parse(
-			EditorSessionSerialization.BuildRestoreJson(session, fs, _ => { }));
+			EditorSessionSerialization.BuildRestoreJson(session, 7, fs, _ => { }));
 		var restored = message.RootElement.GetProperty("session");
 		var open = restored.GetProperty("open").EnumerateArray()
 			.Select(entry => entry.GetProperty("path").GetString()).ToList();

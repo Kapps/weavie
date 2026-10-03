@@ -125,7 +125,7 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		acpRegistry.Handle<EmptyMessage>("reload", (_, _) => {
-			var currentIds = _acpAgents.LaunchSpecs.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+			var currentIds = _acpAgents.ProviderIds;
 			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
 			return Task.CompletedTask;
 		});
@@ -228,7 +228,7 @@ public sealed partial class HostCore {
 
 	private string CommandExecutionLane(CommandRequest message) =>
 		_commandRegistry.TryGet(message.Id, out var definition)
-			? definition.ExecutionLane
+			? definition.ExecutionLaneFor(message.Args?.GetRawText())
 			: "unknown-command";
 
 	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -9,6 +10,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
@@ -239,6 +241,62 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
 		Assert.Equal("structured", Assert.Single(catalog.LaunchSpecs).Id);
 	}
+
+	[Fact]
+	public async Task ReferencedBrokenAcpProviderCannotBeRemovedByReload() {
+		var catalog = new RecordingAcpCatalog {
+			BrokenAgents = [Broken("structured")],
+			ReloadSpecs = [],
+		};
+		await using var host = await TestHost.StartAsync(catalog);
+		host.Settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement("structured"));
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			host.HostRequestAsync<JsonElement>("acpRegistry", "reload", new { }));
+
+		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
+		Assert.Equal("structured", Assert.Single(catalog.BrokenAgents).Id);
+	}
+
+	[Fact]
+	public void BrokenInstallCannotTakeTheReservedClaudeId() {
+		var providers = Providers(new RecordingAcpCatalog { BrokenAgents = [Broken("claude")] });
+
+		Assert.False(providers.FindInfo("acp-config")?.Available);
+		Assert.True(providers.FindInfo("claude")?.Available);
+	}
+
+	[Fact]
+	public void BrokenInstallStaysUnavailableUnderItsIdUntilReinstalled() {
+		var catalog = new RecordingAcpCatalog { BrokenAgents = [Broken("claude-acp")] };
+		var providers = Providers(catalog);
+
+		var broken = providers.FindInfo("claude-acp");
+		Assert.False(broken?.Available);
+		Assert.Equal("Claude Agent", broken?.Name);
+		Assert.Contains("older Weavie", broken?.UnavailableReason, StringComparison.Ordinal);
+		Assert.Contains("Reinstall or remove it from Manage ACP Agents", broken?.UnavailableReason, StringComparison.Ordinal);
+
+		catalog.Reinstall(AcpLaunch("claude-acp"));
+
+		Assert.True(providers.FindInfo("claude-acp")?.Available);
+	}
+
+	private static AgentProviderRegistry Providers(RecordingAcpCatalog catalog) {
+		string root = Path.Combine(Path.GetTempPath(), $"weavie-broken-acp-{Guid.NewGuid():N}");
+		return AgentProviderComposition.Create(
+			CoreSettings.CreateStore(Path.Combine(root, "settings.toml"), enableWatcher: false),
+			new ClaudeSessionStore(new InMemoryFileSystem(), Path.Combine(root, "claude-sessions.json")),
+			catalog,
+			new AcpSessionStore(Path.Combine(root, "acp-conversations.db")));
+	}
+
+	private static AcpBrokenAgent Broken(string id) => new() {
+		Id = id,
+		Name = "Claude Agent",
+		Distribution = "npx",
+		Reason = "This npx install is from an older Weavie and can't be launched.",
+	};
 
 	private static AcpLaunchSpec AcpLaunch(string id) => new() {
 		Id = id,
@@ -487,6 +545,9 @@ internal sealed class RecordingAcpCatalog : IAcpAgentCatalog {
 	public event Action? Changed;
 	public List<string> Removed { get; } = [];
 	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs { get; set; } = [];
+	public IReadOnlyList<AcpBrokenAgent> BrokenAgents { get; set; } = [];
+	public IReadOnlySet<string> ProviderIds =>
+		LaunchSpecs.Select(agent => agent.Id).Concat(BrokenAgents.Select(agent => agent.Id)).ToHashSet();
 	public IReadOnlyList<AcpLaunchSpec> ReloadSpecs { get; init; } = [];
 	public Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) =>
 		Task.FromResult<IReadOnlyList<AcpRegistryAgent>>([]);
@@ -500,9 +561,15 @@ internal sealed class RecordingAcpCatalog : IAcpAgentCatalog {
 		Removed.Add(id);
 		Changed?.Invoke();
 	}
-	public void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate) {
-		validate(ReloadSpecs);
+	public void Reload(Action<IReadOnlySet<string>> validate) {
+		validate(ReloadSpecs.Select(agent => agent.Id).ToHashSet());
 		LaunchSpecs = ReloadSpecs;
+		BrokenAgents = [];
+		Changed?.Invoke();
+	}
+	public void Reinstall(AcpLaunchSpec launch) {
+		BrokenAgents = [.. BrokenAgents.Where(agent => agent.Id != launch.Id)];
+		LaunchSpecs = [.. LaunchSpecs, launch];
 		Changed?.Invoke();
 	}
 }

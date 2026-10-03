@@ -19,8 +19,8 @@ belongs to [workspace auto-config](../concepts/workspace-autoconfig.md).
 - **Agents.** The Agent step lists installed agents and also offers Codex and Claude Agent from the live ACP registry
   before they're installed; registry agents carry an `ACP` tag whose tooltip says they're third-party. Choosing one
   installs it, which starts it once and completes the ACP `initialize` handshake before the install is saved
-  (`AcpAgentCheck`). A first npx/uvx start downloads the package, so a broken package, npm, or network fails in
-  setup with the agent's own error output. The install request answers at once and the host announces
+  (`AcpAgentCheck`). An npx agent is npm-installed first and a uvx agent downloads on its first start, so a
+  broken package, npm, or network fails in setup with npm's or the agent's own error output. The install request answers at once and the host announces
   `acpRegistry.installed {id, error}` when the check finishes, because a download can outlast a request.
 - **Every choice saves immediately.** Each step writes an existing setting through the host, so there is no draft
   state: `theme.mode` / `theme.light` / `theme.dark`, `agent.defaultProvider`, and `inference.enabled` /

@@ -23,12 +23,8 @@ public sealed class WindowsPtyLauncher : IPtyLauncher {
 
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveCommand(AgentLaunch launch) {
 		string ext = Path.GetExtension(launch.Command).ToLowerInvariant();
-		if (ext is ".cmd" or ".bat") {
-			string commandProcessor = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-			return (commandProcessor,
-				["/d", "/s", "/v:off", "/c", launch.Command,
-				.. launch.Arguments.Select(WindowsCommandLine.EscapeInputRedirection)]);
-		}
-		return (launch.Command, launch.Arguments);
+		return ext is ".cmd" or ".bat"
+			? WindowsCommandLine.BatchInvocation(launch.Command, launch.Arguments)
+			: (launch.Command, launch.Arguments);
 	}
 }

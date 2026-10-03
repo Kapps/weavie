@@ -6,21 +6,6 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AcpProcessDrainTests {
 	[Fact]
-	public void AcpConnection_ResolvesWindowsNpxFromPathWithoutConsultingTheWorkspace() {
-		using var root = new TempDirectory("weavie-npx-path");
-		string workspace = root.CreateDirectory("workspace");
-		string trusted = root.CreateDirectory("trusted");
-		root.WriteFile(Path.Combine("workspace", "npx.cmd"), "shadow");
-		string expected = root.WriteFile(Path.Combine("trusted", "npx.cmd"), "trusted");
-
-		string resolved = AcpProcessInvocation.ResolveNpxOnPath(
-			string.Join(Path.PathSeparator, workspace, ".", trusted),
-			workspace);
-
-		Assert.Equal(expected, resolved);
-	}
-
-	[Fact]
 	public async Task AcpConnection_DeliversFinalResponseBeforeExitFault() {
 		var definition = Definition("echo-and-exit");
 		await using var connection = new AcpJsonRpcConnection(definition, Directory.GetCurrentDirectory(), _ => { });
@@ -171,7 +156,6 @@ public sealed class AcpProcessDrainTests {
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
 				["WEAVIE_FAKE_ACP_MODE"] = "immediate-malformed",
 			},
-			Distribution = "custom",
 		};
 		await using var connection = new AcpJsonRpcConnection(
 			definition,
@@ -213,7 +197,6 @@ public sealed class AcpProcessDrainTests {
 		Command = executable,
 		Arguments = arguments,
 		Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-		Distribution = "custom",
 	};
 
 	private static string FakeExecutable() => AcpAgentSessionFixture.ExecutablePath(

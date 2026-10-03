@@ -197,16 +197,15 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private AgentLaunch AuthenticationLaunch(AcpAuthMethod method) {
-		var invocation = AcpProcessInvocation.Resolve(_definition, _context.Workspace, method.Arguments);
 		var environment = new Dictionary<string, string>(_definition.Environment, StringComparer.Ordinal);
 		foreach (var entry in method.Environment) environment[entry.Key] = entry.Value;
 		return new AgentLaunch {
-			Command = invocation.Command,
-			Arguments = invocation.Arguments,
+			Command = _definition.Command,
+			Arguments = [.. _definition.Arguments, .. method.Arguments],
 			WorkingDirectory = Path.GetFullPath(_context.Workspace),
 			RemoveEnvironment = [],
 			Environment = environment,
-			ExecutableMode = Path.IsPathFullyQualified(invocation.Command)
+			ExecutableMode = Path.IsPathFullyQualified(_definition.Command)
 				? AgentExecutableMode.Direct
 				: AgentExecutableMode.SearchPath,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,

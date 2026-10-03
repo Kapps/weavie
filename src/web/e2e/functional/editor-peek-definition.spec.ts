@@ -313,30 +313,57 @@ for (const change of ["release Alt", "press Shift"] as const) {
 }
 
 for (const cancel of ["release Alt after mouse down", "drag away and back"] as const) {
-  test(`Alt click does not peek after ${cancel}`, async ({ page }) => {
-    await focusEditor(page, "hello.ts");
-    await registerGreetDefinition(page);
-    // Model position, not a DOM locator + boundingBox(): the latter races Monaco's own re-render of the span.
-    const { x, y } = await symbolPosition(page, "const message = greet", "greet");
-    await page.mouse.move(x, y);
-    await page.keyboard.down("Alt");
-    await page.mouse.move(x, y);
-    await expect(page.locator(".goto-definition-link")).toBeVisible();
-    await page.mouse.down();
-    if (cancel === "release Alt after mouse down") {
+  for (const pendingRender of [false, true]) {
+    test(`Alt click does not peek after ${cancel}${pendingRender ? " with a render pending" : ""}`, async ({
+      page,
+    }) => {
+      await focusEditor(page, "hello.ts");
+      await registerGreetDefinition(page);
+      // Model position, not a DOM locator + boundingBox(): the latter races Monaco's own re-render of the span.
+      const { x, y } = await symbolPosition(page, "const message = greet", "greet");
+      await page.mouse.move(x, y);
+      await page.keyboard.down("Alt");
+      await page.mouse.move(x, y);
+      await expect(page.locator(".goto-definition-link")).toBeVisible();
+      if (pendingRender) {
+        // Re-decorate the pressed line as the press lands, so Monaco's hit test flushes a render that detaches the event target.
+        await page.evaluate(
+          ({ x, y }) => {
+            const editor = window.__WEAVIE_EDITOR__;
+            const line = editor?.getTargetAtClientPoint(x, y)?.position?.lineNumber;
+            const node = editor?.getDomNode();
+            if (!editor || !line || !node) throw new Error("Editor is not ready");
+            const range = {
+              startLineNumber: line,
+              startColumn: 1,
+              endLineNumber: line,
+              endColumn: 99,
+            };
+            const decorate = () =>
+              editor.createDecorationsCollection([
+                { range, options: { inlineClassName: "e2e-pending" } },
+              ]);
+            node.addEventListener("mousedown", decorate, { capture: true, once: true });
+          },
+          { x, y },
+        );
+      }
+      await page.mouse.down();
+      if (cancel === "release Alt after mouse down") {
+        await page.keyboard.up("Alt");
+        await expect(page.locator(".goto-definition-link")).toHaveCount(0);
+      } else {
+        await page.mouse.move(x + 60, y, { steps: 5 });
+        await page.mouse.move(x, y, { steps: 5 });
+      }
+      await page.mouse.up();
       await page.keyboard.up("Alt");
-      await expect(page.locator(".goto-definition-link")).toHaveCount(0);
-    } else {
-      await page.mouse.move(x + 60, y, { steps: 5 });
-      await page.mouse.move(x, y, { steps: 5 });
-    }
-    await page.mouse.up();
-    await page.keyboard.up("Alt");
-    await expect(page.locator(".peekview-widget")).toHaveCount(0);
-    if (cancel === "release Alt after mouse down") {
-      await expect
-        .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getSelections()?.length))
-        .toBe(2);
-    }
-  });
+      await expect(page.locator(".peekview-widget")).toHaveCount(0);
+      if (cancel === "release Alt after mouse down") {
+        await expect
+          .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getSelections()?.length))
+          .toBe(2);
+      }
+    });
+  }
 }

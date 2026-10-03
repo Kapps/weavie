@@ -12,6 +12,8 @@ export interface AcpRegistryAgent {
   distributions: string[];
   installedDistribution: string | null;
   installedVersion: string | null;
+  /** Why the installed recipe can't be launched; reinstalling recovers it. */
+  broken: string | null;
 }
 
 // The official registry's agents with install / update (and, where the host allows it, remove) actions.
@@ -95,26 +97,36 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
         <div class="acp-registry-list">
           <For each={shown()} fallback={<div class="acp-registry-state">No agents match.</div>}>
             {(agent) => {
-              const installed = () => agent.installedDistribution !== null;
-              const current = () => agent.installedVersion === agent.version;
+              const broken = () => agent.broken !== null;
+              const installed = () => agent.installedDistribution !== null || broken();
+              const current = () => !broken() && agent.installedVersion === agent.version;
+              // A broken install reinstalls through its recorded distribution while the registry still offers it.
+              const pinned = () =>
+                installed() && agent.distributions.includes(agent.installedDistribution!);
               const chosen = () =>
-                installed() ? agent.installedDistribution! : (selected()[agent.id] ?? "");
+                pinned() ? agent.installedDistribution! : (selected()[agent.id] ?? "");
               return (
                 <article class="acp-registry-agent">
                   <div class="acp-registry-agent-copy">
                     <div class="acp-registry-agent-title">
                       <strong>{agent.name}</strong>
                       <span>{agent.version}</span>
-                      <Show when={installed()}>
+                      <Show when={installed() && !broken()}>
                         <span class="acp-registry-installed">
                           {current() ? "Installed" : `Installed ${agent.installedVersion}`}
                         </span>
                       </Show>
+                      <Show when={broken()}>
+                        <span class="acp-registry-broken">Needs reinstall</span>
+                      </Show>
                     </div>
                     <p>{agent.description}</p>
+                    <Show when={agent.broken}>
+                      {(reason) => <p class="acp-registry-broken-reason">{reason()}</p>}
+                    </Show>
                   </div>
                   <div class="acp-registry-agent-actions">
-                    <Show when={!installed() && agent.distributions.length > 1}>
+                    <Show when={!pinned() && agent.distributions.length > 1}>
                       <select
                         aria-label={`Distribution for ${agent.name}`}
                         value={chosen()}
@@ -130,13 +142,19 @@ export function AcpRegistryList(props: { backendId: string; removable: boolean }
                         </For>
                       </select>
                     </Show>
-                    <Show when={!installed() || !current()}>
+                    <Show when={(!installed() || !current()) && agent.distributions.length > 0}>
                       <button
                         type="button"
                         disabled={busy() !== null || chosen() === ""}
                         onClick={() => void install(agent, chosen())}
                       >
-                        {busy() === agent.id ? "Working…" : installed() ? "Update" : "Install"}
+                        {busy() === agent.id
+                          ? "Working…"
+                          : broken()
+                            ? "Reinstall"
+                            : installed()
+                              ? "Update"
+                              : "Install"}
                       </button>
                     </Show>
                     <Show when={installed() && props.removable}>
@@ -170,8 +188,8 @@ export function acpRegistryFeature(backendId: string) {
 }
 
 /**
- * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (a first
- * npx/uvx start downloads it, so this can take a while); rejects with the agent's own error output otherwise.
+ * Installs a registry agent and resolves once the host has started it and it answered as an ACP agent (an npm
+ * install or first uvx start downloads it, so this can take a while); rejects with the error output otherwise.
  */
 let installSequence = 0;
 

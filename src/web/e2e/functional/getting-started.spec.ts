@@ -86,6 +86,7 @@ function canned(message: MessageEnvelope): unknown {
       distributions: ["npx"],
       installedDistribution: null,
       installedVersion: null,
+      broken: null,
     });
     return [
       agent("claude-acp", "Claude Agent", "ACP wrapper for Anthropic's Claude"),

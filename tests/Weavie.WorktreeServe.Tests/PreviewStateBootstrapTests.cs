@@ -174,7 +174,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 	private static void WriteInstalledAgents(string root, string id) => Write(
 		Under(root, WeaviePaths.AcpInstallationsFile),
 		$$"""
-		{"version":1,"agents":[{"id":"{{id}}","name":"Codex","version":"1.0.0","command":"npx","arguments":["--yes","codex-acp@1.0.0"],"environment":{},"distribution":"npx"}]}
+		{"version":1,"agents":[{"id":"{{id}}","name":"Codex","version":"1.0.0","command":"uvx","arguments":["codex-acp==1.0.0"],"environment":{},"distribution":"uvx"}]}
 		""");
 
 	private static string Under(string root, string canonicalPath) =>

@@ -38,6 +38,5 @@ public sealed class AcpAgentCheckTests {
 		Command = command,
 		Arguments = arguments,
 		Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-		Distribution = "npx",
 	};
 }

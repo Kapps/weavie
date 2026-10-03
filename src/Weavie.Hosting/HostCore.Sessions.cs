@@ -378,8 +378,7 @@ public sealed partial class HostCore {
 
 	private void EnsureProvidersCanBeReplaced(
 		IReadOnlySet<string> currentIds,
-		IReadOnlyList<AcpLaunchSpec> proposed) {
-		var proposedIds = proposed.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+		IReadOnlySet<string> proposedIds) {
 		foreach (string removed in currentIds.Where(id => !proposedIds.Contains(id))) {
 			EnsureProviderCanBeRemoved(removed);
 		}

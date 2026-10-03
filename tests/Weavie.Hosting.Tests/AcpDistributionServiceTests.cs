@@ -14,7 +14,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	private readonly TempDirectory _root = new("weavie-acp-distribution");
 
 	[Fact]
-	public async Task PackageDistributionsArePersistedAsLiteralCommands() {
+	public async Task PackageDistributionsArePersistedAsExactLaunches() {
 		var fileSystem = new InMemoryFileSystem();
 		var handler = new RegistryHandler(PackageRegistry("1.2.3"));
 		var service = Service(fileSystem, handler);
@@ -26,8 +26,8 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		await service.InstallAsync("sample", "npx", Accept, CancellationToken.None);
 
 		var launch = Assert.Single(service.LaunchSpecs);
-		Assert.Equal("npx", launch.Command);
-		Assert.Equal(["--yes", "sample-acp@1.2.3", "--stdio"], launch.Arguments);
+		Assert.Equal("node", launch.Command);
+		Assert.Equal([InstalledScript(), "--stdio"], launch.Arguments);
 		Assert.Equal("1", launch.Environment["SAMPLE_ACP"]);
 		Assert.Equal("npx", launch.Distribution);
 		Assert.Equal(1, changes);
@@ -45,39 +45,165 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	}
 
 	[Fact]
-	public void WindowsNpxUsesTheStandardShimWithoutAUserControlledShellExpression() {
-		var (command, arguments) = AcpDistributionService.PackageProcess(
-			"npx",
-			["--yes", "@scope/sample@1.2.3", "--stdio"],
-			windows: true);
+	public async Task NpmInstallsRunTheUsersNpmOutsideEveryProject() {
+		string project = _root.CreateDirectory("project");
+		File.WriteAllText(Path.Combine(project, "package.json"),
+			"""{"devEngines":{"packageManager":{"name":"pnpm","version":"11.21.0","onFail":"error"}}}""");
+		File.WriteAllText(Path.Combine(project, ".npmrc"), "registry=http://127.0.0.1:9/\n");
+		string install = Directory.CreateDirectory(Path.Combine(project, "install")).FullName;
 
-		Assert.Equal("npx", command);
-		Assert.Equal(["--yes", "@scope/sample@1.2.3", "--stdio"], arguments);
-		Assert.Throws<InvalidDataException>(() => AcpDistributionService.PackageProcess(
-			"npx",
-			["sample&calc"],
-			windows: true));
+		WritePackageTarball(Path.Combine(install, "sample-acp.tgz"));
+
+		await new NpmInstaller().InstallAsync("file:sample-acp.tgz", install, CancellationToken.None);
+
+		Assert.Equal(
+			Path.Combine(install, "node_modules", "@scope", "sample-acp", "bin", "acp.js"),
+			AcpNpmPackage.Executable(install));
+	}
+
+	[Theory]
+	[InlineData("""{"bin":"cli.js"}""", "cli.js")]
+	[InlineData("""{"bin":{"other":"other.js"}}""", "other.js")]
+	[InlineData("""{"bin":{"other":"other.js","sample-acp":"cli.js"}}""", "cli.js")]
+	[InlineData("""{"bin":{"one":"cli.js","two":"cli.js"}}""", "cli.js")]
+	public void NpmExecutableMatchesTheOneNpxWouldRun(string manifest, string script) {
+		string install = WritePackage(_root.CreateDirectory("install"), manifest, script);
+
+		Assert.Equal(Path.Combine(install, "node_modules", "sample-acp", script), AcpNpmPackage.Executable(install));
+	}
+
+	[Theory]
+	[InlineData("""{"bin":{"one":"one.js","two":"cli.js"}}""")]
+	[InlineData("""{"bin":"../outside.js"}""")]
+	[InlineData("""{}""")]
+	public void NpmPackagesWithoutOneContainedExecutableAreRejected(string manifest) {
+		string install = WritePackage(_root.CreateDirectory("install"), manifest, "cli.js");
+
+		Assert.Throws<InvalidDataException>(() => AcpNpmPackage.Executable(install));
+	}
+
+	[Theory]
+	[InlineData("#!/usr/bin/env node", "node", new string[0])]
+	[InlineData("#!/usr/bin/env -S node --no-warnings", "node", new[] { "--no-warnings" })]
+	[InlineData("#!/bin/sh", "/bin/sh", new string[0])]
+	public void NpmScriptsRunThroughTheirInterpreter(string shebang, string command, string[] options) {
+		string script = _root.WriteFile("cli", shebang + "\nconsole.log(1)\n");
+
+		var (launched, arguments) = AcpNpmPackage.Launch(script);
+
+		Assert.Equal(command, launched);
+		Assert.Equal([.. options, script], arguments);
 	}
 
 	[Fact]
-	public void PosixInstallationsPersistLiteralNpxArgumentsWithWhitespace() {
-		if (OperatingSystem.IsWindows()) return;
-		var fileSystem = new InMemoryFileSystem();
-		var store = new AcpInstallationStore(fileSystem, _root.Combine("installed.json"));
+	public void NativeNpmExecutablesRunDirectly() {
+		string binary = _root.WriteFile("droid", "\u007fELF");
+
+		Assert.Equal((binary, (IReadOnlyList<string>)[]), AcpNpmPackage.Launch(binary));
+	}
+
+	[Theory]
+	[InlineData("@scope/sample@1.2.3")]
+	[InlineData("sample-acp@1.2.3-beta.1+build.2")]
+	public void NpmSpecsFromTheRegistryAreAccepted(string package) => AcpNpmPackage.ValidateSpec(package);
+
+	[Theory]
+	[InlineData("sample&calc")]
+	[InlineData("--global")]
+	[InlineData("sample acp")]
+	[InlineData("sample@^1.2.3")]
+	public void NpmSpecsThatCouldEscapeTheCommandLineAreRejected(string package) =>
+		Assert.Throws<InvalidDataException>(() => AcpNpmPackage.ValidateSpec(package));
+
+	[Fact]
+	public void NpmInstallationsRequireTheirAbsoluteInstalledExecutable() {
+		var store = new AcpInstallationStore(new InMemoryFileSystem(), _root.Combine("installed.json"));
 		var launch = new AcpLaunchSpec {
 			Id = "sample",
 			Name = "Sample",
-			Command = "npx",
-			Arguments = ["--yes", "sample-acp@1.2.3", "--profile name"],
+			Command = "node",
+			Arguments = [_root.Combine("cli.js"), "--profile name"],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 			Version = "1.2.3",
 			Distribution = "npx",
 		};
 
-		store.Save([launch]);
+		Save(store, launch);
 
-		Assert.Equal(launch.Arguments, Assert.Single(store.Load()).Arguments);
+		Assert.Equal(launch.Arguments, Assert.Single(store.Load().Agents).Arguments);
+		Save(store, launch with { Command = _root.Combine("droid"), Arguments = ["acp"] });
+		Assert.Throws<JsonException>(() => Save(store, launch with { Command = "npx", Arguments = ["--yes", "sample-acp@1.2.3"] }));
 	}
+
+	[Fact]
+	public async Task AnUnlaunchableInstallIsKeptVerbatimAndRecoveredByReinstalling() {
+		var fileSystem = new InMemoryFileSystem();
+		string installations = _root.Combine("installations.json");
+		const string legacy = """{"id":"sample","name":"Sample","version":"1.0.0","command":"npx","arguments":["--yes","sample-acp@1.0.0"],"environment":{},"distribution":"npx"}""";
+		fileSystem.WriteAllText(installations, $$"""{"version":1,"agents":[{{legacy}},{"id":"mine","name":"Mine","version":"2.0.0","command":"uvx","arguments":["mine"],"environment":{},"distribution":"uvx"}]}""");
+		var handler = new RegistryHandler(PackageRegistry("1.2.3"));
+		var service = Service(fileSystem, handler);
+
+		Assert.Equal("mine", Assert.Single(service.LaunchSpecs).Id);
+		var broken = Assert.Single(service.BrokenAgents);
+		Assert.Equal(("sample", "Sample", "npx"), (broken.Id, broken.Name, broken.Distribution));
+		Assert.Equal("This npx install is from an older Weavie and can't be launched.", broken.Reason);
+		var listed = Assert.Single(await service.ListRegistryAsync(CancellationToken.None));
+		Assert.Equal(("npx", broken.Reason), (listed.InstalledDistribution, listed.Broken));
+
+		service.Remove("mine");
+		Assert.Contains(legacy, fileSystem.ReadAllText(installations), StringComparison.Ordinal);
+
+		await service.InstallAsync("sample", "npx", Accept, CancellationToken.None);
+
+		Assert.Equal("node", Assert.Single(service.LaunchSpecs).Command);
+		Assert.Empty(service.BrokenAgents);
+		Assert.Null(Assert.Single(await service.ListRegistryAsync(CancellationToken.None)).Broken);
+		Assert.Empty(Service(fileSystem, handler).BrokenAgents);
+	}
+
+	[Fact]
+	public async Task AnUnlaunchableInstallTheRegistryNoLongerOffersIsListedForRemoval() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"),
+			"""{"version":1,"agents":[{"id":"gone","name":"Gone","command":"npx","unknown":true}]}""");
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+
+		var listed = await service.ListRegistryAsync(CancellationToken.None);
+
+		var gone = Assert.Single(listed, agent => agent.Id == "gone");
+		Assert.Empty(gone.Distributions);
+		Assert.Null(gone.InstalledDistribution);
+		Assert.NotNull(gone.Broken);
+	}
+
+	[Fact]
+	public void AnUnlaunchableInstallCanBeRemoved() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"),
+			"""{"version":1,"agents":[{"id":"sample","name":"Sample","command":"npx","unknown":true}]}""");
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+		Assert.Equal("sample", Assert.Single(service.BrokenAgents).Id);
+
+		service.Remove("sample");
+
+		Assert.Empty(service.BrokenAgents);
+		Assert.Empty(Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3"))).BrokenAgents);
+	}
+
+	[Theory]
+	[InlineData("""{"version":1,"agents":[{"name":"No id","command":"npx"}]}""")]
+	[InlineData("""{"version":1,"agents":[{"id":"sample","command":"npx"},{"id":"sample","command":"uvx"}]}""")]
+	[InlineData("""{"version":1,"agents":[null]}""")]
+	public void InstallationFilesWithoutAddressableEntriesStayUnavailable(string document) {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(_root.Combine("installations.json"), document);
+		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
+
+		Assert.Throws<JsonException>(() => service.LaunchSpecs);
+	}
+
+	private static void Save(AcpInstallationStore store, AcpLaunchSpec launch) => store.Save(new AcpInstallations([launch], []));
 
 	[Fact]
 	public void CustomProfilesUseExactPathCommandsAndEnvironment() {
@@ -253,7 +379,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 			CancellationToken.None));
 
 		Assert.Equal("the agent never answered", error.Message);
-		Assert.Equal(["--yes", "sample-acp@1.2.3", "--stdio"], checkedLaunch?.Arguments);
+		Assert.Equal([InstalledScript(), "--stdio"], checkedLaunch?.Arguments);
 		Assert.Empty(service.LaunchSpecs);
 		Assert.Equal(0, changes);
 		Assert.Empty(Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3"))).LaunchSpecs);
@@ -269,7 +395,43 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 			fileSystem,
 			_root.Combine("installations.json"),
 			_root.Combine("custom.json"),
-			_root.Combine("packages"));
+			_root.Combine("packages"),
+			new FakeNpm());
+	}
+
+	private string InstalledScript() =>
+		_root.Combine("packages", "sample", "1.2.3", "npx", "node_modules", "sample-acp", "cli.js");
+
+	private static string WritePackage(string install, string manifest, string script) {
+		File.WriteAllText(Path.Combine(install, "package.json"), """{"dependencies":{"sample-acp":"1.2.3"}}""");
+		string package = Directory.CreateDirectory(Path.Combine(install, "node_modules", "sample-acp")).FullName;
+		File.WriteAllText(Path.Combine(package, "package.json"), manifest);
+		File.WriteAllText(Path.Combine(package, script), "#!/usr/bin/env node\n");
+		return install;
+	}
+
+	// A registry-free npm package: a local tarball whose one scoped bin npm must find.
+	private static void WritePackageTarball(string path) {
+		using var file = File.Create(path);
+		using var compressed = new GZipStream(file, CompressionLevel.Optimal);
+		using var archive = new TarWriter(compressed);
+		foreach (var (name, content) in new[] {
+			("package/package.json", """{"name":"@scope/sample-acp","version":"1.2.3","bin":{"sample-acp":"bin/acp.js"}}"""),
+			("package/bin/acp.js", "#!/usr/bin/env node\n"),
+		}) {
+			archive.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) {
+				DataStream = new MemoryStream(Encoding.UTF8.GetBytes(content), writable: false),
+				Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+			});
+		}
+	}
+
+	private sealed class FakeNpm : INpmInstaller {
+		public Task InstallAsync(string package, string directory, CancellationToken ct) {
+			Assert.Equal("sample-acp@1.2.3", package);
+			WritePackage(directory, """{"bin":"cli.js"}""", "cli.js");
+			return Task.CompletedTask;
+		}
 	}
 
 	private static string PackageRegistry(string version) => PackageRegistry(version, "sample");

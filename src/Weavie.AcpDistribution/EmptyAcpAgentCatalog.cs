@@ -17,6 +17,12 @@ public sealed class EmptyAcpAgentCatalog : IAcpAgentCatalog {
 	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs => [];
 
 	/// <inheritdoc/>
+	public IReadOnlyList<AcpBrokenAgent> BrokenAgents => [];
+
+	/// <inheritdoc/>
+	public IReadOnlySet<string> ProviderIds { get; } = new HashSet<string>();
+
+	/// <inheritdoc/>
 	public Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) =>
 		Task.FromResult<IReadOnlyList<AcpRegistryAgent>>([]);
 
@@ -32,6 +38,6 @@ public sealed class EmptyAcpAgentCatalog : IAcpAgentCatalog {
 	public void Remove(string id) => throw new InvalidOperationException("This host does not expose the ACP Registry.");
 
 	/// <inheritdoc/>
-	public void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate) =>
+	public void Reload(Action<IReadOnlySet<string>> validate) =>
 		throw new InvalidOperationException("This host does not expose ACP agents.");
 }

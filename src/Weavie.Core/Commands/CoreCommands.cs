@@ -881,7 +881,6 @@ public static class CoreCommands {
 			Description = "Continue the agent conversation from just before a prompt, with that prompt back in the composer. "
 				+ "Files are not changed.",
 			Aliases = ["rewind", "undo prompt", "edit last prompt"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+z" }],
 			When = "agentFocused && agentRewindable",
 			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"}}",
 		});

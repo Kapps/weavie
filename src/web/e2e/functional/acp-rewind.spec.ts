@@ -10,13 +10,9 @@ test("Rewind continues from before a prompt and puts it back in the composer", a
   }
   const prompt = (text: string) =>
     surface.locator(".agent-entry-message.agent-tone-user", { hasText: text });
-  await expect(prompt("bravo").locator(".agent-entry-rewind")).toHaveAttribute(
-    "title",
-    "Rewind to here",
-  );
   await expect(prompt("charlie").locator(".agent-entry-rewind")).toHaveAttribute(
     "title",
-    "Rewind to here (Alt+Z)",
+    "Rewind to here",
   );
 
   await prompt("bravo").hover();
@@ -29,7 +25,7 @@ test("Rewind continues from before a prompt and puts it back in the composer", a
   await submitAcpDraft(surface, "delta");
   await expect(surface).toContainText("echo: delta");
 
-  await composer.press("Alt+z");
+  await submitAcpDraft(surface, "/rewind");
   await expect(composer).toHaveValue("delta");
   await expect(surface).not.toContainText("echo: delta");
   await expect(surface).toContainText("echo: alpha");

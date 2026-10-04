@@ -131,11 +131,10 @@ internal sealed partial class AcpConversation {
 		ObserveTerminalizedTools(tools);
 	}
 
-	/// <summary>Closes the provider session around <paramref name="teardown"/>, then releases the terminals.</summary>
+	/// <summary>Closes the provider session of a settled or ended conversation around <paramref name="teardown"/>.</summary>
 	internal async Task CloseAsync(Func<Task> teardown) {
 		bool close;
 		AcpSessionEndpoint? endpoint;
-		lock (_turnTransitionGate) SettleForDisposal();
 		lock (_gate) {
 			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
 			close = (_ready || _spec.SideScoped) && _features.Close && endpoint?.SessionId is not null;

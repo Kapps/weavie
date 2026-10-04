@@ -62,15 +62,16 @@ internal sealed partial class AcpConversation {
 		AcpClientRequestState state,
 		AcpPendingRequest pending,
 		Func<AgentPaneMessage> createMessage) {
-		// The transition gate precedes the request lock, as it does for a concurrent $/cancel_request.
+		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
 		lock (_turnTransitionGate) {
-			if (state.PublishDeferred(() => {
+			if (!state.Completed) {
 				Observe(new AgentInputRequested());
 				Observe(new AgentInputResolved(RequiresUserInput: true));
 				// The pane keys an item by (threadId, turnId, itemId), and the resolution reads its identity off this
 				// same record -- so stamping it here is what keeps the two from ever disagreeing.
 				Emit(createMessage() with { ThreadId = pending.ThreadId, TurnId = pending.TurnId });
-			})) return;
+				return;
+			}
 		}
 		_pendingRequests.TryRemove(pending.Request.Id, out _);
 		state.Token.ThrowIfCancellationRequested();

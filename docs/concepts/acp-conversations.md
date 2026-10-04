@@ -62,7 +62,9 @@ primary has no endpoint to receive them.
 The order is transition gate → owner gate → conversation gate. Never take an outer lock while holding an
 inner one, and never hold any of them across an await. The transition gate is one reentrant lock per
 process owner, shared into every conversation; it serialises transitions, port detachment, and every port
-call, so port calls happen with no inner lock held. The owner captures the conversation it acts on at the
+call, so port calls happen with no inner lock held. A request's own state lock is a leaf: a request card
+publishes under the transition gate after checking the request is still open, and any completion's
+resolution, also emitted under that gate, follows it. The owner captures the conversation it acts on at the
 synchronous entry point and never re-reads `_primary` after an await.
 
 ## Retiring before restarting

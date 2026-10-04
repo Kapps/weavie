@@ -47,27 +47,30 @@ internal sealed partial class AcpConversation {
 			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
-		if (!state.PublishDeferred(() => {
-			Observe(new AgentPermissionRequested());
-			Observe(new AgentPermissionResolved(RequiresUserInput: true));
-			Emit(new AgentPaneMessage {
-				Type = "approval-requested",
-				ProviderId = Definition.Id,
-				ThreadId = threadId,
-				TurnId = turnId,
-				ItemId = $"request:{request.Id}",
-				RequestId = request.Id,
-				ItemType = tool.Kind ?? "tool",
-				Category = tool.Kind,
-				Summary = tool.Title ?? "Permission requested",
-				Text = tool.Input,
-				Actions = actions,
-				Status = "pending",
-			});
-		})) {
-			_pendingRequests.TryRemove(request.Id, out _);
-			state.Token.ThrowIfCancellationRequested();
+		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
+		lock (_turnTransitionGate) {
+			if (!state.Completed) {
+				Observe(new AgentPermissionRequested());
+				Observe(new AgentPermissionResolved(RequiresUserInput: true));
+				Emit(new AgentPaneMessage {
+					Type = "approval-requested",
+					ProviderId = Definition.Id,
+					ThreadId = threadId,
+					TurnId = turnId,
+					ItemId = $"request:{request.Id}",
+					RequestId = request.Id,
+					ItemType = tool.Kind ?? "tool",
+					Category = tool.Kind,
+					Summary = tool.Title ?? "Permission requested",
+					Text = tool.Input,
+					Actions = actions,
+					Status = "pending",
+				});
+				return DeferredClientResponse;
+			}
 		}
+		_pendingRequests.TryRemove(request.Id, out _);
+		state.Token.ThrowIfCancellationRequested();
 		return DeferredClientResponse;
 	}
 

@@ -5,7 +5,6 @@ internal sealed class AcpClientRequestState : IDisposable {
 	private readonly CancellationTokenSource _cancellation;
 	private readonly Lock _gate = new();
 	private bool _completed;
-	private bool _published;
 
 	public AcpClientRequestState(AcpClientRequest request, CancellationToken lifetime) {
 		Request = request;
@@ -17,14 +16,14 @@ internal sealed class AcpClientRequestState : IDisposable {
 
 	public CancellationToken Token { get; }
 
-	public bool TryComplete() => TryComplete(out _);
+	public bool Completed {
+		get { lock (_gate) return _completed; }
+	}
 
-	public bool TryComplete(out bool published) {
+	public bool TryComplete() {
 		lock (_gate) {
-			published = false;
 			if (_completed) return false;
 			_completed = true;
-			published = _published;
 			return true;
 		}
 	}
@@ -36,16 +35,6 @@ internal sealed class AcpClientRequestState : IDisposable {
 		}
 		_cancellation.Cancel();
 		return true;
-	}
-
-	public bool PublishDeferred(Action publish) {
-		ArgumentNullException.ThrowIfNull(publish);
-		lock (_gate) {
-			if (_completed) return false;
-			publish();
-			_published = true;
-			return true;
-		}
 	}
 
 	public void Dispose() => _cancellation.Dispose();

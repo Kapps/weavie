@@ -185,7 +185,7 @@ internal sealed partial class AcpConversation {
 			_urlElicitations.TryRemove(
 				new KeyValuePair<string, string>(elicitationId, state.Request.Id));
 		}
-		RunRuntime(state.Request.Generation, async () => {
+		RunRuntime(async () => {
 			try {
 				if (errorCode is { } code) {
 					await _connection.RespondErrorAsync(

@@ -20,7 +20,7 @@ internal sealed partial class AcpConversation {
 			TerminalizedTool[] tools;
 			bool promptActive;
 			lock (_gate) {
-				if (_disposed || _runtimeFailed) return;
+				if (!Live) return;
 				_activeGeneration = 0;
 				_runtimeFailed = true;
 				_ready = false;

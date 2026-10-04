@@ -214,13 +214,11 @@ internal sealed partial class AcpConversation {
 		}
 	});
 
-	internal void RunRuntime(long generation, Func<Task> action) => _ = Task.Run(async () => {
+	internal void RunRuntime(Func<Task> action) => _ = Task.Run(async () => {
 		try {
 			await action().ConfigureAwait(false);
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
-			lock (_turnTransitionGate) {
-				if (OwnsGeneration(generation)) FailRuntimeSerialized(ex);
-			}
+			FailRuntime(ex);
 		}
 	});
 
@@ -237,7 +235,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void FailRuntimeSerialized(Exception error) {
-		if (!_port.Fail(error)) Terminate(error);
+		if (Live && !_port.Fail(error)) Terminate(error);
 	}
 
 	private void SignalSideTurnSettled() {

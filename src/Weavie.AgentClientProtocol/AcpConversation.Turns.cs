@@ -241,7 +241,7 @@ internal sealed partial class AcpConversation {
 				long generation;
 				lock (_gate) generation = _activeGeneration;
 				var cancellation = Endpoint(generation).NotifyAsync("session/cancel", new { });
-				RunRuntime(generation, () => cancellation);
+				RunRuntime(() => cancellation);
 			}
 			PublishQueue();
 			bool interactionCancelled = CancelPendingInteractions();

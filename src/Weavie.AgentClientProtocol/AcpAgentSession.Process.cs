@@ -114,7 +114,7 @@ public sealed partial class AcpAgentSession {
 			conversation = _primary;
 			conversation.Attach(process.Generation);
 		}
-		conversation.RunRuntime(process.Generation, () => InitializeAsync(conversation, process.Generation));
+		conversation.RunRuntime(() => InitializeAsync(conversation, process.Generation));
 	}
 
 	private async Task InitializeAsync(AcpConversation conversation, long generation) {

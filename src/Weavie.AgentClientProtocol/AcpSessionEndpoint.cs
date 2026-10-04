@@ -3,19 +3,19 @@ using System.Text.Json.Nodes;
 
 namespace Weavie.AgentClientProtocol;
 
+// The process generation stays private to the endpoint and the connection, so a conversation cannot compare one.
 internal sealed class AcpSessionEndpoint(
 	AcpJsonRpcConnection connection, long generation,
 	Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
 	private volatile bool _retired;
 	private volatile bool _opened;
-	internal long Generation { get; } = generation;
 	internal string? SessionId { get; private set; }
 	internal bool Retired => _retired;
 	// Until its conversation starts opening, the connection routes the generation's unscoped traffic as before any endpoint.
 	internal bool Opened => _opened;
 	internal void Open() => _opened = true;
 	internal void Retire() => _retired = true;
-	internal void Bind(string sessionId) => connection.BindEndpoint(this, sessionId);
+	internal void Bind(string sessionId) => connection.BindEndpoint(this, generation, sessionId);
 
 	internal void SetIdentity(string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
@@ -26,20 +26,21 @@ internal sealed class AcpSessionEndpoint(
 	}
 
 	internal Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) =>
-		connection.RequestForEndpointAsync(method, Address(parameters), this, null, ct);
+		connection.RequestForEndpointAsync(method, Address(parameters), this, generation, null, ct);
 	internal Task NotifyAsync(string method, object parameters) =>
-		connection.NotifyAsync(method, Address(parameters), Generation);
+		connection.NotifyAsync(method, Address(parameters), generation);
 	internal Task<JsonElement> AuthenticateAsync(string methodId, CancellationToken ct) =>
-		connection.RequestForEndpointAsync("authenticate", Parameters(new { methodId }), this, null, ct);
+		connection.RequestForEndpointAsync("authenticate", Parameters(new { methodId }), this, generation, null, ct);
 	internal Task<JsonElement> CreateAsync(object parameters) =>
-		connection.CreateForEndpointAsync("session/new", Parameters(parameters), this);
+		connection.CreateForEndpointAsync("session/new", Parameters(parameters), this, generation);
 	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, object parameters) {
 		ObjectDisposedException.ThrowIf(_retired, this);
-		return connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this);
+		return connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this, generation);
 	}
 	internal Task<JsonElement> CloseAsync() {
 		Retire();
-		return connection.RequestForEndpointAsync("session/close", new { sessionId = SessionId }, this, null, CancellationToken.None);
+		return connection.RequestForEndpointAsync(
+			"session/close", new { sessionId = SessionId }, this, generation, null, CancellationToken.None);
 	}
 
 	private JsonObject Address(object parameters) {
@@ -57,12 +58,12 @@ internal sealed class AcpSessionEndpoint(
 	}
 
 	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) {
-		var branch = connection.OpenEndpoint(Generation, observer, connection.RejectClosedRequest, static _ => { });
+		var branch = connection.OpenEndpoint(generation, observer, connection.RejectClosedRequest, static _ => { });
 		branch.Open();
 		return branch;
 	}
-	internal bool ReportHealthy() => connection.ReportHealthy(Generation);
-	internal void Terminate(string reason) => connection.TerminateGeneration(Generation, reason);
+	internal bool ReportHealthy() => connection.ReportHealthy(generation);
+	internal void Terminate(string reason) => connection.TerminateGeneration(generation, reason);
 
 	// Responses answer the agent's own requests, so they still go out after retirement.
 	internal Task RespondAsync(AcpClientRequest value, object result) => connection.RespondAsync(value, result);

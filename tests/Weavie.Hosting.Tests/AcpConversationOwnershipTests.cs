@@ -9,6 +9,8 @@ namespace Weavie.Hosting.Tests;
 
 // A conversation is an owned incarnation: it reaches the process only through its endpoint and its owner only
 // through its port, so nothing in it can address another incarnation's process, session, or storage.
+// Not covered here: lock discipline (no port call under an inner lock), owner code re-reading _primary after an
+// await, and AcpClientRequest.Generation, which is public but has nothing in a conversation to compare against.
 public sealed class AcpConversationOwnershipTests {
 	private const BindingFlags Declared =
 		BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
@@ -29,6 +31,15 @@ public sealed class AcpConversationOwnershipTests {
 		Assert.True(endpoint.IsInitOnly);
 		Assert.True(port.IsInitOnly);
 		Assert.DoesNotContain(Fields(), field => field.FieldType == typeof(AcpSessionEndpoint));
+	}
+
+	[Fact]
+	public void ProcessHandlesKeepTheirGenerationPrivate() {
+		Type[] handles = [typeof(AcpSessionEndpoint), typeof(AcpProcess)];
+		Assert.Empty(handles
+			.SelectMany(type => type.GetMembers(Declared))
+			.Where(member => Names(member.Name, ["generation"]) && member is not FieldInfo { IsPrivate: true })
+			.Select(member => $"{member.DeclaringType!.Name}.{member.Name}"));
 	}
 
 	[Fact]

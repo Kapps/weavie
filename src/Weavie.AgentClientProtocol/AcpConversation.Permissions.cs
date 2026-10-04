@@ -86,7 +86,7 @@ internal sealed partial class AcpConversation {
 
 	private void CompletePermissionTool(AcpClientRequest request) {
 		lock (_turnTransitionGate) {
-			if (request.Method != "session/request_permission" || !OwnsGeneration(request.Generation)) return;
+			if (request.Method != "session/request_permission" || !Live) return;
 			string id = RequiredString(request.Parameters.GetProperty("toolCall"), "toolCallId", "permission tool");
 			AcpToolState? tool;
 			lock (_gate) _tools.TryGetValue(id, out tool);

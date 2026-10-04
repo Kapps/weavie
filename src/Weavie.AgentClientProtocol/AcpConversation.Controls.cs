@@ -1,59 +1,58 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	/// <inheritdoc/>
-	public void SetControl(string axis, string value) {
+internal sealed partial class AcpConversation {
+	internal void SetControl(string axis, string value) {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
+		string? unadvertised;
 		lock (_gate) {
-			if (!_controls.TryGetValue(axis, out var control)) {
-				EmitFailure(new AcpProtocolException($"ACP did not advertise the '{axis}' control."));
-				return;
+			unadvertised = !_controls.TryGetValue(axis, out var control)
+				? $"ACP did not advertise the '{axis}' control."
+				: control.Options.All(option => !string.Equals(option.Id, value, StringComparison.Ordinal))
+					? $"ACP did not advertise '{value}' for the '{axis}' control."
+					: null;
+			if (unadvertised is null) {
+				if (!_ready || _sessionId is null) throw new InvalidOperationException("The ACP session is not ready.");
+				_controlMutations.Enqueue(new AcpControlMutation(axis, value));
 			}
-			if (control.Options.All(option => !string.Equals(option.Id, value, StringComparison.Ordinal))) {
-				EmitFailure(new AcpProtocolException($"ACP did not advertise '{value}' for the '{axis}' control."));
-				return;
-			}
-			if (!_ready || _sessionId is null) throw new InvalidOperationException("The ACP session is not ready.");
-			_controlMutations.Enqueue(new AcpControlMutation(axis, value));
 		}
-		DispatchControlMutation();
+		if (unadvertised is not null) EmitFailure(new AcpProtocolException(unadvertised));
+		else DispatchControlMutation();
 	}
 
 	private void DispatchControlMutation() {
 		AcpControlMutation mutation;
-		long generation;
 		lock (_gate) {
-			if (_controlMutationActive || _controlMutations.Count == 0 || !_ready || _disposed || _runtimeFailed) {
+			if (_controlMutationActive || _controlMutations.Count == 0 || !_ready || !Live) {
 				return;
 			}
 			_controlMutationActive = true;
 			mutation = _controlMutations.Dequeue();
-			generation = _activeGeneration;
 		}
 		_ = Task.Run(async () => {
 			try {
-				await DeliverControlMutationAsync(mutation, generation, persist: true).ConfigureAwait(false);
+				await DeliverControlMutationAsync(mutation, persist: true).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is not OperationCanceledException) {
 				lock (_turnTransitionGate) {
-					if (OwnsGeneration(generation)) {
+					if (Live) {
 						if (ex is IOException or AcpProtocolException) FailRuntimeSerialized(ex);
 						else EmitFailure(ex);
 					}
 				}
 			} finally {
 				lock (_gate) {
-					if (_activeGeneration == generation) _controlMutationActive = false;
+					if (Live) _controlMutationActive = false;
 				}
 				DispatchControlMutation();
 			}
 		});
 	}
 
-	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation, bool persist) {
+	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, bool persist) {
 		AgentControlAxis control;
 		bool mode;
 		lock (_gate) {
@@ -68,55 +67,55 @@ public sealed partial class AcpAgentSession {
 
 		JsonElement result;
 		if (mode) {
-			result = await Endpoint(generation).RequestAsync(
+			result = await _endpoint.Value.RequestAsync(
 				"session/set_mode",
 				new { modeId = mutation.Value },
 				CancellationToken.None).ConfigureAwait(false);
 		} else {
-			result = await Endpoint(generation).RequestAsync(
+			result = await _endpoint.Value.RequestAsync(
 				"session/set_config_option",
 				AcpConfigurationOptions.SetParameters(control, mutation.Value),
 				CancellationToken.None).ConfigureAwait(false);
 		}
 		lock (_turnTransitionGate) {
+			string? remembered;
+			if (!Live) return;
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
 				if (mode) _controls[mutation.Axis] = WithValue(control, mutation.Value);
 				else ReadControlResultLocked(result);
-				if (persist) _controlDefaults.Set(_definition.Id, mutation.Axis, _controls[mutation.Axis].Value);
+				remembered = persist ? _controls[mutation.Axis].Value : null;
 			}
+			if (remembered is not null) _port.RememberControl(mutation.Axis, remembered);
 			RaiseControls();
 		}
 	}
 
-	private async Task RestoreControlDefaultsAsync(long generation) {
-		var pending = new Dictionary<string, string>(_controlDefaults.Resolve(_definition.Id), StringComparer.Ordinal);
+	private async Task RestoreControlDefaultsAsync() {
+		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
 		while (pending.Count > 0) {
 			AcpControlMutation? mutation = null;
+			AcpControlMutation? stale = null;
 			bool consumed = false;
-			string? stale = null;
 			lock (_gate) {
 				foreach (var control in _controls.Values) {
 					if (!pending.Remove(control.Id, out string? value)) continue;
 					consumed = true;
-					if (control.Options.All(option => option.Id != value)) {
-						_controlDefaults.Clear(_definition.Id, control.Id, value);
-						stale = $"Saved {_definition.Name} control '{control.Id}' value '{value}' is no longer advertised and was forgotten.";
-						break;
-					}
-					if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
+					if (control.Options.All(option => option.Id != value)) stale = new AcpControlMutation(control.Id, value);
+					else if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
 					break;
 				}
 			}
 			if (stale is not null) {
-				EmitFailure(new AcpProtocolException(stale));
+				_port.ForgetControl(stale.Axis, stale.Value);
+				EmitFailure(new AcpProtocolException(
+					$"Saved {Definition.Name} control '{stale.Axis}' value '{stale.Value}' is no longer advertised and was forgotten."));
 				continue;
 			}
 			if (mutation is null) {
 				if (consumed) continue;
 				break;
 			}
-			await DeliverControlMutationAsync(mutation, generation, persist: false).ConfigureAwait(false);
+			await DeliverControlMutationAsync(mutation, persist: false).ConfigureAwait(false);
 		}
 	}
 
@@ -237,5 +236,5 @@ public sealed partial class AcpAgentSession {
 		ValueLabel = control.Options.FirstOrDefault(option => option.Id == value)?.Label ?? value,
 	};
 
-	private void RaiseControls() => ControlStateChanged?.Invoke(ControlState);
+	private void RaiseControls() => _port.ControlsChanged();
 }

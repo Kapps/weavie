@@ -1,16 +1,10 @@
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	/// <inheritdoc/>
-	public void ResolvePermission(string requestId, string optionId) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(optionId);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.ResolvePermission(side.RequestId, optionId);
-			return;
-		}
+internal sealed partial class AcpConversation {
+	internal void ResolvePermission(string requestId, string optionId) {
 		if (!_pendingRequests.TryGetValue(requestId, out var pending) || pending.Kind != "permission") {
 			EmitStaleInteraction(requestId, "permission");
 			return;
@@ -38,18 +32,10 @@ public sealed partial class AcpAgentSession {
 		if (OptionalString(option, "kind") is "reject_once" or "reject_always") CompletePermissionTool(pending.Request);
 	}
 
-	/// <inheritdoc/>
-	public void ResolveInput(
+	internal void ResolveInput(
 		string requestId,
 		string action,
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(action);
-		ArgumentNullException.ThrowIfNull(answers);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.ResolveInput(side.RequestId, action, answers);
-			return;
-		}
 		if (action is not ("accept" or "decline" or "cancel")) {
 			EmitFailure(new AcpProtocolException($"Unsupported ACP elicitation action '{action}'."));
 			return;
@@ -61,7 +47,7 @@ public sealed partial class AcpAgentSession {
 		Dictionary<string, object>? content = null;
 		try {
 			if (action == "accept") content = pending.Kind == "input"
-				? BuildElicitationContent(pending.Data, answers)
+				? AcpElicitationSchema.BuildElicitationContent(pending.Data, answers)
 				: new Dictionary<string, object>(StringComparer.Ordinal);
 		} catch (AcpProtocolException ex) {
 			EmitFailure(ex);
@@ -80,137 +66,6 @@ public sealed partial class AcpAgentSession {
 			pending.ThreadId,
 			pending.TurnId,
 			action == "accept" ? answers : null);
-	}
-
-	/// <inheritdoc/>
-	public void Authenticate(
-		string requestId,
-		string methodId,
-		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(methodId);
-		ArgumentNullException.ThrowIfNull(answers);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.Authenticate(side.RequestId, methodId, answers);
-			return;
-		}
-		var method = _authMethods.FirstOrDefault(candidate =>
-			string.Equals(candidate.Id, methodId, StringComparison.Ordinal));
-		if (method is null) {
-			EmitFailure(new AcpProtocolException($"'{methodId}' is not an advertised ACP authentication method."));
-			return;
-		}
-		bool authenticate;
-		long generation;
-		bool opensSession;
-		CancellationTokenSource? cancellation = null;
-		lock (_gate) {
-			authenticate = _authenticationPending
-				&& !_authenticating
-				&& string.Equals(_authenticationItemId, requestId, StringComparison.Ordinal);
-			generation = _activeGeneration;
-			opensSession = _authenticationOpensSession;
-			if (authenticate) {
-				_authenticating = true;
-				cancellation = new CancellationTokenSource();
-				_authenticationCancellation = cancellation;
-			}
-		}
-		if (!authenticate) {
-			EmitStaleInteraction(requestId, "authentication");
-			return;
-		}
-		var authenticationCancellation = cancellation!;
-		Run(async () => {
-			using (authenticationCancellation) {
-				try {
-					if (method.Type == "agent") {
-						await Endpoint(generation).AuthenticateAsync(
-							methodId,
-							authenticationCancellation.Token).ConfigureAwait(false);
-					} else {
-						var exit = await _context.AuthenticationTerminal.RunAsync(
-							AuthenticationLaunch(method),
-							authenticationCancellation.Token).ConfigureAwait(false);
-						if (exit.ExitCode != 0) {
-							throw new InvalidOperationException(
-								$"{method.Name} exited with code {exit.ExitCode}.");
-						}
-					}
-				} catch (OperationCanceledException) when (authenticationCancellation.IsCancellationRequested) {
-					return;
-				} catch (Exception ex) when (ex is not OperationCanceledException) {
-					bool current;
-					lock (_turnTransitionGate) {
-						lock (_gate) {
-							current = ReferenceEquals(_authenticationCancellation, authenticationCancellation)
-								&& _authenticationPending;
-							if (current) {
-								_authenticating = false;
-								_authenticationCancellation = null;
-							}
-						}
-						if (current) {
-							if (method.Type == "agent" && ex is (IOException or AcpProtocolException)) {
-								FailRuntimeSerialized(ex);
-							} else EmitFailure(ex);
-						}
-					}
-					return;
-				}
-				bool requiresUserInput;
-				string authenticationItemId;
-				lock (_turnTransitionGate) {
-					lock (_gate) {
-						if (!ReferenceEquals(_authenticationCancellation, authenticationCancellation)
-							|| !_authenticationPending) return;
-						_authenticationPending = false;
-						_authenticating = false;
-						_authenticationOpensSession = false;
-						_authenticationCancellation = null;
-						authenticationItemId = _authenticationItemId
-							?? throw new AcpProtocolException("The ACP authentication item identity is missing.");
-						_authenticationItemId = null;
-						_resolvedRequests.Add(authenticationItemId);
-						requiresUserInput = HasPendingInteractionLocked();
-					}
-					Observe(new AgentInputResolved(requiresUserInput));
-					Emit(new AgentPaneMessage {
-						Type = "authentication-resolved",
-						ProviderId = _definition.Id,
-						ThreadId = SessionId(),
-						ItemId = authenticationItemId,
-						RequestId = authenticationItemId,
-						Status = "accepted",
-					});
-				}
-				if (method.Type == "terminal") {
-					var owner = _role is SideRole side ? side.Owner : this;
-					owner.Restart(clearSubmissions: false);
-				} else if (opensSession) {
-					await OpenSessionAsync(generation).ConfigureAwait(false);
-				} else {
-					FlushPendingSubmissions();
-				}
-			}
-		});
-	}
-
-	private AgentLaunch AuthenticationLaunch(AcpAuthMethod method) {
-		var environment = new Dictionary<string, string>(_definition.Environment, StringComparer.Ordinal);
-		foreach (var entry in method.Environment) environment[entry.Key] = entry.Value;
-		return new AgentLaunch {
-			Command = _definition.Command,
-			Arguments = [.. _definition.Arguments, .. method.Arguments],
-			WorkingDirectory = Path.GetFullPath(_context.Workspace),
-			RemoveEnvironment = [],
-			Environment = environment,
-			ExecutableMode = Path.IsPathFullyQualified(_definition.Command)
-				? AgentExecutableMode.Direct
-				: AgentExecutableMode.SearchPath,
-			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
-			OutputCapture = new AgentOutputCapture.Disabled(),
-		};
 	}
 
 	private void CompleteElicitation(System.Text.Json.JsonElement parameters) =>
@@ -265,7 +120,7 @@ public sealed partial class AcpAgentSession {
 		Observe(new AgentInputResolved(requiresUserInput));
 		Emit(new AgentPaneMessage {
 			Type = "authentication-resolved",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			ItemId = authenticationItemId,
 			RequestId = authenticationItemId,
@@ -291,7 +146,7 @@ public sealed partial class AcpAgentSession {
 		else Observe(new AgentInputResolved(requiresUserInput));
 		Emit(new AgentPaneMessage {
 			Type = type,
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = threadId,
 			TurnId = turnId,
 			ItemId = $"request:{requestId}",

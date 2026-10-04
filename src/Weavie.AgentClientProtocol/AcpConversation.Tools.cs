@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private enum ToolUpdateSource { Initial, Update, Permission }
 
 	private void UpdateTool(JsonElement update, bool initial) {
@@ -44,7 +45,7 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 		PublishTool(tool);
-		if (settled) SignalSideTurnSettled();
+		if (settled) SignalSettled();
 		if (dispatchPending) DispatchPendingSubmission();
 	}
 
@@ -102,14 +103,57 @@ public sealed partial class AcpAgentSession {
 		return tool;
 	}
 
-	private void CompleteToolMutations(AcpToolState tool) {
-		foreach (var mutation in PendingMutationCompletions(tool)) Observe(new AgentToolCompleted(mutation));
+	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) {
+		var result = new List<TerminalizedTool>();
+		foreach (var tool in _tools.Values.Where(tool => _activeTools.Contains(tool.Id) || !tool.CompletedObserved)) {
+			tool.Status = status;
+			tool.LocallyTerminalized = true;
+			var completions = PendingMutationCompletions(tool);
+			_activeTools.Remove(tool.Id);
+			result.Add(new TerminalizedTool(tool, completions));
+		}
+		return [.. result];
 	}
 
-	private void SettleToolsForDisposal() {
-		TerminalizedTool[] tools;
-		lock (_gate) tools = TerminalizeActiveToolsLocked("cancelled");
-		ObserveTerminalizedTools(tools);
+	private bool HasBackgroundWorkLocked() => _activeTools.Count > 0;
+
+	private void ObserveTerminalizedTools(IEnumerable<TerminalizedTool> tools) {
+		foreach (var terminalized in tools) {
+			foreach (var mutation in terminalized.CompletionMutations) {
+				Observe(new AgentToolCompleted(mutation));
+			}
+		}
+	}
+
+	private void PublishTerminalizedToolMessages(IEnumerable<TerminalizedTool> tools) {
+		foreach (var terminalized in tools) {
+			if (terminalized.Tool.NotificationReported) PublishTool(terminalized.Tool);
+		}
+	}
+
+	private void EnsureObservedMutation(AcpToolState tool) {
+		var mutation = Mutation(tool);
+		string key = MutationKey(mutation);
+		if (!tool.ObservedMutationKeys.Add(key)) return;
+		tool.ObservedMutations.Add(mutation);
+		Observe(new AgentToolStarting(mutation));
+	}
+
+	private static AgentMutation[] PendingMutationCompletions(AcpToolState tool) {
+		var result = tool.ObservedMutations.Skip(tool.CompletedMutationCount).ToArray();
+		tool.CompletedMutationCount = tool.ObservedMutations.Count;
+		return result;
+	}
+
+	private static string MutationKey(AgentMutation mutation) => mutation switch {
+		AgentMutation.None => "none",
+		AgentMutation.File file => $"file:{file.Path}",
+		AgentMutation.Files files => $"files:{string.Join('\n', files.Items.Select(file => file.Path))}",
+		_ => throw new InvalidOperationException("Unknown agent mutation type."),
+	};
+
+	private void CompleteToolMutations(AcpToolState tool) {
+		foreach (var mutation in PendingMutationCompletions(tool)) Observe(new AgentToolCompleted(mutation));
 	}
 
 	private sealed class AcpToolState {

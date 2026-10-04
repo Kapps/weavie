@@ -100,9 +100,9 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		CancellationToken ct) =>
 		RequestAsync(method, parameters, (long?)expectedGeneration, owner: null, binds: null, ct);
 
-	internal Task<JsonElement> RequestForEndpointAsync(
-		string method, object parameters, AcpSessionEndpoint owner, AcpSessionEndpoint? binds, CancellationToken ct) =>
-		RequestAsync(method, parameters, owner.Generation, owner, binds, ct);
+	internal Task<JsonElement> RequestForEndpointAsync(string method, object parameters,
+		AcpSessionEndpoint owner, long generation, AcpSessionEndpoint? binds, CancellationToken ct) =>
+		RequestAsync(method, parameters, generation, owner, binds, ct);
 
 	private async Task<JsonElement> RequestAsync(
 		string method,
@@ -347,6 +347,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private void PublishProtocolFault(long generation, Exception error, bool reportUnhealthy) {
 		FailPending(generation, error);
 		ProtocolFaulted?.Invoke(generation, error);
+		FaultEndpoints(generation, error);
 		if (reportUnhealthy) _supervisor.ReportUnhealthy(generation, error.Message);
 	}
 

@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private void EmitProgress(JsonElement update) {
 		string turnId = TurnId();
 		const string itemId = "progress:current";
@@ -12,7 +13,7 @@ public sealed partial class AcpAgentSession {
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = itemId,
@@ -56,7 +57,7 @@ public sealed partial class AcpAgentSession {
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = PlanItemId(planId),
@@ -77,7 +78,7 @@ public sealed partial class AcpAgentSession {
 		if (turnId is null) return;
 		Emit(new AgentPaneMessage {
 			Type = "item-retracted",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = PlanItemId(planId),
@@ -113,7 +114,7 @@ public sealed partial class AcpAgentSession {
 		if (OptionalString(update, "title") is { Length: > 0 } title) {
 			Emit(new AgentPaneMessage {
 				Type = "session-info",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				Summary = title,
 			});
@@ -132,7 +133,7 @@ public sealed partial class AcpAgentSession {
 			}
 			snapshot = new(_contextUsage, [.. _usageLimits.Values]);
 		}
-		UsageChanged?.Invoke(snapshot);
+		_port.UsageChanged(snapshot);
 	}
 
 	// Usage windows ride a vendor _meta extension, not the ACP schema: Claude's adapter reports one window
@@ -160,10 +161,4 @@ public sealed partial class AcpAgentSession {
 			: null;
 		return new(OptionalString(limit, "rateLimitType") ?? "limit", status, usedPercent, resetsAt);
 	}
-
-
-	private static long ReadRequiredNonNegativeInt64(JsonElement value, string property, string source) =>
-		value.TryGetProperty(property, out var result) && result.TryGetInt64(out long number) && number >= 0
-			? number
-			: throw new AcpProtocolException($"The ACP {source} requires a non-negative '{property}'.");
 }

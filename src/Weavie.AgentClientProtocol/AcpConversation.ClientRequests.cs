@@ -224,23 +224,32 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void AbandonClientRequests() {
-		foreach (var state in _clientRequests.Values) {
-			if (!state.TryCancel()) continue;
-			_clientRequests.TryRemove(state.Request.Id, out _);
-			_pendingRequests.TryRemove(state.Request.Id, out var pending);
-			state.Dispose();
-			if (pending is not null) {
-				ResolveInteraction(
-					state.Request.Id,
-					pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
-					"cancelled",
-					pending.Kind == "permission",
-					pending.ThreadId,
-					pending.TurnId,
-					answers: null);
-			}
-		}
+		foreach (var state in _clientRequests.Values) Abandon(state);
 		_urlElicitations.Clear();
+	}
+
+	// Requests this client is still serving stop without a response; ones waiting on the user stay pending.
+	private void AbandonRunningRequests() {
+		foreach (var state in _clientRequests.Values) {
+			if (!_pendingRequests.ContainsKey(state.Request.Id)) Abandon(state);
+		}
+	}
+
+	private void Abandon(AcpClientRequestState state) {
+		if (!state.TryCancel()) return;
+		_clientRequests.TryRemove(state.Request.Id, out _);
+		_pendingRequests.TryRemove(state.Request.Id, out var pending);
+		state.Dispose();
+		if (pending is not null) {
+			ResolveInteraction(
+				state.Request.Id,
+				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
+				"cancelled",
+				pending.Kind == "permission",
+				pending.ThreadId,
+				pending.TurnId,
+				answers: null);
+		}
 	}
 
 	private static object? ExitStatus(AcpTerminalExit? status) => status is null

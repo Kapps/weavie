@@ -66,6 +66,8 @@ internal sealed partial class AcpConversation {
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		AbandonRunningRequests();
+		// Abandoned requests complete before the lifetime cancels their linked tokens.
 		_lifetime.Cancel();
 		RaiseControls();
 		foreach (var message in DrainContentStreams()) _pendingTerminalMessages.Enqueue(message);

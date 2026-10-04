@@ -11,11 +11,11 @@ internal sealed partial class AcpConversation {
 	internal void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(request.Generation)) {
+			if (!Live) {
 				_connection.RejectClosedRequest(request);
 				return;
 			}
-			state = new AcpClientRequestState(request);
+			state = new AcpClientRequestState(request, _lifetime.Token);
 			if (!_clientRequests.TryAdd(request.Id, state)) {
 				state.Dispose();
 				FailRuntimeSerialized(
@@ -86,7 +86,7 @@ internal sealed partial class AcpConversation {
 		if (session.ValueKind != JsonValueKind.String) {
 			throw new AcpProtocolException($"ACP request {request.Id} has no active session.");
 		}
-		if (!string.Equals(session.GetString(), Endpoint(request.Generation).SessionId, StringComparison.Ordinal)) {
+		if (!string.Equals(session.GetString(), _endpoint.Value.SessionId, StringComparison.Ordinal)) {
 			throw new AcpProtocolException($"ACP request {request.Id} targets another session.");
 		}
 	}

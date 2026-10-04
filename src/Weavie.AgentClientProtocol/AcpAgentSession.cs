@@ -22,6 +22,7 @@ public sealed partial class AcpAgentSession :
 	private readonly Dictionary<string, SideRuntime> _sides = new(StringComparer.Ordinal);
 	private AcpConversation _primary;
 	private AcpAgentFeatures _features = AcpAgentFeatures.None;
+	private long _processGeneration;
 	private bool _started;
 	private bool _disposed;
 
@@ -61,7 +62,10 @@ public sealed partial class AcpAgentSession :
 			lock (_turnTransitionGate) _primary.HandleNotification(generation, root);
 		};
 		_connection.RequestReceived += request => {
-			lock (_turnTransitionGate) _primary.RegisterClientRequest(request);
+			lock (_turnTransitionGate) {
+				if (request.Generation == _processGeneration) _primary.RegisterClientRequest(request);
+				else _connection.RejectClosedRequest(request);
+			}
 		};
 		_connection.ProtocolFaulted += OnProtocolFault;
 	}
@@ -136,7 +140,10 @@ public sealed partial class AcpAgentSession :
 	/// <summary>Retires the primary incarnation and installs its successor; call before restarting the process.</summary>
 	private void ReplacePrimary(AcpConversationHandoff handoff) {
 		var successor = CreatePrimary(handoff);
-		lock (_gate) _primary = successor;
+		lock (_gate) {
+			_primary = successor;
+			_processGeneration = 0;
+		}
 	}
 
 	private static AcpConversationState NewContinuation(

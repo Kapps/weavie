@@ -33,9 +33,10 @@ internal sealed partial class AcpConversation {
 				_submissionEpoch++;
 				tools = TerminalizeActiveToolsLocked("failed");
 			}
-			_lifetime.Cancel();
 			_terminals.Close();
 			AbandonClientRequests();
+			// Abandoned requests complete before the lifetime cancels their linked tokens.
+			_lifetime.Cancel();
 			ObserveTerminalizedTools(tools);
 			RaiseControls();
 			Observe(new AgentRuntimeFailed());

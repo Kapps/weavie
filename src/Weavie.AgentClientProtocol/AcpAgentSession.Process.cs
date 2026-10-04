@@ -113,6 +113,7 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			conversation = _primary;
 			conversation.Attach(process.Generation);
+			lock (_gate) _processGeneration = process.Generation;
 		}
 		conversation.RunRuntime(() => InitializeAsync(conversation, process.Generation));
 	}

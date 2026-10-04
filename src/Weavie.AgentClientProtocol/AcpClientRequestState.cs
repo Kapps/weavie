@@ -7,9 +7,9 @@ internal sealed class AcpClientRequestState : IDisposable {
 	private bool _completed;
 	private bool _published;
 
-	public AcpClientRequestState(AcpClientRequest request) {
+	public AcpClientRequestState(AcpClientRequest request, CancellationToken lifetime) {
 		Request = request;
-		_cancellation = new CancellationTokenSource();
+		_cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
 		Token = _cancellation.Token;
 	}
 

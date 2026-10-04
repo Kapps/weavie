@@ -1,0 +1,59 @@
+name: mac aot probe
+
+on:
+  push:
+    branches: [feature/macos-gatekeeper-packaging]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: probe (${{ matrix.variant.name }})
+    runs-on: xcode-27
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - { name: baseline, extra: "" }
+          - { name: r2r, extra: "-p:PublishReadyToRun=true" }
+          - { name: aot, extra: "-p:PublishAot=true" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/publish-setup
+      - uses: ./.github/actions/setup-macos-workload
+        with:
+          restore: src/Weavie.Mac/Weavie.Mac.csproj
+      - name: Publish
+        run: |
+          set -o pipefail
+          dotnet publish src/Weavie.Mac/Weavie.Mac.csproj -c Release -r osx-arm64 ${{ matrix.variant.extra }} -o artifacts/mac 2>&1 | tee publish.log
+      - name: Inspect bundle
+        if: always()
+        run: |
+          app=src/Weavie.Mac/bin/Release/net10.0-macos/osx-arm64/Weavie.app
+          du -sh "$app" || true
+          ls -la "$app/Contents/MacOS" || true
+          ls -laS "$app/Contents/MonoBundle" | head -40 || true
+          ls "$app/Contents/MonoBundle" | wc -l || true
+          file "$app/Contents/MacOS/Weavie" || true
+          grep -iE "warning|error|readytorun|crossgen|ilc|aot" publish.log | sort | uniq -c | sort -rn | head -80 || true
+      - name: Build fakes
+        run: |
+          dotnet build tools/Weavie.FakeClaude
+          dotnet build tools/Weavie.FakeAcp
+      - name: Install web dependencies
+        working-directory: src/web
+        run: corepack pnpm install --frozen-lockfile
+      - name: Desktop bridge tests against the published app
+        working-directory: src/web
+        run: corepack pnpm exec playwright test -c e2e/desktop/desktop.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.variant.name }}
+          path: |
+            publish.log
+            src/web/test-results

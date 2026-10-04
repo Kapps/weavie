@@ -44,7 +44,6 @@ internal sealed partial class AcpConversation {
 		AgentTurnSubmission? submission;
 		string? sessionId;
 		bool steer = false;
-		long epoch;
 		lock (_gate) {
 			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
 				|| _steering && !_promptActive) {
@@ -64,12 +63,11 @@ internal sealed partial class AcpConversation {
 				_waitingForBackground = false;
 				_turnNumber++;
 			}
-			epoch = _submissionEpoch;
 		}
 		if (!steer && TurnId() == "1") RaiseControls(); // The first prompt makes the conversation rewindable.
 		var delivery = steer
-			? DeliverSteeringAsync(submission, epoch)
-			: DeliverPromptAsync(sessionId, submission, epoch);
+			? DeliverSteeringAsync(submission)
+			: DeliverPromptAsync(sessionId, submission);
 		Run(() => delivery);
 	}
 
@@ -88,19 +86,15 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private async Task DeliverSteeringAsync(AgentTurnSubmission submission, long epoch) {
+	private async Task DeliverSteeringAsync(AgentTurnSubmission submission) {
 		bool retryAsPrompt = false;
-		long generation = 0;
 		try {
 			Task<JsonElement> request;
 			PreparedPrompt prompt;
 			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (epoch != _submissionEpoch) return;
-					generation = _activeGeneration;
-				}
+				if (!Live) return;
 				prompt = BuildPrompt(submission);
-				request = Endpoint(generation).RequestAsync(
+				request = _endpoint.Value.RequestAsync(
 					"_session/steering",
 					new {
 						prompt = prompt.Blocks,
@@ -110,7 +104,7 @@ internal sealed partial class AcpConversation {
 			}
 			var result = await request.ConfigureAwait(false);
 			lock (_turnTransitionGate) {
-				if (!OwnsOperation(generation, epoch)) return;
+				if (!Live) return;
 				switch (RequiredString(result, "outcome", "_session/steering response")) {
 					case "injected":
 						EmitSubmitted(submission, "user-steer", prompt.Images);
@@ -130,27 +124,20 @@ internal sealed partial class AcpConversation {
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
-				if (!OwnsOperation(generation, epoch)) return;
+				if (!Live) return;
 				if (ex is IOException or AcpProtocolException) FailRuntimeSerialized(ex);
 				else EmitFailure(ex);
 			}
 		} finally {
 			bool dispatch;
 			lock (_gate) {
-				if (epoch == _submissionEpoch) _steering = false;
-				dispatch = epoch == _submissionEpoch && (!retryAsPrompt || !_promptActive);
+				if (Live) _steering = false;
+				dispatch = Live && (!retryAsPrompt || !_promptActive);
 			}
 			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
 	}
-
-	private bool OwnsOperation(long generation, long epoch) {
-		lock (_gate) return OwnsOperationLocked(generation, epoch);
-	}
-
-	private bool OwnsOperationLocked(long generation, long epoch) =>
-		!_disposed && _activeGeneration == generation && _submissionEpoch == epoch;
 
 	private bool ClaimBackgroundSettleLocked() {
 		if (_promptActive || HasBackgroundWorkLocked() || !_waitingForBackground) {
@@ -238,9 +225,7 @@ internal sealed partial class AcpConversation {
 				sessionId = _ready ? SessionId() : null;
 			}
 			if (sessionId is not null) {
-				long generation;
-				lock (_gate) generation = _activeGeneration;
-				var cancellation = Endpoint(generation).NotifyAsync("session/cancel", new { });
+				var cancellation = _endpoint.Value.NotifyAsync("session/cancel", new { });
 				RunRuntime(() => cancellation);
 			}
 			PublishQueue();

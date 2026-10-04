@@ -6,25 +6,18 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	private async Task DeliverPromptAsync(string sessionId, AgentTurnSubmission submission, long epoch) {
-		long generation = 0;
+	private async Task DeliverPromptAsync(string sessionId, AgentTurnSubmission submission) {
 		bool guidanceSentBefore = false;
 		try {
-			lock (_gate) {
-				if (epoch != _submissionEpoch) return;
-			}
 			Task<JsonElement> request;
 			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (epoch != _submissionEpoch) return;
-					generation = _activeGeneration;
-					guidanceSentBefore = _guidanceSent;
-				}
+				if (!Live) return;
+				lock (_gate) guidanceSentBefore = _guidanceSent;
 				var prompt = BuildPrompt(submission);
 				try {
 					SaveContinuation();
 				} catch (AcpSessionStoreException ex) {
-					_connection.TerminateGeneration(generation, ex.Message);
+					_connection.TerminateGeneration(_endpoint.Value.Generation, ex.Message);
 					throw;
 				}
 				Emit(new AgentPaneMessage {
@@ -40,7 +33,7 @@ internal sealed partial class AcpConversation {
 					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
 					prompt.Images);
 				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
-				request = Endpoint(generation).RequestAsync(
+				request = _endpoint.Value.RequestAsync(
 					"session/prompt",
 					new { prompt = prompt.Blocks },
 					CancellationToken.None);
@@ -50,8 +43,8 @@ internal sealed partial class AcpConversation {
 			string turnId = TurnId();
 			bool background;
 			lock (_turnTransitionGate) {
+				if (!Live) return;
 				lock (_gate) {
-					if (_disposed || _activeGeneration != generation) return;
 					_promptActive = false;
 					if (_cancelRequested) _cancelRequested = false;
 					background = HasBackgroundWorkLocked();
@@ -73,7 +66,7 @@ internal sealed partial class AcpConversation {
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
-				if (!OwnsOperation(generation, epoch)) return;
+				if (!Live) return;
 				bool cancellationFailed;
 				lock (_gate) cancellationFailed = _cancelRequested && ex is not AcpRequestException { Code: -32800 };
 				if (cancellationFailed) {
@@ -133,7 +126,7 @@ internal sealed partial class AcpConversation {
 		} finally {
 			bool dispatch = false;
 			lock (_turnTransitionGate) {
-				if (OwnsOperation(generation, epoch)) {
+				if (Live) {
 					bool settled;
 					lock (_gate) {
 						_promptActive = false;

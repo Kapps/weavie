@@ -449,6 +449,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		} else if (text == "permission") await PermissionAsync(ct).ConfigureAwait(false);
 		else if (text == "input") await InputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-cancel") await InputActionAsync(ct).ConfigureAwait(false);
+		else if (text == "input-cancel-race") await InputCancelRaceAsync().ConfigureAwait(false);
 		else if (text == "input-null-options") await NullOptionalsInputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-default-schema") await DefaultSchemaInputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-titled-array") await TitledArrayInputAsync(ct).ConfigureAwait(false);
@@ -1072,6 +1073,23 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			["terminalId"] = terminalId,
 		}, ct).ConfigureAwait(false);
 		Message("terminal wait cancelled; connection alive");
+	}
+
+	// Cancels the form only once the client is publishing its card, then reports that the cancel is on the wire.
+	private async Task InputCancelRaceAsync() {
+		using var cancellation = new CancellationTokenSource();
+		var request = Connection().RequestAsync("elicitation/create", FormElicitation(new JsonObject {
+			["value"] = new JsonObject { ["type"] = "string", ["title"] = "Value" },
+		}), cancellation.Token);
+		string publishing = Path.Combine(Environment.CurrentDirectory, "input-publishing");
+		while (!File.Exists(publishing)) await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+		cancellation.Cancel();
+		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "input-cancel-sent"), string.Empty);
+		try {
+			await request.ConfigureAwait(false);
+		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
+		}
+		Message("input cancel race settled");
 	}
 
 	private async Task CancelBeforeDispatchAsync() {

@@ -9,19 +9,20 @@ public sealed partial class AcpAgentSession {
 	public void SetControl(string axis, string value) {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
+		string? unadvertised;
 		lock (_gate) {
-			if (!_controls.TryGetValue(axis, out var control)) {
-				EmitFailure(new AcpProtocolException($"ACP did not advertise the '{axis}' control."));
-				return;
+			unadvertised = !_controls.TryGetValue(axis, out var control)
+				? $"ACP did not advertise the '{axis}' control."
+				: control.Options.All(option => !string.Equals(option.Id, value, StringComparison.Ordinal))
+					? $"ACP did not advertise '{value}' for the '{axis}' control."
+					: null;
+			if (unadvertised is null) {
+				if (!_ready || _sessionId is null) throw new InvalidOperationException("The ACP session is not ready.");
+				_controlMutations.Enqueue(new AcpControlMutation(axis, value));
 			}
-			if (control.Options.All(option => !string.Equals(option.Id, value, StringComparison.Ordinal))) {
-				EmitFailure(new AcpProtocolException($"ACP did not advertise '{value}' for the '{axis}' control."));
-				return;
-			}
-			if (!_ready || _sessionId is null) throw new InvalidOperationException("The ACP session is not ready.");
-			_controlMutations.Enqueue(new AcpControlMutation(axis, value));
 		}
-		DispatchControlMutation();
+		if (unadvertised is not null) EmitFailure(new AcpProtocolException(unadvertised));
+		else DispatchControlMutation();
 	}
 
 	private void DispatchControlMutation() {

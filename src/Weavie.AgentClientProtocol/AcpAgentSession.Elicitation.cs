@@ -62,13 +62,16 @@ public sealed partial class AcpAgentSession {
 		AcpClientRequestState state,
 		AcpPendingRequest pending,
 		Func<AgentPaneMessage> createMessage) {
-		if (state.PublishDeferred(() => {
-			Observe(new AgentInputRequested());
-			Observe(new AgentInputResolved(RequiresUserInput: true));
-			// The pane keys an item by (threadId, turnId, itemId), and the resolution reads its identity off this
-			// same record -- so stamping it here is what keeps the two from ever disagreeing.
-			Emit(createMessage() with { ThreadId = pending.ThreadId, TurnId = pending.TurnId });
-		})) return;
+		// The transition gate precedes the request lock, as it does for a concurrent $/cancel_request.
+		lock (_turnTransitionGate) {
+			if (state.PublishDeferred(() => {
+				Observe(new AgentInputRequested());
+				Observe(new AgentInputResolved(RequiresUserInput: true));
+				// The pane keys an item by (threadId, turnId, itemId), and the resolution reads its identity off this
+				// same record -- so stamping it here is what keeps the two from ever disagreeing.
+				Emit(createMessage() with { ThreadId = pending.ThreadId, TurnId = pending.TurnId });
+			})) return;
+		}
 		_pendingRequests.TryRemove(pending.Request.Id, out _);
 		state.Token.ThrowIfCancellationRequested();
 	}

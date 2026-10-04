@@ -101,6 +101,7 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				_activeGeneration = process.Generation;
 				_endpoint = null;
+				_terminals = new AcpTerminalManager(_context.Workspace, _log);
 				// An untouched primary has no conversation to resume; a side fork can have inherited history.
 				if (IsUntouchedPrimary) _sessionId = null;
 				_ready = false;

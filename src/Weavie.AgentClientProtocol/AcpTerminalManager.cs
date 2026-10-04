@@ -9,8 +9,10 @@ namespace Weavie.AgentClientProtocol;
 internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly string _workspace;
 	private readonly Action<string> _log;
-	private readonly ConcurrentDictionary<string, OwnedTerminal> _terminals = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, AcpTerminal> _terminals = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
+	private readonly Lock _gate = new();
+	private bool _closed;
 	private long _nextId;
 
 	public AcpTerminalManager(string workspace, Action<string> log) {
@@ -18,7 +20,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		_log = log;
 	}
 
-	public async Task<string> CreateAsync(JsonElement parameters, long generation, CancellationToken ct) {
+	public async Task<string> CreateAsync(JsonElement parameters, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		string id = Interlocked.Increment(ref _nextId).ToString(System.Globalization.CultureInfo.InvariantCulture);
 		string command = RequiredString(parameters, "command");
@@ -45,9 +47,11 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 				: throw new AcpProtocolException("ACP terminal env must be an array.")
 			: new Dictionary<string, string>(StringComparer.Ordinal);
 		long? limit = ReadOutputLimit(parameters);
-		var terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _log);
-		if (!_terminals.TryAdd(id, new OwnedTerminal(generation, terminal))) {
-			throw new InvalidOperationException($"ACP terminal id '{id}' is already in use.");
+		AcpTerminal terminal;
+		lock (_gate) {
+			ObjectDisposedException.ThrowIf(_closed, this);
+			terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _log);
+			_terminals.TryAdd(id, terminal);
 		}
 		try {
 			await terminal.StartAsync(ct).ConfigureAwait(false);
@@ -65,8 +69,8 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 
 	/// <summary>Reports the output of a client-created terminal; agent-owned ids are simply unknown here.</summary>
 	public bool TryOutput(string id, out AcpTerminalOutput output) {
-		if (_terminals.TryGetValue(id, out var owned)) {
-			output = owned.Terminal.Output();
+		if (_terminals.TryGetValue(id, out var terminal)) {
+			output = terminal.Output();
 			return true;
 		}
 		return _released.TryGetValue(id, out output!);
@@ -78,24 +82,30 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 
 	public async Task ReleaseAsync(string id, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		if (!_terminals.TryRemove(id, out var owned)) {
+		if (!_terminals.TryRemove(id, out var terminal)) {
 			throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
 		}
-		_released[id] = owned.Terminal.Output();
-		await owned.Terminal.DisposeAsync().ConfigureAwait(false);
+		_released[id] = terminal.Output();
+		await terminal.DisposeAsync().ConfigureAwait(false);
 	}
 
-	public void ReleaseGeneration(long generation) {
-		foreach (var entry in _terminals.Where(entry => entry.Value.Generation == generation).ToArray()) {
-			if (_terminals.TryRemove(entry.Key, out var owned)) {
-				_released[entry.Key] = owned.Terminal.Output();
-				owned.Terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+	/// <summary>Releases every terminal; a create racing or following the close fails.</summary>
+	public void Close() {
+		lock (_gate) _closed = true;
+		foreach (string id in _terminals.Keys) {
+			if (_terminals.TryRemove(id, out var terminal)) {
+				_released[id] = terminal.Output();
+				terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			}
 		}
 	}
 
 	public async ValueTask DisposeAsync() {
-		var terminals = _terminals.Values.Select(value => value.Terminal).ToArray();
+		AcpTerminal[] terminals;
+		lock (_gate) {
+			_closed = true;
+			terminals = [.. _terminals.Values];
+		}
 		_terminals.Clear();
 		_released.Clear();
 		foreach (var terminal in terminals) {
@@ -103,11 +113,9 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		}
 	}
 
-	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var owned)
-		? owned.Terminal
+	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var terminal)
+		? terminal
 		: throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
-
-	private sealed record OwnedTerminal(long Generation, AcpTerminal Terminal);
 
 	private static string RequiredString(JsonElement value, string property) =>
 		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String

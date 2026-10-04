@@ -118,7 +118,7 @@ public sealed partial class AcpAgentSession {
 				Summary = summary,
 			});
 		}
-		if (generation > 0) _terminals.ReleaseGeneration(generation);
+		if (generation > 0) _terminals.Close();
 		PublishQueue();
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) Observe(new AgentTurnStopped(WillResume: false));

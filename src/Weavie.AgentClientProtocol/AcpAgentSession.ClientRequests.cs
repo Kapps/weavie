@@ -125,10 +125,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task<object> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
-		string terminalId = await _terminals.CreateAsync(
-			request.Parameters,
-			request.Generation,
-			ct).ConfigureAwait(false);
+		string terminalId = await _terminals.CreateAsync(request.Parameters, ct).ConfigureAwait(false);
 		return new { terminalId };
 	}
 

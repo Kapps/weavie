@@ -23,7 +23,7 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpSessionRole _role;
 	private readonly AcpJsonRpcConnection _connection;
 	private AcpSessionEndpoint? _endpoint;
-	private readonly AcpTerminalManager _terminals;
+	private AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
@@ -283,7 +283,7 @@ public sealed partial class AcpAgentSession :
 			tools = TerminalizeActiveToolsLocked("failed");
 		}
 		if (generation > 0) {
-			_terminals.ReleaseGeneration(generation);
+			_terminals.Close();
 			if (_role is PrimaryRole) {
 				_connection.TerminateGeneration(
 					generation,

@@ -89,7 +89,7 @@ public sealed partial class AcpAgentSession {
 			// The runtime stops on a storage failure; its failure report must still reach the user.
 			if (prepared.Type != "transcript-reset") {
 				if (!owner._storageFailed) OnSave(state, [prepared]);
-				else if (!owner._runtimeFailed) throw new AcpSessionStoreException(
+				else if (!owner._primary.Failed) throw new AcpSessionStoreException(
 					"The ACP conversation cannot continue until storage is available.", new IOException("Conversation storage failed."));
 			}
 			owner.PaneMessage?.Invoke(prepared);
@@ -114,7 +114,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private sealed class PrimaryPort(AcpAgentSession owner) : OwnedPort(owner) {
-		protected override AgentEventFeedback OnObserve(AgentEvent value) => Owner._events.Observe(value);
+		protected override AgentEventFeedback OnObserve(AgentEvent value) => Owner._context.Events.Observe(value);
 
 		protected override AgentPaneMessage? Prepare(AgentPaneMessage message) => message;
 
@@ -129,14 +129,14 @@ public sealed partial class AcpAgentSession {
 
 		protected override void OnSettled(bool terminal) { }
 
-		protected override bool OnFail(Exception error) => false;
+		protected override bool OnFail(Exception error) => Owner.FailProcess(error);
 	}
 
 	private sealed class SidePort(AcpAgentSession owner, SideConversation conversation) : OwnedPort(owner) {
 		protected override AgentEventFeedback OnObserve(AgentEvent value) =>
 			value is AgentProcessChanged or AgentSessionStarted or AgentRuntimeFailed
 				? AgentEventFeedback.None
-				: Owner._events.Observe(new AgentConversationEvent(conversation.ConversationId, value));
+				: Owner._context.Events.Observe(new AgentConversationEvent(conversation.ConversationId, value));
 
 		protected override AgentPaneMessage? Prepare(AgentPaneMessage message) {
 			if (message.Type is "transcript-reset" or "draft") return null;

@@ -5,7 +5,7 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private void HandlePermissionRequest(AcpClientRequestState state) {
 		try {
 			ValidateRequestSession(state.Request);
@@ -52,7 +52,7 @@ public sealed partial class AcpAgentSession {
 			Observe(new AgentPermissionResolved(RequiresUserInput: true));
 			Emit(new AgentPaneMessage {
 				Type = "approval-requested",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = threadId,
 				TurnId = turnId,
 				ItemId = $"request:{request.Id}",

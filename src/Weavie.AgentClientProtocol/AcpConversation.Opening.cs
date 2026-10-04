@@ -5,161 +5,15 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	private bool IsUntouchedPrimary => _role is PrimaryRole && _turnNumber == 0;
-
-	/// <inheritdoc/>
-	public IReadOnlyList<AgentPaneMessage> Restore() {
-		if (_role is SideRole) throw new InvalidOperationException("Side conversations restore with their owner.");
-		try {
-			return RestoreDisplay();
-		} catch (Exception error) {
-			// Reported by Start, once the session's failure observers are wired.
-			_restoreFailure = error;
-			return [];
-		}
-	}
-
-	/// <inheritdoc/>
-	public void Start() {
-		bool restored;
-		lock (_gate) {
-			if (_started) {
-				return;
-			}
-			restored = _displayRestored;
-			if (_role is PrimaryRole && !restored && _restoreFailure is null) {
-				throw new InvalidOperationException("Restore the saved transcript before starting.");
-			}
-			_started = true;
-		}
-		if (_role is SideRole side) {
-			OnProcessStarted(new AcpProcessGeneration(side.Generation, 0));
-		} else if (!restored) {
-			FailRuntime(_restoreFailure!); // The runtime stays failed until Restart retries the restore.
-		} else {
-			try {
-				_connection.Start();
-			} catch (Exception error) {
-				FailRuntime(error);
-			}
-		}
-	}
-
-	/// <inheritdoc/>
-	public async ValueTask DisposeAsync() {
-		SideRuntime[] sideSessions;
-		string? sessionId;
-		bool close;
+internal sealed partial class AcpConversation {
+	internal async Task OpenAsync(AcpAgentFeatures features, long generation) {
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (_disposed) {
-					return;
-				}
-				_disposed = true;
-				_controlMutations.Clear();
-				sideSessions = [.. _sideRuntimes.Values];
-				sessionId = _endpoint?.SessionId;
-				close = (_ready || _role is SideRole) && _features.Close && sessionId is not null;
-			}
-			SettleToolsForDisposal();
-			foreach (var side in sideSessions) side.Session.SettleToolsForDisposal();
-			lock (_gate) _sideRuntimes.Clear();
-			foreach (var side in sideSessions) side.Session._port.Detach();
-		}
-
-		CancelPendingInteractions();
-		AbandonClientRequests();
-		Task<JsonElement>? closeRequest = null;
-		if (close) {
-			closeRequest = _endpoint?.CloseAsync();
-		}
-		_endpoint?.Retire();
-
-		try {
-			var disposals = sideSessions.Select(side => side.Session.DisposeAsync().AsTask()).ToArray();
-			if (_role is PrimaryRole) await _connection.DisposeAsync().ConfigureAwait(false);
-			await Task.WhenAll(disposals).ConfigureAwait(false);
-		} finally {
-			if (closeRequest is not null) {
-				try {
-					await closeRequest.ConfigureAwait(false);
-				} catch (Exception ex) {
-					_log($"[acp:{_definition.Id}] session/close ended during process teardown: {ex.Message}");
-				}
-			}
-			try {
-				await _terminals.DisposeAsync().ConfigureAwait(false);
-			} finally {
-				if (_role is PrimaryRole) await _context.Registry.DisposeAsync().ConfigureAwait(false);
-			}
-		}
-	}
-
-	private void OnProcessStarted(AcpProcessGeneration process) {
-		lock (_turnTransitionGate) {
-			lock (_gate) {
-				_activeGeneration = process.Generation;
-				_endpoint = null;
-				_terminals = new AcpTerminalManager(_context.Workspace, _log);
-				// An untouched primary has no conversation to resume; a side fork can have inherited history.
-				if (IsUntouchedPrimary) _sessionId = null;
-				_ready = false;
-				_promptActive = false;
-				_steering = false;
-				_waitingForBackground = false;
-				_cancelRequested = false;
-				_controlMutations.Clear();
-				_controlMutationActive = false;
-				_runtimeFailed = false;
-				_sessionOpening = false;
-				_loadingTranscript = false;
-				_controls.Clear();
-				_configOwnsMode = false;
-				_commands = [];
-				_tools.Clear();
-				_activeTools.Clear();
-				_content.Clear();
-				_turnItemIds.Clear();
-				_contextUsage = null;
-				_usageLimits.Clear();
-			}
-		}
-		CancelPendingInteractions();
-		AbandonClientRequests();
-		RaiseControls();
-		_port.UsageChanged(Snapshot);
-		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
-	}
-
-	private async Task InitializeGenerationAsync(AcpProcessGeneration process) {
-		var features = _role is SideRole side ? side.Owner._features : AcpAgentFeatures.Read(await _connection.RequestAsync(
-			"initialize",
-			new {
-				protocolVersion = 1,
-				clientCapabilities = new {
-					auth = new { terminal = true },
-					fs = new { readTextFile = true, writeTextFile = true },
-					plan = new { },
-					terminal = true,
-					session = new { configOptions = new { boolean = new { } } },
-					elicitation = new { form = new { }, url = new { } },
-				},
-				clientInfo = new {
-					name = "weavie",
-					title = "Weavie",
-					version = _context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture),
-				},
-			},
-			process.Generation,
-			CancellationToken.None).ConfigureAwait(false));
-		lock (_turnTransitionGate) {
-			lock (_gate) {
-				if (_disposed || _activeGeneration != process.Generation) return;
+				if (_disposed || _activeGeneration != generation) return;
 				_features = features;
 			}
 		}
-		await OpenSessionAsync(process.Generation).ConfigureAwait(false);
+		await OpenSessionAsync(generation).ConfigureAwait(false);
 	}
 
 	private async Task OpenSessionAsync(long generation) {
@@ -172,7 +26,7 @@ public sealed partial class AcpAgentSession {
 				reconnecting = _sessionId is not null;
 				if (reconnecting && !_features.Load && !_features.Resume) {
 					throw new AcpProtocolException(
-						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
+						$"{Definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}
 				string? persisted = _sessionId ?? _endpoint?.SessionId;
 				sessionId = persisted is not null && (_features.Load || _features.Resume)
@@ -181,15 +35,15 @@ public sealed partial class AcpAgentSession {
 				loadSession = sessionId is not null && _features.Load && !_features.Resume;
 				_sessionOpening = true;
 				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
-				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
+				if (sessionId is null && !_spec.SideScoped) _guidanceSent = false;
 
 			}
 		}
 
 		JsonElement setup;
 		try {
-			if (_role is SideRole { Conversation.AnchorTurnNumber: > 0 } fork && sessionId is null) {
-				await Endpoint(generation).ForkFromAsync(fork.Owner.Endpoint(generation), new {
+			if (_spec.Opening is ForkFromOpening fork && sessionId is null) {
+				await Endpoint(generation).ForkFromAsync(fork.Parent.Endpoint(generation), new {
 					cwd = Path.GetFullPath(_context.Workspace),
 					mcpServers = McpServers(),
 				}).ConfigureAwait(false);
@@ -285,9 +139,53 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
+	// ACP has no capability flag for the fork point, so the branch's replay proves the agent honoured it.
+	internal async Task<string> ForkAtAsync(string messageId) {
+		long generation;
+		lock (_gate) generation = _activeGeneration;
+		var replay = new RewindReplay();
+		var branch = _connection.OpenEndpoint(generation, null, (_, root) => replay.Observe(root), _connection.RejectClosedRequest);
+		string cwd = Path.GetFullPath(_context.Workspace);
+		try {
+			await branch.ForkFromAsync(Endpoint(generation), new {
+				cwd,
+				mcpServers = McpServers(),
+				_meta = new { jetbrains = new { air = new { fork = new { version = 1, messageId } } } },
+			}).ConfigureAwait(false);
+			await branch.RequestAsync("session/load", new { cwd, mcpServers = McpServers() }, CancellationToken.None).ConfigureAwait(false);
+			if (!replay.EndsAt(messageId)) throw new InvalidOperationException($"{Definition.Name} did not rewind to the requested message.");
+			branch.Retire(); // The commit restarts onto the fork; this endpoint only had to prove it.
+			return branch.SessionId!;
+		} catch {
+			if (_features.Close && branch.SessionId is not null) await branch.CloseAsync().ConfigureAwait(false);
+			else branch.Retire();
+			throw;
+		}
+	}
+
+	private sealed class RewindReplay {
+		private string? _lastAgentMessage;
+		private bool _userAfterAgent;
+
+		public void Observe(JsonElement root) {
+			if (!root.TryGetProperty("params", out var parameters) || !parameters.TryGetProperty("update", out var update)) return;
+			switch (OptionalString(update, "sessionUpdate")) {
+				case "agent_message_chunk":
+					_lastAgentMessage = OptionalString(update, "messageId");
+					_userAfterAgent = false;
+					break;
+				case "user_message_chunk":
+					_userAfterAgent = true;
+					break;
+			}
+		}
+
+		public bool EndsAt(string messageId) => !_userAfterAgent && _lastAgentMessage == messageId;
+	}
+
 	private bool SettleInterruptedSideOpening() {
-		lock (_gate) if (_role is not SideRole || _pendingSubmissions.Count > 0) return false;
-		FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
+		lock (_gate) if (!_spec.SideScoped || _pendingSubmissions.Count > 0) return false;
+		Terminate(new InvalidOperationException("Side conversation interrupted."));
 		return true;
 	}
 
@@ -320,7 +218,7 @@ public sealed partial class AcpAgentSession {
 		Observe(new AgentInputResolved(RequiresUserInput: true));
 		Emit(new AgentPaneMessage {
 			Type = "authentication-requested",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			ItemId = itemId,
 			RequestId = itemId,

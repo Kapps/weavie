@@ -4,8 +4,8 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	private void HandleNotification(long generation, JsonElement root) {
+internal sealed partial class AcpConversation {
+	internal void HandleNotification(long generation, JsonElement root) {
 		lock (_turnTransitionGate) {
 			if (!OwnsGeneration(generation)) return;
 			HandleNotificationSerialized(root);
@@ -92,7 +92,7 @@ public sealed partial class AcpAgentSession {
 		}
 		var message = new AgentPaneMessage {
 			Type = deltaType,
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = state.TurnId,
 			ItemId = id,
@@ -117,7 +117,7 @@ public sealed partial class AcpAgentSession {
 		}
 		return [.. content.Select(state => new AgentPaneMessage {
 				Type = "item-completed",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				TurnId = state.TurnId,
 				ItemId = state.Id,

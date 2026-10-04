@@ -5,14 +5,14 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private void PublishTool(AcpToolState tool) => Emit(ToolMessage(tool));
 
 	private AgentPaneMessage ToolMessage(AcpToolState tool) => new() {
 		Type = tool.Status is "completed" or "failed" or "cancelled" or "settled"
 			? "item-completed"
 			: "item-started",
-		ProviderId = _definition.Id,
+		ProviderId = Definition.Id,
 		ThreadId = SessionId(),
 		TurnId = tool.TurnId,
 		ItemId = $"tool:{tool.Id}",

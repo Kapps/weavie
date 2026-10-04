@@ -4,9 +4,8 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	/// <inheritdoc/>
-	public void SetControl(string axis, string value) {
+internal sealed partial class AcpConversation {
+	internal void SetControl(string axis, string value) {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
 		string? unadvertised;
@@ -111,7 +110,7 @@ public sealed partial class AcpAgentSession {
 			if (stale is not null) {
 				_port.ForgetControl(stale.Axis, stale.Value);
 				EmitFailure(new AcpProtocolException(
-					$"Saved {_definition.Name} control '{stale.Axis}' value '{stale.Value}' is no longer advertised and was forgotten."));
+					$"Saved {Definition.Name} control '{stale.Axis}' value '{stale.Value}' is no longer advertised and was forgotten."));
 				continue;
 			}
 			if (mutation is null) {

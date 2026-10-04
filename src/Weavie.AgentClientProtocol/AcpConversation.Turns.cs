@@ -6,32 +6,33 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	/// <inheritdoc/>
-	public void Submit(AgentTurnSubmission submission) {
-		ArgumentNullException.ThrowIfNull(submission);
+internal sealed partial class AcpConversation {
+	internal bool Rewinding {
+		get { lock (_gate) return _rewinding; }
+		set { lock (_gate) _rewinding = value; }
+	}
 
-		lock (_turnTransitionGate) {
-			bool reconnect;
-			lock (_gate) {
-				ObjectDisposedException.ThrowIf(_disposed, this);
-				submission = NormalizeSubmissionLocked(submission);
-				if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
-				reconnect = _runtimeFailed;
-				if (reconnect && !IsUntouchedPrimary && _sessionId is not null && !_features.Load && !_features.Resume) {
-					throw new InvalidOperationException(
-						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
-				}
-				_pendingSubmissions.Enqueue(submission);
-			}
-			if (reconnect) Restart(clearSubmissions: false);
+	/// <summary>Returns the canonical submission, or null when it carries nothing to send.</summary>
+	internal AgentTurnSubmission? Normalize(AgentTurnSubmission submission) {
+		lock (_gate) {
+			submission = NormalizeSubmissionLocked(submission);
+			return submission.Text.Length == 0 && submission.Attachments.Count == 0 ? null : submission;
 		}
+	}
+
+	internal void Enqueue(AgentTurnSubmission submission) {
+		lock (_gate) _pendingSubmissions.Enqueue(submission);
+	}
+
+	internal void Submit(AgentTurnSubmission submission) {
+		if (Normalize(submission) is not { } normalized) return;
+		Enqueue(normalized);
 		DispatchPendingSubmission();
 	}
 
 	private void FlushPendingSubmissions() => DispatchPendingSubmission();
 
-	private void DispatchPendingSubmission() {
+	internal void DispatchPendingSubmission() {
 		try {
 			lock (_turnTransitionGate) DeliverNextSubmission();
 		} finally {
@@ -120,9 +121,9 @@ public sealed partial class AcpAgentSession {
 						break;
 					case "startedNewTurn":
 						throw new AcpProtocolException(
-							$"{_definition.Name} started an untracked turn instead of returning promptRequired.");
+							$"{Definition.Name} started an untracked turn instead of returning promptRequired.");
 					case "failed":
-						throw new AcpProtocolException($"{_definition.Name} could not apply the steering prompt.");
+						throw new AcpProtocolException($"{Definition.Name} could not apply the steering prompt.");
 					default:
 						throw new AcpProtocolException("The ACP steering response has an unknown outcome.");
 				}
@@ -143,153 +144,6 @@ public sealed partial class AcpAgentSession {
 			else PublishQueue();
 		}
 	}
-
-	private async Task DeliverPromptAsync(string sessionId, AgentTurnSubmission submission, long epoch) {
-		long generation = 0;
-		bool guidanceSentBefore = false;
-		try {
-			lock (_gate) {
-				if (epoch != _submissionEpoch) return;
-			}
-			Task<JsonElement> request;
-			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (epoch != _submissionEpoch) return;
-					generation = _activeGeneration;
-					guidanceSentBefore = _guidanceSent;
-				}
-				var prompt = BuildPrompt(submission);
-				try {
-					SaveContinuation();
-				} catch (AcpSessionStoreException ex) {
-					_connection.TerminateGeneration(generation, ex.Message);
-					throw;
-				}
-				Emit(new AgentPaneMessage {
-					Type = "turn-started",
-					ProviderId = _definition.Id,
-					ThreadId = sessionId,
-					TurnId = TurnId(),
-					IsPrimaryThread = _role is PrimaryRole,
-					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-				});
-				EmitSubmitted(
-					submission,
-					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
-					prompt.Images);
-				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
-				request = Endpoint(generation).RequestAsync(
-					"session/prompt",
-					new { prompt = prompt.Blocks },
-					CancellationToken.None);
-			}
-			var result = await request.ConfigureAwait(false);
-			string stopReason = RequiredString(result, "stopReason", "session/prompt response");
-			string turnId = TurnId();
-			bool background;
-			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (_disposed || _activeGeneration != generation) return;
-					_promptActive = false;
-					if (_cancelRequested) _cancelRequested = false;
-					background = HasBackgroundWorkLocked();
-					_waitingForBackground = background;
-				}
-				CompletePermissionTools(turnId);
-				Observe(new AgentTurnStopped(WillResume: background));
-				CompleteContentStreams();
-				if (stopReason == "refusal") RetractTurn(turnId);
-				else ForgetTurnItems(turnId);
-				Emit(new AgentPaneMessage {
-					Type = "turn-completed",
-					ProviderId = _definition.Id,
-					ThreadId = sessionId,
-					TurnId = turnId,
-					Status = stopReason,
-				});
-				if (!background) SignalSideTurnSettled();
-			}
-		} catch (Exception ex) when (ex is not OperationCanceledException) {
-			lock (_turnTransitionGate) {
-				if (!OwnsOperation(generation, epoch)) return;
-				bool cancellationFailed;
-				lock (_gate) cancellationFailed = _cancelRequested && ex is not AcpRequestException { Code: -32800 };
-				if (cancellationFailed) {
-					FailRuntimeSerialized(new AcpProtocolException($"{_definition.Name} could not cancel the turn: {ex.Message}"));
-				} else if (ex is AcpRequestException { Code: -32000 } authenticationRequired) {
-					TerminalizedTool[] tools;
-					string turnId = TurnId();
-					lock (_gate) {
-						tools = TerminalizeActiveToolsLocked("failed");
-						_promptActive = false;
-						_waitingForBackground = false;
-						_guidanceSent = guidanceSentBefore;
-						_pendingSubmissions.Requeue(submission);
-					}
-					ObserveTerminalizedTools(tools);
-					Observe(new AgentTurnStopped(WillResume: false));
-					CompleteContentStreams();
-					PublishTerminalizedToolMessages(tools);
-					RetractTurn(turnId);
-					Emit(new AgentPaneMessage {
-						Type = "turn-completed",
-						ProviderId = _definition.Id,
-						ThreadId = sessionId,
-						TurnId = turnId,
-						Status = "authentication_required",
-					});
-					RequestAuthentication(authenticationRequired.Message, opensSession: false);
-				} else if (ex is IOException or AcpProtocolException) {
-					FailRuntimeSerialized(ex);
-				} else {
-					bool cancelled = ex is AcpRequestException { Code: -32800 };
-					TerminalizedTool[] tools;
-					bool background;
-					lock (_gate) {
-						tools = TerminalizeActiveToolsLocked(cancelled ? "cancelled" : "failed");
-						_promptActive = false;
-						if (_cancelRequested) _cancelRequested = false;
-						background = HasBackgroundWorkLocked();
-						_waitingForBackground = background;
-					}
-					ObserveTerminalizedTools(tools);
-					Observe(new AgentTurnStopped(WillResume: background));
-					CompleteContentStreams();
-					PublishTerminalizedToolMessages(tools);
-					Emit(new AgentPaneMessage {
-						Type = "turn-completed",
-						ProviderId = _definition.Id,
-						ThreadId = sessionId,
-						TurnId = TurnId(),
-						Status = cancelled ? "cancelled" : "failed",
-						Summary = ex.Message,
-					});
-					if (!cancelled) EmitFailure(ex);
-					if (!background) SignalSideTurnSettled();
-				}
-			}
-		} finally {
-			bool dispatch = false;
-			lock (_turnTransitionGate) {
-				if (OwnsOperation(generation, epoch)) {
-					bool settled;
-					lock (_gate) {
-						_promptActive = false;
-						if (_cancelRequested) _cancelRequested = false;
-						settled = ClaimBackgroundSettleLocked();
-					}
-					if (settled) {
-						Observe(new AgentTurnStopped(WillResume: false));
-						CompleteContentStreams();
-						SignalSideTurnSettled();
-					}
-					dispatch = true;
-				}
-			}
-			if (dispatch) DispatchPendingSubmission();
-		}
-	}
-
 
 	private bool OwnsOperation(long generation, long epoch) {
 		lock (_gate) return OwnsOperationLocked(generation, epoch);
@@ -332,7 +186,7 @@ public sealed partial class AcpAgentSession {
 		if (name.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
 		return _commands.FirstOrDefault(command => string.Equals(command.Name, name, StringComparison.Ordinal))
 			?? throw new InvalidOperationException(
-				$"{_definition.Name} no longer advertises the '/{name}' command.");
+				$"{Definition.Name} no longer advertises the '/{name}' command.");
 	}
 
 	private static string CanonicalCommandText(string text, string name) {
@@ -352,7 +206,7 @@ public sealed partial class AcpAgentSession {
 		foreach (string itemId in itemIds) {
 			Emit(new AgentPaneMessage {
 				Type = "item-retracted",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				TurnId = turnId,
 				ItemId = itemId,
@@ -365,33 +219,21 @@ public sealed partial class AcpAgentSession {
 		lock (_gate) _turnItemIds.Remove(turnId);
 	}
 
-	/// <inheritdoc/>
-	public void PrefillPrompt(string prompt) {
+	internal void Prefill(string prompt) {
 		ArgumentException.ThrowIfNullOrEmpty(prompt);
 		Emit(new AgentPaneMessage {
 			Type = "draft",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			Text = prompt,
 		});
 	}
 
-	/// <inheritdoc/>
-	public void Interrupt() {
+	internal void Interrupt() {
 		lock (_turnTransitionGate) {
-			SideRuntime[] activeSides;
-			lock (_gate) {
-				activeSides = !_promptActive && !HasBackgroundWorkLocked() && !HasPendingInteractionLocked()
-					? [.. _sideRuntimes.Values.Where(side => side.Session.HasWork())]
-					: [];
-			}
-			if (activeSides.Length > 0) {
-				foreach (var side in activeSides) side.Session.Interrupt();
-				return;
-			}
 			string? sessionId;
 			lock (_gate) {
-				if (_role is SideRole && !_ready) _pendingSubmissions.Clear();
+				if (_spec.SideScoped && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
 			}
@@ -403,9 +245,9 @@ public sealed partial class AcpAgentSession {
 			}
 			PublishQueue();
 			bool interactionCancelled = CancelPendingInteractions();
-			if (interactionCancelled && sessionId is null && _role is SideRole) {
+			if (interactionCancelled && sessionId is null && _spec.SideScoped) {
 				lock (_gate) if (_sessionOpening) return;
-				FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
+				Terminate(new InvalidOperationException("Side conversation interrupted."));
 				return;
 			}
 			if (interactionCancelled && sessionId is null) {
@@ -414,7 +256,7 @@ public sealed partial class AcpAgentSession {
 			if (interactionCancelled) {
 				bool settled;
 				lock (_gate) {
-					settled = _role is SideRole
+					settled = _spec.SideScoped
 						&& _ready
 						&& !_promptActive
 						&& !HasBackgroundWorkLocked()
@@ -424,5 +266,4 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 	}
-
 }

@@ -3,7 +3,7 @@ using Weavie.Core.Mcp;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private PreparedPrompt BuildPrompt(AgentTurnSubmission submission) {
 		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
 			lock (_gate) {
@@ -26,7 +26,7 @@ public sealed partial class AcpAgentSession {
 		}
 		foreach (var attachment in submission.Attachments) {
 			if (!_features.Images) {
-				throw new AcpProtocolException($"{_definition.Name} does not accept image prompts.");
+				throw new AcpProtocolException($"{Definition.Name} does not accept image prompts.");
 			}
 			var image = new SubmittedImage(attachment.Id, attachment.Mime,
 				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
@@ -60,7 +60,7 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) _guidanceSent = true;
 		}
 
-		if (_role is SideRole) {
+		if (_spec.SideScoped) {
 			blocks.Add(new {
 				type = "text",
 				text = EmbeddedAgentGuidance.SideConversationInstructions,
@@ -85,7 +85,7 @@ public sealed partial class AcpAgentSession {
 		if (submission.Text.Length > 0) {
 			Emit(new AgentPaneMessage {
 				Type = type,
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				TurnId = TurnId(),
 				ItemId = submission.Id,
@@ -95,7 +95,7 @@ public sealed partial class AcpAgentSession {
 		foreach (var image in images) {
 			Emit(new AgentPaneMessage {
 				Type = "user-image",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				TurnId = TurnId(),
 				ItemId = image.Id,

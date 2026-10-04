@@ -3,15 +3,8 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	/// <inheritdoc/>
-	public void ResolvePermission(string requestId, string optionId) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(optionId);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.ResolvePermission(side.RequestId, optionId);
-			return;
-		}
+internal sealed partial class AcpConversation {
+	internal void ResolvePermission(string requestId, string optionId) {
 		if (!_pendingRequests.TryGetValue(requestId, out var pending) || pending.Kind != "permission") {
 			EmitStaleInteraction(requestId, "permission");
 			return;
@@ -39,18 +32,10 @@ public sealed partial class AcpAgentSession {
 		if (OptionalString(option, "kind") is "reject_once" or "reject_always") CompletePermissionTool(pending.Request);
 	}
 
-	/// <inheritdoc/>
-	public void ResolveInput(
+	internal void ResolveInput(
 		string requestId,
 		string action,
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(action);
-		ArgumentNullException.ThrowIfNull(answers);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.ResolveInput(side.RequestId, action, answers);
-			return;
-		}
 		if (action is not ("accept" or "decline" or "cancel")) {
 			EmitFailure(new AcpProtocolException($"Unsupported ACP elicitation action '{action}'."));
 			return;
@@ -83,18 +68,7 @@ public sealed partial class AcpAgentSession {
 			action == "accept" ? answers : null);
 	}
 
-	/// <inheritdoc/>
-	public void Authenticate(
-		string requestId,
-		string methodId,
-		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
-		ArgumentException.ThrowIfNullOrEmpty(requestId);
-		ArgumentException.ThrowIfNullOrEmpty(methodId);
-		ArgumentNullException.ThrowIfNull(answers);
-		if (TrySideRequest(requestId, out var side)) {
-			side.Session.Authenticate(side.RequestId, methodId, answers);
-			return;
-		}
+	internal void Authenticate(string requestId, string methodId) {
 		var method = _features.AuthMethods.FirstOrDefault(candidate =>
 			string.Equals(candidate.Id, methodId, StringComparison.Ordinal));
 		if (method is null) {
@@ -178,7 +152,7 @@ public sealed partial class AcpAgentSession {
 					Observe(new AgentInputResolved(requiresUserInput));
 					Emit(new AgentPaneMessage {
 						Type = "authentication-resolved",
-						ProviderId = _definition.Id,
+						ProviderId = Definition.Id,
 						ThreadId = SessionId(),
 						ItemId = authenticationItemId,
 						RequestId = authenticationItemId,
@@ -197,15 +171,15 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private AgentLaunch AuthenticationLaunch(AcpAuthMethod method) {
-		var environment = new Dictionary<string, string>(_definition.Environment, StringComparer.Ordinal);
+		var environment = new Dictionary<string, string>(Definition.Environment, StringComparer.Ordinal);
 		foreach (var entry in method.Environment) environment[entry.Key] = entry.Value;
 		return new AgentLaunch {
-			Command = _definition.Command,
-			Arguments = [.. _definition.Arguments, .. method.Arguments],
+			Command = Definition.Command,
+			Arguments = [.. Definition.Arguments, .. method.Arguments],
 			WorkingDirectory = Path.GetFullPath(_context.Workspace),
 			RemoveEnvironment = [],
 			Environment = environment,
-			ExecutableMode = Path.IsPathFullyQualified(_definition.Command)
+			ExecutableMode = Path.IsPathFullyQualified(Definition.Command)
 				? AgentExecutableMode.Direct
 				: AgentExecutableMode.SearchPath,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
@@ -265,7 +239,7 @@ public sealed partial class AcpAgentSession {
 		Observe(new AgentInputResolved(requiresUserInput));
 		Emit(new AgentPaneMessage {
 			Type = "authentication-resolved",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			ItemId = authenticationItemId,
 			RequestId = authenticationItemId,
@@ -291,7 +265,7 @@ public sealed partial class AcpAgentSession {
 		else Observe(new AgentInputResolved(requiresUserInput));
 		Emit(new AgentPaneMessage {
 			Type = type,
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = threadId,
 			TurnId = turnId,
 			ItemId = $"request:{requestId}",

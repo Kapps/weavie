@@ -4,7 +4,7 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private void EmitProgress(JsonElement update) {
 		string turnId = TurnId();
 		const string itemId = "progress:current";
@@ -13,7 +13,7 @@ public sealed partial class AcpAgentSession {
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = itemId,
@@ -57,7 +57,7 @@ public sealed partial class AcpAgentSession {
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = PlanItemId(planId),
@@ -78,7 +78,7 @@ public sealed partial class AcpAgentSession {
 		if (turnId is null) return;
 		Emit(new AgentPaneMessage {
 			Type = "item-retracted",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
 			ItemId = PlanItemId(planId),
@@ -114,7 +114,7 @@ public sealed partial class AcpAgentSession {
 		if (OptionalString(update, "title") is { Length: > 0 } title) {
 			Emit(new AgentPaneMessage {
 				Type = "session-info",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				Summary = title,
 			});

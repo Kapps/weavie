@@ -5,10 +5,10 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private static readonly object DeferredClientResponse = new();
 
-	private void RegisterClientRequest(AcpClientRequest request) {
+	internal void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
 			if (!OwnsGeneration(request.Generation)) {

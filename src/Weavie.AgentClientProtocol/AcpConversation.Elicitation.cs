@@ -4,7 +4,7 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private object RequestInput(AcpClientRequest request, AcpClientRequestState state) {
 		string mode = RequiredString(request.Parameters, "mode", "elicitation request");
 		if (mode == "url") {
@@ -22,7 +22,7 @@ public sealed partial class AcpAgentSession {
 			try {
 				PublishInputRequest(state, urlPending, () => new AgentPaneMessage {
 					Type = "input-requested",
-					ProviderId = _definition.Id,
+					ProviderId = Definition.Id,
 					ItemId = $"request:{request.Id}",
 					RequestId = request.Id,
 					ItemType = "url",
@@ -47,7 +47,7 @@ public sealed partial class AcpAgentSession {
 		}
 		PublishInputRequest(state, pending, () => new AgentPaneMessage {
 			Type = "input-requested",
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ItemId = $"request:{request.Id}",
 			RequestId = request.Id,
 			ItemType = "elicitation",

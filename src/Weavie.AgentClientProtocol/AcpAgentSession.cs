@@ -13,6 +13,8 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentUsage,
 	IStructuredAgentSideConversations {
 	private readonly AgentSessionContext _context;
+	private readonly IAgentEventSink _events;
+	private readonly AcpConversationPort _port;
 	private readonly Func<AcpAgentDefinition> _definitionSource;
 	private AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
@@ -24,7 +26,6 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
-	private readonly Lock _queuePublishGate = new();
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
 	private readonly ConcurrentDictionary<string, AcpClientRequestState> _clientRequests = new(StringComparer.Ordinal);
@@ -93,7 +94,6 @@ public sealed partial class AcpAgentSession :
 		ArgumentNullException.ThrowIfNull(sessions);
 		ArgumentNullException.ThrowIfNull(controlDefaults);
 		ArgumentNullException.ThrowIfNull(log);
-		_context = context;
 		_definitionSource = definition;
 		_definition = definition() ?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
 		_sessions = sessions;
@@ -101,6 +101,9 @@ public sealed partial class AcpAgentSession :
 		_log = log;
 		_role = role;
 		_turnTransitionGate = role is SideRole owned ? owned.Owner._turnTransitionGate : new Lock();
+		_events = context.Events;
+		_port = role is SideRole sidePort ? new SidePort(sidePort.Owner, sidePort.Conversation) : new PrimaryPort(this);
+		_context = context with { Events = _port };
 		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
 		_connection = role is SideRole borrowed
@@ -170,9 +173,6 @@ public sealed partial class AcpAgentSession :
 	}
 
 	private void Emit(AgentPaneMessage message) {
-		var prepared = PreparePaneMessage(message);
-		if (prepared is null) return;
-		message = prepared;
 		if (message.TurnId is { Length: > 0 } turnId
 			&& message.ItemId is { Length: > 0 } itemId
 			&& message.Type is "agent-message-delta"
@@ -185,13 +185,11 @@ public sealed partial class AcpAgentSession :
 				items.Add(itemId);
 			}
 		}
-		PersistDisplay(message);
-		PaneMessage?.Invoke(message);
+		_port.Emit(ContinuationState(), message);
 	}
 
 	private void Observe(AgentEvent value) {
-		if (_role is SideRole && value is AgentProcessChanged or AgentSessionStarted or AgentRuntimeFailed) return;
-		var feedback = _context.Events.Observe(value);
+		var feedback = _port.Observe(value);
 		foreach (string message in feedback.Messages) {
 			Emit(new AgentPaneMessage {
 				Type = "notice",
@@ -201,32 +199,6 @@ public sealed partial class AcpAgentSession :
 			});
 		}
 	}
-
-	private AgentPaneMessage? PreparePaneMessage(AgentPaneMessage message) {
-		if (_role is not SideRole side) return message;
-		if (message.Type is "transcript-reset" or "draft") return null;
-		string? originalRequestId = message.RequestId;
-		string? requestId = originalRequestId is { Length: > 0 }
-			? SideRequestId(side.Conversation.ConversationId, originalRequestId)
-			: null;
-		string? itemId = message.ItemId;
-		if (requestId is not null) {
-			itemId = itemId == originalRequestId
-				? requestId
-				: itemId == "request:" + originalRequestId ? "request:" + requestId : itemId;
-		}
-		return message with {
-			ConversationId = side.Conversation.ConversationId,
-			AnchorTurnId = side.Conversation.AnchorTurnNumber.ToString(
-				System.Globalization.CultureInfo.InvariantCulture),
-			IsPrimaryThread = false,
-			RequestId = requestId,
-			ItemId = itemId,
-		};
-	}
-
-	private static string SideRequestId(string conversationId, string requestId) =>
-		conversationId + ":" + requestId;
 
 	private string? SessionId() {
 		lock (_gate) {
@@ -280,15 +252,15 @@ public sealed partial class AcpAgentSession :
 	}
 
 	private void FailRuntimeSerialized(Exception error) {
-		if (_role is SideRole side && error is not AcpRequestException) {
-			long generation;
-			lock (_gate) generation = _activeGeneration;
-			if (generation > 0 && side.Owner.OwnsGeneration(generation)) {
-				side.Owner.FailRuntime(generation, error);
-				return;
-			}
+		if (!_port.Fail(error)) FailConversationSerialized(error);
+	}
+
+	private bool FailProcess(Exception error) {
+		lock (_turnTransitionGate) {
+			lock (_gate) if (_disposed || _runtimeFailed || _activeGeneration == 0) return false;
+			FailConversationSerialized(error);
+			return true;
 		}
-		FailConversationSerialized(error);
 	}
 
 	private void FailConversationSerialized(Exception error) {

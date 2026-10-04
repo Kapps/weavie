@@ -77,16 +77,13 @@ public sealed partial class AcpAgentSession {
 
 	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited, long generation) {
 		var child = new AcpAgentSession(
-			_context with { Events = new SideEventSink(this, conversation.ConversationId) },
+			_context with { Events = _events },
 			_definitionSource,
 			_sessions,
 			_controlDefaults,
 			_log,
 			new SideRole(conversation, guidanceInherited, this, generation));
-		var runtime = new SideRuntime(child, conversation);
-		child.PaneMessage += message => ForwardSideMessage(runtime, message);
-		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
-		return runtime;
+		return new SideRuntime(child, conversation);
 	}
 
 	private AgentPaneMessage SideMarker(SideConversation conversation, string status) => new() {

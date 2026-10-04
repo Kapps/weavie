@@ -81,37 +81,37 @@ public sealed partial class AcpAgentSession {
 				CancellationToken.None).ConfigureAwait(false);
 		}
 		lock (_turnTransitionGate) {
+			string? remembered;
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				if (mode) _controls[mutation.Axis] = WithValue(control, mutation.Value);
 				else ReadControlResultLocked(result);
-				if (persist) _controlDefaults.Set(_definition.Id, mutation.Axis, _controls[mutation.Axis].Value);
+				remembered = persist ? _controls[mutation.Axis].Value : null;
 			}
+			if (remembered is not null) _port.RememberControl(mutation.Axis, remembered);
 			RaiseControls();
 		}
 	}
 
 	private async Task RestoreControlDefaultsAsync(long generation) {
-		var pending = new Dictionary<string, string>(_controlDefaults.Resolve(_definition.Id), StringComparer.Ordinal);
+		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
 		while (pending.Count > 0) {
 			AcpControlMutation? mutation = null;
+			AcpControlMutation? stale = null;
 			bool consumed = false;
-			string? stale = null;
 			lock (_gate) {
 				foreach (var control in _controls.Values) {
 					if (!pending.Remove(control.Id, out string? value)) continue;
 					consumed = true;
-					if (control.Options.All(option => option.Id != value)) {
-						_controlDefaults.Clear(_definition.Id, control.Id, value);
-						stale = $"Saved {_definition.Name} control '{control.Id}' value '{value}' is no longer advertised and was forgotten.";
-						break;
-					}
-					if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
+					if (control.Options.All(option => option.Id != value)) stale = new AcpControlMutation(control.Id, value);
+					else if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
 					break;
 				}
 			}
 			if (stale is not null) {
-				EmitFailure(new AcpProtocolException(stale));
+				_port.ForgetControl(stale.Axis, stale.Value);
+				EmitFailure(new AcpProtocolException(
+					$"Saved {_definition.Name} control '{stale.Axis}' value '{stale.Value}' is no longer advertised and was forgotten."));
 				continue;
 			}
 			if (mutation is null) {
@@ -239,5 +239,5 @@ public sealed partial class AcpAgentSession {
 		ValueLabel = control.Options.FirstOrDefault(option => option.Id == value)?.Label ?? value,
 	};
 
-	private void RaiseControls() => ControlStateChanged?.Invoke(ControlState);
+	private void RaiseControls() => _port.ControlsChanged();
 }

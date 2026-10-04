@@ -186,8 +186,7 @@ public sealed partial class AcpAgentSession {
 					});
 				}
 				if (method.Type == "terminal") {
-					var owner = _role is SideRole side ? side.Owner : this;
-					owner.Restart(clearSubmissions: false);
+					_port.RestartProcess();
 				} else if (opensSession) {
 					await OpenSessionAsync(generation).ConfigureAwait(false);
 				} else {

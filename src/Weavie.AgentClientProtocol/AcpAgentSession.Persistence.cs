@@ -32,33 +32,7 @@ public sealed partial class AcpAgentSession {
 
 	private void SaveContinuation() => SaveDisplay([]);
 
-	private void PersistDisplay(AgentPaneMessage message) {
-		if (message.Type == "transcript-reset") return;
-		var owner = _role is SideRole side ? side.Owner : this;
-		// The runtime stops on a storage failure; its failure report must still reach the user.
-		if (owner._storageFailed) {
-			if (!owner._runtimeFailed) throw new AcpSessionStoreException(
-				"The ACP conversation cannot continue until storage is available.", new IOException("Conversation storage failed."));
-			return;
-		}
-		SaveDisplay([message]);
-	}
-
-	private void SaveDisplay(IReadOnlyList<AgentPaneMessage> messages) {
-		lock (_turnTransitionGate) {
-			var owner = _role is SideRole side ? side.Owner : this;
-			if (_role is SideRole child && (!owner._sideRuntimes.TryGetValue(child.Conversation.ConversationId, out var runtime)
-				|| !ReferenceEquals(runtime.Session, this))) return;
-			try {
-				var state = ContinuationState();
-				_sessions.Save(_definition.Id, _context.Workspace, state, messages);
-				if (_role is SideRole) owner._sideConversations[state.ConversationId] = state;
-			} catch (AcpSessionStoreException) {
-				owner._storageFailed = true;
-				throw;
-			}
-		}
-	}
+	private void SaveDisplay(IReadOnlyList<AgentPaneMessage> messages) => _port.Save(ContinuationState(), messages);
 
 	private List<AgentPaneMessage> RestoreDisplay() {
 		lock (_turnTransitionGate) {

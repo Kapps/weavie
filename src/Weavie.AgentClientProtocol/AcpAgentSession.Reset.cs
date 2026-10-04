@@ -62,6 +62,7 @@ public sealed partial class AcpAgentSession {
 				_planTurns.Clear();
 				_sideRuntimes.Clear();
 			}
+			foreach (var side in sideSessions) side.Session._port.Detach();
 			_sideConversations.Clear();
 			_storageFailed = false;
 			_displayRestored = true;

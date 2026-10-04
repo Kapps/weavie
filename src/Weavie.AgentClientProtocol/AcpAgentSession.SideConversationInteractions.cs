@@ -3,31 +3,20 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
-	private void ForwardSideMessage(SideRuntime runtime, AgentPaneMessage message) {
-		lock (_turnTransitionGate) {
-			lock (_gate) {
-				if (!OwnsSideRuntimeLocked(runtime)) return;
-			}
-			PaneMessage?.Invoke(message);
-		}
-	}
-
-	private event Action<bool>? SideTurnSettled;
-
 	private void SignalSideTurnSettled() {
 		bool terminal;
-		lock (_gate) terminal = _role is SideRole && _runtimeFailed;
-		if (_role is SideRole) SideTurnSettled?.Invoke(terminal);
+		lock (_gate) terminal = _runtimeFailed;
+		_port.Settled(terminal);
 	}
 
-	private void CompleteSideTurn(SideRuntime runtime, bool terminal) {
-		if (!terminal) return;
+	private void CompleteSideTurn(string conversationId) {
+		SideRuntime? runtime;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (!OwnsSideRuntimeLocked(runtime)) return;
-				_sideRuntimes.Remove(runtime.Conversation.ConversationId);
+				if (!_sideRuntimes.Remove(conversationId, out runtime)) return;
 				runtime.Session._endpoint?.Retire();
 			}
+			runtime.Session._port.Detach();
 			PublishSideTerminal(runtime.Conversation);
 		}
 		DisposeSideRuntime(runtime);
@@ -40,6 +29,7 @@ public sealed partial class AcpAgentSession {
 			side.Session.TerminalizeForRestart(clearSubmissions: true, reason);
 			side.Session.SaveContinuation();
 			lock (_gate) _sideRuntimes.Remove(side.Conversation.ConversationId);
+			side.Session._port.Detach();
 			if (side.Session.SessionId() is null) PublishSideTerminal(side.Conversation);
 			DisposeSideRuntime(side);
 		}
@@ -53,12 +43,8 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private bool OwnsSideRuntimeLocked(SideRuntime runtime) =>
-		_sideRuntimes.TryGetValue(runtime.Conversation.ConversationId, out var current)
-		&& ReferenceEquals(current, runtime);
-
 	private void DisposeSideRuntime(SideRuntime runtime) {
-		_context.Events.Observe(new AgentConversationRemoved(runtime.Conversation.ConversationId));
+		_events.Observe(new AgentConversationRemoved(runtime.Conversation.ConversationId));
 		Run(async () => await runtime.Session.DisposeAsync().ConfigureAwait(false));
 	}
 
@@ -84,17 +70,6 @@ public sealed partial class AcpAgentSession {
 		}
 		owner = null!;
 		return false;
-	}
-
-	private sealed class SideEventSink(AcpAgentSession owner, string conversationId) : IAgentEventSink {
-		public AgentEventFeedback Observe(AgentEvent value) {
-			lock (owner._turnTransitionGate) {
-				lock (owner._gate) {
-					if (!owner._sideRuntimes.ContainsKey(conversationId)) return AgentEventFeedback.None;
-				}
-				return owner._context.Events.Observe(new AgentConversationEvent(conversationId, value));
-			}
-		}
 	}
 
 	private sealed record SideRequestOwner(AcpAgentSession Session, string RequestId);

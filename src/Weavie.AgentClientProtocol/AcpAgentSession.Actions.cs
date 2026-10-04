@@ -75,7 +75,7 @@ public sealed partial class AcpAgentSession {
 	// Serialized so concurrent publishers cannot deliver an older queue after a newer one and leave the
 	// composer showing work that is already on its way to the provider.
 	private void PublishQueue() {
-		lock (_queuePublishGate) {
+		lock (_turnTransitionGate) {
 			AgentTurnSubmission[]? waiting = null;
 			lock (_gate) {
 				if (_pendingSubmissions.Version != _publishedQueueVersion) {
@@ -83,7 +83,7 @@ public sealed partial class AcpAgentSession {
 					waiting = _pendingSubmissions.Snapshot();
 				}
 			}
-			if (waiting is not null) QueuedSubmissionsChanged?.Invoke(waiting);
+			if (waiting is not null) _port.QueueChanged(waiting);
 		}
 	}
 

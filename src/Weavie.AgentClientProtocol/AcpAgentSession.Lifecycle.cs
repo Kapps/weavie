@@ -65,6 +65,7 @@ public sealed partial class AcpAgentSession {
 			SettleToolsForDisposal();
 			foreach (var side in sideSessions) side.Session.SettleToolsForDisposal();
 			lock (_gate) _sideRuntimes.Clear();
+			foreach (var side in sideSessions) side.Session._port.Detach();
 		}
 
 		CancelPendingInteractions();
@@ -126,7 +127,7 @@ public sealed partial class AcpAgentSession {
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		RaiseControls();
-		UsageChanged?.Invoke(Snapshot);
+		_port.UsageChanged(Snapshot);
 		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
 	}
 

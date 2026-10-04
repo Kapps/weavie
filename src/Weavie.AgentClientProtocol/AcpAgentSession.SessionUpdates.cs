@@ -133,7 +133,7 @@ public sealed partial class AcpAgentSession {
 			}
 			snapshot = new(_contextUsage, [.. _usageLimits.Values]);
 		}
-		UsageChanged?.Invoke(snapshot);
+		_port.UsageChanged(snapshot);
 	}
 
 	// Usage windows ride a vendor _meta extension, not the ACP schema: Claude's adapter reports one window

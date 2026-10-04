@@ -42,14 +42,14 @@ internal sealed partial class AcpConversation {
 
 	private void DeliverNextSubmission() {
 		AgentTurnSubmission? submission;
-		string? sessionId;
+		string? threadId;
 		bool steer = false;
 		lock (_gate) {
 			if (!_ready || _rewinding || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
 				|| _steering && !_promptActive) {
 				return;
 			}
-			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
+			threadId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
 			if (_promptActive) {
 				if (!_features.Steering || _steering) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
@@ -67,7 +67,7 @@ internal sealed partial class AcpConversation {
 		if (!steer && TurnId() == "1") RaiseControls(); // The first prompt makes the conversation rewindable.
 		var delivery = steer
 			? DeliverSteeringAsync(submission)
-			: DeliverPromptAsync(sessionId, submission);
+			: DeliverPromptAsync(threadId, submission);
 		Run(() => delivery);
 	}
 

@@ -186,40 +186,6 @@ internal sealed partial class AcpConversation {
 		if (requiresInput) Observe(new AgentInputResolved(RequiresUserInput: true));
 	}
 
-	private void RequestAuthentication(string message, bool opensSession) {
-		if (_features.AuthMethods.Count == 0) {
-			throw new AcpProtocolException("The ACP agent requires authentication but advertised no auth methods.");
-		}
-		string itemId;
-		lock (_gate) {
-			if (_authenticationPending) {
-				throw new AcpProtocolException("The ACP agent requested authentication more than once.");
-			}
-			_authenticationPending = true;
-			_authenticating = false;
-			_authenticationOpensSession = opensSession;
-			itemId = $"authentication:{++_authenticationSequence}";
-			_authenticationItemId = itemId;
-		}
-		Observe(new AgentInputRequested());
-		Observe(new AgentInputResolved(RequiresUserInput: true));
-		Emit(new AgentPaneMessage {
-			Type = "authentication-requested",
-			ProviderId = Definition.Id,
-			ThreadId = SessionId(),
-			ItemId = itemId,
-			RequestId = itemId,
-			ItemType = "authentication",
-			Summary = message,
-			Actions = [.. _features.AuthMethods.Select(method => new AgentActionOption {
-				Id = method.Id,
-				Label = method.Name,
-				Kind = "authenticate",
-			})],
-			Status = "pending",
-		});
-	}
-
 	private object[] McpServers() {
 		if (_features.HttpMcp) {
 			return [new {

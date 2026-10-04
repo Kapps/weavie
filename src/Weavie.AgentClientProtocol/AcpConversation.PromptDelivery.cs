@@ -6,7 +6,7 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	private async Task DeliverPromptAsync(string sessionId, AgentTurnSubmission submission) {
+	private async Task DeliverPromptAsync(string threadId, AgentTurnSubmission submission) {
 		bool guidanceSentBefore = false;
 		try {
 			Task<JsonElement> request;
@@ -23,7 +23,7 @@ internal sealed partial class AcpConversation {
 				Emit(new AgentPaneMessage {
 					Type = "turn-started",
 					ProviderId = Definition.Id,
-					ThreadId = sessionId,
+					ThreadId = threadId,
 					TurnId = TurnId(),
 					IsPrimaryThread = !_spec.SideScoped,
 					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -32,7 +32,7 @@ internal sealed partial class AcpConversation {
 					submission,
 					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
 					prompt.Images);
-				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
+				Observe(new AgentPromptSubmitted(threadId, submission.Text));
 				request = _endpoint.Value.RequestAsync(
 					"session/prompt",
 					new { prompt = prompt.Blocks },
@@ -58,7 +58,7 @@ internal sealed partial class AcpConversation {
 				Emit(new AgentPaneMessage {
 					Type = "turn-completed",
 					ProviderId = Definition.Id,
-					ThreadId = sessionId,
+					ThreadId = threadId,
 					TurnId = turnId,
 					Status = stopReason,
 				});
@@ -89,7 +89,7 @@ internal sealed partial class AcpConversation {
 					Emit(new AgentPaneMessage {
 						Type = "turn-completed",
 						ProviderId = Definition.Id,
-						ThreadId = sessionId,
+						ThreadId = threadId,
 						TurnId = turnId,
 						Status = "authentication_required",
 					});
@@ -114,7 +114,7 @@ internal sealed partial class AcpConversation {
 					Emit(new AgentPaneMessage {
 						Type = "turn-completed",
 						ProviderId = Definition.Id,
-						ThreadId = sessionId,
+						ThreadId = threadId,
 						TurnId = TurnId(),
 						Status = cancelled ? "cancelled" : "failed",
 						Summary = ex.Message,

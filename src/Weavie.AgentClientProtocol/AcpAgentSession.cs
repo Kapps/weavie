@@ -59,7 +59,9 @@ public sealed partial class AcpAgentSession :
 			lock (_turnTransitionGate) _primary.Observe(new AgentProcessChanged(change));
 		};
 		_connection.NotificationReceived += (generation, root) => {
-			lock (_turnTransitionGate) _primary.HandleNotification(generation, root);
+			lock (_turnTransitionGate) {
+				if (generation == _processGeneration) _primary.HandleNotification(generation, root);
+			}
 		};
 		_connection.RequestReceived += request => {
 			lock (_turnTransitionGate) {

@@ -7,7 +7,7 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	internal void HandleNotification(long generation, JsonElement root) {
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(generation)) return;
+			if (!Live) return;
 			HandleNotificationSerialized(root);
 		}
 	}
@@ -35,7 +35,7 @@ internal sealed partial class AcpConversation {
 		}
 		string sessionId = OptionalString(parameters, "sessionId")
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
-		if (sessionId != Endpoint(_activeGeneration).SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
+		if (sessionId != _endpoint.Value.SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
 		if (_loadingTranscript && kind is not ("available_commands_update" or "current_mode_update"
 			or "config_option_update" or "usage_update")) return;

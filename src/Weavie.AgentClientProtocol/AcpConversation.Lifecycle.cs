@@ -4,37 +4,12 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	internal void OnProcessStarted(long generation) {
+	/// <summary>Binds this conversation to a started process; a conversation attaches once.</summary>
+	internal void Attach(long generation) {
 		lock (_turnTransitionGate) {
-			lock (_gate) {
-				_activeGeneration = generation;
-				_endpoint = null;
-				_terminals = new AcpTerminalManager(_context.Workspace, _log);
-				// An untouched primary has no conversation to resume; a side fork can have inherited history.
-				if (!_spec.SideScoped && _turnNumber == 0) _sessionId = null;
-				_ready = false;
-				_promptActive = false;
-				_steering = false;
-				_waitingForBackground = false;
-				_cancelRequested = false;
-				_controlMutations.Clear();
-				_controlMutationActive = false;
-				_runtimeFailed = false;
-				_sessionOpening = false;
-				_loadingTranscript = false;
-				_controls.Clear();
-				_configOwnsMode = false;
-				_commands = [];
-				_tools.Clear();
-				_activeTools.Clear();
-				_content.Clear();
-				_turnItemIds.Clear();
-				_contextUsage = null;
-				_usageLimits.Clear();
-			}
+			lock (_gate) _activeGeneration = generation;
+			_endpoint.Set(_connection.OpenEndpoint(generation, null, HandleNotification, RegisterClientRequest));
 		}
-		CancelPendingInteractions();
-		AbandonClientRequests();
 		RaiseControls();
 		_port.UsageChanged(Usage);
 	}
@@ -58,6 +33,7 @@ internal sealed partial class AcpConversation {
 				_submissionEpoch++;
 				tools = TerminalizeActiveToolsLocked("failed");
 			}
+			_lifetime.Cancel();
 			_terminals.Close();
 			AbandonClientRequests();
 			ObserveTerminalizedTools(tools);
@@ -84,9 +60,7 @@ internal sealed partial class AcpConversation {
 	internal void TerminalizeForRestart(bool clearSubmissions, string summary) {
 		TerminalizedTool[] tools;
 		bool promptActive;
-		long generation;
 		lock (_gate) {
-			generation = _activeGeneration;
 			_activeGeneration = 0;
 			_ready = false;
 			if (clearSubmissions) _pendingSubmissions.Clear();
@@ -98,6 +72,7 @@ internal sealed partial class AcpConversation {
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		_lifetime.Cancel();
 		RaiseControls();
 		foreach (var message in DrainContentStreams()) _pendingTerminalMessages.Enqueue(message);
 		foreach (var tool in tools) {
@@ -113,7 +88,7 @@ internal sealed partial class AcpConversation {
 				Summary = summary,
 			});
 		}
-		if (generation > 0) _terminals.Close();
+		_terminals.Close();
 		PublishQueue();
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) Observe(new AgentTurnStopped(WillResume: false));
@@ -132,10 +107,15 @@ internal sealed partial class AcpConversation {
 		EmitFailure(error);
 	}
 
-	/// <summary>Detaches the conversation from its owner; nothing it does afterwards reaches the owner.</summary>
-	internal void Retire() {
-		_port.Detach();
-		lock (_gate) _endpoint?.Retire();
+	/// <summary>Ends this incarnation; nothing it does afterwards reaches its owner or the agent.</summary>
+	internal AcpConversationHandoff Retire() {
+		lock (_turnTransitionGate) {
+			_lifetime.Cancel();
+			_port.Detach();
+			if (_endpoint.IsSet) _endpoint.Value.Retire();
+			_terminals.Close();
+			return new(Continuation, QueuedSubmissions);
+		}
 	}
 
 	internal void SettleForDisposal() {
@@ -145,6 +125,7 @@ internal sealed partial class AcpConversation {
 			_controlMutations.Clear();
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		_lifetime.Cancel();
 		ObserveTerminalizedTools(tools);
 	}
 
@@ -154,7 +135,7 @@ internal sealed partial class AcpConversation {
 		AcpSessionEndpoint? endpoint;
 		lock (_turnTransitionGate) SettleForDisposal();
 		lock (_gate) {
-			endpoint = _endpoint;
+			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
 			close = (_ready || _spec.SideScoped) && _features.Close && endpoint?.SessionId is not null;
 		}
 		CancelPendingInteractions();

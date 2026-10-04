@@ -28,13 +28,13 @@ internal sealed partial class AcpConversation {
 					throw new AcpProtocolException(
 						$"{Definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}
-				string? persisted = _sessionId ?? _endpoint?.SessionId;
+				string? persisted = _sessionId ?? _endpoint.Value.SessionId;
 				sessionId = persisted is not null && (_features.Load || _features.Resume)
 					? persisted
 					: null;
 				loadSession = sessionId is not null && _features.Load && !_features.Resume;
 				_sessionOpening = true;
-				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
+				if (sessionId is not null) _endpoint.Value.Bind(sessionId);
 				if (sessionId is null && !_spec.SideScoped) _guidanceSent = false;
 
 			}

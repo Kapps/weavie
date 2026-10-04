@@ -14,8 +14,14 @@ internal sealed record AcpConversationHost(
 /// <summary>The continuation a conversation incarnation starts from and how it opens its provider session.</summary>
 internal sealed record AcpConversationSpec(
 	AcpConversationState Continuation,
+	IReadOnlyList<AgentTurnSubmission> Pending,
 	AcpConversationOpening Opening,
 	bool SideScoped);
+
+/// <summary>What a retired conversation leaves for its successor.</summary>
+internal sealed record AcpConversationHandoff(
+	AcpConversationState Continuation,
+	IReadOnlyList<AgentTurnSubmission> Pending);
 
 /// <summary>How a conversation opens its provider session.</summary>
 internal abstract record AcpConversationOpening {

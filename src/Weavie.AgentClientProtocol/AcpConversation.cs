@@ -14,8 +14,9 @@ internal sealed partial class AcpConversation {
 	private readonly AcpConversationPort _port;
 	private readonly AcpConversationSpec _spec;
 	private readonly AcpJsonRpcConnection _connection;
-	private AcpSessionEndpoint? _endpoint;
-	private AcpTerminalManager _terminals;
+	private readonly AcpOnce<AcpSessionEndpoint> _endpoint = new();
+	private readonly CancellationTokenSource _lifetime = new();
+	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
@@ -70,9 +71,15 @@ internal sealed partial class AcpConversation {
 		_spec = spec;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);
 		RestoreContinuation(spec.Continuation);
+		foreach (var submission in spec.Pending) _pendingSubmissions.Enqueue(submission);
 	}
 
 	private AcpAgentDefinition Definition => _definition();
+
+	/// <summary>False once this incarnation failed, was terminalized, retired, or disposed.</summary>
+	internal bool Live => !_lifetime.IsCancellationRequested;
+
+	internal bool Attached => _endpoint.IsSet;
 
 	internal bool Ready {
 		get { lock (_gate) return _ready; }
@@ -133,6 +140,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	internal void RestoreContinuation(AcpConversationState state) {
+		if (Attached) throw new InvalidOperationException("An attached ACP conversation keeps its continuation.");
 		lock (_gate) {
 			_sessionId = state.SessionId;
 			_turnNumber = state.TurnNumber;
@@ -145,8 +153,6 @@ internal sealed partial class AcpConversation {
 	internal void Save(IReadOnlyList<AgentPaneMessage> messages) => _port.Save(Continuation, messages);
 
 	private void SaveContinuation() => Save([]);
-
-	internal void Detach() => _port.Detach();
 
 	/// <summary>Emits a message owned by this conversation's thread.</summary>
 	internal void Publish(AgentPaneMessage message) => Emit(message);
@@ -181,7 +187,7 @@ internal sealed partial class AcpConversation {
 
 	private string? SessionId() {
 		lock (_gate) {
-			return _sessionId ?? (_endpoint?.Generation == _activeGeneration ? _endpoint.SessionId : null);
+			return _sessionId ?? (Live && _endpoint.IsSet ? _endpoint.Value.SessionId : null);
 		}
 	}
 
@@ -192,8 +198,8 @@ internal sealed partial class AcpConversation {
 	}
 
 	private AcpSessionEndpoint Endpoint(long generation) {
-		lock (_gate) return _endpoint is { } endpoint && endpoint.Generation == generation
-			? endpoint : throw new InvalidOperationException("The ACP conversation belongs to a previous process generation.");
+		return _endpoint.Value.Generation == generation
+			? _endpoint.Value : throw new InvalidOperationException("The ACP conversation belongs to a previous process generation.");
 	}
 
 	internal void Run(Func<Task> action) => _ = Task.Run(async () => {
@@ -221,10 +227,6 @@ internal sealed partial class AcpConversation {
 
 	internal long Generation {
 		get { lock (_gate) return _activeGeneration; }
-	}
-
-	internal bool Failable {
-		get { lock (_gate) return !_disposed && !_runtimeFailed; }
 	}
 
 	private void FailRuntime(Exception error) {

@@ -59,7 +59,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			throw;
 		}
 		foreach (string conversationId in dropped) _sideConversations.Remove(conversationId);
-		_primary.RestoreContinuation(primary);
+		ReplacePrimary(_primary.Retire() with { Continuation = primary });
 		PaneSnapshot?.Invoke(plan.Kept);
 		_connection.Restart();
 		if (plan.Prompt.Length > 0) _primary.Prefill(plan.Prompt);

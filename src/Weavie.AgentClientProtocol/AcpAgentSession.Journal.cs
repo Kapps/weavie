@@ -27,7 +27,7 @@ public sealed partial class AcpAgentSession {
 				var messages = _sessions.ReadMessages(_definition.Id, _context.Workspace);
 				_sideConversations.Clear();
 				foreach (var state in states) {
-					if (state.ConversationId.Length == 0) _primary.RestoreContinuation(state);
+					if (state.ConversationId.Length == 0) _primary.RestoreContinuation(Untouched(state));
 					else _sideConversations.Add(state.ConversationId, state);
 				}
 				_storageFailed = false;

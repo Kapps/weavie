@@ -20,7 +20,7 @@ public sealed partial class AcpAgentSession :
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate = new();
 	private readonly Dictionary<string, SideRuntime> _sides = new(StringComparer.Ordinal);
-	private readonly AcpConversation _primary;
+	private AcpConversation _primary;
 	private AcpAgentFeatures _features = AcpAgentFeatures.None;
 	private bool _started;
 	private bool _disposed;
@@ -52,7 +52,7 @@ public sealed partial class AcpAgentSession :
 		_log = log;
 		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
 		_host = new AcpConversationHost(context, () => _definition, log, _turnTransitionGate, _connection);
-		_primary = CreatePrimary(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false));
+		_primary = CreatePrimary(new(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false), []));
 		_connection.ProcessStarted += OnProcessStarted;
 		_connection.ProcessStateChanged += change => {
 			lock (_turnTransitionGate) _primary.Observe(new AgentProcessChanged(change));
@@ -124,8 +124,20 @@ public sealed partial class AcpAgentSession :
 		lock (_gate) return [.. _sides.Values];
 	}
 
-	private AcpConversation CreatePrimary(AcpConversationState continuation) =>
-		new(_host, new AcpConversationSpec(continuation, AcpConversationOpening.Continue, SideScoped: false), new PrimaryPort(this));
+	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => new(
+		_host,
+		new AcpConversationSpec(Untouched(handoff.Continuation), handoff.Pending, AcpConversationOpening.Continue, SideScoped: false),
+		new PrimaryPort(this));
+
+	// A primary with no turns has no conversation to resume; a side can inherit history before its first turn.
+	private static AcpConversationState Untouched(AcpConversationState continuation) =>
+		continuation.TurnNumber == 0 ? continuation with { SessionId = null } : continuation;
+
+	/// <summary>Retires the primary incarnation and installs its successor; call before restarting the process.</summary>
+	private void ReplacePrimary(AcpConversationHandoff handoff) {
+		var successor = CreatePrimary(handoff);
+		lock (_gate) _primary = successor;
+	}
 
 	private static AcpConversationState NewContinuation(
 		string conversationId, long anchorTurnNumber, string initialPrompt, bool guidanceSent) => new() {

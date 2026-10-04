@@ -282,6 +282,23 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			failSessionPersistence: false);
 	}
 
+	// The first launch fails; every launch after repair starts the fake agent.
+	public static AcpAgentSessionFixture CreateLaunchFailingUntilRepaired(out Action repair) {
+		bool repaired = false;
+		repair = () => Volatile.Write(ref repaired, true);
+		string unlaunchable = Path.Combine(Path.GetTempPath(), $"weavie-missing-acp-{Guid.NewGuid():N}");
+		return Create(
+			"fake",
+			"Repairable ACP",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal),
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false,
+			UnavailableAgentAuthenticationTerminal.Instance,
+			definition => () => Volatile.Read(ref repaired) ? definition : definition with { Command = unlaunchable });
+	}
+
 	private static AcpAgentSessionFixture Create(
 		string providerId,
 		string providerName,
@@ -307,7 +324,27 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		bool allowAllPermissions,
 		string? persistedSessionId,
 		bool failSessionPersistence,
-		IAgentAuthenticationTerminal authenticationTerminal) {
+		IAgentAuthenticationTerminal authenticationTerminal) => Create(
+		providerId,
+		providerName,
+		executable,
+		environment,
+		allowAllPermissions,
+		persistedSessionId,
+		failSessionPersistence,
+		authenticationTerminal,
+		static definition => () => definition);
+
+	private static AcpAgentSessionFixture Create(
+		string providerId,
+		string providerName,
+		string executable,
+		IReadOnlyDictionary<string, string> environment,
+		bool allowAllPermissions,
+		string? persistedSessionId,
+		bool failSessionPersistence,
+		IAgentAuthenticationTerminal authenticationTerminal,
+		Func<AcpAgentDefinition, Func<AcpAgentDefinition>> launches) {
 		var directory = new TempDirectory("weavie-acp-tests");
 		var processEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal) {
 			["WEAVIE_ROOT"] = directory.Combine("weavie"),
@@ -372,7 +409,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
 			},
-			definition,
+			launches(definition),
 			store,
 			controls,
 			events.Logs.Enqueue);

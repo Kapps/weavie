@@ -41,11 +41,13 @@ public sealed partial class AcpAgentSession {
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
 				SuspendSides("ACP agent restarted.");
-				_connection.Restart();
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error, generation, sides);
 				throw;
 			}
+			// The predecessor dies before the restart fails its pending requests.
+			ReplacePrimary(_primary.Retire());
+			_connection.Restart();
 		}
 	}
 
@@ -62,7 +64,8 @@ public sealed partial class AcpAgentSession {
 				StopForStorageFailure(error, generation, sides);
 				throw;
 			}
-			_primary.RestoreContinuation(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false));
+			_primary.Retire();
+			ReplacePrimary(new(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false), []));
 			lock (_gate) _sides.Clear();
 			foreach (var side in sides) side.Conversation.Retire();
 			_sideConversations.Clear();
@@ -103,9 +106,13 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
+	// The process starts synchronously inside Start or Restart, so this attaches the primary just installed.
 	private void OnProcessStarted(AcpProcessGeneration process) {
-		var conversation = Primary;
-		conversation.OnProcessStarted(process.Generation);
+		AcpConversation conversation;
+		lock (_turnTransitionGate) {
+			conversation = _primary;
+			conversation.Attach(process.Generation);
+		}
 		conversation.RunRuntime(process.Generation, () => InitializeAsync(conversation, process.Generation));
 	}
 
@@ -148,7 +155,7 @@ public sealed partial class AcpAgentSession {
 	private bool FailProcess(Exception error) {
 		lock (_turnTransitionGate) {
 			var primary = _primary;
-			if (!primary.Failable) return false;
+			if (!primary.Live) return false;
 			long generation = primary.Generation;
 			if (generation > 0) {
 				_connection.TerminateGeneration(

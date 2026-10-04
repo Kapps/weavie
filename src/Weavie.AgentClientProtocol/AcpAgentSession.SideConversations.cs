@@ -66,7 +66,7 @@ public sealed partial class AcpAgentSession {
 	private SideRuntime CreateSide(AcpConversationState continuation, AcpConversationOpening opening) {
 		var side = new SideConversation(continuation.ConversationId, continuation.AnchorTurnNumber, continuation.InitialPrompt);
 		var conversation = new AcpConversation(
-			_host, new AcpConversationSpec(continuation, opening, SideScoped: true), new SidePort(this, side));
+			_host, new AcpConversationSpec(continuation, [], opening, SideScoped: true), new SidePort(this, side));
 		var runtime = new SideRuntime(conversation, side);
 		lock (_gate) _sides.Add(side.ConversationId, runtime);
 		return runtime;
@@ -74,7 +74,7 @@ public sealed partial class AcpAgentSession {
 
 	private void StartSide(SideRuntime runtime) {
 		long generation = _primary.Generation;
-		runtime.Conversation.OnProcessStarted(generation);
+		runtime.Conversation.Attach(generation);
 		runtime.Conversation.RunRuntime(generation, () => runtime.Conversation.OpenAsync(Features, generation));
 	}
 

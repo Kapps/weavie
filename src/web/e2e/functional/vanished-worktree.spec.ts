@@ -7,6 +7,9 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // HostCoreVanishedWorktreeTests covers detection; this checks the user-facing notice and reconnect replay.
 const RAW_OBSERVER_ERRORS = /Git working directory does not exist|Couldn't load workspace files/;
 
+// Windows paths are case-insensitive: the watcher logs the junction target's stored casing (c:\ vs C:\).
+const pathKey = (text: string) => (process.platform === "win32" ? text.toLowerCase() : text);
+
 test("a worktree deleted outside Weavie closes its session, for good", async ({ page, weavie }) => {
   const chips = page.locator(".session-chip");
   const workspaceSlot = await activeSessionSlot(page);
@@ -24,9 +27,12 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
   const beforeReload = weavie.log().length;
   await page.locator(".session-chip.unloaded").click();
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
+  // FLAKE 2026-10-04 06:30Z https://github.com/Kapps/weavie/actions/runs/37182323192 (Windows shard 6/6):
+  // the host logged the watcher root as "c:\Users\..." while this expected "C:\Users\...", so the
+  // case-sensitive substring never matched. Fixed by comparing under the platform's path-case rule.
   await expect
-    .poll(() => weavie.log().slice(beforeReload))
-    .toContain(`workspace watcher on ${normalize(worktree)}`);
+    .poll(() => pathKey(weavie.log().slice(beforeReload)))
+    .toContain(pathKey(`workspace watcher on ${normalize(worktree)}`));
   await unlink(worktree);
   // Linux watches the backing directory; its next invalidation must observe the missing session root.
   await writeFile(join(backing, "observer-invalidation"), "external change");

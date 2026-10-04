@@ -15,11 +15,12 @@ public sealed class AcpElicitationRaceTests {
 		try {
 			await publishing.Entered.WaitAsync(TimeSpan.FromSeconds(10));
 			await File.WriteAllTextAsync(Path.Combine(fixture.Workspace, "input-publishing"), string.Empty);
-			string sent = Path.Combine(fixture.Workspace, "input-cancel-sent");
+			// The connection logs the cancellation on its reader thread as it hands it to the conversation,
+			// whose locks it then waits on while the card is still publishing.
 			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-			while (!File.Exists(sent)) await Task.Delay(10, timeout.Token);
-			// Gives the host's reader time to dispatch the cancellation while the card is still publishing.
-			await Task.Delay(TimeSpan.FromMilliseconds(200));
+			while (!fixture.Events.Logs.Any(line => line.Contains("agent cancelled request", StringComparison.Ordinal))) {
+				await Task.Delay(10, timeout.Token);
+			}
 		} finally {
 			publishing.Release();
 		}

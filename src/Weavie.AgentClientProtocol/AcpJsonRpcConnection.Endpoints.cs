@@ -90,6 +90,7 @@ public sealed partial class AcpJsonRpcConnection {
 				AcpSessionEndpoint? owner;
 				lock (_endpointGate) _incomingOwners.TryGetValue((generation, CanonicalId(requestId)), out owner);
 				if (owner is not null) {
+					_log($"[acp:{_providerId}] agent cancelled request {CanonicalId(requestId)}");
 					owner.Notify(notification);
 					return;
 				}

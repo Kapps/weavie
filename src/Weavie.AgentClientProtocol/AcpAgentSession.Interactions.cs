@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -61,7 +62,7 @@ public sealed partial class AcpAgentSession {
 		Dictionary<string, object>? content = null;
 		try {
 			if (action == "accept") content = pending.Kind == "input"
-				? BuildElicitationContent(pending.Data, answers)
+				? AcpElicitationSchema.BuildElicitationContent(pending.Data, answers)
 				: new Dictionary<string, object>(StringComparer.Ordinal);
 		} catch (AcpProtocolException ex) {
 			EmitFailure(ex);
@@ -94,7 +95,7 @@ public sealed partial class AcpAgentSession {
 			side.Session.Authenticate(side.RequestId, methodId, answers);
 			return;
 		}
-		var method = _authMethods.FirstOrDefault(candidate =>
+		var method = _features.AuthMethods.FirstOrDefault(candidate =>
 			string.Equals(candidate.Id, methodId, StringComparison.Ordinal));
 		if (method is null) {
 			EmitFailure(new AcpProtocolException($"'{methodId}' is not an advertised ACP authentication method."));

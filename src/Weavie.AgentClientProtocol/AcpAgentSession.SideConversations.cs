@@ -63,7 +63,7 @@ public sealed partial class AcpAgentSession {
 		if (_role is not PrimaryRole) {
 			throw new InvalidOperationException("A side conversation cannot address another side conversation.");
 		}
-		if (!_ready || !_supportsFork || !_supportsLoad) {
+		if (!_ready || !_features.Fork || !_features.Load) {
 			throw new InvalidOperationException(
 				$"{_definition.Name} does not support context-preserving side conversations.");
 		}

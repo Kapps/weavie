@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -160,10 +161,4 @@ public sealed partial class AcpAgentSession {
 			: null;
 		return new(OptionalString(limit, "rateLimitType") ?? "limit", status, usedPercent, resetsAt);
 	}
-
-
-	private static long ReadRequiredNonNegativeInt64(JsonElement value, string property, string source) =>
-		value.TryGetProperty(property, out var result) && result.TryGetInt64(out long number) && number >= 0
-			? number
-			: throw new AcpProtocolException($"The ACP {source} requires a non-negative '{property}'.");
 }

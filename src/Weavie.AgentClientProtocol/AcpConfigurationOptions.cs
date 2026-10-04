@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -117,15 +118,4 @@ internal static class AcpConfigurationOptions {
 		Description = OptionalString(choice, "description"),
 		Group = group,
 	};
-
-	private static string RequiredString(JsonElement value, string property, string source) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			&& result.GetString() is { Length: > 0 } text
-				? text
-				: throw new AcpProtocolException($"The {source} is missing '{property}'.");
-
-	private static string? OptionalString(JsonElement value, string property) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			? result.GetString()
-			: null;
 }

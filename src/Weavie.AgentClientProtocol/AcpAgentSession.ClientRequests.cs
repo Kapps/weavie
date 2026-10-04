@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -243,26 +244,6 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 		_urlElicitations.Clear();
-	}
-
-	private static int? ReadOptionalNonNegativeInt(JsonElement value, string property) {
-		if (!value.TryGetProperty(property, out var result) || result.ValueKind == JsonValueKind.Null) {
-			return null;
-		}
-		if (!result.TryGetInt32(out int number) || number < 0) {
-			throw new AcpProtocolException($"'{property}' must be a non-negative integer.");
-		}
-		return number;
-	}
-
-	private static double? ReadOptionalDouble(JsonElement value, string property) {
-		if (!value.TryGetProperty(property, out var result) || result.ValueKind == JsonValueKind.Null) {
-			return null;
-		}
-		if (!result.TryGetDouble(out double number) || !double.IsFinite(number)) {
-			throw new AcpProtocolException($"'{property}' must be a finite number.");
-		}
-		return number;
 	}
 
 	private static object? ExitStatus(AcpTerminalExit? status) => status is null

@@ -2,13 +2,14 @@ using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 	private bool _rewinding;
 
-	private bool ForkableLocked => _role is PrimaryRole && _ready && _supportsFork && _supportsLoad;
+	private bool ForkableLocked => _role is PrimaryRole && _ready && _features.Fork && _features.Load;
 
 	private bool RewindableLocked => ForkableLocked && _turnNumber > 0;
 
@@ -61,7 +62,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			branch.Retire(); // The commit restarts onto the fork; this endpoint only had to prove it.
 			return branch.SessionId!;
 		} catch {
-			if (_supportsClose && branch.SessionId is not null) await branch.CloseAsync().ConfigureAwait(false);
+			if (_features.Close && branch.SessionId is not null) await branch.CloseAsync().ConfigureAwait(false);
 			else branch.Retire();
 			throw;
 		}

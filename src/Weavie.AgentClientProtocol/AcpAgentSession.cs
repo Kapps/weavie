@@ -38,9 +38,8 @@ public sealed partial class AcpAgentSession :
 	private readonly Dictionary<string, HashSet<string>> _turnItemIds = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, AgentControlAxis> _controls = new(StringComparer.Ordinal);
 	private IReadOnlyList<AgentSlashEntry> _commands = [];
-	private IReadOnlyList<AcpAuthMethod> _authMethods = [];
+	private AcpAgentFeatures _features = AcpAgentFeatures.None;
 	private string? _sessionId;
-	private System.Text.Json.JsonElement _initialization;
 	private long _turnNumber;
 	private long _activeGeneration;
 	private long _publishedQueueVersion;
@@ -58,14 +57,6 @@ public sealed partial class AcpAgentSession :
 	private CancellationTokenSource? _authenticationCancellation;
 	private string? _authenticationItemId;
 	private long _authenticationSequence;
-	private bool _supportsLoad;
-	private bool _supportsFork;
-	private bool _supportsResume;
-	private bool _supportsClose;
-	private bool _supportsImages;
-	private bool _supportsEmbeddedContext;
-	private bool _supportsHttpMcp;
-	private bool _supportsSteering;
 	private bool _guidanceSent;
 	private bool _runtimeFailed;
 	private bool _cancelRequested;
@@ -420,64 +411,6 @@ public sealed partial class AcpAgentSession :
 		JsonElement Data,
 		string? ThreadId,
 		string TurnId);
-
-	private sealed class AcpClientRequestState : IDisposable {
-		private readonly CancellationTokenSource _cancellation;
-		private readonly Lock _gate = new();
-		private bool _completed;
-		private bool _published;
-
-		public AcpClientRequestState(AcpClientRequest request) {
-			Request = request;
-			_cancellation = new CancellationTokenSource();
-			Token = _cancellation.Token;
-		}
-
-		public AcpClientRequest Request { get; }
-
-		public CancellationToken Token { get; }
-
-		public bool TryComplete() => TryComplete(out _);
-
-		public bool TryComplete(out bool published) {
-			lock (_gate) {
-				published = false;
-				if (_completed) return false;
-				_completed = true;
-				published = _published;
-				return true;
-			}
-		}
-
-		public bool TryCancel() {
-			lock (_gate) {
-				if (_completed) return false;
-				_completed = true;
-			}
-			_cancellation.Cancel();
-			return true;
-		}
-
-		public bool PublishDeferred(Action publish) {
-			ArgumentNullException.ThrowIfNull(publish);
-			lock (_gate) {
-				if (_completed) return false;
-				publish();
-				_published = true;
-				return true;
-			}
-		}
-
-		public void Dispose() => _cancellation.Dispose();
-	}
-
-	private sealed record AcpAuthMethod(
-		string Id,
-		string Name,
-		string? Description,
-		string Type,
-		IReadOnlyList<string> Arguments,
-		IReadOnlyDictionary<string, string> Environment);
 
 	private sealed record AcpControlMutation(string Axis, string Value);
 

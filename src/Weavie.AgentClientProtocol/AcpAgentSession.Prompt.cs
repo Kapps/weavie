@@ -25,7 +25,7 @@ public sealed partial class AcpAgentSession {
 			blocks.Add(new { type = "text", text = submission.Text });
 		}
 		foreach (var attachment in submission.Attachments) {
-			if (!_supportsImages) {
+			if (!_features.Images) {
 				throw new AcpProtocolException($"{_definition.Name} does not accept image prompts.");
 			}
 			var image = new SubmittedImage(attachment.Id, attachment.Mime,
@@ -38,7 +38,7 @@ public sealed partial class AcpAgentSession {
 			});
 		}
 
-		if (_supportsEmbeddedContext) {
+		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
 			if (includesGuidance) {
 				blocks.Add(AssistantContext(

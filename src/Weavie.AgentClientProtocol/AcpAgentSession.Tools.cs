@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -59,7 +60,7 @@ public sealed partial class AcpAgentSession {
 				_controlMutations.Clear();
 				sideSessions = [.. _sideRuntimes.Values];
 				sessionId = _endpoint?.SessionId;
-				close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
+				close = (_ready || _role is SideRole) && _features.Close && sessionId is not null;
 			}
 			SettleToolsForDisposal();
 			foreach (var side in sideSessions) side.Session.SettleToolsForDisposal();
@@ -130,7 +131,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task InitializeGenerationAsync(AcpProcessGeneration process) {
-		var initialized = _role is SideRole side ? side.Owner._initialization : await _connection.RequestAsync(
+		var features = _role is SideRole side ? side.Owner._features : AcpAgentFeatures.Read(await _connection.RequestAsync(
 			"initialize",
 			new {
 				protocolVersion = 1,
@@ -149,13 +150,11 @@ public sealed partial class AcpAgentSession {
 				},
 			},
 			process.Generation,
-			CancellationToken.None).ConfigureAwait(false);
+			CancellationToken.None).ConfigureAwait(false));
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != process.Generation) return;
-				_initialization = initialized;
-				ReadCapabilities(initialized);
-				ReadAuthMethods(initialized);
+				_features = features;
 			}
 		}
 		await OpenSessionAsync(process.Generation).ConfigureAwait(false);
@@ -169,15 +168,15 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				reconnecting = _sessionId is not null;
-				if (reconnecting && !_supportsLoad && !_supportsResume) {
+				if (reconnecting && !_features.Load && !_features.Resume) {
 					throw new AcpProtocolException(
 						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}
 				string? persisted = _sessionId ?? _endpoint?.SessionId;
-				sessionId = persisted is not null && (_supportsLoad || _supportsResume)
+				sessionId = persisted is not null && (_features.Load || _features.Resume)
 					? persisted
 					: null;
-				loadSession = sessionId is not null && _supportsLoad && !_supportsResume;
+				loadSession = sessionId is not null && _features.Load && !_features.Resume;
 				_sessionOpening = true;
 				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
 				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
@@ -301,7 +300,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void RequestAuthentication(string message, bool opensSession) {
-		if (_authMethods.Count == 0) {
+		if (_features.AuthMethods.Count == 0) {
 			throw new AcpProtocolException("The ACP agent requires authentication but advertised no auth methods.");
 		}
 		string itemId;
@@ -325,7 +324,7 @@ public sealed partial class AcpAgentSession {
 			RequestId = itemId,
 			ItemType = "authentication",
 			Summary = message,
-			Actions = [.. _authMethods.Select(method => new AgentActionOption {
+			Actions = [.. _features.AuthMethods.Select(method => new AgentActionOption {
 				Id = method.Id,
 				Label = method.Name,
 				Kind = "authenticate",
@@ -335,7 +334,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private object[] McpServers() {
-		if (_supportsHttpMcp) {
+		if (_features.HttpMcp) {
 			return [new {
 				type = "http",
 				name = "weavie",
@@ -357,87 +356,4 @@ public sealed partial class AcpAgentSession {
 		}];
 	}
 
-	private void ReadCapabilities(JsonElement initialized) {
-		var capabilities = AcpCapabilities.Read(initialized);
-		_supportsLoad = AcpCapabilities.Boolean(capabilities, "loadSession");
-		_supportsFork = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "fork");
-		_supportsClose = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "close");
-		_supportsResume = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "resume");
-		_supportsImages = AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image");
-		_supportsEmbeddedContext = AcpCapabilities.Boolean(
-			capabilities,
-			"promptCapabilities",
-			"embeddedContext");
-		_supportsHttpMcp = AcpCapabilities.Boolean(capabilities, "mcpCapabilities", "http");
-		_supportsSteering = initialized.TryGetProperty("_meta", out var meta)
-			&& AcpCapabilities.Boolean(meta, "steering", "supported");
-	}
-
-	private void ReadAuthMethods(JsonElement initialized) {
-		if (!initialized.TryGetProperty("authMethods", out var methods) || methods.ValueKind == JsonValueKind.Null) {
-			_authMethods = [];
-			return;
-		}
-		if (methods.ValueKind != JsonValueKind.Array) {
-			throw new AcpProtocolException("ACP authMethods must be an array when present.");
-		}
-		var ids = new HashSet<string>(StringComparer.Ordinal);
-		var parsed = new List<AcpAuthMethod>();
-		foreach (var method in methods.EnumerateArray()) {
-			if (method.ValueKind != JsonValueKind.Object
-				|| OptionalString(method, "id") is not { Length: > 0 } id
-				|| OptionalString(method, "name") is not { Length: > 0 } name) continue;
-			if (!ids.Add(id)) throw new AcpProtocolException($"ACP repeated auth method '{id}'.");
-			string type = OptionalString(method, "type") ?? "agent";
-			if (type is not ("agent" or "terminal")) continue;
-			parsed.Add(new AcpAuthMethod(
-				id,
-				name,
-				OptionalString(method, "description"),
-				type,
-				ReadAuthArguments(method),
-				ReadAuthEnvironment(method)));
-		}
-		_authMethods = parsed;
-	}
-
-	private static IReadOnlyList<string> ReadAuthArguments(JsonElement method) {
-		if (!method.TryGetProperty("args", out var args) || args.ValueKind != JsonValueKind.Array) return [];
-		var result = new List<string>();
-		foreach (var argument in args.EnumerateArray()) {
-			if (argument.ValueKind != JsonValueKind.String) return [];
-			result.Add(argument.GetString()!);
-		}
-		return result;
-	}
-
-	private static IReadOnlyDictionary<string, string> ReadAuthEnvironment(JsonElement method) {
-		if (!method.TryGetProperty("env", out var environment) || environment.ValueKind != JsonValueKind.Object) {
-			return new Dictionary<string, string>(StringComparer.Ordinal);
-		}
-		var result = new Dictionary<string, string>(StringComparer.Ordinal);
-		foreach (var entry in environment.EnumerateObject()) {
-			if (entry.Name.Length == 0 || entry.Value.ValueKind != JsonValueKind.String) {
-				return new Dictionary<string, string>(StringComparer.Ordinal);
-			}
-			result.Add(entry.Name, entry.Value.GetString()!);
-		}
-		return result;
-	}
-
-	private static string RequiredString(JsonElement value, string property, string source) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			&& result.GetString() is { Length: > 0 } text
-				? text
-				: throw new AcpProtocolException($"The {source} is missing '{property}'.");
-
-	private static string RequiredText(JsonElement value, string property, string source) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			? result.GetString()!
-			: throw new AcpProtocolException($"The {source} is missing string '{property}'.");
-
-	private static string? OptionalString(JsonElement value, string property) =>
-		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
-			? result.GetString()
-			: null;
 }

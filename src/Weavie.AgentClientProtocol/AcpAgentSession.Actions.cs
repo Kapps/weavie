@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -17,7 +18,7 @@ public sealed partial class AcpAgentSession {
 				submission = NormalizeSubmissionLocked(submission);
 				if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
 				reconnect = _runtimeFailed;
-				if (reconnect && !IsUntouchedPrimary && _sessionId is not null && !_supportsLoad && !_supportsResume) {
+				if (reconnect && !IsUntouchedPrimary && _sessionId is not null && !_features.Load && !_features.Resume) {
 					throw new InvalidOperationException(
 						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
 				}
@@ -50,7 +51,7 @@ public sealed partial class AcpAgentSession {
 			}
 			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
 			if (_promptActive) {
-				if (!_supportsSteering || _steering) return;
+				if (!_features.Steering || _steering) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
 				submission = _pendingSubmissions.TakeFirst(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
 				if (submission is null) return;

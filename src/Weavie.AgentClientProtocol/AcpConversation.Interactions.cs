@@ -76,18 +76,16 @@ internal sealed partial class AcpConversation {
 			return;
 		}
 		bool authenticate;
-		long generation;
 		bool opensSession;
 		CancellationTokenSource? cancellation = null;
 		lock (_gate) {
 			authenticate = _authenticationPending
 				&& !_authenticating
 				&& string.Equals(_authenticationItemId, requestId, StringComparison.Ordinal);
-			generation = _activeGeneration;
 			opensSession = _authenticationOpensSession;
 			if (authenticate) {
 				_authenticating = true;
-				cancellation = new CancellationTokenSource();
+				cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
 				_authenticationCancellation = cancellation;
 			}
 		}
@@ -100,7 +98,7 @@ internal sealed partial class AcpConversation {
 			using (authenticationCancellation) {
 				try {
 					if (method.Type == "agent") {
-						await Endpoint(generation).AuthenticateAsync(
+						await _endpoint.Value.AuthenticateAsync(
 							methodId,
 							authenticationCancellation.Token).ConfigureAwait(false);
 					} else {

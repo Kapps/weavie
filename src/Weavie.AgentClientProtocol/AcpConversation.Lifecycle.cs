@@ -98,6 +98,12 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
+	/// <summary>Cancels every request still waiting on the user or this client.</summary>
+	internal void SettleInteractions() {
+		CancelPendingInteractions();
+		AbandonClientRequests();
+	}
+
 	internal void MarkFailed() {
 		lock (_gate) _runtimeFailed = true;
 	}
@@ -114,7 +120,7 @@ internal sealed partial class AcpConversation {
 			_port.Detach();
 			if (_endpoint.IsSet) _endpoint.Value.Retire();
 			_terminals.Close();
-			return new(Continuation, QueuedSubmissions);
+			lock (_gate) return new(Continuation, _pendingSubmissions.Snapshot(), [.. _resolvedRequests], _authenticationSequence);
 		}
 	}
 

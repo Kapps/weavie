@@ -52,7 +52,7 @@ public sealed partial class AcpAgentSession :
 		_log = log;
 		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
 		_host = new AcpConversationHost(context, () => _definition, log, _turnTransitionGate, _connection);
-		_primary = CreatePrimary(new(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false), []));
+		_primary = CreatePrimary(AcpConversationHandoff.Fresh(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false)));
 		_connection.ProcessStarted += OnProcessStarted;
 		_connection.ProcessStateChanged += change => {
 			lock (_turnTransitionGate) _primary.Observe(new AgentProcessChanged(change));
@@ -126,7 +126,7 @@ public sealed partial class AcpAgentSession :
 
 	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => new(
 		_host,
-		new AcpConversationSpec(Untouched(handoff.Continuation), handoff.Pending, AcpConversationOpening.Continue, SideScoped: false),
+		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, SideScoped: false),
 		new PrimaryPort(this));
 
 	// A primary with no turns has no conversation to resume; a side can inherit history before its first turn.

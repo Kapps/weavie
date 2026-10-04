@@ -20,4 +20,21 @@ public sealed class AcpConversationSuccessionTests {
 		Assert.Single(fixture.Messages, message => message.Type == "error");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
+
+	[Fact]
+	public async Task RestartSettlesThePredecessorsPendingApprovalAndRemembersIt() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("permission");
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+
+		fixture.Session.Restart();
+		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "approval-resolved");
+		await fixture.WaitForControlsAsync(state => state.Ready);
+		fixture.Session.ResolvePermission(approval.RequestId!, "allow-once");
+
+		Assert.Equal(approval.RequestId, resolved.RequestId);
+		Assert.Equal("cancelled", resolved.Status);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
 }

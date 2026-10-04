@@ -70,8 +70,11 @@ internal sealed partial class AcpConversation {
 		_port = port;
 		_spec = spec;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);
-		RestoreContinuation(spec.Continuation);
-		foreach (var submission in spec.Pending) _pendingSubmissions.Enqueue(submission);
+		RestoreContinuation(spec.Seed.Continuation);
+		foreach (var submission in spec.Seed.Pending) _pendingSubmissions.Enqueue(submission);
+		_publishedQueueVersion = _pendingSubmissions.Version;
+		_resolvedRequests.UnionWith(spec.Seed.ResolvedRequests);
+		_authenticationSequence = spec.Seed.AuthenticationSequence;
 	}
 
 	private AcpAgentDefinition Definition => _definition();
@@ -114,10 +117,10 @@ internal sealed partial class AcpConversation {
 	internal AcpConversationState Continuation {
 		get {
 			lock (_gate) return new() {
-				ConversationId = _spec.Continuation.ConversationId,
+				ConversationId = _spec.Seed.Continuation.ConversationId,
 				SessionId = SessionId(),
-				AnchorTurnNumber = _spec.Continuation.AnchorTurnNumber,
-				InitialPrompt = _spec.Continuation.InitialPrompt,
+				AnchorTurnNumber = _spec.Seed.Continuation.AnchorTurnNumber,
+				InitialPrompt = _spec.Seed.Continuation.InitialPrompt,
 				TurnNumber = _turnNumber,
 				GuidanceSent = _guidanceSent,
 				PlanTurns = new Dictionary<string, string>(_planTurns),

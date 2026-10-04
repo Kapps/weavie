@@ -41,6 +41,7 @@ public sealed partial class AcpAgentSession {
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
 				SuspendSides("ACP agent restarted.");
+				_primary.SettleInteractions();
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error, generation, sides);
 				throw;
@@ -59,13 +60,13 @@ public sealed partial class AcpAgentSession {
 			sides = Sides();
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sides);
+				_primary.SettleInteractions();
 				_sessions.Replace(_definition.Id, _context.Workspace, [], []);
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error, generation, sides);
 				throw;
 			}
-			_primary.Retire();
-			ReplacePrimary(new(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false), []));
+			ReplacePrimary(_primary.Retire() with { Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false) });
 			lock (_gate) _sides.Clear();
 			foreach (var side in sides) side.Conversation.Retire();
 			_sideConversations.Clear();

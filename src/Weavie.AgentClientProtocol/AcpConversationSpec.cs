@@ -11,17 +11,21 @@ internal sealed record AcpConversationHost(
 	Lock TransitionGate,
 	AcpJsonRpcConnection Connection);
 
-/// <summary>The continuation a conversation incarnation starts from and how it opens its provider session.</summary>
+/// <summary>What a conversation incarnation starts from and how it opens its provider session.</summary>
 internal sealed record AcpConversationSpec(
-	AcpConversationState Continuation,
-	IReadOnlyList<AgentTurnSubmission> Pending,
+	AcpConversationHandoff Seed,
 	AcpConversationOpening Opening,
 	bool SideScoped);
 
-/// <summary>What a retired conversation leaves for its successor.</summary>
+/// <summary>What a retired conversation leaves for its successor; interaction identities stay unique in its pane.</summary>
 internal sealed record AcpConversationHandoff(
 	AcpConversationState Continuation,
-	IReadOnlyList<AgentTurnSubmission> Pending);
+	IReadOnlyList<AgentTurnSubmission> Pending,
+	IReadOnlyCollection<string> ResolvedRequests,
+	long AuthenticationSequence) {
+	/// <summary>A conversation starting from <paramref name="continuation"/> with no history in its pane.</summary>
+	public static AcpConversationHandoff Fresh(AcpConversationState continuation) => new(continuation, [], [], 0);
+}
 
 /// <summary>How a conversation opens its provider session.</summary>
 internal abstract record AcpConversationOpening {

@@ -44,6 +44,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		try {
 			_primary.TerminalizeForRestart(clearSubmissions: false, "Conversation rewound.");
 			SuspendSides("Conversation rewound.");
+			_primary.SettleInteractions();
 			var state = _primary.Continuation;
 			primary = state with {
 				SessionId = sessionId,

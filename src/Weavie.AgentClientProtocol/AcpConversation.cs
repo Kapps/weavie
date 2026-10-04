@@ -36,7 +36,6 @@ internal sealed partial class AcpConversation {
 	private AcpAgentFeatures _features = AcpAgentFeatures.None;
 	private string? _sessionId;
 	private long _turnNumber;
-	private long _activeGeneration;
 	private long _publishedQueueVersion;
 	private bool _ready;
 	private bool _disposed;
@@ -57,7 +56,6 @@ internal sealed partial class AcpConversation {
 	private bool _controlMutationActive;
 	private bool _configOwnsMode;
 	private bool _rewinding;
-	private long _submissionEpoch;
 	private AgentContextWindowUsage? _contextUsage;
 	private readonly Dictionary<string, AgentUsageLimit> _usageLimits = [];
 
@@ -200,11 +198,6 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private AcpSessionEndpoint Endpoint(long generation) {
-		return _endpoint.Value.Generation == generation
-			? _endpoint.Value : throw new InvalidOperationException("The ACP conversation belongs to a previous process generation.");
-	}
-
 	internal void Run(Func<Task> action) => _ = Task.Run(async () => {
 		try {
 			await action().ConfigureAwait(false);
@@ -221,14 +214,6 @@ internal sealed partial class AcpConversation {
 			FailRuntime(ex);
 		}
 	});
-
-	internal bool OwnsGeneration(long generation) {
-		lock (_gate) return !_disposed && _activeGeneration == generation;
-	}
-
-	internal long Generation {
-		get { lock (_gate) return _activeGeneration; }
-	}
 
 	private void FailRuntime(Exception error) {
 		lock (_turnTransitionGate) FailRuntimeSerialized(error);

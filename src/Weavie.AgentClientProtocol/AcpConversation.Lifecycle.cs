@@ -6,10 +6,7 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	/// <summary>Binds this conversation to a started process; a conversation attaches once.</summary>
 	internal void Attach(long generation) {
-		lock (_turnTransitionGate) {
-			lock (_gate) _activeGeneration = generation;
-			_endpoint.Set(_connection.OpenEndpoint(generation, null, HandleNotification, RegisterClientRequest));
-		}
+		lock (_turnTransitionGate) _endpoint.Set(_connection.OpenEndpoint(generation, null, HandleNotification, RegisterClientRequest));
 		RaiseControls();
 		_port.UsageChanged(Usage);
 	}
@@ -21,7 +18,6 @@ internal sealed partial class AcpConversation {
 			bool promptActive;
 			lock (_gate) {
 				if (!Live) return;
-				_activeGeneration = 0;
 				_runtimeFailed = true;
 				_ready = false;
 				promptActive = _promptActive;
@@ -30,7 +26,6 @@ internal sealed partial class AcpConversation {
 				_waitingForBackground = false;
 				_cancelRequested = false;
 				_controlMutations.Clear();
-				_submissionEpoch++;
 				tools = TerminalizeActiveToolsLocked("failed");
 			}
 			_terminals.Close();
@@ -62,10 +57,8 @@ internal sealed partial class AcpConversation {
 		TerminalizedTool[] tools;
 		bool promptActive;
 		lock (_gate) {
-			_activeGeneration = 0;
 			_ready = false;
 			if (clearSubmissions) _pendingSubmissions.Clear();
-			_submissionEpoch++;
 			_cancelRequested = false;
 			promptActive = _promptActive;
 			_promptActive = false;

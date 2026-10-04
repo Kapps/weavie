@@ -13,7 +13,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		ArgumentException.ThrowIfNullOrEmpty(turnId);
 		AcpRewindPlan plan;
 		AcpConversation primary;
-		long generation;
 		lock (_turnTransitionGate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
 			primary = _primary;
@@ -21,15 +20,14 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			if (primary.Rewinding || primary.HasWork || Sides().Any(side => side.Conversation.HasWork)) {
 				throw new InvalidOperationException("Wait for the agent to finish before rewinding.");
 			}
-			generation = primary.Generation;
 			plan = AcpRewindPlan.Create(_sessions.ReadMessages(_definition.Id, _context.Workspace), turnId);
 			primary.Rewinding = true;
 		}
 		try {
 			string? sessionId = plan.ForkMessageId is { } messageId ? await primary.ForkAtAsync(messageId).ConfigureAwait(false) : null;
 			lock (_turnTransitionGate) {
-				if (!primary.OwnsGeneration(generation)) throw new InvalidOperationException("The agent restarted during the rewind.");
-				CommitRewind(plan, sessionId, generation);
+				if (!primary.Live) throw new InvalidOperationException("The agent restarted during the rewind.");
+				CommitRewind(plan, sessionId);
 			}
 		} finally {
 			primary.Rewinding = false;
@@ -37,7 +35,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		}
 	}
 
-	private void CommitRewind(AcpRewindPlan plan, string? sessionId, long generation) {
+	private void CommitRewind(AcpRewindPlan plan, string? sessionId) {
 		var sides = Sides();
 		AcpConversationState primary;
 		string[] dropped;
@@ -56,7 +54,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			dropped = [.. _sideConversations.Values.Where(side => !plan.Keeps(side.AnchorTurnNumber)).Select(side => side.ConversationId)];
 			_sessions.Replace(_definition.Id, _context.Workspace, [primary, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], plan.Kept);
 		} catch (AcpSessionStoreException error) {
-			StopForStorageFailure(error, generation, sides);
+			StopForStorageFailure(error, sides);
 			throw;
 		}
 		foreach (string conversationId in dropped) _sideConversations.Remove(conversationId);

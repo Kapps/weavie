@@ -176,7 +176,7 @@ internal sealed partial class AcpConversation {
 		return true;
 	}
 
-	// A freshly opened session owns no running tool call — the generation reset cleared them and a replayed one
+	// A freshly opened session owns no running tool call — a new incarnation starts with none and a replayed one
 	// is history — so the only setup state to restore is a request still waiting on the user.
 	private void RestoreSetupActivity() {
 		bool requiresInput;

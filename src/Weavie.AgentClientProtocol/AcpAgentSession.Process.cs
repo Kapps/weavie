@@ -36,14 +36,13 @@ public sealed partial class AcpAgentSession {
 			if (!_displayRestored) PaneSnapshot?.Invoke(RestoreDisplay());
 			else if (_storageFailed) _primary.Save([]);
 			_storageFailed = false;
-			long generation = _primary.Generation;
 			var sides = Sides();
 			try {
 				_primary.TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
 				SuspendSides("ACP agent restarted.");
 				_primary.SettleInteractions();
 			} catch (AcpSessionStoreException error) {
-				StopForStorageFailure(error, generation, sides);
+				StopForStorageFailure(error, sides);
 				throw;
 			}
 			// The predecessor dies before the restart fails its pending requests.
@@ -56,14 +55,13 @@ public sealed partial class AcpAgentSession {
 	public void StartNewConversation() {
 		SideRuntime[] sides;
 		lock (_turnTransitionGate) {
-			long generation = _primary.Generation;
 			sides = Sides();
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sides);
 				_primary.SettleInteractions();
 				_sessions.Replace(_definition.Id, _context.Workspace, [], []);
 			} catch (AcpSessionStoreException error) {
-				StopForStorageFailure(error, generation, sides);
+				StopForStorageFailure(error, sides);
 				throw;
 			}
 			ReplacePrimary(_primary.Retire() with { Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false) });
@@ -148,8 +146,7 @@ public sealed partial class AcpAgentSession {
 
 	private void OnProtocolFault(long generation, Exception error) {
 		lock (_turnTransitionGate) {
-			long active = _primary.Generation;
-			if (active == generation || active == 0 && _connection.IsLatestGeneration(generation)) FailProcess(error);
+			if (generation == _processGeneration || !_primary.Attached && _connection.IsLatestGeneration(generation)) FailProcess(error);
 		}
 	}
 
@@ -158,10 +155,9 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			var primary = _primary;
 			if (!primary.Live) return false;
-			long generation = primary.Generation;
-			if (generation > 0) {
+			if (_processGeneration > 0) {
 				_connection.TerminateGeneration(
-					generation,
+					_processGeneration,
 					string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
 			}
 			foreach (var side in Sides()) side.Conversation.Terminate(error);
@@ -170,10 +166,10 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private void StopForStorageFailure(AcpSessionStoreException error, long generation, IReadOnlyList<SideRuntime> sides) {
+	private void StopForStorageFailure(AcpSessionStoreException error, IReadOnlyList<SideRuntime> sides) {
 		_storageFailed = true;
 		_primary.MarkFailed();
-		if (generation > 0) _connection.TerminateGeneration(generation, error.Message);
+		if (_processGeneration > 0) _connection.TerminateGeneration(_processGeneration, error.Message);
 		TerminalizeConversations("Conversation interrupted by a storage failure.", sides);
 		_primary.ReportFailure(error);
 	}

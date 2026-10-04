@@ -139,10 +139,10 @@ public sealed partial class AcpAgentSession {
 			generation,
 			CancellationToken.None).ConfigureAwait(false));
 		lock (_turnTransitionGate) {
-			if (!conversation.OwnsGeneration(generation)) return;
+			if (!conversation.Live) return;
 			lock (_gate) _features = features;
 		}
-		await conversation.OpenAsync(features, generation).ConfigureAwait(false);
+		await conversation.OpenAsync(features).ConfigureAwait(false);
 	}
 
 	private void OnProtocolFault(long generation, Exception error) {

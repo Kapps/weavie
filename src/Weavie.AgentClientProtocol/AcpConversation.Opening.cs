@@ -6,23 +6,21 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	internal async Task OpenAsync(AcpAgentFeatures features, long generation) {
+	internal async Task OpenAsync(AcpAgentFeatures features) {
 		lock (_turnTransitionGate) {
-			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
-				_features = features;
-			}
+			if (!Live) return;
+			lock (_gate) _features = features;
 		}
-		await OpenSessionAsync(generation).ConfigureAwait(false);
+		await OpenSessionAsync().ConfigureAwait(false);
 	}
 
-	private async Task OpenSessionAsync(long generation) {
+	private async Task OpenSessionAsync() {
 		string? sessionId;
 		bool reconnecting;
 		bool loadSession;
 		lock (_turnTransitionGate) {
+			if (!Live) return;
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
 				reconnecting = _sessionId is not null;
 				if (reconnecting && !_features.Load && !_features.Resume) {
 					throw new AcpProtocolException(
@@ -36,68 +34,63 @@ internal sealed partial class AcpConversation {
 				_sessionOpening = true;
 				if (sessionId is not null) _endpoint.Value.Bind(sessionId);
 				if (sessionId is null && !_spec.SideScoped) _guidanceSent = false;
-
 			}
 		}
 
 		JsonElement setup;
 		try {
 			if (_spec.Opening is ForkFromOpening fork && sessionId is null) {
-				await Endpoint(generation).ForkFromAsync(fork.Parent.Endpoint(generation), new {
+				await _endpoint.Value.ForkFromAsync(fork.Parent._endpoint.Value, new {
 					cwd = Path.GetFullPath(_context.Workspace),
 					mcpServers = McpServers(),
 				}).ConfigureAwait(false);
 				lock (_turnTransitionGate) {
-					if (!OwnsGeneration(generation)) return;
-					sessionId = Endpoint(generation).SessionId;
+					if (!Live) return;
+					sessionId = _endpoint.Value.SessionId;
 					SaveContinuation();
 				}
 				loadSession = true;
 			}
 			if (sessionId is null) {
 				lock (_gate) _planTurns.Clear();
-				setup = await Endpoint(generation).CreateAsync(
+				setup = await _endpoint.Value.CreateAsync(
 					new {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					}).ConfigureAwait(false);
-				if (!OwnsGeneration(generation)) return;
-				sessionId = Endpoint(generation).SessionId;
+				if (!Live) return;
+				sessionId = _endpoint.Value.SessionId;
 			} else if (loadSession) {
 				lock (_turnTransitionGate) {
-					if (!OwnsGeneration(generation)) return;
+					if (!Live) return;
 					lock (_gate) _loadingTranscript = true;
 				}
 				try {
-					setup = await Endpoint(generation).RequestAsync(
+					setup = await _endpoint.Value.RequestAsync(
 						"session/load",
 						new { cwd = Path.GetFullPath(_context.Workspace), mcpServers = McpServers() },
 						CancellationToken.None).ConfigureAwait(false);
 				} finally {
 					lock (_turnTransitionGate) {
-						lock (_gate) {
-							if (OwnsGeneration(generation)) _loadingTranscript = false;
-						}
+						if (Live) lock (_gate) _loadingTranscript = false;
 					}
 				}
 			} else {
-				setup = await Endpoint(generation).RequestAsync(
+				setup = await _endpoint.Value.RequestAsync(
 					"session/resume",
 					new {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
 					CancellationToken.None).ConfigureAwait(false);
-				if (!OwnsGeneration(generation)) return;
+				if (!Live) return;
 			}
 		} catch (AcpRequestException ex) when (ex.Code == -32000) {
 			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (_disposed || _activeGeneration != generation) return;
-					_sessionOpening = false;
-				}
+				if (!Live) return;
+				lock (_gate) _sessionOpening = false;
 				if (SettleInterruptedSideOpening()) return;
-				if (!_connection.ReportHealthy(generation)) {
+				if (!_connection.ReportHealthy(_endpoint.Value.Generation)) {
 					throw new AcpProtocolException("The ACP authentication generation is no longer current.");
 				}
 				RequestAuthentication(ex.Message, opensSession: true);
@@ -105,31 +98,27 @@ internal sealed partial class AcpConversation {
 			return;
 		} catch {
 			lock (_turnTransitionGate) {
-				lock (_gate) {
-					if (_disposed || _activeGeneration != generation) return;
-					_sessionOpening = false;
-				}
+				if (!Live) return;
+				lock (_gate) _sessionOpening = false;
 			}
 			throw;
 		}
 
 		lock (_turnTransitionGate) {
+			if (!Live) return;
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
 				_sessionId = sessionId;
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
 			}
 			SaveContinuation();
 		}
-		await RestoreControlDefaultsAsync(generation).ConfigureAwait(false);
+		await RestoreControlDefaultsAsync(_endpoint.Value.Generation).ConfigureAwait(false);
 		lock (_turnTransitionGate) {
-			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
-				_ready = true;
-			}
+			if (!Live) return;
+			lock (_gate) _ready = true;
 			if (SettleInterruptedSideOpening()) return;
-			if (!_connection.ReportHealthy(generation)) {
+			if (!_connection.ReportHealthy(_endpoint.Value.Generation)) {
 				throw new AcpProtocolException("The initialized ACP generation is no longer current.");
 			}
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
@@ -141,13 +130,11 @@ internal sealed partial class AcpConversation {
 
 	// ACP has no capability flag for the fork point, so the branch's replay proves the agent honoured it.
 	internal async Task<string> ForkAtAsync(string messageId) {
-		long generation;
-		lock (_gate) generation = _activeGeneration;
 		var replay = new RewindReplay();
-		var branch = _connection.OpenEndpoint(generation, null, (_, root) => replay.Observe(root), _connection.RejectClosedRequest);
+		var branch = _connection.OpenEndpoint(_endpoint.Value.Generation, null, (_, root) => replay.Observe(root), _connection.RejectClosedRequest);
 		string cwd = Path.GetFullPath(_context.Workspace);
 		try {
-			await branch.ForkFromAsync(Endpoint(generation), new {
+			await branch.ForkFromAsync(_endpoint.Value, new {
 				cwd,
 				mcpServers = McpServers(),
 				_meta = new { jetbrains = new { air = new { fork = new { version = 1, messageId } } } },

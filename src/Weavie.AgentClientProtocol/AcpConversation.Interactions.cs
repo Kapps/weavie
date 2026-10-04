@@ -162,7 +162,7 @@ internal sealed partial class AcpConversation {
 				if (method.Type == "terminal") {
 					_port.RestartProcess();
 				} else if (opensSession) {
-					await OpenSessionAsync(generation).ConfigureAwait(false);
+					await OpenSessionAsync().ConfigureAwait(false);
 				} else {
 					FlushPendingSubmissions();
 				}

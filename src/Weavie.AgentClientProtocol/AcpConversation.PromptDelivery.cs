@@ -62,7 +62,7 @@ internal sealed partial class AcpConversation {
 					TurnId = turnId,
 					Status = stopReason,
 				});
-				if (!background) SignalSideTurnSettled();
+				if (!background) SignalSettled();
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -120,7 +120,7 @@ internal sealed partial class AcpConversation {
 						Summary = ex.Message,
 					});
 					if (!cancelled) EmitFailure(ex);
-					if (!background) SignalSideTurnSettled();
+					if (!background) SignalSettled();
 				}
 			}
 		} finally {
@@ -136,7 +136,7 @@ internal sealed partial class AcpConversation {
 					if (settled) {
 						Observe(new AgentTurnStopped(WillResume: false));
 						CompleteContentStreams();
-						SignalSideTurnSettled();
+						SignalSettled();
 					}
 					dispatch = true;
 				}

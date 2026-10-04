@@ -247,7 +247,7 @@ internal sealed partial class AcpConversation {
 						&& !HasBackgroundWorkLocked()
 						&& _pendingSubmissions.Count == 0;
 				}
-				if (settled) SignalSideTurnSettled();
+				if (settled) SignalSettled();
 			}
 		}
 	}

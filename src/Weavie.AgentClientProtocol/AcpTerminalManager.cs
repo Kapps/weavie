@@ -49,6 +49,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		long? limit = ReadOutputLimit(parameters);
 		AcpTerminal terminal;
 		lock (_gate) {
+			ct.ThrowIfCancellationRequested();
 			ObjectDisposedException.ThrowIf(_closed, this);
 			terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _log);
 			_terminals.TryAdd(id, terminal);

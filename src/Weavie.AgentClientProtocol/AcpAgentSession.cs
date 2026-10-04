@@ -139,7 +139,7 @@ public sealed partial class AcpAgentSession :
 	private static AcpConversationState Untouched(AcpConversationState continuation) =>
 		continuation.TurnNumber == 0 ? continuation with { SessionId = null } : continuation;
 
-	/// <summary>Retires the primary incarnation and installs its successor; call before restarting the process.</summary>
+	/// <summary>Installs the successor of the retired primary; call before restarting the process.</summary>
 	private void ReplacePrimary(AcpConversationHandoff handoff) {
 		var successor = CreatePrimary(handoff);
 		lock (_gate) {

@@ -48,7 +48,7 @@ internal sealed partial class AcpConversation {
 				});
 			}
 			EmitFailure(error);
-			SignalSideTurnSettled();
+			SignalSettled();
 		}
 	}
 
@@ -138,8 +138,7 @@ internal sealed partial class AcpConversation {
 			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
 			close = (_ready || _spec.SideScoped) && _features.Close && endpoint?.SessionId is not null;
 		}
-		CancelPendingInteractions();
-		AbandonClientRequests();
+		SettleInteractions();
 		var closeRequest = close ? endpoint!.CloseAsync() : null;
 		endpoint?.Retire();
 		try {

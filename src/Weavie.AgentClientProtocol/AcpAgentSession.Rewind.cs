@@ -27,7 +27,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			string? sessionId = plan.ForkMessageId is { } messageId ? await primary.ForkAtAsync(messageId).ConfigureAwait(false) : null;
 			lock (_turnTransitionGate) {
 				if (!primary.Live) throw new InvalidOperationException("The agent restarted during the rewind.");
-				CommitRewind(plan, sessionId);
+				CommitRewind(primary, plan, sessionId);
 			}
 		} finally {
 			primary.Rewinding = false;
@@ -35,16 +35,16 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		}
 	}
 
-	private void CommitRewind(AcpRewindPlan plan, string? sessionId) {
+	private void CommitRewind(AcpConversation predecessor, AcpRewindPlan plan, string? sessionId) {
 		var sides = Sides();
-		AcpConversationState primary;
+		AcpConversationState continuation;
 		string[] dropped;
 		try {
-			_primary.TerminalizeForRestart(clearSubmissions: false, "Conversation rewound.");
+			predecessor.TerminalizeForRestart(clearSubmissions: false, "Conversation rewound.");
 			SuspendSides("Conversation rewound.");
-			_primary.SettleInteractions();
-			var state = _primary.Continuation;
-			primary = state with {
+			predecessor.SettleInteractions();
+			var state = predecessor.Continuation;
+			continuation = state with {
 				SessionId = sessionId,
 				TurnNumber = plan.Turn - 1,
 				GuidanceSent = sessionId is not null && state.GuidanceSent,
@@ -52,13 +52,13 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 					.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
 			};
 			dropped = [.. _sideConversations.Values.Where(side => !plan.Keeps(side.AnchorTurnNumber)).Select(side => side.ConversationId)];
-			_sessions.Replace(_definition.Id, _context.Workspace, [primary, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], plan.Kept);
+			_sessions.Replace(_definition.Id, _context.Workspace, [continuation, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], plan.Kept);
 		} catch (AcpSessionStoreException error) {
 			StopForStorageFailure(error, sides);
 			throw;
 		}
 		foreach (string conversationId in dropped) _sideConversations.Remove(conversationId);
-		ReplacePrimary(_primary.Retire() with { Continuation = primary });
+		ReplacePrimary(predecessor.Retire() with { Continuation = continuation });
 		PaneSnapshot?.Invoke(plan.Kept);
 		_connection.Restart();
 		if (plan.Prompt.Length > 0) _primary.Prefill(plan.Prompt);

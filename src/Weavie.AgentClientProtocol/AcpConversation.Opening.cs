@@ -32,6 +32,7 @@ internal sealed partial class AcpConversation {
 					: null;
 				loadSession = sessionId is not null && _features.Load && !_features.Resume;
 				_sessionOpening = true;
+				_endpoint.Value.Open();
 				if (sessionId is not null) _endpoint.Value.Bind(sessionId);
 				if (sessionId is null && !_spec.SideScoped) _guidanceSent = false;
 			}

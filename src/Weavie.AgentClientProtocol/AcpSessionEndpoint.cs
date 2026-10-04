@@ -7,9 +7,13 @@ internal sealed class AcpSessionEndpoint(
 	AcpJsonRpcConnection connection, long generation,
 	Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
 	private volatile bool _retired;
+	private volatile bool _opened;
 	internal long Generation { get; } = generation;
 	internal string? SessionId { get; private set; }
 	internal bool Retired => _retired;
+	// Until its conversation starts opening, the connection routes the generation's unscoped traffic as before any endpoint.
+	internal bool Opened => _opened;
+	internal void Open() => _opened = true;
 	internal void Retire() => _retired = true;
 	internal void Bind(string sessionId) => connection.BindEndpoint(this, sessionId);
 
@@ -52,8 +56,11 @@ internal sealed class AcpSessionEndpoint(
 		return value;
 	}
 
-	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) =>
-		connection.OpenEndpoint(Generation, observer, connection.RejectClosedRequest, static _ => { });
+	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) {
+		var branch = connection.OpenEndpoint(Generation, observer, connection.RejectClosedRequest, static _ => { });
+		branch.Open();
+		return branch;
+	}
 	internal bool ReportHealthy() => connection.ReportHealthy(Generation);
 	internal void Terminate(string reason) => connection.TerminateGeneration(Generation, reason);
 

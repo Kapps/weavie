@@ -10,7 +10,7 @@ public sealed partial class AcpJsonRpcConnection {
 	private readonly Dictionary<(long Generation, string Id), AcpSessionEndpoint> _incomingOwners = [];
 
 	private bool HasEndpoints(long generation) {
-		lock (_endpointGate) return _endpoints.Any(endpoint => endpoint.Generation == generation);
+		lock (_endpointGate) return _endpoints.Any(endpoint => endpoint.Generation == generation && endpoint.Opened);
 	}
 
 	private void RetireEndpoints() {

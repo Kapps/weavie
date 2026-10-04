@@ -221,7 +221,7 @@ internal sealed partial class AcpConversation {
 		if (Live && !_port.Fail(error)) Terminate(error);
 	}
 
-	private void SignalSideTurnSettled() {
+	private void SignalSettled() {
 		bool terminal;
 		lock (_gate) terminal = _runtimeFailed;
 		_port.Settled(terminal);

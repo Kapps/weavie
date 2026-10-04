@@ -45,7 +45,7 @@ internal sealed partial class AcpConversation {
 			}
 		}
 		PublishTool(tool);
-		if (settled) SignalSideTurnSettled();
+		if (settled) SignalSettled();
 		if (dispatchPending) DispatchPendingSubmission();
 	}
 

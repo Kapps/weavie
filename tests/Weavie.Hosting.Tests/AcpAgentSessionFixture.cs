@@ -238,6 +238,21 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new RecordingAuthenticationTerminal());
 	}
 
+	public static AcpAgentSessionFixture CreateCrashingTerminalAuthenticationAdapter(out HeldAuthenticationTerminal terminal) {
+		terminal = new HeldAuthenticationTerminal();
+		return Create(
+			"fake",
+			"Crashing terminal authentication ACP",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal) {
+				["WEAVIE_FAKE_ACP_MODE"] = "crashing-terminal-authentication",
+			},
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false,
+			terminal);
+	}
+
 	public static AcpAgentSessionFixture CreateHeldCloseAdapter() => Create(
 		"fake",
 		"Nonresponsive close ACP",
@@ -553,6 +568,26 @@ internal sealed class RecordingAuthenticationTerminal : IAgentAuthenticationTerm
 		}
 		File.WriteAllText(Path.Combine(launch.WorkingDirectory, "terminal-authenticated"), string.Empty);
 		return Task.FromResult(new AgentProcessExit { ExitCode = 0, Unexpected = false });
+	}
+
+	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+// A terminal login that runs until released, then signs the fake agent in.
+internal sealed class HeldAuthenticationTerminal : IAgentAuthenticationTerminal {
+	private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+	public Task Started => _started.Task;
+
+	public void Release() => _released.TrySetResult();
+
+	public async Task<AgentProcessExit> RunAsync(AgentLaunch launch, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(launch);
+		_started.TrySetResult();
+		await _released.Task.WaitAsync(ct).ConfigureAwait(false);
+		File.WriteAllText(Path.Combine(launch.WorkingDirectory, "terminal-authenticated"), string.Empty);
+		return new AgentProcessExit { ExitCode = 0, Unexpected = false };
 	}
 
 	public ValueTask DisposeAsync() => ValueTask.CompletedTask;

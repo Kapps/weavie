@@ -37,4 +37,24 @@ public sealed class AcpConversationSuccessionTests {
 		Assert.Equal("cancelled", resolved.Status);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 	}
+
+	[Fact]
+	public async Task RuntimeFailureLeavesATerminalLoginRunningThatRevivesTheAgent() {
+		await using var fixture = AcpAgentSessionFixture.CreateCrashingTerminalAuthenticationAdapter(out var terminal);
+		fixture.Start();
+		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
+		fixture.Session.Authenticate(
+			authentication.RequestId!, "fake-terminal-login", new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
+		await terminal.Started.WaitAsync(TimeSpan.FromSeconds(10));
+
+		await File.WriteAllTextAsync(Path.Combine(fixture.Workspace, "crash-agent"), string.Empty);
+		await fixture.WaitForMessageAsync(message => message.Type == "error");
+		terminal.Release();
+		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "authentication-resolved");
+		await fixture.WaitForControlsAsync(state => state.Ready);
+		fixture.Submit("hello");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		Assert.Equal("accepted", resolved.Status);
+	}
 }

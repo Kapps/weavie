@@ -54,7 +54,7 @@ internal sealed partial class AcpConversation {
 			opensSession = _authenticationOpensSession;
 			if (authenticate) {
 				_authenticating = true;
-				cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+				cancellation = new CancellationTokenSource();
 				_authenticationCancellation = cancellation;
 			}
 		}

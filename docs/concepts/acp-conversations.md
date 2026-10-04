@@ -46,8 +46,9 @@ lives in its port.
    `PrimaryPort` raises the facade events; `SidePort` namespaces side messages and events and completes the
    side. Every port call takes the transition gate and is inert once the port is detached.
 3. **Lifetime** — a cancellation source cancelled when the incarnation fails, is terminalized, retires, or is
-   disposed. Agent-request tokens and authentication are linked to it, so a dead conversation's in-flight
-   work cancels.
+   disposed. Agent-request tokens are linked to it, so a dead conversation's in-flight requests cancel. A
+   login is cancelled only when the conversation is replaced or closed: one that outlives a runtime failure
+   still completes, and a terminal login then restarts the agent.
 4. **Terminals** — one `AcpTerminalManager` per conversation, closed when the incarnation ends; a terminal
    create racing the close fails.
 

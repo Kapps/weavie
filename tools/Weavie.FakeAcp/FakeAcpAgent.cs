@@ -35,10 +35,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		Directory.CreateDirectory(_stateDirectory);
 		_requiresAuthentication = _fakeMode is
 			"held-authentication" or "agent-authentication" or "side-held-authentication"
-			or "terminal-authentication" or "side-terminal-authentication";
+			or "terminal-authentication" or "side-terminal-authentication" or "crashing-terminal-authentication";
 	}
 
-	private bool TerminalAuthentication => _fakeMode is "terminal-authentication" or "side-terminal-authentication";
+	private bool TerminalAuthentication =>
+		_fakeMode is "terminal-authentication" or "side-terminal-authentication" or "crashing-terminal-authentication";
 
 	public Task TerminalFailure => _never.Task;
 
@@ -138,6 +139,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		return response;
 	}
 
+	// Exits once the test asks, consuming the request so the restarted agent keeps running.
+	private static void CrashOnRequest() => _ = Task.Run(async () => {
+		string request = Path.Combine(Environment.CurrentDirectory, "crash-agent");
+		while (!File.Exists(request)) await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+		File.Delete(request);
+		Environment.Exit(21);
+	});
+
 	private JsonObject Open(JsonElement parameters, string sessionId, bool replay) {
 		string ownerPath = StatePath(sessionId + ".owner");
 		if (File.Exists(ownerPath)) {
@@ -152,6 +161,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (_requiresAuthentication && !_authenticated
 			&& (_fakeMode is not ("side-held-authentication" or "side-terminal-authentication") || replay)) {
+			if (_fakeMode == "crashing-terminal-authentication") CrashOnRequest();
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);

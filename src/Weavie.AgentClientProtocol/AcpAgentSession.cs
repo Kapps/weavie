@@ -52,7 +52,7 @@ public sealed partial class AcpAgentSession :
 		_controlDefaults = controlDefaults;
 		_log = log;
 		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
-		_host = new AcpConversationHost(context, () => _definition, log, _turnTransitionGate, _connection);
+		_host = new AcpConversationHost(context, () => _definition, log, _turnTransitionGate);
 		_primary = CreatePrimary(AcpConversationHandoff.Fresh(NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false)));
 		_connection.ProcessStarted += OnProcessStarted;
 		_connection.ProcessStateChanged += change => {
@@ -60,7 +60,7 @@ public sealed partial class AcpAgentSession :
 		};
 		_connection.NotificationReceived += (generation, root) => {
 			lock (_turnTransitionGate) {
-				if (generation == _processGeneration) _primary.HandleNotification(generation, root);
+				if (generation == _processGeneration) _primary.HandleNotification(root);
 			}
 		};
 		_connection.RequestReceived += request => {

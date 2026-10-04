@@ -13,7 +13,6 @@ internal sealed partial class AcpConversation {
 	private readonly Action<string> _log;
 	private readonly AcpConversationPort _port;
 	private readonly AcpConversationSpec _spec;
-	private readonly AcpJsonRpcConnection _connection;
 	private readonly AcpOnce<AcpSessionEndpoint> _endpoint = new();
 	private readonly CancellationTokenSource _lifetime = new();
 	private readonly AcpTerminalManager _terminals;
@@ -64,7 +63,6 @@ internal sealed partial class AcpConversation {
 		_definition = host.Definition;
 		_log = host.Log;
 		_turnTransitionGate = host.TransitionGate;
-		_connection = host.Connection;
 		_port = port;
 		_spec = spec;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);

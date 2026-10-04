@@ -110,8 +110,8 @@ public sealed partial class AcpAgentSession {
 		AcpConversation conversation;
 		lock (_turnTransitionGate) {
 			conversation = _primary;
-			conversation.Attach(process.Generation);
 			lock (_gate) _processGeneration = process.Generation;
+			conversation.Attach(new AcpProcess(_connection, process.Generation));
 		}
 		conversation.RunRuntime(() => InitializeAsync(conversation, process.Generation));
 	}
@@ -146,7 +146,8 @@ public sealed partial class AcpAgentSession {
 
 	private void OnProtocolFault(long generation, Exception error) {
 		lock (_turnTransitionGate) {
-			if (generation == _processGeneration || !_primary.Attached && _connection.IsLatestGeneration(generation)) FailProcess(error);
+			// Attached conversations take their process's faults through their endpoints; a launch failure has none.
+			if (!_primary.Attached && _connection.IsLatestGeneration(generation)) FailProcess(error);
 		}
 	}
 

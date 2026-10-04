@@ -8,8 +8,7 @@ internal sealed record AcpConversationHost(
 	AgentSessionContext Context,
 	Func<AcpAgentDefinition> Definition,
 	Action<string> Log,
-	Lock TransitionGate,
-	AcpJsonRpcConnection Connection);
+	Lock TransitionGate);
 
 /// <summary>What a conversation incarnation starts from and how it opens its provider session.</summary>
 internal sealed record AcpConversationSpec(

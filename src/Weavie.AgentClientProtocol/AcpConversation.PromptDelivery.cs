@@ -17,7 +17,7 @@ internal sealed partial class AcpConversation {
 				try {
 					SaveContinuation();
 				} catch (AcpSessionStoreException ex) {
-					_connection.TerminateGeneration(_endpoint.Value.Generation, ex.Message);
+					_endpoint.Value.Terminate(ex.Message);
 					throw;
 				}
 				Emit(new AgentPaneMessage {

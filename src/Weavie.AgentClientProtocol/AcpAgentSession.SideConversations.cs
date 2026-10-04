@@ -73,7 +73,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void StartSide(SideRuntime runtime) {
-		runtime.Conversation.Attach(_processGeneration);
+		runtime.Conversation.Attach(new AcpProcess(_connection, _processGeneration));
 		runtime.Conversation.RunRuntime(() => runtime.Conversation.OpenAsync(Features));
 	}
 

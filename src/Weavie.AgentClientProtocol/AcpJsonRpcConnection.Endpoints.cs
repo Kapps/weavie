@@ -23,14 +23,17 @@ public sealed partial class AcpJsonRpcConnection {
 		foreach (var endpoint in endpoints) endpoint.Retire();
 	}
 
-	internal AcpSessionEndpoint OpenEndpoint(long generation, string? sessionId,
-		Action<long, JsonElement> notification, Action<AcpClientRequest> request) {
-		var endpoint = new AcpSessionEndpoint(this, generation, notification, request);
-		lock (_endpointGate) {
-			if (sessionId is not null) BindEndpoint(endpoint, sessionId);
-			_endpoints.Add(endpoint);
-		}
+	internal AcpSessionEndpoint OpenEndpoint(long generation,
+		Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
+		var endpoint = new AcpSessionEndpoint(this, generation, notification, request, fault);
+		lock (_endpointGate) _endpoints.Add(endpoint);
 		return endpoint;
+	}
+
+	private void FaultEndpoints(long generation, Exception error) {
+		AcpSessionEndpoint[] endpoints;
+		lock (_endpointGate) endpoints = [.. _endpoints.Where(endpoint => endpoint.Generation == generation)];
+		foreach (var endpoint in endpoints) endpoint.Fault(error);
 	}
 
 	internal async Task<JsonElement> CreateForEndpointAsync(

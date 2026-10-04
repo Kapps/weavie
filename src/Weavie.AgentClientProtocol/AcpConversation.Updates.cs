@@ -5,7 +5,7 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	internal void HandleNotification(long generation, JsonElement root) {
+	internal void HandleNotification(JsonElement root) {
 		lock (_turnTransitionGate) {
 			if (!Live) return;
 			HandleNotificationSerialized(root);

@@ -347,6 +347,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private void PublishProtocolFault(long generation, Exception error, bool reportUnhealthy) {
 		FailPending(generation, error);
 		ProtocolFaulted?.Invoke(generation, error);
+		FaultEndpoints(generation, error);
 		if (reportUnhealthy) _supervisor.ReportUnhealthy(generation, error.Message);
 	}
 

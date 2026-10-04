@@ -90,7 +90,7 @@ internal sealed partial class AcpConversation {
 				if (!Live) return;
 				lock (_gate) _sessionOpening = false;
 				if (SettleInterruptedSideOpening()) return;
-				if (!_connection.ReportHealthy(_endpoint.Value.Generation)) {
+				if (!_endpoint.Value.ReportHealthy()) {
 					throw new AcpProtocolException("The ACP authentication generation is no longer current.");
 				}
 				RequestAuthentication(ex.Message, opensSession: true);
@@ -118,7 +118,7 @@ internal sealed partial class AcpConversation {
 			if (!Live) return;
 			lock (_gate) _ready = true;
 			if (SettleInterruptedSideOpening()) return;
-			if (!_connection.ReportHealthy(_endpoint.Value.Generation)) {
+			if (!_endpoint.Value.ReportHealthy()) {
 				throw new AcpProtocolException("The initialized ACP generation is no longer current.");
 			}
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
@@ -131,7 +131,7 @@ internal sealed partial class AcpConversation {
 	// ACP has no capability flag for the fork point, so the branch's replay proves the agent honoured it.
 	internal async Task<string> ForkAtAsync(string messageId) {
 		var replay = new RewindReplay();
-		var branch = _connection.OpenEndpoint(_endpoint.Value.Generation, null, (_, root) => replay.Observe(root), _connection.RejectClosedRequest);
+		var branch = _endpoint.Value.OpenBranch(replay.Observe);
 		string cwd = Path.GetFullPath(_context.Workspace);
 		try {
 			await branch.ForkFromAsync(_endpoint.Value, new {

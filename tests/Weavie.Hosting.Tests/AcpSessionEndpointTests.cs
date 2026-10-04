@@ -13,8 +13,9 @@ public sealed class AcpSessionEndpointTests {
 			Arguments = [],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 		}, Directory.GetCurrentDirectory(), _ => { });
-		var endpoint = connection.OpenEndpoint(1, "primary", (_, _) => { }, _ => { });
-		var child = connection.OpenEndpoint(1, null, (_, _) => { }, _ => { });
+		var endpoint = connection.OpenEndpoint(1, _ => { }, _ => { }, _ => { });
+		endpoint.Bind("primary");
+		var child = connection.OpenEndpoint(1, _ => { }, _ => { }, _ => { });
 		var forged = new { sessionId = "another-conversation" };
 		await Assert.ThrowsAsync<ArgumentException>(() => endpoint.RequestAsync("session/prompt", forged, CancellationToken.None));
 		await Assert.ThrowsAsync<ArgumentException>(() => endpoint.NotifyAsync("session/cancel", forged));

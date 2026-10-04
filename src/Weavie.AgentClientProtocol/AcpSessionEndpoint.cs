@@ -5,7 +5,7 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed class AcpSessionEndpoint(
 	AcpJsonRpcConnection connection, long generation,
-	Action<long, JsonElement> notification, Action<AcpClientRequest> request) {
+	Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
 	private volatile bool _retired;
 	internal long Generation { get; } = generation;
 	internal string? SessionId { get; private set; }
@@ -52,11 +52,32 @@ internal sealed class AcpSessionEndpoint(
 		return value;
 	}
 
+	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) =>
+		connection.OpenEndpoint(Generation, observer, connection.RejectClosedRequest, static _ => { });
+	internal bool ReportHealthy() => connection.ReportHealthy(Generation);
+	internal void Terminate(string reason) => connection.TerminateGeneration(Generation, reason);
+
+	// Responses answer the agent's own requests, so they still go out after retirement.
+	internal Task RespondAsync(AcpClientRequest value, object result) => connection.RespondAsync(value, result);
+	internal Task RespondErrorAsync(AcpClientRequest value, int code, string message, object? data) =>
+		connection.RespondErrorAsync(value, code, message, data);
+	internal void Reject(AcpClientRequest value) => connection.RejectClosedRequest(value);
+
 	internal void Notify(JsonElement value) {
-		if (!_retired) notification(Generation, value);
+		if (!_retired) notification(value);
 	}
 	internal void Request(AcpClientRequest value) {
-		if (_retired) connection.RejectClosedRequest(value);
+		if (_retired) Reject(value);
 		else request(value);
 	}
+	internal void Fault(Exception error) {
+		if (!_retired) fault(error);
+	}
+}
+
+/// <summary>One started process generation that conversations attach their endpoints to.</summary>
+internal sealed class AcpProcess(AcpJsonRpcConnection connection, long generation) {
+	internal AcpSessionEndpoint OpenEndpoint(
+		Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) =>
+		connection.OpenEndpoint(generation, notification, request, fault);
 }

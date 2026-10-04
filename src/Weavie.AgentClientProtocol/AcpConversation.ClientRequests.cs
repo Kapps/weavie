@@ -12,7 +12,7 @@ internal sealed partial class AcpConversation {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
 			if (!Live) {
-				_connection.RejectClosedRequest(request);
+				_endpoint.Value.Reject(request);
 				return;
 			}
 			state = new AcpClientRequestState(request, _lifetime.Token);
@@ -188,13 +188,13 @@ internal sealed partial class AcpConversation {
 		RunRuntime(async () => {
 			try {
 				if (errorCode is { } code) {
-					await _connection.RespondErrorAsync(
+					await _endpoint.Value.RespondErrorAsync(
 						state.Request,
 						code,
 						errorMessage!,
 						errorData).ConfigureAwait(false);
 				} else {
-					await _connection.RespondAsync(state.Request, result!).ConfigureAwait(false);
+					await _endpoint.Value.RespondAsync(state.Request, result!).ConfigureAwait(false);
 				}
 			} finally {
 				state.Dispose();

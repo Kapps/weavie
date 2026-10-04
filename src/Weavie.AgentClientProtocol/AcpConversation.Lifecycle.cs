@@ -5,8 +5,8 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
 	/// <summary>Binds this conversation to a started process; a conversation attaches once.</summary>
-	internal void Attach(long generation) {
-		lock (_turnTransitionGate) _endpoint.Set(_connection.OpenEndpoint(generation, null, HandleNotification, RegisterClientRequest));
+	internal void Attach(AcpProcess process) {
+		lock (_turnTransitionGate) _endpoint.Set(process.OpenEndpoint(HandleNotification, RegisterClientRequest, FailRuntime));
 		RaiseControls();
 		_port.UsageChanged(Usage);
 	}

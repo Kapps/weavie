@@ -26,35 +26,33 @@ internal sealed partial class AcpConversation {
 
 	private void DispatchControlMutation() {
 		AcpControlMutation mutation;
-		long generation;
 		lock (_gate) {
-			if (_controlMutationActive || _controlMutations.Count == 0 || !_ready || _disposed || _runtimeFailed) {
+			if (_controlMutationActive || _controlMutations.Count == 0 || !_ready || !Live) {
 				return;
 			}
 			_controlMutationActive = true;
 			mutation = _controlMutations.Dequeue();
-			generation = _activeGeneration;
 		}
 		_ = Task.Run(async () => {
 			try {
-				await DeliverControlMutationAsync(mutation, generation, persist: true).ConfigureAwait(false);
+				await DeliverControlMutationAsync(mutation, persist: true).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is not OperationCanceledException) {
 				lock (_turnTransitionGate) {
-					if (OwnsGeneration(generation)) {
+					if (Live) {
 						if (ex is IOException or AcpProtocolException) FailRuntimeSerialized(ex);
 						else EmitFailure(ex);
 					}
 				}
 			} finally {
 				lock (_gate) {
-					if (_activeGeneration == generation) _controlMutationActive = false;
+					if (Live) _controlMutationActive = false;
 				}
 				DispatchControlMutation();
 			}
 		});
 	}
 
-	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation, bool persist) {
+	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, bool persist) {
 		AgentControlAxis control;
 		bool mode;
 		lock (_gate) {
@@ -69,20 +67,20 @@ internal sealed partial class AcpConversation {
 
 		JsonElement result;
 		if (mode) {
-			result = await Endpoint(generation).RequestAsync(
+			result = await _endpoint.Value.RequestAsync(
 				"session/set_mode",
 				new { modeId = mutation.Value },
 				CancellationToken.None).ConfigureAwait(false);
 		} else {
-			result = await Endpoint(generation).RequestAsync(
+			result = await _endpoint.Value.RequestAsync(
 				"session/set_config_option",
 				AcpConfigurationOptions.SetParameters(control, mutation.Value),
 				CancellationToken.None).ConfigureAwait(false);
 		}
 		lock (_turnTransitionGate) {
 			string? remembered;
+			if (!Live) return;
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) return;
 				if (mode) _controls[mutation.Axis] = WithValue(control, mutation.Value);
 				else ReadControlResultLocked(result);
 				remembered = persist ? _controls[mutation.Axis].Value : null;
@@ -92,7 +90,7 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private async Task RestoreControlDefaultsAsync(long generation) {
+	private async Task RestoreControlDefaultsAsync() {
 		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
 		while (pending.Count > 0) {
 			AcpControlMutation? mutation = null;
@@ -117,7 +115,7 @@ internal sealed partial class AcpConversation {
 				if (consumed) continue;
 				break;
 			}
-			await DeliverControlMutationAsync(mutation, generation, persist: false).ConfigureAwait(false);
+			await DeliverControlMutationAsync(mutation, persist: false).ConfigureAwait(false);
 		}
 	}
 

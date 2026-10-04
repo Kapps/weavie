@@ -113,7 +113,7 @@ internal sealed partial class AcpConversation {
 			}
 			SaveContinuation();
 		}
-		await RestoreControlDefaultsAsync(_endpoint.Value.Generation).ConfigureAwait(false);
+		await RestoreControlDefaultsAsync().ConfigureAwait(false);
 		lock (_turnTransitionGate) {
 			if (!Live) return;
 			lock (_gate) _ready = true;

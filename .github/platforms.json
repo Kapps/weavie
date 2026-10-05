@@ -16,7 +16,7 @@
     "restore": "weavie.slnx",
     "rid": "osx-arm64",
     "suffix": "",
-    "extra": "",
+    "extra": "-p:PublishReadyToRun=true",
     "asset": "weavie-osx-arm64.zip"
   },
   {

@@ -7,6 +7,7 @@ test("Rewind continues from before a prompt and puts it back in the composer", a
   for (const prompt of ["alpha", "bravo", "charlie"]) {
     await submitAcpDraft(surface, prompt);
     await expect(surface).toContainText(`echo: ${prompt}`);
+    await expect(surface.locator(".agent-working")).toHaveCount(0);
   }
   const prompt = (text: string) =>
     surface.locator(".agent-entry-message.agent-tone-user", { hasText: text });
@@ -24,6 +25,7 @@ test("Rewind continues from before a prompt and puts it back in the composer", a
   await expect(surface).not.toContainText("charlie");
   await submitAcpDraft(surface, "delta");
   await expect(surface).toContainText("echo: delta");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
 
   await submitAcpDraft(surface, "/rewind");
   await expect(composer).toHaveValue("delta");

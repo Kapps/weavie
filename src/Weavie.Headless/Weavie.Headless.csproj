@@ -6,6 +6,7 @@
          an ordinary browser is the client. See docs/specs/headless-host.md. -->
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>

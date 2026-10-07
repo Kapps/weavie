@@ -1,10 +1,11 @@
-# macOS startup compilation
+# Native AOT
 
-The macOS app publishes with Native AOT (`<PublishAot>` in `src/Weavie.Mac/Weavie.Mac.csproj`). `dotnet build` stays
-CoreCLR for the inner loop; `dotnet publish` — the release workflow and the macOS CI desktop tests — produces the
-native bundle. Windows and Linux publish ReadyToRun (WinForms/WPF/WebView2 rule out Native AOT on Windows).
+The macOS app, the Linux app, the headless worker, and the runner publish with Native AOT (`<PublishAot>` in their
+project files). `dotnet build` stays CoreCLR for the inner loop; `dotnet publish` produces the native binaries — the
+release workflow, the runner bundle, and the CI desktop tests all run that publish. Windows publishes ReadyToRun:
+WinForms, WPF, and WebView2 rule out Native AOT there.
 
-## Measurements
+## Measurements (macOS)
 
 Same `xcode-27` runner, published Release `osx-arm64` bundles launched alternately through the desktop
 fixture, 15 warm launches each (median, ms):
@@ -39,6 +40,8 @@ Comparing launches across runner machines is noise-dominated; only same-machine 
   that property `set`; `[JsonExtensionData]` properties are `set` for the same reason.
 - **TOML.** Tomlyn 2.x parses settings; its untyped `TomlTable` model comes from a source-generated
   `TomlSerializerContext` (`TomlDocuments`).
+- **Symbols.** A Native AOT publish leaves its separate `.dbg`/`.dSYM` debug symbols (~100 MB) out of the app
+  (`src/Directory.Build.targets`); the binary keeps the metadata stack traces need.
 - **Helper location.** Helpers resolve under `AppContext.BaseDirectory`: `Contents/MonoBundle` under CoreCLR,
   `Contents/MacOS` under Native AOT. `ResolveHelperDirectory` (`src/HookRelay.targets`) places the hook relay, MCP
   proxy, and PTY helpers for whichever runtime the build produces.

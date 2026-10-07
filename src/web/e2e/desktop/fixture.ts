@@ -31,13 +31,21 @@ export const test = base.extend<{
         const platform = platforms[process.platform];
         if (!platform) throw new Error(`Unsupported desktop platform: ${process.platform}`);
         const project = resolve(import.meta.dirname, `../../../Weavie.${platform}`);
-        const query = ["-p:Configuration=Release", "-getProperty:TargetDir,AssemblyName"];
+        const mac = process.platform === "darwin";
+        // The app under test is the published one CI ships: the .app bundle on macOS, the publish output elsewhere.
+        const rid = `${{ darwin: "osx", win32: "win", linux: "linux" }[process.platform]}-${process.arch}`;
+        const query = [
+          "-p:Configuration=Release",
+          `-p:RuntimeIdentifier=${rid}`,
+          "-getProperty:TargetDir,PublishDir,AssemblyName",
+        ];
         const result = execFileSync("dotnet", ["msbuild", project, ...query], { encoding: "utf8" });
         const properties = JSON.parse(result).Properties;
-        const mac = process.platform === "darwin";
         const name = properties.AssemblyName;
         const app = join(fake.home, mac ? `${name}.app` : "app");
-        const source = mac ? join(properties.TargetDir, `${name}.app`) : properties.TargetDir;
+        const source = mac
+          ? join(properties.TargetDir, `${name}.app`)
+          : resolve(project, properties.PublishDir.replaceAll("\\", "/"));
         await cp(source, app, { recursive: true, verbatimSymlinks: true });
         const assets = mac ? join(app, "Contents", "Resources", "wwwroot") : join(app, "wwwroot");
         const script = `<script>${driver(fake.workspace).replace(/<\/script/gi, "<\\/script")}</script>`;

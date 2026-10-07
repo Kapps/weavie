@@ -103,7 +103,7 @@ jobs:
       - name: Publish runner and worker
         run: >-
           dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
-          --self-contained -p:PublishReadyToRun=true -o layout/versions/$BuildNumber
+          --self-contained -o layout/versions/$BuildNumber
       - name: Package managed layout
         run: |
           ln -s "versions/$BuildNumber" layout/current

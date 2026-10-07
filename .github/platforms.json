@@ -6,7 +6,7 @@
     "restore": "src/Weavie.Linux/Weavie.Linux.csproj",
     "rid": "linux-x64",
     "suffix": "",
-    "extra": "--self-contained -p:PublishReadyToRun=true",
+    "extra": "",
     "asset": "weavie-linux-x64.tar.gz"
   },
   {

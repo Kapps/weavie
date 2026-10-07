@@ -1,4 +1,6 @@
 <Project>
+  <Import Project="HelperDirectory.targets" Condition="'$(_WeavieHelperDirectoryImported)' != 'true'" />
+
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
     <_MacPtyDir>$(MSBuildProjectDirectory)/$(BaseIntermediateOutputPath)$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/native-pty/</_MacPtyDir>
     <_MacPtySource>$(MSBuildThisFileDirectory)Weavie.Mac/native/</_MacPtySource>
@@ -26,7 +28,6 @@
     <Exec Command="codesign --force --sign - &quot;$(_MacPtyDir)weavie-pty-launcher&quot;" />
   </Target>
 
-  <!-- ResolveHelperDirectory lives in HookRelay.targets, which every .app host imports. -->
   <Target Name="BundleMacPty" AfterTargets="Build" DependsOnTargets="BuildMacPty;ResolveHelperDirectory"
           Condition="$([MSBuild]::IsOSPlatform('OSX')) And $(TargetFramework.Contains('-macos'))">
     <Copy SourceFiles="$(_MacPtyDir)libweavie_pty.dylib;$(_MacPtyDir)weavie-pty-launcher"

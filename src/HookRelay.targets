@@ -1,5 +1,7 @@
 <Project>
 
+  <Import Project="HelperDirectory.targets" Condition="'$(_WeavieHelperDirectoryImported)' != 'true'" />
+
   <!--
     Co-locates the standalone hook relay (Weavie.HookRelay) next to every host that spawns Claude, so the
     hook command always launches a dedicated relay binary — never the host re-invoking itself. Imported by
@@ -43,16 +45,6 @@
     <_HookRelaySource Include="$(_McpProxyDir)**\*.cs" />
     <_HookRelaySource Include="$(_McpProxyProj)" />
   </ItemGroup>
-
-  <!-- Flat hosts run from $(OutDir); the macOS .app runs managed code from Contents/MonoBundle under CoreCLR and
-       from Contents/MacOS under NativeAOT, so its helpers live wherever that mode's AppContext.BaseDirectory points. -->
-  <Target Name="ResolveHelperDirectory">
-    <PropertyGroup>
-      <WeavieHelperDirectory>$(OutDir)</WeavieHelperDirectory>
-      <WeavieHelperDirectory Condition="$(_HookRelayMac) And '$(_UseNativeAot)' == 'true'">$(OutDir)$(AssemblyName).app/Contents/MacOS/</WeavieHelperDirectory>
-      <WeavieHelperDirectory Condition="$(_HookRelayMac) And '$(_UseNativeAot)' != 'true'">$(OutDir)$(AssemblyName).app/Contents/MonoBundle/</WeavieHelperDirectory>
-    </PropertyGroup>
-  </Target>
 
   <!-- Win/Linux/Headless Debug: a fast managed (framework-dependent) build — the host resolves the system
        .NET runtime normally, so the lean relay + sidecars are all that's needed. -->

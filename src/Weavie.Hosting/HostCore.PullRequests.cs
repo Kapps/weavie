@@ -151,21 +151,15 @@ public sealed partial class HostCore {
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
 		try {
-			var reveal = await SeedAndArmReviewAsync(
+			// The page activates this PR's session as this request's answer, landing on the review's first file.
+			await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
+				(path, line) => session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal),
 				ct)
 				.ConfigureAwait(false);
-			// The page activates this PR's session as this request's answer, landing on the review's first file.
-			if (reveal.Path is { } path) {
-				await _ui.InvokeAsync(() => {
-					session.FileOpener.Open(path, reveal.Line, preview: true, scratch: false, EditorOpenIntent.Reveal);
-					return Task.CompletedTask;
-				}, ct).ConfigureAwait(false);
-			}
-
 			return null;
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";

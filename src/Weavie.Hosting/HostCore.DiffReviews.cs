@@ -61,7 +61,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			return await SeedAndArmReviewAsync(review, session, changes, request, ct).ConfigureAwait(false);
+			return await SeedAndArmReviewAsync(review, session, changes, request, static (_, _) => { }, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
 			return ReviewReveal.None;
@@ -72,8 +72,8 @@ public sealed partial class HostCore {
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff, and returns that file for the caller to reveal (a review surfaces its code — post-turn
-	/// review parks). Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving
+	/// first file's diff, and returns that file to reveal (a review surfaces its code — post-turn review parks);
+	/// <paramref name="armed"/> runs with it in the same UI step that armed the review. Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving
 	/// the session usable.
 	/// </summary>
 	private async Task<ReviewReveal> SeedAndArmReviewAsync(
@@ -81,6 +81,7 @@ public sealed partial class HostCore {
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
 		object request,
+		Action<string, int?> armed,
 		CancellationToken ct) {
 		bool resuming = session.Changes.Review is not null;
 
@@ -125,6 +126,7 @@ public sealed partial class HostCore {
 				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
 				: null;
 			PushTurnDiffToWeb(session, first);
+			armed(first, line);
 			return Task.FromResult(new ReviewReveal(first, line));
 		}, ct).ConfigureAwait(false);
 	}

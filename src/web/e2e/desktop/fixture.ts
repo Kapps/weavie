@@ -32,11 +32,16 @@ export const test = base.extend<{
         if (!platform) throw new Error(`Unsupported desktop platform: ${process.platform}`);
         const project = resolve(import.meta.dirname, `../../../Weavie.${platform}`);
         const mac = process.platform === "darwin";
-        // The app under test is the published one CI ships: the .app bundle on macOS, the publish output elsewhere.
-        const rid = `${{ darwin: "osx", win32: "win", linux: "linux" }[process.platform]}-${process.arch}`;
+        // The app under test is the published one CI ships: the .app bundle on macOS (its project pins the RID),
+        // the publish output for this machine's RID elsewhere.
+        const rid = mac
+          ? []
+          : [
+              `-p:RuntimeIdentifier=${process.platform === "win32" ? "win" : "linux"}-${process.arch}`,
+            ];
         const query = [
           "-p:Configuration=Release",
-          `-p:RuntimeIdentifier=${rid}`,
+          ...rid,
           "-getProperty:TargetDir,PublishDir,AssemblyName",
         ];
         const result = execFileSync("dotnet", ["msbuild", project, ...query], { encoding: "utf8" });

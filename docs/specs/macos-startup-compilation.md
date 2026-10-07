@@ -15,8 +15,15 @@ fixture, 15 warm launches each (median, ms):
 | ReadyToRun | 1784 | 2336 |
 | ReadyToRun with `DOTNET_ReadyToRun=0` | 2783 | 3656 |
 
-Comparing launches across runner machines is noise-dominated; only same-machine A/B is meaningful. A Native AOT
-bundle is ~71 MB against 248 MB for ReadyToRun.
+A second same-machine run compared the shipped ReadyToRun build against Native AOT (this runner was slower
+overall):
+
+| Build | Launch → welcome page | Launch → workspace page + bridge roundtrip | Bundle |
+| --- | --- | --- | --- |
+| ReadyToRun | 2460 | 3191 | 248 MB |
+| Native AOT | 1519 | 1997 | 71 MB |
+
+Comparing launches across runner machines is noise-dominated; only same-machine A/B is meaningful.
 
 ## What Native AOT requires of shipped code
 

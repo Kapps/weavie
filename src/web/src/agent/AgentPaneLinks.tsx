@@ -1,5 +1,6 @@
 import { For, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { openLink } from "../editor/source/source-links";
 import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
@@ -33,7 +34,7 @@ function AgentTextPartView(props: {
         href={part.target}
         onClick={(event) => {
           event.preventDefault();
-          openUrlExternal(part.target);
+          openLink(props.session, part.target);
         }}
       >
         {part.text}

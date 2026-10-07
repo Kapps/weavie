@@ -816,6 +816,7 @@ export class MockHost {
         recentTerms: [],
       },
       testProfile: "",
+      sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,
       commandCatalog: this.commandCatalog,
     };

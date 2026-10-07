@@ -52,6 +52,11 @@ export const SOURCE_STYLES = `
   color: var(--accent, #54c6a4); background: none; border: 1px solid var(--border, #191c21);
   border-radius: 4px; padding: 0.15em 0.6em;
 }
+.wv-source .wv-open-external {
+  float: right; margin-left: 1em; cursor: pointer; font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
+  color: var(--accent, #54c6a4); background: none; border: 1px solid var(--border, #191c21);
+  border-radius: 4px; padding: 0.25em 0.7em;
+}
 .wv-source .wv-content > :first-child { margin-top: 0; }
 .wv-source h1 { font-size: 1.9em; font-weight: 700; margin: 1.4em 0 0.4em; line-height: 1.2; }
 .wv-source h2 { font-size: 1.5em; font-weight: 600; margin: 1.3em 0 0.3em; }

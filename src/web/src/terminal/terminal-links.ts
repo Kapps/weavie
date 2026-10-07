@@ -1,4 +1,4 @@
-// Terminal hyperlinks: OSC 8 links (file:// → reveal in Monaco, http(s) → OS browser) plus auto-detected
+// Terminal hyperlinks: OSC 8 links (file:// → reveal in Monaco, http(s) → a connected source's viewer, else the OS browser) plus auto-detected
 // file references (path:line, tool-wrapped, or a bare path) and URLs in the output. The browser-open +
 // file-reveal both round-trip the host.
 
@@ -10,6 +10,7 @@ import {
   LOCAL_BACKEND_ID,
 } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
+import { openLink } from "../editor/source/source-links";
 import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "./ref-link-store";
 
@@ -102,7 +103,7 @@ export function wireTerminalLinks(
             false,
           );
         } else if (url.protocol === "http:" || url.protocol === "https:") {
-          openUrlExternal(uri);
+          openLink(session, uri);
         }
       } catch {
         // not a parseable URI; ignore
@@ -171,7 +172,7 @@ export function wireTerminalLinks(
           activate: (event) => {
             if (event.button === 0) {
               if (match.kind === "url") {
-                openUrlExternal(match.text);
+                openLink(session, match.text);
               } else if (match.kind === "ref") {
                 openRef(session, match.text);
               } else {

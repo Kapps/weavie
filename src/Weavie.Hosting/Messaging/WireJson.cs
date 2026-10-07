@@ -29,6 +29,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(MessageHealthSnapshot))]
 [JsonSerializable(typeof(AgentPlanShown))]
 [JsonSerializable(typeof(AgentPlanRemoved))]
+[JsonSerializable(typeof(SourceLinkHosts))]
 [JsonSerializable(typeof(SourceTokenPrompt))]
 [JsonSerializable(typeof(SourceLoading))]
 [JsonSerializable(typeof(SourceLoadError))]

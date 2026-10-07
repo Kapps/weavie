@@ -1,6 +1,7 @@
 import type { ClientSession } from "./bridge";
 import { parseFileReference } from "./content-links";
 import { isSafeAgentLink } from "./editor/preview/markdown-renderer";
+import { openLink } from "./editor/source/source-links";
 import { revealFileIn } from "./files/reveal";
 import { clickedLink } from "./navigation";
 import { notify } from "./notify/notify";
@@ -26,7 +27,7 @@ export function installContentNavigation(
         const prefix = owner === null ? null : refLinkPrefixFor(owner);
         if (prefix !== null) openUrlExternal(prefix + target.slice(1));
       } else if (/^(https?:)?\/\//i.test(target) && kind !== "file") {
-        openUrlExternal(new URL(target, anchor.baseURI).href);
+        openLink(session(), new URL(target, anchor.baseURI).href);
       } else if (target.startsWith("#")) {
         if (target.length > 1)
           element

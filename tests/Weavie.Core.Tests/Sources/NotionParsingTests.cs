@@ -30,8 +30,8 @@ public sealed class NotionParsingTests {
 	[InlineData("https://github.com/owner/repo", false)]
 	[InlineData("https://notnotion.com/page", false)]
 	[InlineData("/local/path", false)]
-	public void Match_ClaimsNotionHostsOnly(string target, bool expected) =>
-		Assert.Equal(expected, new NotionSource(new HttpClient()).Match(target));
+	public void LinkHosts_ClaimNotionPageHostsOnly(string target, bool expected) =>
+		Assert.Equal(expected, SourceLinks.Claims(new NotionSource(new HttpClient()).LinkHosts, target));
 
 	[Fact]
 	public void ParseTitle_ReadsTheTitleProperty() {

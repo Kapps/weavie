@@ -1,5 +1,8 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { liveKeyHint } from "../../commands/keys-live";
+import { CommandIds } from "../../commands/types";
+import { openUrlExternal } from "../../terminal/terminal-links";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
 // The embed-zoom magnifier styles, injected into the shadow root alongside the highlight theme.
@@ -10,6 +13,7 @@ import HIGHLIGHT_CSS from "../preview/preview-highlight.css?raw";
 import { renderNotionMarkdown } from "./notion-markdown";
 import { SourceEditController } from "./source-edit";
 import { sanitizeSourceHtml } from "./source-html";
+import { isNotionPage } from "./source-links";
 import { watchSourceDoc } from "./source-refresh";
 import type { SourceDocEntry } from "./source-store";
 import { openSourceTarget } from "./source-store";
@@ -43,7 +47,16 @@ export default function SourceView(props: {
     style.textContent = SOURCE_STYLES + HIGHLIGHT_CSS + EMBED_ZOOM_CSS;
     const body = document.createElement("div");
     body.className = "wv-source";
+    // Offered in every state, so a page that failed to load can still be opened in Notion.
     const entry = props.doc();
+    if (isNotionPage(entry)) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "wv-open-external";
+      open.textContent = "Open in Notion";
+      open.title = `Open this page in your browser${liveKeyHint(CommandIds.sourceOpenInBrowser)}`;
+      body.append(open);
+    }
     if (entry === undefined || entry.status === "loading") {
       edit.detach();
       body.append(statusNode("loading", "Loading…"));
@@ -108,6 +121,12 @@ export default function SourceView(props: {
     // The embed-zoom magnifier: its own listener opens the lightbox; skip the anchor handling so a
     // zoomable image inside a link doesn't also navigate.
     if (path.some((node) => node instanceof Element && node.classList.contains("embed-zoom-btn"))) {
+      return;
+    }
+    if (
+      path.some((node) => node instanceof Element && node.classList.contains("wv-open-external"))
+    ) {
+      openUrlExternal(props.target());
       return;
     }
     // A link: preventDefault stops the default <a> navigation tearing down the whole app.

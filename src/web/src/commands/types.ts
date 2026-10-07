@@ -210,6 +210,7 @@ export const CommandIds = {
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   removeFromRail: "weavie.session.removeFromRail",
   restartForUpdate: "weavie.update.restartNow",
+  sourceOpenInBrowser: "weavie.source.openInBrowser",
   sourceEditBlock: "weavie.source.editBlock",
   sourceCommitEdit: "weavie.source.commitEdit",
   sourceCancelEdit: "weavie.source.cancelEdit",

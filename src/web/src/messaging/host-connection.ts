@@ -41,6 +41,7 @@ export interface HostHello {
     recentTerms: string[];
   };
   testProfile: string;
+  sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;
   commandCatalog: {
     commands: CommandInfo[];

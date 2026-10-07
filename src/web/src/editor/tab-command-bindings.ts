@@ -7,6 +7,7 @@ import type { EditorController } from "./editor-controller";
 import { basename, repoRelativePath } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import { activeTabFor } from "./session-store";
+import { openSourceInBrowser } from "./source/source-links";
 import { isFileTab } from "./tab-entry";
 import { toggleViewMode } from "./view-mode-store";
 
@@ -61,6 +62,14 @@ export function tabCommandBindings(editor: EditorController): [string, CommandCa
       }),
     ],
     [CommandIds.saveFile, file((tab) => editor.save(tab))],
+    [
+      CommandIds.sourceOpenInBrowser,
+      bind(
+        ({ target }) =>
+          () =>
+            target !== undefined && openSourceInBrowser(target.session, target.entry),
+      ),
+    ],
     [
       CommandIds.toggleEditorPreview,
       file((tab) => {

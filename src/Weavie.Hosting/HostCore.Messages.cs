@@ -303,6 +303,7 @@ public sealed partial class HostCore {
 			BuildRailSnapshot(),
 			BuildSearchSnapshot(),
 			ResolvedTestProfile(),
+			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
@@ -374,6 +375,7 @@ public sealed partial class HostCore {
 		RailSnapshot Rail,
 		SearchSnapshot Search,
 		string TestProfile,
+		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandCatalogSnapshot CommandCatalog);
 

@@ -25,8 +25,8 @@ public sealed partial class HostSession {
 				agentTerminal,
 				acceptTerminalInput,
 				static (_, _) => { });
-			Bus.Feature("terminal.agent").Handle<ImagePasteMessage>(
-				"pasteImage",
+			Bus.Feature("terminal.agent").Handle(
+				"pasteImage", WireJson.Default.ImagePasteMessage,
 				(message, _) => {
 					HandleTerminalImagePaste(message, inputFrozen);
 					return Task.CompletedTask;
@@ -40,30 +40,30 @@ public sealed partial class HostSession {
 		}
 
 		var lsp = Bus.Feature("lsp");
-		lsp.HandleOwned<LspStartMessage, LspStartResult>(
-			"start",
+		lsp.HandleOwned(
+			"start", WireJson.Default.LspStartMessage, WireJson.Default.LspStartResult,
 			(message, peer, _) => Task.FromResult(
 				Lsp.Start(peer, message.Server, message.Channel, out string? error)
 					? new LspStartResult(true, null)
 					: new LspStartResult(false, error)));
-		lsp.HandleOwned<LspDataMessage>("data", (message, peer, _) => {
+		lsp.HandleOwned("data", WireJson.Default.LspDataMessage, (message, peer, _) => {
 			Lsp.Data(peer, message.Channel, Encoding.UTF8.GetBytes(message.Payload.GetRawText()));
 			return Task.CompletedTask;
 		});
-		lsp.HandleOwned<ChannelMessage>("stop", (message, peer, _) => Lsp.StopAsync(peer, message.Channel));
-		lsp.HandleOwned<LspResetMessage>(
-			"reset",
+		lsp.HandleOwned("stop", WireJson.Default.ChannelMessage, (message, peer, _) => Lsp.StopAsync(peer, message.Channel));
+		lsp.HandleOwned(
+			"reset", WireJson.Default.LspResetMessage,
 			(message, peer, _) => Lsp.DropOtherEpochsAsync(peer, message.Epoch));
 
 		var files = Bus.Feature("files");
-		files.Handle<FilePathMessage, Weavie.Core.FileSystem.FileStat>(
-			"stat",
+		files.Handle(
+			"stat", WireJson.Default.FilePathMessage, WireJson.Default.FileStat,
 			(message, _) => Task.FromResult(FileProvider.Stat(message.Path)));
-		files.Handle<FilePathMessage, FileReadResult>(
-			"read",
+		files.Handle(
+			"read", WireJson.Default.FilePathMessage, WireJson.Default.FileReadResult,
 			(message, _) => Task.FromResult(FileProvider.Read(message.Path)));
-		files.HandleAfterResponse<FileWriteMessage, FileWriteResult>(
-			"write",
+		files.HandleAfterResponse(
+			"write", WireJson.Default.FileWriteMessage, WireJson.Default.FileWriteResult,
 			(message, _) => {
 				var result = FileProvider.Write(message.Path, message.Content);
 				var handEdit = result.Ok
@@ -87,19 +87,19 @@ public sealed partial class HostSession {
 				})));
 			});
 		Bus.PeerDisconnected += peer => DirectoryWatches(peer).Dispose();
-		files.HandleOwned<ListDirectoryMessage, DirectoryListingMessage>(
-			"listDirectory",
+		files.HandleOwned(
+			"listDirectory", WireJson.Default.ListDirectoryMessage, WireJson.Default.DirectoryListingMessage,
 			(message, peer, _) => Task.FromResult(ListDirectory(peer, message.SubscriptionId, message.Path)));
-		files.HandleOwned<UnwatchDirectoryMessage>("unwatchDirectory", (message, peer, _) => {
+		files.HandleOwned("unwatchDirectory", WireJson.Default.UnwatchDirectoryMessage, (message, peer, _) => {
 			DirectoryWatches(peer).Unwatch(message.SubscriptionId);
 			return Task.CompletedTask;
 		});
-		files.HandleOwned<ResetDirectoryWatchesMessage>("reset", (message, peer, _) => {
+		files.HandleOwned("reset", WireJson.Default.ResetDirectoryWatchesMessage, (message, peer, _) => {
 			DirectoryWatches(peer).Reset(message.PageEpoch);
 			return Task.CompletedTask;
 		});
-		files.Handle<RevealFileMessage>(
-			"reveal",
+		files.Handle(
+			"reveal", WireJson.Default.RevealFileMessage,
 			(message, ct) => FileOpener.OpenAsync(
 				message.Path,
 				message.Line,
@@ -109,22 +109,24 @@ public sealed partial class HostSession {
 				ct));
 
 		var editor = Bus.Feature("editor");
-		editor.HandleOwned<JsonElement>(
+		editor.HandleOwned(
 			"activeChanged",
+			WireJson.Default.JsonElement,
 			View.IsBound,
 			(message, _, _) => {
 				UpdateActiveEditor(message);
 				return Task.CompletedTask;
 			});
-		editor.HandleOwned<JsonElement>(
+		editor.HandleOwned(
 			"openEditorsChanged",
+			WireJson.Default.JsonElement,
 			View.IsBound,
 			(message, _, _) => {
 				UpdateOpenEditors(message);
 				return Task.CompletedTask;
 			});
-		editor.Handle<DiffResolutionMessage, bool>(
-			"resolveDiff",
+		editor.Handle(
+			"resolveDiff", WireJson.Default.DiffResolutionMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
 				DiffPresenter.Resolve(message.Id, message.Kept, message.FinalContents)));
 		WireAgentMessages(Bus.Feature("agent"), inputFrozen, acceptTerminalInput);
@@ -134,25 +136,25 @@ public sealed partial class HostSession {
 		Messaging.MessageFeatureChannel messages,
 		Func<bool> inputFrozen,
 		Action<bool, Action> acceptInput) {
-		messages.Handle<EmptyMessage>("typing", (_, _) => {
+		messages.Handle("typing", WireJson.Default.EmptyPayload, (_, _) => {
 			acceptInput(true, static () => { });
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentPaneRecordRequest, object>("toolOutput", (message, _) =>
+		messages.Handle("toolOutput", WireJson.Default.AgentPaneRecordRequest, WireJson.Default.AgentPaneWire, (message, _) =>
 			Task.FromResult(AgentPaneProtocol.Message(Agent.ReadRecord(message))));
-		messages.Handle<EmptyMessage>("interrupt", (_, _) => {
+		messages.Handle("interrupt", WireJson.Default.EmptyPayload, (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentControlMessage>("setControl", (message, _) => {
+		messages.Handle("setControl", WireJson.Default.AgentControlMessage, (message, _) => {
 			Agent.Controls?.SetControl(message.Axis, message.Value);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentDecisionMessage>("permission", (message, _) => {
+		messages.Handle("permission", WireJson.Default.AgentDecisionMessage, (message, _) => {
 			Agent.Structured?.ResolvePermission(message.RequestId, message.OptionId);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentAuthMessage>("authenticate", (message, _) => {
+		messages.Handle("authenticate", WireJson.Default.AgentAuthMessage, (message, _) => {
 			Agent.Structured?.Authenticate(
 				message.RequestId,
 				message.MethodId,
@@ -162,7 +164,7 @@ public sealed partial class HostSession {
 					StringComparer.Ordinal));
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentInputMessage>("input", (message, _) => {
+		messages.Handle("input", WireJson.Default.AgentInputMessage, (message, _) => {
 			Agent.Structured?.ResolveInput(
 				message.RequestId,
 				message.Action,
@@ -172,16 +174,16 @@ public sealed partial class HostSession {
 					StringComparer.Ordinal));
 			return Task.CompletedTask;
 		});
-		messages.Handle<AttachmentUploadMessage>("uploadAttachment", (message, _) => {
+		messages.Handle("uploadAttachment", WireJson.Default.AttachmentUploadMessage, (message, _) => {
 			HandleAttachmentUpload(message, inputFrozen);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AttachmentMessage>("removeAttachment", (message, _) => {
+		messages.Handle("removeAttachment", WireJson.Default.AttachmentMessage, (message, _) => {
 			AgentAttachments.Remove(message.Id);
 			PublishAttachmentState(message.Id, "removed", string.Empty);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentSubmitMessage>("submit", (message, _) => {
+		messages.Handle("submit", WireJson.Default.AgentSubmitMessage, (message, _) => {
 			HandleAgentSubmit(message, inputFrozen, submission => {
 				var agent = Agent.Structured
 					?? throw new InvalidOperationException("This session does not use a structured agent.");
@@ -189,7 +191,7 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentSideReplyMessage>("replyAside", (message, _) => {
+		messages.Handle("replyAside", WireJson.Default.AgentSideReplyMessage, (message, _) => {
 			HandleAgentSubmit(message.Submission, inputFrozen, submission => {
 				var sideConversations = Agent.SideConversations
 					?? throw new InvalidOperationException("This agent does not support side conversations.");
@@ -197,8 +199,8 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
-		messages.Handle<OpenPlanMessage, bool>(
-			"openPlan",
+		messages.Handle(
+			"openPlan", WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
 				OpenAgentPlan(message.ThreadId, message.TurnId, message.ItemId)));
 	}
@@ -278,71 +280,68 @@ public sealed partial class HostSession {
 	}
 
 	private void PublishAttachmentState(string id, string status, string error) =>
-		Bus.Feature("agent").Publish("attachmentState", new { id, status, error });
+		Bus.Feature("agent").Publish("attachmentState", WireJson.Default.AttachmentState, new(id, status, error));
 
 	private void PublishSubmissionState(
 		string id,
 		IReadOnlyList<string> attachmentIds,
 		string status,
 		string error) =>
-		Bus.Feature("agent").Publish("submissionState", new { id, attachmentIds, status, error });
+		Bus.Feature("agent").Publish("submissionState", WireJson.Default.SubmissionState, new(id, attachmentIds, status, error));
 
 	/// <summary>Shows a toast on this session's clients.</summary>
 	/// <param name="level">The toast level (<c>info</c>, <c>warn</c>, <c>error</c>).</param>
 	/// <param name="message">The text shown to the user.</param>
 	public void Notify(string level, string message) =>
-		_notificationMessages.Publish("show", new { level, message });
+		_notificationMessages.Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain(level, message));
 
 	private void Notify(string message) => Notify("warn", message);
 
-	private sealed record EmptyMessage;
+	internal sealed record ImagePasteMessage(string Mime, string DataB64);
 
-	private sealed record ImagePasteMessage(string Mime, string DataB64);
+	internal sealed record LspStartMessage(string Server, string Channel);
 
-	private sealed record LspStartMessage(string Server, string Channel);
+	internal sealed record LspStartResult(bool Ok, string? Error);
 
-	private sealed record LspStartResult(bool Ok, string? Error);
+	internal sealed record LspDataMessage(string Channel, JsonElement Payload);
 
-	private sealed record LspDataMessage(string Channel, JsonElement Payload);
+	internal sealed record ChannelMessage(string Channel);
 
-	private sealed record ChannelMessage(string Channel);
+	internal sealed record LspResetMessage(string Epoch);
 
-	private sealed record LspResetMessage(string Epoch);
+	internal sealed record ListDirectoryMessage(string SubscriptionId, string Path);
+	internal sealed record UnwatchDirectoryMessage(string SubscriptionId);
+	internal sealed record ResetDirectoryWatchesMessage(string PageEpoch);
 
-	private sealed record FilePathMessage(string Path);
-	private sealed record ListDirectoryMessage(string SubscriptionId, string Path);
-	private sealed record UnwatchDirectoryMessage(string SubscriptionId);
-	private sealed record ResetDirectoryWatchesMessage(string PageEpoch);
+	internal sealed record DirectoryEntryMessage(string Name, string Path, bool IsDir);
 
-	private sealed record DirectoryEntryMessage(string Name, string Path, bool IsDir);
+	internal sealed record DirectoryListingMessage(string Path, IReadOnlyList<DirectoryEntryMessage> Entries);
 
-	private sealed record DirectoryListingMessage(string Path, IReadOnlyList<DirectoryEntryMessage> Entries);
+	internal sealed record FileWriteMessage(string Path, string Content);
 
-	private sealed record FileWriteMessage(string Path, string Content);
+	internal sealed record RevealFileMessage(string Path, int? Line, bool Preview);
 
-	private sealed record RevealFileMessage(string Path, int? Line, bool Preview);
+	internal sealed record DiffResolutionMessage(string Id, bool Kept, string? FinalContents);
 
-	private sealed record DiffResolutionMessage(string Id, bool Kept, string? FinalContents);
+	internal sealed record OpenPlanMessage(string ThreadId, string TurnId, string ItemId);
 
-	private sealed record OpenPlanMessage(string ThreadId, string TurnId, string ItemId);
+	internal sealed record AgentControlMessage(string Axis, string Value);
 
-	private sealed record AgentControlMessage(string Axis, string Value);
+	internal sealed record AgentDecisionMessage(string RequestId, string OptionId);
 
-	private sealed record AgentDecisionMessage(string RequestId, string OptionId);
-
-	private sealed record AgentAuthMessage(
+	internal sealed record AgentAuthMessage(
 		string RequestId,
 		string MethodId,
 		Dictionary<string, string[]> Answers);
 
-	private sealed record AgentInputMessage(
+	internal sealed record AgentInputMessage(
 		string RequestId,
 		string Action,
 		Dictionary<string, string[]> Answers);
 
-	private sealed record AttachmentMessage(string Id);
+	internal sealed record AttachmentMessage(string Id);
 
-	private sealed record AttachmentUploadMessage(string Id, string Mime, string DataB64);
+	internal sealed record AttachmentUploadMessage(string Id, string Mime, string DataB64);
 
 	internal sealed record AgentSubmitMessage(
 		string Id,
@@ -351,5 +350,9 @@ public sealed partial class HostSession {
 		string? CommandName,
 		string[]? AttachmentIds);
 
-	private sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
+	internal sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
 }
+
+internal sealed record AttachmentState(string Id, string Status, string Error);
+
+internal sealed record SubmissionState(string Id, IReadOnlyList<string> AttachmentIds, string Status, string Error);

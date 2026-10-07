@@ -4,11 +4,7 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.AcpDistribution;
 
-internal sealed class AcpCustomAgentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		PropertyNameCaseInsensitive = false,
-		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-	};
+internal sealed partial class AcpCustomAgentStore {
 	private readonly IFileSystem _fileSystem;
 	private readonly string _path;
 
@@ -20,7 +16,7 @@ internal sealed class AcpCustomAgentStore {
 
 	public IReadOnlyList<AcpLaunchSpec> Load() {
 		if (!_fileSystem.FileExists(_path)) return [];
-		var document = JsonSerializer.Deserialize<Document>(_fileSystem.ReadAllText(_path), JsonOptions)
+		var document = JsonSerializer.Deserialize(_fileSystem.ReadAllText(_path), CustomAgentJson.Default.Document)
 			?? throw new JsonException("The custom ACP agent document is empty.");
 		if (document.Version != 1) throw new JsonException("The custom ACP agent document requires version 1.");
 		if (document.Agents is null) throw new JsonException("The custom ACP agent document requires an agents array.");
@@ -53,7 +49,7 @@ internal sealed class AcpCustomAgentStore {
 		_fileSystem.WriteAllTextAtomic(_path, JsonSerializer.Serialize(new Document {
 			Version = 1,
 			Agents = profiles,
-		}, JsonOptions));
+		}, CustomAgentJson.Default.Document));
 	}
 
 	private static AcpLaunchSpec Build(Profile profile, HashSet<string> ids) {
@@ -107,4 +103,8 @@ internal sealed class AcpCustomAgentStore {
 		[JsonPropertyName("env")]
 		public Dictionary<string, string?>? Environment { get; init; }
 	}
+
+	[JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class CustomAgentJson : JsonSerializerContext;
 }

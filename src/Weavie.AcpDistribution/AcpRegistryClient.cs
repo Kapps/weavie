@@ -1,15 +1,15 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Weavie.AcpDistribution;
 
 /// <summary>Reads and validates the official ACP Registry index.</summary>
-public sealed class AcpRegistryClient {
+public sealed partial class AcpRegistryClient {
 	/// <summary>The canonical current registry index.</summary>
 	public static Uri OfficialIndex { get; } = new(
 		"https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
 		UriKind.Absolute);
 
-	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly HttpClient _http;
 	private readonly Uri _index;
 
@@ -31,7 +31,7 @@ public sealed class AcpRegistryClient {
 			.ConfigureAwait(false);
 		response.EnsureSuccessStatusCode();
 		await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-		var document = await JsonSerializer.DeserializeAsync<AcpRegistryDocument>(stream, JsonOptions, ct)
+		var document = await JsonSerializer.DeserializeAsync(stream, RegistryJson.Default.AcpRegistryDocument, ct)
 			.ConfigureAwait(false)
 			?? throw new JsonException("The ACP Registry index is empty.");
 		if (document.Version != "1.0.0") {
@@ -65,4 +65,8 @@ public sealed class AcpRegistryClient {
 		}
 		return segment;
 	}
+
+	[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+	[JsonSerializable(typeof(AcpRegistryDocument))]
+	private sealed partial class RegistryJson : JsonSerializerContext;
 }

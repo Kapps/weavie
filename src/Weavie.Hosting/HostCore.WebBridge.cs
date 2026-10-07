@@ -46,54 +46,34 @@ public sealed partial class HostCore {
 		await _messageIngress.ProbeAsync(ct).ConfigureAwait(false);
 	}
 
-	private sealed record ToolLayoutMessage(string Kind, string Action);
-	private sealed record LayoutResizeMessage(LayoutNode Expected, LayoutNode Root);
+	internal sealed record ToolLayoutMessage(string Kind, string Action);
+	internal sealed record LayoutResizeMessage(LayoutNode Expected, LayoutNode Root);
 
 	/// <summary>
 	/// Pushes the persisted remote-agent registry (with each runner's URL + token) so the page connects to each
 	/// agent and offers it as a New Session location. The host owns persistence; the web owns the connections.
 	/// </summary>
 	private void PushRemoteAgentsToWeb() =>
-		_messages.Host.Feature("remoteAgents").Publish("changed", new {
-			agents = _remoteAgents.Agents.Select(a => new { name = a.Name, url = a.Url, token = a.Token }),
-		});
+		_messages.Host.Feature("remoteAgents").Publish("changed", WireJson.Default.RemoteAgentsChanged, new(RemoteAgentSnapshots()));
 
 	/// <summary>
 	/// Pushes the session rail's persisted UI state (last-used backend + promoted remote sessions) so the page
 	/// restores its working set and the New Session prompt's default location. Honored only from the local backend.
 	/// </summary>
 	private void PushRailStateToWeb() =>
-		_messages.Host.Feature("rail").Publish("changed", new {
-			lastLocation = _railState.LastLocation,
-			promoted = _railState.Promoted,
-			selected = RailSelectionSnapshot(),
-		});
+		_messages.Host.Feature("rail").Publish("changed", WireJson.Default.RailSnapshot, BuildRailSnapshot());
 
 	/// <summary>
 	/// Pushes the persisted find-in-files state (match options + include/exclude globs + recent terms) so the
 	/// panel restores the user's last search mode and history — never the search term itself. Honored only from
 	/// the local backend (it's a local-machine file).
 	/// </summary>
-	private void PushSearchStateToWeb() {
-		var state = _searchState.Current;
-		_messages.Host.Feature("search").Publish("state", new {
-			options = new {
-				caseSensitive = state.Options.CaseSensitive,
-				wholeWord = state.Options.WholeWord,
-				regex = state.Options.Regex,
-				excludeGitignored = state.Options.ExcludeGitignored,
-				include = state.Options.Include,
-				exclude = state.Options.Exclude,
-			},
-			recentTerms = state.RecentTerms,
-		});
-	}
+	private void PushSearchStateToWeb() =>
+		_messages.Host.Feature("search").Publish("state", WireJson.Default.SearchSnapshot, BuildSearchSnapshot());
 
 	/// <summary>Pushes the app-global recent workspace list after another window reorders or prunes it.</summary>
 	private void PushRecentWorkspacesToWeb() =>
-		_messages.Host.Feature("recentWorkspaces").Publish("changed", new {
-			recents = _platform.Recents,
-		});
+		_messages.Host.Feature("recentWorkspaces").Publish("changed", WireJson.Default.RecentWorkspacesChanged, new(_platform.Recents));
 
 	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
 	private void PushLayoutToWeb() {
@@ -133,7 +113,7 @@ public sealed partial class HostCore {
 		bool invalidate,
 		MessageTarget target) {
 		if (invalidate) {
-			target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: true));
+			target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: true));
 		}
 
 		_ = session.Background.Run(async ct => {
@@ -145,7 +125,7 @@ public sealed partial class HostCore {
 					// A refresh during deletion can lose Git metadata before the root disappears.
 					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
 						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {
-						target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
+						target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
 						return;
 					}
 
@@ -169,7 +149,7 @@ public sealed partial class HostCore {
 						}
 					}
 				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-					target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
+					target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, [], pending: false));
 					string failure = $"Couldn't load workspace files: {ex.Message}";
 					if (!session.EndIfWorkspaceRootIsGone(failure)) {
 						Notify(session, "error", failure);
@@ -179,7 +159,7 @@ public sealed partial class HostCore {
 				}
 
 				ct.ThrowIfCancellationRequested();
-				target.Feature("files").Publish("index", FileIndexPayload(session, files, pending: false));
+				target.Feature("files").Publish("index", WireJson.Default.FileIndexWire, FileIndexPayload(session, files, pending: false));
 			} finally {
 				session.FileIndexGate.Release();
 			}
@@ -187,12 +167,11 @@ public sealed partial class HostCore {
 	}
 
 	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
-	private static object FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new {
-		root = session.FileIndex.Root,
-		home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+	private static FileIndexWire FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new(
+		session.FileIndex.Root,
+		Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
 		files,
-		pending,
-	};
+		pending);
 
 	/// <summary>
 	/// Publishes one session's file index from the inventory's already-current Git snapshot instead of forcing
@@ -208,6 +187,7 @@ public sealed partial class HostCore {
 
 		session.Bus.BroadcastTarget.Feature("files").Publish(
 			"index",
+			WireJson.Default.FileIndexWire,
 			FileIndexPayload(session, inventory.Files, pending: false));
 	}
 
@@ -238,9 +218,10 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes the frecency-ranked recent files (most-relevant first) for the omnibar's Recent section.</summary>
 	private void PushRecentFilesToWeb() =>
-		_messages.Host.Feature("recentFiles").Publish("changed", new {
-			files = _recentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks),
-		});
+		_messages.Host.Feature("recentFiles").Publish(
+			"changed",
+			WireJson.Default.RecentFilesChanged,
+			new(_recentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks)));
 
 	/// <summary>
 	/// Pushes the per-turn change list (each changed file + its first-change line) for the page's review walk +
@@ -276,7 +257,8 @@ public sealed partial class HostCore {
 	private static void PushRefreshToWeb(HostSession session, string path) =>
 		session.Bus.Feature("files").Publish(
 			"changed",
-			new { changes = new[] { new FileProviderChange(path, "updated") } });
+			WireJson.Default.FileProviderChanged,
+			new([new FileProviderChange(path, "updated")]));
 
 	/// <summary>
 	/// Pushes a removal for a file deleted mid-turn so the page closes its tab and clears the inline marker.
@@ -285,7 +267,8 @@ public sealed partial class HostCore {
 	private static void PushDeletionToWeb(HostSession session, string path) =>
 		session.Bus.Feature("files").Publish(
 			"changed",
-			new { changes = new[] { new FileProviderChange(path, "deleted") } });
+			WireJson.Default.FileProviderChanged,
+			new([new FileProviderChange(path, "deleted")]));
 
 	/// <summary>Forwards a workspace-watcher batch (non-Claude on-disk edits) to the page's <c>file://</c> provider.</summary>
 	private static void PushWatcherChangesToWeb(
@@ -293,7 +276,7 @@ public sealed partial class HostCore {
 		IReadOnlyList<FileInvalidation> changes) {
 		var mapped = FileProviderChanges.FromInvalidations(changes);
 		if (mapped.Length > 0) {
-			session.Bus.Feature("files").Publish("changed", new { changes = mapped });
+			session.Bus.Feature("files").Publish("changed", WireJson.Default.FileProviderChanged, new(mapped));
 		}
 	}
 
@@ -359,7 +342,7 @@ public sealed partial class HostCore {
 		return HistoryChangeLocation(session, result);
 	}
 
-	private sealed record ReviewHistoryLocation(string Path, int Line);
+	internal sealed record ReviewHistoryLocation(string Path, int Line);
 
 	private static ReviewHistoryLocation? HistoryChangeLocation(HostSession session, ReviewHistoryResult result) {
 		if (result.Acted) {
@@ -590,17 +573,17 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
-		_messages.Host.Feature("notifications").Publish("show", new { level, message });
+		_messages.Host.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain(level, message));
 
 	private static void Notify(HostSession session, string level, string message) =>
-		session.Bus.Feature("notifications").Publish("show", new { level, message });
+		session.Bus.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain(level, message));
 
 	/// <summary>
 	/// As <see cref="Notify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying the
 	/// same key replaces the live one in place (e.g. a "reloaded" info clearing a lingering "malformed" error).
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
-		_messages.Host.Feature("notifications").Publish("show", new { level, message, key });
+		_messages.Host.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Keyed(level, message, key));
 
 	/// <summary>
 	/// As <see cref="Notify(string,string,string)"/>, with an action backed by a registered command. The page
@@ -613,16 +596,14 @@ public sealed partial class HostCore {
 		string actionLabel,
 		string commandId,
 		string? argsJson) =>
-		_messages.Host.Feature("notifications").Publish("show", new {
-			level,
-			message,
-			key,
-			action = new { label = actionLabel, commandId, argsJson },
-		});
+		_messages.Host.Feature("notifications").Publish(
+			"show",
+			WireJson.Default.ToastMessage,
+			new(level, message, key, new ToastAction(actionLabel, commandId, argsJson)));
 
 	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
 	public void ClearNotify(string key) =>
-		_messages.Host.Feature("notifications").Publish("clear", new { key });
+		_messages.Host.Feature("notifications").Publish("clear", WireJson.Default.ToastKey, new(key));
 
 	private async Task<string[]> ListBranchesAsync(CancellationToken ct) {
 		var git = new GitService();
@@ -646,7 +627,7 @@ public sealed partial class HostCore {
 		return branches;
 	}
 
-	private sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
+	internal sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
 
 	private async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) {
 		var git = new GitService();
@@ -713,8 +694,8 @@ public sealed partial class HostCore {
 			args = document.RootElement.Clone();
 		}
 
-		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
-			name,
+		var result = await session.View.Feature("commands").RequestAsync(
+			name, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			new CommandRequest(id, args),
 			ct).ConfigureAwait(false);
 		return FromWireResult(result);
@@ -792,8 +773,18 @@ public sealed partial class HostCore {
 		return new ScratchSaveResult(scratchPath, target);
 	}
 
-	private sealed record ScratchSaveResult(string ScratchPath, string SavedPath);
+	internal sealed record ScratchSaveResult(string ScratchPath, string SavedPath);
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
 }
+
+internal sealed record RemoteAgentsChanged(IReadOnlyList<HostCore.RemoteAgentSnapshot> Agents);
+
+internal sealed record RecentWorkspacesChanged(IReadOnlyList<string> Recents);
+
+internal sealed record RecentFilesChanged(IReadOnlyList<string> Files);
+
+internal sealed record FileProviderChanged(IReadOnlyList<FileProviderChange> Changes);
+
+internal sealed record FileIndexWire(string Root, string Home, IReadOnlyList<string> Files, bool Pending);

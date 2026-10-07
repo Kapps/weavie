@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
 using Weavie.Core.Agents;
 using Weavie.Core.FileSystem;
@@ -7,11 +8,7 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>Transactional ACP continuation identities and the display events observed by Weavie.</summary>
-public sealed class AcpSessionStore(string path) {
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-	};
-	private static readonly JsonSerializerOptions MessageJsonOptions = new(JsonOptions) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+public sealed partial class AcpSessionStore(string path) {
 	private readonly Lock _gate = new();
 	private bool _schemaReady;
 
@@ -20,11 +17,11 @@ public sealed class AcpSessionStore(string path) {
 
 	/// <summary>Returns every continuation descriptor owned by this provider and workspace.</summary>
 	public IReadOnlyList<AcpConversationState> ReadConversations(string providerId, string workspace) =>
-		Read<AcpConversationState>(providerId, workspace, "SELECT state FROM conversations WHERE owner = $owner");
+		Read(AcpStateJson.Default.AcpConversationState, providerId, workspace, "SELECT state FROM conversations WHERE owner = $owner");
 
 	/// <summary>Reads the ordered display journal, including side conversations.</summary>
 	public IReadOnlyList<AgentPaneMessage> ReadMessages(string providerId, string workspace) =>
-		Read<AgentPaneMessage>(providerId, workspace, "SELECT message FROM pane_events WHERE owner = $owner ORDER BY sequence");
+		Read(AcpStateJson.Default.AgentPaneMessage, providerId, workspace, "SELECT message FROM pane_events WHERE owner = $owner ORDER BY sequence");
 
 	/// <summary>Returns the exact primary provider session, when one has been established.</summary>
 	public string? Resolve(string providerId, string workspace) =>
@@ -49,7 +46,7 @@ public sealed class AcpSessionStore(string path) {
 			command.CommandText = "INSERT INTO conversations VALUES ($owner, $id, $state) ON CONFLICT(owner, id) DO UPDATE SET state = excluded.state";
 			command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
 			command.Parameters.AddWithValue("$id", state.ConversationId);
-			command.Parameters.AddWithValue("$state", JsonSerializer.Serialize(state, JsonOptions));
+			command.Parameters.AddWithValue("$state", JsonSerializer.Serialize(state, AcpStateJson.Default.AcpConversationState));
 			command.ExecuteNonQuery();
 			InsertMessages(command, messages);
 			transaction.Commit();
@@ -74,7 +71,7 @@ public sealed class AcpSessionStore(string path) {
 			foreach (var value in states) {
 				ArgumentOutOfRangeException.ThrowIfNegative(value.TurnNumber);
 				id.Value = value.ConversationId;
-				state.Value = JsonSerializer.Serialize(value, JsonOptions);
+				state.Value = JsonSerializer.Serialize(value, AcpStateJson.Default.AcpConversationState);
 				command.ExecuteNonQuery();
 			}
 			command.Parameters.Remove(id);
@@ -101,19 +98,19 @@ public sealed class AcpSessionStore(string path) {
 		command.CommandText = "INSERT INTO pane_events(owner, message) VALUES ($owner, $message)";
 		var message = command.Parameters.Add("$message", SqliteType.Text);
 		foreach (var value in messages) {
-			message.Value = JsonSerializer.Serialize(value, MessageJsonOptions);
+			message.Value = JsonSerializer.Serialize(value, AcpJournalJson.Default.AgentPaneMessage);
 			command.ExecuteNonQuery();
 		}
 	}
 
-	private IReadOnlyList<T> Read<T>(string providerId, string workspace, string query) => Execute(connection => {
+	private IReadOnlyList<T> Read<T>(JsonTypeInfo<T> type, string providerId, string workspace, string query) => Execute(connection => {
 		using var command = connection.CreateCommand();
 		command.CommandText = query;
 		command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
 		using var reader = command.ExecuteReader();
 		var values = new List<T>();
 		while (reader.Read()) {
-			var value = JsonSerializer.Deserialize<T>(reader.GetString(0), JsonOptions)
+			var value = JsonSerializer.Deserialize(reader.GetString(0), type)
 				?? throw new JsonException("The saved ACP conversation contains a null record.");
 			if (value is AcpConversationState state && (state.ConversationId is null || state.InitialPrompt is null
 				|| state.SessionId == string.Empty || state.TurnNumber < 0 || state.AnchorTurnNumber < 0
@@ -154,7 +151,7 @@ public sealed class AcpSessionStore(string path) {
 
 	private static string Owner(string providerId, string workspace) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
-		return JsonSerializer.Serialize(new[] { providerId, NormalizeWorkspace(workspace) });
+		return JsonSerializer.Serialize([providerId, NormalizeWorkspace(workspace)], AcpStateJson.Default.StringArray);
 	}
 
 	private static string NormalizeWorkspace(string workspace) {
@@ -162,6 +159,19 @@ public sealed class AcpSessionStore(string path) {
 		string cwd = PathIdentity.Normalize(workspace);
 		return OperatingSystem.IsWindows() ? cwd.ToUpperInvariant() : cwd;
 	}
+
+	[JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+	[JsonSerializable(typeof(AcpConversationState))]
+	[JsonSerializable(typeof(AgentPaneMessage))]
+	[JsonSerializable(typeof(string[]))]
+	private sealed partial class AcpStateJson : JsonSerializerContext;
+
+	// The display journal omits nulls; it is read back through AcpStateJson.
+	[JsonSourceGenerationOptions(
+		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+	[JsonSerializable(typeof(AgentPaneMessage))]
+	private sealed partial class AcpJournalJson : JsonSerializerContext;
 }
 
 /// <summary>Reports a conversation-storage failure without replacing or discarding saved data.</summary>

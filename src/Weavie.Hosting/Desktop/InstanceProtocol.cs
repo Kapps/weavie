@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Desktop;
 
@@ -40,27 +41,27 @@ public static class InstanceProtocol {
 	/// <summary>Serializes what a second launch is handing over.</summary>
 	public static byte[] EncodeRequest(HandoffRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
-		return JsonSerializer.SerializeToUtf8Bytes(request);
+		return JsonSerializer.SerializeToUtf8Bytes(request, WireJson.Default.HandoffRequest);
 	}
 
 	/// <summary>Reads a handover request, or null when the frame was not one.</summary>
 	public static HandoffRequest? DecodeRequest(byte[] payload) {
 		ArgumentNullException.ThrowIfNull(payload);
 		try {
-			return JsonSerializer.Deserialize<HandoffRequest>(payload);
+			return JsonSerializer.Deserialize(payload, WireJson.Default.HandoffRequest);
 		} catch (JsonException) {
 			return null;
 		}
 	}
 
 	/// <summary>Serializes the running instance's answer.</summary>
-	public static byte[] EncodeReply(HandoffReply reply) => JsonSerializer.SerializeToUtf8Bytes(reply);
+	public static byte[] EncodeReply(HandoffReply reply) => JsonSerializer.SerializeToUtf8Bytes(reply, WireJson.Default.HandoffReply);
 
 	/// <summary>Reads an answer, treating an unreadable one as "not handled".</summary>
 	public static HandoffReply DecodeReply(byte[] payload) {
 		ArgumentNullException.ThrowIfNull(payload);
 		try {
-			return JsonSerializer.Deserialize<HandoffReply>(payload);
+			return JsonSerializer.Deserialize(payload, WireJson.Default.HandoffReply);
 		} catch (JsonException) {
 			return new HandoffReply(false, string.Empty);
 		}

@@ -11,7 +11,7 @@ namespace Weavie.Core.Sources;
 /// <c>HostServices</c>; the headless harness injects a stubbed <see cref="HttpClient"/> + token for deterministic
 /// tests. The token file is off the Claude-facing settings surface because it holds a secret.
 /// </summary>
-public sealed class SourceConnector : ISourceConnector {
+public sealed partial class SourceConnector : ISourceConnector {
 	private readonly IReadOnlyList<ISource> _sources;
 	private readonly Func<string, string> _credentialsPathFor;
 
@@ -103,7 +103,7 @@ public sealed class SourceConnector : ISourceConnector {
 			SecureFile.CreateDirectory(directory);
 		}
 
-		SecureFile.WriteAllText(path, JsonSerializer.Serialize(new Credentials { Token = token }));
+		SecureFile.WriteAllText(path, JsonSerializer.Serialize(new Credentials { Token = token }, SourceConnectorJson.Default.Credentials));
 	}
 
 	// The access token saved at ~/.weavie/sources/<id>.json, or null when the file is absent/empty.
@@ -122,7 +122,7 @@ public sealed class SourceConnector : ISourceConnector {
 
 		Credentials? credentials;
 		try {
-			credentials = JsonSerializer.Deserialize<Credentials>(text);
+			credentials = JsonSerializer.Deserialize(text, SourceConnectorJson.Default.Credentials);
 		} catch (JsonException ex) {
 			throw new InvalidOperationException($"The {sourceId} token file {path} is malformed: {ex.Message}", ex);
 		}
@@ -134,4 +134,7 @@ public sealed class SourceConnector : ISourceConnector {
 		[JsonPropertyName("token")]
 		public string Token { get; set; } = string.Empty;
 	}
+
+	[JsonSerializable(typeof(Credentials))]
+	private sealed partial class SourceConnectorJson : JsonSerializerContext;
 }

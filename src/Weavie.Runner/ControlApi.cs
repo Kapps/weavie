@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Weavie.Hosting.Web;
@@ -27,16 +29,13 @@ internal static class ControlApi {
 
 		// Ensure the workspace backend is running and return its connect URL + status (+ the updater's state,
 		// which the runner status page renders — runner staleness and a rollback stay visible to the user).
-		app.MapGet("/backend", async (HttpContext ctx) => {
+		app.MapGet("/backend", async context => {
 			var backend = backends.Ensure();
 			string status = await backends.StatusAsync(backend).ConfigureAwait(false);
-			return Results.Json(new {
-				url = front.WorkerPageUrl(HostOf(ctx), backend),
-				token = backend.Token,
-				status,
-				workspace = backend.WorkspaceRoot,
-				update = updateStatus(),
-			});
+			await context.Response.WriteAsJsonAsync(
+				new BackendStatus(front.WorkerPageUrl(HostOf(context), backend), backend.Token, status, backend.WorkspaceRoot, updateStatus()),
+				RunnerJson.Default.BackendStatus,
+				cancellationToken: context.RequestAborted).ConfigureAwait(false);
 		});
 	}
 
@@ -139,3 +138,10 @@ internal static class ControlApi {
 		context.Response.Headers["Referrer-Policy"] = "no-referrer";
 	}
 }
+
+internal sealed record BackendStatus(string Url, string Token, string Status, string Workspace, UpdateStatus Update);
+
+/// <summary>Source-generated contracts for the runner's control-plane responses (web defaults: camelCase).</summary>
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSerializable(typeof(BackendStatus))]
+internal sealed partial class RunnerJson : JsonSerializerContext;

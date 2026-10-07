@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Inference;
 
@@ -11,13 +12,18 @@ namespace Weavie.AgentClientProtocol;
 /// agent has no tools, filesystem, or MCP surface to reach for.
 /// </summary>
 internal sealed class AcpInferenceClient {
-	internal static readonly object InitializeParameters = new {
-		protocolVersion = 1,
-		clientCapabilities = new {
-			session = new { configOptions = new { boolean = new { } } },
-		},
-		clientInfo = new { name = "weavie", title = "Weavie", version = "1" },
+	/// <summary>The initialize request of a tool-less transient client: only typed boolean configuration.</summary>
+	internal static JsonObject InitializeParameters() => new() {
+		["protocolVersion"] = 1,
+		["clientCapabilities"] = new JsonObject { ["session"] = SessionCapabilities() },
+		["clientInfo"] = ClientInfo("1"),
 	};
+
+	internal static JsonObject SessionCapabilities() =>
+		new() { ["configOptions"] = new JsonObject { ["boolean"] = new JsonObject() } };
+
+	internal static JsonObject ClientInfo(string version) =>
+		new() { ["name"] = "weavie", ["title"] = "Weavie", ["version"] = version };
 	private readonly AcpTransientConnection _connection;
 	private readonly StringBuilder _reply = new();
 	private readonly Lock _replyGate = new();
@@ -54,7 +60,7 @@ internal sealed class AcpInferenceClient {
 		_maxReplyBytes = request.MaxOutputBytes;
 		try {
 			ArgumentNullException.ThrowIfNull(request.Profile);
-			var initialized = await _connection.RequestAsync("initialize", InitializeParameters, ct).ConfigureAwait(false);
+			var initialized = await _connection.RequestAsync("initialize", InitializeParameters(), ct).ConfigureAwait(false);
 			var capabilities = AcpCapabilities.Read(initialized);
 			if (request.Images.Count > 0
 				&& !AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image")) {
@@ -64,19 +70,19 @@ internal sealed class AcpInferenceClient {
 					$"The ACP agent '{_connection.Definition.Name}' does not accept image prompts.");
 			}
 
-			var setup = await _connection.RequestAsync("session/new", new {
-				cwd = Path.GetFullPath(request.Workspace),
-				mcpServers = Array.Empty<object>(),
-			}, ct).ConfigureAwait(false);
+			var setup = await _connection.RequestAsync(
+				"session/new",
+				AcpContent.Session(Path.GetFullPath(request.Workspace), []),
+				ct).ConfigureAwait(false);
 
 			string sessionId = RequiredString(setup, "sessionId");
 			var configured = await AcpProfile.ApplyAsync(_connection, sessionId, setup, request.Profile, ct).ConfigureAwait(false);
 			model = CurrentModel(configured) ?? _connection.Definition.Id;
 
-			var turn = await _connection.RequestAsync("session/prompt", new {
-				sessionId,
-				prompt = BuildPrompt(request),
-			}, ct).ConfigureAwait(false);
+			var turn = await _connection.RequestAsync(
+				"session/prompt",
+				new JsonObject { ["sessionId"] = sessionId, ["prompt"] = BuildPrompt(request) },
+				ct).ConfigureAwait(false);
 
 			string stopReason = RequiredString(turn, "stopReason");
 			if (stopReason == "refusal") {
@@ -112,21 +118,13 @@ internal sealed class AcpInferenceClient {
 	}
 
 	// ACP has no output-schema field, so the schema travels in the prompt and Weavie enforces it locally.
-	private static object[] BuildPrompt(InferenceProviderRequest request) {
-		var blocks = new List<object> { new {
-			type = "text",
-			text = request.Prompt
-				+ "\n\nRespond with exactly one JSON value matching this schema, and nothing else — no prose, no "
-				+ "explanation, and no markdown code fences. Do not use any tools.\n\nSchema:\n"
-				+ request.OutputSchemaJson,
-		} };
-		blocks.AddRange(request.Images.Select(image => (object)new {
-			type = "image",
-			mimeType = image.Mime,
-			data = Convert.ToBase64String(image.Bytes.Span),
-		}));
-		return [.. blocks];
-	}
+	private static JsonArray BuildPrompt(InferenceProviderRequest request) => new([
+		AcpContent.Text(request.Prompt
+			+ "\n\nRespond with exactly one JSON value matching this schema, and nothing else — no prose, no "
+			+ "explanation, and no markdown code fences. Do not use any tools.\n\nSchema:\n"
+			+ request.OutputSchemaJson),
+		.. request.Images.Select(image => AcpContent.Image(image.Mime, Convert.ToBase64String(image.Bytes.Span))),
+	]);
 
 	private static InferenceProviderResult Decode(string reply, string model, InferenceUsage? usage) {
 		if (reply.Length == 0) {

@@ -1,10 +1,10 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
 internal sealed class SessionState {
-	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly SessionMessageBus _bus;
 	private readonly Lock _gate = new();
 	private readonly Dictionary<(string Feature, string Key), Entry> _entries = [];
@@ -19,19 +19,21 @@ internal sealed class SessionState {
 		string feature,
 		string key,
 		string name,
-		T payload) => SetVersioned(feature, key, name, _ => payload);
+		JsonTypeInfo<T> type,
+		T payload) => SetVersioned(feature, key, name, type, _ => payload);
 
 	public void SetVersioned<T>(
 		string feature,
 		string key,
 		string name,
+		JsonTypeInfo<T> type,
 		Func<long, T> payload) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(key);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		lock (_gate) {
 			long revision = ++_sequence;
-			string json = JsonSerializer.Serialize(payload(revision), JsonOptions);
+			string json = JsonSerializer.Serialize(payload(revision), type);
 			_entries[(feature, key)] = new Entry(revision, name, json);
 			_bus.Feature(feature).PublishJson(name, json);
 		}

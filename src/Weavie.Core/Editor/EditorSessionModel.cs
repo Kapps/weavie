@@ -51,11 +51,11 @@ public sealed record EditorSession {
 
 	/// <summary>The open files, in order; the only one restored eagerly is <see cref="Active"/>.</summary>
 	[JsonRequired]
-	public IReadOnlyList<EditorSessionEntry> Open { get; init; } = [];
+	public IReadOnlyList<EditorSessionEntry> Open { get; set; } = [];
 
 	/// <summary>Unknown top-level fields, preserved verbatim across a load/save round-trip.</summary>
 	[JsonExtensionData]
-	public IDictionary<string, JsonElement>? Extra { get; init; }
+	public IDictionary<string, JsonElement>? Extra { get; set; }
 
 	/// <summary>The empty session: nothing open, no active file. Used on first run and after a reset.</summary>
 	public static EditorSession Empty { get; } = new();

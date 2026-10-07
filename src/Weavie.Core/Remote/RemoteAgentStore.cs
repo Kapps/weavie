@@ -19,9 +19,7 @@ public readonly record struct RemoteAgent(string Name, string Url, string Token)
 /// it must stay off the Claude-facing settings surface. <see cref="Add"/> replaces any same-named agent
 /// (case-insensitive); a malformed file is backed up to <c>remote-agents.json.bad</c> and reset, not thrown.
 /// </summary>
-public sealed class RemoteAgentStore : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
+public sealed partial class RemoteAgentStore : JsonDocumentStore {
 	private List<RemoteAgent> _items = [];
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/remote-agents.json</c>), loading it now.</summary>
@@ -72,7 +70,7 @@ public sealed class RemoteAgentStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = text is null ? null : JsonSerializer.Deserialize<Document>(text);
+		var document = text is null ? null : JsonSerializer.Deserialize(text, RemoteAgentStoreJson.Default.Document);
 		_items = document?.Agents is not { } entries
 			? []
 			: [.. entries
@@ -86,7 +84,7 @@ public sealed class RemoteAgentStore : JsonDocumentStore {
 			Version = 1,
 			Agents = [.. _items.Select(a => new AgentEntry { Name = a.Name, Url = a.Url, Token = a.Token })],
 		},
-		JsonOptions);
+		RemoteAgentStoreJson.Default.Document);
 
 	private void PersistRestricted() => PersistLocked(() => SecureFile.Restrict(FilePath));
 
@@ -110,4 +108,8 @@ public sealed class RemoteAgentStore : JsonDocumentStore {
 		[JsonPropertyName("token")]
 		public string Token { get; set; } = string.Empty;
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class RemoteAgentStoreJson : JsonSerializerContext;
 }

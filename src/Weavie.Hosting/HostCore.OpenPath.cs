@@ -1,4 +1,5 @@
 using Weavie.Hosting.Desktop;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -30,7 +31,9 @@ public sealed partial class HostCore {
 		// this names the checkout to use instead, since only the host knows which slot that is.
 		string? fallbackSlot = _sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Id;
 		foreach (string path in pending) {
-			_messages.Host.Feature("files").Publish("openPath", new { path, fallbackSlot });
+			_messages.Host.Feature("files").Publish("openPath", WireJson.Default.OpenPathRequest, new(path, fallbackSlot));
 		}
 	}
 }
+
+internal sealed record OpenPathRequest(string Path, string? FallbackSlot);

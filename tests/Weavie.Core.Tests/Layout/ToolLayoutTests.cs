@@ -8,7 +8,7 @@ namespace Weavie.Core.Tests;
 public sealed class ToolLayoutTests {
 	private const string Path = "/tool-layout/layout.json";
 	private static LayoutStore Store(InMemoryFileSystem fs) => new(fs, LayoutPanes.CreateRegistry(), Path);
-	private static string Json(LayoutNode root) => JsonSerializer.Serialize(root, LayoutSerialization.Options);
+	private static string Json(LayoutNode root) => LayoutSerialization.SerializeNode(root);
 
 	[Fact]
 	public void LayoutNodesUseTheSameShapeInTypedWebRequests() {

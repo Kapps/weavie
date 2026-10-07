@@ -5,27 +5,26 @@ const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
 
-// Arms a MutationObserver on `target` before the caller triggers the change that may disable it, so a
-// disable-then-re-enable cycle that completes faster than Playwright's own DOM polling can still be seen.
-// Call this (without awaiting) immediately before the triggering action; await the returned promise after.
-function watchForDisabled(target: import("@playwright/test").Locator): Promise<boolean> {
-  return target.evaluate(
-    (element) =>
-      new Promise<boolean>((resolve) => {
-        const select = element as HTMLSelectElement;
-        if (select.disabled) {
-          resolve(true);
-          return;
-        }
-        const observer = new MutationObserver(() => {
-          if (select.disabled) {
-            observer.disconnect();
-            resolve(true);
-          }
-        });
-        observer.observe(select, { attributes: true, attributeFilter: ["disabled"] });
-      }),
-  );
+// Records whether `target` turns disabled from the moment this resolves, so a disable-then-re-enable cycle
+// that completes faster than Playwright's DOM polling is still seen. Await it before triggering the change:
+// an unawaited install races the trigger, which Playwright runs concurrently. Returns the recorded result.
+async function watchForDisabled(
+  target: import("@playwright/test").Locator,
+): Promise<() => Promise<boolean>> {
+  await target.evaluate((element) => {
+    const select = element as HTMLSelectElement & { sawDisabled?: boolean };
+    select.sawDisabled = select.disabled;
+    new MutationObserver((_, observer) => {
+      if (select.disabled) {
+        select.sawDisabled = true;
+        observer.disconnect();
+      }
+    }).observe(select, { attributes: true, attributeFilter: ["disabled"] });
+  });
+  return () =>
+    target.evaluate(
+      (element) => (element as HTMLSelectElement & { sawDisabled?: boolean }).sawDisabled === true,
+    );
 }
 
 async function pasteImage(target: import("@playwright/test").Locator, b64: string): Promise<void> {
@@ -754,18 +753,11 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   const provider = inbox.getByRole("combobox", { name: "Agent provider" });
-  // The save round-trip that backs the disable can resolve inside a single DOM-poll interval, so polling
-  // for `toBeDisabled()` after the fact can miss it entirely — see the flake note below. Arm a
-  // MutationObserver before triggering the change instead, so the transition can't be missed regardless
-  // of how fast the host responds.
-  //
-  // Flaked 2026-08-27 21:39 UTC on macOS shard 6/6 — expect(provider).toBeDisabled() saw "enabled" on all
-  // 63 of its polls across the full 30s timeout (https://github.com/Kapps/weavie/actions/runs/33118598692/job/98680314997),
-  // meaning the select had already re-enabled before Playwright's first poll ran. Replaced the DOM-polling
-  // assertion with the observer above.
-  const sawDisabled = watchForDisabled(provider);
+  // The save round-trip that backs the disable can finish inside one DOM-poll interval, so record the
+  // transition with an observer armed before the change instead of polling for `toBeDisabled()`.
+  const sawDisabled = await watchForDisabled(provider);
   await provider.selectOption("fake-acp");
-  expect(await sawDisabled).toBe(true);
+  await expect.poll(sawDisabled).toBe(true);
   await expect(provider).toBeEnabled();
   await expect(provider).toHaveValue("fake-acp");
   await expect(inbox.getByRole("combobox", { name: "Open with" })).toHaveValue("fake-acp");

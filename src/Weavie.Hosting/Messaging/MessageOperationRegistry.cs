@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
@@ -94,7 +95,7 @@ internal sealed class MessageOperationRegistry {
 		_active.TryRemove(operation.Id, out _);
 		if (wasSlow) {
 			RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
-				SendEvent(operation, "notifications", "clear", new { key = operation.NotificationKey })));
+				SendEvent(operation, "notifications", "clear", WireJson.Default.ToastKey, new ToastKey(operation.NotificationKey))));
 		}
 	}
 
@@ -102,9 +103,9 @@ internal sealed class MessageOperationRegistry {
 		_deliveryDiagnostics.Run($"message operation {operationId}", diagnostic);
 
 	private void SendNotification(MessageOperation operation, string level, string message, string key) =>
-		SendEvent(operation, "notifications", "show", new { level, message, key });
+		SendEvent(operation, "notifications", "show", WireJson.Default.ToastMessage, ToastMessage.Keyed(level, message, key));
 
-	private void SendEvent(MessageOperation operation, string feature, string name, object payload) {
+	private void SendEvent<T>(MessageOperation operation, string feature, string name, JsonTypeInfo<T> type, T payload) {
 		try {
 			_sendToPeer(
 				operation.Peer,
@@ -113,7 +114,7 @@ internal sealed class MessageOperationRegistry {
 					operation.Envelope.Session,
 					feature,
 					name,
-					JsonSerializer.SerializeToElement(payload)).ToTransportMessage());
+					JsonSerializer.SerializeToElement(payload, type)).ToTransportMessage());
 		} catch (Exception ex) {
 			_diagnostics.Report($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
 		}

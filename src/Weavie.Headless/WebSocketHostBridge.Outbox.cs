@@ -10,7 +10,6 @@ internal sealed partial class WebSocketHostBridge {
 	internal const int MaxWireMessageBytes = 768 * 1024;
 	private const int ChunkPayloadCharacters = 64 * 1024;
 	private const int RawMessageCharacters = MaxWireMessageBytes / 3;
-	private static readonly JsonSerializerOptions ChunkJsonOptions = new(JsonSerializerDefaults.Web);
 
 	private sealed record OutboundMessage(WebMessageRoute Route, byte[][] Frames) {
 		public bool UsesLargeLane => Frames.Length > 1;
@@ -49,7 +48,7 @@ internal sealed partial class WebSocketHostBridge {
 			byte[] payload = new byte[Encoding.UTF8.GetByteCount(characters)];
 			Encoding.UTF8.GetBytes(characters, payload);
 			byte[] wire = JsonSerializer.SerializeToUtf8Bytes(new ChunkWire(new ChunkBody(
-				id, index, ranges.Count, Convert.ToBase64String(payload))), ChunkJsonOptions);
+				id, index, ranges.Count, Convert.ToBase64String(payload))), ChunkJson.Default.ChunkWire);
 			return compressor.Wrap(wire).ToArray();
 		})];
 	}
@@ -162,4 +161,8 @@ internal sealed partial class WebSocketHostBridge {
 		[property: JsonPropertyName("$weavieChunk")] ChunkBody Chunk);
 
 	private sealed record ChunkBody(string Id, int Index, int Count, string Data);
+
+	[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+	[JsonSerializable(typeof(ChunkWire))]
+	private sealed partial class ChunkJson : JsonSerializerContext;
 }

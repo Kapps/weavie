@@ -17,7 +17,7 @@ public sealed partial class HostCore {
 			session.Background,
 			ct => ResolvePullRequestStatusAsync(session, ct),
 			(status, ct) => {
-				session.Bus.BroadcastTarget.Feature("git").Publish("pullRequest", status);
+				session.Bus.BroadcastTarget.Feature("git").Publish("pullRequest", WireJson.Default.PullRequestStatusSnapshot, status);
 				return comments.TrackAsync(status.Target, ct);
 			},
 			Task.Delay,
@@ -31,7 +31,7 @@ public sealed partial class HostCore {
 
 	private void PushPullRequestStatus(HostSession session, MessageTarget target) {
 		if (session.PullRequestStatus.Latest is { } latest) {
-			target.Feature("git").Publish("pullRequest", latest);
+			target.Feature("git").Publish("pullRequest", WireJson.Default.PullRequestStatusSnapshot, latest);
 		}
 
 		PublishPullRequestComments(session, session.PullRequestComments.Latest, target);

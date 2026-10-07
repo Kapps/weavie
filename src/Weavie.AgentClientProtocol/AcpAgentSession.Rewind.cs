@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 
@@ -51,12 +52,14 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		var branch = _connection.OpenEndpoint(generation, null, (_, root) => replay.Observe(root), _connection.RejectClosedRequest);
 		string cwd = Path.GetFullPath(_context.Workspace);
 		try {
-			await branch.ForkFromAsync(Endpoint(generation), new {
-				cwd,
-				mcpServers = McpServers(),
-				_meta = new { jetbrains = new { air = new { fork = new { version = 1, messageId } } } },
-			}).ConfigureAwait(false);
-			await branch.RequestAsync("session/load", new { cwd, mcpServers = McpServers() }, CancellationToken.None).ConfigureAwait(false);
+			var fork = AcpContent.Session(cwd, McpServers());
+			fork["_meta"] = new JsonObject {
+				["jetbrains"] = new JsonObject {
+					["air"] = new JsonObject { ["fork"] = new JsonObject { ["version"] = 1, ["messageId"] = messageId } },
+				},
+			};
+			await branch.ForkFromAsync(Endpoint(generation), fork).ConfigureAwait(false);
+			await branch.RequestAsync("session/load", AcpContent.Session(cwd, McpServers()), CancellationToken.None).ConfigureAwait(false);
 			if (!replay.EndsAt(messageId)) throw new InvalidOperationException($"{_definition.Name} did not rewind to the requested message.");
 			branch.Retire(); // The commit restarts onto the fork; this endpoint only had to prove it.
 			return branch.SessionId!;

@@ -4,6 +4,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Workspaces;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -28,19 +29,13 @@ public sealed partial class HostCore {
 
 	// Fan the active suggestion set out to every client, like the session list.
 	private void PushSuggestions(IReadOnlyList<SuggestionDefinition> active) =>
-		_messages.Host.Feature("suggestions").Publish("changed", new {
-			items = active.Select(s => new {
-				id = s.Id,
-				title = s.Title,
-				body = s.Body,
-				actions = s.Actions.Select(a => new {
-					label = a.Label,
-					kind = a.Kind.ToString(),
-					commandId = a.CommandId,
-					argsJson = a.ArgsJson,
-				}),
-			}),
-		});
+		_messages.Host.Feature("suggestions").Publish("changed", WireJson.Default.SuggestionsChanged, new([
+			.. active.Select(s => new SuggestionWire(
+				s.Id,
+				s.Title,
+				s.Body,
+				[.. s.Actions.Select(a => new SuggestionActionWire(a.Label, a.Kind.ToString(), a.CommandId, a.ArgsJson))])),
+		]));
 
 	// Apply a web dismissal ("not now" → snooze for this run; "don't ask again" → forever); the service re-pushes.
 	private void DismissSuggestion(string id, bool forever) {
@@ -62,3 +57,9 @@ public sealed partial class HostCore {
 	private static void SeedWorkspaceSetup(HostSession session) =>
 		session.PrefillAgentPrompt(WorkspaceSetupPrompt.Prompt.Text);
 }
+
+internal sealed record SuggestionsChanged(IReadOnlyList<SuggestionWire> Items);
+
+internal sealed record SuggestionWire(string Id, string Title, string Body, IReadOnlyList<SuggestionActionWire> Actions);
+
+internal sealed record SuggestionActionWire(string Label, string Kind, string? CommandId, string? ArgsJson);

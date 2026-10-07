@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 
 namespace Weavie.AgentClientProtocol;
@@ -21,21 +22,21 @@ internal static class AcpConfigurationOptions {
 		return Read(options);
 	}
 
-	public static object SetParameters(string sessionId, AgentControlAxis control, string value) {
-		var parameters = JsonSerializer.SerializeToNode(SetParameters(control, value))!;
-		parameters["sessionId"] = System.Text.Json.Nodes.JsonValue.Create(sessionId);
+	public static JsonObject SetParameters(string sessionId, AgentControlAxis control, string value) {
+		var parameters = SetParameters(control, value);
+		parameters["sessionId"] = sessionId;
 		return parameters;
 	}
 
-	public static object SetParameters(AgentControlAxis control, string value) {
+	public static JsonObject SetParameters(AgentControlAxis control, string value) {
 		if (control.Options.All(option => option.Id != value)) {
 			throw new AcpProtocolException(
 				$"ACP no longer advertises '{value}' for the '{control.Id}' control.");
 		}
 		return control.Kind switch {
-			"select" => new { configId = control.Id, value },
+			"select" => new JsonObject { ["configId"] = control.Id, ["value"] = value },
 			"boolean" when bool.TryParse(value, out bool boolean) =>
-				new { configId = control.Id, type = "boolean", value = boolean },
+				new JsonObject { ["configId"] = control.Id, ["type"] = "boolean", ["value"] = boolean },
 			"boolean" => throw new AcpProtocolException($"'{value}' is not a boolean ACP configuration value."),
 			_ => throw new AcpProtocolException($"Unsupported ACP config option type '{control.Kind}'."),
 		};

@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed class HostMessageBusTests {
+public sealed partial class HostMessageBusTests {
 	[Fact]
 	public async Task EveryQueuedHandlerReentersTheUiDispatcher() {
 		var errors = new ConcurrentQueue<Exception>();
@@ -19,14 +20,14 @@ public sealed class HostMessageBusTests {
 		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var feature = router.Host.Feature("native");
-		using var first = feature.Handle<Increment>(
-			"first",
+		using var first = feature.Handle(
+			"first", HostMessageBusJson.Default.Increment,
 			async (_, _) => {
 				threads.Enqueue(Environment.CurrentManagedThreadId);
 				firstEntered.SetResult();
 				await releaseFirst.Task;
 			});
-		using var second = feature.Handle<Increment>("second", (_, _) => {
+		using var second = feature.Handle("second", HostMessageBusJson.Default.Increment, (_, _) => {
 			threads.Enqueue(Environment.CurrentManagedThreadId);
 			return Task.CompletedTask;
 		});
@@ -53,8 +54,8 @@ public sealed class HostMessageBusTests {
 		var dispatcher = new SerialUiDispatcher(errors.Enqueue);
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, dispatcher, _ => { });
-		using var handler = router.Host.Feature("native").Handle<Increment, Counter>(
-			"fail",
+		using var handler = router.Host.Feature("native").Handle(
+			"fail", HostMessageBusJson.Default.Increment, HostMessageBusJson.Default.Counter,
 			(_, _) => throw new InvalidOperationException("native failure"));
 
 		await router.RouteAsync(
@@ -97,4 +98,9 @@ public sealed class HostMessageBusTests {
 
 		public void Send(WebPeer peer, WebTransportMessage message) => _sent.Enqueue(message.Json);
 	}
+
+	[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+	[JsonSerializable(typeof(Counter))]
+	[JsonSerializable(typeof(Increment))]
+	private sealed partial class HostMessageBusJson : JsonSerializerContext;
 }

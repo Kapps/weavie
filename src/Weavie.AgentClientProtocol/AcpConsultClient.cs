@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Inference;
 using Weavie.Core.Json;
@@ -57,11 +58,11 @@ internal sealed class AcpConsultClient {
 	}
 
 	private async Task<JsonElement> OpenSessionAsync(string workspace, CancellationToken ct) {
-		await _connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters, ct).ConfigureAwait(false);
-		var setup = await _connection.RequestAsync("session/new", new {
-			cwd = Path.GetFullPath(workspace),
-			mcpServers = Array.Empty<object>(),
-		}, ct).ConfigureAwait(false);
+		await _connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters(), ct).ConfigureAwait(false);
+		var setup = await _connection.RequestAsync(
+			"session/new",
+			AcpContent.Session(Path.GetFullPath(workspace), []),
+			ct).ConfigureAwait(false);
 		_sessionId = AcpInferenceClient.RequiredString(setup, "sessionId");
 		return setup;
 	}
@@ -83,10 +84,13 @@ internal sealed class AcpConsultClient {
 				}
 			}
 
-			var turn = await _connection.RequestAsync("session/prompt", new {
-				sessionId = _sessionId,
-				prompt = new[] { new { type = "text", text = EmbeddedAgentGuidance.ConsultInstructions + "\n\n" + request.Prompt } },
-			}, ct).ConfigureAwait(false);
+			var turn = await _connection.RequestAsync(
+				"session/prompt",
+				new JsonObject {
+					["sessionId"] = _sessionId,
+					["prompt"] = new JsonArray(AcpContent.Text(EmbeddedAgentGuidance.ConsultInstructions + "\n\n" + request.Prompt)),
+				},
+				ct).ConfigureAwait(false);
 			return Complete(AcpInferenceClient.RequiredString(turn, "stopReason"), Model(controls, request.Model), controls);
 		} catch (OperationCanceledException) {
 			throw;
@@ -121,8 +125,7 @@ internal sealed class AcpConsultClient {
 				.FirstOrDefault(option => option.GetStringOrNull("kind") is "reject_once" or "reject_always")
 				.GetStringOrNull("optionId")
 			: null;
-		object outcome = reject is null ? new { outcome = "cancelled" } : new { outcome = "selected", optionId = reject };
-		_ = _connection.RespondAsync(id, new { outcome });
+		_ = _connection.RespondAsync(id, reject is null ? AcpContent.Cancelled() : AcpContent.Selected(reject));
 	}
 
 	private void OnNotification(string method, JsonElement parameters) {

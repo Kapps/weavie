@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 
 namespace Weavie.AgentClientProtocol;
@@ -70,7 +71,7 @@ public sealed partial class AcpAgentSession {
 		if (mode) {
 			result = await Endpoint(generation).RequestAsync(
 				"session/set_mode",
-				new { modeId = mutation.Value },
+				new JsonObject { ["modeId"] = mutation.Value },
 				CancellationToken.None).ConfigureAwait(false);
 		} else {
 			result = await Endpoint(generation).RequestAsync(

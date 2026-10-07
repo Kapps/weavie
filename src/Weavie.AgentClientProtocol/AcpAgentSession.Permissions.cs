@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 
@@ -14,7 +15,7 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private object RequestPermission(AcpClientRequest request, AcpClientRequestState state) {
+	private JsonObject RequestPermission(AcpClientRequest request, AcpClientRequestState state) {
 		if (!request.Parameters.TryGetProperty("toolCall", out var update) || update.ValueKind != JsonValueKind.Object) {
 			throw new AcpProtocolException("An ACP permission request is missing toolCall.");
 		}
@@ -36,7 +37,7 @@ public sealed partial class AcpAgentSession {
 				.FirstOrDefault(id => id is not null);
 			string selected = optionId ?? throw new AcpProtocolException(
 				"Permission bypass is enabled, but ACP advertised no allow option.");
-			return new { outcome = new { outcome = "selected", optionId = selected } };
+			return AcpContent.Selected(selected);
 		}
 
 		string? threadId = SessionId();

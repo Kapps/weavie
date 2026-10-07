@@ -28,7 +28,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		WireThemes();
 		WireSettings();
 		WireAgents();
-		_handlers.Add(_host.Feature("diagnostics").Handle<WebLogMessage>("log", (message, _) => {
+		_handlers.Add(_host.Feature("diagnostics").Handle("log", WireJson.Default.WebLogMessage, (message, _) => {
 			_log($"[web:{message.Level}] {message.Message}");
 			return Task.CompletedTask;
 		}));
@@ -53,7 +53,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	public void RememberDefaultProvider(string? providerId) {
 		string? provider = providerId?.Trim();
 		if (!string.IsNullOrEmpty(provider) && _services.AgentProviders.FindInfo(provider) is not null) {
-			_services.Settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
+			_services.Settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider, WireJson.Default.String));
 		}
 	}
 
@@ -61,26 +61,26 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 	private void WireThemes() {
 		var themes = _host.Feature("themes");
-		_handlers.Add(themes.Handle<EmptyRequest, IReadOnlyList<ThemeChoice>>(
-			"list", (_, _) => Task.FromResult(ThemeCatalog.List())));
-		_handlers.Add(themes.Handle<ThemeIdRequest, JsonElement>("preview", (message, _) =>
+		_handlers.Add(themes.Handle(
+			"list", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListThemeChoice, (_, _) => Task.FromResult(ThemeCatalog.List())));
+		_handlers.Add(themes.Handle("preview", WireJson.Default.ThemeIdRequest, WireJson.Default.JsonElement, (message, _) =>
 			Task.FromResult(Weavie.Core.Theming.ThemeJson.PreviewSlot(message.Id, _services.ThemeOverrides))));
-		_handlers.Add(themes.Handle<ThemeIdRequest, CommandWireResult>("select", (message, _) =>
+		_handlers.Add(themes.Handle("select", WireJson.Default.ThemeIdRequest, WireJson.Default.CommandWireResult, (message, _) =>
 			Task.FromResult(CommandWireResult.From(ThemeCommands.SelectTheme(
-				JsonSerializer.Serialize(new { id = message.Id }),
+				JsonSerializer.Serialize(message, WireJson.Default.ThemeIdRequest),
 				_services.Settings)))));
-		_handlers.Add(themes.HandleConcurrent<ThemeSearchRequest, JsonElement>("search", async (message, ct) => {
+		_handlers.Add(themes.HandleConcurrent("search", WireJson.Default.ThemeSearchRequest, WireJson.Default.JsonElement, async (message, ct) => {
 			using var http = new HttpClient();
 			return await new OpenVsxThemeInstaller(http, OpenVsxThemeInstaller.DefaultRegistry)
 				.SearchAsync(message.Query, message.Offset, message.SortBy, ct).ConfigureAwait(false);
 		}));
-		_handlers.Add(themes.HandleConcurrent<ThemeExtensionRequest, CommandWireResult>("install", async (message, ct) =>
+		_handlers.Add(themes.HandleConcurrent("install", WireJson.Default.ThemeExtensionRequest, WireJson.Default.CommandWireResult, async (message, ct) =>
 			CommandWireResult.From(await ThemeCommands.InstallFromOpenVsxAsync(
-				JsonSerializer.Serialize(new { @namespace = message.Namespace, name = message.Name, version = message.Version }),
+				JsonSerializer.Serialize(message, WireJson.Default.ThemeExtensionRequest),
 				_services.Settings,
 				ct).ConfigureAwait(false))));
-		_handlers.Add(themes.HandleConcurrent<ThemeExtensionRequest, IReadOnlyList<ThemePreview>>(
-			"previewExtension",
+		_handlers.Add(themes.HandleConcurrent(
+			"previewExtension", WireJson.Default.ThemeExtensionRequest, WireJson.Default.IReadOnlyListThemePreview,
 			async (message, ct) => {
 				using var http = new HttpClient();
 				return await new OpenVsxThemeInstaller(http, OpenVsxThemeInstaller.DefaultRegistry)
@@ -91,9 +91,9 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 	private void WireSettings() {
 		var settings = _host.Feature("settings");
-		_handlers.Add(settings.Handle<SettingRead, JsonElement>(
-			"get", (message, _) => Task.FromResult(ParseJson(_services.Settings.BuildGetJson(message.Key)))));
-		_handlers.Add(settings.Handle<SettingWrite>("set", (message, _) => {
+		_handlers.Add(settings.Handle(
+			"get", WireJson.Default.SettingRead, WireJson.Default.JsonElement, (message, _) => Task.FromResult(ParseJson(_services.Settings.BuildGetJson(message.Key)))));
+		_handlers.Add(settings.Handle("set", WireJson.Default.SettingWrite, (message, _) => {
 			var result = _services.Settings.Set(message.Key, message.Value);
 			return result.ShadowedByEnv is { } variable
 				? throw new InvalidOperationException(
@@ -104,19 +104,19 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");
-		_handlers.Add(agentDefaults.Handle<EmptyRequest, JsonElement>(
-			"get", (_, _) => Task.FromResult(ParseJson(AgentDefaultsJson()))));
-		_handlers.Add(agentDefaults.Handle<AgentProviderRequest, JsonElement>("setProvider", (message, _) => {
+		_handlers.Add(agentDefaults.Handle(
+			"get", WireJson.Default.EmptyPayload, WireJson.Default.JsonElement, (_, _) => Task.FromResult(ParseJson(AgentDefaultsJson()))));
+		_handlers.Add(agentDefaults.Handle("setProvider", WireJson.Default.AgentProviderRequest, WireJson.Default.JsonElement, (message, _) => {
 			RememberDefaultProvider(message.ProviderId);
 			return Task.FromResult(ParseJson(AgentDefaultsJson()));
 		}));
 
 		var acpRegistry = _host.Feature("acpRegistry");
-		_handlers.Add(acpRegistry.Handle<EmptyRequest, IReadOnlyList<AcpRegistryAgent>>(
-			"list", (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
+		_handlers.Add(acpRegistry.Handle(
+			"list", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListAcpRegistryAgent, (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
 		// An npm install or a first uvx start downloads the agent, which can outlast a request, so installs answer at
 		// once and report through "installed" when the check finishes.
-		_handlers.Add(acpRegistry.Handle<AcpInstallMessage>("install", (message, ct) => {
+		_handlers.Add(acpRegistry.Handle("install", WireJson.Default.AcpInstallMessage, (message, ct) => {
 			_ = InstallAsync(message);
 			return Task.CompletedTask;
 		}));
@@ -140,7 +140,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}
 
 		if (!_lifetime.IsCancellationRequested) {
-			_host.Feature("acpRegistry").Publish("installed", new InstallResult(message.Id, message.Operation, error));
+			_host.Feature("acpRegistry").Publish("installed", WireJson.Default.InstallResult, new InstallResult(message.Id, message.Operation, error));
 		}
 	}
 
@@ -187,13 +187,12 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}
 	}
 
-	private sealed record EmptyRequest;
-	private sealed record InstallResult(string Id, string Operation, string? Error);
-	private sealed record WebLogMessage(string Level, string Message);
-	private sealed record SettingRead(string Key);
-	private sealed record SettingWrite(string Key, JsonElement Value);
-	private sealed record AgentProviderRequest(string ProviderId);
-	private sealed record ThemeIdRequest(string Id);
-	private sealed record ThemeSearchRequest(string Query, int Offset, string SortBy);
-	private sealed record ThemeExtensionRequest(string Namespace, string Name, string Version);
+	internal sealed record InstallResult(string Id, string Operation, string? Error);
+	internal sealed record WebLogMessage(string Level, string Message);
+	internal sealed record SettingRead(string Key);
+	internal sealed record SettingWrite(string Key, JsonElement Value);
+	internal sealed record AgentProviderRequest(string ProviderId);
+	internal sealed record ThemeIdRequest(string Id);
+	internal sealed record ThemeSearchRequest(string Query, int Offset, string SortBy);
+	internal sealed record ThemeExtensionRequest(string Namespace, string Name, string Version);
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -19,7 +20,9 @@ public sealed partial class HostCore {
 			var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
 			string? prefix = repo is null ? null : _pullRequests.RefUrlBase(repo);
 			ct.ThrowIfCancellationRequested();
-			target.Feature("git").Publish("refLinkBase", new { prefix });
+			target.Feature("git").Publish("refLinkBase", WireJson.Default.RefLinkBase, new(prefix));
 		});
 	}
 }
+
+internal sealed record RefLinkBase(string? Prefix);

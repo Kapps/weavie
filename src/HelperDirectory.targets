@@ -1,0 +1,17 @@
+<Project>
+
+  <PropertyGroup>
+    <_WeavieHelperDirectoryImported>true</_WeavieHelperDirectoryImported>
+  </PropertyGroup>
+
+  <!-- Flat hosts run from $(OutDir); the macOS .app runs managed code from Contents/MonoBundle under CoreCLR and
+       from Contents/MacOS under NativeAOT, so its helpers live wherever that mode's AppContext.BaseDirectory points. -->
+  <Target Name="ResolveHelperDirectory">
+    <PropertyGroup>
+      <WeavieHelperDirectory>$(OutDir)</WeavieHelperDirectory>
+      <WeavieHelperDirectory Condition="$(TargetFramework.Contains('-macos')) And '$(_UseNativeAot)' == 'true'">$(OutDir)$(AssemblyName).app/Contents/MacOS/</WeavieHelperDirectory>
+      <WeavieHelperDirectory Condition="$(TargetFramework.Contains('-macos')) And '$(_UseNativeAot)' != 'true'">$(OutDir)$(AssemblyName).app/Contents/MonoBundle/</WeavieHelperDirectory>
+    </PropertyGroup>
+  </Target>
+
+</Project>

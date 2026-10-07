@@ -26,8 +26,7 @@ public static class GitBlameCommands {
 				EditorSettings.GitBlameOff,
 				StringComparison.Ordinal);
 			string next = showing ? EditorSettings.GitBlameOff : EditorSettings.GitBlameCurrentLine;
-			using var value = JsonDocument.Parse(JsonSerializer.Serialize(next));
-			return settings.Set(EditorSettings.GitBlame, value.RootElement).ShadowedByEnv is { Length: > 0 } variable
+			return settings.Set(EditorSettings.GitBlame, JsonSerializer.SerializeToElement(next, CoreJson.Default.String)).ShadowedByEnv is { Length: > 0 } variable
 				? CommandResult.Success(
 					$"Set 'editor.gitBlame' to '{next}', but {variable} overrides it; unset it to see the change.")
 				: CommandResult.Success();

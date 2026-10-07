@@ -33,7 +33,7 @@ public sealed partial class AcpJsonRpcConnection {
 					CanonicalId(responseId),
 					responseId.Clone(),
 					requestMethod.GetString() ?? string.Empty,
-					root.TryGetProperty("params", out requestParameters) ? requestParameters.Clone() : EmptyObject(),
+					root.TryGetProperty("params", out requestParameters) ? requestParameters.Clone() : EmptyObject,
 					generation);
 				return () => DispatchRequest(request);
 			}

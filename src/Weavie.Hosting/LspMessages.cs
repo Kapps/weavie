@@ -8,10 +8,15 @@ namespace Weavie.Hosting;
 /// </summary>
 internal static class LspMessages {
 	/// <summary>Frames a server's stdout payload with its channel.</summary>
-	public static object Data(string channel, ReadOnlySpan<byte> frame) =>
-		new { channel, payload = JsonSerializer.Deserialize<JsonElement>(frame) };
+	public static LspDataWire Data(string channel, ReadOnlySpan<byte> frame) {
+		var reader = new Utf8JsonReader(frame);
+		return new(channel, JsonElement.ParseValue(ref reader));
+	}
 
 	/// <summary>An exit for a channel whose server ended (<paramref name="reason"/> null) or never started.</summary>
-	public static object Exit(string channel, int code, string? reason) =>
-		new { channel, code, reason };
+	public static LspExitWire Exit(string channel, int code, string? reason) => new(channel, code, reason);
 }
+
+internal sealed record LspDataWire(string Channel, JsonElement Payload);
+
+internal sealed record LspExitWire(string Channel, int Code, string? Reason);

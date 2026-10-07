@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 
 namespace Weavie.AgentClientProtocol;
@@ -23,7 +24,7 @@ public sealed partial class AcpAgentSession {
 		}
 		if (!CompleteDeferredClientRequest(
 			requestId,
-			new { outcome = new { outcome = "selected", optionId } })) {
+			AcpContent.Selected(optionId))) {
 			EmitStaleInteraction(requestId, "permission");
 			return;
 		}
@@ -58,16 +59,17 @@ public sealed partial class AcpAgentSession {
 			EmitStaleInteraction(requestId, "input");
 			return;
 		}
-		Dictionary<string, object>? content = null;
+		JsonObject? content = null;
 		try {
 			if (action == "accept") content = pending.Kind == "input"
 				? BuildElicitationContent(pending.Data, answers)
-				: new Dictionary<string, object>(StringComparer.Ordinal);
+				: [];
 		} catch (AcpProtocolException ex) {
 			EmitFailure(ex);
 			return;
 		}
-		object response = action == "accept" ? new { action, content } : new { action };
+		var response = new JsonObject { ["action"] = action };
+		if (action == "accept") response["content"] = content;
 		if (!CompleteDeferredClientRequest(requestId, response)) {
 			EmitStaleInteraction(requestId, "input");
 			return;
@@ -226,9 +228,9 @@ public sealed partial class AcpAgentSession {
 				if (pending.Kind == "permission") {
 					CompleteDeferredClientRequest(
 						entry.Key,
-						new { outcome = new { outcome = "cancelled" } });
+						AcpContent.Cancelled());
 				} else {
-					CompleteDeferredClientRequest(entry.Key, new { action = "cancel" });
+					CompleteDeferredClientRequest(entry.Key, new JsonObject { ["action"] = "cancel" });
 				}
 			} catch (Exception ex) when (ex is InvalidOperationException or IOException) {
 				// The process generation that owned the request is already gone.
@@ -317,7 +319,7 @@ public sealed partial class AcpAgentSession {
 
 	private bool HasPendingInteractionLocked() => !_pendingRequests.IsEmpty || _authenticationPending;
 
-	private bool CompleteDeferredClientRequest(string requestId, object response) {
+	private bool CompleteDeferredClientRequest(string requestId, JsonObject response) {
 		if (!_clientRequests.TryGetValue(requestId, out var state) || !state.TryComplete()) return false;
 		_pendingRequests.TryRemove(requestId, out _);
 		RespondToCompletedClientRequest(state, response, errorCode: null, errorMessage: null, errorData: null);

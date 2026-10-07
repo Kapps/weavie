@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Commands;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -28,11 +29,9 @@ public sealed partial class HostCore {
 		var terminal = session.Shells.Create();
 		return CommandResult.Success(
 			null,
-			JsonSerializer.Serialize(new {
-				activateTerminal = true,
-				terminalId = terminal.Id,
-				address = LiveAddress(session),
-			}));
+			JsonSerializer.Serialize(
+				new TerminalActivation(true, terminal.Id, LiveAddress(session)),
+				WireJson.Default.TerminalActivation));
 	}
 
 	private async Task<CommandResult> CloseShellTerminalAsync(
@@ -113,3 +112,5 @@ public sealed partial class HostCore {
 
 	private sealed record TerminalArgs(string? Id, bool Force, string? Error);
 }
+
+internal sealed record TerminalActivation(bool ActivateTerminal, string TerminalId, SessionAddress Address);

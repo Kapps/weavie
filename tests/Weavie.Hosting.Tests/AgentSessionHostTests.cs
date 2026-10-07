@@ -35,8 +35,10 @@ public sealed partial class AgentSessionHostTests {
 		Assert.Equal(JsonValueKind.Null, history.GetProperty("content").ValueKind);
 		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
 
-		var expanded = JsonSerializer.SerializeToElement(AgentPaneProtocol.Message(fixture.Host.ReadRecord(new(
-			history.GetProperty("generation").GetInt64(), history.GetProperty("ordinal").GetInt64()))));
+		var expanded = JsonSerializer.SerializeToElement(
+			AgentPaneProtocol.Message(fixture.Host.ReadRecord(new(
+				history.GetProperty("generation").GetInt64(), history.GetProperty("ordinal").GetInt64()))),
+			WireJson.Default.AgentPaneWire);
 		Assert.Equal(live.GetRawText(), expanded.GetRawText());
 		Assert.False(expanded.GetProperty("outputDeferred").GetBoolean());
 		var diff = Assert.Single(expanded.GetProperty("diffs").EnumerateArray());

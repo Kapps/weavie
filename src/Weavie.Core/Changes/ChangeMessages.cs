@@ -18,15 +18,14 @@ public static class ChangeMessages {
 	public static string TurnChanges(SessionChangeTracker tracker, string label) {
 		ArgumentNullException.ThrowIfNull(tracker);
 		ArgumentNullException.ThrowIfNull(label);
-		var files = tracker.TurnChangeSummaries().Select(summary => new {
-			path = summary.Change.Path,
-			name = Path.GetFileName(summary.Change.Path),
-			added = summary.Added,
-			removed = summary.Removed,
-			line = summary.Line,
-			currentExists = summary.Change.CurrentExists,
-		});
-		return JsonSerializer.Serialize(new { label, files });
+		var files = tracker.TurnChangeSummaries().Select(summary => new TurnChangeWire(
+			summary.Change.Path,
+			Path.GetFileName(summary.Change.Path),
+			summary.Added,
+			summary.Removed,
+			summary.Line,
+			summary.Change.CurrentExists));
+		return JsonSerializer.Serialize(new TurnChangesWire(label, [.. files]), PageJson.Default.TurnChangesWire);
 	}
 
 	/// <summary>
@@ -37,18 +36,19 @@ public static class ChangeMessages {
 	/// </summary>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
-		return JsonSerializer.Serialize(new {
-			path = change.Path,
-			name = Path.GetFileName(change.Path),
-			acceptedBaseline = change.AcceptedBaselineText,
-			acceptedBaselineExists = change.AcceptedBaselineExists,
-			baseline = change.BaselineText,
-			baselineExists = change.BaselineExists,
-			current = change.CurrentText,
-			currentExists = change.CurrentExists,
-			revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(change.CurrentText))),
-			rejected = change.Rejected.Select(rejected => new { text = rejected.Text, stale = rejected.Stale }),
-		});
+		return JsonSerializer.Serialize(
+			new TurnDiffWire(
+				change.Path,
+				Path.GetFileName(change.Path),
+				change.AcceptedBaselineText,
+				change.AcceptedBaselineExists,
+				change.BaselineText,
+				change.BaselineExists,
+				change.CurrentText,
+				change.CurrentExists,
+				Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(change.CurrentText))),
+				change.Rejected),
+			PageJson.Default.TurnDiffWire);
 	}
 
 	/// <summary>A turn boundary: the page clears all inline turn markers (the prior turn is implicitly accepted).</summary>
@@ -60,11 +60,26 @@ public static class ChangeMessages {
 	/// </summary>
 	public static string ReviewHistory(SessionChangeTracker tracker) {
 		ArgumentNullException.ThrowIfNull(tracker);
-		return JsonSerializer.Serialize(new {
-			canUndo = tracker.CanUndo,
-			canUndoKeep = tracker.CanUndoKeep,
-			canUndoRevert = tracker.CanUndoRevert,
-			canRedo = tracker.CanRedo,
-		});
+		return JsonSerializer.Serialize(
+			new ReviewHistoryWire(tracker.CanUndo, tracker.CanUndoKeep, tracker.CanUndoRevert, tracker.CanRedo),
+			PageJson.Default.ReviewHistoryWire);
 	}
 }
+
+internal sealed record TurnChangesWire(string Label, IReadOnlyList<TurnChangeWire> Files);
+
+internal sealed record TurnChangeWire(string Path, string Name, int Added, int Removed, int Line, bool CurrentExists);
+
+internal sealed record TurnDiffWire(
+	string Path,
+	string Name,
+	string AcceptedBaseline,
+	bool AcceptedBaselineExists,
+	string Baseline,
+	bool BaselineExists,
+	string Current,
+	bool CurrentExists,
+	string Revision,
+	IReadOnlyList<RejectedChange> Rejected);
+
+internal sealed record ReviewHistoryWire(bool CanUndo, bool CanUndoKeep, bool CanUndoRevert, bool CanRedo);

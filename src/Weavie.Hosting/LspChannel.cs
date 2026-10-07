@@ -78,7 +78,7 @@ internal sealed class LspChannel : IDisposable {
 		proc?.Dispose();
 	}
 
-	private void OnFrame(byte[] frame) => _messages.Publish("data", LspMessages.Data(_channel, frame));
+	private void OnFrame(byte[] frame) => _messages.Publish("data", WireJson.Default.LspDataWire, LspMessages.Data(_channel, frame));
 
 	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
 		// A non-null exit code means the server ended on its own (crash, clean exit, or crash-loop give-up): dispose
@@ -90,7 +90,7 @@ internal sealed class LspChannel : IDisposable {
 		}
 
 		StopServer();
-		_messages.Publish("exit", LspMessages.Exit(_channel, code, null));
+		_messages.Publish("exit", WireJson.Default.LspExitWire, LspMessages.Exit(_channel, code, null));
 		_onClosed();
 	}
 
@@ -105,6 +105,6 @@ internal sealed class LspChannel : IDisposable {
 	/// </summary>
 	public void DisposeWithExit(string reason) {
 		Dispose();
-		_messages.Publish("exit", LspMessages.Exit(_channel, -1, reason));
+		_messages.Publish("exit", WireJson.Default.LspExitWire, LspMessages.Exit(_channel, -1, reason));
 	}
 }

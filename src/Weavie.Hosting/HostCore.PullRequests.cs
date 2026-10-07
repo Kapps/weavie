@@ -201,9 +201,9 @@ public sealed partial class HostCore {
 			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.";
 	}
 
-	private sealed record PullRequestReference(int Number, string Owner, string Repo);
+	internal sealed record PullRequestReference(int Number, string Owner, string Repo);
 
-	private sealed record PullRequestWire(
+	internal sealed record PullRequestWire(
 		int Number,
 		string Title,
 		string Author,

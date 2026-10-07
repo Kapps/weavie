@@ -30,7 +30,8 @@ public sealed class FileOpenerTests {
 				(path, line, preview, scratch, intent) =>
 					bridge.SessionFeature("editor").Publish(
 						"openFile",
-						new { path, line, preview, scratch, intent = intent.ToString() })),
+						TestJson.Default.OpenFileProbe,
+						new OpenFileProbe(path, line, preview, scratch, intent.ToString()))),
 			bridge,
 			fs);
 	}

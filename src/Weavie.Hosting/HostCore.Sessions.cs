@@ -57,7 +57,7 @@ public sealed partial class HostCore {
 						"This agent does not support context-preserving side conversations."));
 				}
 				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
-				var args = JsonSerializer.Deserialize<AgentAsideCommand>(argsJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))
+				var args = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentAsideCommand)
 					?? throw new ArgumentException("Ask Agent Aside requires a question or image.");
 				session.AcceptAgentSubmission(new HostSession.AgentSubmitMessage(
 					args.SubmissionId ?? Guid.NewGuid().ToString("N"), args.Question ?? string.Empty,
@@ -71,7 +71,7 @@ public sealed partial class HostCore {
 			try {
 				if (session.Agent.Rewind is not { } rewind) return CommandResult.Failure("This agent cannot rewind its conversation.");
 				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
-				string? turnId = JsonSerializer.Deserialize<AgentRewindCommand>(argsJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))?.TurnId;
+				string? turnId = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentRewindCommand)?.TurnId;
 				await (turnId is null ? rewind.RewindLatestAsync() : rewind.RewindBeforeAsync(turnId)).ConfigureAwait(false);
 				return CommandResult.Success("Rewound the agent conversation.");
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException or IOException) {
@@ -121,8 +121,8 @@ public sealed partial class HostCore {
 		};
 	}
 
-	private sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds, string? Kind, string? CommandName);
-	private sealed record AgentRewindCommand(string? TurnId);
+	internal sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds, string? Kind, string? CommandName);
+	internal sealed record AgentRewindCommand(string? TurnId);
 
 	private void PostForSession(HostSession session, Action action) {
 		_ = session.Background.Run(ct => _ui.InvokeAsync(() => {
@@ -398,7 +398,7 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes the authoritative session catalog. Loaded entries carry their exact live address.</summary>
 	private void PushSessionList() =>
-		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
+		_messages.Host.Feature("sessions").Publish("catalog", WireJson.Default.SessionCatalogEntryArray, BuildSessionCatalog());
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		ReplaySession(session);
@@ -433,7 +433,7 @@ public sealed partial class HostCore {
 			.ToArray()
 		?? [];
 
-	private sealed record SessionCatalogEntry(
+	internal sealed record SessionCatalogEntry(
 		string Id,
 		string Label,
 		SessionAddress? Address,
@@ -465,7 +465,7 @@ public sealed partial class HostCore {
 		PostSessionStatus(session.Bus.BroadcastTarget, status);
 
 	private static void PostSessionStatus(MessageTarget target, SessionStatus status) =>
-		target.Feature("status").Publish("changed", new { status = StatusName(status) });
+		target.Feature("status").Publish("changed", WireJson.Default.SessionStatusChanged, new(StatusName(status)));
 
 	// Exhaustive on purpose: a silent default that maps an unhandled status to "idle" would render it
 	// drain-killable — exactly the Waiting bug — so a new status must be wired here, not fall through.
@@ -893,8 +893,8 @@ public sealed partial class HostCore {
 			EditorFlushResult? result;
 			do {
 				result = await session.View.Feature("editor")
-					.TryRequestAsync<EmptySessionMessage, EditorFlushResult>(
-						"flush",
+					.TryRequestAsync(
+						"flush", WireJson.Default.EmptySessionMessage, WireJson.Default.EditorFlushResult,
 						new EmptySessionMessage(),
 						ct)
 					.ConfigureAwait(false);
@@ -985,13 +985,9 @@ public sealed partial class HostCore {
 		// Name the first few changes the delete would discard; the dialog renders "…and N more" from the total.
 		const int previewLimit = 5;
 		string[] changed = [.. tracked.Concat(untracked).Order(StringComparer.Ordinal)];
-		return CommandResult.Success(null, JsonSerializer.Serialize(new {
-			state,
-			label = target.Label,
-			branchless,
-			changedFiles = changed.Take(previewLimit).ToArray(),
-			changedCount = changed.Length,
-		}));
+		return CommandResult.Success(null, JsonSerializer.Serialize(
+			new SessionDeletePreview(state, target.Label, branchless, [.. changed.Take(previewLimit)], changed.Length),
+			WireJson.Default.SessionDeletePreview));
 	}
 
 	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
@@ -1328,41 +1324,21 @@ public sealed partial class HostCore {
 	private static string SessionAddressJson(SessionSlot slot) {
 		var address = slot.Session?.Address
 			?? throw new InvalidOperationException("A dormant session has no live address.");
-		return JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = new {
-				slot = address.Slot,
-				incarnation = address.Incarnation,
-			},
-		});
+		return JsonSerializer.Serialize(new SessionAddressData(slot.Id, address), WireJson.Default.SessionAddressData);
 	}
 
-	private static string SessionActivationJson(SessionSlot slot) {
-		return JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = LiveAddress(slot),
-			activateSession = true,
-		});
-	}
+	private static string SessionActivationJson(SessionSlot slot) =>
+		JsonSerializer.Serialize(new SessionActivation(slot.Id, LiveAddress(slot), true), WireJson.Default.SessionActivation);
 
 	private static string CreatedSessionActivationJson(SessionSlot slot) =>
-		JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = LiveAddress(slot),
-			activateSession = true,
-			createdSession = true,
-		});
+		JsonSerializer.Serialize(
+			new CreatedSessionActivation(slot.Id, LiveAddress(slot), true, true),
+			WireJson.Default.CreatedSessionActivation);
 
-	private static object LiveAddress(SessionSlot slot) => LiveAddress(
+	private static SessionAddress LiveAddress(SessionSlot slot) => LiveAddress(
 		slot.Session ?? throw new InvalidOperationException("A dormant session has no live address."));
 
-	private static object LiveAddress(HostSession session) {
-		var address = session.Address;
-		return new {
-			slot = address.Slot,
-			incarnation = address.Incarnation,
-		};
-	}
+	private static SessionAddress LiveAddress(HostSession session) => session.Address;
 
 	private async Task<string> ResolveBaseRefAsync(
 		SessionSlot? source,
@@ -1398,3 +1374,13 @@ public sealed partial class HostCore {
 
 
 }
+
+internal sealed record SessionStatusChanged(string Status);
+
+internal sealed record SessionAddressData(string Id, SessionAddress Address);
+
+internal sealed record SessionActivation(string Id, SessionAddress Address, bool ActivateSession);
+
+internal sealed record CreatedSessionActivation(string Id, SessionAddress Address, bool ActivateSession, bool CreatedSession);
+
+internal sealed record SessionDeletePreview(string State, string Label, bool Branchless, IReadOnlyList<string> ChangedFiles, int ChangedCount);

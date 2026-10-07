@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -90,7 +91,7 @@ public sealed partial class HostCore {
 		}
 
 		if (committed) {
-			_messages.Host.Feature("updates").Publish("restarting", new { });
+			_messages.Host.Feature("updates").Publish("restarting", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 		} else if (pending is not null) {
 			_messages.Host.Feature("updates").PublishJson("pending", pending);
 		}
@@ -168,9 +169,9 @@ public sealed partial class HostCore {
 
 	// Pushes the pending holds, deduped: status churn re-evaluates often and identical pushes are noise.
 	private void PushDrainPendingLocked(List<(string Session, string Reason)> holds) {
-		string json = JsonSerializer.Serialize(new {
-			holds = holds.Select(h => new { session = h.Session, reason = h.Reason }),
-		});
+		string json = JsonSerializer.Serialize(
+			new DrainPending([.. holds.Select(h => new DrainHold(h.Session, h.Reason))]),
+			WireJson.Default.DrainPending);
 		if (json == _lastDrainPendingJson) {
 			return;
 		}
@@ -209,7 +210,7 @@ public sealed partial class HostCore {
 		_sessionStore.Flush();
 		// Best-effort heads-up; the page also shows the overlay when the socket drops mid-drain, so a
 		// push lost to the shutdown race still surfaces.
-		_messages.Host.Feature("updates").Publish("restarting", new { });
+		_messages.Host.Feature("updates").Publish("restarting", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 		Log("[weavie] update drain complete - restarting");
 		exit();
 	}
@@ -227,3 +228,7 @@ public sealed partial class HostCore {
 
 	internal void EvaluateDrainForTest() => EvaluateDrain();
 }
+
+internal sealed record DrainPending(IReadOnlyList<DrainHold> Holds);
+
+internal sealed record DrainHold(string Session, string Reason);

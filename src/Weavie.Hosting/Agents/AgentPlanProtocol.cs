@@ -9,16 +9,15 @@ internal static class AgentPlanProtocol {
 		return $"agent-plan:{plan.Id}";
 	}
 
-	public static object Show(AgentPlan plan, string path) {
+	public static AgentPlanShown Show(AgentPlan plan, string path) {
 		ArgumentException.ThrowIfNullOrEmpty(plan.Id);
 		ArgumentException.ThrowIfNullOrEmpty(plan.Title);
 		ArgumentNullException.ThrowIfNull(plan.Markdown);
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		return new {
-			id = plan.Id,
-			path,
-			title = plan.Title,
-			markdown = plan.Markdown,
-		};
+		return new(plan.Id, path, plan.Title, plan.Markdown);
 	}
 }
+
+internal sealed record AgentPlanShown(string Id, string Path, string Title, string Markdown);
+
+internal sealed record AgentPlanRemoved(string Path);

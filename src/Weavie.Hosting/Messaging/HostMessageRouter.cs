@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
@@ -129,6 +130,8 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 		SessionAddress address,
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct) {
 		lock (_viewLifecycle) {
@@ -140,7 +143,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 				throw new InvalidOperationException("The session has no attached view.");
 			}
 
-			var request = bus.RequestAsync<TRequest, TResponse>(peer, feature, name, payload, ct);
+			var request = bus.RequestAsync(peer, feature, name, requestType, responseType, payload, ct);
 			if (!_views.IsBound(peer, address)) {
 				bus.ViewDetached(peer);
 			}
@@ -153,6 +156,8 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 		SessionAddress address,
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct)
 		where TResponse : class {
@@ -166,7 +171,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 				return null;
 			}
 
-			request = bus.RequestAsync<TRequest, TResponse>(peer, feature, name, payload, ct);
+			request = bus.RequestAsync(peer, feature, name, requestType, responseType, payload, ct);
 			if (!_views.IsBound(peer, address)) {
 				bus.ViewDetached(peer);
 			}
@@ -179,6 +184,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 		SessionAddress address,
 		string feature,
 		string name,
+		JsonTypeInfo<T> type,
 		T payload) {
 		lock (_viewLifecycle) {
 			if (!_sessions.TryGet(address, out var bus)
@@ -186,7 +192,7 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 				return false;
 			}
 
-			bus.PublishTo(peer, feature, name, payload);
+			bus.PublishTo(peer, feature, name, type, payload);
 			return _views.IsBound(peer, address);
 		}
 	}
@@ -294,23 +300,27 @@ public sealed class SessionView {
 
 	internal bool IsBound(MessagePeer peer) => _router.IsViewBound(_address, peer);
 
-	internal bool Publish<T>(string feature, string name, T payload) =>
-		_router.PublishView(_address, feature, name, payload);
+	internal bool Publish<T>(string feature, string name, JsonTypeInfo<T> type, T payload) =>
+		_router.PublishView(_address, feature, name, type, payload);
 
 	internal Task<TResponse> RequestAsync<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct) =>
-		_router.RequestViewAsync<TRequest, TResponse>(_address, feature, name, payload, ct);
+		_router.RequestViewAsync(_address, feature, name, requestType, responseType, payload, ct);
 
 	internal Task<TResponse?> TryRequestAsync<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct)
 		where TResponse : class =>
-		_router.TryRequestViewAsync<TRequest, TResponse>(_address, feature, name, payload, ct);
+		_router.TryRequestViewAsync(_address, feature, name, requestType, responseType, payload, ct);
 }
 
 /// <summary>A feature on one session's currently attached page presentation.</summary>
@@ -324,21 +334,25 @@ public sealed class ViewFeatureChannel {
 	}
 
 	/// <summary>Attempts to send a transient event to the page displaying this session.</summary>
-	public bool TryPublish<T>(string name, T payload) =>
-		_view.Publish(_feature, name, payload);
+	public bool TryPublish<T>(string name, JsonTypeInfo<T> type, T payload) =>
+		_view.Publish(_feature, name, type, payload);
 
 	/// <summary>Runs a transient request on the page displaying this session.</summary>
 	public Task<TResponse> RequestAsync<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct) =>
-		_view.RequestAsync<TRequest, TResponse>(_feature, name, payload, ct);
+		_view.RequestAsync(_feature, name, requestType, responseType, payload, ct);
 
 	/// <summary>Runs a transient request when this session has an attached page, or returns null when it does not.</summary>
 	public Task<TResponse?> TryRequestAsync<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct)
 		where TResponse : class =>
-		_view.TryRequestAsync<TRequest, TResponse>(_feature, name, payload, ct);
+		_view.TryRequestAsync(_feature, name, requestType, responseType, payload, ct);
 }

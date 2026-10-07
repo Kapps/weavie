@@ -155,9 +155,10 @@ jobs:
           dotnet publish ${{ matrix.platform.project }} -c Release -r ${{ matrix.platform.rid }}
           ${{ matrix.platform.extra }} -o artifacts/${{ matrix.platform.name }}
 
-      # The COMPLETE macOS bundle is the .app the build assembles at bin/ (populated by CopyWebAssets +
-      # BuildPtyShim + the hook-relay co-location), NOT the .pkg `dotnet publish` emits — that .pkg
-      # lacks the hand-copied web UI / PTY shim / hook relay and boots to a blank WKWebView. Verify
+      # The COMPLETE macOS bundle is the Native AOT .app the publish assembles at bin/ (populated by
+      # CopyWebAssets + BuildPtyShim + the hook-relay co-location into Contents/MacOS), NOT the .pkg
+      # `dotnet publish` emits — that .pkg lacks the hand-copied web UI / PTY shim / hook relay and boots
+      # to a blank WKWebView. Verify
       # that .app, re-sign it (the post-build copies invalidate the SDK's mid-build ad-hoc signature,
       # and on Apple Silicon an invalid signature reads as "damaged and can't be opened"), and zip it
       # (a drag-to-Applications bundle — friendlier for an unsigned app than an unsigned .pkg). It's
@@ -171,9 +172,10 @@ jobs:
           required=(
             "$app/Contents/MacOS/Weavie"
             "$app/Contents/Resources/wwwroot/index.html"
-            "$app/Contents/MonoBundle/libweavie_pty.dylib"
-            "$app/Contents/MonoBundle/weavie-pty-launcher"
-            "$app/Contents/MonoBundle/weavie-hook-relay"
+            "$app/Contents/MacOS/libweavie_pty.dylib"
+            "$app/Contents/MacOS/weavie-pty-launcher"
+            "$app/Contents/MacOS/weavie-hook-relay"
+            "$app/Contents/MacOS/weavie-mcp-proxy"
           )
           missing=0
           for f in "${required[@]}"; do

@@ -1,4 +1,3 @@
-using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Syntax;
 using Weavie.Core.FileSystem;
@@ -67,7 +66,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> atomically, preserving existing
 	/// comments or appending a new key self-documented with the definition's description.</summary>
 	public void SetValue(SettingDefinition definition, object? coerced) {
-		var document = Toml.Parse(_file.Value.Syntax.ToString());
+		var document = TomlDocuments.Parse(_file.Value.Syntax.ToString(), FilePath);
 		var existing = FindEntries(document, definition.Key);
 		if (existing.Count > 0) {
 			// Update every form the key appears in — root dotted and nested under a hand-written [table] header —
@@ -92,7 +91,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 	// Removes every user entry for `key` — the root-level dotted form and entries nested under a
 	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
 	public bool RemoveKey(string key) {
-		var document = Toml.Parse(_file.Value.Syntax.ToString());
+		var document = TomlDocuments.Parse(_file.Value.Syntax.ToString(), FilePath);
 		var matches = FindEntries(document, key);
 		foreach (var (owner, node) in matches) {
 			owner.RemoveChild(node);
@@ -134,7 +133,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 
 	/// <summary>Writes the document to disk atomically (temp file + replace), creating the directory if needed.</summary>
 	private void SaveAtomic(DocumentSyntax syntax) {
-		var model = syntax.ToModel();
+		var model = TomlDocuments.ToModel(syntax);
 		FileSystem.WriteAllTextAtomic(FilePath, syntax.ToString());
 		_file.Value.Syntax = syntax;
 		_file.Value.Model = model;
@@ -144,11 +143,11 @@ internal sealed class SettingsFileLayer : IDisposable {
 
 	private static SettingsDocument Load(string path) {
 		string text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-		var parsed = Toml.Parse(text, path);
+		var parsed = TomlDocuments.Parse(text, path);
 		if (parsed.HasErrors) {
 			throw new InvalidDataException(string.Join(Environment.NewLine, parsed.Diagnostics));
 		}
-		return new SettingsDocument(parsed, parsed.ToModel());
+		return new SettingsDocument(parsed, TomlDocuments.ToModel(parsed));
 	}
 
 	private static ValueSyntax BuildValueSyntax(SettingDefinition definition, object? coerced) =>

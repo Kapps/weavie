@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -34,7 +35,7 @@ public sealed partial class AcpJsonRpcConnection {
 	}
 
 	internal async Task<JsonElement> CreateForEndpointAsync(
-		string method, object parameters, AcpSessionEndpoint endpoint) {
+		string method, JsonObject parameters, AcpSessionEndpoint endpoint) {
 		// ACP may send session traffic before returning its identity; the opening request owns that traffic.
 		await _openingGate.WaitAsync().ConfigureAwait(false);
 		try {

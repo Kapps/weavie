@@ -57,7 +57,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 			}
 
 			_pending.Add(id, new PendingDiff(tcs, wire));
-			_editor.Publish("showDiff", wire);
+			_editor.Publish("showDiff", WireJson.Default.DiffWire, wire);
 		}
 
 		cancellationToken.Register(() => Abandon(id));
@@ -67,9 +67,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	internal void Replay(MessageTargetFeature target) {
 		ArgumentNullException.ThrowIfNull(target);
 		lock (_gate) {
-			target.Publish("diffSnapshot", new {
-				proposals = _pending.Values.Select(pending => pending.Wire).ToArray(),
-			});
+			target.Publish("diffSnapshot", WireJson.Default.DiffSnapshot, new([.. _pending.Values.Select(pending => pending.Wire)]));
 		}
 	}
 
@@ -112,7 +110,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 				return;
 			}
 
-			_editor.Publish("closeDiff", new { id });
+			_editor.Publish("closeDiff", WireJson.Default.DiffClosed, new(id));
 		}
 
 		pending.Completion.TrySetCanceled();
@@ -129,7 +127,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 				return false;
 			}
 
-			_editor.Publish("closeDiff", new { id });
+			_editor.Publish("closeDiff", WireJson.Default.DiffClosed, new(id));
 		}
 
 		pending.Completion.TrySetResult(
@@ -143,10 +141,14 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		TaskCompletionSource<DiffOutcome> Completion,
 		DiffWire Wire);
 
-	private sealed record DiffWire(
+	internal sealed record DiffWire(
 		string Id,
 		string Path,
 		string TabName,
 		string Original,
 		string Proposed);
 }
+
+internal sealed record DiffClosed(string Id);
+
+internal sealed record DiffSnapshot(IReadOnlyList<McpDiffPresenter.DiffWire> Proposals);

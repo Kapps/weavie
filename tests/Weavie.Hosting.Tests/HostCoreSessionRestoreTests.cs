@@ -490,7 +490,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await using var host = await TestHost.StartAsync();
 		var requester = new WebPeer("reconnecting-page");
 		const string requestId = "reconnect-sync";
-		host.WorkspaceSession.State.Set("syncProbe", "state", "snapshot", new { value = 7 });
+		host.WorkspaceSession.State.Set("syncProbe", "state", "snapshot", TestJson.Default.ValueProbe, new ValueProbe(7));
 		host.Bridge.Clear();
 
 		host.Bridge.Receive(

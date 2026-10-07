@@ -1,0 +1,17 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!--
+    Shipped code is Native AOT compatible (the macOS app publishes with PublishAot): the trim/AOT/single-file
+    analyzers run in every build under the zero-warning gate, and the apps disable reflection-based JSON so
+    every platform serializes through the same source-generated contracts the AOT build uses.
+  -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'Weavie.Analyzers'">
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+</Project>

@@ -10,9 +10,7 @@ namespace Weavie.Core.Suggestions;
 /// <c>suggestions.json.bad</c> and reset rather than throwing. Snooze ("not now") is in-memory and lives in
 /// <see cref="SuggestionService"/>, not here — only the durable "don't ask again" is persisted.
 /// </summary>
-public sealed class SuggestionDismissals : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
+public sealed partial class SuggestionDismissals : JsonDocumentStore {
 	private HashSet<string> _dismissed = new(StringComparer.Ordinal);
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
@@ -42,7 +40,7 @@ public sealed class SuggestionDismissals : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = text is null ? null : JsonSerializer.Deserialize<DismissalsDocument>(text);
+		var document = text is null ? null : JsonSerializer.Deserialize(text, SuggestionDismissalsJson.Default.DismissalsDocument);
 		_dismissed = new HashSet<string>(
 			document?.Dismissed?.Where(id => !string.IsNullOrWhiteSpace(id)) ?? [],
 			StringComparer.Ordinal);
@@ -50,7 +48,7 @@ public sealed class SuggestionDismissals : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override string Render() =>
-		JsonSerializer.Serialize(new DismissalsDocument { Version = 1, Dismissed = [.. _dismissed] }, JsonOptions);
+		JsonSerializer.Serialize(new DismissalsDocument { Version = 1, Dismissed = [.. _dismissed] }, SuggestionDismissalsJson.Default.DismissalsDocument);
 
 	private sealed class DismissalsDocument {
 		[JsonPropertyName("version")]
@@ -59,4 +57,8 @@ public sealed class SuggestionDismissals : JsonDocumentStore {
 		[JsonPropertyName("dismissed")]
 		public List<string> Dismissed { get; set; } = [];
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(DismissalsDocument))]
+	private sealed partial class SuggestionDismissalsJson : JsonSerializerContext;
 }

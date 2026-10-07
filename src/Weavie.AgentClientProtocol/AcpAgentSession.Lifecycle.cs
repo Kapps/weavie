@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 
@@ -132,21 +133,18 @@ public sealed partial class AcpAgentSession {
 	private async Task InitializeGenerationAsync(AcpProcessGeneration process) {
 		var initialized = _role is SideRole side ? side.Owner._initialization : await _connection.RequestAsync(
 			"initialize",
-			new {
-				protocolVersion = 1,
-				clientCapabilities = new {
-					auth = new { terminal = true },
-					fs = new { readTextFile = true, writeTextFile = true },
-					plan = new { },
-					terminal = true,
-					session = new { configOptions = new { boolean = new { } } },
-					elicitation = new { form = new { }, url = new { } },
+			new JsonObject {
+				["protocolVersion"] = 1,
+				["clientCapabilities"] = new JsonObject {
+					["auth"] = new JsonObject { ["terminal"] = true },
+					["fs"] = new JsonObject { ["readTextFile"] = true, ["writeTextFile"] = true },
+					["plan"] = new JsonObject(),
+					["terminal"] = true,
+					["session"] = AcpInferenceClient.SessionCapabilities(),
+					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
 				},
-				clientInfo = new {
-					name = "weavie",
-					title = "Weavie",
-					version = _context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture),
-				},
+				["clientInfo"] = AcpInferenceClient.ClientInfo(
+					_context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture)),
 			},
 			process.Generation,
 			CancellationToken.None).ConfigureAwait(false);
@@ -188,10 +186,7 @@ public sealed partial class AcpAgentSession {
 		JsonElement setup;
 		try {
 			if (_role is SideRole { Conversation.AnchorTurnNumber: > 0 } fork && sessionId is null) {
-				await Endpoint(generation).ForkFromAsync(fork.Owner.Endpoint(generation), new {
-					cwd = Path.GetFullPath(_context.Workspace),
-					mcpServers = McpServers(),
-				}).ConfigureAwait(false);
+				await Endpoint(generation).ForkFromAsync(fork.Owner.Endpoint(generation), AcpContent.Session(Path.GetFullPath(_context.Workspace), McpServers())).ConfigureAwait(false);
 				lock (_turnTransitionGate) {
 					if (!OwnsGeneration(generation)) return;
 					sessionId = Endpoint(generation).SessionId;
@@ -202,10 +197,7 @@ public sealed partial class AcpAgentSession {
 			if (sessionId is null) {
 				lock (_gate) _planTurns.Clear();
 				setup = await Endpoint(generation).CreateAsync(
-					new {
-						cwd = Path.GetFullPath(_context.Workspace),
-						mcpServers = McpServers(),
-					}).ConfigureAwait(false);
+					AcpContent.Session(Path.GetFullPath(_context.Workspace), McpServers())).ConfigureAwait(false);
 				if (!OwnsGeneration(generation)) return;
 				sessionId = Endpoint(generation).SessionId;
 			} else if (loadSession) {
@@ -216,7 +208,7 @@ public sealed partial class AcpAgentSession {
 				try {
 					setup = await Endpoint(generation).RequestAsync(
 						"session/load",
-						new { cwd = Path.GetFullPath(_context.Workspace), mcpServers = McpServers() },
+						AcpContent.Session(Path.GetFullPath(_context.Workspace), McpServers()),
 						CancellationToken.None).ConfigureAwait(false);
 				} finally {
 					lock (_turnTransitionGate) {
@@ -228,10 +220,7 @@ public sealed partial class AcpAgentSession {
 			} else {
 				setup = await Endpoint(generation).RequestAsync(
 					"session/resume",
-					new {
-						cwd = Path.GetFullPath(_context.Workspace),
-						mcpServers = McpServers(),
-					},
+					AcpContent.Session(Path.GetFullPath(_context.Workspace), McpServers()),
 					CancellationToken.None).ConfigureAwait(false);
 				if (!OwnsGeneration(generation)) return;
 			}
@@ -334,28 +323,27 @@ public sealed partial class AcpAgentSession {
 		});
 	}
 
-	private object[] McpServers() {
+	private JsonArray McpServers() {
 		if (_supportsHttpMcp) {
-			return [new {
-				type = "http",
-				name = "weavie",
-				url = _context.Registry.StreamableHttpUrl,
-				headers = new[] {
-					new { name = "Authorization", value = "Bearer " + _context.Registry.Credential.Token },
-				},
+			return [new JsonObject {
+				["type"] = "http",
+				["name"] = "weavie",
+				["url"] = _context.Registry.StreamableHttpUrl,
+				["headers"] = new JsonArray(NameValue("Authorization", "Bearer " + _context.Registry.Credential.Token)),
 			}];
 		}
-		return [new {
-			type = "stdio",
-			name = "weavie",
-			command = McpProxyBinary.PathIn(AppContext.BaseDirectory),
-			args = Array.Empty<string>(),
-			env = new[] {
-				new { name = "WEAVIE_MCP_URL", value = _context.Registry.StreamableHttpUrl },
-				new { name = "WEAVIE_MCP_TOKEN", value = _context.Registry.Credential.Token },
-			},
+		return [new JsonObject {
+			["type"] = "stdio",
+			["name"] = "weavie",
+			["command"] = McpProxyBinary.PathIn(AppContext.BaseDirectory),
+			["args"] = new JsonArray(),
+			["env"] = new JsonArray(
+				NameValue("WEAVIE_MCP_URL", _context.Registry.StreamableHttpUrl),
+				NameValue("WEAVIE_MCP_TOKEN", _context.Registry.Credential.Token)),
 		}];
 	}
+
+	private static JsonObject NameValue(string name, string value) => new() { ["name"] = name, ["value"] = value };
 
 	private void ReadCapabilities(JsonElement initialized) {
 		var capabilities = AcpCapabilities.Read(initialized);

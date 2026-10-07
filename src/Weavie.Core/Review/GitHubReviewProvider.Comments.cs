@@ -46,13 +46,9 @@ public sealed partial class GitHubReviewProvider {
 	public async Task<ReviewComment> AddAsync(RepoRef repo, int number, string commitId, NewReviewComment draft, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		ArgumentNullException.ThrowIfNull(draft);
-		string payload = JsonSerializer.Serialize(new {
-			body = draft.Body,
-			commit_id = commitId,
-			path = draft.Path,
-			line = draft.Line,
-			side = "RIGHT",
-		});
+		string payload = JsonSerializer.Serialize(
+			new GitHubCommentDraft(draft.Body, commitId, draft.Path, draft.Line, "RIGHT"),
+			ApiJson.Default.GitHubCommentDraft);
 		string body = await SendAsync(
 			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments", payload, ct).ConfigureAwait(false);
 		return ParseComment(JsonDocument.Parse(body).RootElement);
@@ -61,7 +57,7 @@ public sealed partial class GitHubReviewProvider {
 	/// <inheritdoc/>
 	public async Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string body, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
-		string payload = JsonSerializer.Serialize(new { body });
+		string payload = JsonSerializer.Serialize(new GitHubCommentBody(body), ApiJson.Default.GitHubCommentBody);
 		string response = await SendAsync(
 			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments/{inReplyTo}/replies", payload, ct).ConfigureAwait(false);
 		return ParseComment(JsonDocument.Parse(response).RootElement);
@@ -70,7 +66,7 @@ public sealed partial class GitHubReviewProvider {
 	/// <inheritdoc/>
 	public async Task<ReviewComment> EditAsync(RepoRef repo, long id, string body, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
-		string payload = JsonSerializer.Serialize(new { body });
+		string payload = JsonSerializer.Serialize(new GitHubCommentBody(body), ApiJson.Default.GitHubCommentBody);
 		string response = await SendAsync(
 			repo, HttpMethod.Patch, $"/repos/{repo.Owner}/{repo.Name}/pulls/comments/{id}", payload, ct).ConfigureAwait(false);
 		return ParseComment(JsonDocument.Parse(response).RootElement);
@@ -146,3 +142,7 @@ public sealed partial class GitHubReviewProvider {
 	private static string UserField(JsonElement comment, string name) =>
 		comment.TryGetProperty("user", out var user) ? String(user, name) : string.Empty;
 }
+
+internal sealed record GitHubCommentDraft(string Body, string CommitId, string Path, int Line, string Side);
+
+internal sealed record GitHubCommentBody(string Body);

@@ -347,7 +347,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 	private string BuildBootstrap(string resourceBase) {
 		return
-			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
+			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase, WireJson.Default.String)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ _global.BootstrapScript()
 			+ BuildTestProfileScript()
@@ -374,7 +374,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 	/// <summary>Pushes the native window's current state for title-bar chrome and attention delivery.</summary>
 	public void PushWindowState(bool maximized, bool focused) =>
-		_messages.Host.Feature("window").Publish("state", new { maximized, focused });
+		_messages.Host.Feature("window").Publish("state", WireJson.Default.WindowStateChanged, new(maximized, focused));
 
 	/// <summary>
 	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/layout
@@ -599,3 +599,5 @@ public sealed partial class HostCore : IAsyncDisposable {
 		}
 	}
 }
+
+internal sealed record WindowStateChanged(bool Maximized, bool Focused);

@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed class MessageOperationSupervisionTests {
+public sealed partial class MessageOperationSupervisionTests {
 	[Fact]
 	public async Task IngressKeepsAdmittingMessagesWhileAHandlerBlocksSynchronously() {
 		var transport = new RecordingTransport();
@@ -19,12 +20,12 @@ public sealed class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var fast = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var blocked = router.Host.Feature("blocked").Handle<Empty>("run", (_, _) => {
+		using var blocked = router.Host.Feature("blocked").Handle("run", OperationSupervisionJson.Default.Empty, (_, _) => {
 			entered.TrySetResult();
 			release.Task.GetAwaiter().GetResult();
 			return Task.CompletedTask;
 		});
-		using var responsive = router.Host.Feature("responsive").Handle<Empty>("run", (_, _) => {
+		using var responsive = router.Host.Feature("responsive").Handle("run", OperationSupervisionJson.Default.Empty, (_, _) => {
 			fast.TrySetResult();
 			return Task.CompletedTask;
 		});
@@ -115,8 +116,8 @@ public sealed class MessageOperationSupervisionTests {
 		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty, Result>(
-			"sync",
+		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
+			"sync", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				entered.TrySetResult();
 				await release.Task;
@@ -184,8 +185,8 @@ public sealed class MessageOperationSupervisionTests {
 			time);
 		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
 		endpoint.Activate();
-		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty>(
-			"sync",
+		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
+			"sync", OperationSupervisionJson.Default.Empty,
 			async (_, _) => {
 				handlerEntered.TrySetResult();
 				await releaseHandler.Task;
@@ -227,8 +228,8 @@ public sealed class MessageOperationSupervisionTests {
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var handler = endpoint.Bus.Feature("lifecycle").HandleAfterResponse<Empty, Result>(
-			"finish",
+		using var handler = endpoint.Bus.Feature("lifecycle").HandleAfterResponse(
+			"finish", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<Result>(
 				new Result(true),
 				async _ => await release.Task)));
@@ -465,4 +466,9 @@ public sealed class MessageOperationSupervisionTests {
 			.Where(envelope => envelope.Feature == feature && envelope.Name == name)
 			.Select(envelope => envelope.Payload)];
 	}
+
+	[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+	[JsonSerializable(typeof(Empty))]
+	[JsonSerializable(typeof(Result))]
+	private sealed partial class OperationSupervisionJson : JsonSerializerContext;
 }

@@ -19,7 +19,7 @@ public static class AcpAgentCheck {
 		await using (connection) {
 			try {
 				connection.Listen((id, method, _) => connection.RefuseAsync(id, method), static (_, _) => { });
-				await connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters, ct).ConfigureAwait(false);
+				await connection.RequestAsync("initialize", AcpInferenceClient.InitializeParameters(), ct).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is IOException or AcpProtocolException or AcpAuthenticationRequiredException) {
 				throw await connection.FailureAsync($"{definition.Name} started but didn't answer as an ACP agent", ex)
 					.ConfigureAwait(false);

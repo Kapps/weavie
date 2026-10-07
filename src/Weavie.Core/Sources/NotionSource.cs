@@ -85,10 +85,9 @@ public sealed class NotionSource : ISource {
 		// Targeted exact-match ops ONLY — never replace_content (it would destroy <unknown/> blocks and truncated
 		// tails) and never allow_deleting_content / replace_all_matches (their absence is the safety rail).
 		request.Content = new StringContent(
-			JsonSerializer.Serialize(new {
-				type = "update_content",
-				update_content = new { content_updates = new[] { new { old_str = oldStr, new_str = newStr } } },
-			}),
+			JsonSerializer.Serialize(
+				new NotionContentUpdate("update_content", new([new(oldStr, newStr)])),
+				ApiJson.Default.NotionContentUpdate),
 			Encoding.UTF8,
 			"application/json");
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
@@ -259,3 +258,9 @@ public sealed class NotionSource : ISource {
 		return string.Empty;
 	}
 }
+
+internal sealed record NotionContentUpdate(string Type, NotionContentUpdates UpdateContent);
+
+internal sealed record NotionContentUpdates(IReadOnlyList<NotionStringReplacement> ContentUpdates);
+
+internal sealed record NotionStringReplacement(string OldStr, string NewStr);

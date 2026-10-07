@@ -16,10 +16,9 @@
       Release -> NativeAOT publish for the host RID: copy the single native exe. Requires the platform C++
                  build tools ("Desktop development with C++"); without them the Release build fails loudly.
 
-    Destination = the directory the host's AppContext.BaseDirectory resolves to: flat $(OutDir) for the
-    Win/Linux/Headless apps, and the macOS app bundle's Contents/MonoBundle for the .app host (the suffix
-    below). $(OutDir) is only final in the targets phase, so it's combined inline in the targets — not in an
-    evaluation-time property. Mirrors BuildWebAssets/CopyWebAssets; incremental via Inputs/Outputs.
+    Destination = the directory the host's AppContext.BaseDirectory resolves to (ResolveHelperDirectory). It is
+    resolved in the targets phase, where $(OutDir) and the macOS SDK's $(_UseNativeAot) are final. Mirrors
+    BuildWebAssets/CopyWebAssets; incremental via Inputs/Outputs.
   -->
   <PropertyGroup>
     <_HookRelayProj>$(MSBuildThisFileDirectory)Weavie.HookRelay\Weavie.HookRelay.csproj</_HookRelayProj>
@@ -28,9 +27,7 @@
     <_HookRelayExe Condition="'$(_HookRelayExe)' == ''">weavie-hook-relay</_HookRelayExe>
     <_HookRelayRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_HookRelayRid>
     <_HookRelayRid Condition="'$(_HookRelayRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_HookRelayRid>
-    <!-- macOS hosts run managed code from the .app's MonoBundle; that's where the host exe's
-         AppContext.BaseDirectory points, so the relay must sit there (appended to $(OutDir) in the targets). -->
-    <_HookRelayDestSuffix Condition="$(TargetFramework.Contains('-macos'))">$(AssemblyName).app/Contents/MonoBundle/</_HookRelayDestSuffix>
+    <_HookRelayMac>$(TargetFramework.Contains('-macos'))</_HookRelayMac>
     <_McpProxyProj>$(MSBuildThisFileDirectory)Weavie.McpProxy\Weavie.McpProxy.csproj</_McpProxyProj>
     <_McpProxyDir>$(MSBuildThisFileDirectory)Weavie.McpProxy\</_McpProxyDir>
     <_McpProxyExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">weavie-mcp-proxy.exe</_McpProxyExe>
@@ -47,10 +44,20 @@
     <_HookRelaySource Include="$(_McpProxyProj)" />
   </ItemGroup>
 
+  <!-- Flat hosts run from $(OutDir); the macOS .app runs managed code from Contents/MonoBundle under CoreCLR and
+       from Contents/MacOS under NativeAOT, so its helpers live wherever that mode's AppContext.BaseDirectory points. -->
+  <Target Name="ResolveHelperDirectory">
+    <PropertyGroup>
+      <WeavieHelperDirectory>$(OutDir)</WeavieHelperDirectory>
+      <WeavieHelperDirectory Condition="$(_HookRelayMac) And '$(_UseNativeAot)' == 'true'">$(OutDir)$(AssemblyName).app/Contents/MacOS/</WeavieHelperDirectory>
+      <WeavieHelperDirectory Condition="$(_HookRelayMac) And '$(_UseNativeAot)' != 'true'">$(OutDir)$(AssemblyName).app/Contents/MonoBundle/</WeavieHelperDirectory>
+    </PropertyGroup>
+  </Target>
+
   <!-- Win/Linux/Headless Debug: a fast managed (framework-dependent) build — the host resolves the system
        .NET runtime normally, so the lean relay + sidecars are all that's needed. -->
   <Target Name="CoLocateHookRelayDebug"
-          Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' == ''"
+          Condition="'$(Configuration)' == 'Debug' And !$(_HookRelayMac)"
           AfterTargets="Build"
           Inputs="@(_HookRelaySource)"
           Outputs="$(OutDir)weavie-hook-relay.dll;$(OutDir)weavie-mcp-proxy.dll">
@@ -77,37 +84,39 @@
        managed publish, not a native compile; single-file so it's one exe rather than a runtime folder that
        would collide with the host's own MonoBundle files. -->
   <Target Name="CoLocateHookRelayDebugMac"
-          Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' != ''"
+          Condition="'$(Configuration)' == 'Debug' And $(_HookRelayMac)"
           AfterTargets="Build"
+          DependsOnTargets="ResolveHelperDirectory"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe);$(OutDir)$(_HookRelayDestSuffix)$(_McpProxyExe)">
-    <Message Importance="high" Text="weavie: building hook relay (Debug, self-contained single-file $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
+          Outputs="$(WeavieHelperDirectory)$(_HookRelayExe);$(WeavieHelperDirectory)$(_McpProxyExe)">
+    <Message Importance="high" Text="weavie: building hook relay (Debug, self-contained single-file $(_HookRelayRid)) -> $(WeavieHelperDirectory)" />
     <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=false --nologo -v q" />
     <Exec Command="dotnet publish &quot;$(_McpProxyProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=false --nologo -v q" />
     <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
-          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+          DestinationFolder="$(WeavieHelperDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(_McpProxyDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_McpProxyExe)"
-          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+          DestinationFolder="$(WeavieHelperDirectory)" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CoLocateHookRelayRelease"
           Condition="'$(Configuration)' != 'Debug'"
           AfterTargets="Build"
+          DependsOnTargets="ResolveHelperDirectory"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe);$(OutDir)$(_HookRelayDestSuffix)$(_McpProxyExe)">
-    <Message Importance="high" Text="weavie: building hook relay (Release, NativeAOT $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
+          Outputs="$(WeavieHelperDirectory)$(_HookRelayExe);$(WeavieHelperDirectory)$(_McpProxyExe)">
+    <Message Importance="high" Text="weavie: building hook relay (Release, NativeAOT $(_HookRelayRid)) -> $(WeavieHelperDirectory)" />
     <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --nologo -v q" />
     <Exec Command="dotnet publish &quot;$(_McpProxyProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --nologo -v q" />
     <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
-          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+          DestinationFolder="$(WeavieHelperDirectory)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(_McpProxyDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_McpProxyExe)"
-          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+          DestinationFolder="$(WeavieHelperDirectory)" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- Carry the co-located relay into `dotnet publish` of the flat hosts (the AfterTargets=Build copy only
        populates the build OutDir; publish computes its own file set). -->
   <Target Name="StageHookRelayForPublish"
-          Condition="'$(Configuration)' != 'Debug' And '$(_HookRelayDestSuffix)' == ''"
+          Condition="'$(Configuration)' != 'Debug' And !$(_HookRelayMac)"
           BeforeTargets="ComputeFilesToPublish"
           DependsOnTargets="CoLocateHookRelayRelease">
     <ItemGroup>

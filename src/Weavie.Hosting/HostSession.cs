@@ -46,11 +46,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
-		LanguageServerCatalog.All.Select(d => new {
-			id = d.Id,
-			languageIds = d.LanguageIds,
-			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
-		}));
+		[.. LanguageServerCatalog.All.Select(d => new LspServerWire(
+			d.Id,
+			d.LanguageIds,
+			string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson)))],
+		WireJson.Default.LspServerWireArray);
 
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
@@ -336,7 +336,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	// Workspace failures remain visible across reconnect: each stays true until the user acts on it.
 	private void PublishCondition(ref string? condition, string message) {
 		Volatile.Write(ref condition, message);
-		_notificationMessages.Publish("show", new { level = "error", message });
+		_notificationMessages.Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain("error", message));
 	}
 
 	internal void ReplayWorkspaceFailures(MessageTarget target) {
@@ -345,7 +345,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Volatile.Read(ref _observedPathsFailure),
 		}) {
 			if (message is not null) {
-				target.Feature("notifications").Publish("show", new { level = "error", message });
+				target.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain("error", message));
 			}
 		}
 	}
@@ -604,3 +604,5 @@ public sealed partial class HostSession : IAsyncDisposable {
 	};
 
 }
+
+internal sealed record LspServerWire(string Id, IReadOnlyList<string> LanguageIds, JsonNode? Settings);

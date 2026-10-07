@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Theming;
@@ -68,7 +69,7 @@ public sealed partial class OpenVsxThemeInstaller {
 		}
 
 		try {
-			return JsonSerializer.Deserialize<List<InstalledTheme>>(File.ReadAllText(IndexPath)) ?? [];
+			return JsonSerializer.Deserialize(File.ReadAllText(IndexPath), ThemeIndexJson.Default.ListInstalledTheme) ?? [];
 		} catch (JsonException) {
 			return [];
 		}
@@ -203,7 +204,11 @@ public sealed partial class OpenVsxThemeInstaller {
 		existing.AddRange(installed);
 
 		Directory.CreateDirectory(WeaviePaths.Themes);
-		string json = JsonSerializer.Serialize(existing, new JsonSerializerOptions { WriteIndented = true });
+		string json = JsonSerializer.Serialize(existing, ThemeIndexJson.Default.ListInstalledTheme);
 		File.WriteAllText(IndexPath, json, Encoding.UTF8);
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(List<InstalledTheme>))]
+	private sealed partial class ThemeIndexJson : JsonSerializerContext;
 }

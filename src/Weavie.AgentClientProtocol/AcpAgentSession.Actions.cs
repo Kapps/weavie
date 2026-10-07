@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
@@ -100,9 +101,11 @@ public sealed partial class AcpAgentSession {
 				prompt = BuildPrompt(submission);
 				request = Endpoint(generation).RequestAsync(
 					"_session/steering",
-					new {
-						prompt = prompt.Blocks,
-						_meta = new { steering = new { idleBehavior = "promptRequired" } },
+					new JsonObject {
+						["prompt"] = prompt.Blocks,
+						["_meta"] = new JsonObject {
+							["steering"] = new JsonObject { ["idleBehavior"] = "promptRequired" },
+						},
 					},
 					CancellationToken.None);
 			}
@@ -179,7 +182,7 @@ public sealed partial class AcpAgentSession {
 				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
 				request = Endpoint(generation).RequestAsync(
 					"session/prompt",
-					new { prompt = prompt.Blocks },
+					new JsonObject { ["prompt"] = prompt.Blocks },
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -397,7 +400,7 @@ public sealed partial class AcpAgentSession {
 			if (sessionId is not null) {
 				long generation;
 				lock (_gate) generation = _activeGeneration;
-				var cancellation = Endpoint(generation).NotifyAsync("session/cancel", new { });
+				var cancellation = Endpoint(generation).NotifyAsync("session/cancel", []);
 				RunRuntime(generation, () => cancellation);
 			}
 			PublishQueue();

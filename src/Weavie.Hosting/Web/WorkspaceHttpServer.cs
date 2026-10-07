@@ -9,6 +9,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Web;
 
@@ -120,22 +121,24 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		}
 
 		if (_options.EnableControl) {
-			app.MapGet("/control/status", () => Results.Json(new {
-				buildNumber = HostCore.BuildNumber,
-				spawnContract = WorkspaceControlProtocol.SpawnContract,
-				draining = _core.Draining,
-			}));
-			app.MapPost("/control/drain", () => {
+			app.MapGet("/control/status", context => context.Response.WriteAsJsonAsync(
+				new ControlStatus(HostCore.BuildNumber, WorkspaceControlProtocol.SpawnContract, _core.Draining),
+				WireJson.Default.ControlStatus,
+				cancellationToken: context.RequestAborted));
+			app.MapPost("/control/drain", context => {
 				_core.BeginDrain(app.Lifetime.StopApplication);
-				return Results.Accepted();
+				context.Response.StatusCode = StatusCodes.Status202Accepted;
+				return Task.CompletedTask;
 			});
-			app.MapGet("/control/health", async (HttpContext context) => {
+			app.MapGet("/control/health", async context => {
 				using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
 				deadline.CancelAfter(TimeSpan.FromSeconds(2));
 				var health = await _core.MessageHealthAsync(deadline.Token).ConfigureAwait(false);
-				return Results.Json(health, statusCode: health.Healthy
+				context.Response.StatusCode = health.Healthy
 					? StatusCodes.Status200OK
-					: StatusCodes.Status503ServiceUnavailable);
+					: StatusCodes.Status503ServiceUnavailable;
+				await context.Response.WriteAsJsonAsync(health, WireJson.Default.MessageHealthSnapshot, cancellationToken: context.RequestAborted)
+					.ConfigureAwait(false);
 			});
 		}
 
@@ -313,3 +316,5 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		_assets = null;
 	}
 }
+
+internal sealed record ControlStatus(string BuildNumber, int SpawnContract, bool Draining);

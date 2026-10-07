@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
@@ -20,46 +21,58 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a serialized request handler and returns its lifetime.</summary>
 	public IDisposable Handle<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, handler, SessionExecution.Serialized);
+		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
-		_bus.HandleAfterResponse(_feature, name, handler, SessionExecution.Serialized);
+		_bus.HandleAfterResponse(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
-		_bus.HandleKeyedAfterResponse(_feature, name, lane, handler);
+		_bus.HandleKeyedAfterResponse(_feature, name, requestType, responseType, lane, handler);
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler) =>
-		_bus.HandleAfterEvent(_feature, name, handler, SessionExecution.Serialized);
+		_bus.HandleAfterEvent(_feature, name, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) =>
-		_bus.HandleOwned(_feature, name, handler, SessionExecution.Serialized);
+		_bus.HandleOwned(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
 
 	/// <summary>Registers a serialized event handler and returns its lifetime.</summary>
 	public IDisposable Handle<TEvent>(
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
-		_bus.Handle(_feature, name, handler, SessionExecution.Serialized);
+		_bus.Handle(_feature, name, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
-		_bus.HandleOwned(_feature, name, handler, SessionExecution.Serialized);
+		_bus.HandleOwned(_feature, name, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
-		_bus.HandleOwnedWhen(_feature, name, admit, handler, SessionExecution.Serialized);
+		_bus.HandleOwnedWhen(_feature, name, eventType, admit, handler, SessionExecution.Serialized);
 
 	internal MessageTargetFeature Target(MessagePeer peer) {
 		ArgumentNullException.ThrowIfNull(peer);
@@ -69,23 +82,28 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a request handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, handler, SessionExecution.Concurrent);
+		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Concurrent);
 
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.HandleKeyed(_feature, name, lane, handler);
+		_bus.HandleKeyed(_feature, name, requestType, responseType, lane, handler);
 
 	/// <summary>Registers an event handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TEvent>(
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
-		_bus.Handle(_feature, name, handler, SessionExecution.Concurrent);
+		_bus.Handle(_feature, name, eventType, handler, SessionExecution.Concurrent);
 
 	/// <summary>Publishes an event to every page attached to this feature's owner.</summary>
-	public void Publish<T>(string name, T payload) => _bus.Publish(_feature, name, payload);
+	public void Publish<T>(string name, JsonTypeInfo<T> type, T payload) => _bus.Publish(_feature, name, type, payload);
 
 	/// <summary>Publishes an already-serialized JSON payload to every page attached to this feature's owner.</summary>
 	public void PublishJson(string name, string payloadJson) => _bus.PublishJson(_feature, name, payloadJson);
@@ -94,7 +112,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 internal sealed record ResponseWithCompletion<T>(T Payload, Func<CancellationToken, Task> AfterResponse);
 
 internal interface IMessageFeatureTarget {
-	void Publish<T>(string name, T payload);
+	void Publish<T>(string name, JsonTypeInfo<T> type, T payload);
 
 	void PublishJson(string name, string payloadJson);
 }
@@ -138,11 +156,11 @@ internal sealed class MessageTargetFeature : IMessageFeatureTarget {
 		_feature = feature;
 	}
 
-	public void Publish<T>(string name, T payload) {
+	public void Publish<T>(string name, JsonTypeInfo<T> type, T payload) {
 		if (_peer is { } peer) {
-			_bus.PublishTo(peer, _feature, name, payload);
+			_bus.PublishTo(peer, _feature, name, type, payload);
 		} else {
-			_bus.Publish(_feature, name, payload);
+			_bus.Publish(_feature, name, type, payload);
 		}
 	}
 

@@ -193,12 +193,12 @@ public sealed partial class SessionChangeTracker {
 
 	private sealed record ReviewPatch(string Path, ReviewPart Part, LineRange InitialRange, string[] Before, string[] After,
 		bool BeforeExists, bool AfterExists, OriginSlice? BeforeOrigins, OriginSlice? AfterOrigins) {
-		public LineRange Range { get; init; } = InitialRange;
+		public LineRange Range { get; set; } = InitialRange;
 		public long Id { get; init; }
-		public List<BoundaryRestore> Boundaries { get; init; } = [];
+		public List<BoundaryRestore> Boundaries { get; set; } = [];
 		public bool Stale { get; init; }
-		public string BeforeEol { get; init; } = "\n";
-		public string AfterEol { get; init; } = "\n";
+		public string BeforeEol { get; set; } = "\n";
+		public string AfterEol { get; set; } = "\n";
 	}
 }
 

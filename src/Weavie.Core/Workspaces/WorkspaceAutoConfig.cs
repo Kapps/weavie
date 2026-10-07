@@ -51,5 +51,5 @@ public sealed class WorkspaceAutoConfig {
 		return new AutoConfigOutcome(wrote);
 	}
 
-	private static JsonElement JsonString(string value) => JsonSerializer.SerializeToElement(value);
+	private static JsonElement JsonString(string value) => JsonSerializer.SerializeToElement(value, CoreJson.Default.String);
 }

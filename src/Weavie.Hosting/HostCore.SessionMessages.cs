@@ -96,7 +96,7 @@ public sealed partial class HostCore {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
-		review.Handle("diffAgainst", WireJson.Default.DiffAgainstMessage, (message, ct) =>
+		review.Handle("diffAgainst", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewReveal, (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
 
 		session.Bus.Feature("revise").Handle("start", WireJson.Default.ReviseStartMessage, (message, _) => {

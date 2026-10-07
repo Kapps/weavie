@@ -138,7 +138,13 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
-import { activePath, activeTabFor, flushEditorSession, openTabs } from "./editor/session-store";
+import {
+  activePath,
+  activePathFor,
+  activeTabFor,
+  flushEditorSession,
+  openTabs,
+} from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   dismissSourceTokenPrompt,
@@ -937,6 +943,25 @@ export default function App(): JSX.Element {
       );
   };
 
+  // The review's first file opens only if the user stayed on the same file while the diff computed: their own
+  // navigation in that window is newer, so it wins.
+  const diffAgainst = (session: ClientSession, reference: string): void => {
+    const activeAtRequest = activePathFor(session);
+    void session
+      .feature("review")
+      .request<{ path: string | null; line: number | null }, { reference: string }>("diffAgainst", {
+        reference,
+      })
+      .then((reveal) => {
+        if (reveal.path !== null && activePathFor(session) === activeAtRequest) {
+          editor.revealFile(session, reveal.path, reveal.line ?? undefined);
+        }
+      })
+      .catch((error: unknown) =>
+        addToast("warn", error instanceof Error ? error.message : String(error)),
+      );
+  };
+
   const switchToSession = (session: RailSession): Promise<boolean> => {
     // A backend whose link is down can't serve the switch — refuse loudly at the click rather than paint
     // the optimistic highlight and queue a frame that would replay as a stale navigation on reconnect.
@@ -1630,18 +1655,18 @@ export default function App(): JSX.Element {
         if (session === null) return false;
         const ref = (args as { ref?: unknown } | undefined)?.ref;
         if (typeof ref === "string" && ref.trim().length > 0) {
-          session.feature("review").publish("diffAgainst", { reference: ref.trim() });
+          diffAgainst(session, ref.trim());
         } else {
           setDiffAgainstOwner(session);
         }
         return true;
       }),
       registerCommand(CommandIds.diffAgainstParent, (_args, { session }) => {
-        session?.feature("review").publish("diffAgainst", { reference: "HEAD^" });
+        if (session !== null) diffAgainst(session, "HEAD^");
         return true;
       }),
       registerCommand(CommandIds.diffAgainstHead, (_args, { session }) => {
-        session?.feature("review").publish("diffAgainst", { reference: "HEAD" });
+        if (session !== null) diffAgainst(session, "HEAD");
         return true;
       }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, behind the editor-focused tab bindings): cycle the
@@ -1975,7 +2000,7 @@ export default function App(): JSX.Element {
             session={session}
             onPick={(ref) => {
               setDiffAgainstOwner(null);
-              session.feature("review").publish("diffAgainst", { reference: ref });
+              diffAgainst(session, ref);
             }}
             onCancel={() => setDiffAgainstOwner(null)}
           />

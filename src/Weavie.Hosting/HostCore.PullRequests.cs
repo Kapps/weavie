@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
@@ -150,13 +151,21 @@ public sealed partial class HostCore {
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
 		try {
-			await SeedAndArmReviewAsync(
+			var reveal = await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
 				ct)
 				.ConfigureAwait(false);
+			// The page activates this PR's session as this request's answer, landing on the review's first file.
+			if (reveal.Path is { } path) {
+				await _ui.InvokeAsync(() => {
+					session.FileOpener.Open(path, reveal.Line, preview: true, scratch: false, EditorOpenIntent.Reveal);
+					return Task.CompletedTask;
+				}, ct).ConfigureAwait(false);
+			}
+
 			return null;
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";

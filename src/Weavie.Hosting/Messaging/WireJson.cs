@@ -25,6 +25,7 @@ internal sealed record EmptyPayload {
 /// <summary>Source-generated contracts for every payload crossing the web message bus (web defaults: camelCase).</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(EmptyPayload))]
+[JsonSerializable(typeof(ReviewReveal))]
 [JsonSerializable(typeof(ControlStatus))]
 [JsonSerializable(typeof(MessageHealthSnapshot))]
 [JsonSerializable(typeof(AgentPlanShown))]

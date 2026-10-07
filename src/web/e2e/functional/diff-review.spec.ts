@@ -1038,12 +1038,15 @@ test.describe("large review — every file remains reviewable", () => {
       writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
     }
     await runCommand(page, "Diff Against HEAD");
+    // The review lands on its first file because nothing navigated while it computed.
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]bulk-0\.txt$/);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
     await openFile(page, "README.md");
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
       .toBe(100);
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
 
     await openFile(page, "bulk-0.txt");
     await page.locator(".weavie-inline-scope-btn").click();
@@ -1055,5 +1058,19 @@ test.describe("large review — every file remains reviewable", () => {
       .toBe(0);
     await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+
+  test("a file opened while the review computes keeps the editor", async ({ page, weavie }) => {
+    for (let index = 0; index < 100; index++) {
+      writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
+    }
+    await runCommand(page, "Diff Against HEAD");
+    await openFile(page, "README.md");
+
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
+      .toBe(100);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]README\.md$/);
   });
 });

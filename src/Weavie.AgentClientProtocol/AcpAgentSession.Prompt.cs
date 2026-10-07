@@ -10,7 +10,7 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				var command = ResolveProviderCommandLocked(submission.CommandName);
 				string text = CanonicalCommandText(submission.Text, command.Name);
-				return new([AcpContent.Text(text)], []);
+				return new(new JsonArray(AcpContent.Text(text)), []);
 			}
 		}
 

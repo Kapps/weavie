@@ -325,14 +325,14 @@ public sealed partial class AcpAgentSession {
 
 	private JsonArray McpServers() {
 		if (_supportsHttpMcp) {
-			return [new JsonObject {
+			return new JsonArray(new JsonObject {
 				["type"] = "http",
 				["name"] = "weavie",
 				["url"] = _context.Registry.StreamableHttpUrl,
 				["headers"] = new JsonArray(NameValue("Authorization", "Bearer " + _context.Registry.Credential.Token)),
-			}];
+			});
 		}
-		return [new JsonObject {
+		return new JsonArray(new JsonObject {
 			["type"] = "stdio",
 			["name"] = "weavie",
 			["command"] = McpProxyBinary.PathIn(AppContext.BaseDirectory),
@@ -340,7 +340,7 @@ public sealed partial class AcpAgentSession {
 			["env"] = new JsonArray(
 				NameValue("WEAVIE_MCP_URL", _context.Registry.StreamableHttpUrl),
 				NameValue("WEAVIE_MCP_TOKEN", _context.Registry.Credential.Token)),
-		}];
+		});
 	}
 
 	private static JsonObject NameValue(string name, string value) => new() { ["name"] = name, ["value"] = value };

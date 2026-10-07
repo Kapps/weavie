@@ -118,13 +118,13 @@ internal sealed class AcpInferenceClient {
 	}
 
 	// ACP has no output-schema field, so the schema travels in the prompt and Weavie enforces it locally.
-	private static JsonArray BuildPrompt(InferenceProviderRequest request) => [
+	private static JsonArray BuildPrompt(InferenceProviderRequest request) => new([
 		AcpContent.Text(request.Prompt
 			+ "\n\nRespond with exactly one JSON value matching this schema, and nothing else — no prose, no "
 			+ "explanation, and no markdown code fences. Do not use any tools.\n\nSchema:\n"
 			+ request.OutputSchemaJson),
 		.. request.Images.Select(image => AcpContent.Image(image.Mime, Convert.ToBase64String(image.Bytes.Span))),
-	];
+	]);
 
 	private static InferenceProviderResult Decode(string reply, string model, InferenceUsage? usage) {
 		if (reply.Length == 0) {

@@ -77,7 +77,7 @@
 
   <Import Project="../MacPty.targets" />
 
-  <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
+  <!-- Build + co-locate the standalone hook relay (into the .app's helper directory; see ResolveHelperDirectory). -->
   <Import Project="..\HookRelay.targets" />
 
 </Project>

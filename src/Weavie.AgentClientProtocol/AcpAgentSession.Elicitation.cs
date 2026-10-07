@@ -8,6 +8,8 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
+	private static readonly JsonElement EmptyArray = JsonDocument.Parse("[]").RootElement;
+
 	private JsonObject RequestInput(AcpClientRequest request, AcpClientRequestState state) {
 		string mode = RequiredString(request.Parameters, "mode", "elicitation request");
 		if (mode == "url") {
@@ -16,8 +18,7 @@ public sealed partial class AcpAgentSession {
 			if (!_urlElicitations.TryAdd(elicitationId, request.Id)) {
 				throw new AcpProtocolException($"ACP repeated outstanding URL elicitation id '{elicitationId}'.");
 			}
-			var data = JsonDocument.Parse("[]").RootElement;
-			var urlPending = new AcpPendingRequest(request, "url", data, SessionId(), TurnId());
+			var urlPending = new AcpPendingRequest(request, "url", EmptyArray, SessionId(), TurnId());
 			if (!_pendingRequests.TryAdd(request.Id, urlPending)) {
 				_urlElicitations.TryRemove(elicitationId, out _);
 				throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");

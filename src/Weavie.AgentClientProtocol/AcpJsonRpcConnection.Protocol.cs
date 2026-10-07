@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -34,7 +33,7 @@ public sealed partial class AcpJsonRpcConnection {
 					CanonicalId(responseId),
 					responseId.Clone(),
 					requestMethod.GetString() ?? string.Empty,
-					root.TryGetProperty("params", out requestParameters) ? requestParameters.Clone() : EmptyObject(),
+					root.TryGetProperty("params", out requestParameters) ? requestParameters.Clone() : EmptyObject,
 					generation);
 				return () => DispatchRequest(request);
 			}

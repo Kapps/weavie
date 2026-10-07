@@ -894,8 +894,8 @@ public sealed partial class HostCore {
 			do {
 				result = await session.View.Feature("editor")
 					.TryRequestAsync(
-						"flush", WireJson.Default.EmptySessionMessage, WireJson.Default.EditorFlushResult,
-						new EmptySessionMessage(),
+						"flush", WireJson.Default.EmptyPayload, WireJson.Default.EditorFlushResult,
+						EmptyPayload.Value,
 						ct)
 					.ConfigureAwait(false);
 			} while (result is not null && !HandleEditorSessionChanged(session, result.Session, result.Basis));

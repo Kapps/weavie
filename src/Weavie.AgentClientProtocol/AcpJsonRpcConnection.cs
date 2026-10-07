@@ -347,7 +347,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		_ => throw new AcpProtocolException("ACP request ids must be strings or numbers."),
 	};
 
-	private static JsonElement EmptyObject() => JsonDocument.Parse("{}").RootElement;
+	private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement;
 
 	private static int ReadExitCode(OwnedProcess process) {
 		try {

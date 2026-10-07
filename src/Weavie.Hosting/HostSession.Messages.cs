@@ -136,13 +136,13 @@ public sealed partial class HostSession {
 		Messaging.MessageFeatureChannel messages,
 		Func<bool> inputFrozen,
 		Action<bool, Action> acceptInput) {
-		messages.Handle("typing", WireJson.Default.EmptyMessage, (_, _) => {
+		messages.Handle("typing", WireJson.Default.EmptyPayload, (_, _) => {
 			acceptInput(true, static () => { });
 			return Task.CompletedTask;
 		});
 		messages.Handle("toolOutput", WireJson.Default.AgentPaneRecordRequest, WireJson.Default.AgentPaneWire, (message, _) =>
 			Task.FromResult(AgentPaneProtocol.Message(Agent.ReadRecord(message))));
-		messages.Handle("interrupt", WireJson.Default.EmptyMessage, (_, _) => {
+		messages.Handle("interrupt", WireJson.Default.EmptyPayload, (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;
 		});
@@ -297,8 +297,6 @@ public sealed partial class HostSession {
 
 	private void Notify(string message) => Notify("warn", message);
 
-	private sealed record EmptyMessage;
-
 	internal sealed record ImagePasteMessage(string Mime, string DataB64);
 
 	internal sealed record LspStartMessage(string Server, string Channel);
@@ -311,7 +309,6 @@ public sealed partial class HostSession {
 
 	internal sealed record LspResetMessage(string Epoch);
 
-	private sealed record FilePathMessage(string Path);
 	internal sealed record ListDirectoryMessage(string SubscriptionId, string Path);
 	internal sealed record UnwatchDirectoryMessage(string SubscriptionId);
 	internal sealed record ResetDirectoryWatchesMessage(string PageEpoch);

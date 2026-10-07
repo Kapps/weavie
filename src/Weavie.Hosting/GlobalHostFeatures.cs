@@ -62,7 +62,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	private void WireThemes() {
 		var themes = _host.Feature("themes");
 		_handlers.Add(themes.Handle(
-			"list", WireJson.Default.EmptyRequest, WireJson.Default.IReadOnlyListThemeChoice, (_, _) => Task.FromResult(ThemeCatalog.List())));
+			"list", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListThemeChoice, (_, _) => Task.FromResult(ThemeCatalog.List())));
 		_handlers.Add(themes.Handle("preview", WireJson.Default.ThemeIdRequest, WireJson.Default.JsonElement, (message, _) =>
 			Task.FromResult(Weavie.Core.Theming.ThemeJson.PreviewSlot(message.Id, _services.ThemeOverrides))));
 		_handlers.Add(themes.Handle("select", WireJson.Default.ThemeIdRequest, WireJson.Default.CommandWireResult, (message, _) =>
@@ -105,7 +105,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");
 		_handlers.Add(agentDefaults.Handle(
-			"get", WireJson.Default.EmptyRequest, WireJson.Default.JsonElement, (_, _) => Task.FromResult(ParseJson(AgentDefaultsJson()))));
+			"get", WireJson.Default.EmptyPayload, WireJson.Default.JsonElement, (_, _) => Task.FromResult(ParseJson(AgentDefaultsJson()))));
 		_handlers.Add(agentDefaults.Handle("setProvider", WireJson.Default.AgentProviderRequest, WireJson.Default.JsonElement, (message, _) => {
 			RememberDefaultProvider(message.ProviderId);
 			return Task.FromResult(ParseJson(AgentDefaultsJson()));
@@ -113,7 +113,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 		var acpRegistry = _host.Feature("acpRegistry");
 		_handlers.Add(acpRegistry.Handle(
-			"list", WireJson.Default.EmptyRequest, WireJson.Default.IReadOnlyListAcpRegistryAgent, (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
+			"list", WireJson.Default.EmptyPayload, WireJson.Default.IReadOnlyListAcpRegistryAgent, (_, ct) => _services.AcpAgents.ListRegistryAsync(ct)));
 		// An npm install or a first uvx start downloads the agent, which can outlast a request, so installs answer at
 		// once and report through "installed" when the check finishes.
 		_handlers.Add(acpRegistry.Handle("install", WireJson.Default.AcpInstallMessage, (message, ct) => {
@@ -187,7 +187,6 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}
 	}
 
-	internal sealed record EmptyRequest;
 	internal sealed record InstallResult(string Id, string Operation, string? Error);
 	internal sealed record WebLogMessage(string Level, string Message);
 	internal sealed record SettingRead(string Key);

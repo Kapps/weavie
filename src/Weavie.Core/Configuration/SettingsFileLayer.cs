@@ -133,8 +133,9 @@ internal sealed class SettingsFileLayer : IDisposable {
 
 	/// <summary>Writes the document to disk atomically (temp file + replace), creating the directory if needed.</summary>
 	private void SaveAtomic(DocumentSyntax syntax) {
-		var model = TomlDocuments.ToModel(syntax);
-		FileSystem.WriteAllTextAtomic(FilePath, syntax.ToString());
+		string text = syntax.ToString();
+		var model = TomlDocuments.ToModel(text);
+		FileSystem.WriteAllTextAtomic(FilePath, text);
 		_file.Value.Syntax = syntax;
 		_file.Value.Model = model;
 	}
@@ -147,7 +148,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 		if (parsed.HasErrors) {
 			throw new InvalidDataException(string.Join(Environment.NewLine, parsed.Diagnostics));
 		}
-		return new SettingsDocument(parsed, TomlDocuments.ToModel(parsed));
+		return new SettingsDocument(parsed, TomlDocuments.ToModel(text));
 	}
 
 	private static ValueSyntax BuildValueSyntax(SettingDefinition definition, object? coerced) =>

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 
 namespace Weavie.AgentClientProtocol;

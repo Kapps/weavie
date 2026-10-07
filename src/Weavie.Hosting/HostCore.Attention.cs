@@ -16,11 +16,11 @@ public sealed partial class HostCore {
 	private void WireSystemNotificationMessages() {
 		_notificationFeature = _messages.Host.Feature("notifications");
 		_notificationFeature.Handle(
-			"permission", WireJson.Default.NotificationEmpty, WireJson.Default.NotificationPermissionMessage,
+			"permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.GetPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.Handle(
-			"requestPermission", WireJson.Default.NotificationEmpty, WireJson.Default.NotificationPermissionMessage,
+			"requestPermission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.RequestPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.HandleOwned(
@@ -201,8 +201,6 @@ public sealed partial class HostCore {
 		SystemNotificationPermission.Denied => "denied",
 		_ => throw new ArgumentOutOfRangeException(nameof(permission), permission, "unhandled notification permission"),
 	};
-
-	internal sealed record NotificationEmpty;
 
 	internal sealed record NotificationPermissionMessage(string Permission);
 

@@ -18,7 +18,7 @@ public sealed partial class HostCore {
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse(
-			"hello", WireJson.Default.HelloRequest, WireJson.Default.HostHello,
+			"hello", WireJson.Default.EmptyPayload, WireJson.Default.HostHello,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
 				BuildHello(),
 				_ => {
@@ -39,10 +39,10 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		clipboard.Handle(
-			"read", WireJson.Default.EmptyMessage, WireJson.Default.ClipboardText,
+			"read", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardText,
 			(_, _) => Task.FromResult(new ClipboardText(_platform.ReadClipboard())));
 		clipboard.Handle(
-			"readImage", WireJson.Default.EmptyMessage, WireJson.Default.ClipboardImage,
+			"readImage", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardImage,
 			(_, _) => {
 				var image = _platform.ReadClipboardImage();
 				return Task.FromResult(new ClipboardImage(
@@ -124,14 +124,14 @@ public sealed partial class HostCore {
 			_acpAgents.Remove(message.Id);
 			return Task.CompletedTask;
 		});
-		acpRegistry.Handle("reload", WireJson.Default.EmptyMessage, (_, _) => {
+		acpRegistry.Handle("reload", WireJson.Default.EmptyPayload, (_, _) => {
 			var currentIds = _acpAgents.ProviderIds;
 			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
 			return Task.CompletedTask;
 		});
 
 		_messages.Host.Feature("git").Handle(
-			"branches", WireJson.Default.EmptyMessage, WireJson.Default.StringArray,
+			"branches", WireJson.Default.EmptyPayload, WireJson.Default.StringArray,
 			(_, ct) => ListBranchesAsync(ct));
 
 		_messages.Host.Feature("sessions").HandleKeyed(
@@ -334,10 +334,6 @@ public sealed partial class HostCore {
 		using var document = JsonDocument.Parse(json);
 		return document.RootElement.Clone();
 	}
-
-	internal sealed record EmptyMessage;
-
-	internal sealed record HelloRequest;
 
 	internal sealed record ClipboardWrite(string Text);
 

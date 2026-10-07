@@ -11,7 +11,7 @@ public sealed partial class HostCore {
 	private void WireCoreSessionMessages(HostSession session) {
 		var lifecycle = session.Bus.Feature("lifecycle");
 		lifecycle.HandleOwned(
-			"sync", WireJson.Default.SessionSyncRequest, WireJson.Default.SessionSyncResult,
+			"sync", WireJson.Default.EmptyPayload, WireJson.Default.SessionSyncResult,
 			(_, peer, _) => {
 				SyncSession(session, peer.Target);
 				return Task.FromResult(new SessionSyncResult(true));
@@ -40,7 +40,7 @@ public sealed partial class HostCore {
 				HandleEditorSessionChanged(session, message.Session, message.Basis);
 				return Task.CompletedTask;
 			});
-		editor.Handle("newScratch", WireJson.Default.EmptySessionMessage, (_, _) => {
+		editor.Handle("newScratch", WireJson.Default.EmptyPayload, (_, _) => {
 			session.OpenNewScratch();
 			return Task.CompletedTask;
 		});
@@ -56,15 +56,15 @@ public sealed partial class HostCore {
 		});
 
 		var review = session.Bus.Feature("review");
-		review.Handle("close", WireJson.Default.EmptySessionMessage, (_, _) => {
+		review.Handle("close", WireJson.Default.EmptyPayload, (_, _) => {
 			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
-		review.Handle("accept", WireJson.Default.EmptySessionMessage, (_, _) => {
+		review.Handle("accept", WireJson.Default.EmptyPayload, (_, _) => {
 			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
-		review.Handle("revertAll", WireJson.Default.EmptySessionMessage, (_, _) => {
+		review.Handle("revertAll", WireJson.Default.EmptyPayload, (_, _) => {
 			UndoTurn(session);
 			return Task.CompletedTask;
 		});
@@ -90,7 +90,7 @@ public sealed partial class HostCore {
 		});
 		review.Handle("undo", WireJson.Default.JsonElement, WireJson.Default.ReviewHistoryLocation, (message, _) =>
 			Task.FromResult(ReviewUndo(session, message)));
-		review.Handle("redo", WireJson.Default.EmptySessionMessage, WireJson.Default.ReviewHistoryLocation, (_, _) =>
+		review.Handle("redo", WireJson.Default.EmptyPayload, WireJson.Default.ReviewHistoryLocation, (_, _) =>
 			Task.FromResult(ReviewRedo(session)));
 		review.Handle("showFile", WireJson.Default.FilePathMessage, (message, _) => {
 			PushTurnDiffToWeb(session, message.Path);
@@ -106,9 +106,9 @@ public sealed partial class HostCore {
 
 		var files = session.Bus.Feature("files");
 		files.Handle(
-			"refs", WireJson.Default.EmptySessionMessage, WireJson.Default.DiffRefsResult,
+			"refs", WireJson.Default.EmptyPayload, WireJson.Default.DiffRefsResult,
 			(_, ct) => ListRefsAsync(session, ct));
-		files.Handle("refreshIndex", WireJson.Default.EmptySessionMessage, (_, _) => {
+		files.Handle("refreshIndex", WireJson.Default.EmptyPayload, (_, _) => {
 			PushFileIndexToWeb(session, false);
 			return Task.CompletedTask;
 		});
@@ -152,7 +152,7 @@ public sealed partial class HostCore {
 		sources.Handle(
 			"saveToken", WireJson.Default.SaveSourceTokenMessage, WireJson.Default.SourceTokenResult,
 			(message, ct) => SaveSourceTokenAsync(session, message.SourceId, message.Token, ct));
-		sources.Handle("dismissToken", WireJson.Default.EmptySessionMessage, (_, _) => {
+		sources.Handle("dismissToken", WireJson.Default.EmptyPayload, (_, _) => {
 			DismissSourceTokenPrompt(session);
 			return Task.CompletedTask;
 		});
@@ -190,10 +190,6 @@ public sealed partial class HostCore {
 		value is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined } element
 			? element.GetRawText()
 			: null;
-
-	internal sealed record EmptySessionMessage;
-
-	internal sealed record SessionSyncRequest;
 
 	internal sealed record SessionSyncResult(bool Ok);
 

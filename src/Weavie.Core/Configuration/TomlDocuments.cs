@@ -10,8 +10,7 @@ namespace Weavie.Core.Configuration;
 internal static class TomlDocuments {
 	public static DocumentSyntax Parse(string text, string sourceName) => SyntaxParser.Parse(text, sourceName, validate: true);
 
-	public static TomlTable ToModel(DocumentSyntax syntax) =>
-		TomlSerializer.Deserialize(syntax.ToString(), TomlModelContext.Default.TomlTable) ?? [];
+	public static TomlTable ToModel(string text) => TomlSerializer.Deserialize(text, TomlModelContext.Default.TomlTable) ?? [];
 }
 
 [TomlSerializable(typeof(TomlTable))]

@@ -132,7 +132,7 @@
   </Target>
 
   <!-- macOS needs no separate publish staging: CoLocateHookRelayRelease (AfterTargets=Build) co-locates the
-       relay into the build .app's Contents/MonoBundle, and the GitHub Release ships that very bundle (zipped)
+       relay into the built .app's helper directory, and the GitHub Release ships that very bundle (zipped)
        rather than `dotnet publish`'s .pkg — see Weavie.Mac.csproj / .github/workflows/release.yml. -->
 
 </Project>

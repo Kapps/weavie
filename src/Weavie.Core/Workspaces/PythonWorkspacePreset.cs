@@ -46,8 +46,8 @@ internal static class PythonWorkspacePreset {
 			}
 
 			try {
-				var parsed = TomlDocuments.Parse(ctx.FileSystem.ReadAllText(path), path);
-				if (!parsed.HasErrors && ContainsPytest(TomlDocuments.ToModel(parsed))) {
+				string text = ctx.FileSystem.ReadAllText(path);
+				if (!TomlDocuments.Parse(text, path).HasErrors && ContainsPytest(TomlDocuments.ToModel(text))) {
 					return true;
 				}
 			} catch (IOException) {

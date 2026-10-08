@@ -39,18 +39,20 @@ export class ProjectedAgentActivity {
     const existing = this.indexes.get(id);
     const index = existing ?? this.sources.length;
     const previous = this.sources[index];
+    const key = summaryKey(message, category);
     if (previous !== undefined) {
       this.removeStatus(index);
       const previousCategory = activityCategory(previous);
-      if (previousCategory !== category) {
-        if (previousCategory !== null) {
-          this.removeCategory(previousCategory);
+      const previousKey = previousCategory === null ? null : summaryKey(previous, previousCategory);
+      if (previousKey !== key) {
+        if (previousKey !== null) {
+          this.removeCategory(previousKey);
         }
-        this.addCategory(category);
+        this.addCategory(key);
       }
     } else {
       this.indexes.set(id, index);
-      this.addCategory(category);
+      this.addCategory(key);
     }
     this.sources[index] = message;
     this.addStatus(message, index);
@@ -281,8 +283,15 @@ function completedSummary(sourceCount: number, counts: ReadonlyMap<string, numbe
     .join(", ");
 }
 
+// Cancelled steps are counted apart from their category so they never read as completed work.
+function summaryKey(message: AgentPaneUpdate, category: string): string {
+  return normalizeStatus(message.status) === "cancelled" ? "cancelled" : category;
+}
+
 function completedCategorySummary(category: string, count: number): string {
   switch (category) {
+    case "cancelled":
+      return `cancelled ${count} step${count === 1 ? "" : "s"}`;
     case "command":
       return `ran ${count} command${count === 1 ? "" : "s"}`;
     case "edit":

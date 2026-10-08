@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
@@ -87,13 +88,13 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 	}
 
 	/// <summary>Sends one request and waits for its result, or throws the agent's error.</summary>
-	public async Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) {
+	public async Task<JsonElement> RequestAsync(string method, JsonObject parameters, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		long id = Interlocked.Increment(ref _nextId);
 		var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_pending[id] = completion;
 		try {
-			await WriteAsync(new { jsonrpc = "2.0", id, method, @params = parameters }).ConfigureAwait(false);
+			await WriteAsync(AcpJsonRpcWire.Request(id, method, parameters)).ConfigureAwait(false);
 		} catch {
 			_pending.TryRemove(id, out _);
 			throw;
@@ -106,30 +107,27 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 	}
 
 	/// <summary>Sends a notification, ignoring an agent that is already gone.</summary>
-	public Task NotifyAsync(string method, object parameters) =>
-		WriteIgnoringExitAsync(new { jsonrpc = "2.0", method, @params = parameters });
+	public Task NotifyAsync(string method, JsonObject parameters) =>
+		WriteIgnoringExitAsync(AcpJsonRpcWire.Notification(method, parameters));
 
 	/// <summary>Answers an agent request with <paramref name="result"/>.</summary>
-	public Task RespondAsync(long id, object result) => WriteIgnoringExitAsync(new { jsonrpc = "2.0", id, result });
+	public Task RespondAsync(long id, JsonObject result) => WriteIgnoringExitAsync(AcpJsonRpcWire.Result(id, result));
 
 	/// <summary>Refuses an agent request this client does not serve.</summary>
-	public Task RefuseAsync(long id, string method) => WriteIgnoringExitAsync(new {
-		jsonrpc = "2.0",
-		id,
-		error = new { code = -32601, message = $"Weavie does not serve '{method}' here." },
-	});
+	public Task RefuseAsync(long id, string method) =>
+		WriteIgnoringExitAsync(AcpJsonRpcWire.Error(id, -32601, $"Weavie does not serve '{method}' here."));
 
-	private async Task WriteIgnoringExitAsync(object payload) {
+	private async Task WriteIgnoringExitAsync(string line) {
 		try {
-			await WriteAsync(payload).ConfigureAwait(false);
+			await WriteAsync(line).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
 			// The agent is already gone; the pending request fails on its own.
 		}
 	}
 
-	private async Task WriteAsync(object payload) {
+	private async Task WriteAsync(string line) {
 		ObjectDisposedException.ThrowIf(_disposed, this);
-		await _process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(payload)).ConfigureAwait(false);
+		await _process.StandardInput.WriteLineAsync(line).ConfigureAwait(false);
 		await _process.StandardInput.FlushAsync().ConfigureAwait(false);
 	}
 

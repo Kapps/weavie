@@ -4,6 +4,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Inference.Claude;
 
@@ -145,9 +146,9 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		};
 		if (request.Profile.FastMode != InferenceFastMode.Inherit) {
 			arguments.Add("--settings");
-			arguments.Add(JsonSerializer.Serialize(new {
-				fastMode = request.Profile.FastMode == InferenceFastMode.On,
-			}));
+			arguments.Add(JsonSerializer.Serialize(
+				new ClaudeFastModeSettings(request.Profile.FastMode == InferenceFastMode.On),
+				WireJson.Default.ClaudeFastModeSettings));
 		}
 		return arguments;
 	}
@@ -167,3 +168,5 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 
 	private sealed record ClaudeProfile(string Model, string Effort);
 }
+
+internal sealed record ClaudeFastModeSettings(bool FastMode);

@@ -1,5 +1,5 @@
-using Tomlyn;
 using Tomlyn.Model;
+using Weavie.Core.Configuration;
 using Weavie.Core.TestRunning;
 
 namespace Weavie.Core.Workspaces;
@@ -46,8 +46,8 @@ internal static class PythonWorkspacePreset {
 			}
 
 			try {
-				var parsed = Toml.Parse(ctx.FileSystem.ReadAllText(path), path);
-				if (!parsed.HasErrors && ContainsPytest(parsed.ToModel())) {
+				string text = ctx.FileSystem.ReadAllText(path);
+				if (!TomlDocuments.Parse(text, path).HasErrors && ContainsPytest(TomlDocuments.ToModel(text))) {
 					return true;
 				}
 			} catch (IOException) {

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Git;
 using Weavie.Core.Json;
 using Weavie.Core.Workspaces;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -21,7 +22,7 @@ public sealed partial class HostCore {
 			ExcludeGitignored = root.GetBoolOr("excludeGitignored", fallback: true),
 		};
 		string workspaceRoot = session.WorkspaceRoot;
-		var matches = new List<object>();
+		var matches = new List<SearchMatchWire>();
 		bool truncated = false;
 		string? error = null;
 		if (query.Length > 0) {
@@ -31,12 +32,11 @@ public sealed partial class HostCore {
 					.ConfigureAwait(false);
 				truncated = result.Truncated;
 				foreach (var m in result.Matches) {
-					matches.Add(new {
-						path = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(workspaceRoot, m.Path))),
-						line = m.Line,
-						column = m.Column,
-						preview = m.Preview,
-					});
+					matches.Add(new SearchMatchWire(
+						WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(workspaceRoot, m.Path))),
+						m.Line,
+						m.Column,
+						m.Preview));
 				}
 			} catch (GitException ex) {
 				error = ex.Message;
@@ -44,6 +44,10 @@ public sealed partial class HostCore {
 			}
 		}
 
-		return JsonSerializer.SerializeToElement(new { query, matches, truncated, error });
+		return JsonSerializer.SerializeToElement(new SearchResultWire(query, matches, truncated, error), WireJson.Default.SearchResultWire);
 	}
 }
+
+internal sealed record SearchResultWire(string Query, IReadOnlyList<SearchMatchWire> Matches, bool Truncated, string? Error);
+
+internal sealed record SearchMatchWire(string Path, int Line, int Column, string Preview);

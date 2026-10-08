@@ -127,7 +127,7 @@ internal partial class MessageBus {
 					request.Name,
 					error is null
 						? payload
-						: JsonSerializer.SerializeToElement<object?>(null),
+						: MessageEnvelope.NullPayload,
 					error).ToTransportMessage());
 		} catch (Exception ex) {
 			LogDiagnostic(
@@ -145,7 +145,7 @@ internal partial class MessageBus {
 				request.RequestId!,
 				request.Feature,
 				request.Name,
-				JsonSerializer.SerializeToElement<object?>(null),
+				MessageEnvelope.NullPayload,
 				error).ToTransportMessage());
 
 	private void ThrowIfClosed() => ObjectDisposedException.ThrowIf(Closed, this);
@@ -245,8 +245,4 @@ internal partial class MessageBus {
 	private sealed record HandlerResponse(JsonElement Payload, Func<CancellationToken, Task>? AfterResponse);
 
 	private sealed record DispatchCompletion(Func<CancellationToken, Task>? AfterResponse);
-
-	private sealed record NoResponse {
-		public static NoResponse Value { get; } = new();
-	}
 }

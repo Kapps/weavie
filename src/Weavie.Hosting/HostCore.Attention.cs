@@ -15,16 +15,16 @@ public sealed partial class HostCore {
 
 	private void WireSystemNotificationMessages() {
 		_notificationFeature = _messages.Host.Feature("notifications");
-		_notificationFeature.Handle<NotificationEmpty, NotificationPermissionMessage>(
-			"permission",
+		_notificationFeature.Handle(
+			"permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.GetPermissionAsync(ct).ConfigureAwait(false))));
-		_notificationFeature.Handle<NotificationEmpty, NotificationPermissionMessage>(
-			"requestPermission",
+		_notificationFeature.Handle(
+			"requestPermission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.RequestPermissionAsync(ct).ConfigureAwait(false))));
-		_notificationFeature.HandleOwned<NotificationShowMessage, NotificationShownMessage>(
-			"show",
+		_notificationFeature.HandleOwned(
+			"show", WireJson.Default.NotificationShowMessage, WireJson.Default.NotificationShownMessage,
 			ShowSystemNotificationAsync);
 		_platform.Notifications.Activated += OnSystemNotificationActivated;
 		_messages.Host.PeerDisconnected += OnNotificationPeerDisconnected;
@@ -45,11 +45,10 @@ public sealed partial class HostCore {
 	}
 
 	private void PostSessionAttention(HostSession session, AttentionKind kind) {
-		session.Bus.Feature("attention").Publish("raised", new {
-			label = session.DisplayLabel,
-			kind = AttentionRules.WireName(kind),
-			body = AttentionRules.NotificationBody(kind),
-		});
+		session.Bus.Feature("attention").Publish(
+			"raised",
+			WireJson.Default.AttentionRaised,
+			new(session.DisplayLabel, AttentionRules.WireName(kind), AttentionRules.NotificationBody(kind)));
 	}
 
 	private async Task<NotificationShownMessage> ShowSystemNotificationAsync(
@@ -122,10 +121,10 @@ public sealed partial class HostCore {
 		}
 
 		_platform.ActivateWindow(activation.ActivationToken);
-		_notificationFeature.Target(route.Peer).Publish("activated", new {
-			backendId = route.BackendId,
-			address = route.Address,
-		});
+		_notificationFeature.Target(route.Peer).Publish(
+			"activated",
+			WireJson.Default.NotificationActivated,
+			new(route.BackendId, route.Address));
 	}
 
 	private void OnNotificationPeerDisconnected(MessagePeer peer) =>
@@ -203,17 +202,15 @@ public sealed partial class HostCore {
 		_ => throw new ArgumentOutOfRangeException(nameof(permission), permission, "unhandled notification permission"),
 	};
 
-	private sealed record NotificationEmpty;
+	internal sealed record NotificationPermissionMessage(string Permission);
 
-	private sealed record NotificationPermissionMessage(string Permission);
-
-	private sealed record NotificationShowMessage(
+	internal sealed record NotificationShowMessage(
 		string BackendId,
 		SessionAddress Address,
 		string Label,
 		string Kind);
 
-	private sealed record NotificationShownMessage(bool Shown);
+	internal sealed record NotificationShownMessage(bool Shown);
 
 	private sealed record NotificationReplacement(MessagePeer Peer, string BackendId, string Slot);
 
@@ -224,3 +221,7 @@ public sealed partial class HostCore {
 		string BackendId,
 		SessionAddress Address);
 }
+
+internal sealed record AttentionRaised(string Label, string Kind, string Body);
+
+internal sealed record NotificationActivated(string BackendId, SessionAddress Address);

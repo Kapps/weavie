@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.TestRunning;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -78,10 +79,7 @@ public sealed partial class HostCore {
 		if (!shell.Controller.TryWrite(Encoding.UTF8.GetBytes(command + "\r"))) {
 			return CommandResult.Failure("The primary shell terminal exited before the tests could start; reopen it and retry.");
 		}
-		session.View.Feature("view").TryPublish("focusPane", new {
-			kind = "terminal:shell",
-			terminalId = shell.Id,
-		});
+		session.View.Feature("view").TryPublish("focusPane", WireJson.Default.PaneFocus, new("terminal:shell", shell.Id));
 
 		return CommandResult.Success($"Running: {command}");
 	}
@@ -110,13 +108,11 @@ public sealed partial class HostCore {
 
 	/// <summary>The page-bootstrap fragment seeding <c>window.__WEAVIE_TEST_PROFILE__</c> with this workspace's raw test.profile (empty when unset).</summary>
 	public string BuildTestProfileScript() =>
-		"window.__WEAVIE_TEST_PROFILE__ = " + JsonSerializer.Serialize(ResolvedTestProfile()) + ";";
+		"window.__WEAVIE_TEST_PROFILE__ = " + JsonSerializer.Serialize(ResolvedTestProfile(), WireJson.Default.String) + ";";
 
 	// Re-push the workspace's test profile so the page's lens provider refreshes (fired on a test.profile change).
 	private void PushTestProfileToWeb() =>
-		_messages.Host.Feature("tests").Publish(
-			"profile",
-			new { profile = ResolvedTestProfile() });
+		_messages.Host.Feature("tests").Publish("profile", WireJson.Default.TestProfileChanged, new(ResolvedTestProfile()));
 
 	private string ResolvedTestProfile() => _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
 
@@ -128,3 +124,7 @@ public sealed partial class HostCore {
 		return name is "pwsh" or "powershell" ? ShellQuoting.PowerShell : ShellQuoting.Posix;
 	}
 }
+
+internal sealed record PaneFocus(string Kind, string TerminalId);
+
+internal sealed record TestProfileChanged(string Profile);

@@ -7,28 +7,18 @@ namespace Weavie.Core.Layout;
 /// JSON (de)serialization for <see cref="LayoutDocument"/>: camelCase names, indented output, and the
 /// polymorphic node discriminator. The on-disk and wire (web/MCP) formats are identical.
 /// </summary>
-public static class LayoutSerialization {
-	/// <summary>Shared options: camelCase property and enum names, indented output, nulls omitted.</summary>
-	public static JsonSerializerOptions Options { get; } = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true,
-		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-		Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-	};
-
-	// Like Options but not indented — for the host↔web bridge, where the document rides in a single-line
-	// message and newlines would have to be escaped.
-	private static readonly JsonSerializerOptions CompactOptions = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-		Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-	};
-
+public static partial class LayoutSerialization {
 	/// <summary>Serializes a document to indented JSON (the on-disk form).</summary>
-	public static string Serialize(LayoutDocument document) => JsonSerializer.Serialize(document, Options);
+	public static string Serialize(LayoutDocument document) => JsonSerializer.Serialize(document, LayoutDiskJson.Default.LayoutDocument);
 
 	/// <summary>Serializes a document to compact single-line JSON (the bridge wire form).</summary>
-	public static string SerializeCompact(LayoutDocument document) => JsonSerializer.Serialize(document, CompactOptions);
+	public static string SerializeCompact(LayoutDocument document) => JsonSerializer.Serialize(document, LayoutWireJson.Default.LayoutDocument);
+
+	/// <summary>Serializes one layout subtree in the on-disk form.</summary>
+	public static string SerializeNode(LayoutNode node) => JsonSerializer.Serialize(node, LayoutDiskJson.Default.LayoutNode);
+
+	/// <summary>Parses one layout subtree in the on-disk form.</summary>
+	public static LayoutNode? DeserializeNode(string json) => JsonSerializer.Deserialize(json, LayoutDiskJson.Default.LayoutNode);
 
 	/// <summary>
 	/// Parses a document without throwing. Returns <c>false</c> with an <paramref name="error"/> message on
@@ -36,7 +26,7 @@ public static class LayoutSerialization {
 	/// </summary>
 	public static bool TryDeserialize(string json, out LayoutDocument? document, out string? error) {
 		try {
-			document = JsonSerializer.Deserialize<LayoutDocument>(json, Options);
+			document = JsonSerializer.Deserialize(json, LayoutDiskJson.Default.LayoutDocument);
 			if (document?.Root is null) {
 				document = null;
 				error = "layout document was empty or missing its root";
@@ -51,4 +41,19 @@ public static class LayoutSerialization {
 			return false;
 		}
 	}
+
+	// camelCase names, nulls omitted; enums carry their own string converters.
+	[JsonSourceGenerationOptions(
+		PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+		WriteIndented = true,
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+	[JsonSerializable(typeof(LayoutDocument))]
+	private sealed partial class LayoutDiskJson : JsonSerializerContext;
+
+	// Single-line for the host↔web bridge, where newlines would have to be escaped.
+	[JsonSourceGenerationOptions(
+		PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+	[JsonSerializable(typeof(LayoutDocument))]
+	private sealed partial class LayoutWireJson : JsonSerializerContext;
 }

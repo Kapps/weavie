@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	private static readonly object DeferredClientResponse = new();
+	private static readonly JsonObject DeferredClientResponse = [];
 
 	internal void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
@@ -42,7 +43,7 @@ internal sealed partial class AcpConversation {
 				FailClientRequest(state, -32601, $"Unsupported ACP client method '{request.Method}'.", null);
 				return;
 			}
-			object response = request.Method switch {
+			JsonNode? response = request.Method switch {
 				"fs/read_text_file" => ReadTextFile(request),
 				"fs/write_text_file" => WriteTextFile(request),
 				"terminal/create" => await CreateTerminalAsync(request, state.Token).ConfigureAwait(false),
@@ -59,7 +60,7 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private void CompleteClientResponse(AcpClientRequestState state, object response) {
+	private void CompleteClientResponse(AcpClientRequestState state, JsonNode? response) {
 		if (ReferenceEquals(response, DeferredClientResponse)) return;
 		state.Token.ThrowIfCancellationRequested();
 		CompleteClientRequest(state, response);
@@ -91,7 +92,7 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private object ReadTextFile(AcpClientRequest request) {
+	private JsonObject ReadTextFile(AcpClientRequest request) {
 		string path = RequestedPath(request.Parameters);
 		string content = _context.FileSystem.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
 		int line = ReadOptionalNonNegativeInt(request.Parameters, "line") ?? 1;
@@ -100,10 +101,10 @@ internal sealed partial class AcpConversation {
 		string[] lines = content.Split('\n');
 		int start = Math.Min(line - 1, lines.Length);
 		int count = Math.Min(limit ?? lines.Length, lines.Length - start);
-		return new { content = string.Join('\n', lines, start, count) };
+		return new() { ["content"] = string.Join('\n', lines, start, count) };
 	}
 
-	private object WriteTextFile(AcpClientRequest request) {
+	private JsonObject WriteTextFile(AcpClientRequest request) {
 		string path = RequestedPath(request.Parameters);
 		string content = RequiredText(request.Parameters, "content", "fs/write_text_file request");
 		var mutation = new AgentMutation.File(path, null, ProvidesEditLocation: true);
@@ -113,7 +114,7 @@ internal sealed partial class AcpConversation {
 		} finally {
 			Observe(new AgentToolCompleted(mutation));
 		}
-		return new { };
+		return [];
 	}
 
 	private static string RequestedPath(JsonElement parameters) {
@@ -124,40 +125,40 @@ internal sealed partial class AcpConversation {
 		return Path.GetFullPath(path);
 	}
 
-	private async Task<object> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
+	private async Task<JsonObject> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
 		string terminalId = await _terminals.CreateAsync(request.Parameters, ct).ConfigureAwait(false);
-		return new { terminalId };
+		return new() { ["terminalId"] = terminalId };
 	}
 
-	private object TerminalOutput(AcpClientRequest request) {
+	private JsonObject TerminalOutput(AcpClientRequest request) {
 		var output = _terminals.Output(RequiredString(request.Parameters, "terminalId", "terminal/output request"));
-		return new {
-			output = output.Output,
-			truncated = output.Truncated,
-			exitStatus = ExitStatus(output.ExitStatus),
+		return new() {
+			["output"] = output.Output,
+			["truncated"] = output.Truncated,
+			["exitStatus"] = ExitStatus(output.ExitStatus),
 		};
 	}
 
-	private async Task<object> WaitForTerminalAsync(AcpClientRequest request, CancellationToken ct) {
+	private async Task<JsonObject?> WaitForTerminalAsync(AcpClientRequest request, CancellationToken ct) {
 		var status = await _terminals.WaitAsync(
 			RequiredString(request.Parameters, "terminalId", "terminal/wait_for_exit request"),
 			ct).ConfigureAwait(false);
-		return ExitStatus(status)!;
+		return ExitStatus(status);
 	}
 
-	private object KillTerminal(AcpClientRequest request) {
+	private JsonObject KillTerminal(AcpClientRequest request) {
 		_terminals.Kill(RequiredString(request.Parameters, "terminalId", "terminal/kill request"));
-		return new { };
+		return [];
 	}
 
-	private async Task<object> ReleaseTerminalAsync(AcpClientRequest request, CancellationToken ct) {
+	private async Task<JsonObject> ReleaseTerminalAsync(AcpClientRequest request, CancellationToken ct) {
 		await _terminals.ReleaseAsync(
 			RequiredString(request.Parameters, "terminalId", "terminal/release request"),
 			ct).ConfigureAwait(false);
-		return new { };
+		return [];
 	}
 
-	private void CompleteClientRequest(AcpClientRequestState state, object result) {
+	private void CompleteClientRequest(AcpClientRequestState state, JsonNode? result) {
 		if (!state.TryComplete()) return;
 		RespondToCompletedClientRequest(state, result, errorCode: null, errorMessage: null, errorData: null);
 	}
@@ -166,7 +167,7 @@ internal sealed partial class AcpConversation {
 		AcpClientRequestState state,
 		int code,
 		string message,
-		object? data) {
+		JsonNode? data) {
 		if (!state.TryComplete()) return false;
 		RespondToCompletedClientRequest(state, result: null, code, message, data);
 		return true;
@@ -174,10 +175,10 @@ internal sealed partial class AcpConversation {
 
 	private void RespondToCompletedClientRequest(
 		AcpClientRequestState state,
-		object? result,
+		JsonNode? result,
 		int? errorCode,
 		string? errorMessage,
-		object? errorData) {
+		JsonNode? errorData) {
 		_clientRequests.TryRemove(state.Request.Id, out _);
 		_pendingRequests.TryRemove(state.Request.Id, out _);
 		if (OptionalString(state.Request.Parameters, "mode") == "url"
@@ -194,7 +195,7 @@ internal sealed partial class AcpConversation {
 						errorMessage!,
 						errorData).ConfigureAwait(false);
 				} else {
-					await _endpoint.Value.RespondAsync(state.Request, result!).ConfigureAwait(false);
+					await _endpoint.Value.RespondAsync(state.Request, result).ConfigureAwait(false);
 				}
 			} finally {
 				state.Dispose();
@@ -252,7 +253,7 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	private static object? ExitStatus(AcpTerminalExit? status) => status is null
+	private static JsonObject? ExitStatus(AcpTerminalExit? status) => status is null
 		? null
-		: new { exitCode = status.ExitCode, signal = status.Signal };
+		: new() { ["exitCode"] = status.ExitCode, ["signal"] = status.Signal };
 }

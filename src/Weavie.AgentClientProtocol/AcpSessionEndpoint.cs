@@ -25,36 +25,34 @@ internal sealed class AcpSessionEndpoint(
 		SessionId = sessionId;
 	}
 
-	internal Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) =>
+	internal Task<JsonElement> RequestAsync(string method, JsonObject parameters, CancellationToken ct) =>
 		connection.RequestForEndpointAsync(method, Address(parameters), this, generation, null, ct);
-	internal Task NotifyAsync(string method, object parameters) =>
+	internal Task NotifyAsync(string method, JsonObject parameters) =>
 		connection.NotifyAsync(method, Address(parameters), generation);
 	internal Task<JsonElement> AuthenticateAsync(string methodId, CancellationToken ct) =>
-		connection.RequestForEndpointAsync("authenticate", Parameters(new { methodId }), this, generation, null, ct);
-	internal Task<JsonElement> CreateAsync(object parameters) =>
+		connection.RequestForEndpointAsync("authenticate", Parameters(new JsonObject { ["methodId"] = methodId }), this, generation, null, ct);
+	internal Task<JsonElement> CreateAsync(JsonObject parameters) =>
 		connection.CreateForEndpointAsync("session/new", Parameters(parameters), this, generation);
-	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, object parameters) {
+	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, JsonObject parameters) {
 		ObjectDisposedException.ThrowIf(_retired, this);
 		return connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this, generation);
 	}
 	internal Task<JsonElement> CloseAsync() {
 		Retire();
 		return connection.RequestForEndpointAsync(
-			"session/close", new { sessionId = SessionId }, this, generation, null, CancellationToken.None);
+			"session/close", new JsonObject { ["sessionId"] = SessionId }, this, generation, null, CancellationToken.None);
 	}
 
-	private JsonObject Address(object parameters) {
+	private JsonObject Address(JsonObject parameters) {
 		var value = Parameters(parameters);
 		value.Add("sessionId", SessionId ?? throw new AcpProtocolException("The ACP conversation has not opened."));
 		return value;
 	}
 
-	private JsonObject Parameters(object parameters) {
+	private JsonObject Parameters(JsonObject parameters) {
 		ObjectDisposedException.ThrowIf(_retired, this);
-		var value = JsonSerializer.SerializeToNode(parameters) as JsonObject
-			?? throw new ArgumentException("ACP parameters must be an object.", nameof(parameters));
-		if (value.ContainsKey("sessionId")) throw new ArgumentException("The endpoint supplies its own sessionId.", nameof(parameters));
-		return value;
+		if (parameters.ContainsKey("sessionId")) throw new ArgumentException("The endpoint supplies its own sessionId.", nameof(parameters));
+		return parameters;
 	}
 
 	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) {
@@ -66,8 +64,8 @@ internal sealed class AcpSessionEndpoint(
 	internal void Terminate(string reason) => connection.TerminateGeneration(generation, reason);
 
 	// Responses answer the agent's own requests, so they still go out after retirement.
-	internal Task RespondAsync(AcpClientRequest value, object result) => connection.RespondAsync(value, result);
-	internal Task RespondErrorAsync(AcpClientRequest value, int code, string message, object? data) =>
+	internal Task RespondAsync(AcpClientRequest value, JsonNode? result) => connection.RespondAsync(value, result);
+	internal Task RespondErrorAsync(AcpClientRequest value, int code, string message, JsonNode? data) =>
 		connection.RespondErrorAsync(value, code, message, data);
 	internal void Reject(AcpClientRequest value) => connection.RejectClosedRequest(value);
 

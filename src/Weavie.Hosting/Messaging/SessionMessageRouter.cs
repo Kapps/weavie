@@ -61,7 +61,7 @@ internal sealed class SessionMessageRouter : IAsyncDisposable {
 					envelope.RequestId!,
 					envelope.Feature,
 					envelope.Name,
-					JsonSerializer.SerializeToElement<object?>(null),
+					MessageEnvelope.NullPayload,
 					"The target session is not live.").ToTransportMessage());
 		} else {
 			_diagnostics.Report(

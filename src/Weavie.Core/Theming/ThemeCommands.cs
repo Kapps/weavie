@@ -198,10 +198,8 @@ public static class ThemeCommands {
 	private static string ActiveThemeId(SettingsStore settings) =>
 		ThemeSettings.ResolveActiveThemeId(settings);
 
-	private static void SetString(SettingsStore settings, string key, string value) {
-		using var doc = JsonDocument.Parse(JsonSerializer.Serialize(value));
-		settings.Set(key, doc.RootElement);
-	}
+	private static void SetString(SettingsStore settings, string key, string value) =>
+		settings.Set(key, JsonSerializer.SerializeToElement(value, CoreJson.Default.String));
 
 	// Parses the runCommand args object into a document to read string props from. Returns null on
 	// absent/invalid input; disposing a null `using` is a no-op.

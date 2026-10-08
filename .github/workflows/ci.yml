@@ -195,15 +195,21 @@ jobs:
       - uses: ./temp/workflow/.github/actions/setup-web
         with:
           cache-write: ${{ !inputs.ref }}
-      - run: corepack pnpm install --frozen-lockfile
+      # Flake 2026-10-01 07:03 UTC (https://github.com/Kapps/weavie/actions/runs/36827937474, macOS):
+      # `corepack pnpm` re-downloaded pnpm from registry.npmjs.org (connect timeout) although
+      # pnpm/action-setup had already installed it. Use the installed pnpm; no network fetch.
+      - run: pnpm install --frozen-lockfile
         working-directory: src/web
 
       - name: Restore
         run: dotnet restore ${{ matrix.platform.restore }}
 
+      # macOS ships a Native AOT publish, so the desktop tests below run that bundle, not a CoreCLR build.
       - name: Build
+        shell: bash
         run: |
-          dotnet build ${{ matrix.platform.project }} -c Release
+          if [[ "${{ matrix.platform.name }}" == macos ]]; then verb=publish; else verb=build; fi
+          dotnet "$verb" ${{ matrix.platform.project }} -c Release
           dotnet build tools/Weavie.FakeClaude
           dotnet build tools/Weavie.FakeAcp
 
@@ -213,7 +219,7 @@ jobs:
         run: |
           prefix=()
           if [[ "${{ matrix.platform.name }}" == linux ]]; then prefix=(dbus-run-session -- xvfb-run -a); fi
-          "${prefix[@]}" corepack pnpm exec playwright test -c e2e/desktop/desktop.config.ts
+          "${prefix[@]}" pnpm exec playwright test -c e2e/desktop/desktop.config.ts
 
       - uses: actions/upload-artifact@v4
         if: always()

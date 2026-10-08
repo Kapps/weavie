@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Sources;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -46,10 +47,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void PromptConnectNotion(HostSession session) {
 		_ui.Post(() => _platform.OpenExternalUrl(_sources.SetupUrlFor(NotionSource.SourceId)));
-		session.State.Set("sources", "tokenPrompt", "promptToken", new {
-			sourceId = NotionSource.SourceId,
-			label = "Notion",
-		});
+		session.State.Set("sources", "tokenPrompt", "promptToken", WireJson.Default.SourceTokenPrompt, new(NotionSource.SourceId, "Notion"));
 	}
 
 	/// <summary>
@@ -95,7 +93,7 @@ public sealed partial class HostCore {
 		_pendingSources.TryRemove(session.Address, out _);
 	}
 
-	private sealed record SourceTokenResult(bool Ok, string Error);
+	internal sealed record SourceTokenResult(bool Ok, string Error);
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
@@ -109,11 +107,7 @@ public sealed partial class HostCore {
 		string target,
 		string sourceId,
 		CancellationToken ct) {
-		session.State.Set("sources", target, "loading", new {
-			target,
-			title = GuessSourceTitle(target),
-			sourceId,
-		});
+		session.State.Set("sources", target, "loading", WireJson.Default.SourceLoading, new(target, GuessSourceTitle(target), sourceId));
 		SourceDoc doc;
 		try {
 			doc = await _sources.FetchAsync(target, ct).ConfigureAwait(false);
@@ -123,10 +117,7 @@ public sealed partial class HostCore {
 			// The spinner is already up, so EVERY failure must resolve it — not just the http/cancel set: a non-JSON
 			// 200 (proxy / captive-portal / incident HTML) throws JsonException deeper in, and this is fire-and-forget,
 			// so anything uncaught would leave the tab spinning forever. Surfaced loudly in the tab, never swallowed.
-			session.State.Set("sources", target, "error", new {
-				target,
-				message = ex.Message,
-			});
+			session.State.Set("sources", target, "error", WireJson.Default.SourceLoadError, new(target, ex.Message));
 			return;
 		}
 
@@ -136,17 +127,16 @@ public sealed partial class HostCore {
 	// The one session event for a fetched/updated SourceDoc — fetch and save both land here, so the web's
 	// store always sees the same shape (including the loss flags its banner renders).
 	private static void PostSourceDoc(HostSession session, string target, string sourceId, SourceDoc doc, string editId) =>
-		session.State.SetVersioned("sources", target, "document", revision => new {
+		session.State.SetVersioned("sources", target, "document", WireJson.Default.SourceDocument, revision => new(
 			target,
-			title = doc.Title,
-			markdown = doc.Markdown,
+			doc.Title,
+			doc.Markdown,
 			editId,
 			revision,
-			editedTime = doc.EditedTime,
+			doc.EditedTime,
 			sourceId,
-			truncated = doc.Truncated,
-			unknownBlocks = doc.UnknownBlocks,
-		});
+			doc.Truncated,
+			doc.UnknownBlocks));
 
 	/// <summary>
 	/// Applies one block edit (the <c>source-save-edit</c> message: an exact-match old/new pair the web diffed
@@ -180,12 +170,7 @@ public sealed partial class HostCore {
 		string editId,
 		string message,
 		bool stale) =>
-		session.Bus.Feature("sources").Publish("editError", new {
-			target,
-			message,
-			editId,
-			stale,
-		});
+		session.Bus.Feature("sources").Publish("editError", WireJson.Default.SourceEditError, new(target, message, editId, stale));
 
 	// A best-effort tab label from a source URL's slug, shown while the real title loads: the last path segment with
 	// a trailing 32-hex id stripped and dashes spaced (…/Test-Page-38e5…0055 → "Test Page"); "Notion" when there's none.
@@ -203,3 +188,22 @@ public sealed partial class HostCore {
 		return name.Length > 0 ? name : "Notion";
 	}
 }
+
+internal sealed record SourceEditError(string Target, string Message, string EditId, bool Stale);
+
+internal sealed record SourceTokenPrompt(string SourceId, string Label);
+
+internal sealed record SourceLoading(string Target, string Title, string SourceId);
+
+internal sealed record SourceLoadError(string Target, string Message);
+
+internal sealed record SourceDocument(
+	string Target,
+	string Title,
+	string Markdown,
+	string EditId,
+	long Revision,
+	string EditedTime,
+	string SourceId,
+	bool Truncated,
+	int UnknownBlocks);

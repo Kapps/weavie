@@ -1,19 +1,20 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Agents;
 
 /// <summary>Builds provider-neutral native agent pane payloads.</summary>
 internal static class AgentPaneProtocol {
-	public static object Message(AgentPaneRecord record) {
+	public static AgentPaneWire Message(AgentPaneRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
 		return Body(record, outputDeferred: false);
 	}
 
 	/// <summary>Builds one coalesced live-update payload.</summary>
-	public static object Batch(IReadOnlyList<AgentPaneRecord> messages) {
+	public static AgentPaneBatch Batch(IReadOnlyList<AgentPaneRecord> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
-		return new { messages = messages.Select(Message) };
+		return new([.. messages.Select(Message)]);
 	}
 
 	internal static async Task WriteHistoryAsync(AgentPaneHistory history, Stream output, CancellationToken ct) {
@@ -25,97 +26,113 @@ internal static class AgentPaneProtocol {
 		await WriteBatchAsync([], true).ConfigureAwait(false);
 
 		async Task WriteBatchAsync(IEnumerable<AgentPaneRecord> records, bool complete) {
-			await JsonSerializer.SerializeAsync(output, new {
-				generation = history.Generation,
-				revision = history.Revision,
-				count = history.Messages.Count,
-				messages = records.Select(HistoryBody),
-				complete,
-			}, cancellationToken: ct).ConfigureAwait(false);
+			await JsonSerializer.SerializeAsync(
+				output,
+				new AgentPaneHistoryBatch(
+					history.Generation,
+					history.Revision,
+					history.Messages.Count,
+					[.. records.Select(HistoryBody)],
+					complete),
+				WireJson.Default.AgentPaneHistoryBatch,
+				ct).ConfigureAwait(false);
 			await output.WriteAsync("\n"u8.ToArray(), ct).ConfigureAwait(false);
 			await output.FlushAsync(ct).ConfigureAwait(false);
 		}
 	}
 
 	// Completed tool output only renders once expanded, so history leaves it for the `toolOutput` request.
-	private static object HistoryBody(AgentPaneRecord record) =>
+	private static AgentPaneWire HistoryBody(AgentPaneRecord record) =>
 		record.Message is { Type: "item-completed", ItemType: "tool" } tool && (tool.Text is not null || tool.Content is { Count: > 0 })
 			? Body(record with { Message = tool with { Text = null, Content = null } }, outputDeferred: true)
 			: Body(record, outputDeferred: false);
 
-	private static object Body(AgentPaneRecord record, bool outputDeferred) => new {
-		generation = record.Generation,
-		ordinal = record.Ordinal,
-		revision = record.Revision,
-		outputDeferred,
-		textOffset = 0,
-		textLength = record.Message.Text?.Length ?? 0,
-		type = record.Message.Type,
-		providerId = record.Message.ProviderId,
-		threadId = record.Message.ThreadId,
-		isPrimaryThread = record.Message.IsPrimaryThread,
-		conversationId = record.Message.ConversationId,
-		anchorTurnId = record.Message.AnchorTurnId,
-		turnId = record.Message.TurnId,
-		startedAtMs = record.Message.StartedAtMs,
-		itemId = record.Message.ItemId,
-		requestId = record.Message.RequestId,
-		itemType = record.Message.ItemType,
-		itemIds = record.Message.ItemIds,
-		category = record.Message.Category,
-		summary = record.Message.Summary,
-		text = record.Message.Text,
-		status = record.Message.Status,
-		questions = record.Message.Questions?.Select(question => new {
-			id = question.Id,
-			header = question.Header,
-			question = question.Question,
-			allowsOther = question.AllowsOther,
-			kind = question.Kind,
-			required = question.Required,
-			format = question.Format,
-			initialValues = question.InitialValues,
-			minimum = question.Minimum,
-			maximum = question.Maximum,
-			minimumLength = question.MinimumLength,
-			maximumLength = question.MaximumLength,
-			pattern = question.Pattern,
-			options = question.Options.Select(option => new {
-				value = option.Value,
-				label = option.Label,
-				description = option.Description,
-			}),
-		}),
-		answers = record.Message.Answers,
-		actions = record.Message.Actions?.Select(action => new {
-			id = action.Id,
-			label = action.Label,
-			kind = action.Kind,
-		}),
-		locations = record.Message.Locations?.Select(location => new {
-			path = location.Path,
-			line = location.Line,
-		}),
-		diffs = record.Message.Diffs?.Select(diff => new {
-			path = diff.Path,
-		}),
-		content = record.Message.Content?.Select(content => new {
-			type = content.Type,
-			text = content.Text,
-			mediaType = content.MediaType,
-			mediaData = content.MediaData,
-			resourceUri = content.ResourceUri,
-			name = content.Name,
-		}),
-		parentItemId = record.Message.ParentItemId,
-		background = record.Message.Background,
-		terminalId = record.Message.TerminalId,
-		mediaType = record.Message.MediaType,
-		mediaData = record.Message.MediaData,
-		resourceUri = record.Message.ResourceUri,
-	};
-
+	private static AgentPaneWire Body(AgentPaneRecord record, bool outputDeferred) {
+		var message = record.Message;
+		return new(
+			record.Generation,
+			record.Ordinal,
+			record.Revision,
+			outputDeferred,
+			0,
+			message.Text?.Length ?? 0,
+			message.Type,
+			message.ProviderId,
+			message.ThreadId,
+			message.IsPrimaryThread,
+			message.ConversationId,
+			message.AnchorTurnId,
+			message.TurnId,
+			message.StartedAtMs,
+			message.ItemId,
+			message.RequestId,
+			message.ItemType,
+			message.ItemIds,
+			message.Category,
+			message.Summary,
+			message.Text,
+			message.Status,
+			message.Questions,
+			message.Answers,
+			message.Actions,
+			message.Locations,
+			message.Diffs?.Select(diff => new AgentPaneDiffPath(diff.Path)).ToArray(),
+			message.Content,
+			message.ParentItemId,
+			message.Background,
+			message.TerminalId,
+			message.MediaType,
+			message.MediaData,
+			message.ResourceUri);
+	}
 }
+
+internal sealed record AgentPaneWire(
+	long Generation,
+	long Ordinal,
+	long Revision,
+	bool OutputDeferred,
+	int TextOffset,
+	int TextLength,
+	string Type,
+	string ProviderId,
+	string? ThreadId,
+	bool? IsPrimaryThread,
+	string? ConversationId,
+	string? AnchorTurnId,
+	string? TurnId,
+	long? StartedAtMs,
+	string? ItemId,
+	string? RequestId,
+	string? ItemType,
+	IReadOnlyList<string>? ItemIds,
+	string? Category,
+	string? Summary,
+	string? Text,
+	string? Status,
+	IReadOnlyList<AgentInputQuestion>? Questions,
+	IReadOnlyDictionary<string, IReadOnlyList<string>>? Answers,
+	IReadOnlyList<AgentActionOption>? Actions,
+	IReadOnlyList<AgentPaneLocation>? Locations,
+	IReadOnlyList<AgentPaneDiffPath>? Diffs,
+	IReadOnlyList<AgentPaneContent>? Content,
+	string? ParentItemId,
+	bool? Background,
+	string? TerminalId,
+	string? MediaType,
+	string? MediaData,
+	string? ResourceUri);
+
+internal sealed record AgentPaneDiffPath(string Path);
+
+internal sealed record AgentPaneBatch(IReadOnlyList<AgentPaneWire> Messages);
+
+internal sealed record AgentPaneHistoryBatch(
+	long Generation,
+	long Revision,
+	int Count,
+	IReadOnlyList<AgentPaneWire> Messages,
+	bool Complete);
 
 internal sealed record AgentPaneRecord(
 	long Generation,

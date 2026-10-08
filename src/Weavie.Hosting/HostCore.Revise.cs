@@ -37,7 +37,7 @@ public sealed partial class HostCore {
 			ct));
 	}
 
-	private sealed record ReviseStartMessage(
+	internal sealed record ReviseStartMessage(
 		string Path,
 		int StartLine,
 		int EndLineExclusive,

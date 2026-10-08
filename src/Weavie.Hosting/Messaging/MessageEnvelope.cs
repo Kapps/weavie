@@ -23,6 +23,9 @@ internal sealed record MessageEnvelope(
 	string Name,
 	JsonElement Payload,
 	string? Error) {
+	/// <summary>The JSON <c>null</c> payload carried by cancels and failed responses.</summary>
+	public static readonly JsonElement NullPayload = JsonDocument.Parse("null").RootElement;
+
 	public static MessageEnvelope Event(
 		MessageScope scope,
 		SessionAddress? session,
@@ -63,7 +66,7 @@ internal sealed record MessageEnvelope(
 			requestId,
 			feature,
 			name,
-			JsonSerializer.SerializeToElement<object?>(null),
+			NullPayload,
 			null);
 
 	public static MessageEnvelope SessionEvent(
@@ -163,22 +166,17 @@ internal sealed record MessageEnvelope(
 		}
 	}
 
-	public string ToJson() {
-		var wire = new {
-			scope = ScopeName(Scope),
-			session = Session is null ? null : new {
-				slot = Session.Slot,
-				incarnation = Session.Incarnation,
-			},
-			kind = KindName(Kind),
-			requestId = RequestId,
-			feature = Feature,
-			name = Name,
-			payload = Payload,
-			error = Error,
-		};
-		return JsonSerializer.Serialize(wire);
-	}
+	public string ToJson() => JsonSerializer.Serialize(
+		new WireEnvelope(
+			ScopeName(Scope),
+			Session is null ? null : new WireSession(Session.Slot, Session.Incarnation),
+			KindName(Kind),
+			RequestId,
+			Feature,
+			Name,
+			Payload,
+			Error),
+		WireJson.Default.WireEnvelope);
 
 	public WebTransportMessage ToTransportMessage() => new(
 		new WebMessageRoute(Session?.Slot ?? string.Empty, Session?.Incarnation ?? string.Empty, Feature),
@@ -252,3 +250,15 @@ internal sealed record MessageEnvelope(
 		return value.Length > 0;
 	}
 }
+
+internal sealed record WireSession(string Slot, string Incarnation);
+
+internal sealed record WireEnvelope(
+	string Scope,
+	WireSession? Session,
+	string Kind,
+	string? RequestId,
+	string Feature,
+	string Name,
+	JsonElement Payload,
+	string? Error);

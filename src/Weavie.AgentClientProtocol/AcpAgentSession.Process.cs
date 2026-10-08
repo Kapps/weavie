@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 
@@ -119,21 +120,18 @@ public sealed partial class AcpAgentSession {
 	private async Task InitializeAsync(AcpConversation conversation, long generation) {
 		var features = AcpAgentFeatures.Read(await _connection.RequestAsync(
 			"initialize",
-			new {
-				protocolVersion = 1,
-				clientCapabilities = new {
-					auth = new { terminal = true },
-					fs = new { readTextFile = true, writeTextFile = true },
-					plan = new { },
-					terminal = true,
-					session = new { configOptions = new { boolean = new { } } },
-					elicitation = new { form = new { }, url = new { } },
+			new JsonObject {
+				["protocolVersion"] = 1,
+				["clientCapabilities"] = new JsonObject {
+					["auth"] = new JsonObject { ["terminal"] = true },
+					["fs"] = new JsonObject { ["readTextFile"] = true, ["writeTextFile"] = true },
+					["plan"] = new JsonObject(),
+					["terminal"] = true,
+					["session"] = AcpInferenceClient.SessionCapabilities(),
+					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
 				},
-				clientInfo = new {
-					name = "weavie",
-					title = "Weavie",
-					version = _context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture),
-				},
+				["clientInfo"] = AcpInferenceClient.ClientInfo(
+					_context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture)),
 			},
 			generation,
 			CancellationToken.None).ConfigureAwait(false));

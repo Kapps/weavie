@@ -21,9 +21,7 @@ public sealed record SearchState {
 /// (mirrors <see cref="Sessions.RailStateStore"/>). The current search term is deliberately NOT persisted —
 /// only the history is. A malformed file is backed up to <c>search-state.json.bad</c> and reset.
 /// </summary>
-public sealed class SearchStateStore : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
+public sealed partial class SearchStateStore : JsonDocumentStore {
 	private Document _doc = new();
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/search-state.json</c>), loading it now.</summary>
@@ -75,10 +73,10 @@ public sealed class SearchStateStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) =>
-		_doc = (text is null ? null : JsonSerializer.Deserialize<Document>(text))?.Sanitized() ?? new Document();
+		_doc = (text is null ? null : JsonSerializer.Deserialize(text, SearchStateStoreJson.Default.Document))?.Sanitized() ?? new Document();
 
 	/// <inheritdoc/>
-	protected override string Render() => JsonSerializer.Serialize(_doc with { Version = 1 }, JsonOptions);
+	protected override string Render() => JsonSerializer.Serialize(_doc with { Version = 1 }, SearchStateStoreJson.Default.Document);
 
 	// The on-disk shape. Options are flattened (not a nested GrepOptions) so the JSON stays a flat, hand-editable
 	// document; excludeGitignored defaults true so a partial file keeps the sensible default.
@@ -96,16 +94,16 @@ public sealed class SearchStateStore : JsonDocumentStore {
 		public bool Regex { get; init; }
 
 		[JsonPropertyName("excludeGitignored")]
-		public bool ExcludeGitignored { get; init; } = true;
+		public bool ExcludeGitignored { get; set; } = true;
 
 		[JsonPropertyName("include")]
-		public string Include { get; init; } = "";
+		public string Include { get; set; } = "";
 
 		[JsonPropertyName("exclude")]
-		public string Exclude { get; init; } = "";
+		public string Exclude { get; set; } = "";
 
 		[JsonPropertyName("recentTerms")]
-		public IReadOnlyList<string> RecentTerms { get; init; } = [];
+		public IReadOnlyList<string> RecentTerms { get; set; } = [];
 
 		// Coalesce nulls a hand-edited file can introduce (JSON null on a reference field), so a bad edit resets
 		// to sane values rather than throwing out of the constructor past the malformed-file guard.
@@ -136,4 +134,8 @@ public sealed class SearchStateStore : JsonDocumentStore {
 			RecentTerms = [.. RecentTerms],
 		};
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class SearchStateStoreJson : JsonSerializerContext;
 }

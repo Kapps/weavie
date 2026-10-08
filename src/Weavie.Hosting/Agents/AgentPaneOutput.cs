@@ -71,7 +71,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 						break;
 					case ResetCommand:
 						Discard();
-						_broadcast.Publish("paneReset", new { });
+						_broadcast.Publish("paneReset", WireJson.Default.EmptyPayload, EmptyPayload.Value);
 						break;
 					case FlushCommand flush when flush.Version == _flushVersion:
 						Flush();
@@ -118,9 +118,9 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 		_buffer.Clear();
 		_flushVersion++;
 		if (batch.Length == 1) {
-			_broadcast.Publish("pane", AgentPaneProtocol.Message(batch[0]));
+			_broadcast.Publish("pane", WireJson.Default.AgentPaneWire, AgentPaneProtocol.Message(batch[0]));
 		} else {
-			_broadcast.Publish("paneBatch", AgentPaneProtocol.Batch(batch));
+			_broadcast.Publish("paneBatch", WireJson.Default.AgentPaneBatch, AgentPaneProtocol.Batch(batch));
 		}
 	}
 

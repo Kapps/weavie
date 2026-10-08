@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Diagnostics;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -26,29 +27,29 @@ public sealed partial class HostCore {
 		// snapshot is already in hand, so the tab arrives titled and populated with no `loading` state to resolve.
 		// State (not a bare publish) so a reconnecting client replays it into the still-open tab. Claude's
 		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		session.State.SetVersioned("sources", LogsTarget, "document", revision => new {
-			target = LogsTarget,
+		session.State.SetVersioned("sources", LogsTarget, "document", WireJson.Default.LogsDocument, revision => new(
+			LogsTarget,
 			revision,
-			editId = string.Empty,
-			title = LogsTitle,
-			html = (_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
+			string.Empty,
+			LogsTitle,
+			(_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
 				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Persistent logging error: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
 				+ LogsHtml(string.Join('\n', lines), dropped),
-			editedTime = "",
-			sourceId = LogsSourceId,
-		});
+			string.Empty,
+			LogsSourceId));
 		session.OpenEditorOverlay(LogsTarget, "source");
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
 		int shown = Math.Min(lines.Count, LogTailForClaude);
 		int omitted = dropped + (lines.Count - shown);
-		string dataJson = JsonSerializer.Serialize(new {
-			log = string.Join('\n', lines.Skip(lines.Count - shown)),
-			shown,
-			omitted,
-			file = _logBuffer.PersistentFile,
-			persistenceFailure = _logBuffer.PersistenceFailure,
-		});
+		string dataJson = JsonSerializer.Serialize(
+			new LogsData(
+				string.Join('\n', lines.Skip(lines.Count - shown)),
+				shown,
+				omitted,
+				_logBuffer.PersistentFile,
+				_logBuffer.PersistenceFailure),
+			WireJson.Default.LogsData);
 		string omittedNote = omitted > 0 ? $", {omitted} earlier omitted" : string.Empty;
 		return CommandResult.Success($"Opened the Weavie logs ({shown} most-recent line(s){omittedNote}).", dataJson);
 	}
@@ -62,3 +63,14 @@ public sealed partial class HostCore {
 		return $"{marker}<pre>{WebUtility.HtmlEncode(full)}</pre>";
 	}
 }
+
+internal sealed record LogsDocument(
+	string Target,
+	long Revision,
+	string EditId,
+	string Title,
+	string Html,
+	string EditedTime,
+	string SourceId);
+
+internal sealed record LogsData(string Log, int Shown, int Omitted, string File, string PersistenceFailure);

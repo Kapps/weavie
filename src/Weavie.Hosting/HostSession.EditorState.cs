@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Editor;
 using Weavie.Hosting.Messaging;
 
@@ -48,31 +49,31 @@ public sealed partial class HostSession {
 	internal void OpenEditorOverlay(string path, string kind) => PublishEditorEdit(
 		current => WithOpen(current, path, preview: false, scratch: false, kind),
 		"openOverlay",
-		revision => new { path, kind, revision });
+		WireJson.Default.EditorOverlayOpened,
+		revision => new(path, kind, revision));
 
 	private void PublishEditorFileOpen(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
 		PublishEditorEdit(
 			current => WithOpen(current, path, preview, scratch, kind: null),
 			"openFile",
-			revision => new {
-				path,
-				line,
-				preview,
-				scratch,
-				intent = intent == EditorOpenIntent.Reveal ? "reveal" : "navigation",
-				revision,
-			});
+			WireJson.Default.EditorFileOpened,
+			revision => new(path, line, preview, scratch, intent == EditorOpenIntent.Reveal ? "reveal" : "navigation", revision));
 
 	private void PublishEditorClose(string path) => PublishEditorEdit(
 		current => WithClosed(current, path),
 		"closeTab",
-		revision => new { path, revision });
+		WireJson.Default.EditorTabClosed,
+		revision => new(path, revision));
 
-	private void PublishEditorEdit(Func<EditorSession, EditorSession?> edit, string name, Func<long, object> payload) {
+	private void PublishEditorEdit<T>(
+		Func<EditorSession, EditorSession?> edit,
+		string name,
+		JsonTypeInfo<T> type,
+		Func<long, T> payload) {
 		lock (_editorSessionGate) {
 			if (edit(_editorSession) is not { } next) return;
 			_editorSession = next;
-			_editorMessages.Publish(name, payload(++_editorRevision));
+			_editorMessages.Publish(name, type, payload(++_editorRevision));
 			EditorSessionChanged?.Invoke(next);
 		}
 	}
@@ -133,3 +134,9 @@ public sealed partial class HostSession {
 				? StringComparison.OrdinalIgnoreCase
 				: StringComparison.Ordinal);
 }
+
+internal sealed record EditorOverlayOpened(string Path, string Kind, long Revision);
+
+internal sealed record EditorFileOpened(string Path, int? Line, bool Preview, bool Scratch, string Intent, long Revision);
+
+internal sealed record EditorTabClosed(string Path, long Revision);

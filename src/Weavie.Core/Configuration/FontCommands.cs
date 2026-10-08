@@ -52,8 +52,9 @@ public static class FontCommands {
 	private static CommandResult Reset(SettingsStore settings) {
 		try {
 			var shadows = new List<string>();
-			using var doc = JsonDocument.Parse(JsonSerializer.Serialize(FontSettings.DefaultSize));
-			AddShadow(shadows, settings.Set(FontSettings.GlobalSize, doc.RootElement).ShadowedByEnv);
+			AddShadow(
+				shadows,
+				settings.Set(FontSettings.GlobalSize, JsonSerializer.SerializeToElement(FontSettings.DefaultSize, CoreJson.Default.Int64)).ShadowedByEnv);
 			foreach (string key in OverrideKeys) {
 				AddShadow(shadows, settings.Clear(key).ShadowedByEnv);
 			}
@@ -76,8 +77,7 @@ public static class FontCommands {
 			return;
 		}
 
-		using var doc = JsonDocument.Parse(JsonSerializer.Serialize(next));
-		AddShadow(shadows, settings.Set(key, doc.RootElement).ShadowedByEnv);
+		AddShadow(shadows, settings.Set(key, JsonSerializer.SerializeToElement(next, CoreJson.Default.Int64)).ShadowedByEnv);
 	}
 
 	private static void AddShadow(List<string> shadows, string? envVar) {

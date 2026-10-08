@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
@@ -96,9 +97,11 @@ internal sealed partial class AcpConversation {
 				prompt = BuildPrompt(submission);
 				request = _endpoint.Value.RequestAsync(
 					"_session/steering",
-					new {
-						prompt = prompt.Blocks,
-						_meta = new { steering = new { idleBehavior = "promptRequired" } },
+					new JsonObject {
+						["prompt"] = prompt.Blocks,
+						["_meta"] = new JsonObject {
+							["steering"] = new JsonObject { ["idleBehavior"] = "promptRequired" },
+						},
 					},
 					CancellationToken.None);
 			}
@@ -225,7 +228,7 @@ internal sealed partial class AcpConversation {
 				sessionId = _ready ? SessionId() : null;
 			}
 			if (sessionId is not null) {
-				var cancellation = _endpoint.Value.NotifyAsync("session/cancel", new { });
+				var cancellation = _endpoint.Value.NotifyAsync("session/cancel", []);
 				RunRuntime(() => cancellation);
 			}
 			PublishQueue();

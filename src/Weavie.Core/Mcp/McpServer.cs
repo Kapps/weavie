@@ -620,7 +620,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		LayoutNode? root;
 		try {
-			root = JsonSerializer.Deserialize<LayoutNode>(rootElement.GetRawText(), LayoutSerialization.Options);
+			root = LayoutSerialization.DeserializeNode(rootElement.GetRawText());
 		} catch (JsonException ex) {
 			await SendToolErrorAsync(responder, idRaw, $"setLayout: invalid root ({ex.Message}).", ct).ConfigureAwait(false);
 			return;

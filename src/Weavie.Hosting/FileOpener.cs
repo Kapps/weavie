@@ -79,10 +79,10 @@ public sealed class FileOpener : IAsyncDisposable {
 		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
 		// reads as the app ignoring them.
 		Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
-		_notifications.Publish("show", new {
-			level = "warn",
-			message = $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable.",
-		});
+		_notifications.Publish(
+			"show",
+			WireJson.Default.ToastMessage,
+			ToastMessage.Plain("warn", $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable."));
 	}
 
 	/// <summary>
@@ -119,10 +119,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		}
 
 		if (matches.Count > 1) {
-			_view.TryPublish("focusOmnibar", new {
-				query = PathSuffixMatcher.Normalize(path),
-				line = Clamp(line),
-			});
+			_view.TryPublish("focusOmnibar", WireJson.Default.OmnibarFocus, new(PathSuffixMatcher.Normalize(path), Clamp(line)));
 			return true;
 		}
 
@@ -137,3 +134,5 @@ public sealed class FileOpener : IAsyncDisposable {
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => _background.DisposeAsync();
 }
+
+internal sealed record OmnibarFocus(string Query, int? Line);

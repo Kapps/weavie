@@ -5,11 +5,7 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.AcpDistribution;
 
-internal sealed class AcpInstallationStore {
-	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) {
-		PropertyNameCaseInsensitive = false,
-		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-	};
+internal sealed partial class AcpInstallationStore {
 	private readonly IFileSystem _fileSystem;
 	private readonly string _path;
 
@@ -21,7 +17,7 @@ internal sealed class AcpInstallationStore {
 
 	public AcpInstallations Load() {
 		if (!_fileSystem.FileExists(_path)) return AcpInstallations.Empty;
-		var document = JsonSerializer.Deserialize<Document>(_fileSystem.ReadAllText(_path), JsonOptions)
+		var document = JsonSerializer.Deserialize(_fileSystem.ReadAllText(_path), InstallationJson.Default.Document)
 			?? throw new JsonException("The ACP installation document is empty.");
 		if (document.Version != 1) throw new JsonException("The ACP installation document requires version 1.");
 		if (document.Agents is null) throw new JsonException("The ACP installation document requires an agents array.");
@@ -30,7 +26,7 @@ internal sealed class AcpInstallationStore {
 		foreach (var entry in document.Agents) {
 			if (entry.ValueKind != JsonValueKind.Object) throw new JsonException("ACP installations must be objects.");
 			try {
-				agents.Add(Validate(entry.Deserialize<AcpLaunchSpec>(JsonOptions)
+				agents.Add(Validate(entry.Deserialize(InstallationJson.Default.AcpLaunchSpec)
 					?? throw new JsonException("ACP installations cannot contain null entries.")));
 			} catch (JsonException ex) {
 				broken.Add(Broken(entry, ex));
@@ -45,7 +41,7 @@ internal sealed class AcpInstallationStore {
 		ArgumentNullException.ThrowIfNull(installations);
 		RequireUniqueIds(installations);
 		var agents = new JsonArray([
-			.. installations.Agents.Select(agent => JsonSerializer.SerializeToNode(Validate(agent), JsonOptions)),
+			.. installations.Agents.Select(agent => JsonSerializer.SerializeToNode(Validate(agent), InstallationJson.Default.AcpLaunchSpec)),
 			.. installations.Broken.Select(entry => JsonNode.Parse(entry.Recorded.GetRawText())),
 		]);
 		_fileSystem.WriteAllTextAtomic(_path, new JsonObject { ["version"] = 1, ["agents"] = agents }.ToJsonString());
@@ -120,6 +116,14 @@ internal sealed class AcpInstallationStore {
 		[JsonPropertyName("agents")]
 		public JsonElement[]? Agents { get; init; }
 	}
+
+	[JsonSourceGenerationOptions(
+		JsonSerializerDefaults.Web,
+		PropertyNameCaseInsensitive = false,
+		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+	[JsonSerializable(typeof(Document))]
+	[JsonSerializable(typeof(AcpLaunchSpec))]
+	private sealed partial class InstallationJson : JsonSerializerContext;
 }
 
 /// <summary>The recorded registry installations: launchable recipes and entries this build can't launch.</summary>

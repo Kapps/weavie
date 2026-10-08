@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Mail;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Weavie.Core.Agents;
 using static Weavie.AgentClientProtocol.AcpJson;
@@ -147,7 +148,7 @@ internal static class AcpElicitationSchema {
 			: throw new AcpProtocolException("ACP elicitation required entries must be strings.")), StringComparer.Ordinal);
 	}
 
-	public static Dictionary<string, object> BuildElicitationContent(
+	public static JsonObject BuildElicitationContent(
 		JsonElement schema,
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
 		var properties = ReadObjectSchemaProperties(schema);
@@ -159,7 +160,7 @@ internal static class AcpElicitationSchema {
 			throw new AcpProtocolException("ACP elicitation answers contain unknown properties: "
 				+ string.Join(", ", unknown));
 		}
-		var content = new Dictionary<string, object>(StringComparer.Ordinal);
+		var content = new JsonObject();
 		foreach (var property in properties) {
 			string kind = RequiredString(property.Value, "type", $"elicitation property '{property.Name}'");
 			if (!answers.TryGetValue(property.Name, out var values)
@@ -189,22 +190,22 @@ internal static class AcpElicitationSchema {
 		return [.. properties.EnumerateObject()];
 	}
 
-	private static object ConvertElicitationValue(
+	private static JsonNode ConvertElicitationValue(
 		string name,
 		JsonElement schema,
 		string kind,
 		IReadOnlyList<string> values) {
 		if (kind == "array") {
 			ValidateSelection(name, schema, values);
-			return values;
+			return new JsonArray([.. values.Select(value => JsonValue.Create(value))]);
 		}
 		if (values.Count != 1) {
 			throw new AcpProtocolException($"'{name}' accepts exactly one value.");
 		}
 		string value = values[0];
 		return kind switch {
-			"string" => ValidateString(name, schema, value),
-			"boolean" when bool.TryParse(value, out bool result) => result,
+			"string" => JsonValue.Create(ValidateString(name, schema, value)),
+			"boolean" when bool.TryParse(value, out bool result) => JsonValue.Create(result),
 			"integer" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long result) =>
 				ValidateNumber(name, schema, result),
 			"number" when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double result)
@@ -253,22 +254,22 @@ internal static class AcpElicitationSchema {
 		if (!valid) throw new AcpProtocolException($"'{name}' is not a valid {format} value.");
 	}
 
-	private static object ValidateNumber(string name, JsonElement schema, double value) {
+	private static JsonNode ValidateNumber(string name, JsonElement schema, double value) {
 		double? minimum = ReadOptionalDouble(schema, "minimum");
 		double? maximum = ReadOptionalDouble(schema, "maximum");
 		if (minimum is not null && value < minimum || maximum is not null && value > maximum) {
 			throw new AcpProtocolException($"'{name}' is outside its allowed range.");
 		}
-		return value;
+		return JsonValue.Create(value);
 	}
 
-	private static object ValidateNumber(string name, JsonElement schema, long value) {
+	private static JsonNode ValidateNumber(string name, JsonElement schema, long value) {
 		double? minimum = ReadOptionalDouble(schema, "minimum");
 		double? maximum = ReadOptionalDouble(schema, "maximum");
 		if (minimum is not null && value < minimum || maximum is not null && value > maximum) {
 			throw new AcpProtocolException($"'{name}' is outside its allowed range.");
 		}
-		return value;
+		return JsonValue.Create(value);
 	}
 
 	private static void ValidateSelection(string name, JsonElement schema, IReadOnlyList<string> values) {

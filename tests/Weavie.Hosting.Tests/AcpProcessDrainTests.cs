@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Weavie.AgentClientProtocol;
 using Xunit;
@@ -18,7 +19,7 @@ public sealed class AcpProcessDrainTests {
 
 		var response = await connection.RequestAsync(
 			"final",
-			new { },
+			[],
 			CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
 
 		Assert.Equal("final", response.GetProperty("value").GetString());
@@ -36,7 +37,7 @@ public sealed class AcpProcessDrainTests {
 		connection.Start();
 		await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-		var request = connection.RequestAsync("invalid", new { }, CancellationToken.None);
+		var request = connection.RequestAsync("invalid", [], CancellationToken.None);
 		var fault = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 		await Assert.ThrowsAsync<AcpProtocolException>(() => request);
 
@@ -75,14 +76,14 @@ public sealed class AcpProcessDrainTests {
 		await ReadGenerationAsync(started.Reader);
 		string payload = new('x', 16 * 1024 * 1024);
 
-		var first = Task.Run(() => connection.RequestAsync("stall", new { payload }, CancellationToken.None));
+		var first = Task.Run(() => connection.RequestAsync("stall", new JsonObject { ["payload"] = payload }, CancellationToken.None));
 		await Wait.UntilAsync(() => File.Exists(marker));
 		await Task.Run(connection.Restart).WaitAsync(TimeSpan.FromSeconds(10));
 		await ReadGenerationAsync(started.Reader);
 		await Assert.ThrowsAnyAsync<Exception>(() => first.WaitAsync(TimeSpan.FromSeconds(10)));
 
 		File.Delete(marker);
-		var second = Task.Run(() => connection.RequestAsync("stall", new { payload }, CancellationToken.None));
+		var second = Task.Run(() => connection.RequestAsync("stall", new JsonObject { ["payload"] = payload }, CancellationToken.None));
 		await Wait.UntilAsync(() => File.Exists(marker));
 		await connection.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
 		await Assert.ThrowsAnyAsync<Exception>(() => second.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -105,16 +106,16 @@ public sealed class AcpProcessDrainTests {
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+			new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 			first.Generation,
 			CancellationToken.None));
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.NotifyAsync(
 			"session/cancel",
-			new { sessionId = "old" },
+			new JsonObject { ["sessionId"] = "old" },
 			first.Generation));
 		var initialized = await connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+			new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 			second.Generation,
 			CancellationToken.None);
 		Assert.Equal(1, initialized.GetProperty("protocolVersion").GetInt32());
@@ -187,7 +188,7 @@ public sealed class AcpProcessDrainTests {
 		AcpJsonRpcConnection connection,
 		long generation) => connection.RequestAsync(
 		"initialize",
-		new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+		new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 		generation,
 		CancellationToken.None);
 

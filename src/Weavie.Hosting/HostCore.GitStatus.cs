@@ -1,4 +1,5 @@
 using Weavie.Core.Git;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -8,7 +9,7 @@ public sealed partial class HostCore {
 		var monitor = new GitStatusMonitor(
 			session.Background,
 			ct => ResolveGitStatusAsync(session, ct),
-			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", status));
+			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", WireJson.Default.GitStatusSnapshot, status));
 		session.AttachGitStatus(monitor);
 		_ = new GitMetadataWatcher(
 			session.Background,
@@ -27,7 +28,7 @@ public sealed partial class HostCore {
 
 	private void PushGitStatus(HostSession session, Messaging.MessageTarget target) {
 		if (session.GitStatus.Latest is { } latest) {
-			target.Feature("git").Publish("status", latest);
+			target.Feature("git").Publish("status", WireJson.Default.GitStatusSnapshot, latest);
 		}
 
 		session.GitStatus.RequestRefresh();

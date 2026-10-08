@@ -24,9 +24,7 @@ public readonly record struct ClaudeLaunch(string SessionId, bool Resume);
 /// stale one made a relaunch re-create an id whose conversation still existed → "Session ID … is already in
 /// use"). A malformed file is backed up to <c>claude-sessions.json.bad</c> and reset.
 /// </summary>
-public sealed class ClaudeSessionStore : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
+public sealed partial class ClaudeSessionStore : JsonDocumentStore {
 	private List<Entry> _items = [];
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
@@ -113,7 +111,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = text is null ? null : JsonSerializer.Deserialize<Document>(text);
+		var document = text is null ? null : JsonSerializer.Deserialize(text, ClaudeSessionStoreJson.Default.Document);
 		_items = document?.Sessions is not { } entries
 			? []
 			: [.. entries
@@ -127,7 +125,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 			Version = 1,
 			Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id })],
 		},
-		JsonOptions);
+		ClaudeSessionStoreJson.Default.Document);
 
 	private Entry? Find(string key) => _items.FirstOrDefault(e => PathIdentity.Equals(e.Key, key));
 
@@ -155,4 +153,8 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 		[JsonPropertyName("id")]
 		public string Id { get; set; } = string.Empty;
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class ClaudeSessionStoreJson : JsonSerializerContext;
 }

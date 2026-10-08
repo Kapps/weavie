@@ -9,12 +9,7 @@ namespace Weavie.Core.Theming;
 /// stay with their theme across switches; each theme's ops are an ordered list applied at resolve time (undo =
 /// pop the last). Writes are atomic; a malformed file is backed up to <c>theme-overrides.json.bad</c> and reset.
 /// </summary>
-public sealed class ThemeOverridesStore : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		WriteIndented = true,
-		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-	};
-
+public sealed partial class ThemeOverridesStore : JsonDocumentStore {
 	private Dictionary<string, List<ThemeOverrideOp>> _overrides = [];
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/theme-overrides.json</c>) and loads it.</summary>
@@ -115,7 +110,7 @@ public sealed class ThemeOverridesStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = text is null ? null : JsonSerializer.Deserialize<OverridesDocument>(text, JsonOptions);
+		var document = text is null ? null : JsonSerializer.Deserialize(text, ThemeOverridesStoreJson.Default.OverridesDocument);
 		_overrides = [];
 		foreach (var (themeId, ops) in document?.Overrides ?? []) {
 			if (!string.IsNullOrWhiteSpace(themeId) && ops is { Count: > 0 }) {
@@ -126,8 +121,7 @@ public sealed class ThemeOverridesStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override string Render() => JsonSerializer.Serialize(
-		new OverridesDocument { Version = 1, Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value) },
-		JsonOptions);
+		new OverridesDocument { Version = 1, Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value) }, ThemeOverridesStoreJson.Default.OverridesDocument);
 
 	private sealed class OverridesDocument {
 		[JsonPropertyName("version")]
@@ -136,4 +130,8 @@ public sealed class ThemeOverridesStore : JsonDocumentStore {
 		[JsonPropertyName("overrides")]
 		public Dictionary<string, List<ThemeOverrideOp>> Overrides { get; set; } = [];
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+	[JsonSerializable(typeof(OverridesDocument))]
+	private sealed partial class ThemeOverridesStoreJson : JsonSerializerContext;
 }

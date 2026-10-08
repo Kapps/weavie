@@ -13,21 +13,21 @@ internal static class TerminalMessageWiring {
 		ArgumentNullException.ThrowIfNull(acceptInput);
 		ArgumentNullException.ThrowIfNull(resized);
 		return new TerminalMessageHandlers([
-			messages.Handle<TerminalInputMessage>("input", (message, _) => {
+			messages.Handle("input", WireJson.Default.TerminalInputMessage, (message, _) => {
 				byte[] data = Convert.FromBase64String(message.DataB64);
 				acceptInput(message.UserInitiated, () => terminal.Write(data));
 				return Task.CompletedTask;
 			}),
-			messages.Handle<TerminalSizeMessage>("resize", (message, _) => {
+			messages.Handle("resize", WireJson.Default.TerminalSizeMessage, (message, _) => {
 				terminal.Resize(message.Columns, message.Rows);
 				resized(message.Columns, message.Rows);
 				return Task.CompletedTask;
 			}),
-			messages.HandleOwned<TerminalSizeMessage>("ready", (message, peer, _) => {
+			messages.HandleOwned("ready", WireJson.Default.TerminalSizeMessage, (message, peer, _) => {
 				terminal.OnReady(messages.Target(peer), message.Columns, message.Rows);
 				return Task.CompletedTask;
 			}),
-			messages.Handle<TerminalCwdMessage>("cwd", (message, _) => {
+			messages.Handle("cwd", WireJson.Default.TerminalCwdMessage, (message, _) => {
 				terminal.OnCwdReported(message.Cwd);
 				return Task.CompletedTask;
 			}),
@@ -42,7 +42,7 @@ internal static class TerminalMessageWiring {
 		}
 	}
 
-	private sealed record TerminalInputMessage(string DataB64, bool UserInitiated);
-	private sealed record TerminalSizeMessage(int Columns, int Rows);
-	private sealed record TerminalCwdMessage(string Cwd);
+	internal sealed record TerminalInputMessage(string DataB64, bool UserInitiated);
+	internal sealed record TerminalSizeMessage(int Columns, int Rows);
+	internal sealed record TerminalCwdMessage(string Cwd);
 }

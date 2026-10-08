@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
@@ -90,23 +91,23 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	internal bool IsLatestGeneration(long generation) => _supervisor.Generation == generation;
 
 	/// <summary>Sends a request and returns its result.</summary>
-	public Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) =>
+	public Task<JsonElement> RequestAsync(string method, JsonObject parameters, CancellationToken ct) =>
 		RequestAsync(method, parameters, expectedGeneration: null, owner: null, binds: null, ct);
 
 	internal Task<JsonElement> RequestAsync(
 		string method,
-		object parameters,
+		JsonObject parameters,
 		long expectedGeneration,
 		CancellationToken ct) =>
 		RequestAsync(method, parameters, (long?)expectedGeneration, owner: null, binds: null, ct);
 
-	internal Task<JsonElement> RequestForEndpointAsync(string method, object parameters,
+	internal Task<JsonElement> RequestForEndpointAsync(string method, JsonObject parameters,
 		AcpSessionEndpoint owner, long generation, AcpSessionEndpoint? binds, CancellationToken ct) =>
 		RequestAsync(method, parameters, generation, owner, binds, ct);
 
 	private async Task<JsonElement> RequestAsync(
 		string method,
-		object parameters,
+		JsonObject parameters,
 		long? expectedGeneration,
 		AcpSessionEndpoint? owner,
 		AcpSessionEndpoint? binds,
@@ -138,30 +139,29 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	}
 
 	/// <summary>Sends an ACP notification.</summary>
-	public Task NotifyAsync(string method, object parameters) =>
+	public Task NotifyAsync(string method, JsonObject parameters) =>
 		NotifyAsync(method, parameters, expectedGeneration: null);
 
-	internal Task NotifyAsync(string method, object parameters, long expectedGeneration) =>
+	internal Task NotifyAsync(string method, JsonObject parameters, long expectedGeneration) =>
 		NotifyAsync(method, parameters, (long?)expectedGeneration);
 
-	private Task NotifyAsync(string method, object parameters, long? expectedGeneration) {
+	private Task NotifyAsync(string method, JsonObject parameters, long? expectedGeneration) {
 		ArgumentException.ThrowIfNullOrEmpty(method);
 		ArgumentNullException.ThrowIfNull(parameters);
-		return WriteAsync(new { jsonrpc = "2.0", method, @params = parameters }, expectedGeneration);
+		return WriteLineAsync(AcpJsonRpcWire.Notification(method, parameters), expectedGeneration);
 	}
 
 	/// <summary>Returns a successful response to an agent request.</summary>
-	public Task RespondAsync(AcpClientRequest request, object result) {
+	public Task RespondAsync(AcpClientRequest request, JsonNode? result) {
 		ArgumentNullException.ThrowIfNull(request);
-		ArgumentNullException.ThrowIfNull(result);
-		return WriteRawResponseAsync(request, result, error: null);
+		return WriteResponseAsync(request, AcpJsonRpcWire.Result(request.ResponseId, result));
 	}
 
 	/// <summary>Returns an error response to an agent request.</summary>
-	public Task RespondErrorAsync(AcpClientRequest request, int code, string message, object? data) {
+	public Task RespondErrorAsync(AcpClientRequest request, int code, string message, JsonNode? data) {
 		ArgumentNullException.ThrowIfNull(request);
 		ArgumentException.ThrowIfNullOrEmpty(message);
-		return WriteRawResponseAsync(request, result: null, new { code, message, data });
+		return WriteResponseAsync(request, AcpJsonRpcWire.Error(request.ResponseId, code, message, data));
 	}
 
 	/// <inheritdoc/>
@@ -188,7 +188,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 
 	private async Task SendCancellationAsync(long id, long generation) {
 		try {
-			await NotifyAsync("$/cancel_request", new { requestId = id }, generation).ConfigureAwait(false);
+			await NotifyAsync("$/cancel_request", new JsonObject { ["requestId"] = id }, generation).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
 			_log($"[acp:{_providerId}] request cancellation could not be sent: {ex.Message}");
 		}
@@ -219,18 +219,15 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private Task WriteAsync(object value, long? expectedGeneration) =>
-		WriteLineAsync(JsonSerializer.Serialize(value), expectedGeneration);
-
 	private async Task WriteRequestAsync(
 		long id,
 		string method,
-		object parameters,
+		JsonObject parameters,
 		long? expectedGeneration,
 		AcpSessionEndpoint? owner,
 		AcpSessionEndpoint? binds,
 		TaskCompletionSource<JsonElement> completion) {
-		string line = JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters });
+		string line = AcpJsonRpcWire.Request(id, method, parameters);
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
 			OwnedProcess process;
@@ -254,13 +251,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private async Task WriteRawResponseAsync(AcpClientRequest request, object? result, object? error) {
-		var payload = new Dictionary<string, object?> {
-			["jsonrpc"] = "2.0",
-			["id"] = request.ResponseId,
-		};
-		payload[error is null ? "result" : "error"] = error ?? result;
-		string line = JsonSerializer.Serialize(payload);
+	private async Task WriteResponseAsync(AcpClientRequest request, string line) {
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
 			OwnedProcess process;
@@ -357,7 +348,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		_ => throw new AcpProtocolException("ACP request ids must be strings or numbers."),
 	};
 
-	private static JsonElement EmptyObject() => JsonSerializer.SerializeToElement(new { });
+	private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement;
 
 	private static int ReadExitCode(OwnedProcess process) {
 		try {

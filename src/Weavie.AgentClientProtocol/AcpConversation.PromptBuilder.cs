@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 
@@ -9,20 +10,20 @@ internal sealed partial class AcpConversation {
 			lock (_gate) {
 				var command = ResolveProviderCommandLocked(submission.CommandName);
 				string text = CanonicalCommandText(submission.Text, command.Name);
-				return new([new { type = "text", text }], []);
+				return new(new JsonArray(AcpContent.Text(text)), []);
 			}
 		}
 
-		var blocks = new List<object>();
+		var blocks = new List<JsonNode>();
 		var images = new List<SubmittedImage>();
 		bool includesGuidance = false;
 		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
 			var prompt = McpPromptCatalog.Require(submission.CommandName);
-			blocks.Add(new { type = "text", text = prompt.Text });
+			blocks.Add(AcpContent.Text(prompt.Text));
 			string details = submission.Text[(prompt.Name.Length + 1)..].Trim();
-			if (details.Length > 0) blocks.Add(new { type = "text", text = details });
+			if (details.Length > 0) blocks.Add(AcpContent.Text(details));
 		} else if (submission.Text.Length > 0) {
-			blocks.Add(new { type = "text", text = submission.Text });
+			blocks.Add(AcpContent.Text(submission.Text));
 		}
 		foreach (var attachment in submission.Attachments) {
 			if (!_features.Images) {
@@ -31,17 +32,13 @@ internal sealed partial class AcpConversation {
 			var image = new SubmittedImage(attachment.Id, attachment.Mime,
 				Convert.ToBase64String(_context.FileSystem.ReadAllBytes(attachment.Path)));
 			images.Add(image);
-			blocks.Add(new {
-				type = "image",
-				mimeType = image.MediaType,
-				data = image.Data,
-			});
+			blocks.Add(AcpContent.Image(image.MediaType, image.Data));
 		}
 
 		if (_features.EmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
 			if (includesGuidance) {
-				blocks.Add(AssistantContext(
+				blocks.Add(AcpContent.AssistantResource(
 					"weavie://instructions",
 					EmbeddedAgentGuidance.Compose(_context.Runtime)));
 			}
@@ -53,7 +50,7 @@ internal sealed partial class AcpConversation {
 					+ editor.SelectedText;
 				string path = Path.GetFullPath(editor.FilePath);
 				string uri = new UriBuilder(Uri.UriSchemeFile, string.Empty) { Path = path }.Uri.AbsoluteUri;
-				blocks.Add(AssistantContext(uri + "#selection", selection));
+				blocks.Add(AcpContent.AssistantResource(uri + "#selection", selection));
 			}
 		}
 		if (includesGuidance) {
@@ -61,25 +58,11 @@ internal sealed partial class AcpConversation {
 		}
 
 		if (_spec.SideScoped) {
-			blocks.Add(new {
-				type = "text",
-				text = EmbeddedAgentGuidance.SideConversationInstructions,
-				annotations = new { audience = new[] { "assistant" } },
-			});
+			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
 		}
 
 		return new([.. blocks], images);
 	}
-
-	private static object AssistantContext(string uri, string text) => new {
-		type = "resource",
-		annotations = new { audience = new[] { "assistant" } },
-		resource = new {
-			uri,
-			mimeType = "text/plain",
-			text,
-		},
-	};
 
 	private void EmitSubmitted(AgentTurnSubmission submission, string type, IReadOnlyList<SubmittedImage> images) {
 		if (submission.Text.Length > 0) {
@@ -107,5 +90,5 @@ internal sealed partial class AcpConversation {
 	}
 
 	private sealed record SubmittedImage(string Id, string MediaType, string Data);
-	private sealed record PreparedPrompt(object[] Blocks, IReadOnlyList<SubmittedImage> Images);
+	private sealed record PreparedPrompt(JsonArray Blocks, IReadOnlyList<SubmittedImage> Images);
 }

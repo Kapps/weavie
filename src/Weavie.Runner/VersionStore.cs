@@ -1,6 +1,7 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Weavie.Core;
 using Weavie.Core.FileSystem;
 
@@ -22,8 +23,7 @@ public sealed record BundleManifest {
 /// through the symlink (the worker serves wwwroot from its own base dir, so riding the symlink would swap
 /// its web assets mid-flight). See docs/specs/runner-auto-update.md.
 /// </summary>
-public sealed class VersionStore {
-	private static readonly JsonSerializerOptions ManifestJson = new() { PropertyNameCaseInsensitive = true };
+public sealed partial class VersionStore {
 	private readonly object _gate = new();
 	private readonly string _root;
 	private readonly Action<string> _log;
@@ -337,14 +337,14 @@ public sealed class VersionStore {
 	}
 
 	private static BundleManifest ReadManifest(string path, string emptyMessage) =>
-		JsonSerializer.Deserialize<BundleManifest>(File.ReadAllText(path), ManifestJson)
+		JsonSerializer.Deserialize(File.ReadAllText(path), VersionJson.Default.BundleManifest)
 		?? throw new InvalidDataException(emptyMessage);
 
 	private sealed record StateFile {
 		public int? Staged { get; init; }
 		public string? StagedDigest { get; init; }
 		public int? ConfirmedGood { get; init; }
-		public IReadOnlyList<string> BadDigests { get; init; } = [];
+		public IReadOnlyList<string> BadDigests { get; set; } = [];
 
 		[System.Text.Json.Serialization.JsonIgnore]
 		public string Path { get; init; } = "";
@@ -354,16 +354,21 @@ public sealed class VersionStore {
 				return new StateFile { Path = path };
 			}
 
-			var loaded = JsonSerializer.Deserialize<StateFile>(
-				File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+			var loaded = JsonSerializer.Deserialize(File.ReadAllText(path), VersionJson.Default.StateFile);
 			return (loaded ?? new StateFile()) with { Path = path };
 		}
 
 		// Write-then-rename: a crash mid-write must not leave truncated JSON that fails the next boot's Load.
 		public void Save() {
 			string temp = Path + ".tmp";
-			File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+			File.WriteAllText(temp, JsonSerializer.Serialize(this, VersionJson.Default.StateFile));
 			File.Move(temp, Path, overwrite: true);
 		}
 	}
+
+	// Case-insensitive reads accept hand-edited manifests; state is written indented for inspection.
+	[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true, WriteIndented = true)]
+	[JsonSerializable(typeof(BundleManifest))]
+	[JsonSerializable(typeof(StateFile))]
+	private sealed partial class VersionJson : JsonSerializerContext;
 }

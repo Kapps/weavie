@@ -10,9 +10,8 @@ namespace Weavie.Core.Sessions;
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class RailStateStore : JsonDocumentStore {
+public sealed partial class RailStateStore : JsonDocumentStore {
 	private const string DefaultLocation = "local";
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	private string _lastLocation = DefaultLocation;
 	private List<string> _promoted = [];
@@ -96,7 +95,7 @@ public sealed class RailStateStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = (text is null ? null : JsonSerializer.Deserialize<Document>(text)) ?? new Document();
+		var document = (text is null ? null : JsonSerializer.Deserialize(text, RailStateStoreJson.Default.Document)) ?? new Document();
 		_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
 		_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
 		_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
@@ -114,7 +113,7 @@ public sealed class RailStateStore : JsonDocumentStore {
 				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
 				: null,
 		},
-		JsonOptions);
+		RailStateStoreJson.Default.Document);
 
 	private sealed class Document {
 		[JsonPropertyName("version")]
@@ -137,4 +136,8 @@ public sealed class RailStateStore : JsonDocumentStore {
 		[JsonPropertyName("slot")]
 		public string Slot { get; set; } = string.Empty;
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class RailStateStoreJson : JsonSerializerContext;
 }

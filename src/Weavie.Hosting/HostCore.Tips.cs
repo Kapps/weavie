@@ -1,4 +1,5 @@
 using Weavie.Core.Tips;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -11,6 +12,6 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		_messages.Host.Feature("tips").Publish("show", _startupTip);
+		_messages.Host.Feature("tips").Publish("show", WireJson.Default.StartupTip, _startupTip);
 	}
 }

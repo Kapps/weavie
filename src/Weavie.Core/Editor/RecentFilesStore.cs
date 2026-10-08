@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
@@ -14,17 +15,13 @@ public sealed record RecentFile(string Path, int Count, long LastOpenedTicks);
 /// without being discarded. Writes are atomic; a malformed file is backed up to <c>recent-files.json.bad</c> and
 /// reset.
 /// </summary>
-public sealed class RecentFilesStore : JsonDocumentStore {
+public sealed partial class RecentFilesStore : JsonDocumentStore {
 	// Cap on persisted entries: past this the lowest-frecency files are evicted so the file never grows unbounded.
 	private const int MaxEntries = 200;
 	// A file's visit weight halves this many days after its last open, so recency outweighs raw count without ever
 	// fully discarding a frequently-used file.
 	private const double HalfLifeDays = 3.0;
 
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true,
-	};
 
 	private readonly Dictionary<string, RecentFile> _byPath = new(StringComparer.Ordinal);
 
@@ -69,7 +66,7 @@ public sealed class RecentFilesStore : JsonDocumentStore {
 			return;
 		}
 
-		var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
+		var parsed = JsonSerializer.Deserialize(text, RecentFilesStoreJson.Default.PersistModel);
 		if (parsed is not { Version: 2, Files: { } files }) {
 			throw new JsonException("The document is not a version 2 recent-files list.");
 		}
@@ -81,7 +78,7 @@ public sealed class RecentFilesStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override string Render() =>
-		JsonSerializer.Serialize(new PersistModel(2, [.. _byPath.Values]), JsonOptions);
+		JsonSerializer.Serialize(new PersistModel(2, [.. _byPath.Values]), RecentFilesStoreJson.Default.PersistModel);
 
 	// count * 0.5^(ageDays / halfLife): visit frequency, halved every HalfLifeDays since the last open.
 	private static double Score(RecentFile file, long nowTicks) {
@@ -104,4 +101,8 @@ public sealed class RecentFilesStore : JsonDocumentStore {
 	}
 
 	private sealed record PersistModel(int Version, IReadOnlyList<RecentFile> Files);
+
+	[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
+	[JsonSerializable(typeof(PersistModel))]
+	private sealed partial class RecentFilesStoreJson : JsonSerializerContext;
 }

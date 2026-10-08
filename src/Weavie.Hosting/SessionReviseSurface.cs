@@ -1,4 +1,5 @@
 using Weavie.Core.Revise;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -16,22 +17,21 @@ internal sealed class SessionReviseSurface : IReviseSurface {
 
 	/// <inheritdoc/>
 	public void Publish(IReadOnlyList<ReviseRegion> inFlight) =>
-		_session.Bus.Feature("revise").Publish("state", new {
-			regions = inFlight.Select(region => new {
-				id = region.Id,
-				path = region.Path,
-				startLine = region.Range.Start,
-				endLineExclusive = region.Range.EndExclusive,
-				originalText = region.OriginalText,
-			}),
-		});
+		_session.Bus.Feature("revise").Publish("state", WireJson.Default.ReviseState, new([
+			.. inFlight.Select(region => new ReviseRegionWire(
+				region.Id,
+				region.Path,
+				region.Range.Start,
+				region.Range.EndExclusive,
+				region.OriginalText)),
+		]));
 
 	/// <inheritdoc/>
 	public async Task<string?> ConfirmAsync(ReviseRegion region, CancellationToken cancellationToken) {
 		// No attached page means no editor holds the file, so there is nothing to object to the write.
 		var reply = await _session.View.Feature("revise")
-			.TryRequestAsync<ReviseConfirmRequest, ReviseConfirmReply>(
-				"confirm",
+			.TryRequestAsync(
+				"confirm", WireJson.Default.ReviseConfirmRequest, WireJson.Default.ReviseConfirmReply,
 				new ReviseConfirmRequest(region.Id),
 				cancellationToken)
 			.ConfigureAwait(false);
@@ -51,3 +51,7 @@ internal sealed record ReviseConfirmRequest(int Id);
 /// <param name="Ok">Whether the write may land.</param>
 /// <param name="Reason">Why it must not, when <paramref name="Ok"/> is false.</param>
 internal sealed record ReviseConfirmReply(bool Ok, string Reason);
+
+internal sealed record ReviseState(IReadOnlyList<ReviseRegionWire> Regions);
+
+internal sealed record ReviseRegionWire(int Id, string Path, int StartLine, int EndLineExclusive, string OriginalText);

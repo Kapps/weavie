@@ -136,7 +136,7 @@ public sealed class WelcomeController {
 			_ingress = new MessageIngress(owner._ui, _router.RouteAsync, _router.Disconnect, _router.Diagnostics);
 			Global = new GlobalHostFeatures(_router.Host, owner._services, Log);
 			_menuActions = new DeferredUiQueue(owner._ui);
-			_router.Host.Feature("window").Handle<JsonElement>("menu", (message, _) => {
+			_router.Host.Feature("window").Handle("menu", WireJson.Default.JsonElement, (message, _) => {
 				_menuActions.Enqueue(() => OnMenu(message));
 				return Task.CompletedTask;
 			});

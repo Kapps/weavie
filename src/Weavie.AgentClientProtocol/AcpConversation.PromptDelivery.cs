@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 using static Weavie.AgentClientProtocol.AcpJson;
@@ -35,7 +36,7 @@ internal sealed partial class AcpConversation {
 				Observe(new AgentPromptSubmitted(threadId, submission.Text));
 				request = _endpoint.Value.RequestAsync(
 					"session/prompt",
-					new { prompt = prompt.Blocks },
+					new JsonObject { ["prompt"] = prompt.Blocks },
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);

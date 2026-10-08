@@ -2,20 +2,21 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private static readonly JsonObject DeferredClientResponse = [];
 
-	private void RegisterClientRequest(AcpClientRequest request) {
+	internal void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(request.Generation)) {
-				_connection.RejectClosedRequest(request);
+			if (!Live) {
+				_endpoint.Value.Reject(request);
 				return;
 			}
-			state = new AcpClientRequestState(request);
+			state = new AcpClientRequestState(request, _lifetime.Token);
 			if (!_clientRequests.TryAdd(request.Id, state)) {
 				state.Dispose();
 				FailRuntimeSerialized(
@@ -86,7 +87,7 @@ public sealed partial class AcpAgentSession {
 		if (session.ValueKind != JsonValueKind.String) {
 			throw new AcpProtocolException($"ACP request {request.Id} has no active session.");
 		}
-		if (!string.Equals(session.GetString(), Endpoint(request.Generation).SessionId, StringComparison.Ordinal)) {
+		if (!string.Equals(session.GetString(), _endpoint.Value.SessionId, StringComparison.Ordinal)) {
 			throw new AcpProtocolException($"ACP request {request.Id} targets another session.");
 		}
 	}
@@ -125,10 +126,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task<JsonObject> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
-		string terminalId = await _terminals.CreateAsync(
-			request.Parameters,
-			request.Generation,
-			ct).ConfigureAwait(false);
+		string terminalId = await _terminals.CreateAsync(request.Parameters, ct).ConfigureAwait(false);
 		return new() { ["terminalId"] = terminalId };
 	}
 
@@ -188,16 +186,16 @@ public sealed partial class AcpAgentSession {
 			_urlElicitations.TryRemove(
 				new KeyValuePair<string, string>(elicitationId, state.Request.Id));
 		}
-		RunRuntime(state.Request.Generation, async () => {
+		RunRuntime(async () => {
 			try {
 				if (errorCode is { } code) {
-					await _connection.RespondErrorAsync(
+					await _endpoint.Value.RespondErrorAsync(
 						state.Request,
 						code,
 						errorMessage!,
 						errorData).ConfigureAwait(false);
 				} else {
-					await _connection.RespondAsync(state.Request, result).ConfigureAwait(false);
+					await _endpoint.Value.RespondAsync(state.Request, result).ConfigureAwait(false);
 				}
 			} finally {
 				state.Dispose();
@@ -227,43 +225,32 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void AbandonClientRequests() {
-		foreach (var state in _clientRequests.Values) {
-			if (!state.TryCancel()) continue;
-			_clientRequests.TryRemove(state.Request.Id, out _);
-			_pendingRequests.TryRemove(state.Request.Id, out var pending);
-			state.Dispose();
-			if (pending is not null) {
-				ResolveInteraction(
-					state.Request.Id,
-					pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
-					"cancelled",
-					pending.Kind == "permission",
-					pending.ThreadId,
-					pending.TurnId,
-					answers: null);
-			}
-		}
+		foreach (var state in _clientRequests.Values) Abandon(state);
 		_urlElicitations.Clear();
 	}
 
-	private static int? ReadOptionalNonNegativeInt(JsonElement value, string property) {
-		if (!value.TryGetProperty(property, out var result) || result.ValueKind == JsonValueKind.Null) {
-			return null;
+	// Requests this client is still serving stop without a response; ones waiting on the user stay pending.
+	private void AbandonRunningRequests() {
+		foreach (var state in _clientRequests.Values) {
+			if (!_pendingRequests.ContainsKey(state.Request.Id)) Abandon(state);
 		}
-		if (!result.TryGetInt32(out int number) || number < 0) {
-			throw new AcpProtocolException($"'{property}' must be a non-negative integer.");
-		}
-		return number;
 	}
 
-	private static double? ReadOptionalDouble(JsonElement value, string property) {
-		if (!value.TryGetProperty(property, out var result) || result.ValueKind == JsonValueKind.Null) {
-			return null;
+	private void Abandon(AcpClientRequestState state) {
+		if (!state.TryCancel()) return;
+		_clientRequests.TryRemove(state.Request.Id, out _);
+		_pendingRequests.TryRemove(state.Request.Id, out var pending);
+		state.Dispose();
+		if (pending is not null) {
+			ResolveInteraction(
+				state.Request.Id,
+				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
+				"cancelled",
+				pending.Kind == "permission",
+				pending.ThreadId,
+				pending.TurnId,
+				answers: null);
 		}
-		if (!result.TryGetDouble(out double number) || !double.IsFinite(number)) {
-			throw new AcpProtocolException($"'{property}' must be a finite number.");
-		}
-		return number;
 	}
 
 	private static JsonObject? ExitStatus(AcpTerminalExit? status) => status is null

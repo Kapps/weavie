@@ -2,10 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
+internal sealed partial class AcpConversation {
 	private void HandlePermissionRequest(AcpClientRequestState state) {
 		try {
 			ValidateRequestSession(state.Request);
@@ -47,27 +48,30 @@ public sealed partial class AcpAgentSession {
 			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
-		if (!state.PublishDeferred(() => {
-			Observe(new AgentPermissionRequested());
-			Observe(new AgentPermissionResolved(RequiresUserInput: true));
-			Emit(new AgentPaneMessage {
-				Type = "approval-requested",
-				ProviderId = _definition.Id,
-				ThreadId = threadId,
-				TurnId = turnId,
-				ItemId = $"request:{request.Id}",
-				RequestId = request.Id,
-				ItemType = tool.Kind ?? "tool",
-				Category = tool.Kind,
-				Summary = tool.Title ?? "Permission requested",
-				Text = tool.Input,
-				Actions = actions,
-				Status = "pending",
-			});
-		})) {
-			_pendingRequests.TryRemove(request.Id, out _);
-			state.Token.ThrowIfCancellationRequested();
+		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
+		lock (_turnTransitionGate) {
+			if (!state.Completed) {
+				Observe(new AgentPermissionRequested());
+				Observe(new AgentPermissionResolved(RequiresUserInput: true));
+				Emit(new AgentPaneMessage {
+					Type = "approval-requested",
+					ProviderId = Definition.Id,
+					ThreadId = threadId,
+					TurnId = turnId,
+					ItemId = $"request:{request.Id}",
+					RequestId = request.Id,
+					ItemType = tool.Kind ?? "tool",
+					Category = tool.Kind,
+					Summary = tool.Title ?? "Permission requested",
+					Text = tool.Input,
+					Actions = actions,
+					Status = "pending",
+				});
+				return DeferredClientResponse;
+			}
 		}
+		_pendingRequests.TryRemove(request.Id, out _);
+		state.Token.ThrowIfCancellationRequested();
 		return DeferredClientResponse;
 	}
 
@@ -86,7 +90,7 @@ public sealed partial class AcpAgentSession {
 
 	private void CompletePermissionTool(AcpClientRequest request) {
 		lock (_turnTransitionGate) {
-			if (request.Method != "session/request_permission" || !OwnsGeneration(request.Generation)) return;
+			if (request.Method != "session/request_permission" || !Live) return;
 			string id = RequiredString(request.Parameters.GetProperty("toolCall"), "toolCallId", "permission tool");
 			AcpToolState? tool;
 			lock (_gate) _tools.TryGetValue(id, out tool);

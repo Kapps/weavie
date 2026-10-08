@@ -1,12 +1,13 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	private void HandleNotification(long generation, JsonElement root) {
+internal sealed partial class AcpConversation {
+	internal void HandleNotification(JsonElement root) {
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(generation)) return;
+			if (!Live) return;
 			HandleNotificationSerialized(root);
 		}
 	}
@@ -34,7 +35,7 @@ public sealed partial class AcpAgentSession {
 		}
 		string sessionId = OptionalString(parameters, "sessionId")
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
-		if (sessionId != Endpoint(_activeGeneration).SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
+		if (sessionId != _endpoint.Value.SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
 		if (_loadingTranscript && kind is not ("available_commands_update" or "current_mode_update"
 			or "config_option_update" or "usage_update")) return;
@@ -91,7 +92,7 @@ public sealed partial class AcpAgentSession {
 		}
 		var message = new AgentPaneMessage {
 			Type = deltaType,
-			ProviderId = _definition.Id,
+			ProviderId = Definition.Id,
 			ThreadId = SessionId(),
 			TurnId = state.TurnId,
 			ItemId = id,
@@ -116,7 +117,7 @@ public sealed partial class AcpAgentSession {
 		}
 		return [.. content.Select(state => new AgentPaneMessage {
 				Type = "item-completed",
-				ProviderId = _definition.Id,
+				ProviderId = Definition.Id,
 				ThreadId = SessionId(),
 				TurnId = state.TurnId,
 				ItemId = state.Id,

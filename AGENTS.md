@@ -65,6 +65,10 @@ load it only when you need it.
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom
   commands launch external ACP agents directly, with no private provider protocol inside Weavie. See
   [docs/concepts/native-acp-agents.md](docs/concepts/native-acp-agents.md).
+- **ACP conversations** — each ACP session is an owned `AcpConversation` incarnation (endpoint, lifetime,
+  output port); replacing one retires the object, so late work can't reach its successor and no
+  conversation code takes a generation or session id. See
+  [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote

@@ -74,6 +74,11 @@ Then Weavie's hard rules (these override generic "best practice"):
 - **Long-lived child processes go through `ProcessSupervisor`** with an explicit `RestartPolicy` —
   flag hand-rolled `Process.Start` / PTY lifecycle. Transient one-shots are exempt.
 - **No buried debug flags.** Tracing/diagnostics toggles are settings (off by default), never env vars.
+- **ACP conversation ownership.** Flag any `AcpConversation` code that accepts or compares a process
+  generation, epoch, session id or "current conversation"; reaches the connection, store or owner events
+  except through its endpoint or port; or calls the port while holding an inner lock. Flag owner code that
+  re-reads `_primary`/`_sides` after an await instead of capturing the conversation at the synchronous
+  entry, and any new per-conversation state placed on `AcpAgentSession`.
 - **Names must not lie about the signature.** A name that contradicts what the member actually is, is
   a defect, not a nitpick — flag a synchronous `void`/non-`Task` method carrying an `Async` suffix (or
   the reverse: an awaitable named as if synchronous), a getter that mutates, an `Is*`/`Has*` that

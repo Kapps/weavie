@@ -238,6 +238,21 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new RecordingAuthenticationTerminal());
 	}
 
+	public static AcpAgentSessionFixture CreateCrashingTerminalAuthenticationAdapter(out HeldAuthenticationTerminal terminal) {
+		terminal = new HeldAuthenticationTerminal();
+		return Create(
+			"fake",
+			"Crashing terminal authentication ACP",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal) {
+				["WEAVIE_FAKE_ACP_MODE"] = "crashing-terminal-authentication",
+			},
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false,
+			terminal);
+	}
+
 	public static AcpAgentSessionFixture CreateHeldCloseAdapter() => Create(
 		"fake",
 		"Nonresponsive close ACP",
@@ -282,6 +297,23 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			failSessionPersistence: false);
 	}
 
+	// The first launch fails; every launch after repair starts the fake agent.
+	public static AcpAgentSessionFixture CreateLaunchFailingUntilRepaired(out Action repair) {
+		bool repaired = false;
+		repair = () => Volatile.Write(ref repaired, true);
+		string unlaunchable = Path.Combine(Path.GetTempPath(), $"weavie-missing-acp-{Guid.NewGuid():N}");
+		return Create(
+			"fake",
+			"Repairable ACP",
+			ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			new Dictionary<string, string>(StringComparer.Ordinal),
+			allowAllPermissions: true,
+			persistedSessionId: null,
+			failSessionPersistence: false,
+			UnavailableAgentAuthenticationTerminal.Instance,
+			definition => () => Volatile.Read(ref repaired) ? definition : definition with { Command = unlaunchable });
+	}
+
 	private static AcpAgentSessionFixture Create(
 		string providerId,
 		string providerName,
@@ -307,7 +339,27 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		bool allowAllPermissions,
 		string? persistedSessionId,
 		bool failSessionPersistence,
-		IAgentAuthenticationTerminal authenticationTerminal) {
+		IAgentAuthenticationTerminal authenticationTerminal) => Create(
+		providerId,
+		providerName,
+		executable,
+		environment,
+		allowAllPermissions,
+		persistedSessionId,
+		failSessionPersistence,
+		authenticationTerminal,
+		static definition => () => definition);
+
+	private static AcpAgentSessionFixture Create(
+		string providerId,
+		string providerName,
+		string executable,
+		IReadOnlyDictionary<string, string> environment,
+		bool allowAllPermissions,
+		string? persistedSessionId,
+		bool failSessionPersistence,
+		IAgentAuthenticationTerminal authenticationTerminal,
+		Func<AcpAgentDefinition, Func<AcpAgentDefinition>> launches) {
 		var directory = new TempDirectory("weavie-acp-tests");
 		var processEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal) {
 			["WEAVIE_ROOT"] = directory.Combine("weavie"),
@@ -372,7 +424,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
 			},
-			definition,
+			launches(definition),
 			store,
 			controls,
 			events.Logs.Enqueue);
@@ -516,6 +568,26 @@ internal sealed class RecordingAuthenticationTerminal : IAgentAuthenticationTerm
 		}
 		File.WriteAllText(Path.Combine(launch.WorkingDirectory, "terminal-authenticated"), string.Empty);
 		return Task.FromResult(new AgentProcessExit { ExitCode = 0, Unexpected = false });
+	}
+
+	public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+// A terminal login that runs until released, then signs the fake agent in.
+internal sealed class HeldAuthenticationTerminal : IAgentAuthenticationTerminal {
+	private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+	public Task Started => _started.Task;
+
+	public void Release() => _released.TrySetResult();
+
+	public async Task<AgentProcessExit> RunAsync(AgentLaunch launch, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(launch);
+		_started.TrySetResult();
+		await _released.Task.WaitAsync(ct).ConfigureAwait(false);
+		File.WriteAllText(Path.Combine(launch.WorkingDirectory, "terminal-authenticated"), string.Empty);
+		return new AgentProcessExit { ExitCode = 0, Unexpected = false };
 	}
 
 	public ValueTask DisposeAsync() => ValueTask.CompletedTask;

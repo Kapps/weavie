@@ -4,80 +4,13 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Weavie.Core.Agents;
+using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-public sealed partial class AcpAgentSession {
-	private static readonly JsonElement EmptyArray = JsonDocument.Parse("[]").RootElement;
-
-	private JsonObject RequestInput(AcpClientRequest request, AcpClientRequestState state) {
-		string mode = RequiredString(request.Parameters, "mode", "elicitation request");
-		if (mode == "url") {
-			string elicitationId = RequiredString(request.Parameters, "elicitationId", "URL elicitation");
-			string url = RequireHttpUrl(RequiredString(request.Parameters, "url", "URL elicitation"));
-			if (!_urlElicitations.TryAdd(elicitationId, request.Id)) {
-				throw new AcpProtocolException($"ACP repeated outstanding URL elicitation id '{elicitationId}'.");
-			}
-			var urlPending = new AcpPendingRequest(request, "url", EmptyArray, SessionId(), TurnId());
-			if (!_pendingRequests.TryAdd(request.Id, urlPending)) {
-				_urlElicitations.TryRemove(elicitationId, out _);
-				throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
-			}
-			try {
-				PublishInputRequest(state, urlPending, () => new AgentPaneMessage {
-					Type = "input-requested",
-					ProviderId = _definition.Id,
-					ItemId = $"request:{request.Id}",
-					RequestId = request.Id,
-					ItemType = "url",
-					Summary = OptionalString(request.Parameters, "message") ?? "Open this link to continue",
-					ResourceUri = url,
-					Actions = [new AgentActionOption { Id = "accept", Label = "Open link", Kind = "open_url" }],
-					Status = "pending",
-				});
-			} catch {
-				_urlElicitations.TryRemove(elicitationId, out _);
-				throw;
-			}
-			return DeferredClientResponse;
-		}
-		if (mode != "form" || !request.Parameters.TryGetProperty("requestedSchema", out var schema)) {
-			throw new AcpProtocolException($"Unsupported ACP elicitation mode '{mode}'.");
-		}
-		var questions = ReadQuestions(schema, OptionalString(request.Parameters, "message"));
-		var pending = new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId());
-		if (!_pendingRequests.TryAdd(request.Id, pending)) {
-			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
-		}
-		PublishInputRequest(state, pending, () => new AgentPaneMessage {
-			Type = "input-requested",
-			ProviderId = _definition.Id,
-			ItemId = $"request:{request.Id}",
-			RequestId = request.Id,
-			ItemType = "elicitation",
-			Summary = OptionalString(request.Parameters, "message") ?? "Input requested",
-			Questions = questions,
-			Status = "pending",
-		});
-		return DeferredClientResponse;
-	}
-
-	private void PublishInputRequest(
-		AcpClientRequestState state,
-		AcpPendingRequest pending,
-		Func<AgentPaneMessage> createMessage) {
-		if (state.PublishDeferred(() => {
-			Observe(new AgentInputRequested());
-			Observe(new AgentInputResolved(RequiresUserInput: true));
-			// The pane keys an item by (threadId, turnId, itemId), and the resolution reads its identity off this
-			// same record -- so stamping it here is what keeps the two from ever disagreeing.
-			Emit(createMessage() with { ThreadId = pending.ThreadId, TurnId = pending.TurnId });
-		})) return;
-		_pendingRequests.TryRemove(pending.Request.Id, out _);
-		state.Token.ThrowIfCancellationRequested();
-	}
-
-	private static IReadOnlyList<AgentInputQuestion> ReadQuestions(JsonElement schema, string? message) {
+/// <summary>Reads ACP elicitation schemas and validates the user's answers against them.</summary>
+internal static class AcpElicitationSchema {
+	public static IReadOnlyList<AgentInputQuestion> ReadQuestions(JsonElement schema, string? message) {
 		var properties = ReadObjectSchemaProperties(schema);
 		var required = ReadRequiredProperties(schema);
 		var propertyNames = properties.Select(property => property.Name).ToHashSet(StringComparer.Ordinal);
@@ -127,7 +60,7 @@ public sealed partial class AcpAgentSession {
 		return result;
 	}
 
-	private static string RequireHttpUrl(string value) {
+	public static string RequireHttpUrl(string value) {
 		if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
 			|| uri.Scheme is not ("http" or "https")
 			|| string.IsNullOrEmpty(uri.Host)) {
@@ -215,7 +148,7 @@ public sealed partial class AcpAgentSession {
 			: throw new AcpProtocolException("ACP elicitation required entries must be strings.")), StringComparer.Ordinal);
 	}
 
-	private static JsonObject BuildElicitationContent(
+	public static JsonObject BuildElicitationContent(
 		JsonElement schema,
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
 		var properties = ReadObjectSchemaProperties(schema);
@@ -364,5 +297,4 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException($"'{value}' was not advertised for '{name}'.");
 		}
 	}
-
 }

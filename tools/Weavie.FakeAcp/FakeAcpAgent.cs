@@ -414,11 +414,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (text == "/hold-command") {
 			RequireIsolatedCommand(prompt, text);
-			return await HoldAsync(cancelAsError: false, ct).ConfigureAwait(false);
+			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel") {
 			_cancelFails = text == "hold-cancel-error";
-			return await HoldAsync(cancelAsError: text == "hold-cancelled-request", ct).ConfigureAwait(false);
+			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
@@ -570,7 +570,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 	}
 
-	private async Task<JsonNode> HoldAsync(bool cancelAsError, CancellationToken ct) {
+	// "hold-unreported-cancel" ends a cancelled turn without a final tool update, as claude-agent-acp does.
+	private async Task<JsonNode> HoldAsync(string mode, CancellationToken ct) {
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
@@ -589,13 +590,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		using var registration = ct.Register(() => completion.TrySetCanceled(ct));
 		string result = await completion.Task.ConfigureAwait(false);
 		lock (_gate) _heldPrompt = null;
+		if (result == "cancelled" && mode == "hold-unreported-cancel") return new JsonObject { ["stopReason"] = "cancelled" };
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call_update",
 			["toolCallId"] = "hold",
 			["status"] = result == "cancelled" ? "failed" : "completed",
 		});
 		Message("steered: " + result);
-		if (result == "cancelled" && cancelAsError) {
+		if (result == "cancelled" && mode == "hold-cancelled-request") {
 			throw new AcpAdapterException(-32800, "Request cancelled.", null);
 		}
 		return new JsonObject { ["stopReason"] = result == "cancelled" ? "cancelled" : "end_turn" };

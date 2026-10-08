@@ -77,6 +77,18 @@ public sealed class AcpRewindTests {
 	}
 
 	[Fact]
+	public async Task ARestartedConversationStaysRewindable() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		await SubmitTurnsAsync(fixture, "alpha");
+
+		fixture.Session.Restart();
+
+		await fixture.WaitForControlsAsync(state => !state.Ready);
+		Assert.True((await fixture.WaitForControlsAsync(state => state.Ready)).Rewindable);
+	}
+
+	[Fact]
 	public async Task AgentsWithoutForkCannotRewind() {
 		await using var fixture = AcpAgentSessionFixture.CreateMinimalCapabilitiesAdapter();
 		var state = await fixture.StartAsync();

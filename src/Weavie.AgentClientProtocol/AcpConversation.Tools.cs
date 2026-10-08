@@ -103,9 +103,11 @@ internal sealed partial class AcpConversation {
 		return tool;
 	}
 
-	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) {
+	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) => TerminalizeToolsLocked(status, static _ => true);
+
+	private TerminalizedTool[] TerminalizeToolsLocked(string status, Func<AcpToolState, bool> scope) {
 		var result = new List<TerminalizedTool>();
-		foreach (var tool in _tools.Values.Where(tool => _activeTools.Contains(tool.Id) || !tool.CompletedObserved)) {
+		foreach (var tool in _tools.Values.Where(tool => (_activeTools.Contains(tool.Id) || !tool.CompletedObserved) && scope(tool))) {
 			tool.Status = status;
 			tool.LocallyTerminalized = true;
 			var completions = PendingMutationCompletions(tool);

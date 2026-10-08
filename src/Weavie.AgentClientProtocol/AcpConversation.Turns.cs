@@ -222,15 +222,23 @@ internal sealed partial class AcpConversation {
 	internal void Interrupt() {
 		lock (_turnTransitionGate) {
 			string? sessionId;
+			TerminalizedTool[] cancelled = [];
 			lock (_gate) {
 				if (_spec.SideScoped && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
+				// ACP: the client marks the cancelled turn's unfinished tool calls cancelled; agents may never report them.
+				if (sessionId is not null && _promptActive) {
+					string turnId = TurnId();
+					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId);
+				}
 			}
 			if (sessionId is not null) {
 				var cancellation = _endpoint.Value.NotifyAsync("session/cancel", []);
 				RunRuntime(() => cancellation);
 			}
+			ObserveTerminalizedTools(cancelled);
+			PublishTerminalizedToolMessages(cancelled);
 			PublishQueue();
 			bool interactionCancelled = CancelPendingInteractions();
 			if (interactionCancelled && sessionId is null && _spec.SideScoped) {

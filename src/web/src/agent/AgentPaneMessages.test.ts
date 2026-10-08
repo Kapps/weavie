@@ -528,6 +528,22 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");
   });
 
+  it("does not count a cancelled edit as an edited file", () => {
+    const edit = {
+      providerId: "acp",
+      turnId: "1",
+      itemId: "tool:write",
+      category: "edit",
+      summary: "Write restart.txt",
+    };
+    const transcript = toAgentTranscript([
+      { type: "item-started", ...edit, status: "running" },
+      { type: "item-completed", ...edit, status: "cancelled" },
+    ]);
+
+    expect(transcript[0]?.summary).toBe("cancelled 1 step");
+  });
+
   it("collapses multiple edit locations into one expandable edit group", () => {
     const transcript = toAgentTranscript([
       {

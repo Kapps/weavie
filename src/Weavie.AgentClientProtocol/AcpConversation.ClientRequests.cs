@@ -210,6 +210,10 @@ internal sealed partial class AcpConversation {
 
 	private void CancelCompletedClientRequest(AcpClientRequestState state) {
 		CompletePermissionTool(state.Request);
+		RespondCancelled(state);
+	}
+
+	private void RespondCancelled(AcpClientRequestState state) {
 		_pendingRequests.TryRemove(state.Request.Id, out var pending);
 		RespondToCompletedClientRequest(state, null, -32800, "Request cancelled.", null);
 		if (pending is not null) {
@@ -229,28 +233,16 @@ internal sealed partial class AcpConversation {
 		_urlElicitations.Clear();
 	}
 
-	// Requests this client is still serving stop without a response; ones waiting on the user stay pending.
+	// Requests this client is still serving stop; ones waiting on the user stay pending.
 	private void AbandonRunningRequests() {
 		foreach (var state in _clientRequests.Values) {
 			if (!_pendingRequests.ContainsKey(state.Request.Id)) Abandon(state);
 		}
 	}
 
+	// The agent may outlive this conversation, so even an abandoned request is answered.
 	private void Abandon(AcpClientRequestState state) {
-		if (!state.TryCancel()) return;
-		_clientRequests.TryRemove(state.Request.Id, out _);
-		_pendingRequests.TryRemove(state.Request.Id, out var pending);
-		state.Dispose();
-		if (pending is not null) {
-			ResolveInteraction(
-				state.Request.Id,
-				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
-				"cancelled",
-				pending.Kind == "permission",
-				pending.ThreadId,
-				pending.TurnId,
-				answers: null);
-		}
+		if (state.TryCancel()) RespondCancelled(state);
 	}
 
 	private static JsonObject? ExitStatus(AcpTerminalExit? status) => status is null

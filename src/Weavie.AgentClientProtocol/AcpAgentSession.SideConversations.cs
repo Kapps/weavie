@@ -20,7 +20,7 @@ public sealed partial class AcpAgentSession {
 			long anchor = primary.TurnNumber;
 			var runtime = CreateSide(
 				NewContinuation(Guid.NewGuid().ToString("N"), anchor, submission.Text, primary.GuidanceSent),
-				anchor > 0 ? new ForkFromOpening(primary) : AcpConversationOpening.Continue);
+				anchor > 0 ? new ForkFromOpening(primary, MessageId: null) : AcpConversationOpening.Continue);
 			runtime.Conversation.Publish(SideMarker(runtime.Side, "forking"));
 			try {
 				StartSide(runtime);
@@ -72,10 +72,7 @@ public sealed partial class AcpAgentSession {
 		return runtime;
 	}
 
-	private void StartSide(SideRuntime runtime) {
-		runtime.Conversation.Attach(new AcpProcess(_connection, _processGeneration));
-		runtime.Conversation.RunRuntime(() => runtime.Conversation.OpenAsync(Features));
-	}
+	private void StartSide(SideRuntime runtime) => Open(runtime.Conversation, _process!);
 
 	private AcpAgentFeatures Features {
 		get { lock (_gate) return _features; }

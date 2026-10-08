@@ -126,19 +126,23 @@ the workspace checkout and worktrees. The confirmation explains that agent and s
 edits, editor tabs, and session identity stay; the replacement has a new message-bus incarnation. Selecting a
 previously used provider starts fresh too. The selected provider is saved for subsequent loads and restarts.
 
-Runtime restart preserves the current ACP conversation and reconnects it. The Weavie-owned `/clear` action is a
-different lifecycle: it clears the exact persisted association, resets the pane and local turn state, and restarts
-without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
-deleted.
+Runtime restart preserves the current ACP conversation and reconnects it on a new process. The Weavie-owned `/clear`
+action is a different lifecycle: it clears the exact persisted association, resets the pane and local turn state,
+and opens a new provider session with `session/new`. When the agent advertises `sessionCapabilities.close`, this
+happens on the running process: the old session's prompt is cancelled and the session closed. An agent without
+close is restarted instead, because only stopping its process stops the old session's work. Provider-owned
+history is abandoned, not deleted.
 
 **Rewind** (a prompt row's Rewind button, or `/rewind` and the palette for the latest prompt) continues from
 just before a prompt and returns that prompt to the composer; files are untouched. It forks the primary with the
 AIR fork point `_meta.jetbrains.air.fork = { version: 1, messageId }`, naming the last agent message before the
 prompt (supported by claude-agent-acp ≥ 0.71.0 and codex-acp). ACP advertises no capability for the fork point,
-so Weavie loads the fork first and commits only if its replay ends at that message; otherwise the rewind fails
-and the conversation is unchanged. The commit atomically replaces the journal and continuation with the kept
-history, drops side conversations anchored at or after the prompt, and restarts onto the fork. Rewinding the first
-prompt starts a fresh conversation. The original provider session is left intact.
+so the fork opens as a staged conversation whose `session/load` replay must end at that message; otherwise the
+rewind fails, the fork is closed, and the conversation is unchanged. The commit atomically replaces the journal and
+continuation with the kept history, drops side conversations anchored at or after the prompt, and adopts the
+loaded fork as the primary on the running process, closing the original session there. An agent without
+`sessionCapabilities.close` restarts onto the fork instead. Rewinding the first prompt starts a fresh conversation
+the same way `/clear` does. The original provider history is left intact.
 
 Side conversations share the primary conversation's ACP process and run concurrently with one another and
 the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's

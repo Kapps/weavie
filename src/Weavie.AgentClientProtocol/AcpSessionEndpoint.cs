@@ -7,6 +7,8 @@ namespace Weavie.AgentClientProtocol;
 internal sealed class AcpSessionEndpoint(
 	AcpJsonRpcConnection connection, long generation,
 	Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
+	private readonly Lock _gate = new();
+	private Task<bool> _opening = Task.FromResult(true);
 	private volatile bool _retired;
 	private volatile bool _opened;
 	internal string? SessionId { get; private set; }
@@ -14,7 +16,9 @@ internal sealed class AcpSessionEndpoint(
 	// Until its conversation starts opening, the connection routes the generation's unscoped traffic as before any endpoint.
 	internal bool Opened => _opened;
 	internal void Open() => _opened = true;
-	internal void Retire() => _retired = true;
+	internal void Retire() {
+		lock (_gate) _retired = true;
+	}
 	internal void Bind(string sessionId) => connection.BindEndpoint(this, generation, sessionId);
 
 	internal void SetIdentity(string sessionId) {
@@ -29,18 +33,49 @@ internal sealed class AcpSessionEndpoint(
 		connection.RequestForEndpointAsync(method, Address(parameters), this, generation, null, ct);
 	internal Task NotifyAsync(string method, JsonObject parameters) =>
 		connection.NotifyAsync(method, Address(parameters), generation);
+	/// <summary>Cancels the session's running turn; a retired endpoint's process already ended it.</summary>
+	internal Task CancelAsync() {
+		lock (_gate) return _retired ? Task.CompletedTask : NotifyAsync("session/cancel", []);
+	}
 	internal Task<JsonElement> AuthenticateAsync(string methodId, CancellationToken ct) =>
 		connection.RequestForEndpointAsync("authenticate", Parameters(new JsonObject { ["methodId"] = methodId }), this, generation, null, ct);
 	internal Task<JsonElement> CreateAsync(JsonObject parameters) =>
-		connection.CreateForEndpointAsync("session/new", Parameters(parameters), this, generation);
-	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, JsonObject parameters) {
-		ObjectDisposedException.ThrowIf(_retired, this);
-		return connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this, generation);
+		Opening(() => connection.CreateForEndpointAsync("session/new", Parameters(parameters), this, generation));
+	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, JsonObject parameters) =>
+		Opening(() => connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this, generation));
+	/// <summary>Loads or resumes the bound provider session.</summary>
+	internal Task<JsonElement> RestoreAsync(string method, JsonObject parameters) =>
+		Opening(() => RequestAsync(method, parameters, CancellationToken.None));
+
+	/// <summary>Retires this endpoint and closes its provider session once any opening request settles.</summary>
+	internal Task CloseAsync() {
+		Task<bool> opening;
+		lock (_gate) {
+			_retired = true;
+			opening = _opening;
+		}
+		return connection.CloseSessionAsync(this, generation, opening);
 	}
-	internal Task<JsonElement> CloseAsync() {
-		Retire();
-		return connection.RequestForEndpointAsync(
-			"session/close", new JsonObject { ["sessionId"] = SessionId }, this, generation, null, CancellationToken.None);
+
+	// Registering an opening is atomic with retirement, so a close never misses a session still being opened.
+	private Task<JsonElement> Opening(Func<Task<JsonElement>> start) {
+		var settled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		lock (_gate) {
+			ObjectDisposedException.ThrowIf(_retired, this);
+			_opening = settled.Task;
+		}
+		return Settle(start, settled);
+	}
+
+	private static async Task<JsonElement> Settle(Func<Task<JsonElement>> start, TaskCompletionSource<bool> settled) {
+		bool opened = false;
+		try {
+			var result = await start().ConfigureAwait(false);
+			opened = true;
+			return result;
+		} finally {
+			settled.SetResult(opened);
+		}
 	}
 
 	private JsonObject Address(JsonObject parameters) {
@@ -55,11 +90,6 @@ internal sealed class AcpSessionEndpoint(
 		return parameters;
 	}
 
-	internal AcpSessionEndpoint OpenBranch(Action<JsonElement> observer) {
-		var branch = connection.OpenEndpoint(generation, observer, connection.RejectClosedRequest, static _ => { });
-		branch.Open();
-		return branch;
-	}
 	internal bool ReportHealthy() => connection.ReportHealthy(generation);
 	internal void Terminate(string reason) => connection.TerminateGeneration(generation, reason);
 

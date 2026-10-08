@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
@@ -150,11 +151,13 @@ public sealed partial class HostCore {
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
 		try {
+			// The page activates this PR's session as this request's answer, landing on the review's first file.
 			await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
+				(path, line) => session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal),
 				ct)
 				.ConfigureAwait(false);
 			return null;

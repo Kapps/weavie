@@ -146,6 +146,8 @@ export interface EditorController {
    * `line` reveals that line; `undefined` means no target, so an already-open tab keeps the user's position.
    */
   openFile(path: string, line: number | undefined, preview?: boolean): void;
+  /** Reveals a file in `session`'s preview tab (a review surfacing its first file). */
+  revealFile(session: ClientSession, path: string, line: number | undefined): void;
   /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
@@ -1372,6 +1374,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   return {
     start,
     openFile,
+    revealFile: (session: ClientSession, path: string, line: number | undefined) =>
+      openFileFor(session, path, line, true, false, "reveal"),
     openWebTab,
     openSourceTab,
     focusEditor: focusEditorSurface,

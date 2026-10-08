@@ -1280,7 +1280,7 @@ test.describe("ACP composer", () => {
     await counts.click();
     const diffAgainst = await host.waitForSession(
       agentSession.address,
-      "event",
+      "request",
       "review",
       "diffAgainst",
     );

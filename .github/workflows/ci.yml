@@ -204,12 +204,11 @@ jobs:
       - name: Restore
         run: dotnet restore ${{ matrix.platform.restore }}
 
-      # macOS ships a Native AOT publish, so the desktop tests below run that bundle, not a CoreCLR build.
+      # The release publish, so the desktop tests below run exactly what each platform ships.
       - name: Build
         shell: bash
         run: |
-          if [[ "${{ matrix.platform.name }}" == macos ]]; then verb=publish; else verb=build; fi
-          dotnet "$verb" ${{ matrix.platform.project }} -c Release
+          dotnet publish ${{ matrix.platform.project }} -c Release -r ${{ matrix.platform.rid }} ${{ matrix.platform.extra }}
           dotnet build tools/Weavie.FakeClaude
           dotnet build tools/Weavie.FakeAcp
 

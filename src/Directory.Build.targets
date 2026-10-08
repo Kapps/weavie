@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- A Native AOT binary carries its own stack-trace metadata; its ~100 MB separate debug symbols stay out of the
+       published app. -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+</Project>

@@ -185,10 +185,10 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   or any other dev-only sink is still a silent fallback, because the person hitting the limit never
   sees it (e.g. capping a file index at 20k and only logging it leaves files silently unopenable).
   Surface it where the affected user is, or don't impose the bound.
-- **Native AOT-safe code only.** The macOS app ships Native AOT, so shipped code is reflection-free: JSON goes
-  through source-generated contracts (`JsonTypeInfo<T>`; bus payloads in `WireJson`), and a deserialized type
-  keeps an initializer default only on a `set` property. See
-  [docs/specs/macos-startup-compilation.md](docs/specs/macos-startup-compilation.md).
+- **Native AOT-safe code only.** The macOS, Linux, headless, and runner apps ship Native AOT, so shipped code is
+  reflection-free: JSON goes through source-generated contracts (`JsonTypeInfo<T>`; bus payloads in `WireJson`),
+  and a deserialized type keeps an initializer default only on a `set` property. See
+  [docs/specs/native-aot.md](docs/specs/native-aot.md).
 - **No nullable injected dependencies.** Don't accept `IFoo? = null`. Provide a `Noop`/`Headless`
   implementation and require the real thing.
 - **No optional / default-valued parameters.** Banned repo-wide by the `WV0001` analyzer (only

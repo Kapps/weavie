@@ -7,7 +7,7 @@ namespace Weavie.Core.Sources;
 
 /// <summary>
 /// The Notion <see cref="ISource"/>: a thin <see cref="HttpClient"/> client over the Notion API, authenticated by
-/// a user-supplied personal access token. <see cref="Match"/> claims <c>notion.so</c>/<c>notion.site</c>/<c>app.notion.com</c> URLs;
+/// a user-supplied personal access token. <see cref="Hosts"/> claims <c>notion.so</c>/<c>notion.site</c>/<c>app.notion.com</c> URLs;
 /// <see cref="ValidateAsync"/> checks the token via <c>GET /v1/users/me</c>; <see cref="FetchAsync"/> reads a page's
 /// title (<c>GET /v1/pages/{id}</c>) and its content as (enhanced) markdown (<c>GET /v1/pages/{id}/markdown</c>) into a
 /// <see cref="SourceDoc"/>. Mirrors <c>GitHubReviewProvider</c> (injectable client, static pure parsers).
@@ -33,17 +33,11 @@ public sealed class NotionSource : ISource {
 	public string SetupUrl => "https://app.notion.com/developers/tokens";
 
 	/// <inheritdoc/>
-	public bool Match(string target) => ClaimsUrl(target);
+	public IReadOnlyList<string> LinkHosts => Hosts;
 
-	/// <summary>True when <paramref name="target"/> is a <c>notion.so</c>/<c>notion.site</c> or <c>app.notion.com</c> http(s)
-	/// URL — the hosts that serve pages (the rest of <c>notion.com</c> is marketing/help). Static so the headless fake shares one rule.</summary>
-	public static bool ClaimsUrl(string target) =>
-		Uri.TryCreate(target, UriKind.Absolute, out var uri)
-		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
-		&& (uri.Host.Equals("notion.so", StringComparison.OrdinalIgnoreCase)
-			|| uri.Host.EndsWith(".notion.so", StringComparison.OrdinalIgnoreCase)
-			|| uri.Host.EndsWith(".notion.site", StringComparison.OrdinalIgnoreCase)
-			|| uri.Host.Equals("app.notion.com", StringComparison.OrdinalIgnoreCase));
+	/// <summary>The hosts that serve pages: <c>notion.so</c>, <c>*.notion.so</c>, <c>*.notion.site</c>, and <c>app.notion.com</c>
+	/// (the rest of <c>notion.com</c> is marketing/help). Static so the headless fake shares one rule.</summary>
+	public static IReadOnlyList<string> Hosts { get; } = ["notion.so", ".notion.so", ".notion.site", "app.notion.com"];
 
 	/// <inheritdoc/>
 	public async Task<string> ValidateAsync(string accessToken, CancellationToken ct = default) {

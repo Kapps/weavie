@@ -7,13 +7,16 @@ namespace Weavie.Core.Sources;
 /// </summary>
 public interface ISourceConnector {
 	/// <summary>The id of the registered source that claims <paramref name="target"/> (null when none does) — the
-	/// host-side open resolver and the identity stamped on source messages, so the web never re-implements
-	/// each source's <see cref="ISource.Match"/>.</summary>
+	/// host-side open resolver and the identity stamped on source messages.</summary>
 	string? IdFor(string target);
 
 	/// <summary>True when the source that claims <paramref name="target"/> already has a saved token, so a fetch can run
 	/// without first sending the user through connect. False routes an opened source URL to the connect prompt, not a blank tab.</summary>
 	bool IsConnected(string target);
+
+	/// <summary>The <see cref="ISource.LinkHosts"/> of every source with a saved token — pushed to the web so a clicked
+	/// link on one opens in Weavie's viewer, while every other link keeps opening in the browser.</summary>
+	IReadOnlyList<string> ConnectedLinkHosts();
 
 	/// <summary>Where the user creates an access token for <paramref name="sourceId"/> (opened in the browser on connect).</summary>
 	string SetupUrlFor(string sourceId);

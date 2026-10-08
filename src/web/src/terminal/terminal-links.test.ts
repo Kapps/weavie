@@ -19,6 +19,8 @@ vi.mock("../bridge", () => ({
   }),
   isBrowserHostedShell: () => browserShell.value,
   LOCAL_BACKEND_ID: "local",
+  registerHostFeature: () => () => {},
+  registerSessionFeature: () => () => {},
 }));
 
 // The active session's forge ref-link prefix (null = origin isn't a forge repo, so #N doesn't linkify).

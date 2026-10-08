@@ -438,6 +438,9 @@ public static class CoreCommands {
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
 
+	/// <summary>Opens the active Notion tab's page in the system browser (web-handled, tab-command-bindings.ts).</summary>
+	public const string SourceOpenInBrowser = "weavie.source.openInBrowser";
+
 	/// <summary>Opens the focused block of a Notion source tab for in-place editing (web-handled, source-edit.ts).</summary>
 	public const string SourceEditBlock = "weavie.source.editBlock";
 
@@ -2107,6 +2110,17 @@ public static class CoreCommands {
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
 				+ "it for you.",
 			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceOpenInBrowser,
+			Title = "Open in Notion",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Open the active Notion tab's page in your browser — the full Notion app, for commenting, sharing, "
+				+ "or anything the in-Weavie viewer doesn't do.",
+			Aliases = ["open notion", "open notion in browser", "open page in browser", "view in notion"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+o" }],
 		});
 
 		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline

@@ -19,10 +19,10 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// The open resolver: the page hands every opened URL here, and the host — which owns the sources and their
-	/// <see cref="ISource.Match"/> — decides. A claimed URL is fetched + rendered natively when its source is
+	/// <see cref="ISource.LinkHosts"/> rule — decides. A claimed URL is fetched + rendered natively when its source is
 	/// connected, else it routes to the connect prompt (remembered, so it opens once connected); anything else is
-	/// sent back as <c>open-web</c> for a web (iframe) tab. Keeping the match host-side means the web never
-	/// re-implements a source's predicate.
+	/// sent back as <c>open-web</c> for a web (iframe) tab. The host owns which sources are connected; the web only
+	/// pre-routes clicked links with the connected sources' hosts it was sent.
 	/// </summary>
 	private void OpenTargetForWeb(HostSession session, string url) {
 		if (!IsHttpUrl(url)) {
@@ -67,6 +67,7 @@ public sealed partial class HostCore {
 			string workspace = await _sources.SaveTokenAsync(sourceId, token, ct).ConfigureAwait(false);
 			string where = string.IsNullOrWhiteSpace(workspace) ? "your Notion workspace" : $"Notion workspace “{workspace}”";
 			Notify(session, "info", $"Connected to {where}.");
+			_messages.Host.Feature("sources").Publish("linkHosts", WireJson.Default.SourceLinkHosts, new([.. _sources.ConnectedLinkHosts()]));
 			session.State.Remove("sources", "tokenPrompt");
 			// A URL opened before connecting (the resolver stashed it): now that we're connected, open it.
 			if (_pendingSources.TryRemove(session.Address, out var pending)) {
@@ -190,6 +191,8 @@ public sealed partial class HostCore {
 }
 
 internal sealed record SourceEditError(string Target, string Message, string EditId, bool Stale);
+
+internal sealed record SourceLinkHosts(string[] Hosts);
 
 internal sealed record SourceTokenPrompt(string SourceId, string Label);
 

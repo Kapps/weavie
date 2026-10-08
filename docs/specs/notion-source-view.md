@@ -54,8 +54,17 @@ The open resolver (`HostCore.OpenTargetForWeb`) matches a URL host-side and rout
   fetched automatically once `SaveSourceTokenAsync` validates the token — connecting from a click lands on the page.
 - **Unclaimed** → `open-web` (an iframe tab).
 
-`NotionSource.ClaimsUrl` claims `notion.so` / `*.notion.so` / `*.notion.site` **and** `app.notion.com` (the in-app
-page host) — but not the rest of `notion.com` (marketing/help), which opens as a normal web tab.
+`NotionSource.Hosts` claims `notion.so` / `*.notion.so` / `*.notion.site` **and** `app.notion.com` (the in-app
+page host) — but not the rest of `notion.com` (marketing/help), which opens as a normal web tab. `SourceLinks.Claims`
+is the one matching rule.
+
+## Clicked links elsewhere & "Open in Notion"
+
+A link clicked in agent output, the terminal, or a Markdown preview opens in the viewer **only when its source is
+connected**; every other link keeps opening in the browser. The host sends each client its connected sources' link
+hosts (`HostHello.SourceLinkHosts`, re-pushed as `sources.linkHosts` when a token is saved), so the web decides at
+click time (`openLink`, `source-links.ts`) — no round-trip that would cost a browser shell its popup gesture. The
+viewer's **Open in Notion** button (`weavie.source.openInBrowser`, `Alt+Shift+O`) opens the page in the browser.
 
 ## Enhanced-markdown coverage (v1)
 

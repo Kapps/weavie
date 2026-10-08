@@ -37,7 +37,7 @@ import type { NavLocation, TextLocation } from "./nav-history";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
-import { focusTabContent, type TabOwner, type TabPresenter } from "./tab-owner";
+import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
 
 export type { TabActions } from "./tab-actions";
 
@@ -285,16 +285,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void activation.then(settled, settled);
     return activation;
   };
-  const rebindSession = async (session: ClientSession): Promise<void> => {
+  // Reports its own failure as "Couldn't <action>"; an activation superseded by a newer one is not a failure.
+  // Review state draws the whole session, so it renders whatever the activation's outcome.
+  const rebindSession = async (session: ClientSession, action: string): Promise<void> => {
     if (host === undefined || selectedSession() !== session) return;
     clearPresentedProposal();
     host.clear();
     const path = activePathFor(session);
-    if (path !== null) {
-      const result = activateTabFor(session, path);
-      if (result !== null) {
-        result.placement = { ...result.placement, focus: false };
+    const result = path === null ? null : activateTabFor(session, path);
+    if (result !== null) {
+      result.placement = { ...result.placement, focus: false };
+      try {
         await applyActive(session, result);
+      } catch (error) {
+        if (!isAbortError(error)) {
+          const message = `Couldn't ${action}: ${String(error)}`;
+          log("error", message);
+          deps.onOpenError(message);
+        }
       }
     }
     if (selectedSession() === session) renderReviewState(session);
@@ -389,8 +397,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const presentTab = (session: ClientSession, result: ActivateResult): void => {
     void applyActive(session, result).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === "AbortError"))
-        deps.onOpenError(`Couldn't open the tab: ${String(error)}`);
+      if (!isAbortError(error)) deps.onOpenError(`Couldn't open the tab: ${String(error)}`);
     });
   };
 
@@ -679,7 +686,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         editorMounted = true;
         const session = selectedSession();
         if (session !== null && !pendingActivations.has(session)) {
-          await rebindSession(session);
+          await rebindSession(session, "restore the editor session");
         } else if (session !== null) {
           renderReviewState(session);
         }
@@ -1274,10 +1281,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           reviews.restore(session, restored.session.review);
         }
         if (restored !== null && editorMounted && selectedSession() === session) {
-          void rebindSession(session).catch((error: unknown) => {
-            log("error", `editor session restore failed: ${String(error)}`);
-            deps.onOpenError(`Couldn't restore the editor session: ${String(error)}`);
-          });
+          void rebindSession(session, "restore the editor session");
         }
       }),
     ];
@@ -1316,10 +1320,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     ownPresentedReview(session);
-    void rebindSession(session).catch((error: unknown) => {
-      log("error", `editor session rebind failed: ${String(error)}`);
-      deps.onOpenError(`Couldn't switch editor sessions: ${String(error)}`);
-    });
+    void rebindSession(session, "switch editor sessions");
   });
 
   interface ScratchSaveResult {

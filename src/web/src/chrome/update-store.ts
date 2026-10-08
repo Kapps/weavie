@@ -109,9 +109,18 @@ export function backendBuildMismatch(
   return backendId !== LOCAL_BACKEND_ID &&
     client !== undefined &&
     backend !== undefined &&
-    client !== backend
+    client !== backend &&
+    !isDevBuild(client) &&
+    !isDevBuild(backend)
     ? { client, backend }
     : null;
+}
+
+// Only release.yml allocates build numbers; any other build is stamped `<version>.0` (Directory.Build.props), so
+// its protocol is unknowable from the identity and comparing it would always cry mismatch.
+function isDevBuild(build: string): boolean {
+  const parts = build.split(".");
+  return parts.length === 4 && parts[3] === "0";
 }
 
 export function surfacePostUpdateNotice(): void {

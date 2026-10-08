@@ -2125,7 +2125,19 @@ test.describe("ACP composer", () => {
         (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
     );
 
+  // Flaked on Windows 2026-10-08 04:08 UTC, https://github.com/Kapps/weavie/actions/runs/37725327968/job/113143410568
+  // ("Received: 1572.8"): history finished loading after the deltas streamed, so the response was classed as
+  // replayed history and followed past its top. Live output is now flagged by live ingestion rather than a
+  // revision threshold, and this test holds history open until the response has streamed to make it deterministic.
   test("a streaming response stops following once its top reaches the top", async ({ page }) => {
+    let releaseHistory = (): void => {};
+    const historyHeld = new Promise<void>((resolve) => {
+      releaseHistory = resolve;
+    });
+    await page.route("**/weavie-agent-history?**", async (route) => {
+      await historyHeld;
+      await route.continue();
+    });
     await mountAgent(page);
     publishCatalog();
     const turn = { threadId: "thread-stream", turnId: "turn-stream" };
@@ -2145,6 +2157,7 @@ test.describe("ACP composer", () => {
       );
       await page.waitForTimeout(30);
     }
+    releaseHistory();
     const answer = page.locator(".agent-virtual-row", { hasText: "Streamed 60." });
     await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
     await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(1);

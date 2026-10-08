@@ -150,6 +150,7 @@ function createHistory(session: ClientSession) {
     model.publish(updates, changes);
   };
   const ingest = (message: AgentPaneUpdate): void => {
+    model.noteLive();
     applyMessageState(message);
     accumulator.ingest("pane", message, publish);
   };
@@ -161,6 +162,7 @@ function createHistory(session: ClientSession) {
     },
   );
   const offBatch = feature.on<{ messages: AgentPaneWireUpdate[] }>("paneBatch", ({ messages }) => {
+    model.noteLive();
     for (const message of messages) {
       applyMessageState(message);
     }

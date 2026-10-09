@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
+import { withHeldAnimationFrames } from "./harness/animation-frames";
 import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession } from "./mock-host";
 
@@ -2125,30 +2126,102 @@ test.describe("ACP composer", () => {
         (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
     );
 
-  test("a streaming response stops following once its top reaches the top", async ({ page }) => {
-    await mountAgent(page);
-    publishCatalog();
-    const turn = { threadId: "thread-stream", turnId: "turn-stream" };
-    publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
-    publishPane(
-      paneMessage({ ...turn, type: "user-message", itemId: "prompt-stream", text: "Stream it" }),
-    );
-    for (let index = 1; index <= 60; index++) {
-      publishPane(
-        paneMessage({
-          ...turn,
-          type: "agent-message-delta",
-          itemId: "answer-stream",
-          itemType: "agentMessage",
-          text: `${index === 1 ? "" : "\n\n"}Streamed ${index}.`,
-        }),
+  async function observeHistoryRead(page: Page): Promise<() => Promise<void>> {
+    const consumed = Promise.withResolvers<void>();
+    await page.exposeFunction("agentHistoryConsumed", consumed.resolve);
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      window.fetch = async (...args) => {
+        const response = await fetch(...args);
+        if (response.url.includes("/weavie-agent-history?") && response.body !== null) {
+          response.body.getReader = new Proxy(response.body.getReader, {
+            apply(getReader, body, args) {
+              const reader: ReadableStreamDefaultReader<Uint8Array> = Reflect.apply(
+                getReader,
+                body,
+                args,
+              );
+              const release = reader.releaseLock.bind(reader);
+              reader.releaseLock = () => {
+                release();
+                // readJsonStream releases its reader after loadHistory applies the final batch.
+                void (
+                  window as unknown as { agentHistoryConsumed: () => Promise<void> }
+                ).agentHistoryConsumed();
+              };
+              return reader;
+            },
+          });
+        }
+        return response;
+      };
+    });
+    return () => consumed.promise;
+  }
+
+  for (const delayed of ["history", "pane"] as const) {
+    test(`a streaming response stays at its top with delayed ${delayed}`, async ({ page }) => {
+      const historyRead = await observeHistoryRead(page);
+      const gate = Promise.withResolvers<void>();
+      await page.route(
+        delayed === "history" ? "**/weavie-agent-history?**" : "**/assets/AgentPaneBody-*.js",
+        async (route) => {
+          await gate.promise;
+          await route.continue();
+        },
       );
-      await page.waitForTimeout(30);
-    }
-    const answer = page.locator(".agent-virtual-row", { hasText: "Streamed 60." });
-    await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
-    await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(1);
-  });
+      try {
+        await mountAgent(page);
+        publishCatalog();
+        if (delayed === "pane") await historyRead();
+        const answer = page.locator(".agent-virtual-row", { hasText: "Streamed 1." });
+        await withHeldAnimationFrames(page, async (releaseFrames) => {
+          const turn = { threadId: "thread-stream", turnId: "turn-stream" };
+          publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
+          publishPane(
+            paneMessage({
+              ...turn,
+              type: "user-message",
+              itemId: "prompt-stream",
+              text: "Stream it",
+            }),
+          );
+          for (let index = 1; index <= 60; index++) {
+            publishPane(
+              paneMessage({
+                ...turn,
+                type: "agent-message-delta",
+                itemId: "answer-stream",
+                itemType: "agentMessage",
+                text: `${index === 1 ? "" : "\n\n"}Streamed ${index}.`,
+              }),
+            );
+            if (index === 8) {
+              // The shared agent lane delivers this receipt after queuing the transcript flush.
+              publishControls(fastOnControls);
+              await expect(
+                page.getByRole("button", { name: "Fast On", exact: true }),
+              ).toBeVisible();
+              if (delayed === "pane") {
+                gate.resolve();
+                await expect(page.locator(".agent-body")).toBeVisible();
+              }
+              await releaseFrames();
+            }
+            if (index >= 8) await expect(answer).toContainText(`Streamed ${index}.`);
+          }
+        });
+        gate.resolve();
+        await historyRead();
+        await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
+        await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(
+          1,
+        );
+      } finally {
+        gate.resolve();
+      }
+    });
+  }
 
   test("a reopened transcript ending in a long response opens at the bottom", async ({ page }) => {
     const text = Array.from({ length: 60 }, (_, index) => `Stored ${index + 1}.`).join("\n\n");

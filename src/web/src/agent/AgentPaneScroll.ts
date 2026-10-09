@@ -124,7 +124,7 @@ export function createAgentPaneScroll(
     }
   };
 
-  const scheduleFollow = (follow: () => void): void => {
+  const scheduleFollow = (): void => {
     if (scrollScheduled) {
       return;
     }
@@ -132,7 +132,7 @@ export function createAgentPaneScroll(
     requestAnimationFrame(() => {
       scrollScheduled = false;
       if (followingLatest()) {
-        follow();
+        followLatest();
       }
     });
   };
@@ -214,7 +214,7 @@ export function createAgentPaneScroll(
       revision,
       () => {
         if (followingLatest()) {
-          scheduleFollow(followLatest);
+          scheduleFollow();
         } else {
           updateAgentTurnStartPosition();
         }
@@ -243,7 +243,7 @@ export function createAgentPaneScroll(
 
   onMount(() => {
     if (followingLatest()) {
-      scheduleFollow(assignBottom);
+      scheduleFollow();
     } else {
       updateAgentTurnStartPosition();
     }

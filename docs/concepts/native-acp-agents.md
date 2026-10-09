@@ -32,21 +32,31 @@ under `~/.weavie/acp/installations.json`:
 
 - `binary` downloads the current platform archive, verifies its SHA-256 digest, safely extracts it under
   `~/.weavie/acp/packages/`, and launches the declared binary;
-- `npx` launches with `npx --yes --no-audit --no-fund --no-update-notifier --min-release-age=0 --`
-  followed by the registry's exact package recipe, so repository or user npm release-age policies do not
-  delay ACP agent installs and updates;
+- `npx` runs the user's `npm install --min-release-age=0` into its own directory under
+  `~/.weavie/acp/packages/`, whose own `package.json` makes it npm's project root, so no workspace
+  `package.json` (`devEngines`, `packageManager`) or project `.npmrc` can block or redirect it; user npm
+  config still applies, and release-age policies do not delay installs and updates. The recipe launches the
+  package's executable the way `npx` picks it, through its `#!` interpreter (normally `node`) or directly when
+  it is a native binary, so no package resolution runs per session;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
 
 Updating an installed provider leaves its running processes alone. `Restart Agent` resolves the latest installed
 launch recipe and resumes the existing provider session through that new process.
 
-Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. On Unix, executable lookup uses the child's PATH,
+Weavie ships no Node, npm, Python, uv, or uvx runtime. On Unix, executable lookup uses the child's PATH,
 including the imported login-shell environment and launch-recipe overrides. If the selected runner is absent,
 process launch fails visibly in the native pane. When an agent offers
 multiple distributions, the user chooses one; Weavie does not silently change distribution kinds during install or
 update.
 
 Registry removal deletes the installed recipe. User-defined agents are independent and remain untouched.
+
+A recorded installation this build can't launch (an older recipe format, an unknown field) does not take down the
+catalog: it stays on disk verbatim and becomes an unavailable provider under its own id, with the reason, so its
+sessions stay bound to it. Manage ACP Agents marks it "Needs reinstall"; reinstalling replaces it under the same id
+and its sessions open again, and removing it follows the usual referenced-provider rule. A document-level failure
+(unreadable JSON, wrong version, duplicate ids, an entry without an id) still makes ACP agents unavailable as a
+whole, because no single agent can be named.
 
 ## Custom commands
 
@@ -116,10 +126,23 @@ the workspace checkout and worktrees. The confirmation explains that agent and s
 edits, editor tabs, and session identity stay; the replacement has a new message-bus incarnation. Selecting a
 previously used provider starts fresh too. The selected provider is saved for subsequent loads and restarts.
 
-Runtime restart preserves the current ACP conversation and reconnects it. The Weavie-owned `/clear` action is a
-different lifecycle: it clears the exact persisted association, resets the pane and local turn state, and restarts
-without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
-deleted.
+Runtime restart preserves the current ACP conversation and reconnects it on a new process. The Weavie-owned `/clear`
+action is a different lifecycle: it clears the exact persisted association, resets the pane and local turn state,
+and opens a new provider session with `session/new`. When the agent advertises `sessionCapabilities.close`, this
+happens on the running process: the old session's prompt is cancelled and the session closed. An agent without
+close is restarted instead, because only stopping its process stops the old session's work. Provider-owned
+history is abandoned, not deleted.
+
+**Rewind** (a prompt row's Rewind button, or `/rewind` and the palette for the latest prompt) continues from
+just before a prompt and returns that prompt to the composer; files are untouched. It forks the primary with the
+AIR fork point `_meta.jetbrains.air.fork = { version: 1, messageId }`, naming the last agent message before the
+prompt (supported by claude-agent-acp ≥ 0.71.0 and codex-acp). ACP advertises no capability for the fork point,
+so the fork opens as a staged conversation whose `session/load` replay must end at that message; otherwise the
+rewind fails, the fork is closed, and the conversation is unchanged. The commit atomically replaces the journal and
+continuation with the kept history, drops side conversations anchored at or after the prompt, and adopts the
+loaded fork as the primary on the running process, closing the original session there. An agent without
+`sessionCapabilities.close` restarts onto the fork instead. Rewinding the first prompt starts a fresh conversation
+the same way `/clear` does. The original provider history is left intact.
 
 Side conversations share the primary conversation's ACP process and run concurrently with one another and
 the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's

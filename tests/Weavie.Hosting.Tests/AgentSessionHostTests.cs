@@ -17,7 +17,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed partial class AgentSessionHostTests {
 	[Fact]
-	public async Task Pane_wire_keeps_review_paths_and_output_without_transmitting_diff_contents() {
+	public async Task Pane_wire_keeps_review_paths_and_defers_history_tool_output() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		fixture.Session.Emit(Completed("tool", "tool output") with {
 			ItemType = "tool",
@@ -30,13 +30,23 @@ public sealed partial class AgentSessionHostTests {
 		var batches = await HistoryBatches(fixture.Host.ReadHistory(new(null, null)));
 		Assert.True(batches.Sum(batch => Encoding.UTF8.GetByteCount(batch.GetRawText())) < 4096);
 		var history = Assert.Single(HistoryRecords(batches));
-		Assert.Equal(live.GetRawText(), history.GetRawText());
-		var diff = Assert.Single(history.GetProperty("diffs").EnumerateArray());
+		Assert.True(history.GetProperty("outputDeferred").GetBoolean());
+		Assert.Equal(JsonValueKind.Null, history.GetProperty("text").ValueKind);
+		Assert.Equal(JsonValueKind.Null, history.GetProperty("content").ValueKind);
+		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+
+		var expanded = JsonSerializer.SerializeToElement(
+			AgentPaneProtocol.Message(fixture.Host.ReadRecord(new(
+				history.GetProperty("generation").GetInt64(), history.GetProperty("ordinal").GetInt64()))),
+			WireJson.Default.AgentPaneWire);
+		Assert.Equal(live.GetRawText(), expanded.GetRawText());
+		Assert.False(expanded.GetProperty("outputDeferred").GetBoolean());
+		var diff = Assert.Single(expanded.GetProperty("diffs").EnumerateArray());
 		Assert.Equal("path", Assert.Single(diff.EnumerateObject()).Name);
 		Assert.Equal("/file", diff.GetProperty("path").GetString());
-		Assert.Equal("tool output", history.GetProperty("text").GetString());
-		Assert.Equal("rich output", Assert.Single(history.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
-		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+		Assert.Equal("tool output", expanded.GetProperty("text").GetString());
+		Assert.Equal("rich output", Assert.Single(expanded.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
+		Assert.Throws<InvalidOperationException>(() => fixture.Host.ReadRecord(new(history.GetProperty("generation").GetInt64() + 1, 1)));
 	}
 
 	[Fact]
@@ -314,6 +324,30 @@ public sealed partial class AgentSessionHostTests {
 		Assert.Equal(6, Batched(bridge).Count);
 	}
 
+	// A saved transcript can be megabytes of streamed deltas; pages read it as paged history, never as live traffic.
+	[Fact]
+	public async Task SavedTranscript_IsServedAsHistoryWithoutLiveTraffic() {
+		AgentPaneMessage delta = new() {
+			Type = "agent-message-delta",
+			ProviderId = "structured",
+			ThreadId = "thread",
+			TurnId = "turn",
+			ItemId = "reply",
+			ItemType = "agentMessage",
+		};
+		await using var fixture = CreateFixture(static () => "slot-1", 0, withAuthenticationTerminal: false,
+			saved: [delta with { Text = "saved " }, delta with { Text = "reply" }, Completed("done", "finished")]);
+		var (bridge, host) = (fixture.Bridge, fixture.Host);
+
+		host.StartStructured();
+		await host.DrainPaneAsync(CancellationToken.None);
+
+		Assert.Empty(bridge.PostedEventsNamed("paneBatch"));
+		Assert.Single(bridge.PostedEventsNamed("pane"), message => message.GetProperty("type").GetString() == "started");
+		Assert.Equal(new string?[] { "saved reply", "finished", null },
+			(await History(host)).Select(message => message.GetProperty("text").GetString()));
+	}
+
 	// The regression that stranded live pages: a provider replay used to reset the pane, and every client holding
 	// the old ordinals was told to throw them away mid-load. Filling an empty pane invalidates nothing.
 	[Fact]
@@ -454,12 +488,16 @@ public sealed partial class AgentSessionHostTests {
 	};
 
 	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs) =>
-		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false);
+		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false, saved: []);
+
+	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs, bool withAuthenticationTerminal) =>
+		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal, saved: []);
 
 	private static HostFixture CreateFixture(
 		Func<string> slot,
 		long paneCoalesceMs,
-		bool withAuthenticationTerminal) {
+		bool withAuthenticationTerminal,
+		IReadOnlyList<AgentPaneMessage> saved) {
 		var dir = new TempDirectory("weavie-agent-host-tests");
 		var fileSystem = new InMemoryFileSystem();
 		var settings = CoreSettings.CreateStore(dir.Combine("settings.toml"), enableWatcher: false);
@@ -478,8 +516,9 @@ public sealed partial class AgentSessionHostTests {
 			new CommandDispatcher(commandRegistry),
 			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			slot);
-		var session = new FakeStructuredSession();
+			slot,
+			AgentConsultation.None);
+		var session = new FakeStructuredSession { Saved = saved };
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(
 				bridge.SessionFeature("agent"),
@@ -558,6 +597,10 @@ public sealed partial class AgentSessionHostTests {
 		public AgentUsageSnapshot Snapshot { get; private set; } = new(null, []);
 
 		public bool Started { get; private set; }
+
+		public IReadOnlyList<AgentPaneMessage> Saved { get; init; } = [];
+
+		public IReadOnlyList<AgentPaneMessage> Restore() => Saved;
 
 		public void Start() {
 			Started = true;

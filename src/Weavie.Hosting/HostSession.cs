@@ -13,6 +13,7 @@ using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Review;
 using Weavie.Core.Revise;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
@@ -33,11 +34,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
-	private readonly Lock _editorSessionGate = new();
 	private readonly Lock _disposeGate = new();
-	private EditorSession _editorSession = EditorSession.Empty;
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
+	private PullRequestComments? _pullRequestComments;
 	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
@@ -46,11 +46,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
-		LanguageServerCatalog.All.Select(d => new {
-			id = d.Id,
-			languageIds = d.LanguageIds,
-			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
-		}));
+		[.. LanguageServerCatalog.All.Select(d => new LspServerWire(
+			d.Id,
+			d.LanguageIds,
+			string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson)))],
+		WireJson.Default.LspServerWireArray);
 
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
@@ -73,6 +73,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
 		IInferenceService inference,
+		AgentConsultation agentConsultation,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
@@ -93,6 +94,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(corrections);
 		ArgumentNullException.ThrowIfNull(inference);
+		ArgumentNullException.ThrowIfNull(agentConsultation);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
@@ -213,7 +215,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Commands,
 			keybindings,
 			themeOverrides,
-			() => SlotId);
+			() => SlotId,
+			agentConsultation);
 
 		Agent = new AgentSessionHost(
 			agentProvider,
@@ -278,7 +281,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal void ActivateOwnedRuntimeAndMessages() {
 		_endpoint.Activate();
 		_ = Background.Run(RunWorkspaceObservationAsync);
-		Agent.Structured?.Start();
+		Agent.StartStructured();
 	}
 
 	private async Task RunWorkspaceObservationAsync(CancellationToken ct) {
@@ -333,7 +336,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	// Workspace failures remain visible across reconnect: each stays true until the user acts on it.
 	private void PublishCondition(ref string? condition, string message) {
 		Volatile.Write(ref condition, message);
-		_notificationMessages.Publish("show", new { level = "error", message });
+		_notificationMessages.Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain("error", message));
 	}
 
 	internal void ReplayWorkspaceFailures(MessageTarget target) {
@@ -342,7 +345,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Volatile.Read(ref _observedPathsFailure),
 		}) {
 			if (message is not null) {
-				target.Feature("notifications").Publish("show", new { level = "error", message });
+				target.Feature("notifications").Publish("show", WireJson.Default.ToastMessage, ToastMessage.Plain("error", message));
 			}
 		}
 	}
@@ -356,6 +359,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal PullRequestStatusMonitor PullRequestStatus =>
 		_pullRequestStatus ?? throw new InvalidOperationException("Pull request status was not attached.");
 
+	internal PullRequestComments PullRequestComments =>
+		_pullRequestComments ?? throw new InvalidOperationException("Pull request comments were not attached.");
+
 	internal GitStatusMonitor GitStatus =>
 		_gitStatus ?? throw new InvalidOperationException("Git status was not attached.");
 
@@ -366,9 +372,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 		}
 	}
 
-	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor) {
+	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor, PullRequestComments comments) {
 		ArgumentNullException.ThrowIfNull(monitor);
-		if (Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
+		ArgumentNullException.ThrowIfNull(comments);
+		if (Interlocked.CompareExchange(ref _pullRequestComments, comments, null) is not null
+			|| Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
 			throw new InvalidOperationException("Pull request status is already attached.");
 		}
 	}
@@ -435,24 +443,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	public EditorStore Editor { get; }
 
 	/// <summary>
-	/// This session's open editor tabs (paths + opaque view state), in memory for the window's lifetime. The page
-	/// reports user-driven changes while host-driven opens mutate the same state. Its owning slot persists it.
-	/// </summary>
-	public EditorSession EditorSession {
-		get { lock (_editorSessionGate) { return _editorSession; } }
-		set {
-			ArgumentNullException.ThrowIfNull(value);
-			lock (_editorSessionGate) {
-				_editorSession = value;
-			}
-
-			EditorSessionChanged?.Invoke(value);
-		}
-	}
-
-	internal event Action<EditorSession>? EditorSessionChanged;
-
-	/// <summary>
 	/// The open files the workspace watcher does not cover. Scratch buffers are excluded — they are Weavie's own
 	/// temp files, and the editor is the writer whose saves would echo back.
 	/// </summary>
@@ -470,114 +460,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 			PublishCondition(ref _observedPathsFailure, message);
 		}
 	}
-
-	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {
-		ArgumentNullException.ThrowIfNull(target);
-		ArgumentNullException.ThrowIfNull(log);
-		lock (_editorSessionGate) {
-			target.PublishJson(
-				"restore",
-				EditorSessionSerialization.BuildRestoreJson(_editorSession, FileSystem, log));
-		}
-	}
-
-	private void PublishEditorFileOpen(
-		string path,
-		int? line,
-		bool preview,
-		bool scratch,
-		EditorOpenIntent intent) {
-		EditorSession next;
-		lock (_editorSessionGate) {
-			next = RecordEditorOpenLocked(path, preview, scratch, kind: null);
-			_editorMessages.Publish(
-				"openFile",
-				new { path, line, preview, scratch, intent = intent == EditorOpenIntent.Reveal ? "reveal" : "navigation" });
-		}
-
-		EditorSessionChanged?.Invoke(next);
-	}
-
-	private EditorSession RecordEditorOpenLocked(
-		string path,
-		bool preview,
-		bool scratch,
-		string? kind) {
-		EditorSession next;
-		var current = _editorSession;
-		var open = current.Open.ToList();
-		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
-		if (existing >= 0) {
-			var entry = open[existing];
-			bool sameKind = (entry.Kind ?? "file") == (kind ?? "file");
-			open[existing] = entry with {
-				Kind = kind,
-				Preview = entry.Preview && preview,
-				ViewState = sameKind ? entry.ViewState : null,
-			};
-		} else {
-			var entry = new EditorSessionEntry {
-				Path = path,
-				Kind = kind,
-				ViewState = null,
-				Preview = preview,
-				Scratch = scratch,
-			};
-			int priorPreview = preview
-				? open.FindIndex(candidate => candidate.Preview)
-				: -1;
-			if (priorPreview >= 0) {
-				open[priorPreview] = entry;
-			} else {
-				open.Add(entry);
-			}
-		}
-
-		next = current with { Active = path, Open = open };
-		_editorSession = next;
-		return next;
-	}
-
-	private void PublishEditorClose(string path) {
-		EditorSession? next = null;
-		lock (_editorSessionGate) {
-			var current = _editorSession;
-			int index = current.Open.ToList().FindIndex(entry => SameEditorPath(entry.Path, path));
-			if (index < 0) {
-				return;
-			}
-
-			var open = current.Open.Where(entry => !SameEditorPath(entry.Path, path)).ToArray();
-			string? active = current.Active;
-			if (active is not null && SameEditorPath(active, path)) {
-				active = open.Length == 0 ? null : open[Math.Min(index, open.Length - 1)].Path;
-			}
-
-			next = current with { Active = active, Open = open };
-			_editorSession = next;
-			_editorMessages.Publish("closeTab", new { path });
-		}
-
-		EditorSessionChanged?.Invoke(next);
-	}
-
-	internal void OpenEditorOverlay(string path, string kind) {
-		EditorSession next;
-		lock (_editorSessionGate) {
-			next = RecordEditorOpenLocked(path, preview: false, scratch: false, kind);
-			_editorMessages.Publish("openOverlay", new { path, kind });
-		}
-
-		EditorSessionChanged?.Invoke(next);
-	}
-
-	private static bool SameEditorPath(string left, string right) =>
-		string.Equals(
-			left,
-			right,
-			OperatingSystem.IsWindows()
-				? StringComparison.OrdinalIgnoreCase
-				: StringComparison.Ordinal);
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
@@ -722,3 +604,5 @@ public sealed partial class HostSession : IAsyncDisposable {
 	};
 
 }
+
+internal sealed record LspServerWire(string Id, IReadOnlyList<string> LanguageIds, JsonNode? Settings);

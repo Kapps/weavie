@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Configuration;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -17,5 +18,16 @@ public sealed class HostCoreStartupTipTests {
 		await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
 
 		Assert.Single(host.Bridge.PostedEvents("tips", "show"));
+	}
+
+	[Fact]
+	public async Task Hello_AsksForGettingStarted_OnlyWhileSetupIsUnfinished() {
+		await using var host = await TestHost.StartAsync();
+		Assert.Empty(host.Bridge.PostedEvents("gettingStarted", "show"));
+
+		host.Settings.Set(CoreSettings.GettingStartedCompleted, JsonSerializer.SerializeToElement(false));
+		await host.HostRequestAsync<JsonElement>("connection", "hello", new { });
+
+		Assert.Single(host.Bridge.PostedEvents("gettingStarted", "show"));
 	}
 }

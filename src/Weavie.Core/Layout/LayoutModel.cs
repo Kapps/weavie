@@ -75,7 +75,7 @@ public sealed record WindowState {
 /// </summary>
 public sealed record LayoutDocument {
 	/// <summary>Envelope version — the migration escape hatch for genuine structural reshapes.</summary>
-	public int Version { get; init; } = 1;
+	public int Version { get; set; } = 1;
 
 	/// <summary>Highest pane epoch (<see cref="PaneDefinition.IntroducedIn"/>) this user has been shown.</summary>
 	public int SeenPaneLevel { get; init; }
@@ -84,7 +84,7 @@ public sealed record LayoutDocument {
 	public string? Focused { get; init; }
 
 	/// <summary>Pane kinds the user explicitly closed; never auto-reinjected while listed.</summary>
-	public IReadOnlyList<string> Dismissed { get; init; } = [];
+	public IReadOnlyList<string> Dismissed { get; set; } = [];
 
 	/// <summary>Native window geometry, or <c>null</c> to use the default size and position.</summary>
 	public WindowState? Window { get; init; }
@@ -94,5 +94,5 @@ public sealed record LayoutDocument {
 
 	/// <summary>Unknown top-level fields, preserved verbatim across a load/save round-trip.</summary>
 	[JsonExtensionData]
-	public IDictionary<string, JsonElement>? Extra { get; init; }
+	public IDictionary<string, JsonElement>? Extra { get; set; }
 }

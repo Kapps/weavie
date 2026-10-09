@@ -86,6 +86,9 @@ public sealed record AgentControlState {
 	/// <summary>Whether provider initialization has established the current command surface.</summary>
 	public required bool Ready { get; init; }
 
+	/// <summary>Whether the primary conversation can rewind to before an earlier prompt right now.</summary>
+	public required bool Rewindable { get; init; }
+
 	/// <summary>The provider-owned configuration options, in the provider's order.</summary>
 	public required IReadOnlyList<AgentControlAxis> Axes { get; init; }
 
@@ -115,14 +118,25 @@ public static class AgentControlCommands {
 		InputName = "question",
 	};
 
+	/// <summary>Rewinds the conversation to just before the latest prompt.</summary>
+	public static AgentSlashEntry Rewind { get; } = new() {
+		Id = "weavie:rewind",
+		Name = "rewind",
+		Description = "Rewind the conversation to before your last prompt",
+		Kind = AgentSlashEntryKind.WeavieCommand,
+		CommandId = Commands.CoreCommands.RewindAgentConversation,
+	};
+
 	/// <summary>Adds built-ins to one provider snapshot, with Weavie semantics winning name collisions.</summary>
 	public static IReadOnlyList<AgentSlashEntry> ComposeSlash(
 		IReadOnlyList<AgentSlashEntry> providerCommands,
-		bool supportsSideConversations) {
+		bool supportsSideConversations,
+		bool rewindable) {
 		ArgumentNullException.ThrowIfNull(providerCommands);
 		AgentSlashEntry[] local = [
 			ClearConversation,
 			.. supportsSideConversations ? [AskAside] : Array.Empty<AgentSlashEntry>(),
+			.. rewindable ? [Rewind] : Array.Empty<AgentSlashEntry>(),
 			.. McpPromptCatalog.All.Select(prompt => new AgentSlashEntry {
 				Id = "mcp:weavie:" + prompt.Name,
 				Name = prompt.Name,

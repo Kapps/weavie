@@ -18,6 +18,8 @@ interface WeavieShellConfig {
 interface WeavieWelcomeConfig {
   /** Recent workspace paths (absolute); the welcome screen derives leaf names for display. */
   recents: string[];
+  /** Whether Getting Started was finished or dismissed; the welcome screen shows it until then. */
+  setupCompleted: boolean;
 }
 
 interface Window {

@@ -56,6 +56,10 @@ The response is newline-delimited JSON: newest-first batches of up to 64 typed r
 explicit completion marker. Every batch carries the same generation, revision, and total record count.
 There are no cursor requests, retained readers, or JSON-inside-JSON record fragments.
 
+Completed tool records omit their `text` and `content` from history and carry `outputDeferred`: that output
+renders only inside an expanded tool row, which requests the full record with `agent.toolOutput` by
+generation and ordinal. Live records always arrive complete.
+
 Serialization, writes, and flushes are awaited. HTTP/network buffering supplies producer backpressure;
 the browser reads and applies batches sequentially rather than queueing detached work. This does not
 require browser-render acknowledgements. Request cancellation and session shutdown cancel the stream.
@@ -86,6 +90,8 @@ conversation. Missing provider sessions fail visibly while the saved conversatio
 Provider identities are committed as soon as creation/fork succeeds, before a prompt can be submitted. A host
 interruption during initial fork setup leaves the card explicitly interrupted. `/clear` retires current work,
 atomically removes the primary and side descriptors and journal, resets the pane, and starts a new conversation.
+Rewind uses the same atomic replacement, writing the forked primary, surviving side descriptors, and the journal
+before the rewound prompt.
 Late events from retired generations and side runtimes cannot write into the replacement conversation.
 Deleting a Weavie session removes its stored display and continuation data for all providers, including
 uninstalled providers; unloading retains them. Cleanup errors are visible and leave the session entry for retry.

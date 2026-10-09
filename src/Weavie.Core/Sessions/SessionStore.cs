@@ -14,12 +14,7 @@ namespace Weavie.Core.Sessions;
 /// restored pre-spawn matches the reattaching xterm's width. A malformed file is backed up to
 /// <c>sessions.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class SessionStore : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true,
-	};
-
+public sealed partial class SessionStore : JsonDocumentStore {
 	private List<SessionDescriptor> _items = [];
 	// Last real shell-terminal size (fitted, active-pane term-resize); 0 = never recorded. See ShellSize.
 	private int _shellCols;
@@ -116,7 +111,7 @@ public sealed class SessionStore : JsonDocumentStore {
 	});
 
 	private static SessionStoreSnapshot ParseSnapshot(string text) {
-		var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
+		var document = JsonSerializer.Deserialize(text, SessionStoreJson.Default.SessionsDocument)
 			?? throw new JsonException("Session document was empty.");
 		if (document.Version != 4) {
 			throw new JsonException($"Unsupported session document version {document.Version}.");
@@ -168,7 +163,8 @@ public sealed class SessionStore : JsonDocumentStore {
 			ShellCols = snapshot.ShellColumns,
 			ShellRows = snapshot.ShellRows,
 			Sessions = [.. snapshot.Items.Select(ToEntry)],
-		}, JsonOptions);
+		},
+		SessionStoreJson.Default.SessionsDocument);
 
 	private static SessionEntry ToEntry(SessionDescriptor session) => new() {
 		Id = session.Id.Value,
@@ -216,4 +212,8 @@ public sealed class SessionStore : JsonDocumentStore {
 		[JsonPropertyName("shellTerminals")]
 		public List<string?>? ShellTerminals { get; set; }
 	}
+
+	[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
+	[JsonSerializable(typeof(SessionsDocument))]
+	private sealed partial class SessionStoreJson : JsonSerializerContext;
 }

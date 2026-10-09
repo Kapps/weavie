@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
@@ -78,11 +79,8 @@ public sealed partial class HostCore {
 		try {
 			var git = new GitService();
 			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, ct).ConfigureAwait(false)) {
-				await git.FetchAsync(
-					WorkspaceRoot,
-					"origin",
-					$"{headRef}:{headRef}",
-					ct).ConfigureAwait(false);
+				await git.FetchCommitAsync(WorkspaceRoot, "origin", pullRequest.HeadSha, ct).ConfigureAwait(false);
+				await git.CreateBranchAsync(WorkspaceRoot, headRef, pullRequest.HeadSha, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure(
@@ -112,7 +110,7 @@ public sealed partial class HostCore {
 			target,
 			request.Number,
 			headRef,
-			pullRequest.BaseRef,
+			pullRequest.BaseSha,
 			ct).ConfigureAwait(false);
 		return reviewError is null
 			? created
@@ -123,26 +121,22 @@ public sealed partial class HostCore {
 		HostSession session,
 		int number,
 		string headRef,
-		string baseRef,
+		string baseSha,
 		CancellationToken ct) {
 		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		string? mergeBase = null;
+		string reason = "its head shares no history with it";
 		try {
-			if (GitService.IsValidBranchName(baseRef)) {
-				await git.FetchAsync(WorkspaceRoot, "origin", baseRef, ct).ConfigureAwait(false);
-				mergeBase = await git
-					.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, ct)
-					.ConfigureAwait(false)
-					?? await git.MergeBaseAsync(worktree, baseRef, headRef, ct).ConfigureAwait(false);
-			}
+			await git.FetchCommitAsync(worktree, "origin", baseSha, ct).ConfigureAwait(false);
+			mergeBase = await git.MergeBaseAsync(worktree, baseSha, headRef, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
-			Log($"[weavie] pr #{number}: couldn't resolve base '{baseRef}': {ex.Message}");
+			reason = ex.Message;
 		}
 
 		if (mergeBase is null) {
-			return $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.";
+			return $"Opened PR #{number}, but couldn't compute its diff against its base: {reason}";
 		}
 
 		string headSha;
@@ -156,81 +150,19 @@ public sealed partial class HostCore {
 		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
-		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
 		try {
+			// The page activates this PR's session as this request's answer, landing on the review's first file.
 			await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
+				(path, line) => session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal),
 				ct)
 				.ConfigureAwait(false);
 			return null;
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";
-		}
-	}
-
-	private async Task<CommandResult> AddPrCommentAsync(
-		HostSession session,
-		ReviewCommentRequest request,
-		CancellationToken ct) {
-		if (string.IsNullOrWhiteSpace(request.Body)
-			|| ActiveReview(session) is not { } review
-			|| review.PrNumber != request.Number
-			|| review.Repo is not { } repo) {
-			return CommandResult.Failure("That pull-request review is not active in this session.");
-		}
-
-		try {
-			if (request.InReplyTo > 0) {
-				await _reviewComments
-					.ReplyAsync(repo, request.Number, request.InReplyTo, request.Body, ct)
-					.ConfigureAwait(false);
-			} else {
-				string relative = Path
-					.GetRelativePath(review.Worktree, request.Path)
-					.Replace('\\', '/');
-				string side = request.Side.Equals("left", StringComparison.OrdinalIgnoreCase)
-					? "left"
-					: "right";
-				await _reviewComments.AddAsync(
-					repo,
-					request.Number,
-					review.HeadSha,
-					new NewReviewComment {
-						Path = relative,
-						Line = request.Line,
-						Side = side,
-						Body = request.Body,
-					},
-					ct).ConfigureAwait(false);
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
-			return CommandResult.Failure($"Couldn't post the comment: {ex.Message}");
-		}
-
-		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-		if (ReferenceEquals(ActiveReview(session), review)) {
-			PushReviewCommentsToWeb(session, review, request.Path);
-			PushTurnDiffToWeb(session, request.Path);
-		}
-
-		return CommandResult.Success();
-	}
-
-	private async Task RefreshCommentsAsync(ReviewContext review, CancellationToken ct) {
-		if (review.Repo is not { } repo) {
-			return;
-		}
-
-		try {
-			var comments = await _reviewComments
-				.ListAsync(repo, review.PrNumber, ct)
-				.ConfigureAwait(false);
-			review.Comments = comments.ToArray();
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
-			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}
 	}
 
@@ -272,21 +204,13 @@ public sealed partial class HostCore {
 			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.";
 	}
 
-	private sealed record PullRequestReference(int Number, string Owner, string Repo);
+	internal sealed record PullRequestReference(int Number, string Owner, string Repo);
 
-	private sealed record PullRequestWire(
+	internal sealed record PullRequestWire(
 		int Number,
 		string Title,
 		string Author,
 		string HeadRef,
 		string Url,
 		bool Draft);
-
-	private sealed record ReviewCommentRequest(
-		int Number,
-		string Path,
-		int Line,
-		string Side,
-		long InReplyTo,
-		string Body);
 }

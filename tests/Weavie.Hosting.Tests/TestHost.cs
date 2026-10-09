@@ -30,6 +30,10 @@ namespace Weavie.Hosting.Tests;
 /// files still land in the real Weavie dirs and are cleaned on dispose (lock) or harmlessly overwritten.
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
+	private static readonly ForgeUser Viewer = new("viewer", string.Empty);
+
+	private static StaticPullRequestProvider NoPullRequests() => new([], [], Viewer);
+
 	internal const string TestPageId = "test-page";
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly TempDirectory _temp;
@@ -37,6 +41,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	public AgentProviderRegistry AgentProviders => _services.AgentProviders;
 
 	private readonly HostServices _services;
+
+	/// <summary>The app-global model catalog this host's sessions report into.</summary>
+	internal AgentModelCatalog AgentModels => _services.AgentModels;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
@@ -85,7 +92,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(acpAgents);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -104,7 +111,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(dialogs);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -122,7 +129,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		var host = Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			dispatcher,
 			notifications);
 		await host.Core.StartAsync().ConfigureAwait(false);
@@ -144,7 +151,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(inferenceFor);
 		var host = Create(
 			prepareRepo,
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			inferenceFor);
@@ -155,7 +162,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with deterministic pull requests exposed by the host.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IReadOnlyList<PullRequestSummary> pullRequests) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, []), sendReady: true);
+		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, [], Viewer), sendReady: true);
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled pull request provider.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
@@ -167,7 +174,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// that a startup push is held rather than dropped), then call <c>Send</c> with a <c>ready</c> message.
 	/// </summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
+		StartAsync(prepareRepo, NoPullRequests(), sendReady);
 
 	// Flaked 2026-07-19 ~16:09 UTC (https://github.com/Kapps/weavie/actions/runs/29694172917): every test in
 	// this project failed from the very first one onward with FileNotFoundException loading
@@ -188,17 +195,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Builds the real host graph without starting it, for startup/shutdown lifecycle tests.</summary>
-	public static TestHost CreateUnstarted() => Create(_ => { }, new StaticPullRequestProvider([], []));
+	public static TestHost CreateUnstarted() => Create(_ => { }, NoPullRequests());
 
 	/// <summary>Builds an unstarted host over a test-controlled UI dispatcher.</summary>
 	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
-		Create(_ => { }, new StaticPullRequestProvider([], []), dispatcher);
+		Create(_ => { }, NoPullRequests(), dispatcher);
 
 	/// <summary>Builds an unstarted host over a test-controlled native application menu.</summary>
 	public static TestHost CreateUnstarted(IApplicationMenu applicationMenu) =>
 		Create(
 			_ => { },
-			new StaticPullRequestProvider([], []),
+			NoPullRequests(),
 			new InlineUiDispatcher(),
 			NoopSystemNotificationChannel.Instance,
 			static settings => InferenceComposition.CreateDisabled(settings),
@@ -450,6 +457,11 @@ internal sealed class TestHost : IAsyncDisposable {
 			&& name == "sessionChanged"
 			&& element.TryGetProperty("session", out var editorSession)) {
 			_clientEditorSessions[session.Address] = editorSession.Clone();
+			if (!element.TryGetProperty("basis", out _)) {
+				element = JsonSerializer.SerializeToElement(
+					new { session = editorSession, basis = Bridge.EditorRevision(session.Address) },
+					JsonOptions);
+			}
 		}
 
 		SendEnvelope(MessageEnvelope.Event(
@@ -538,7 +550,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			? current
 			: JsonSerializer.SerializeToElement(new { active = (string?)null, open = Array.Empty<object>() });
 		return new FakeWebResponse(
-			JsonSerializer.SerializeToElement(new { session }, JsonOptions),
+			JsonSerializer.SerializeToElement(new { session, basis = Bridge.EditorRevision(address) }, JsonOptions),
 			null);
 	}
 
@@ -574,6 +586,15 @@ internal sealed class TestHost : IAsyncDisposable {
 		await ConnectAsync().ConfigureAwait(false);
 	}
 
+	/// <summary>App-global stores isolated under <paramref name="tempRoot"/>, with first-run setup already finished.</summary>
+	internal static HostServices IsolatedServices(string tempRoot) => IsolatedServices(
+		tempRoot,
+		new StubHttpMessageHandler(),
+		Path.Combine(tempRoot, "sources"),
+		NoPullRequests(),
+		static settings => InferenceComposition.CreateDisabled(settings),
+		EmptyAcpAgentCatalog.Instance);
+
 	private static HostServices IsolatedServices(
 		string tempRoot,
 		StubHttpMessageHandler sourceHttp,
@@ -581,7 +602,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		IPullRequestProvider pullRequests,
 		Func<SettingsStore, IInferenceService> inferenceFor,
 		IAcpAgentCatalog acpAgents) {
-		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
+		string settingsFile = Path.Combine(tempRoot, "settings.toml");
+		// Setup is finished, and claude.path names a real file so Claude counts as installed on any machine.
+		File.WriteAllText(
+			settingsFile,
+			$"[claude]\npath = '{Environment.ProcessPath}'\n\n[gettingStarted]\ncompleted = true\n");
+		var settings = CoreSettings.CreateStore(settingsFile, enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(tempRoot, "theme-overrides.json"));
@@ -589,6 +615,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
 		agentProviders.Register(new FakeStructuredAgentProvider());
+		var agentModels = new AgentModelCatalog(agentProviders);
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
@@ -599,6 +626,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			AgentModels = agentModels,
+			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),
 			Inference = inferenceFor(settings),
@@ -606,7 +635,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			RailState = railState,
 			SearchState = searchState,
 			PullRequests = pullRequests,
-			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
+			ReviewComments = pullRequests as IReviewCommentStore ?? NoPullRequests(),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
@@ -639,8 +668,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Core.DisposeAsync().ConfigureAwait(false);
-		_services.Keybindings.Dispose();
-		_services.Settings.Dispose();
+		_services.Dispose();
 		_temp.Dispose();
 	}
 }

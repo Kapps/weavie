@@ -63,13 +63,16 @@ test.describe("session-addressed WebSocket transport", () => {
           distributions: ["npx", "uvx"],
           installedDistribution: installed ? "uvx" : null,
           installedVersion: installed ? "1.2.3" : null,
+          broken: null,
         },
       ]),
     );
     host.onHost("request", "acpRegistry", "install", (request) => {
-      expect(request.payload).toEqual({ id: "sample", distribution: "uvx" });
+      const { operation } = request.payload as { operation: string };
+      expect(request.payload).toEqual({ id: "sample", distribution: "uvx", operation });
       installed = true;
       host.respond(request, null);
+      host.publishHost("acpRegistry", "installed", { id: "sample", operation, error: null });
     });
     host.onHost("request", "acpRegistry", "remove", (request) => {
       expect(request.payload).toEqual({ id: "sample" });
@@ -88,6 +91,46 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(dialog.getByText("Installed", { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Remove" }).click();
     await expect(dialog.getByRole("button", { name: "Install" })).toBeVisible();
+  });
+
+  test("reinstalls an ACP agent whose recorded install can't be launched", async ({ page }) => {
+    let broken = true;
+    host.onHost("request", "git", "branches", (request) => host.respond(request, ["main"]));
+    host.onHost("request", "acpRegistry", "list", (request) =>
+      host.respond(request, [
+        {
+          id: "sample",
+          name: "Sample ACP",
+          version: "1.2.3",
+          description: "A registry agent",
+          distributions: ["npx", "uvx"],
+          installedDistribution: "npx",
+          installedVersion: broken ? null : "1.2.3",
+          broken: broken ? "This npx install is from an older Weavie and can't be launched." : null,
+        },
+      ]),
+    );
+    host.onHost("request", "acpRegistry", "install", (request) => {
+      const { operation } = request.payload as { operation: string };
+      expect(request.payload).toEqual({ id: "sample", distribution: "npx", operation });
+      broken = false;
+      host.respond(request, null);
+      host.publishHost("acpRegistry", "installed", { id: "sample", operation, error: null });
+    });
+
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    await page.locator(".session-rail-add").click();
+    await page.getByRole("button", { name: "Manage ACP agents" }).click();
+    const dialog = page.getByRole("dialog", { name: "ACP agents" });
+    await expect(dialog.getByText("Needs reinstall")).toBeVisible();
+    await expect(dialog.getByText("from an older Weavie")).toBeVisible();
+    await expect(dialog.getByRole("combobox", { name: "Distribution for Sample ACP" })).toHaveCount(
+      0,
+    );
+    await dialog.getByRole("button", { name: "Reinstall" }).click();
+    await expect(dialog.getByText("Installed", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Needs reinstall")).toHaveCount(0);
   });
 
   test("desktop Sessions modal preserves the active session and requires manual naming after inference fails", async ({

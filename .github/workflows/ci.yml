@@ -186,28 +186,29 @@ jobs:
           sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth apparmor-profiles
           sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
 
-      # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
-      # restoring the one solution-wide format workspace that can evaluate every platform project.
-      - name: Select latest Xcode
+      # Restores the one solution-wide format workspace that can evaluate every platform project.
+      - uses: ./temp/workflow/.github/actions/setup-macos-workload
         if: matrix.platform.name == 'macos'
-        run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
-
-      - name: Restore macOS workload
-        if: matrix.platform.name == 'macos'
-        run: dotnet workload restore weavie.slnx
+        with:
+          restore: weavie.slnx
 
       - uses: ./temp/workflow/.github/actions/setup-web
         with:
           cache-write: ${{ !inputs.ref }}
-      - run: corepack pnpm install --frozen-lockfile
+      # Flake 2026-10-01 07:03 UTC (https://github.com/Kapps/weavie/actions/runs/36827937474, macOS):
+      # `corepack pnpm` re-downloaded pnpm from registry.npmjs.org (connect timeout) although
+      # pnpm/action-setup had already installed it. Use the installed pnpm; no network fetch.
+      - run: pnpm install --frozen-lockfile
         working-directory: src/web
 
       - name: Restore
         run: dotnet restore ${{ matrix.platform.restore }}
 
+      # The release publish, so the desktop tests below run exactly what each platform ships.
       - name: Build
+        shell: bash
         run: |
-          dotnet build ${{ matrix.platform.project }} -c Release
+          dotnet publish ${{ matrix.platform.project }} -c Release -r ${{ matrix.platform.rid }} ${{ matrix.platform.extra }}
           dotnet build tools/Weavie.FakeClaude
           dotnet build tools/Weavie.FakeAcp
 
@@ -217,7 +218,7 @@ jobs:
         run: |
           prefix=()
           if [[ "${{ matrix.platform.name }}" == linux ]]; then prefix=(dbus-run-session -- xvfb-run -a); fi
-          "${prefix[@]}" corepack pnpm exec playwright test -c e2e/desktop/desktop.config.ts
+          "${prefix[@]}" pnpm exec playwright test -c e2e/desktop/desktop.config.ts
 
       - uses: actions/upload-artifact@v4
         if: always()

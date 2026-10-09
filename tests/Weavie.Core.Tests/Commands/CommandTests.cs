@@ -296,6 +296,17 @@ public sealed class CommandTests {
 		Assert.Equal("unifiedReviewActive && editorFocused", command.When);
 	}
 
+	[Theory]
+	[InlineData(CoreCommands.ReviewToggleContext, "alt+]")]
+	[InlineData(CoreCommands.ReviewOpenLine, "$mod+alt+o")]
+	public void UnifiedReviewLineCommands_AreBoundAndUnifiedReviewGated(string id, string key) {
+		var command = CoreCommands.CreateRegistry().Require(id);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("unifiedReviewActive && editorFocused", command.When);
+	}
+
 	[Fact]
 	public void AgentJumpToTurn_RequiresANavigableAgentTurn() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.AgentJumpToTurn);
@@ -412,6 +423,23 @@ public sealed class CommandTests {
 		await first.CompleteAsync(CancellationToken.None);
 		var second = await secondTask.WaitAsync(TimeSpan.FromSeconds(2));
 		await second.CompleteAsync(CancellationToken.None);
+	}
+
+	[Fact]
+	public async Task SessionLifecycleCommands_QueueOnlyBehindTheSameSession() {
+		var dispatcher = new CommandDispatcher(CoreCommands.CreateRegistry());
+		dispatcher.RegisterHandler(SessionCommands.DeleteSession, (_, _) => Task.FromResult(CommandResult.Success()));
+		dispatcher.RegisterHandler(SessionCommands.UnloadSession, (_, _) => Task.FromResult(CommandResult.Success()));
+
+		var first = await dispatcher.PrepareAsync(SessionCommands.DeleteSession, """{"id":"a"}""", CancellationToken.None);
+		var other = await dispatcher.PrepareAsync(SessionCommands.DeleteSession, """{"id":"b"}""", CancellationToken.None)
+			.WaitAsync(TimeSpan.FromSeconds(2));
+		var same = dispatcher.PrepareAsync(SessionCommands.UnloadSession, """{"id":"a"}""", CancellationToken.None);
+
+		Assert.False(same.IsCompleted);
+		await first.CompleteAsync(CancellationToken.None);
+		await (await same.WaitAsync(TimeSpan.FromSeconds(2))).CompleteAsync(CancellationToken.None);
+		await other.CompleteAsync(CancellationToken.None);
 	}
 
 	[Fact]

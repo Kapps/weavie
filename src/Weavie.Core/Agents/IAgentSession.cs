@@ -28,6 +28,9 @@ public interface ITerminalAgentSession : IAgentSession {
 
 /// <summary>A native structured agent session driven by host messages rather than terminal bytes.</summary>
 public interface IStructuredAgentSession : IAgentSession {
+	/// <summary>Returns the saved display journal; called once, before the session is addressable.</summary>
+	IReadOnlyList<AgentPaneMessage> Restore();
+
 	/// <summary>Starts the structured runtime.</summary>
 	void Start();
 
@@ -70,7 +73,7 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
 	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
-	/// <summary>Restores the complete display journal, including all side conversations.</summary>
+	/// <summary>Replaces the complete display journal, including all side conversations.</summary>
 	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
 }
 
@@ -80,5 +83,14 @@ public interface IStructuredAgentSideConversations {
 	void AskAside(AgentTurnSubmission submission);
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
-	void ReplyAside(string conversationId, string prompt);
+	void ReplyAside(string conversationId, AgentTurnSubmission submission);
+}
+
+/// <summary>Rewinds one structured agent's primary conversation to just before an earlier prompt.</summary>
+public interface IStructuredAgentRewind {
+	/// <summary>Continues on a branch holding only the history before <paramref name="turnId"/>, prefilling its prompt.</summary>
+	Task RewindBeforeAsync(string turnId);
+
+	/// <summary>Rewinds to just before the latest primary prompt.</summary>
+	Task RewindLatestAsync();
 }

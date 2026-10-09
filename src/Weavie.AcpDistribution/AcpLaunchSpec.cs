@@ -24,6 +24,21 @@ public sealed record AcpLaunchSpec {
 	public required string Distribution { get; init; }
 }
 
+/// <summary>A recorded registry installation this build can't launch; reinstalling or removing it recovers it.</summary>
+public sealed record AcpBrokenAgent {
+	/// <summary>The provider identifier sessions are bound to.</summary>
+	public required string Id { get; init; }
+
+	/// <summary>The recorded name, or the id when none was recorded.</summary>
+	public required string Name { get; init; }
+
+	/// <summary>The recorded distribution kind, when one was recorded.</summary>
+	public required string? Distribution { get; init; }
+
+	/// <summary>Why the recorded launch recipe can't be used.</summary>
+	public required string Reason { get; init; }
+}
+
 /// <summary>The installed ACP catalog and the official registry operations.</summary>
 public interface IAcpAgentCatalog {
 	/// <summary>Raised after the installed provider set changes.</summary>
@@ -32,17 +47,30 @@ public interface IAcpAgentCatalog {
 	/// <summary>Installed registry agents and user-defined commands.</summary>
 	IReadOnlyList<AcpLaunchSpec> LaunchSpecs { get; }
 
+	/// <summary>Installed registry agents whose recorded recipe can't be launched.</summary>
+	IReadOnlyList<AcpBrokenAgent> BrokenAgents { get; }
+
+	/// <summary>Every provider id the catalog defines, launchable or broken.</summary>
+	IReadOnlySet<string> ProviderIds { get; }
+
 	/// <summary>Reads the current official registry and joins it with local install state.</summary>
 	Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct);
 
-	/// <summary>Installs or updates one exact registry distribution.</summary>
-	Task InstallAsync(string id, string distribution, CancellationToken ct);
+	/// <summary>
+	/// Installs or updates one exact registry distribution, saving it only after <paramref name="verify"/> accepts its
+	/// launch recipe (a throw rejects the install and leaves the installed set unchanged).
+	/// </summary>
+	Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct);
 
 	/// <summary>Removes one installed registry agent.</summary>
 	void Remove(string id);
 
-	/// <summary>Reloads installed and custom launch recipes after <paramref name="validate"/> accepts them.</summary>
-	void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate);
+	/// <summary>Reloads installed and custom agents after <paramref name="validate"/> accepts the provider ids they define.</summary>
+	void Reload(Action<IReadOnlySet<string>> validate);
 }
 
 /// <summary>One agent available from the official ACP Registry.</summary>
@@ -67,4 +95,7 @@ public sealed record AcpRegistryAgent {
 
 	/// <summary>The installed version, when installed.</summary>
 	public string? InstalledVersion { get; init; }
+
+	/// <summary>Why the installed recipe can't be launched, when it needs a reinstall.</summary>
+	public string? Broken { get; init; }
 }

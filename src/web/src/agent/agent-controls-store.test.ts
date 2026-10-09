@@ -69,6 +69,7 @@ const store = await import("./agent-controls-store");
 
 const state: AgentControlState = {
   ready: true,
+  rewindable: false,
   axes: [
     {
       id: "model",
@@ -94,6 +95,7 @@ describe("agent controls store", () => {
     expect(store.agentControlState(owner("remote-a", "slot-a"))).toEqual(state);
     expect(store.agentControlState(owner("remote-a", "slot-b"))).toEqual({
       ready: false,
+      rewindable: false,
       axes: [],
       slash: [],
     });

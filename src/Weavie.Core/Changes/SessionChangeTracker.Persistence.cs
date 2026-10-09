@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Review;
 
@@ -26,14 +28,14 @@ public sealed partial class SessionChangeTracker {
 		SynchronizeHistory(external: true, except: null);
 		var changes = new Dictionary<string, string?>(StringComparer.Ordinal);
 		foreach (string path in _dirtyFiles)
-			changes[FileKey(path)] = _baseline.ContainsKey(path) ? JsonSerializer.Serialize(Capture(path, withDisk: false)) : null;
+			changes[FileKey(path)] = _baseline.ContainsKey(path) ? JsonSerializer.Serialize(Capture(path, withDisk: false), ChangeTrackerJson.Default.PathState) : null;
 		foreach (var (id, entry) in _dirtyHistory)
-			changes["history:" + id] = entry is null ? null : JsonSerializer.Serialize(new StoredHistory(id, entry.Undo, entry.Action.Id, entry.Action.Kind, entry.Action.TouchesDisk, entry.Action.Line));
+			changes["history:" + id] = entry is null ? null : JsonSerializer.Serialize(new StoredHistory(id, entry.Undo, entry.Action.Id, entry.Action.Kind, entry.Action.TouchesDisk, entry.Action.Line), ChangeTrackerJson.Default.StoredHistory);
 		foreach (var (key, patches) in _dirtyHistoryPatches)
-			changes[key] = patches is null ? null : JsonSerializer.Serialize(patches);
+			changes[key] = patches is null ? null : JsonSerializer.Serialize(patches, ChangeTrackerJson.Default.StoredPatches);
 		foreach (string key in _dirtyPrompts)
-			changes["prompt:" + key] = _conversationPrompts.TryGetValue(key, out string? prompt) ? JsonSerializer.Serialize(prompt) : null;
-		string metadata = JsonSerializer.Serialize(new ReviewMetadata(_workspaceRoot, _review, _nextOriginId, _nextActionId, _nextHistoryId));
+			changes["prompt:" + key] = _conversationPrompts.TryGetValue(key, out string? prompt) ? JsonSerializer.Serialize(prompt, ChangeTrackerJson.Default.String) : null;
+		string metadata = JsonSerializer.Serialize(new ReviewMetadata(_workspaceRoot, _review, _nextOriginId, _nextActionId, _nextHistoryId), ChangeTrackerJson.Default.ReviewMetadata);
 		if (metadata != _savedMetadata) changes["metadata"] = metadata;
 		if (changes.Count == 0) return;
 		_persistence.Save(changes);
@@ -49,7 +51,7 @@ public sealed partial class SessionChangeTracker {
 		var records = _persistence.Read();
 		if (records.Count == 0) return;
 		try {
-			var metadata = Deserialize<ReviewMetadata>(records["metadata"]);
+			var metadata = Deserialize(records["metadata"], ChangeTrackerJson.Default.ReviewMetadata);
 			var files = new List<PathState>();
 			var history = new List<StoredHistory>();
 			var patchGroups = new List<StoredPatches>();
@@ -57,21 +59,21 @@ public sealed partial class SessionChangeTracker {
 			foreach (var (key, value) in records) {
 				if (key == "metadata") continue;
 				if (key.StartsWith("file:", StringComparison.Ordinal)) {
-					var file = Deserialize<PathState>(value);
+					var file = Deserialize(value, ChangeTrackerJson.Default.PathState);
 					if (file.Path is null || key != FileKey(file.Path)) throw new JsonException("Invalid review file identity.");
 					files.Add(file);
 				} else if (key.StartsWith("history:", StringComparison.Ordinal)) {
-					var entry = Deserialize<StoredHistory>(value);
+					var entry = Deserialize(value, ChangeTrackerJson.Default.StoredHistory);
 					if (entry.Id <= 0 || entry.Id > metadata.NextHistoryId || key != "history:" + entry.Id)
 						throw new JsonException("Invalid history entry identity.");
 					history.Add(entry);
 				} else if (key.StartsWith("history-patches:", StringComparison.Ordinal)) {
-					var group = Deserialize<StoredPatches>(value);
+					var group = Deserialize(value, ChangeTrackerJson.Default.StoredPatches);
 					if (group.Path is null || key != PatchesKey(group.HistoryId, group.Path) || group.Patches is null
 						|| group.Patches.Count == 0 || group.Patches.Any(patch => patch is null || !PathIdentity.Equals(patch.Path, group.Path)))
 						throw new JsonException("Invalid history patch group.");
 					patchGroups.Add(group);
-				} else if (key.StartsWith("prompt:", StringComparison.Ordinal)) prompts.Add(key[7..], JsonSerializer.Deserialize<string?>(value));
+				} else if (key.StartsWith("prompt:", StringComparison.Ordinal)) prompts.Add(key[7..], JsonSerializer.Deserialize(value, ChangeTrackerJson.Default.String));
 				else throw new JsonException("Unknown review record.");
 			}
 			var groupsByEntry = patchGroups.ToLookup(group => group.HistoryId);
@@ -156,9 +158,16 @@ public sealed partial class SessionChangeTracker {
 		SynchronizeHistory(external: true, except: null);
 	}
 
-	private static T Deserialize<T>(string value) => JsonSerializer.Deserialize<T>(value) ?? throw new JsonException("Empty review record.");
+	private static T Deserialize<T>(string value, JsonTypeInfo<T> type) => JsonSerializer.Deserialize(value, type) ?? throw new JsonException("Empty review record.");
 	private sealed record ReviewMetadata(string Root, ReviewContext? Review, long NextOriginId, long NextActionId, long NextHistoryId);
 
 	private sealed record ReviewSnapshot(string Root, PathState[] Files, List<ReviewAction> Undo,
 		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, Dictionary<string, string?> Prompts);
+
+	[JsonSerializable(typeof(PathState))]
+	[JsonSerializable(typeof(StoredHistory))]
+	[JsonSerializable(typeof(StoredPatches))]
+	[JsonSerializable(typeof(ReviewMetadata))]
+	[JsonSerializable(typeof(string))]
+	private sealed partial class ChangeTrackerJson : JsonSerializerContext;
 }

@@ -10,9 +10,7 @@ namespace Weavie.Core.Worktrees;
 /// that <see cref="WorktreeManager"/> reconciles against <c>git worktree list</c>. Atomic writes; a malformed
 /// file is backed up to <c>worktrees.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class WorktreeRegistry : JsonDocumentStore {
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
+public sealed partial class WorktreeRegistry : JsonDocumentStore {
 	private List<WorktreeRecord> _items = [];
 
 	/// <summary>Creates the registry over <paramref name="path"/>, loading it now.</summary>
@@ -85,7 +83,7 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 			return;
 		}
 
-		var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
+		var document = JsonSerializer.Deserialize(text, WorktreeRegistryJson.Default.WorktreesDocument);
 		if (document?.Version != 2 || document.Worktrees is not { } entries) {
 			throw new JsonException("Worktree document requires version 2 and a worktrees array.");
 		}
@@ -105,7 +103,7 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 				AgentProviderId = r.AgentProviderId,
 			})],
 		},
-		JsonOptions);
+		WorktreeRegistryJson.Default.WorktreesDocument);
 
 
 	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
@@ -148,4 +146,8 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 		[JsonPropertyName("agentProviderId")]
 		public string? AgentProviderId { get; set; }
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(WorktreesDocument))]
+	private sealed partial class WorktreeRegistryJson : JsonSerializerContext;
 }

@@ -1,7 +1,7 @@
 import { notify } from "../../notify/notify";
 import { normalizePath } from "../fs-path";
 import type { TextLocation } from "../nav-history";
-import type { TabPresenter } from "../tab-owner";
+import { isAbortError, type TabPresenter } from "../tab-owner";
 import type { ReviewEditor } from "./review-editor";
 import { hasReviewChanges, type ReviewFileView } from "./review-store";
 
@@ -35,7 +35,8 @@ export function createReviewSurface(surface: {
   getScrollTop(): number;
   setScrollTop(top: number): void;
   files(): ReviewFileView[];
-  currentIndex(): number;
+  /** The active file's index: the selected file, else the first on screen, else undefined. */
+  currentIndex(): number | undefined;
   select(index: number, path: string, line: number): void;
   expand(file: ReviewFileView): void;
   scrollToIndex(index: number): void;
@@ -81,8 +82,12 @@ export function createReviewSurface(surface: {
     else section.restore(operation.location);
     operation.finish();
   };
+  const currentFile = (): ReviewFileView | undefined => {
+    const index = surface.currentIndex();
+    return index === undefined ? undefined : surface.files()[index];
+  };
   const activeSection = (): ReviewEditor | undefined => {
-    const file = surface.files()[surface.currentIndex()];
+    const file = currentFile();
     return file === undefined ? undefined : sections.get(normalizePath(file.summary().path));
   };
   const restore = (
@@ -148,19 +153,18 @@ export function createReviewSurface(surface: {
     void restore(location, lifetime.signal, alignment)
       .then(focus)
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
-          notify("warn", String(error));
+        if (!isAbortError(error)) notify("warn", String(error));
       });
   };
   const advanceReviewedFile = (): void => {
     const files = surface.files();
     const index = surface.currentIndex();
-    const file = files[index];
+    const file = currentFile();
     const isPending = file?.pending() === true;
     const completed = file === selectedFile && selectedPending && !isPending;
     selectedFile = file;
     selectedPending = isPending;
-    if (!completed || !surface.active()) return;
+    if (index === undefined || !completed || !surface.active()) return;
     for (let step = 1; step < files.length; step++) {
       const next = files[(index + step) % files.length]!;
       if (!next.pending()) continue;
@@ -172,7 +176,7 @@ export function createReviewSurface(surface: {
   return {
     text: true,
     capture: () => {
-      const file = surface.files()[surface.currentIndex()];
+      const file = currentFile();
       const location =
         activeSection()?.capture() ??
         (file === undefined ? null : { path: file.summary().path, line: file.summary().line });

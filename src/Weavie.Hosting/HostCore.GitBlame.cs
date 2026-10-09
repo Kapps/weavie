@@ -119,17 +119,17 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private sealed record FilePathRequest(string Path);
+	internal sealed record FilePathRequest(string Path);
 
-	private sealed record CommitHunkRequest(string Path, string Sha, int Line);
+	internal sealed record CommitHunkRequest(string Path, string Sha, int Line);
 
 	// Sha + Line address the line inside the commit blame attributed it to; Line 0 asks for the file's history,
 	// which needs no anchor.
-	private sealed record HistoryRequest(string Path, string Sha, int Line);
+	internal sealed record HistoryRequest(string Path, string Sha, int Line);
 
-	private sealed record CommitRefRequest(string Sha);
+	internal sealed record CommitRefRequest(string Sha);
 
-	private sealed record BlameCommitWire(
+	internal sealed record BlameCommitWire(
 		string Sha,
 		string Author,
 		string Email,
@@ -137,21 +137,21 @@ public sealed partial class HostCore {
 		string Summary,
 		bool Uncommitted);
 
-	private sealed record BlameResult(
+	internal sealed record BlameResult(
 		IReadOnlyList<BlameCommitWire> Commits,
 		IReadOnlyList<int> LineCommits,
 		IReadOnlyList<int> LineOriginals,
 		string? Error);
 
-	private sealed record HunkWire(string Header, int OldStart, int NewStart, IReadOnlyList<string> Lines);
+	internal sealed record HunkWire(string Header, int OldStart, int NewStart, IReadOnlyList<string> Lines);
 
-	private sealed record CommitHunkResult(HunkWire? Hunk, string? Error);
+	internal sealed record CommitHunkResult(HunkWire? Hunk, string? Error);
 
-	private sealed record CommitWire(string Sha, string Author, long Time, string Summary, int Line);
+	internal sealed record CommitWire(string Sha, string Author, long Time, string Summary, int Line);
 
-	private sealed record HistoryResult(IReadOnlyList<CommitWire> Commits, bool More, string? Error);
+	internal sealed record HistoryResult(IReadOnlyList<CommitWire> Commits, bool More, string? Error);
 
-	private sealed record PullRequestRefWire(int Number, string Title, string Url);
+	internal sealed record PullRequestRefWire(int Number, string Title, string Url);
 
-	private sealed record CommitRefResult(string? CommitUrl, PullRequestRefWire? PullRequest, string? Error);
+	internal sealed record CommitRefResult(string? CommitUrl, PullRequestRefWire? PullRequest, string? Error);
 }

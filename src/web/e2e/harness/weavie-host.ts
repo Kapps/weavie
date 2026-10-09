@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { waitForWorkspace } from "../capture-workspace.mjs";
 import {
   type FakeInference,
   type FakeStep,
@@ -45,6 +46,8 @@ export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
   inference: FakeInference;
   automaticInference: boolean;
+  // Seeds settings.toml with gettingStarted.completed so the first-run setup doesn't open over the journey.
+  setupCompleted: boolean;
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
@@ -61,14 +64,8 @@ export interface LaunchOptions {
   };
 }
 
-// Terminate the spawned host/runner AND every descendant (worker, claude, shell, LSP), resolving only once the
-// whole tree is actually gone — so the workspace/HOME can be removed without a live process racing the delete.
-// On Windows that race is the teardown killer: a surviving descendant whose cwd sits inside a worktree blocks
-// `rm`, and fs.rm's retry backoff compounds with the tree's directory depth into a 10-60s stall that outlasts the
-// test timeout (the "teardown hang" flake). Node's kill() reaches only the root there; `taskkill /T` kills its
-// descendants, and the root's `close` event proves Windows has closed its process pipes before cleanup begins.
-// POSIX asks the root for a graceful
-// SIGINT (it forwards to its own children), escalating to SIGKILL if that stalls.
+// POSIX hosts dispose their owned children on SIGINT; Windows uses taskkill /T.
+// Completion requires the root to exit and its inherited output pipes to close before deleting its files.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
   const pid = proc.pid;
   if (pid === undefined) {
@@ -105,61 +102,22 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
       taskkill.once("error", (error) => settle(() => reject(error)));
     });
   }
-  if (proc.exitCode !== null || proc.signalCode !== null) {
+  const exited = proc.exitCode !== null || proc.signalCode !== null;
+  if (exited && proc.stdout?.closed !== false && proc.stderr?.closed !== false) {
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
+  return new Promise((resolve, reject) => {
+    const onClose = (): void => {
+      proc.off("error", onError);
       resolve();
     };
-    proc.once("exit", finish);
-    proc.kill("SIGINT");
-    // If `exit` hasn't fired in time (a child ignoring SIGINT, or a stalled dispose), force-kill and resolve so
-    // teardown is bounded — a no-op once the process already exited.
-    setTimeout(() => {
-      if (!settled) {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // already gone
-        }
-        finish();
-      }
-    }, 3000).unref();
-  });
-}
-
-// Resolve with the port the host actually bound (it prints the matched line only once its listener is up),
-// so the browser never races the listener and parallel workers can never collide on a pre-picked port.
-export function waitForPortLine(
-  proc: ChildProcess,
-  getLog: () => string,
-  pattern: RegExp,
-  timeoutMs: number,
-): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`host did not report listening in time:\n${getLog()}`)),
-      timeoutMs,
-    );
-    const onData = () => {
-      const match = getLog().match(pattern);
-      if (match) {
-        clearTimeout(timer);
-        proc.stdout?.off("data", onData);
-        resolve(Number(match[1]));
-      }
+    const onError = (error: Error): void => {
+      proc.off("close", onClose);
+      reject(error);
     };
-    proc.stdout?.on("data", onData);
-    proc.on("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`host exited early with code ${code}:\n${getLog()}`));
-    });
+    proc.once("close", onClose);
+    proc.once("error", onError);
+    if (!exited) proc.kill("SIGINT");
   });
 }
 
@@ -240,6 +198,9 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const fakeLogPath = join(home, "fake-claude.log");
   const weavieRoot = join(home, ".weavie");
   await mkdir(join(weavieRoot, "acp"), { recursive: true });
+  if (options.setupCompleted) {
+    await writeFile(join(weavieRoot, "settings.toml"), "[gettingStarted]\ncompleted = true\n");
+  }
   await writeFile(
     join(weavieRoot, "acp", "custom.json"),
     JSON.stringify({
@@ -278,7 +239,15 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   }
   if (pr) {
     const prsPath = join(home, "fake-prs.json");
-    await writeFile(prsPath, JSON.stringify({ prs: pr.prs, comments: pr.comments }));
+    await writeFile(
+      prsPath,
+      JSON.stringify({
+        prs: pr.prs,
+        comments: pr.comments,
+        viewer: pr.viewer,
+        viewerAvatarUrl: pr.viewerAvatarUrl,
+      }),
+    );
     env.WEAVIE_FAKE_PRS = prsPath;
   }
   if (options.notionDoc) {
@@ -322,7 +291,6 @@ export async function launchHeadless(options: LaunchOptions): Promise<HeadlessHo
 
   let log = "";
   const start = async () => {
-    const offset = log.length;
     const proc = spawn(headlessProgram.command, headlessProgram.args, {
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -333,19 +301,9 @@ export async function launchHeadless(options: LaunchOptions): Promise<HeadlessHo
     proc.stderr?.on("data", (chunk: Buffer) => {
       log += chunk.toString("utf8");
     });
-    const launchLog = () => log.slice(offset);
     try {
-      const port = await waitForPortLine(
-        proc,
-        launchLog,
-        /open\s+http:\/\/127\.0\.0\.1:(\d+)/,
-        40_000,
-      );
-      const token = launchLog().match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-      if (token === undefined) {
-        throw new Error(`headless host did not advertise its workspace token:\n${launchLog()}`);
-      }
-      return { proc, token, url: `http://127.0.0.1:${port}/index.html` };
+      const { pageUrl, token } = await waitForWorkspace(proc, 40_000);
+      return { proc, token, url: pageUrl };
     } catch (error) {
       await killProcessTree(proc);
       throw error;

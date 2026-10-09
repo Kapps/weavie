@@ -71,6 +71,14 @@ function mergeCumulativeDelta(
   return { ...template, text, textOffset: 0, textLength: text.length };
 }
 
+export function deferredToolOutput(
+  message: AgentPaneUpdate | null | undefined,
+): AgentPaneWireUpdate | null {
+  return message && isAgentPaneWireUpdate(message) && message.outputDeferred === true
+    ? message
+    : null;
+}
+
 export function isAgentPaneWireUpdate(message: AgentPaneUpdate): message is AgentPaneWireUpdate {
   return (
     "generation" in message &&

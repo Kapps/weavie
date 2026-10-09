@@ -127,8 +127,7 @@ public sealed class LayoutStore : JsonDocumentStore {
 	public void Resize(LayoutNode expected, LayoutNode root) {
 		LayoutChange change;
 		lock (Gate) {
-			if (JsonSerializer.Serialize(expected, LayoutSerialization.Options)
-				!= JsonSerializer.Serialize(_current.Root, LayoutSerialization.Options)) {
+			if (LayoutSerialization.SerializeNode(expected) != LayoutSerialization.SerializeNode(_current.Root)) {
 				throw new LayoutValidationException("The layout changed during the resize. Please drag again.");
 			}
 			change = SetPanesLocked(root, null, LayoutSource.User);

@@ -20,7 +20,7 @@ public sealed class AcpSideGuidanceTests {
 		var first = await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed" && message.ConversationId is not null);
 		string conversation = Assert.IsType<string>(first.ConversationId);
-		fixture.Session.ReplyAside(conversation, "explain the alternative");
+		fixture.ReplyAside(conversation, "explain the alternative");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
 			&& message.ConversationId == conversation && message.TurnId == "2");
 		fixture.Submit("continue the primary task");
@@ -92,7 +92,7 @@ public sealed class AcpSideGuidanceTests {
 		var snapshot = await fixture.WaitForSnapshotAsync();
 		Assert.Equal(image, Assert.Single(snapshot, message => message.Type == "user-image"));
 		Assert.DoesNotContain(snapshot, message => message.Text == EmbeddedAgentGuidance.SideConversationInstructions);
-		fixture.Session.ReplyAside(side.ConversationId, "explain one more detail");
+		fixture.ReplyAside(side.ConversationId, "explain one more detail");
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
 			&& message.ConversationId == side.ConversationId);
 
@@ -124,7 +124,7 @@ public sealed class AcpSideGuidanceTests {
 		var held = await fixture.WaitForMessageAsync(message => message.Type == "item-started"
 			&& message.ItemId == "tool:hold" && message.ConversationId is not null);
 		string conversation = Assert.IsType<string>(held.ConversationId);
-		fixture.Session.ReplyAside(conversation, "answer only the side question");
+		fixture.ReplyAside(conversation, "answer only the side question");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
 			&& message.ConversationId == conversation);
 		fixture.Submit("finish the primary independently");

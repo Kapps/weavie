@@ -5,27 +5,26 @@ const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
 
-// Arms a MutationObserver on `target` before the caller triggers the change that may disable it, so a
-// disable-then-re-enable cycle that completes faster than Playwright's own DOM polling can still be seen.
-// Call this (without awaiting) immediately before the triggering action; await the returned promise after.
-function watchForDisabled(target: import("@playwright/test").Locator): Promise<boolean> {
-  return target.evaluate(
-    (element) =>
-      new Promise<boolean>((resolve) => {
-        const select = element as HTMLSelectElement;
-        if (select.disabled) {
-          resolve(true);
-          return;
-        }
-        const observer = new MutationObserver(() => {
-          if (select.disabled) {
-            observer.disconnect();
-            resolve(true);
-          }
-        });
-        observer.observe(select, { attributes: true, attributeFilter: ["disabled"] });
-      }),
-  );
+// Records whether `target` turns disabled from the moment this resolves, so a disable-then-re-enable cycle
+// that completes faster than Playwright's DOM polling is still seen. Await it before triggering the change:
+// an unawaited install races the trigger, which Playwright runs concurrently. Returns the recorded result.
+async function watchForDisabled(
+  target: import("@playwright/test").Locator,
+): Promise<() => Promise<boolean>> {
+  await target.evaluate((element) => {
+    const select = element as HTMLSelectElement & { sawDisabled?: boolean };
+    select.sawDisabled = select.disabled;
+    new MutationObserver((_, observer) => {
+      if (select.disabled) {
+        select.sawDisabled = true;
+        observer.disconnect();
+      }
+    }).observe(select, { attributes: true, attributeFilter: ["disabled"] });
+  });
+  return () =>
+    target.evaluate(
+      (element) => (element as HTMLSelectElement & { sawDisabled?: boolean }).sawDisabled === true,
+    );
 }
 
 async function pasteImage(target: import("@playwright/test").Locator, b64: string): Promise<void> {
@@ -754,18 +753,11 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   const provider = inbox.getByRole("combobox", { name: "Agent provider" });
-  // The save round-trip that backs the disable can resolve inside a single DOM-poll interval, so polling
-  // for `toBeDisabled()` after the fact can miss it entirely — see the flake note below. Arm a
-  // MutationObserver before triggering the change instead, so the transition can't be missed regardless
-  // of how fast the host responds.
-  //
-  // Flaked 2026-08-27 21:39 UTC on macOS shard 6/6 — expect(provider).toBeDisabled() saw "enabled" on all
-  // 63 of its polls across the full 30s timeout (https://github.com/Kapps/weavie/actions/runs/33118598692/job/98680314997),
-  // meaning the select had already re-enabled before Playwright's first poll ran. Replaced the DOM-polling
-  // assertion with the observer above.
-  const sawDisabled = watchForDisabled(provider);
+  // The save round-trip that backs the disable can finish inside one DOM-poll interval, so record the
+  // transition with an observer armed before the change instead of polling for `toBeDisabled()`.
+  const sawDisabled = await watchForDisabled(provider);
   await provider.selectOption("fake-acp");
-  expect(await sawDisabled).toBe(true);
+  await expect.poll(sawDisabled).toBe(true);
   await expect(provider).toBeEnabled();
   await expect(provider).toHaveValue("fake-acp");
   await expect(inbox.getByRole("combobox", { name: "Open with" })).toHaveValue("fake-acp");
@@ -974,17 +966,56 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await agentFileLink.click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
-  // The browser navigating mid-swipe — its own edge gesture, the OS back button — takes the surface the
-  // transition was moving off, so the transition goes rather than committing a second move on top of it.
+  // WebKit snapshots an entry for its swipe preview as the page leaves it, so a swipe moves history at its
+  // start, while the surface it leaves is still on screen, and a cancelled swipe moves it back.
+  const navigationStack = () => page.evaluate(() => history.state.__weavieMobileNavigation.stack);
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 100, y: 240 });
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude"]);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 100, y: 240 });
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude", "editor"]);
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
+  // A tap landing while a cancelled swipe's history move is still in flight queues behind it.
+  await editorChrome.evaluate((chrome) => {
+    const touch = (clientX: number) =>
+      new Touch({ identifier: 1, target: chrome, clientX, clientY: 240 });
+    const fire = (type: string, clientX: number) =>
+      chrome.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          changedTouches: [touch(clientX)],
+          touches: type === "touchend" ? [] : [touch(clientX)],
+        }),
+      );
+    fire("touchstart", 80);
+    fire("touchmove", 100);
+    fire("touchend", 100);
+    document.querySelector<HTMLButtonElement>(".mobile-surface-button:nth-child(3)")!.click();
+  });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
+  await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude", "terminal:shell"]);
+  await page.evaluate(() => history.back());
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await page.getByRole("button", { name: "Code" }).click();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
+  // The browser navigating mid-swipe — the OS back button — moves history from where the swipe took it,
+  // so the transition goes and the surface follows the browser rather than committing a second move.
   await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
   await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
   await page.evaluate(() => history.back());
-  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
   await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
+  await page.goForward();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
-  await expect(inbox).toBeHidden();
   await page.goForward();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
@@ -1018,8 +1049,26 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
   await expect(inbox).toContainText("bug/mobile-navigation");
-  await inbox.locator(".session-inbox-row").first().click();
+  // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
+  const tapped = await inbox
+    .locator(".session-inbox-open")
+    .first()
+    .evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      return { length: history.length, state: history.state.__weavieMobileNavigation };
+    });
+  expect(tapped.state).toEqual({
+    hasForward: false,
+    reservation: expect.any(Number),
+    stack: ["inbox"],
+  });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  expect(await page.evaluate(() => history.length)).toBe(tapped.length);
+  expect(await page.evaluate(() => history.state.__weavieMobileNavigation)).toEqual({
+    hasForward: false,
+    reservation: null,
+    stack: ["inbox", "terminal:claude"],
+  });
 
   const bar = page.locator(".mobile-surface-bar");
   // The bar swipes both ways and reaches both screen edges, which the browser navigates history from.

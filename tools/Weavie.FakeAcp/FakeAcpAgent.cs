@@ -24,6 +24,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private bool _expiredAuthentication;
 	private bool _prompted;
 	private bool _supportsPlanUpdates;
+	private bool _closed;
 	private string? _sessionId;
 
 	public FakeAcpAgent() {
@@ -35,10 +36,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		Directory.CreateDirectory(_stateDirectory);
 		_requiresAuthentication = _fakeMode is
 			"held-authentication" or "agent-authentication" or "side-held-authentication"
-			or "terminal-authentication" or "side-terminal-authentication";
+			or "terminal-authentication" or "side-terminal-authentication" or "crashing-terminal-authentication";
 	}
 
-	private bool TerminalAuthentication => _fakeMode is "terminal-authentication" or "side-terminal-authentication";
+	private bool TerminalAuthentication =>
+		_fakeMode is "terminal-authentication" or "side-terminal-authentication" or "crashing-terminal-authentication";
 
 	public Task TerminalFailure => _never.Task;
 
@@ -58,15 +60,17 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		method switch {
 			"initialize" => Initialize(parameters),
 			"authenticate" => await AuthenticateAsync(ct).ConfigureAwait(false),
-			"session/new" => Open(parameters, NewSessionId(), replay: false),
-			"session/load" => Open(
+			"session/new" => await OpenAsync(parameters, NewSessionId(), replay: false, ct).ConfigureAwait(false),
+			"session/load" => await OpenAsync(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
-				replay: true),
-			"session/resume" => Open(
+				replay: true,
+				ct).ConfigureAwait(false),
+			"session/resume" => await OpenAsync(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
-				replay: false),
+				replay: false,
+				ct).ConfigureAwait(false),
 			"session/fork" => await ForkAsync(parameters, ct).ConfigureAwait(false),
 			"session/close" => await CloseAsync(parameters, ct).ConfigureAwait(false),
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
@@ -130,13 +134,21 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			},
 			["sessionCapabilities"] = new JsonObject {
 				["resume"] = _fakeMode == "flatten-replay" ? null : new JsonObject(),
-				["close"] = new JsonObject(),
+				["close"] = _fakeMode == "no-close" ? null : new JsonObject(),
 				["fork"] = new JsonObject(),
 			},
 			["mcpCapabilities"] = new JsonObject { ["http"] = true, ["sse"] = false },
 		};
 		return response;
 	}
+
+	// Exits once the test asks, consuming the request so the restarted agent keeps running.
+	private static void CrashOnRequest() => _ = Task.Run(async () => {
+		string request = Path.Combine(Environment.CurrentDirectory, "crash-agent");
+		while (!File.Exists(request)) await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+		File.Delete(request);
+		Environment.Exit(21);
+	});
 
 	private JsonObject Open(JsonElement parameters, string sessionId, bool replay) {
 		string ownerPath = StatePath(sessionId + ".owner");
@@ -152,6 +164,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (_requiresAuthentication && !_authenticated
 			&& (_fakeMode is not ("side-held-authentication" or "side-terminal-authentication") || replay)) {
+			if (_fakeMode == "crashing-terminal-authentication") CrashOnRequest();
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
@@ -315,7 +328,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		string sessionId = "fake-fork-" + NewSessionId();
 		File.WriteAllText(StatePath(sessionId + ".owner"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		string sourceTranscript = TranscriptPath(source);
-		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
+		if (File.Exists(sourceTranscript)) File.WriteAllLines(TranscriptPath(sessionId), ForkedTranscript(parameters, sourceTranscript));
 		File.AppendAllText(
 			StatePath("forks.log"),
 			$"{source}->{sessionId}{Environment.NewLine}");
@@ -337,6 +350,18 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			});
 		}
 		return new JsonObject { ["sessionId"] = sessionId };
+	}
+
+	// Honours ACP's AIR fork point: the branch keeps the turns through the named `fork-agent-N` reply.
+	private string[] ForkedTranscript(JsonElement parameters, string sourceTranscript) {
+		string[] turns = File.ReadAllLines(sourceTranscript);
+		if (_fakeMode == "fork-ignores-message" || !parameters.TryGetProperty("_meta", out var meta)) return turns;
+		string? messageId = AcpJson.OptionalString(meta.GetProperty("jetbrains").GetProperty("air").GetProperty("fork"), "messageId");
+		return messageId?.StartsWith("fork-agent-", StringComparison.Ordinal) == true
+			&& int.TryParse(messageId["fork-agent-".Length..], System.Globalization.CultureInfo.InvariantCulture, out int kept)
+			&& kept <= turns.Length
+			? turns[..kept]
+			: throw AcpAdapterException.InvalidParams($"Fork point message {messageId} was not found.");
 	}
 
 	private async Task<JsonNode> AuthenticateAsync(CancellationToken ct) {
@@ -361,7 +386,13 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "close-started"), string.Empty);
 			await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
 		}
-		_sessionId = null;
+		_closed = true;
+		TaskCompletionSource<string>? held;
+		lock (_gate) held = _heldPrompt;
+		held?.TrySetResult("cancelled");
+		File.AppendAllText(StatePath("closes.log"), _sessionId + Environment.NewLine);
+		// A test opts into an update racing the close by creating late-after-close.
+		if (File.Exists(Path.Combine(Environment.CurrentDirectory, "late-after-close"))) Message("late after close");
 		return [];
 	}
 
@@ -392,11 +423,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (text == "/hold-command") {
 			RequireIsolatedCommand(prompt, text);
-			return await HoldAsync(cancelAsError: false, ct).ConfigureAwait(false);
+			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
-		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request") {
+		if (text is "hold" or "hold-cancel-error" or "hold-cancelled-request" or "hold-unreported-cancel") {
 			_cancelFails = text == "hold-cancel-error";
-			return await HoldAsync(cancelAsError: text == "hold-cancelled-request", ct).ConfigureAwait(false);
+			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
@@ -437,6 +468,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		} else if (text == "permission") await PermissionAsync(ct).ConfigureAwait(false);
 		else if (text == "input") await InputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-cancel") await InputActionAsync(ct).ConfigureAwait(false);
+		else if (text == "input-cancel-race") await InputCancelRaceAsync().ConfigureAwait(false);
 		else if (text == "input-null-options") await NullOptionalsInputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-default-schema") await DefaultSchemaInputAsync(ct).ConfigureAwait(false);
 		else if (text == "input-titled-array") await TitledArrayInputAsync(ct).ConfigureAwait(false);
@@ -446,6 +478,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		else if (text is "terminal-output" or "terminal-null-optionals") {
 			await TerminalOutputAsync(text == "terminal-null-optionals", ct).ConfigureAwait(false);
 		} else if (text == "terminal-cancel") await TerminalCancellationAsync(ct).ConfigureAwait(false);
+		else if (text == "terminal-wait") await TerminalWaitAsync(ct).ConfigureAwait(false);
 		else if (text == "agent-terminal") AgentOwnedTerminal();
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
@@ -476,15 +509,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			  block => AcpJson.OptionalString(block, "type") == "image"));
 		else if (text == "crash") Environment.Exit(19);
 		else {
-			Message("echo: " + text);
-			RecordTranscriptTurn(prompt);
+			File.AppendAllText(TranscriptPath(_sessionId!), JsonSerializer.Serialize(prompt) + Environment.NewLine);
+			Update(new JsonObject {
+				["sessionUpdate"] = "agent_message_chunk",
+				["messageId"] = $"fork-agent-{File.ReadLines(TranscriptPath(_sessionId!)).Count()}",
+				["content"] = Text("echo: " + text),
+			});
 		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
-	}
-
-	private void RecordTranscriptTurn(JsonElement prompt) {
-		if (_sessionId is null) return;
-		File.AppendAllText(TranscriptPath(_sessionId), JsonSerializer.Serialize(prompt) + Environment.NewLine);
 	}
 
 	private static void CrashWhenReleased() => _ = Task.Run(async () => {
@@ -548,7 +580,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 	}
 
-	private async Task<JsonNode> HoldAsync(bool cancelAsError, CancellationToken ct) {
+	// "hold-unreported-cancel" ends a cancelled turn without a final tool update, as claude-agent-acp does.
+	private async Task<JsonNode> HoldAsync(string mode, CancellationToken ct) {
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
@@ -567,13 +600,14 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		using var registration = ct.Register(() => completion.TrySetCanceled(ct));
 		string result = await completion.Task.ConfigureAwait(false);
 		lock (_gate) _heldPrompt = null;
+		if (result == "cancelled" && mode == "hold-unreported-cancel") return new JsonObject { ["stopReason"] = "cancelled" };
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call_update",
 			["toolCallId"] = "hold",
 			["status"] = result == "cancelled" ? "failed" : "completed",
 		});
 		Message("steered: " + result);
-		if (result == "cancelled" && cancelAsError) {
+		if (result == "cancelled" && mode == "hold-cancelled-request") {
 			throw new AcpAdapterException(-32800, "Request cancelled.", null);
 		}
 		return new JsonObject { ["stopReason"] = result == "cancelled" ? "cancelled" : "end_turn" };
@@ -1063,6 +1097,22 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		Message("terminal wait cancelled; connection alive");
 	}
 
+	// Cancels the form only once the client is publishing its card.
+	private async Task InputCancelRaceAsync() {
+		using var cancellation = new CancellationTokenSource();
+		var request = Connection().RequestAsync("elicitation/create", FormElicitation(new JsonObject {
+			["value"] = new JsonObject { ["type"] = "string", ["title"] = "Value" },
+		}), cancellation.Token);
+		string publishing = Path.Combine(Environment.CurrentDirectory, "input-publishing");
+		while (!File.Exists(publishing)) await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+		cancellation.Cancel();
+		try {
+			await request.ConfigureAwait(false);
+		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
+		}
+		Message("input cancel race settled");
+	}
+
 	private async Task CancelBeforeDispatchAsync() {
 		using var cancellation = new CancellationTokenSource();
 		var request = Connection().RequestAsync("terminal/wait_for_exit", new JsonObject {
@@ -1107,6 +1157,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "control-started"), string.Empty);
 				await Task.Delay(TimeSpan.FromMilliseconds(200), ct).ConfigureAwait(false);
 			}
+			await HoldOnceAsync("control", ct).ConfigureAwait(false);
 			_model = model;
 		} else if (id == "fast") _fast = value.GetBoolean();
 		else if (id == "mode" && _fakeMode == "mirrored-mode") {
@@ -1296,7 +1347,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private void RequireSession(JsonElement parameters) {
 		string id = AcpJson.RequiredString(parameters, "sessionId", "fake session request");
-		if (id != _sessionId) throw AcpAdapterException.InvalidParams($"Unknown fake session '{id}'.");
+		if (id != _sessionId || _closed) throw AcpAdapterException.InvalidParams($"Unknown fake session '{id}'.");
 	}
 
 	private void Message(string text) => Update(new JsonObject {

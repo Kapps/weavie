@@ -6,12 +6,12 @@
     "restore": "src/Weavie.Linux/Weavie.Linux.csproj",
     "rid": "linux-x64",
     "suffix": "",
-    "extra": "--self-contained -p:PublishReadyToRun=true",
+    "extra": "",
     "asset": "weavie-linux-x64.tar.gz"
   },
   {
     "name": "macos",
-    "os": "macos-26",
+    "os": "xcode-27",
     "project": "src/Weavie.Mac/Weavie.Mac.csproj",
     "restore": "weavie.slnx",
     "rid": "osx-arm64",

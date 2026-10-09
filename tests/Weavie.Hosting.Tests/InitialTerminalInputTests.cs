@@ -113,6 +113,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			new ThemeOverridesStore(new LocalFileSystem(), _dir.Combine("theme-overrides.json")),
 			new CorrectionCorpus(new LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
+			AgentConsultation.None,
 			_launcher,
 			provider,
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),

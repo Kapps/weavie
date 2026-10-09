@@ -21,25 +21,25 @@ public sealed record AgentInputQuestion {
 	public required bool Required { get; init; }
 
 	/// <summary>The optional string format hint.</summary>
-	public required string? Format { get; init; }
+	public string? Format { get; init; }
 
 	/// <summary>The initial wire values represented as strings for editing.</summary>
 	public required IReadOnlyList<string> InitialValues { get; init; }
 
 	/// <summary>The inclusive numeric lower bound.</summary>
-	public required double? Minimum { get; init; }
+	public double? Minimum { get; init; }
 
 	/// <summary>The inclusive numeric upper bound.</summary>
-	public required double? Maximum { get; init; }
+	public double? Maximum { get; init; }
 
 	/// <summary>The minimum string or selection length.</summary>
-	public required int? MinimumLength { get; init; }
+	public int? MinimumLength { get; init; }
 
 	/// <summary>The maximum string or selection length.</summary>
-	public required int? MaximumLength { get; init; }
+	public int? MaximumLength { get; init; }
 
 	/// <summary>The optional string validation pattern.</summary>
-	public required string? Pattern { get; init; }
+	public string? Pattern { get; init; }
 
 	/// <summary>The available choices; empty means free-form input.</summary>
 	public required IReadOnlyList<AgentInputOption> Options { get; init; }

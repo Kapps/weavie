@@ -5,6 +5,7 @@ import type { EditorControllerDeps } from "./editor-controller";
 const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
   installers: [] as Array<(session: ClientSession) => undefined | (() => void)>,
+  reviewHistoryBinds: 0,
 }));
 
 vi.mock("../bridge", () => ({
@@ -19,14 +20,35 @@ vi.mock("../bridge", () => ({
   },
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
     env.installers.push(installer);
-    return () => {};
+    return () => env.installers.splice(env.installers.indexOf(installer), 1);
   },
   selectedSession: () => env.selected,
 }));
 
+// Any member is a no-op returning another stub: the editor chunk's Monaco objects, reduced to what init touches.
+const stub = (fixed: object = {}): unknown =>
+  new Proxy(
+    Object.assign(() => {}, fixed),
+    {
+      get: (target, key) =>
+        key in fixed ? Reflect.get(target, key) : key === "then" ? undefined : stub(),
+      apply: () => stub(),
+    },
+  );
+vi.mock("./editor-host", () => ({
+  createEditorHost: () => Promise.resolve(stub({ editor: stub({ getModel: () => null }) })),
+}));
+vi.mock("./inline-diff", () => ({
+  createInlineDiff: () => stub({ bindHistory: () => env.reviewHistoryBinds++ }),
+  inlineReviewLine: stub,
+}));
+vi.mock("./comment-prose", () => ({ createCommentProse: stub }));
+vi.mock("./revise-marks", () => ({ sharedReviseMarks: stub() }));
+vi.mock("../splash", () => ({ dismissSplash: () => {} }));
+
 vi.stubGlobal("location", { search: "" });
-vi.stubGlobal("window", {});
-const { activePathFor, openTabsFor, tabOwnerFor } = await import("./session-store");
+vi.stubGlobal("window", { setTimeout, clearTimeout });
+const { activePathFor, openTabFor, openTabsFor, tabOwnerFor } = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
 
 interface FakeFeature {
@@ -120,6 +142,38 @@ it("the latest reveal retains its placement while the editor has not initialized
     expect(restore).toHaveBeenCalledExactlyOnceWith({ line: 3 }, expect.any(AbortSignal)),
   );
   expect(onOpenError).not.toHaveBeenCalled();
+});
+
+it("a restored tab superseded during editor init still renders review state, without a load failure", async () => {
+  const session = fakeSession("superseded-restore");
+  env.selected = session;
+  const onOpenError = vi.fn();
+  const controller = createEditorController({
+    ...dependencies(() => Promise.resolve(true)),
+    onOpenError,
+  });
+  for (const install of env.installers) install(session);
+  openTabFor(session, "/work/restored.ts");
+  const restore = vi.fn(() =>
+    Promise.reject(new DOMException("Review navigation cancelled", "AbortError")),
+  );
+  tabOwnerFor(session, "/work/restored.ts")?.mount({
+    text: true,
+    capture: () => ({ state: null, text: null }),
+    restore,
+    focus: () => {},
+    actions: () => undefined,
+  });
+
+  const container = { setAttribute: vi.fn() } as unknown as HTMLElement;
+  controller.start(container);
+
+  await vi.waitFor(() => expect(container.setAttribute).toHaveBeenCalledWith("data-ready", "true"));
+  await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(onOpenError).not.toHaveBeenCalled();
+  expect(env.reviewHistoryBinds).toBe(1);
+  controller.dispose();
 });
 
 it("reverts an unfocused review board through its exact session", async () => {

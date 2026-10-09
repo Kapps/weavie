@@ -3,7 +3,7 @@ using WeCantSpell.Hunspell;
 
 namespace Weavie.Core.Spelling;
 
-/// <summary>An immutable language dictionary with optional technical vocabulary.</summary>
+/// <summary>An immutable language dictionary with optional English technical vocabulary and possessives.</summary>
 public sealed class SpellVocabulary {
 	private static readonly Lazy<TechnicalWords> Technical = new(() => {
 		using var stream = typeof(SpellVocabulary).Assembly.GetManifestResourceStream("Weavie.Core.Spelling.Resources.technical.dic")!;
@@ -14,21 +14,21 @@ public sealed class SpellVocabulary {
 		var suggestions = WordList.CreateFromWords(words);
 		return new(words.ToFrozenSet(StringComparer.OrdinalIgnoreCase), suggestions);
 	});
-	internal static readonly Lazy<SpellVocabulary> English = new(() => new(Load("en"), includeTechnicalWords: true));
+	internal static readonly Lazy<SpellVocabulary> English = new(() => new(Load("en"), english: true));
 	private readonly WordList[] _dictionaries;
 	private readonly FrozenSet<string> _technical;
+	private readonly bool _english;
 
-	/// <summary>Wraps a language dictionary, adding technical vocabulary for English selections.</summary>
-	public SpellVocabulary(WordList dictionary, bool includeTechnicalWords) {
-		_dictionaries = includeTechnicalWords ? [dictionary, Technical.Value.Suggestions] : [dictionary];
-		_technical = includeTechnicalWords ? Technical.Value.Accepted : [];
+	/// <summary>Wraps a language dictionary, adding technical vocabulary and possessives for English selections.</summary>
+	public SpellVocabulary(WordList dictionary, bool english) {
+		_dictionaries = english ? [dictionary, Technical.Value.Suggestions] : [dictionary];
+		_technical = english ? Technical.Value.Accepted : [];
+		_english = english;
 	}
 
-	/// <summary>Accepts words recognized by any selected dictionary.</summary>
-	public bool Check(string word, CancellationToken ct) {
-		ct.ThrowIfCancellationRequested();
-		return _technical.Contains(word) || _dictionaries.Any(dictionary => dictionary.Check(word, ct));
-	}
+	/// <summary>Accepts words recognized by any selected dictionary; in English, also any known word's possessive.</summary>
+	public bool Check(string word, CancellationToken ct) =>
+		Known(word, ct) || (_english && word.EndsWith("'s", StringComparison.Ordinal) && Known(word[..^2], ct));
 
 	/// <summary>Checks a word without cancellation.</summary>
 	public bool Check(string word) => Check(word, CancellationToken.None);
@@ -39,6 +39,12 @@ public sealed class SpellVocabulary {
 
 	/// <summary>Suggests corrections without cancellation.</summary>
 	public IEnumerable<string> Suggest(string word) => Suggest(word, CancellationToken.None);
+
+	// Hunspell's English data marks possessives on only some nouns, so "delay's" is rejected despite "delay".
+	private bool Known(string word, CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
+		return _technical.Contains(word) || _dictionaries.Any(dictionary => dictionary.Check(word, ct));
+	}
 
 	private static WordList Load(string name) {
 		var assembly = typeof(SpellVocabulary).Assembly;

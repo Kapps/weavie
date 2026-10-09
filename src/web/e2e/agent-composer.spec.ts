@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
+import { withHeldAnimationFrames } from "./harness/animation-frames";
 import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession } from "./mock-host";
 
@@ -21,6 +22,7 @@ const agentSession = mockSession("cx", "acp", "acp");
 const controls = {
   state: {
     ready: true,
+    rewindable: false,
     axes: [
       {
         id: "model",
@@ -1279,7 +1281,7 @@ test.describe("ACP composer", () => {
     await counts.click();
     const diffAgainst = await host.waitForSession(
       agentSession.address,
-      "event",
+      "request",
       "review",
       "diffAgainst",
     );
@@ -1474,6 +1476,22 @@ test.describe("ACP composer", () => {
     await expect(link).toHaveText("#123 · Merged");
     await expect(link).toHaveAttribute("title", /last refresh failed: temporary network failure/);
     await expect(page.locator(".agent-status-unavailable")).toHaveCount(0);
+
+    const thread = { rootId: 1, path: "/w/a.ts", line: 1, side: "right", outdated: false };
+    host.publishSession(agentSession.address, "pullRequests", "comments", {
+      set: {
+        number: 123,
+        url,
+        headSha: "abc",
+        viewer: { login: "me", avatarUrl: "" },
+        changedPaths: [],
+        threads: [thread, { ...thread, rootId: 2 }].map((t) => ({ ...t, comments: [] })),
+      },
+      error: "rate limited",
+    });
+    await expect(link).toHaveText("#123 · Merged · 2 threads");
+    await expect(link).toHaveAttribute("title", /review comments failed to load: rate limited/);
+    await expect(link).toHaveClass(/agent-status-warn/);
 
     host.publishSession(agentSession.address, "git", "status", {
       branch: "another-branch",
@@ -1756,6 +1774,33 @@ test.describe("ACP composer", () => {
       commandName: "compact",
       attachmentIds: [],
     });
+  });
+
+  test("Enter while a prompt is sending is consumed, so acceptance clears the draft", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("hello");
+    await page.keyboard.press("Enter");
+    const submit = await waitForAgentPayload("submit");
+    await expect(page.getByRole("button", { name: "Run" })).toHaveText("Sending…");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".agent-compose-error")).toHaveText(
+      "The previous prompt is still sending.",
+    );
+    await expect(textarea).toHaveValue("hello");
+
+    host.publishSession(agentSession.address, "agent", "submissionState", {
+      id: submit.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    await expect(textarea).toHaveValue("");
+    await expect(page.locator(".agent-compose-error")).toHaveCount(0);
   });
 
   test("a manually typed /clear dispatches the Weavie command instead of an agent prompt", async ({
@@ -2074,6 +2119,169 @@ test.describe("ACP composer", () => {
     await expectFollowingLatest();
   });
 
+  const offsetInBody = (row: Locator) =>
+    row.evaluate(
+      (element) =>
+        element.getBoundingClientRect().top -
+        (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
+    );
+
+  async function observeHistoryRead(page: Page): Promise<() => Promise<void>> {
+    const consumed = Promise.withResolvers<void>();
+    await page.exposeFunction("agentHistoryConsumed", consumed.resolve);
+    await page.addInitScript(() => {
+      const fetch = window.fetch;
+      window.fetch = async (...args) => {
+        const response = await fetch(...args);
+        if (response.url.includes("/weavie-agent-history?") && response.body !== null) {
+          response.body.getReader = new Proxy(response.body.getReader, {
+            apply(getReader, body, args) {
+              const reader: ReadableStreamDefaultReader<Uint8Array> = Reflect.apply(
+                getReader,
+                body,
+                args,
+              );
+              const release = reader.releaseLock.bind(reader);
+              reader.releaseLock = () => {
+                release();
+                // readJsonStream releases its reader after loadHistory applies the final batch.
+                void (
+                  window as unknown as { agentHistoryConsumed: () => Promise<void> }
+                ).agentHistoryConsumed();
+              };
+              return reader;
+            },
+          });
+        }
+        return response;
+      };
+    });
+    return () => consumed.promise;
+  }
+
+  for (const delayed of ["history", "pane"] as const) {
+    test(`a streaming response stays at its top with delayed ${delayed}`, async ({ page }) => {
+      const historyRead = await observeHistoryRead(page);
+      const gate = Promise.withResolvers<void>();
+      await page.route(
+        delayed === "history" ? "**/weavie-agent-history?**" : "**/assets/AgentPaneBody-*.js",
+        async (route) => {
+          await gate.promise;
+          await route.continue();
+        },
+      );
+      try {
+        await mountAgent(page);
+        publishCatalog();
+        if (delayed === "pane") await historyRead();
+        const answer = page.locator(".agent-virtual-row", { hasText: "Streamed 1." });
+        await withHeldAnimationFrames(page, async (releaseFrames) => {
+          const turn = { threadId: "thread-stream", turnId: "turn-stream" };
+          publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
+          publishPane(
+            paneMessage({
+              ...turn,
+              type: "user-message",
+              itemId: "prompt-stream",
+              text: "Stream it",
+            }),
+          );
+          for (let index = 1; index <= 60; index++) {
+            publishPane(
+              paneMessage({
+                ...turn,
+                type: "agent-message-delta",
+                itemId: "answer-stream",
+                itemType: "agentMessage",
+                text: `${index === 1 ? "" : "\n\n"}Streamed ${index}.`,
+              }),
+            );
+            if (index === 8) {
+              // The shared agent lane delivers this receipt after queuing the transcript flush.
+              publishControls(fastOnControls);
+              await expect(
+                page.getByRole("button", { name: "Fast On", exact: true }),
+              ).toBeVisible();
+              if (delayed === "pane") {
+                gate.resolve();
+                await expect(page.locator(".agent-body")).toBeVisible();
+              }
+              await releaseFrames();
+            }
+            if (index >= 8) await expect(answer).toContainText(`Streamed ${index}.`);
+          }
+        });
+        gate.resolve();
+        await historyRead();
+        await expect.poll(async () => Math.abs(await offsetInBody(answer))).toBeLessThanOrEqual(1);
+        await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(
+          1,
+        );
+      } finally {
+        gate.resolve();
+      }
+    });
+  }
+
+  test("a reopened transcript ending in a long response opens at the bottom", async ({ page }) => {
+    const text = Array.from({ length: 60 }, (_, index) => `Stored ${index + 1}.`).join("\n\n");
+    host.setAgentHistory(agentSession.address, {
+      generation: 1,
+      messages: [
+        paneMessage({ type: "user-message", turnId: "turn-stored", itemId: "p", text: "Old" }),
+        paneMessage({
+          type: "item-completed",
+          turnId: "turn-stored",
+          itemId: "answer-stored",
+          itemType: "agentMessage",
+          status: "completed",
+          text,
+        }),
+      ],
+      batchSize: 100,
+    });
+    await mountAgent(page);
+    await expect(page.getByText("Stored 60.", { exact: true })).toBeVisible();
+    await waitForBottom(page, page.locator(".agent-body"));
+  });
+
+  test("a request after a pinned long response brings the request into view", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const turn = { threadId: "thread-pin", turnId: "turn-pin" };
+    publishPane(paneMessage({ ...turn, type: "turn-started", status: "inProgress" }));
+    publishPane(
+      paneMessage({ ...turn, type: "user-message", itemId: "prompt-pin", text: "Plan it" }),
+    );
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "item-completed",
+        itemId: "plan-pin",
+        itemType: "agentMessage",
+        status: "completed",
+        text: Array.from({ length: 60 }, (_, index) => `Step ${index + 1}.`).join("\n\n"),
+      }),
+    );
+    const body = page.locator(".agent-body");
+    const planRow = page.locator(".agent-virtual-row", { hasText: "Step 60." });
+    await expect.poll(async () => Math.abs(await offsetInBody(planRow))).toBeLessThanOrEqual(1);
+
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "approval-requested",
+        itemId: "approval-pin",
+        requestId: "approval-pin",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        actions: permissionActions,
+      }),
+    );
+    await waitForBottom(page, body);
+    await expect(page.locator(".agent-entry-request")).toBeInViewport();
+  });
+
   // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):
   // https://github.com/Kapps/weavie/actions/runs/31666115997/job/94341238717 — turnButton stuck
   // visible after the jump-to-turn click. Root cause: AgentPaneScroll's agentTurnStartAbove
@@ -2132,20 +2340,16 @@ test.describe("ACP composer", () => {
       hasText: "Explain the long result",
     });
 
+    const answerRow = page.locator(".agent-virtual-row", { hasText: "Paragraph 80." });
     await expect(agentTurnStart).toContainText("Opening update before the final response.");
-    await waitForBottom(page, body);
-    await expect
-      .poll(() =>
-        agentTurnStart.evaluate(
-          (element) =>
-            element.getBoundingClientRect().top -
-            (element.closest(".agent-body")?.getBoundingClientRect().top ?? 0),
-        ),
-      )
-      .toBeLessThan(0);
+    await expect.poll(async () => Math.abs(await offsetInBody(answerRow))).toBeLessThanOrEqual(1);
+    await expect.poll(() => offsetInBody(agentTurnStart)).toBeLessThan(0);
     await expect(turnButton).toHaveCount(0);
+    await expect(latestButton).toHaveCount(1);
 
     await page.locator("[data-agent-composer] textarea").focus();
+    await page.keyboard.press("Alt+ArrowDown");
+    await waitForBottom(page, body);
     await page.keyboard.press("Alt+ArrowUp");
     await waitForBottom(page, body);
     await expect(latestButton).toHaveCount(0);

@@ -20,6 +20,7 @@ import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
+import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
@@ -101,6 +102,7 @@ export function AgentPaneBody(props: {
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
+  const liveResultIndex = createMemo(props.model.liveResultIndex);
   const layout = createAgentPaneLayout(props.model, () => body);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
@@ -114,7 +116,10 @@ export function AgentPaneBody(props: {
     },
     getScrollElement: () => body ?? null,
     estimateSize: (index) => estimateEntrySize(props.model.entries[index]),
-    anchorTo: "end",
+    // The virtualizer's own end anchoring would follow a streaming result past its top.
+    get anchorTo() {
+      return liveResultIndex() === null ? ("end" as const) : ("start" as const);
+    },
     initialMeasurementsCache: savedMeasurements,
     initialOffset: saved?.offset ?? 0,
     measureElement: (element): number => element.getBoundingClientRect().height,
@@ -134,6 +139,8 @@ export function AgentPaneBody(props: {
     () => body,
     virtualizer,
     props.model.agentTurnStartIndex,
+    liveResultIndex,
+    props.model.keyboardRequestKey,
     turnNavigable,
     props.model.revision,
     saved?.followingLatest ?? true,
@@ -145,6 +152,10 @@ export function AgentPaneBody(props: {
 
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
+  createEffect(() =>
+    setContext("agentRewindable", agentControlState(props.model.session).rewindable),
+  );
+  onCleanup(() => setContext("agentRewindable", false));
   onMount(() => {
     const element = body;
     if (element === undefined) {
@@ -257,7 +268,7 @@ export function AgentPaneBody(props: {
         session={props.model.session}
         turnActive={props.model.turnActive()}
         turnStartedAt={props.model.turnStartedAt()}
-        onSubmitted={scroll.followIfNearBottom}
+        onSubmitted={scroll.jumpToLatest}
       />
     </>
   );

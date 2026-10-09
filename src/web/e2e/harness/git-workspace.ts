@@ -92,8 +92,10 @@ export interface PrSeed {
   author: string;
   headRef: string;
   baseRef: string;
+  baseSha: string;
   url: string;
   draft: boolean;
+  headSha: string;
 }
 
 // A git workspace wired for the Open-PR flow: a local bare repo stands in for `origin` (reached via an
@@ -104,19 +106,30 @@ export interface PrSeed {
 // One canned review comment for the Open-PR harness, anchored to a line of the head-branch diff.
 export interface CommentSeed {
   id: number;
+  number: number;
   path: string;
   line: number;
   side: "left" | "right";
   author: string;
+  avatarUrl: string;
+  url: string;
   body: string;
   createdAt: string;
+  updatedAt: string;
+  outdated: boolean;
   inReplyTo: number;
 }
+
+// An offline stand-in for a forge profile photo.
+const avatar = (color: string): string =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="${color}"/><circle cx="4" cy="3" r="1.6" fill="#fff"/><rect x="1.5" y="5.2" width="5" height="3" rx="1.5" fill="#fff"/></svg>`)}`;
 
 export async function createPrWorkspace(): Promise<{
   dir: string;
   prs: PrSeed[];
   comments: CommentSeed[];
+  viewer: string;
+  viewerAvatarUrl: string;
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
@@ -125,6 +138,11 @@ export async function createPrWorkspace(): Promise<{
   const originUrl = "https://github.com/acme/demo.git";
   const headRef = "pr-branch";
   const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  // Publishes the checked-out head as GitHub does (refs/pull/N/head) and returns its sha.
+  const publishPull = (branch: string, number: number): string => {
+    g(dir, "push", "-q", "origin", branch, `${branch}:refs/pull/${number}/head`);
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+  };
 
   g(bare, "init", "-q", "--bare");
   for (const [name, content] of Object.entries(SEED)) {
@@ -141,6 +159,7 @@ export async function createPrWorkspace(): Promise<{
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "seed");
   g(dir, "push", "-q", "-u", "origin", "main");
+  const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
 
   // The PR's head branch: a modified file (a two-hunk diff) plus a new file — a multi-file changeset to walk.
   g(dir, "checkout", "-q", "-b", headRef);
@@ -155,7 +174,7 @@ export async function createPrWorkspace(): Promise<{
   await writeFile(join(dir, "feature.ts"), "export const feature = true;\n");
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "pr changes");
-  g(dir, "push", "-q", "origin", headRef);
+  const headSha = publishPull(headRef, 101);
   // Back on base, head branch gone locally — opening the PR must fetch it fresh (the real path).
   g(dir, "checkout", "-q", "main");
   g(dir, "branch", "-q", "-D", headRef);
@@ -168,7 +187,7 @@ export async function createPrWorkspace(): Promise<{
   await writeFile(join(dir, "notes.txt"), "just plain text\nplus a second-PR line\n");
   g(dir, "add", "-A");
   g(dir, "commit", "-q", "-m", "pr 102 changes");
-  g(dir, "push", "-q", "origin", headRef2);
+  const headSha2 = publishPull(headRef2, 102);
   g(dir, "checkout", "-q", "main");
   g(dir, "branch", "-q", "-D", headRef2);
 
@@ -181,8 +200,10 @@ export async function createPrWorkspace(): Promise<{
         author: "alice",
         headRef,
         baseRef: "main",
+        baseSha,
         url: "https://github.com/acme/demo/pull/101",
         draft: false,
+        headSha,
       },
       {
         number: 102,
@@ -190,23 +211,33 @@ export async function createPrWorkspace(): Promise<{
         author: "carol",
         headRef: headRef2,
         baseRef: "main",
+        baseSha,
         url: "https://github.com/acme/demo/pull/102",
         draft: false,
+        headSha: headSha2,
       },
     ],
     // A review comment on the changed greeting line of hello.ts (right/head side).
     comments: [
       {
         id: 1,
+        number: 101,
         path: "hello.ts",
         line: 2,
         side: "right",
         author: "bob",
+        avatarUrl: avatar("#8e44ad"),
+        url: "https://github.com/acme/demo/pull/101#discussion_r1",
         body: "Why change this greeting?",
         createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        outdated: false,
         inReplyTo: 0,
       },
     ],
+    viewer: "you",
+    // Only bob has a photo, so both the image and the monogram paths render.
+    viewerAvatarUrl: "",
   };
 }
 

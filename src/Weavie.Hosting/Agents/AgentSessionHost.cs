@@ -64,6 +64,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			structuredSession.PaneMessage += PublishPaneMessage;
 			structuredSession.PaneSnapshot += RestorePaneSnapshot;
 			structuredSession.QueuedSubmissionsChanged += PublishQueuedSubmissions;
+			LoadSavedTranscript(structuredSession.Restore());
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
@@ -77,6 +78,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			usage.UsageChanged += PublishUsage;
 		}
 		SideConversations = Session as IStructuredAgentSideConversations;
+		Rewind = Session as IStructuredAgentRewind;
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -102,6 +104,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The context-preserving side-conversation surface, when the structured agent supports it.</summary>
 	public IStructuredAgentSideConversations? SideConversations { get; }
+
+	/// <summary>The conversation-rewind surface, when the structured agent supports it.</summary>
+	public IStructuredAgentRewind? Rewind { get; }
 
 	internal AgentAuthenticationTerminal? AuthenticationTerminal { get; }
 
@@ -137,7 +142,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void ReplayState(IMessageFeatureTarget messages) {
 		if (AuthenticationTerminal is { } authenticationTerminal) {
-			messages.Publish("authenticationTerminal", new { active = authenticationTerminal.Active });
+			messages.Publish("authenticationTerminal", WireJson.Default.AuthenticationTerminalState, new(authenticationTerminal.Active));
 		}
 		if (Structured is null) {
 			return;
@@ -145,7 +150,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 		ReplayControls(messages);
 		ReplayUsage(messages);
-		messages.Publish("queue", AgentQueueProtocol.Message(Structured.QueuedSubmissions));
+		messages.Publish("queue", WireJson.Default.AgentQueueMessage, AgentQueueProtocol.Message(Structured.QueuedSubmissions));
 	}
 
 	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
@@ -153,13 +158,13 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void ReplayControls(IMessageFeatureTarget messages) {
 		if (Controls is not null) {
-			messages.Publish("controls", AgentControlsProtocol.Message(Controls.ControlState));
+			messages.Publish("controls", WireJson.Default.AgentControlsMessage, AgentControlsProtocol.Message(Controls.ControlState));
 		}
 	}
 
 	private void ReplayUsage(IMessageFeatureTarget messages) {
 		if (Usage is not null) {
-			messages.Publish("usage", AgentUsageProtocol.Message(Usage.Snapshot));
+			messages.Publish("usage", WireJson.Default.AgentUsageMessage, AgentUsageProtocol.Message(Usage.Snapshot));
 		}
 	}
 
@@ -167,13 +172,13 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
 	private void PublishControlState(AgentControlState state) =>
-		_messages.Publish("controls", AgentControlsProtocol.Message(state));
+		_messages.Publish("controls", WireJson.Default.AgentControlsMessage, AgentControlsProtocol.Message(state));
 
 	private void PublishQueuedSubmissions(IReadOnlyList<AgentTurnSubmission> queued) =>
-		_messages.Publish("queue", AgentQueueProtocol.Message(queued));
+		_messages.Publish("queue", WireJson.Default.AgentQueueMessage, AgentQueueProtocol.Message(queued));
 
 	private void PublishUsage(AgentUsageSnapshot usage) =>
-		_messages.Publish("usage", AgentUsageProtocol.Message(usage));
+		_messages.Publish("usage", WireJson.Default.AgentUsageMessage, AgentUsageProtocol.Message(usage));
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();

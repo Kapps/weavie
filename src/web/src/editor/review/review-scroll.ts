@@ -8,6 +8,7 @@ import {
   Scrollable,
   ScrollbarVisibility,
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
+import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
 
 // Match Monaco's ViewLayout animation duration.
@@ -18,6 +19,8 @@ export interface ReviewScroll {
   readonly element: HTMLElement;
   readonly viewport: HTMLElement;
   getScrollTop(): number;
+  /** The viewport's height from the owner's own scroll dimensions, so callers never measure the DOM. */
+  getViewportHeight(): number;
   setScrollTop(top: number): void;
   setContentHeight(height: number): void;
   onScroll(listener: (userInitiated: boolean) => void): () => void;
@@ -80,10 +83,13 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const setScrollTop = (scrollTop: number): void => {
     update(() => scrollable.setScrollPosition({ scrollTop }));
   };
+  const offMiddleClick = registerMiddleClickScroll(node, () => true, {
+    x: null,
+    y: (delta) => scrollable.setScrollPosition({ scrollTop: getScrollTop() + delta }),
+  });
   const render = (): void => {
     const top = getScrollTop();
-    // A top offset preserves the containing block of fixed-position editor widgets.
-    content.style.top = `${-top}px`;
+    content.style.transform = `translateY(${-top}px)`;
     scrollbar.setAttribute("aria-valuenow", String(top));
     const dimensions = scrollable.getScrollDimensions();
     scrollbar.setAttribute(
@@ -160,6 +166,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     element,
     viewport: node,
     getScrollTop,
+    getViewportHeight: () => scrollable.getScrollDimensions().height,
     setScrollTop,
     setContentHeight: (height) => {
       if (contentHeight === height) return;
@@ -174,6 +181,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     wheel: (event) =>
       scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
     dispose: () => {
+      offMiddleClick();
       offOptions();
       observer.disconnect();
       subscription.dispose();

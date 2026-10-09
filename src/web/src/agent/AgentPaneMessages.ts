@@ -95,7 +95,7 @@ export function projectAgentTranscript(
       ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
       (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
-    if (turnKey !== null) {
+    if (turnKey !== null && message.type !== "turn-started") {
       knownTurns.add(turnKey);
     }
 
@@ -255,9 +255,9 @@ function durableEntry(
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
     case "user-message":
-      return entry(message, sequence, "message", "user", "You", null);
+      return promptEntry(message, entry(message, sequence, "message", "user", "You", null));
     case "user-command":
-      return entry(message, sequence, "message", "user", "Command", null);
+      return promptEntry(message, entry(message, sequence, "message", "user", "Command", null));
     case "user-steer":
       return entry(message, sequence, "message", "user", "Steer", null);
     case "warning":
@@ -284,6 +284,13 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
     text: null,
     tone: "assistant",
   };
+}
+
+// A primary prompt carries its turn so the pane can rewind to just before it.
+function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): AgentTranscriptEntry {
+  return message.conversationId || !message.turnId
+    ? prompt
+    : { ...prompt, promptTurnId: message.turnId };
 }
 
 function entry(
@@ -354,6 +361,7 @@ function activityFor(
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
   return {
     ...(entry.turnStart === true ? { turnStart: true as const } : {}),
+    ...(entry.promptTurnId === undefined ? {} : { promptTurnId: entry.promptTurnId }),
     actionMessage: entry.actionMessage,
     detailCount: entry.detailCount,
     details: entry.details,

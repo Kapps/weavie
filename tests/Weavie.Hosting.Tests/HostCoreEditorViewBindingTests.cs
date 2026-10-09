@@ -46,6 +46,7 @@ public sealed class HostCoreEditorViewBindingTests {
 					active = path,
 					open = new[] { new { path, viewState = (object?)null } },
 				},
+				basis = host.Bridge.EditorRevision(session.Address),
 			});
 
 	private static void Publish(

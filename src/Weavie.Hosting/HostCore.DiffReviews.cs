@@ -1,9 +1,7 @@
-using System.Text.Json;
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
-using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -19,14 +17,15 @@ public sealed partial class HostCore {
 	/// working tree from its merge-base with HEAD (so a branch shows only this side's changes), and seeds the
 	/// change tracker so the diff reviews through the same accept/reject engine as a turn. Failures surface as
 	/// toasts; an empty diff says so and retracts any prior review instead of arming an unwalkable navigator.
+	/// Returns the first file to reveal; the page opens it only if the user hasn't navigated since asking.
 	/// </summary>
-	private async Task DiffAgainstFromWebAsync(
+	private async Task<ReviewReveal> DiffAgainstFromWebAsync(
 		HostSession session,
 		string reference,
 		CancellationToken ct) {
 		reference = reference.Trim();
 		if (reference.Length == 0) {
-			return;
+			return ReviewReveal.None;
 		}
 
 		object request = session.Changes.BeginReviewRequest();
@@ -37,13 +36,13 @@ public sealed partial class HostCore {
 		try {
 			if (await git.ResolveCommitAsync(worktree, reference, ct).ConfigureAwait(false) is not { } target) {
 				Notify(session, "warn", $"'{reference}' isn't a branch, tag, or commit here.");
-				return;
+				return ReviewReveal.None;
 			}
 
 			string head = await git.GetHeadCommitAsync(worktree, ct).ConfigureAwait(false);
 			if (await git.MergeBaseAsync(worktree, target, head, ct).ConfigureAwait(false) is not { } mergeBase) {
 				Notify(session, "warn", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
-				return;
+				return ReviewReveal.None;
 			}
 
 			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
@@ -52,19 +51,20 @@ public sealed partial class HostCore {
 			changes = await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't diff against '{reference}': {ex.Message}");
-			return;
+			return ReviewReveal.None;
 		}
 
 		if (changes.Count == 0) {
 			// An empty Git diff does not discard saved rejection receipts.
 			Notify(session, "info", $"No changes against '{reference}'.");
-			if (session.Changes.Review is null) return;
+			if (session.Changes.Review is null) return ReviewReveal.None;
 		}
 
 		try {
-			await SeedAndArmReviewAsync(review, session, changes, request, ct).ConfigureAwait(false);
+			return await SeedAndArmReviewAsync(review, session, changes, request, static (_, _) => { }, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
+			return ReviewReveal.None;
 		}
 	}
 
@@ -72,15 +72,16 @@ public sealed partial class HostCore {
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff (+ comments for a PR), and opens that file (a review surfaces its code — post-turn review
-	/// parks). Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the
-	/// session usable.
+	/// first file's diff, and returns that file to reveal (a review surfaces its code — post-turn review parks);
+	/// <paramref name="armed"/> runs with it in the same UI step that armed the review. Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving
+	/// the session usable.
 	/// </summary>
-	private async Task SeedAndArmReviewAsync(
+	private async Task<ReviewReveal> SeedAndArmReviewAsync(
 		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
 		object request,
+		Action<string, int?> armed,
 		CancellationToken ct) {
 		bool resuming = session.Changes.Review is not null;
 
@@ -101,32 +102,32 @@ public sealed partial class HostCore {
 		}
 
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
-		await _ui.InvokeAsync(() => {
+		return await _ui.InvokeAsync(() => {
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
 			if (!session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray(), request))
-				return Task.CompletedTask;
+				return Task.FromResult(ReviewReveal.None);
 
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
 			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
-				PushReviewFileToWeb(session, path);
+				PushTurnDiffToWeb(session, path);
 			if (resuming || seeds.Count == 0) {
-				return Task.CompletedTask;
+				return Task.FromResult(ReviewReveal.None);
 			}
 
 			var firstSeed = seeds.FirstOrDefault(seed => seed.Current.Exists);
 			if (firstSeed == default) {
-				return Task.CompletedTask;
+				return Task.FromResult(ReviewReveal.None);
 			}
 
 			string first = firstSeed.Absolute;
 			int? line = session.Changes.GetTurn(first) is { } turn
 				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
 				: null;
-			session.FileOpener.Open(first, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
-			PushReviewFileToWeb(session, first);
-			return Task.CompletedTask;
+			PushTurnDiffToWeb(session, first);
+			armed(first, line);
+			return Task.FromResult(new ReviewReveal(first, line));
 		}, ct).ConfigureAwait(false);
 	}
 
@@ -148,63 +149,10 @@ public sealed partial class HostCore {
 
 	private readonly record struct WorktreeFileSnapshot(bool Exists, string Content);
 
-	/// <summary>
-	/// Renders one review file: its comments (a PR only — a local ref has no forge behind it) then its inline diff,
-	/// so the file shows with its Comment affordance + threads. Used at arm (the opened first file) and on each
-	/// <c>get-turn-diff</c> step-in. On a plain turn (no active review) it's just the diff.
-	/// </summary>
-	private void PushReviewFileToWeb(HostSession session, string absolutePath) =>
-		PushReviewFileToWeb(session, absolutePath, session.Bus.BroadcastTarget);
-
-	private void PushReviewFileToWeb(
-		HostSession session,
-		string absolutePath,
-		MessageTarget target) {
-		if (ActiveReview(session) is { } review) {
-			PushReviewCommentsToWeb(review, absolutePath, target);
-		}
-
-		PushTurnDiffToWeb(session, absolutePath, target);
-	}
-
-	/// <summary>
-	/// Pushes one PR file's review comments (<c>review-comments</c>) so the inline diff anchors threads on it and
-	/// shows the Comment button. A no-op for a local ref review (no forge, so no comments and no comment affordance).
-	/// </summary>
-	private static void PushReviewCommentsToWeb(
-		HostSession session,
-		ReviewContext review,
-		string absolutePath) =>
-		PushReviewCommentsToWeb(
-			review,
-			absolutePath,
-			session.Bus.BroadcastTarget);
-
-	private static void PushReviewCommentsToWeb(
-		ReviewContext review,
-		string absolutePath,
-		MessageTarget target) {
-		if (review.PrNumber == 0) {
-			return;
-		}
-
-		string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
-		target.Feature("review").Publish("comments", new {
-			number = review.PrNumber,
-			path = absolutePath,
-			comments = review.Comments
-				.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
-				.Select(c => new {
-					id = c.Id,
-					line = c.Line,
-					side = c.Side,
-					author = c.Author,
-					body = c.Body,
-					createdAt = c.CreatedAt,
-					inReplyTo = c.InReplyTo,
-				}),
-		});
-	}
-
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
+}
+
+/// <summary>The file a freshly armed review surfaces, or <see cref="None"/> when there is nothing to reveal.</summary>
+internal sealed record ReviewReveal(string? Path, int? Line) {
+	public static ReviewReveal None { get; } = new(null, null);
 }

@@ -9,9 +9,8 @@ namespace Weavie.Core.Workspaces;
 /// Windows), persisted atomically to <c>~/.weavie/recents.json</c>. A malformed file is backed up to
 /// <c>recents.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class RecentWorkspaces : JsonDocumentStore {
+public sealed partial class RecentWorkspaces : JsonDocumentStore {
 	private const int MaxItems = 20;
-	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	private List<string> _items = [];
 
@@ -72,13 +71,13 @@ public sealed class RecentWorkspaces : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override void Restore(string? text) {
-		var document = text is null ? null : JsonSerializer.Deserialize<RecentsDocument>(text);
+		var document = text is null ? null : JsonSerializer.Deserialize(text, RecentWorkspacesJson.Default.RecentsDocument);
 		_items = document?.Recents is { } recents ? [.. recents.Where(p => !string.IsNullOrWhiteSpace(p))] : [];
 	}
 
 	/// <inheritdoc/>
 	protected override string Render() =>
-		JsonSerializer.Serialize(new RecentsDocument { Version = 1, Recents = _items }, JsonOptions);
+		JsonSerializer.Serialize(new RecentsDocument { Version = 1, Recents = _items }, RecentWorkspacesJson.Default.RecentsDocument);
 
 
 	private sealed class RecentsDocument {
@@ -88,4 +87,8 @@ public sealed class RecentWorkspaces : JsonDocumentStore {
 		[JsonPropertyName("recents")]
 		public List<string> Recents { get; set; } = [];
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true)]
+	[JsonSerializable(typeof(RecentsDocument))]
+	private sealed partial class RecentWorkspacesJson : JsonSerializerContext;
 }

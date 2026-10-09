@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -21,7 +22,8 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		CommandDispatcher commands,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
-		Func<string> currentSessionId) {
+		Func<string> currentSessionId,
+		AgentConsultation agents) {
 		ArgumentNullException.ThrowIfNull(credential);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -36,7 +38,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		Credential = credential;
 		Server = new McpServer(
 			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, exposeIdeTools,
-			layout, editor, commands, keybindings, themeOverrides, currentSessionId);
+			layout, editor, commands, keybindings, themeOverrides, currentSessionId, agents);
 		Port = Server.Start();
 	}
 

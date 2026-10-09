@@ -342,6 +342,95 @@ public sealed class HostCoreSessionDeleteTests {
 	}
 
 	[Fact]
+	public async Task SlowDeleteDoesNotBlockClassifyingOrDeletingAnotherSession() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("slow")).Ok);
+		Assert.True((await host.CreateSessionAsync("other")).Ok);
+		host.SelectSession("slow");
+		var slow = host.Session("slow").Address;
+		var originalResponder = host.Bridge.RequestResponder;
+		MessageEnvelope? flush = null;
+		host.Bridge.RequestResponder = request =>
+			request is { Feature: "editor", Name: "flush" } && request.Session == slow
+				? null
+				: originalResponder?.Invoke(request);
+		void Invoke(string requestId, object args) => host.Bridge.Receive(
+			new WebPeer(TestHost.TestPageId),
+			MessageEnvelope.Request(
+				MessageScope.Host,
+				null,
+				requestId,
+				"sessions",
+				"invoke",
+				JsonSerializer.SerializeToElement(new { id = SessionCommands.DeleteSession, args })).ToJson());
+		Task<MessageEnvelope> Response(string requestId) => Wait.ForReferenceAsync(() => PostedEnvelope(
+			host,
+			envelope => envelope is { Kind: MessageKind.Response } && envelope.RequestId == requestId));
+
+		try {
+			Invoke("slow-delete", new { id = "slow" });
+			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }
+					&& envelope.Session == slow));
+
+			Invoke("other-classify", new { id = "other", classify = true });
+			Assert.True((await Response("other-classify")).Payload.GetProperty("ok").GetBoolean());
+			Invoke("other-delete", new { id = "other" });
+			Assert.True((await Response("other-delete")).Payload.GetProperty("ok").GetBoolean());
+			Assert.DoesNotContain("other", SessionIds(host));
+			Assert.Contains("slow", SessionIds(host));
+			Assert.Null(PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "slow-delete" }));
+
+			var flushResponse = originalResponder?.Invoke(flush);
+			Assert.NotNull(flushResponse);
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Response(
+					flush.Scope,
+					flush.Session,
+					flush.RequestId!,
+					flush.Feature,
+					flush.Name,
+					flushResponse.Payload,
+					flushResponse.Error).ToJson());
+			flush = null;
+			Assert.True((await Response("slow-delete")).Payload.GetProperty("ok").GetBoolean());
+			Assert.DoesNotContain("slow", SessionIds(host));
+		} finally {
+			host.Bridge.RequestResponder = originalResponder;
+			if (flush is not null) {
+				host.Bridge.Receive(
+					new WebPeer(TestHost.TestPageId),
+					MessageEnvelope.Response(
+						flush.Scope,
+						flush.Session,
+						flush.RequestId!,
+						flush.Feature,
+						flush.Name,
+						JsonSerializer.SerializeToElement<object?>(null),
+						"test released the flush").ToJson());
+			}
+		}
+	}
+
+	[Fact]
+	public async Task OpeningTheSourceSessionsOwnBranchLoadsItInsteadOfWaitingOnItself() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "feature",
+			Existing = true,
+		}).WaitAsync(TimeSpan.FromSeconds(10));
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal("Loaded the existing session for 'feature'.", result.Message);
+	}
+
+	[Fact]
 	public async Task ShutdownCancelsSelfDeleteWaitingToEnterTheUiLane() {
 		var dispatcher = new ManualUiDispatcher(paused: false);
 		await using var host = TestHost.CreateUnstarted(dispatcher);

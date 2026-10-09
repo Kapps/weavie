@@ -46,4 +46,48 @@ public sealed class AcpSideAttachmentTests {
 				&& message.Text == "image=True" && message.ConversationId == completed.ConversationId);
 		} else Assert.DoesNotContain(fixture.Messages, message => message.Type == "user-message");
 	}
+	[Theory]
+	[InlineData("explain this image")]
+	[InlineData("")]
+	public async Task ReplyKeepsImageAndSubmissionIdentityInTheExistingSideConversation(string prompt) {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.AskAside("initial question");
+		var first = await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed" && message.ConversationId is not null);
+		string conversationId = Assert.IsType<string>(first.ConversationId);
+		string path = Path.Combine(fixture.Workspace, "reply.png");
+		byte[] bytes = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
+		await File.WriteAllBytesAsync(path, bytes);
+		fixture.Session.ReplyAside(conversationId, new AgentTurnSubmission {
+			Id = "reply-submission",
+			Text = prompt,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
+			Attachments = [new AgentInputAttachment { Id = "reply-image", Mime = "image/png", Path = path }],
+		});
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed" && message.ConversationId == conversationId && message.TurnId == "2");
+
+		var image = Assert.Single(fixture.Messages, message => message.Type == "user-image");
+		Assert.Equal(conversationId, image.ConversationId);
+		Assert.Equal("reply-image", image.ItemId);
+		Assert.Equal(Convert.ToBase64String(bytes), image.MediaData);
+		var requests = AcpPromptAssertions.Read(fixture);
+		Assert.Equal(2, requests.Length);
+		Assert.Equal(requests[0].GetProperty("parameters").GetProperty("sessionId").GetString(),
+			requests[1].GetProperty("parameters").GetProperty("sessionId").GetString());
+		AcpPromptAssertions.SideScope(requests[1], prompt);
+		var wireImage = Assert.Single(AcpPromptAssertions.Blocks(requests[1]),
+			block => block.GetProperty("type").GetString() == "image");
+		Assert.Equal(Convert.ToBase64String(bytes), wireImage.GetProperty("data").GetString());
+		if (prompt.Length > 0) {
+			var reply = Assert.Single(fixture.Messages, message => message.ItemId == "reply-submission");
+			Assert.Equal(conversationId, reply.ConversationId);
+			Assert.Equal(prompt, reply.Text);
+		}
+		Assert.DoesNotContain(fixture.Messages, message =>
+			message.Type == "user-image" && message.ConversationId is null);
+	}
+
 }

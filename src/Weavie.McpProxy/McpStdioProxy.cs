@@ -9,7 +9,8 @@ internal static class McpStdioProxy {
 	public static async Task<int> RunAsync() {
 		string url = RequiredEnvironment("WEAVIE_MCP_URL");
 		string token = RequiredEnvironment("WEAVIE_MCP_TOKEN");
-		using var client = new HttpClient();
+		// A tool call may block for as long as its work takes; the caller's cancellation owns its lifetime.
+		using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 		using var cancellation = new CancellationTokenSource();
 		using var outputGate = new SemaphoreSlim(1, 1);
 		var session = new McpSession();

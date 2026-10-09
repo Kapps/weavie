@@ -115,8 +115,9 @@ agent transcript state and publishes its successful result through `editor.agent
 Command routes are multiplexers, not one consistency boundary: `commands.invoke`, `commands.run`, and
 their host-scoped counterparts partition admission by the command catalog's execution lane. Different lanes
 run concurrently; one lane retains receive-order FIFO within its exact host or session owner. The command
-dispatcher enforces the same lanes for direct and MCP invocations, and session lifecycle commands additionally
-use the host's lifecycle gate. This keeps an unrelated command responsive while a long-running command waits
+dispatcher enforces the same lanes for direct and MCP invocations. Session lifecycle lanes are partitioned by
+target session, and lifecycle work holds that session's own gate (creation and fork hold the catalog gate first),
+so a slow delete never queues work for another session. This keeps an unrelated command responsive while a long-running command waits
 on a process, network call, or recursive filesystem operation without racing related state mutations.
 
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route

@@ -11,7 +11,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_StopCancelsAuthenticationAndIgnoresLateSuccess() {
 		await using var fixture = AcpAgentSessionFixture.CreateHeldAuthenticationAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
@@ -155,7 +155,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.DoesNotContain(fixture.Messages, message =>
 			message.IsPrimaryThread == true && message.Text == "why this design?");
 
-		fixture.Session.ReplyAside(conversationId, "and the tradeoff?");
+		fixture.ReplyAside(conversationId, "and the tradeoff?");
 		await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed"
 			&& message.ConversationId == conversationId
@@ -212,7 +212,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal("context:guidance=True;selection=False", answer.Text);
 		Assert.Equal("1", answer.TurnId);
 		string conversationId = Assert.IsType<string>(answer.ConversationId);
-		fixture.Session.ReplyAside(conversationId, "follow-up");
+		fixture.ReplyAside(conversationId, "follow-up");
 		var reply = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: follow-up");
 		Assert.Equal(conversationId, reply.ConversationId);
@@ -294,7 +294,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_SharesAuthenticatedConnectionWithSideConversation() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var primaryAuthentication = await fixture.WaitForMessageAsync(message =>
 			message.Type == "authentication-requested" && message.ConversationId is null);
 		fixture.Session.Authenticate(
@@ -379,7 +379,7 @@ public sealed class AcpAgentSessionTests {
 
 		Assert.Equal(completed.ConversationId, terminal.ConversationId);
 		var error = Assert.Throws<InvalidOperationException>(() =>
-			fixture.Session.ReplyAside(Assert.IsType<string>(completed.ConversationId), "still there?"));
+			fixture.ReplyAside(Assert.IsType<string>(completed.ConversationId), "still there?"));
 		Assert.Contains("no longer available", error.Message, StringComparison.OrdinalIgnoreCase);
 	}
 
@@ -631,7 +631,7 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_SurfacesAnAdapterLaunchFailure() {
 		var fixture = AcpAgentSessionFixture.CreateNonLaunchingAdapter(out string executable);
 		try {
-			fixture.Session.Start();
+			fixture.Start();
 			var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
 			await fixture.Events.WaitForAsync(value => value is AgentProcessChanged {
 				Change.State: Weavie.Core.Processes.SupervisorState.Idle,
@@ -650,7 +650,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_StartsBeforeAnImmediateProtocolFailure() {
 		await using var fixture = AcpAgentSessionFixture.CreateImmediatelyMalformedAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
 		await fixture.Events.WaitForAsync(value => value is AgentProcessChanged {
 			Change.State: Weavie.Core.Processes.SupervisorState.Idle,
@@ -1206,7 +1206,7 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_AcceptsAnInitializeResponseWithoutAgentCapabilities() {
 		await using var fixture = AcpAgentSessionFixture.CreateMinimalCapabilitiesAdapter();
 
-		fixture.Session.Start();
+		fixture.Start();
 		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted);
 
 		fixture.Submit("hello");
@@ -1217,7 +1217,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_PreservesAnUnresumableTranscriptUntilExplicitlyCleared() {
 		await using var fixture = AcpAgentSessionFixture.CreateMinimalCapabilitiesAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted);
 		fixture.Submit("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
@@ -1255,7 +1255,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_AgentAuthenticationKeepsTheInitializedProcessAndRetriesSetup() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
@@ -1272,7 +1272,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_TerminalAuthenticationRunsTheDeclaredInvocationAndRestarts() {
 		await using var fixture = AcpAgentSessionFixture.CreateTerminalAuthenticationAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
@@ -1293,7 +1293,7 @@ public sealed class AcpAgentSessionTests {
 	[Fact]
 	public async Task NativeSession_ReauthenticatesAndRetriesAPromptOnTheSameSession() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
-		fixture.Session.Start();
+		fixture.Start();
 		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 		fixture.Session.Authenticate(
 			Assert.IsType<string>(authentication.RequestId),

@@ -41,9 +41,9 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 				request.Headers.UserAgent.ParseAdd("Weavie");
 				using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
 				response.EnsureSuccessStatusCode();
-				var entries = await response.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
+				var entries = await response.Content.ReadFromJsonAsync(CoreJson.Default.JsonElement, ct).ConfigureAwait(false);
 				string[] locales = [.. entries.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()!).Select(name => name == "en" ? "en-US" : name).Prepend("en").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
-				return CommandResult.Success($"Current spelling locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}. Ask the agent to select a locale.", JsonSerializer.Serialize(new { locales }));
+				return CommandResult.Success($"Current spelling locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}. Ask the agent to select a locale.", JsonSerializer.Serialize(new SpellLocales(locales), PageJson.Default.SpellLocales));
 			}
 			string locale = value.GetString() ?? throw new ArgumentException("Provide a locale code.");
 			string path = LocalePath(locale);
@@ -52,7 +52,7 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 				lock (_gate) _loaded = (locale, words);
 			}
 			ct.ThrowIfCancellationRequested();
-			var result = settings.Set(EditorSettings.SpellCheckLocale, JsonSerializer.SerializeToElement(locale));
+			var result = settings.Set(EditorSettings.SpellCheckLocale, JsonSerializer.SerializeToElement(locale, CoreJson.Default.String));
 			return CommandResult.Success(result.ShadowedByEnv is { } variable
 				? $"Saved spelling locale '{locale}', but {variable} overrides it. Effective locale: {settings.RequireString(EditorSettings.SpellCheckLocale)}."
 				: $"Spelling locale set to {locale}.");
@@ -93,7 +93,7 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	private static SpellVocabulary Load(string path, string locale) {
 		var words = WordList.CreateFromFiles(Path.Combine(path, "index.dic"), Path.Combine(path, "index.aff"));
 		if (words.RootCount == 0) throw new InvalidDataException("The downloaded spelling dictionary contains no words.");
-		return new(words, includeTechnicalWords: locale.StartsWith("en-", StringComparison.Ordinal));
+		return new(words, english: locale.StartsWith("en-", StringComparison.Ordinal));
 	}
 
 	[GeneratedRegex(@"\A[a-z]{2,3}(?:-[A-Za-z0-9]+)*\z", RegexOptions.NonBacktracking)]
@@ -102,3 +102,5 @@ public sealed partial class SpellLanguages(SettingsStore settings, HttpClient ht
 	/// <summary>Releases command serialization resources after the host's requests have drained.</summary>
 	public void Dispose() => _install.Dispose();
 }
+
+internal sealed record SpellLocales(IReadOnlyList<string> Locales);

@@ -28,7 +28,11 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 		var core = webView.CoreWebView2
 			?? throw new InvalidOperationException("CoreWebView2 not initialized; call EnsureCoreWebView2Async first.");
 		core.WebMessageReceived += OnWebMessageReceived;
-		core.NavigationStarting += (_, e) => e.Cancel |= !Security.Allows(e.Uri, true);
+		core.NavigationStarting += (_, e) => {
+			if (Security.Allows(e.Uri, true)) return;
+			e.Cancel = true;
+			NativeBridgeSecurity.ReportBlockedNavigation(true);
+		};
 		core.FrameNavigationStarting += (_, e) => e.Cancel |= !Security.Allows(e.Uri, false);
 		core.NewWindowRequested += (_, e) => e.Handled = true;
 		_core = core;

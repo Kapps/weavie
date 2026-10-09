@@ -82,13 +82,9 @@ public static class ShellProtocol {
 		ArgumentNullException.ThrowIfNull(workspaceLabel);
 		ArgumentNullException.ThrowIfNull(recents);
 		ArgumentException.ThrowIfNullOrEmpty(buildNumber);
-		string json = JsonSerializer.Serialize(new {
-			platform,
-			titleBar,
-			workspaceLabel,
-			recents,
-			buildNumber,
-		});
+		string json = JsonSerializer.Serialize(
+			new ShellConfigWire(platform, titleBar, workspaceLabel, recents, buildNumber),
+			PageJson.Default.ShellConfigWire);
 		return $"window.__WEAVIE_SHELL__ = {json};";
 	}
 
@@ -171,3 +167,10 @@ public static class ShellProtocol {
 		}
 	}
 }
+
+internal sealed record ShellConfigWire(
+	string Platform,
+	string? TitleBar,
+	string WorkspaceLabel,
+	IReadOnlyList<string> Recents,
+	string BuildNumber);

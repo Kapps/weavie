@@ -10,16 +10,19 @@ namespace Weavie.Headless;
 /// </summary>
 internal static class FakePullRequests {
 	/// <summary>
-	/// Reads <paramref name="path"/> — a JSON array of PRs, or an object <c>{ prs: [...], comments: [...] }</c> —
-	/// into a static provider that serves both the PR list and its review comments.
+	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], comments: [...] }</c> — into a static provider that
+	/// serves the PR list and each PR's review comments (a comment's <c>number</c> names its PR) as <c>viewer</c>.
 	/// </summary>
 	public static StaticPullRequestProvider FromFile(string path) {
 		using var doc = JsonDocument.Parse(File.ReadAllText(path));
 		var root = doc.RootElement;
-		var prsEl = root.ValueKind == JsonValueKind.Array ? root
-			: root.TryGetProperty("prs", out var p) ? p : default;
-		var commentsEl = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("comments", out var c) ? c : default;
-		var provider = new StaticPullRequestProvider(ParsePrs(prsEl), ParseComments(commentsEl));
+		var prsEl = root.GetProperty("prs");
+		var provider = new StaticPullRequestProvider(
+			ParsePrs(prsEl),
+			ParseComments(root.TryGetProperty("comments", out var c) ? c : default),
+			new ForgeUser(
+				root.GetProperty("viewer").GetString() ?? throw new InvalidDataException($"{path}: 'viewer' must be a login."),
+				Str(root, "viewerAvatarUrl")));
 		SeedCommits(provider, prsEl);
 		return provider;
 	}
@@ -52,7 +55,9 @@ internal static class FakePullRequests {
 					Title = Str(pr, "title"),
 					Author = Str(pr, "author"),
 					HeadRef = Str(pr, "headRef"),
+					HeadSha = Str(pr, "headSha"),
 					BaseRef = Str(pr, "baseRef"),
+					BaseSha = Str(pr, "baseSha"),
 					Url = Str(pr, "url"),
 					IsDraft = pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
 					State = ParseState(Str(pr, "state")),
@@ -63,20 +68,25 @@ internal static class FakePullRequests {
 		return prs;
 	}
 
-	private static IReadOnlyList<ReviewComment> ParseComments(JsonElement array) {
-		var comments = new List<ReviewComment>();
+	private static IReadOnlyList<(int Number, ReviewComment Comment)> ParseComments(JsonElement array) {
+		var comments = new List<(int, ReviewComment)>();
 		if (array.ValueKind == JsonValueKind.Array) {
 			foreach (var cm in array.EnumerateArray()) {
-				comments.Add(new ReviewComment {
+				bool outdated = cm.TryGetProperty("outdated", out var o) && o.ValueKind == JsonValueKind.True;
+				comments.Add((cm.GetProperty("number").GetInt32(), new ReviewComment {
 					Id = Int(cm, "id"),
 					Path = Str(cm, "path"),
-					Line = Int(cm, "line"),
-					Side = cm.TryGetProperty("side", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() ?? "right" : "right",
+					Line = outdated ? 0 : Int(cm, "line"),
+					Outdated = outdated,
+					Side = Str(cm, "side") is { Length: > 0 } side ? side : "right",
 					Author = Str(cm, "author"),
+					AuthorAvatarUrl = Str(cm, "avatarUrl"),
+					Url = Str(cm, "url"),
 					Body = Str(cm, "body"),
 					CreatedAt = Str(cm, "createdAt"),
+					UpdatedAt = Str(cm, "updatedAt") is { Length: > 0 } updated ? updated : Str(cm, "createdAt"),
 					InReplyTo = Int(cm, "inReplyTo"),
-				});
+				}));
 			}
 		}
 

@@ -17,8 +17,9 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 	private readonly AcpRegistryClient _registry;
 	private readonly AcpInstallationStore _installations;
 	private readonly AcpCustomAgentStore _custom;
+	private readonly INpmInstaller _npm;
 	private readonly string _packages;
-	private IReadOnlyList<AcpLaunchSpec>? CachedLaunchSpecs { get; set; }
+	private Catalog? Cached { get; set; }
 
 	/// <summary>Creates the app-global official ACP catalog.</summary>
 	public static AcpDistributionService CreateDefault() {
@@ -29,7 +30,8 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 			new LocalFileSystem(),
 			WeaviePaths.AcpInstallationsFile,
 			WeaviePaths.AcpCustomAgentsFile,
-			WeaviePaths.AcpPackages);
+			WeaviePaths.AcpPackages,
+			new NpmInstaller());
 	}
 
 	internal AcpDistributionService(
@@ -38,12 +40,14 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		IFileSystem fileSystem,
 		string installationsPath,
 		string customPath,
-		string packagesPath) {
+		string packagesPath,
+		INpmInstaller npm) {
 		_http = http ?? throw new ArgumentNullException(nameof(http));
 		_registry = registry ?? throw new ArgumentNullException(nameof(registry));
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_installations = new AcpInstallationStore(fileSystem, installationsPath);
 		_custom = new AcpCustomAgentStore(fileSystem, customPath);
+		_npm = npm ?? throw new ArgumentNullException(nameof(npm));
 		_packages = Path.GetFullPath(packagesPath);
 	}
 
@@ -51,52 +55,79 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 	public event Action? Changed;
 
 	/// <inheritdoc/>
-	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs {
+	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs => Current.LaunchSpecs;
+
+	/// <inheritdoc/>
+	public IReadOnlyList<AcpBrokenAgent> BrokenAgents => Current.Broken;
+
+	/// <inheritdoc/>
+	public IReadOnlySet<string> ProviderIds => Current.Ids;
+
+	private Catalog Current {
 		get {
-			lock (_gate) return CachedLaunchSpecs ??= Merge(_installations.Load(), _custom.Load());
+			lock (_gate) return Cached ??= Merge(_installations.Load(), _custom.Load());
 		}
 	}
 
 	/// <inheritdoc/>
 	public async Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) {
 		var registry = await _registry.FetchAsync(ct).ConfigureAwait(false);
-		IReadOnlyList<AcpLaunchSpec> installed;
+		AcpInstallations installed;
 		lock (_gate) installed = _installations.Load();
-		var byId = installed.ToDictionary(agent => agent.Id, StringComparer.Ordinal);
+		var byId = installed.Agents.ToDictionary(agent => agent.Id, StringComparer.Ordinal);
+		var broken = installed.Broken.ToDictionary(entry => entry.Agent.Id, entry => entry.Agent, StringComparer.Ordinal);
 		string target = AcpPlatformTarget.Current();
+		var listed = registry.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
 		return [.. registry.Select(entry => {
 			string id = AcpRegistryClient.Require(entry.Id, "agent id");
 			byId.TryGetValue(id, out var local);
+			broken.TryGetValue(id, out var unlaunchable);
 			return new AcpRegistryAgent {
 				Id = id,
 				Name = AcpRegistryClient.Require(entry.Name, $"agent '{id}' name"),
 				Version = AcpRegistryClient.Require(entry.Version, $"agent '{id}' version"),
 				Description = entry.Description ?? string.Empty,
 				Distributions = DistributionKinds(entry.Distribution!, target),
-				InstalledDistribution = local?.Distribution,
+				InstalledDistribution = local?.Distribution ?? unlaunchable?.Distribution,
 				InstalledVersion = local?.Version,
+				Broken = unlaunchable?.Reason,
 			};
+		}), .. broken.Values.Where(agent => !listed.Contains(agent.Id)).Select(agent => new AcpRegistryAgent {
+			Id = agent.Id,
+			Name = agent.Name,
+			Version = string.Empty,
+			Description = "No longer offered by the ACP Registry.",
+			Distributions = [],
+			InstalledDistribution = agent.Distribution,
+			Broken = agent.Reason,
 		})];
 	}
 
 	/// <inheritdoc/>
-	public async Task InstallAsync(string id, string distribution, CancellationToken ct) {
+	public async Task InstallAsync(
+		string id,
+		string distribution,
+		Func<AcpLaunchSpec, CancellationToken, Task> verify,
+		CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(id);
 		ArgumentException.ThrowIfNullOrWhiteSpace(distribution);
+		ArgumentNullException.ThrowIfNull(verify);
 		var registry = await _registry.FetchAsync(ct).ConfigureAwait(false);
 		var entry = registry.SingleOrDefault(candidate => candidate.Id == id)
 			?? throw new InvalidOperationException($"The ACP Registry has no agent named '{id}'.");
 		var launch = distribution switch {
-			"npx" => PackageLaunch(entry, "npx", entry.Distribution!.Npx),
-			"uvx" => PackageLaunch(entry, "uvx", entry.Distribution!.Uvx),
+			"npx" => await InstallNpmAsync(entry, ct).ConfigureAwait(false),
+			"uvx" => UvxLaunch(entry),
 			"binary" => await InstallBinaryAsync(entry, ct).ConfigureAwait(false),
 			_ => throw new InvalidOperationException($"Agent '{id}' has no '{distribution}' distribution."),
 		};
+		await verify(launch, ct).ConfigureAwait(false);
 		lock (_gate) {
-			var agents = _installations.Load().Where(agent => agent.Id != id).Append(launch).ToArray();
-			var merged = Merge(agents, _custom.Load());
-			_installations.Save(agents);
-			CachedLaunchSpecs = merged;
+			var current = _installations.Load().Without(id);
+			var installations = current with { Agents = [.. current.Agents, launch] };
+			var merged = Merge(installations, _custom.Load());
+			_installations.Save(installations);
+			Cached = merged;
 		}
 		Changed?.Invoke();
 	}
@@ -107,31 +138,30 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		bool removed;
 		lock (_gate) {
 			var current = _installations.Load();
-			var remaining = current.Where(agent => agent.Id != id).ToArray();
-			removed = remaining.Length != current.Count;
+			removed = current.Ids.Contains(id);
 			if (removed) {
+				var remaining = current.Without(id);
 				var merged = Merge(remaining, _custom.Load());
 				_installations.Save(remaining);
-				CachedLaunchSpecs = merged;
+				Cached = merged;
 			}
 		}
 		if (removed) Changed?.Invoke();
 	}
 
 	/// <inheritdoc/>
-	public void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate) {
+	public void Reload(Action<IReadOnlySet<string>> validate) {
 		ArgumentNullException.ThrowIfNull(validate);
 		lock (_gate) {
 			var merged = Merge(_installations.Load(), _custom.Load());
-			validate(merged);
-			CachedLaunchSpecs = merged;
+			validate(merged.Ids);
+			Cached = merged;
 		}
 		Changed?.Invoke();
 	}
 
 	private async Task<AcpLaunchSpec> InstallBinaryAsync(AcpRegistryEntry entry, CancellationToken ct) {
-		string id = AcpRegistryClient.RequireSegment(entry.Id, "agent id", allowPlus: false);
-		string version = AcpRegistryClient.RequireSegment(entry.Version, $"agent '{id}' version", allowPlus: true);
+		string id = AcpRegistryClient.Require(entry.Id, "agent id");
 		string target = AcpPlatformTarget.Current();
 		if (entry.Distribution?.Binary?.TryGetValue(target, out var nullable) != true || nullable is null) {
 			throw new InvalidOperationException($"Agent '{id}' has no binary for {target}.");
@@ -142,57 +172,58 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		string hash = RequireHash(binary.Sha256, id);
 		Values(binary.Arguments, id);
 		EnvironmentValues(binary.Environment, id);
-		string destination = Within(_packages, Path.Combine(id, version, target));
+		string executable = await InstallPackageAsync(entry, target, async staging => {
+			byte[] payload = await _http.GetByteArrayAsync(archive, ct).ConfigureAwait(false);
+			VerifyHash(payload, hash, id);
+			Extract(payload, archive.AbsolutePath, staging);
+			string extracted = Within(staging, command);
+			if (!File.Exists(extracted)) {
+				throw new InvalidDataException($"Agent '{id}' archive does not contain '{command}'.");
+			}
+			if (!OperatingSystem.IsWindows()) {
+				File.SetUnixFileMode(extracted, File.GetUnixFileMode(extracted) | UnixFileMode.UserExecute);
+			}
+			return command;
+		}).ConfigureAwait(false);
+		return Launch(entry, "binary", executable, binary.Arguments, binary.Environment);
+	}
+
+	private async Task<AcpLaunchSpec> InstallNpmAsync(AcpRegistryEntry entry, CancellationToken ct) {
+		string id = AcpRegistryClient.Require(entry.Id, "agent id");
+		var package = entry.Distribution!.Npx ?? throw new InvalidOperationException($"Agent '{id}' has no 'npx' distribution.");
+		string spec = AcpRegistryClient.Require(package.Package, $"agent '{id}' npx package");
+		string executable = await InstallPackageAsync(entry, "npx", async staging => {
+			await _npm.InstallAsync(spec, staging, ct).ConfigureAwait(false);
+			return Path.GetRelativePath(staging, AcpNpmPackage.Executable(staging));
+		}).ConfigureAwait(false);
+		var (command, arguments) = AcpNpmPackage.Launch(executable);
+		return Launch(entry, "npx", command, [.. arguments, .. Values(package.Arguments, id)], package.Environment);
+	}
+
+	// Populates a fresh staging directory, swaps it into the package's install directory, and returns the absolute
+	// path of the file it named.
+	private async Task<string> InstallPackageAsync(AcpRegistryEntry entry, string kind, Func<string, Task<string>> populate) {
+		string id = AcpRegistryClient.RequireSegment(entry.Id, "agent id", allowPlus: false);
+		string version = AcpRegistryClient.RequireSegment(entry.Version, $"agent '{id}' version", allowPlus: true);
+		string destination = Within(_packages, Path.Combine(id, version, kind));
 		string parent = Path.GetDirectoryName(destination)!;
 		Directory.CreateDirectory(parent);
 		string staging = Path.Combine(parent, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.staging");
 		Directory.CreateDirectory(staging);
 		try {
-			byte[] payload = await _http.GetByteArrayAsync(archive, ct).ConfigureAwait(false);
-			VerifyHash(payload, hash, id);
-			Extract(payload, archive.AbsolutePath, staging);
-			string executable = Within(staging, command);
-			if (!File.Exists(executable)) {
-				throw new InvalidDataException($"Agent '{id}' archive does not contain '{command}'.");
-			}
-			if (!OperatingSystem.IsWindows()) {
-				File.SetUnixFileMode(executable, File.GetUnixFileMode(executable) | UnixFileMode.UserExecute);
-			}
+			string file = await populate(staging).ConfigureAwait(false);
 			ReplaceDirectory(staging, destination);
-			return Launch(entry, "binary", Within(destination, command), binary.Arguments, binary.Environment);
+			return Within(destination, file);
 		} finally {
 			if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
 		}
 	}
 
-	private static AcpLaunchSpec PackageLaunch(
-		AcpRegistryEntry entry,
-		string runner,
-		AcpPackageDistribution? package) {
+	private static AcpLaunchSpec UvxLaunch(AcpRegistryEntry entry) {
 		string id = AcpRegistryClient.Require(entry.Id, "agent id");
-		if (package is null) throw new InvalidOperationException($"Agent '{id}' has no '{runner}' distribution.");
-		string packageName = AcpRegistryClient.Require(package.Package, $"agent '{id}' {runner} package");
-		string[] arguments = runner == "npx"
-			? ["--yes", packageName, .. Values(package.Arguments, id)]
-			: [packageName, .. Values(package.Arguments, id)];
-		var (command, processArguments) = PackageProcess(runner, arguments, OperatingSystem.IsWindows());
-		return Launch(entry, runner, command, processArguments, package.Environment);
-	}
-
-	internal static (string Command, IReadOnlyList<string> Arguments) PackageProcess(
-		string runner,
-		IReadOnlyList<string> arguments,
-		bool windows) {
-		ArgumentException.ThrowIfNullOrWhiteSpace(runner);
-		ArgumentNullException.ThrowIfNull(arguments);
-		if (!windows || runner != "npx") return (runner, arguments);
-		if (arguments.Any(value => string.IsNullOrEmpty(value)
-			|| value.Any(character => !char.IsAsciiLetterOrDigit(character)
-				&& character is not '@' and not '_' and not '.' and not '/' and not ':'
-					and not '=' and not '+' and not ',' and not '\\' and not '-'))) {
-			throw new InvalidDataException("The npx recipe contains an argument that cannot be launched safely on Windows.");
-		}
-		return ("npx", arguments);
+		var package = entry.Distribution!.Uvx ?? throw new InvalidOperationException($"Agent '{id}' has no 'uvx' distribution.");
+		string spec = AcpRegistryClient.Require(package.Package, $"agent '{id}' uvx package");
+		return Launch(entry, "uvx", "uvx", [spec, .. Values(package.Arguments, id)], package.Environment);
 	}
 
 	private static AcpLaunchSpec Launch(
@@ -221,17 +252,18 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		return kinds;
 	}
 
-	private static IReadOnlyList<AcpLaunchSpec> Merge(
-		IReadOnlyList<AcpLaunchSpec> installed,
-		IReadOnlyList<AcpLaunchSpec> custom) {
+	private static Catalog Merge(AcpInstallations installed, IReadOnlyList<AcpLaunchSpec> custom) {
 		var ids = new HashSet<string>(StringComparer.Ordinal);
-		var result = new List<AcpLaunchSpec>(installed.Count + custom.Count);
-		foreach (var agent in installed.Concat(custom)) {
-			if (!ids.Add(agent.Id)) throw new InvalidDataException($"ACP agent '{agent.Id}' is configured twice.");
-			result.Add(agent);
+		foreach (string id in installed.Ids.Concat(custom.Select(agent => agent.Id))) {
+			if (!ids.Add(id)) throw new InvalidDataException($"ACP agent '{id}' is configured twice.");
 		}
-		return result;
+		return new Catalog([.. installed.Agents, .. custom], [.. installed.Broken.Select(entry => entry.Agent)], ids);
 	}
+
+	private sealed record Catalog(
+		IReadOnlyList<AcpLaunchSpec> LaunchSpecs,
+		IReadOnlyList<AcpBrokenAgent> Broken,
+		IReadOnlySet<string> Ids);
 
 	private static IReadOnlyList<string> Values(IReadOnlyList<string?>? values, string id) {
 		if (values is null) return [];

@@ -9,6 +9,8 @@ public sealed class AcpInterruptTests {
 	[InlineData(true, "hold-cancelled-request")]
 	[InlineData(false, "hold")]
 	[InlineData(false, "hold-cancelled-request")]
+	[InlineData(true, "hold-unreported-cancel")]
+	[InlineData(false, "hold-unreported-cancel")]
 	public async Task InterruptDrainsAcceptedSubmissionsInOrder(bool supportsSteering, string heldPrompt) {
 		await using var fixture = supportsSteering
 			? AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null)
@@ -36,6 +38,7 @@ public sealed class AcpInterruptTests {
 		Assert.Equal("cancelled", Assert.Single(fixture.Messages,
 			message => message.Type == "turn-completed" && message.TurnId == "1").Status);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.Equal("cancelled", fixture.Messages.Last(message => message.ItemId == "tool:hold").Status);
 		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "command-steered")));
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
@@ -70,7 +73,7 @@ public sealed class AcpInterruptTests {
 		fixture.AskAside("hold");
 		var held = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		string conversationId = Assert.IsType<string>(held.ConversationId);
-		fixture.Session.ReplyAside(conversationId, "queued side reply");
+		fixture.ReplyAside(conversationId, "queued side reply");
 
 		fixture.Session.Interrupt();
 		var reply = await fixture.WaitForMessageAsync(message => message.Type == "item-completed"

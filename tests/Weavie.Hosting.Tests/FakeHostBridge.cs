@@ -13,6 +13,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 	private readonly List<string> _posted = [];
 	private readonly List<string> _broadcasts = [];
 	private readonly List<(WebPeer Peer, string Json)> _sent = [];
+	private readonly Dictionary<SessionAddress, long> _editorRevisions = [];
 	private readonly Lock _gate = new();
 
 	public event Action<WebPeer, string>? MessageReceived;
@@ -27,6 +28,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 		lock (_gate) {
 			_broadcasts.Add(message.Json);
 			_posted.Add(message.Json);
+			ObserveEditorRevisionLocked(message.Json);
 		}
 	}
 
@@ -34,6 +36,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 		lock (_gate) {
 			_sent.Add((peer, message.Json));
 			_posted.Add(message.Json);
+			ObserveEditorRevisionLocked(message.Json);
 		}
 		if (RequestResponder is not { } responder
 			|| !MessageEnvelope.TryParse(message.Json, out var envelope)
@@ -171,6 +174,20 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 				"attach",
 				JsonSerializer.SerializeToElement(new { pageEpoch = "fake-page" })).ToJson()).GetAwaiter().GetResult();
 		return endpoint.View.Feature(feature);
+	}
+
+	/// <summary>The newest host editor revision this page has received for a session, as the real page tracks it.</summary>
+	public long EditorRevision(SessionAddress session) {
+		lock (_gate) return _editorRevisions.GetValueOrDefault(session);
+	}
+
+	private void ObserveEditorRevisionLocked(string json) {
+		if (MessageEnvelope.TryParse(json, out var envelope)
+			&& envelope is { Kind: MessageKind.Event, Feature: "editor", Session: { } session }
+			&& envelope.Payload.ValueKind == JsonValueKind.Object
+			&& envelope.Payload.TryGetProperty("revision", out var revision)) {
+			_editorRevisions[session] = Math.Max(_editorRevisions.GetValueOrDefault(session), revision.GetInt64());
+		}
 	}
 
 	/// <summary>Forgets every captured message (so a test can assert only on what happens next).</summary>

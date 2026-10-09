@@ -148,7 +148,8 @@ public sealed class TerminalController : IDisposable {
 			rows,
 			(data, replay) => messages.Publish(
 				"output",
-				new { dataB64 = Convert.ToBase64String(data), replay }));
+				WireJson.Default.TerminalOutput,
+				new(Convert.ToBase64String(data), replay)));
 
 	private void OnReadyCore(
 		int columns,
@@ -215,7 +216,7 @@ public sealed class TerminalController : IDisposable {
 	internal void ClearScrollback() => _scrollback?.Clear();
 
 	internal void ResyncPane(MessageTargetFeature messages) =>
-		ResyncPaneCore(respawn => messages.Publish("reset", new { respawn }));
+		ResyncPaneCore(respawn => messages.Publish("reset", WireJson.Default.TerminalReset, new(respawn)));
 
 	private void ResyncPaneCore(Action<bool> reset) {
 		lock (_gate) {
@@ -286,7 +287,7 @@ public sealed class TerminalController : IDisposable {
 	/// also resets terminal modes (the child relaunched); a still-running child keeps them.
 	/// </summary>
 	private void PostTermReset(bool respawn) =>
-		_messages.Publish("reset", new { respawn });
+		_messages.Publish("reset", WireJson.Default.TerminalReset, new(respawn));
 
 	/// <summary>Opens the scrollback log for the configured path once, honoring the size-cap setting (0 = disabled).</summary>
 	private void EnsureScrollbackLog() {
@@ -492,7 +493,7 @@ public sealed class TerminalController : IDisposable {
 	/// not let its xterm answer device queries inside them — the replies would reach the child as garbage input.
 	/// </summary>
 	private void PublishOutput(ReadOnlySpan<byte> data, bool replay) =>
-		_messages.Publish("output", new { dataB64 = Convert.ToBase64String(data), replay });
+		_messages.Publish("output", WireJson.Default.TerminalOutput, new(Convert.ToBase64String(data), replay));
 
 	/// <summary>
 	/// Reports the PTY exit to the launch source before notifying the supervisor, preserving provider recovery
@@ -520,7 +521,7 @@ public sealed class TerminalController : IDisposable {
 		Console.WriteLine($"[weavie] terminal[{_pane}] child exited: {code}");
 		Console.Out.Flush();
 		_coalescer.Flush(); // the child's final output must reach the page before the exit marker
-		_messages.Publish("exit", new { code });
+		_messages.Publish("exit", WireJson.Default.TerminalExit, new(code));
 	}
 
 	private void PostNotice(string text) {
@@ -546,3 +547,9 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 }
+
+internal sealed record TerminalOutput(string DataB64, bool Replay);
+
+internal sealed record TerminalReset(bool Respawn);
+
+internal sealed record TerminalExit(int Code);

@@ -1,8 +1,9 @@
 import { Fzf } from "fzf";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 
-// A regression to precision-scoring the whole index per keystroke shows up as a blown budget.
+vi.mock("fzf", { spy: true });
+
 const INDEX_SIZE = 120_000;
 
 // A unique filename no synthetic path can collide with, so exact-ranking assertions have one right answer.
@@ -73,53 +74,21 @@ describe("omnibar file search over a huge workspace", () => {
   const rows = buildIndex(INDEX_SIZE);
   const finder = createFileFinder(rows);
 
-  it("answers every keystroke well under a budget at 120k files", () => {
-    // Includes the worst case (1-2 char queries matching most of the index) and a no-match query. The naive
-    // whole-index scorer takes 800ms+ for "se" on a contended CI box, so this budget still catches a
-    // regression to that. Kept generous so it tracks the order-of-magnitude win, not raw box speed — the
-    // machine-independent guard below is the real anchor.
-    for (const q of [
+  it("bounds precision scoring for broad queries and each typed prefix", () => {
+    const word = "controller";
+    for (const query of [
       "s",
       "se",
-      "sess",
-      "session",
-      "editor",
-      "controller",
-      "sc",
-      "reader",
       "zqwxnomatch",
+      ...Array.from(word, (_, i) => word.slice(0, i + 1)),
     ]) {
-      const start = performance.now();
-      rankFiles(finder, q, [], null);
-      const ms = performance.now() - start;
-      expect(ms, `query "${q}" took ${ms.toFixed(1)}ms`).toBeLessThan(400);
+      vi.mocked(Fzf).mockClear();
+      const result = rankFiles(finder, query, [], null);
+      expect(Fzf).toHaveBeenCalledOnce();
+      const candidates = vi.mocked(Fzf).mock.calls[0]![0];
+      expect(candidates.length, query).toBeLessThanOrEqual(2000);
+      expect(result.matches.length, query).toBe(candidates.length);
     }
-  });
-
-  it("is several times faster than scoring the whole index per keystroke", () => {
-    // A machine-independent anchor: prove the structural win (pre-filter + capped re-score) against the naive
-    // approach on the same data, so the test means something regardless of how fast the box is.
-    const naive = new Fzf(rows, { selector: (r) => r.rel, casing: "case-insensitive" });
-
-    const naiveStart = performance.now();
-    naive.find("se");
-    const naiveMs = performance.now() - naiveStart;
-
-    const fastStart = performance.now();
-    rankFiles(finder, "se", [], null);
-    const fastMs = performance.now() - fastStart;
-
-    expect(fastMs * 4).toBeLessThan(naiveMs);
-  });
-
-  it("stays responsive while typing a filename out one character at a time", () => {
-    const word = "controller";
-    const start = performance.now();
-    for (let k = 1; k <= word.length; k++) {
-      rankFiles(finder, word.slice(0, k), [], null);
-    }
-    const perKeystroke = (performance.now() - start) / word.length;
-    expect(perKeystroke).toBeLessThan(160);
   });
 
   it("reports all broad-query matches beyond the precision-scored candidates", () => {

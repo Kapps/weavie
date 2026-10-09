@@ -9,4 +9,11 @@ public static class WindowsCommandLine {
 			.Replace("^", "^^", StringComparison.Ordinal)
 			.Replace("<", "^<", StringComparison.Ordinal);
 	}
+
+	/// <summary>The command processor invocation that runs the batch file <paramref name="command"/>.</summary>
+	public static (string Command, IReadOnlyList<string> Arguments) BatchInvocation(
+		string command,
+		IReadOnlyList<string> arguments) =>
+		(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+			["/d", "/s", "/v:off", "/c", command, .. arguments.Select(EscapeInputRedirection)]);
 }

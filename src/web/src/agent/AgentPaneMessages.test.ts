@@ -36,6 +36,16 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
   });
 
+  it("marks only primary prompts as rewind points", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "alpha" },
+      { type: "user-command", providerId: "acp", turnId: "2", text: "/compact" },
+      { type: "user-steer", providerId: "acp", turnId: "2", text: "steer" },
+    ]);
+
+    expect(transcript.map((entry) => entry.promptTurnId)).toEqual(["1", "2", undefined]);
+  });
+
   it("groups a side conversation at its first recorded position without mixing primary turns", () => {
     const conversation = {
       conversationId: "aside-1",
@@ -516,6 +526,22 @@ describe("toAgentTranscript", () => {
       ["diff ready", "ready"],
     ]);
     expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");
+  });
+
+  it("does not count a cancelled edit as an edited file", () => {
+    const edit = {
+      providerId: "acp",
+      turnId: "1",
+      itemId: "tool:write",
+      category: "edit",
+      summary: "Write restart.txt",
+    };
+    const transcript = toAgentTranscript([
+      { type: "item-started", ...edit, status: "running" },
+      { type: "item-completed", ...edit, status: "cancelled" },
+    ]);
+
+    expect(transcript[0]?.summary).toBe("cancelled 1 step");
   });
 
   it("collapses multiple edit locations into one expandable edit group", () => {

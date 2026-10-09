@@ -116,6 +116,34 @@ public sealed class HostCoreStructuredAttachmentTests {
 	}
 
 	[Fact]
+	public async Task UnsupportedSideReply_RejectsItsSubmissionAndPreservesTheImage() {
+		await using var host = await StartStructuredAsync("rejected-side-image");
+		var session = host.SelectedSession;
+		Upload(host, session, "reply-image", "image/png", PngBytes);
+		host.SessionEvent(session, "agent", "replyAside", new {
+			conversationId = "missing-side",
+			submission = new {
+				id = "reply-submission",
+				prompt = "",
+				kind = "prompt",
+				commandName = "",
+				attachmentIds = new[] { "reply-image" },
+			},
+		});
+
+		var rejected = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("reply-submission", rejected?.GetProperty("id").GetString());
+		Assert.Equal("rejected", rejected?.GetProperty("status").GetString());
+		Assert.Contains("does not support side conversations", rejected?.GetProperty("error").GetString(), StringComparison.Ordinal);
+		Assert.Equal(PngBytes, File.ReadAllBytes(Assert.Single(Directory.GetFiles(session.PastedImages.Directory))));
+
+		Submit(host, session, "retry-submission", "", ["reply-image"]);
+		var accepted = host.Bridge.LastEvent(session.Address, "agent", "submissionState");
+		Assert.Equal("accepted", accepted?.GetProperty("status").GetString());
+		Assert.Equal("reply-image", accepted?.GetProperty("attachmentIds")[0].GetString());
+	}
+
+	[Fact]
 	public async Task RemoveAttachment_DeletesItsScratchFile() {
 		await using var host = await StartStructuredAsync("remove-image");
 		var session = host.SelectedSession;

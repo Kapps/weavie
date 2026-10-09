@@ -11,7 +11,7 @@ namespace Weavie.Core.Sources;
 /// <c>HostServices</c>; the headless harness injects a stubbed <see cref="HttpClient"/> + token for deterministic
 /// tests. The token file is off the Claude-facing settings surface because it holds a secret.
 /// </summary>
-public sealed class SourceConnector : ISourceConnector {
+public sealed partial class SourceConnector : ISourceConnector {
 	private readonly IReadOnlyList<ISource> _sources;
 	private readonly Func<string, string> _credentialsPathFor;
 
@@ -33,22 +33,13 @@ public sealed class SourceConnector : ISourceConnector {
 	}
 
 	/// <inheritdoc/>
-	public string? IdFor(string target) => _sources.FirstOrDefault(s => s.Match(target))?.Id;
+	public string? IdFor(string target) => Claiming(target)?.Id;
 
 	/// <inheritdoc/>
-	public bool IsConnected(string target) {
-		if (_sources.FirstOrDefault(s => s.Match(target)) is not { } source) {
-			return false;
-		}
+	public bool IsConnected(string target) => Claiming(target) is { } source && HasToken(source);
 
-		try {
-			return !string.IsNullOrWhiteSpace(ReadToken(source.Id));
-		} catch (InvalidOperationException) {
-			// A present-but-unreadable/malformed token file: report not-connected so the open resolver routes the user
-			// to (re)connect — which overwrites the bad file — rather than throwing out of the synchronous open path.
-			return false;
-		}
-	}
+	/// <inheritdoc/>
+	public IReadOnlyList<string> ConnectedLinkHosts() => [.. _sources.Where(HasToken).SelectMany(s => s.LinkHosts)];
 
 	/// <inheritdoc/>
 	public string SetupUrlFor(string sourceId) => Source(sourceId).SetupUrl;
@@ -83,7 +74,7 @@ public sealed class SourceConnector : ISourceConnector {
 	// The source claiming `target` plus its saved token; throws when nothing matches or it isn't connected yet
 	// (the host turns that into a "connect first" prompt).
 	private (ISource Source, string Token) ConnectedSource(string target) {
-		var source = _sources.FirstOrDefault(s => s.Match(target))
+		var source = Claiming(target)
 			?? throw new InvalidOperationException($"No connected source can open '{target}'.");
 		string? token = ReadToken(source.Id);
 		if (string.IsNullOrWhiteSpace(token)) {
@@ -91,6 +82,18 @@ public sealed class SourceConnector : ISourceConnector {
 		}
 
 		return (source, token);
+	}
+
+	private ISource? Claiming(string target) => _sources.FirstOrDefault(s => SourceLinks.Claims(s.LinkHosts, target));
+
+	private bool HasToken(ISource source) {
+		try {
+			return !string.IsNullOrWhiteSpace(ReadToken(source.Id));
+		} catch (InvalidOperationException) {
+			// A present-but-unreadable/malformed token file: report not-connected so the open resolver routes the user
+			// to (re)connect — which overwrites the bad file — rather than throwing out of the synchronous open path.
+			return false;
+		}
 	}
 
 	private ISource Source(string sourceId) =>
@@ -103,7 +106,7 @@ public sealed class SourceConnector : ISourceConnector {
 			SecureFile.CreateDirectory(directory);
 		}
 
-		SecureFile.WriteAllText(path, JsonSerializer.Serialize(new Credentials { Token = token }));
+		SecureFile.WriteAllText(path, JsonSerializer.Serialize(new Credentials { Token = token }, SourceConnectorJson.Default.Credentials));
 	}
 
 	// The access token saved at ~/.weavie/sources/<id>.json, or null when the file is absent/empty.
@@ -122,7 +125,7 @@ public sealed class SourceConnector : ISourceConnector {
 
 		Credentials? credentials;
 		try {
-			credentials = JsonSerializer.Deserialize<Credentials>(text);
+			credentials = JsonSerializer.Deserialize(text, SourceConnectorJson.Default.Credentials);
 		} catch (JsonException ex) {
 			throw new InvalidOperationException($"The {sourceId} token file {path} is malformed: {ex.Message}", ex);
 		}
@@ -134,4 +137,7 @@ public sealed class SourceConnector : ISourceConnector {
 		[JsonPropertyName("token")]
 		public string Token { get; set; } = string.Empty;
 	}
+
+	[JsonSerializable(typeof(Credentials))]
+	private sealed partial class SourceConnectorJson : JsonSerializerContext;
 }

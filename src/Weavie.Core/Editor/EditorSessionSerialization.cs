@@ -8,31 +8,16 @@ namespace Weavie.Core.Editor;
 /// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. The host→web
 /// restore push is built by <see cref="BuildRestoreJson"/>.
 /// </summary>
-public static class EditorSessionSerialization {
-	/// <summary>On-disk options: camelCase, indented, nulls omitted.</summary>
-	public static JsonSerializerOptions Options { get; } = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true,
-		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-	};
-
-	/// <summary>
-	/// Bridge-message options: camelCase, single-line. Nulls kept so <c>active</c>/<c>viewState</c> are emitted
-	/// explicitly rather than dropped to undefined.
-	/// </summary>
-	public static JsonSerializerOptions MessageOptions { get; } = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-	};
-
+public static partial class EditorSessionSerialization {
 	/// <summary>Serializes a session to indented JSON (the on-disk form).</summary>
-	public static string Serialize(EditorSession session) => JsonSerializer.Serialize(session, Options);
+	public static string Serialize(EditorSession session) => JsonSerializer.Serialize(session, EditorDiskJson.Default.EditorSession);
 
 	/// <summary>
 	/// Parses a session. Returns <c>false</c> with an <paramref name="error"/> on malformed JSON rather than throwing.
 	/// </summary>
 	public static bool TryDeserialize(string json, out EditorSession? session, out string? error) {
 		try {
-			session = JsonSerializer.Deserialize<EditorSession>(json, Options);
+			session = JsonSerializer.Deserialize(json, EditorDiskJson.Default.EditorSession);
 			if (session is null) {
 				error = "editor session document was empty";
 				return false;
@@ -47,16 +32,17 @@ public static class EditorSessionSerialization {
 		}
 	}
 
-	/// <summary>Builds the bridge restore payload, dropping files that no longer exist.</summary>
+	/// <summary>Builds the bridge restore payload at the host's editor revision, dropping files that no longer exist.</summary>
 	public static string BuildRestoreJson(
 		EditorSession session,
+		long revision,
 		IFileSystem fileSystem,
 		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(log);
 
-		var open = new List<object>();
+		var open = new List<EditorRestoreEntry>();
 		var surviving = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var entry in session.Open) {
 			if (entry.IsFile && !fileSystem.FileExists(entry.Path)) {
@@ -65,17 +51,37 @@ public static class EditorSessionSerialization {
 			}
 
 			surviving.Add(entry.Path);
-			open.Add(new {
-				path = entry.Path,
-				kind = entry.Kind,
-				viewState = entry.ViewState,
-				preview = entry.Preview,
-				pinned = entry.Pinned,
-				scratch = entry.Scratch,
-			});
+			open.Add(new EditorRestoreEntry(entry.Path, entry.Kind, entry.ViewState, entry.Preview, entry.Pinned, entry.Scratch));
 		}
 
 		string? active = session.Active is { } path && surviving.Contains(path) ? path : null;
-		return JsonSerializer.Serialize(new { session = new { active, open, review = session.Review } }, MessageOptions);
+		return JsonSerializer.Serialize(
+			new EditorRestore(new EditorRestoreSession(active, open, session.Review), revision),
+			EditorMessageJson.Default.EditorRestore);
 	}
+
+	// On disk: camelCase, indented, nulls omitted.
+	[JsonSourceGenerationOptions(
+		PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+		WriteIndented = true,
+		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+	[JsonSerializable(typeof(EditorSession))]
+	private sealed partial class EditorDiskJson : JsonSerializerContext;
+
+	// Bridge message: camelCase, single-line, nulls kept so active/viewState arrive explicitly.
+	[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+	[JsonSerializable(typeof(EditorRestore))]
+	private sealed partial class EditorMessageJson : JsonSerializerContext;
+
+	private sealed record EditorRestore(EditorRestoreSession Session, long Revision);
+
+	private sealed record EditorRestoreSession(string? Active, IReadOnlyList<EditorRestoreEntry> Open, JsonElement? Review);
+
+	private sealed record EditorRestoreEntry(
+		string Path,
+		string? Kind,
+		JsonElement? ViewState,
+		bool Preview,
+		bool Pinned,
+		bool Scratch);
 }

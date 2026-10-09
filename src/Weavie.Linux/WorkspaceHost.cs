@@ -155,12 +155,12 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		DisposeHotkeys();
 		CloseWorkspace();
 		_notifications?.Dispose();
-		_services?.Keybindings.Dispose();
-		_services?.Settings.Dispose();
+		_services?.Dispose();
 	}
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
+		_window = IntPtr.Zero;
 		GtkMain.Quit();
 	}
 

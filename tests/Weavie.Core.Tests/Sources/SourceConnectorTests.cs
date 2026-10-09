@@ -45,4 +45,11 @@ public sealed class SourceConnectorTests : IDisposable {
 	[Fact]
 	public async Task FetchAsync_NoMatchingSource_Throws() =>
 		await Assert.ThrowsAsync<InvalidOperationException>(() => _connector.FetchAsync("https://example.com/doc"));
+
+	[Fact]
+	public void ConnectedLinkHosts_ListsOnlySourcesWithASavedToken() {
+		Assert.Empty(_connector.ConnectedLinkHosts());
+		File.WriteAllText(_dir.Combine($"{NotionSource.SourceId}.json"), """{ "token": "ntn_x" }""");
+		Assert.Equal(NotionSource.Hosts, _connector.ConnectedLinkHosts());
+	}
 }

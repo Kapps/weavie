@@ -179,13 +179,16 @@ public sealed class HostCoreGitBlameTests {
 					Title = "Shout the second line",
 					Author = "kapps",
 					HeadRef = "feature",
+					HeadSha = string.Empty,
 					BaseRef = "main",
+					BaseSha = string.Empty,
 					Url = PullRequestUrl,
 					IsDraft = false,
 					State = PullRequestState.Merged,
 				},
 			],
-			[]);
+			[],
+			new ForgeUser("viewer", string.Empty));
 		string sha = string.Empty;
 		await using var host = await TestHost.StartAsync(
 			repo => {

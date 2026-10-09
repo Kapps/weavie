@@ -24,6 +24,11 @@ if (args is ["inference", var inferenceVariant]) {
 	return;
 }
 
+if (args is ["consult", var consultVariant]) {
+	await ConsultFake.RunAsync(consultVariant).ConfigureAwait(false);
+	return;
+}
+
 if (args is ["echo-and-exit"]) {
 	string line = await Console.In.ReadLineAsync().ConfigureAwait(false)
 		?? throw new EndOfStreamException("The echo fake expected one request.");

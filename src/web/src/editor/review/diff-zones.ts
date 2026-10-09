@@ -78,6 +78,17 @@ function buildGhostLines(
       lines.length,
       Math.max(0, Math.ceil((viewportHeight - top) / fontInfo.lineHeight) + overscan),
     );
+    // Monaco parks an invisible zone at a large negative top, so `start` runs past the ghost's last row and keeps
+    // climbing: settle on one empty write instead of rewriting the rows on every render pass.
+    if (start >= end) {
+      if (renderedStart < 0) {
+        return;
+      }
+      renderedStart = -1;
+      renderedEnd = -1;
+      content.textContent = "";
+      return;
+    }
     if (start === renderedStart && end === renderedEnd) {
       return;
     }

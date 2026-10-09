@@ -1,10 +1,12 @@
-import { ChevronDown, ChevronRight } from "lucide-solid";
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-solid";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createSignal,
   For,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -20,7 +22,12 @@ import type { TabOwner } from "../tab-owner";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
-import type { ReviewFileDiff, ReviewFileView } from "./review-store";
+import {
+  isFullContext,
+  type LineSpan,
+  type ReviewFileDiff,
+  type ReviewFileView,
+} from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
@@ -31,10 +38,12 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
-  onEditorHeight: (height: number) => void;
+  onEditorHeight: (height: number) => boolean;
   index: number;
   measure: (element: HTMLElement) => void;
+  observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
+  revealContext: (span: LineSpan) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
@@ -45,33 +54,36 @@ export function ReviewFileSection(props: {
   const summary = () => props.file().summary();
   const collapsed = () => props.file().collapsed();
   const pending = () => props.file().pending();
+  const fullContext = () => isFullContext(props.file().context());
   const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
   let borderTop = 0;
   let headerLimit = 0;
+  const sectionTop = createMemo(() => props.top);
   const layoutHeader = (): void => {
     const offset = Math.max(
       0,
-      Math.min(props.scroller().getScrollTop() - props.top - borderTop, headerLimit),
+      Math.min(props.scroller().getScrollTop() - sectionTop() - borderTop, headerLimit),
     );
-    header.style.top = `${offset}px`;
+    header.style.transform = `translateY(${offset}px)`;
   };
   const measureHeader = (): void => {
     borderTop = article!.clientTop;
     headerLimit = article!.clientHeight - header.offsetHeight;
-    layoutHeader();
   };
   const [editor, setEditor] = createSignal<ReviewEditor>();
+  let appliedTop = 0;
   createEffect(() => {
-    const top = props.top;
-    const current = editor();
+    const top = sectionTop();
     if (article !== undefined) {
       untrack(() => {
+        const delta = top - appliedTop;
+        appliedTop = top;
         article!.style.top = `${top}px`;
-        measureHeader();
-        current?.layout();
+        editor()?.shift(delta);
+        layoutHeader();
       });
     }
   });
@@ -80,20 +92,17 @@ export function ReviewFileSection(props: {
       props.measure(article);
     }
   };
-  createEffect(() => {
-    void collapsed();
-    queueMicrotask(remeasure);
-  });
+  createEffect(on(collapsed, () => queueMicrotask(remeasure), { defer: true }));
 
   onMount(() => {
     const unsubscribe = props.scroller().onScroll(layoutHeader);
     const observer = new ResizeObserver(() => {
       measureHeader();
       editor()?.layout();
+      layoutHeader();
     });
     observer.observe(article!);
     observer.observe(header);
-    measureHeader();
     onCleanup(() => {
       unsubscribe();
       observer.disconnect();
@@ -107,7 +116,7 @@ export function ReviewFileSection(props: {
       data-index={props.index}
       ref={(element) => {
         article = element;
-        props.measure(element);
+        props.observe(element);
       }}
       onFocusIn={() => {
         if (!props.active()) props.onFocus(summary().line);
@@ -150,6 +159,19 @@ export function ReviewFileSection(props: {
             {props.displayPath(summary().path)}
           </button>
         </Show>
+        <button
+          type="button"
+          class="unified-review-file-context"
+          title={`${fullContext() ? "Collapse unchanged lines" : "Show full file"}${keyHint(CommandIds.reviewToggleContext)}`}
+          aria-pressed={fullContext()}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.reviewToggleContext, { path: summary().path })
+          }
+        >
+          <Show when={fullContext()} fallback={<ChevronsUpDown />}>
+            <ChevronsDownUp />
+          </Show>
+        </button>
         <span class="unified-review-file-stats">
           <span class="unified-review-added">+{summary().added}</span>
           <span class="unified-review-removed">−{summary().removed}</span>
@@ -196,6 +218,7 @@ export function ReviewFileSection(props: {
             toolbarHost={props.toolbarHost}
             configureDiff={props.configureDiff}
             onCursor={props.onFocus}
+            revealContext={props.revealContext}
           />
           <For each={props.file().diff()?.rejected}>
             {(rejected) => (

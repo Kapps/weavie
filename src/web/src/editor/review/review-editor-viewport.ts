@@ -1,5 +1,9 @@
+import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { monaco } from "../monaco-setup";
 import type { ReviewScroll } from "./review-scroll";
+
+// Band growth quantum: a crossing relayouts once per step instead of once per frame.
+const BAND_STEP = 256;
 
 /** Keeps Monaco's rendered window inside a full-height section owned by the review scroller. */
 export function createReviewEditorViewport(
@@ -7,21 +11,39 @@ export function createReviewEditorViewport(
   mount: HTMLElement,
   scrollOwner: ReviewScroll,
   header: HTMLElement,
-  editor: monaco.editor.IStandaloneCodeEditor,
+  createEditor: (dimension: monaco.editor.IDimension) => monaco.editor.IStandaloneCodeEditor,
 ): {
+  editor: monaco.editor.IStandaloneCodeEditor;
   bounds(): { top: number; bottom: number; height: number };
   layout(): void;
+  shift(delta: number): void;
   reveal(top: number): void;
   update(change: () => void): void;
   dispose(): void;
 } {
   const scroller = scrollOwner.viewport;
+  let disposed = false;
   let syncing = false;
+  let updateDepth = 0;
   let containerTop = 0;
   let containerHeight = 0;
   let width = 0;
   let headerHeight = 0;
   let viewportHeight = 0;
+  const measure = (): void => {
+    containerTop =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scrollOwner.getScrollTop();
+    containerHeight = container.clientHeight;
+    width = container.clientWidth;
+    headerHeight = header.getBoundingClientRect().height;
+    viewportHeight = scroller.clientHeight;
+  };
+  // The absolute editor mount cannot change the reserved section geometry.
+  measure();
+  let dimension = { width, height: 0 };
+  const editor = createEditor(dimension);
 
   // Coordinates are local to the editor content; scrolling never needs a DOM measurement.
   const bounds = (): { top: number; bottom: number; height: number } => {
@@ -35,34 +57,56 @@ export function createReviewEditorViewport(
   };
 
   const sync = (): void => {
+    if (disposed || updateDepth !== 0) return;
     const wasSyncing = syncing;
     syncing = true;
     try {
       const viewport = bounds();
       const contentHeight = Math.min(editor.getContentHeight(), containerHeight);
       const top = Math.min(contentHeight, Math.max(0, Math.ceil(viewport.top)));
-      const height = Math.max(0, Math.floor(viewport.bottom - top));
-      const previous = editor.getLayoutInfo();
-      const resized = previous.width !== width || previous.height !== height;
+      // Round the visible extent independently: fractional scrolling must not resize an interior band.
+      const visible = Math.max(
+        0,
+        Math.floor(Math.min(viewport.height + Math.min(viewport.top, 0), contentHeight - top)),
+      );
+      // A section growing into view from below is the half of a file boundary that can be de-thrashed without
+      // touching Monaco's scroll range: its band starts at content row 0 throughout, so rounding the height up to a
+      // coarse step costs a few clipped rows and saves a layout on most frames of the crossing. A focused editor
+      // keeps the exact extent, because Monaco moves its own cursor against this height: a band taller than what is
+      // on screen would let ArrowDown or Find travel to rows the reader cannot see, and without Monaco scrolling
+      // there is no `onDidScrollChange` for the review to follow.
+      const height =
+        viewport.top < 0 && visible > 0 && !editor.hasTextFocus()
+          ? Math.min(contentHeight - top, Math.ceil(visible / BAND_STEP) * BAND_STEP)
+          : visible;
+      const resized = dimension.width !== width || dimension.height !== height;
       // Let Monaco coordinate rendering after both the size and scroll position are updated.
-      if (resized) editor.layout({ width, height }, true);
+      if (resized) {
+        // Monaco clamps an offscreen zero-height request; compare requests, not its clamped result.
+        dimension = { width, height };
+        editor.layout(dimension, true);
+      }
       const moved = editor.getScrollTop() !== top;
-      if (mount.style.top !== `${top}px`) mount.style.top = `${top}px`;
+      const transform = `translateY(${top}px)`;
+      if (mount.style.transform !== transform) mount.style.transform = transform;
       if (moved) editor.setScrollTop(top, monaco.editor.ScrollType.Immediate);
     } finally {
       syncing = wasSyncing;
     }
   };
   const layout = (): void => {
-    containerTop =
-      container.getBoundingClientRect().top -
-      scroller.getBoundingClientRect().top +
-      scrollOwner.getScrollTop();
-    containerHeight = container.clientHeight;
-    width = container.clientWidth;
-    headerHeight = header.getBoundingClientRect().height;
-    viewportHeight = scroller.clientHeight;
+    if (disposed || updateDepth !== 0) return;
+    measure();
     sync();
+  };
+  // Moving the section moves every descendant with it, so the container's offset shifts by exactly the same
+  // amount. Re-measuring instead would read geometry right after the write that moved it, forcing a synchronous
+  // layout mid-scroll.
+  const shift = (delta: number): void => {
+    if (disposed || delta === 0) return;
+    containerTop += delta;
+    // A deferred shift needs no sync: update() ends in layout(), which re-measures.
+    if (updateDepth === 0) sync();
   };
   const observer = new ResizeObserver(layout);
   observer.observe(scroller);
@@ -70,6 +114,7 @@ export function createReviewEditorViewport(
   observer.observe(header);
   const unsubscribe = scrollOwner.onScroll(sync);
   const reveal = (top: number): void => {
+    if (disposed) return;
     scrollOwner.setScrollTop(containerTop - headerHeight + top);
     sync();
   };
@@ -79,17 +124,24 @@ export function createReviewEditorViewport(
       reveal(event.scrollTop);
     }
   });
-  const wheel = (event: WheelEvent): void => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+  const ownsTarget = (target: Element): boolean => {
     const root = editor.getDomNode();
     const scrollable = target.closest(".monaco-scrollable-element");
-    if (
-      target.closest(".monaco-editor") !== root ||
-      (scrollable !== null && scrollable !== root?.querySelector(".monaco-scrollable-element"))
-    ) {
-      return;
-    }
+    return (
+      root !== null &&
+      target.closest(".monaco-editor") === root &&
+      (scrollable === null ||
+        !root.contains(scrollable) ||
+        scrollable === root.querySelector(".monaco-scrollable-element"))
+    );
+  };
+  const offMiddleClick = registerMiddleClickScroll(editor.getDomNode()!, ownsTarget, {
+    x: (delta) => editor.setScrollLeft(editor.getScrollLeft() + delta),
+    y: null,
+  });
+  const wheel = (event: WheelEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element) || !ownsTarget(target)) return;
     // The review owns root-editor scrolling; nested widgets keep Monaco's own wheel handling.
     event.stopPropagation();
     const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
@@ -111,24 +163,33 @@ export function createReviewEditorViewport(
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
-  layout();
+  sync();
   return {
+    editor,
     bounds,
     layout,
+    shift,
     reveal,
     update: (change) => {
       const wasSyncing = syncing;
       syncing = true;
+      updateDepth += 1;
       try {
         change();
-        layout();
       } finally {
-        syncing = wasSyncing;
+        updateDepth -= 1;
+        try {
+          if (updateDepth === 0) layout();
+        } finally {
+          syncing = wasSyncing;
+        }
       }
     },
     dispose: () => {
+      disposed = true;
       observer.disconnect();
       unsubscribe();
+      offMiddleClick();
       mount.removeEventListener("wheel", wheel, { capture: true });
       scroll.dispose();
     },

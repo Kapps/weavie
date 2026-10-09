@@ -244,14 +244,14 @@ public sealed class CorrectionCorpus : JsonDocumentStore {
 		return text[..end] + TruncationMarker;
 	}
 
-	private static string Serialize(CorrectionRecord record) => JsonSerializer.Serialize(record);
+	private static string Serialize(CorrectionRecord record) => JsonSerializer.Serialize(record, CoreJson.Default.CorrectionRecord);
 
 	private static IReadOnlyList<CorrectionRecord> Parse(List<string> lines) =>
 		[.. lines.Select(TryParse).OfType<CorrectionRecord>()];
 
 	private static CorrectionRecord? TryParse(string line) {
 		try {
-			return JsonSerializer.Deserialize<CorrectionRecord>(line);
+			return JsonSerializer.Deserialize(line, CoreJson.Default.CorrectionRecord);
 		} catch (JsonException) {
 			return null;
 		}

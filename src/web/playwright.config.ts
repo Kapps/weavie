@@ -55,6 +55,7 @@ export default defineConfig({
         "agent-scroll-smoothness.spec.ts",
         "bridge.spec.ts",
         "headless-host.spec.ts",
+        "host-startup.spec.ts",
         "native-bridge.spec.ts",
         "middle-click-autoscroll.spec.ts",
         "new-session-paste.spec.ts",

@@ -91,12 +91,13 @@ internal static class WebSocketHandshake {
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}
 
-	/// <summary>Writes a JSON HTTP response and flushes.</summary>
-	public static async Task WriteJsonAsync(NetworkStream stream, string status, string json, CancellationToken ct) {
+	/// <summary>Writes a JSON MCP response carrying the client's <paramref name="sessionId"/> and flushes.</summary>
+	public static async Task WriteJsonAsync(NetworkStream stream, string status, string json, string sessionId, CancellationToken ct) {
 		byte[] body = Encoding.UTF8.GetBytes(json);
 		string response =
 			$"HTTP/1.1 {status}\r\n" +
 			"Connection: close\r\n" +
+			$"Mcp-Session-Id: {sessionId}\r\n" +
 			"Content-Type: application/json\r\n" +
 			$"Content-Length: {body.Length}\r\n\r\n";
 		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);

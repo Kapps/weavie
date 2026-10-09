@@ -36,20 +36,31 @@ export class SessionValue<T> {
   }
 }
 
+/** The host's tabs and the editor revision they reflect. */
+export interface RestoredEditor {
+  session: EditorSession;
+  revision: number;
+}
+
 export class ClientSessionState {
-  readonly editor = new SessionValue<EditorSession | null>(null);
+  readonly editor = new SessionValue<RestoredEditor | null>(null);
   readonly lsp = new SessionValue<WeavieLspConfig | null>(null);
 
   constructor(bus: MessageBus) {
-    bus.feature("editor").on<{ session: EditorSessionWire }>("restore", ({ session }) =>
-      this.editor.set({
-        ...session,
-        open: session.open.map((entry) => {
-          const { kind, ...rest } = entry;
-          return kind == null ? rest : { ...rest, kind };
+    bus
+      .feature("editor")
+      .on<{ session: EditorSessionWire; revision: number }>("restore", ({ session, revision }) =>
+        this.editor.set({
+          session: {
+            ...session,
+            open: session.open.map((entry) => {
+              const { kind, ...rest } = entry;
+              return kind == null ? rest : { ...rest, kind };
+            }),
+          },
+          revision,
         }),
-      }),
-    );
+      );
     bus.feature("lsp").on<WeavieLspConfig>("config", (config) => this.lsp.set(config));
   }
 }

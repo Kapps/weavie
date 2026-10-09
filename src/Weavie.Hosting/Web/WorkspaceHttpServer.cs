@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Web;
 
@@ -21,6 +23,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	private WebApplication? _app;
 	private PhysicalFileProvider? _assets;
 	private bool _ready;
+	private long _bridgeConnections;
 
 	/// <summary>Creates one server for one HostCore workspace.</summary>
 	public WorkspaceHttpServer(
@@ -96,6 +99,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 				return;
 			}
 
+			RefuseBridge(context, "no valid sign-in cookie or token");
 			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 		});
 		app.Use(async (context, next) => {
@@ -106,6 +110,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 				return;
 			}
 
+			RefuseBridge(context, "the host is still starting");
 			context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
 			await context.Response.WriteAsync("weavie is starting").ConfigureAwait(false);
 		});
@@ -116,22 +121,24 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		}
 
 		if (_options.EnableControl) {
-			app.MapGet("/control/status", () => Results.Json(new {
-				buildNumber = HostCore.BuildNumber,
-				spawnContract = WorkspaceControlProtocol.SpawnContract,
-				draining = _core.Draining,
-			}));
-			app.MapPost("/control/drain", () => {
+			app.MapGet("/control/status", context => context.Response.WriteAsJsonAsync(
+				new ControlStatus(HostCore.BuildNumber, WorkspaceControlProtocol.SpawnContract, _core.Draining),
+				WireJson.Default.ControlStatus,
+				cancellationToken: context.RequestAborted));
+			app.MapPost("/control/drain", context => {
 				_core.BeginDrain(app.Lifetime.StopApplication);
-				return Results.Accepted();
+				context.Response.StatusCode = StatusCodes.Status202Accepted;
+				return Task.CompletedTask;
 			});
-			app.MapGet("/control/health", async (HttpContext context) => {
+			app.MapGet("/control/health", async context => {
 				using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
 				deadline.CancelAfter(TimeSpan.FromSeconds(2));
 				var health = await _core.MessageHealthAsync(deadline.Token).ConfigureAwait(false);
-				return Results.Json(health, statusCode: health.Healthy
+				context.Response.StatusCode = health.Healthy
 					? StatusCodes.Status200OK
-					: StatusCodes.Status503ServiceUnavailable);
+					: StatusCodes.Status503ServiceUnavailable;
+				await context.Response.WriteAsJsonAsync(health, WireJson.Default.MessageHealthSnapshot, cancellationToken: context.RequestAborted)
+					.ConfigureAwait(false);
 			});
 		}
 
@@ -218,11 +225,13 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 
 	private async Task ServeBridgeAsync(HttpContext context) {
 		if (!context.WebSockets.IsWebSocketRequest) {
+			RefuseBridge(context, "not a WebSocket request");
 			context.Response.StatusCode = StatusCodes.Status400BadRequest;
 			return;
 		}
 		if (!_authentication.TransportTokenMatches(context)
 			&& !_authentication.CookieWebSocketOriginMatches(context)) {
+			RefuseBridge(context, "its origin doesn't match this host");
 			context.Response.StatusCode = StatusCodes.Status403Forbidden;
 			return;
 		}
@@ -231,7 +240,32 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
 			context.RequestAborted,
 			_app!.Lifetime.ApplicationStopping);
-		await _bridge.ServeAsync(socket, lifetime.Token).ConfigureAwait(false);
+		long id = Interlocked.Increment(ref _bridgeConnections);
+		var opened = Stopwatch.StartNew();
+		Log($"[bridge] page connection #{id} opened ({Describe(context)})");
+		try {
+			await _bridge.ServeAsync(socket, lifetime.Token).ConfigureAwait(false);
+		} finally {
+			string close = socket.CloseStatus is { } status
+				? $"close {(int)status} {socket.CloseStatusDescription}".TrimEnd()
+				: "no close frame";
+			Log($"[bridge] page connection #{id} closed after {opened.Elapsed.TotalSeconds:F1}s ({close}, state {socket.State})");
+		}
+	}
+
+	// Page connections are logged so a slow or failing connect can be diagnosed from the host log.
+	private static void RefuseBridge(HttpContext context, string reason) {
+		if (context.Request.Path.StartsWithSegments("/weavie-bridge", StringComparison.Ordinal)) {
+			Log($"[bridge] refused a page connection: {reason} ({Describe(context)})");
+		}
+	}
+
+	private static string Describe(HttpContext context) =>
+		$"origin '{context.Request.Headers.Origin}', via {context.Request.Host}";
+
+	private static void Log(string line) {
+		Console.WriteLine(line);
+		Console.Out.Flush();
 	}
 
 	private async Task ServeIndexAsync(HttpContext context) {
@@ -282,3 +316,5 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		_assets = null;
 	}
 }
+
+internal sealed record ControlStatus(string BuildNumber, int SpawnContract, bool Draining);

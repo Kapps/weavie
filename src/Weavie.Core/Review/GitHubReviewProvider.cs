@@ -79,72 +79,38 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	/// <inheritdoc/>
 	public string CommitUrl(RepoRef repo, string sha) => WebCommitUrl(repo, sha);
 
-	/// <inheritdoc/>
-	public async Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
-		ArgumentNullException.ThrowIfNull(repo);
-		string body = await SendAsync(
-			repo, HttpMethod.Get, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments?per_page=100", null, ct).ConfigureAwait(false);
-		return ParseComments(body);
-	}
-
-	/// <inheritdoc/>
-	public async Task<ReviewComment> AddAsync(RepoRef repo, int number, string commitId, NewReviewComment draft, CancellationToken ct = default) {
-		ArgumentNullException.ThrowIfNull(repo);
-		ArgumentNullException.ThrowIfNull(draft);
-		string payload = JsonSerializer.Serialize(new {
-			body = draft.Body,
-			commit_id = commitId,
-			path = draft.Path,
-			line = draft.Line,
-			side = draft.Side.Equals("left", StringComparison.OrdinalIgnoreCase) ? "LEFT" : "RIGHT",
-		});
-		string body = await SendAsync(
-			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments", payload, ct).ConfigureAwait(false);
-		return ParseComment(JsonDocument.Parse(body).RootElement);
-	}
-
-	/// <inheritdoc/>
-	public async Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string replyBody, CancellationToken ct = default) {
-		ArgumentNullException.ThrowIfNull(repo);
-		string payload = JsonSerializer.Serialize(new { body = replyBody });
-		string body = await SendAsync(
-			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments/{inReplyTo}/replies", payload, ct).ConfigureAwait(false);
-		return ParseComment(JsonDocument.Parse(body).RootElement);
-	}
-
 	private async Task<string> SendAsync(
 		RepoRef repo,
 		HttpMethod method,
 		string path,
 		string? jsonBody,
 		CancellationToken ct) {
-		using var request = await BuildRequestAsync(repo, method, path, jsonBody, ct).ConfigureAwait(false);
+		using var request = await BuildRequestAsync(method, ApiBase(repo.Host) + path, jsonBody, ct).ConfigureAwait(false);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		ThrowForFailure(response, repo);
+		ThrowForFailure(response, repo, body);
 		return body;
 	}
 
 	private async Task<string?> SendOrNullAsync(RepoRef repo, string path, CancellationToken ct) {
-		using var request = await BuildRequestAsync(repo, HttpMethod.Get, path, null, ct).ConfigureAwait(false);
+		using var request = await BuildRequestAsync(HttpMethod.Get, ApiBase(repo.Host) + path, null, ct).ConfigureAwait(false);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		if (response.StatusCode == HttpStatusCode.NotFound) {
 			return null;
 		}
 
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		ThrowForFailure(response, repo);
+		ThrowForFailure(response, repo, body);
 		return body;
 	}
 
 	private async Task<HttpRequestMessage> BuildRequestAsync(
-		RepoRef repo,
 		HttpMethod method,
-		string path,
+		string url,
 		string? jsonBody,
 		CancellationToken ct) {
 		string token = await ResolveTokenAsync(ct).ConfigureAwait(false);
-		return BuildRequest(repo, method, path, jsonBody, token);
+		return BuildRequest(method, url, jsonBody, token);
 	}
 
 	private async Task<string> ResolveTokenAsync(CancellationToken ct) {
@@ -156,12 +122,11 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	}
 
 	private static HttpRequestMessage BuildRequest(
-		RepoRef repo,
 		HttpMethod method,
-		string path,
+		string url,
 		string? jsonBody,
 		string token) {
-		var request = new HttpRequestMessage(method, ApiBase(repo.Host) + path);
+		var request = new HttpRequestMessage(method, url);
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 		request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Weavie", "1.0"));
@@ -173,13 +138,34 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		return request;
 	}
 
-	private static void ThrowForFailure(HttpResponseMessage response, RepoRef repo) {
+	private static void ThrowForFailure(HttpResponseMessage response, RepoRef repo, string body) {
 		if (response.IsSuccessStatusCode) {
 			return;
 		}
 
+		string detail = ErrorMessage(body) is { Length: > 0 } message ? $": {message}" : ".";
 		throw new InvalidOperationException(
-			$"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
+			$"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}{detail}");
+	}
+
+	// GitHub's error bodies carry a human "message" (plus per-field "errors" on a 422); surface them verbatim.
+	private static string ErrorMessage(string body) {
+		try {
+			using var doc = JsonDocument.Parse(body);
+			if (doc.RootElement.ValueKind != JsonValueKind.Object) {
+				return string.Empty;
+			}
+
+			var parts = new List<string> { String(doc.RootElement, "message") };
+			if (doc.RootElement.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array) {
+				parts.AddRange(errors.EnumerateArray().Select(e =>
+					e.ValueKind == JsonValueKind.String ? e.GetString() ?? string.Empty : String(e, "message")));
+			}
+
+			return string.Join(" — ", parts.Where(part => part.Length > 0));
+		} catch (JsonException) {
+			return string.Empty;
+		}
 	}
 
 	/// <summary>The REST API base for a host: <c>api.github.com</c> for github.com, else Enterprise's <c>/api/v3</c>. Pure, for tests.</summary>
@@ -235,43 +221,13 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		Title = String(pr, "title"),
 		Author = pr.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
 		HeadRef = pr.TryGetProperty("head", out var head) ? String(head, "ref") : string.Empty,
+		HeadSha = pr.TryGetProperty("head", out var headSha) ? String(headSha, "sha") : string.Empty,
 		BaseRef = pr.TryGetProperty("base", out var bse) ? String(bse, "ref") : string.Empty,
+		BaseSha = pr.TryGetProperty("base", out var baseSha) ? String(baseSha, "sha") : string.Empty,
 		Url = String(pr, "html_url"),
 		IsDraft = pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
 		State = PullRequestStateFor(pr),
 	};
-
-	/// <summary>Parses the GitHub <c>GET /pulls/{n}/comments</c> array into review comments. Pure, for tests.</summary>
-	public static IReadOnlyList<ReviewComment> ParseComments(string json) {
-		ArgumentNullException.ThrowIfNull(json);
-		using var doc = JsonDocument.Parse(json);
-		if (doc.RootElement.ValueKind != JsonValueKind.Array) {
-			return [];
-		}
-
-		var result = new List<ReviewComment>();
-		foreach (var comment in doc.RootElement.EnumerateArray()) {
-			result.Add(ParseComment(comment));
-		}
-
-		return result;
-	}
-
-	private static ReviewComment ParseComment(JsonElement c) {
-		// `line` is the current-diff line; `original_line` is the fallback when the comment is on an unchanged-in-
-		// this-push line. Side defaults to the head (RIGHT) side.
-		int line = Int(c, "line") is var l && l > 0 ? l : Int(c, "original_line");
-		return new ReviewComment {
-			Id = Long(c, "id"),
-			Path = String(c, "path"),
-			Line = line,
-			Side = String(c, "side").Equals("LEFT", StringComparison.OrdinalIgnoreCase) ? "left" : "right",
-			Author = c.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
-			Body = String(c, "body"),
-			CreatedAt = String(c, "created_at"),
-			InReplyTo = Long(c, "in_reply_to_id"),
-		};
-	}
 
 	private static string String(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;

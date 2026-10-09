@@ -22,6 +22,12 @@ public sealed partial class HostCore {
 		session.WorkspaceRootVanished += () => _ = Task.Run(() => CloseVanishedSessionAsync(session));
 		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
+		if (session.Agent.Controls is { } controls) {
+			string provider = session.Agent.Provider.Id;
+			controls.ControlStateChanged += state => {
+				if (state.Ready) _agentModels.Observe(provider, state.Axes, AgentModelSource.Session);
+			};
+		}
 		session.EditorSessionChanged += state => {
 			if (SlotFor(session) is { } slot) {
 				slot.EditorSession = state;
@@ -51,7 +57,7 @@ public sealed partial class HostCore {
 						"This agent does not support context-preserving side conversations."));
 				}
 				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
-				var args = JsonSerializer.Deserialize<AgentAsideCommand>(argsJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))
+				var args = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentAsideCommand)
 					?? throw new ArgumentException("Ask Agent Aside requires a question or image.");
 				session.AcceptAgentSubmission(new HostSession.AgentSubmitMessage(
 					args.SubmissionId ?? Guid.NewGuid().ToString("N"), args.Question ?? string.Empty,
@@ -59,6 +65,17 @@ public sealed partial class HostCore {
 				return Task.FromResult(CommandResult.Success());
 			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
+			}
+		});
+		session.Commands.RegisterHandler(CoreCommands.RewindAgentConversation, async (argsJson, _) => {
+			try {
+				if (session.Agent.Rewind is not { } rewind) return CommandResult.Failure("This agent cannot rewind its conversation.");
+				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				string? turnId = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentRewindCommand)?.TurnId;
+				await (turnId is null ? rewind.RewindLatestAsync() : rewind.RewindBeforeAsync(turnId)).ConfigureAwait(false);
+				return CommandResult.Success("Rewound the agent conversation.");
+			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException or IOException) {
+				return CommandResult.Failure(ex.Message);
 			}
 		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
@@ -104,7 +121,8 @@ public sealed partial class HostCore {
 		};
 	}
 
-	private sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds, string? Kind, string? CommandName);
+	internal sealed record AgentAsideCommand(string? Question, string? SubmissionId, string[]? AttachmentIds, string? Kind, string? CommandName);
+	internal sealed record AgentRewindCommand(string? TurnId);
 
 	private void PostForSession(HostSession session, Action action) {
 		_ = session.Background.Run(ct => _ui.InvokeAsync(() => {
@@ -348,13 +366,6 @@ public sealed partial class HostCore {
 	/// registered provider sticks — including one only installed on a remote backend, where the session actually
 	/// runs; local availability is irrelevant to a preselection the prompt always lets the user change. Only an
 	/// unregistered id is dropped, as garbage that would fail session creation.</summary>
-	private void RememberDefaultProvider(string? requestedProvider) {
-		string? provider = requestedProvider?.Trim();
-		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is not null) {
-			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
-		}
-	}
-
 	private void EnsureProviderCanBeRemoved(string providerId) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
 		bool isDefault = string.Equals(
@@ -379,8 +390,7 @@ public sealed partial class HostCore {
 
 	private void EnsureProvidersCanBeReplaced(
 		IReadOnlySet<string> currentIds,
-		IReadOnlyList<AcpLaunchSpec> proposed) {
-		var proposedIds = proposed.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+		IReadOnlySet<string> proposedIds) {
 		foreach (string removed in currentIds.Where(id => !proposedIds.Contains(id))) {
 			EnsureProviderCanBeRemoved(removed);
 		}
@@ -388,7 +398,7 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes the authoritative session catalog. Loaded entries carry their exact live address.</summary>
 	private void PushSessionList() =>
-		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
+		_messages.Host.Feature("sessions").Publish("catalog", WireJson.Default.SessionCatalogEntryArray, BuildSessionCatalog());
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		ReplaySession(session);
@@ -423,7 +433,7 @@ public sealed partial class HostCore {
 			.ToArray()
 		?? [];
 
-	private sealed record SessionCatalogEntry(
+	internal sealed record SessionCatalogEntry(
 		string Id,
 		string Label,
 		SessionAddress? Address,
@@ -455,7 +465,7 @@ public sealed partial class HostCore {
 		PostSessionStatus(session.Bus.BroadcastTarget, status);
 
 	private static void PostSessionStatus(MessageTarget target, SessionStatus status) =>
-		target.Feature("status").Publish("changed", new { status = StatusName(status) });
+		target.Feature("status").Publish("changed", WireJson.Default.SessionStatusChanged, new(StatusName(status)));
 
 	// Exhaustive on purpose: a silent default that maps an unhandled status to "idle" would render it
 	// drain-killable — exactly the Waiting bug — so a new status must be wired here, not fall through.
@@ -506,6 +516,7 @@ public sealed partial class HostCore {
 				_themeOverrides,
 				_corrections,
 				_inference,
+				_agentConsultation,
 				_platform.PtyLauncher,
 				provider,
 				_runtime,
@@ -520,15 +531,6 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			if (session.Changes.Review is { PrNumber: > 0 } review) {
-				_ = session.Background.Run(async ct => {
-					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
-					PostForSession(session, () => {
-						if (ReferenceEquals(ActiveReview(session), review))
-							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
-					});
-				});
-			}
 			_mediaRoutes.Register(session.Incarnation);
 			LogStartup($"session {slotId}: constructed");
 			return session;
@@ -563,7 +565,7 @@ public sealed partial class HostCore {
 
 	private static void RestoreSlotEditor(HostSession session, SessionSlot slot) {
 		session.DisplayLabel = slot.Label;
-		session.EditorSession = slot.EditorSession;
+		session.SeedEditorSession(slot.EditorSession);
 		session.Scratch.GarbageCollect(
 			slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 	}
@@ -640,16 +642,16 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
-		RememberDefaultProvider(provider);
-		return RunSessionLifecycleAsync(() => {
-			var source = sourceAddress is null ? null : _sessions?.Find(sourceAddress.Slot);
-			if (sourceAddress is not null && source?.Session?.Address != sourceAddress) {
-				return Task.FromResult(CommandResult.Failure("The source session no longer exists."));
+		_global.RememberDefaultProvider(provider);
+		return GatedAsync(_sessionCatalog, async () => {
+			SessionSlot? source = null;
+			if (sourceAddress is not null && (source = await CurrentSourceAsync(sourceAddress, ct).ConfigureAwait(false)) is null) {
+				return SourceGone();
 			}
 
-			return request.Existing
+			return await (request.Existing
 				? AttachExistingSessionAsync(request.Branch, input, provider, ct)
-				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct);
+				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct)).ConfigureAwait(false);
 		}, ct);
 	}
 
@@ -660,37 +662,25 @@ public sealed partial class HostCore {
 		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
 		var input = InitialSessionInput.FromText(request.Handoff);
-		var sourceAddress = source.Address;
-		return RunSessionLifecycleAsync(() => {
-			var sourceSlot = _sessions?.Find(sourceAddress.Slot);
-			if (sourceSlot?.Session?.Address != sourceAddress) {
-				return Task.FromResult(CommandResult.Failure("The source session no longer exists."));
-			}
-
-			return CreateWorktreeSessionAsync(
-				sourceSlot,
-				request.Branch,
-				"source",
-				input,
-				sourceSlot.AgentProviderId,
-				ct);
-		}, ct);
+		return GatedAsync(_sessionCatalog, async () =>
+			await CurrentSourceAsync(source.Address, ct).ConfigureAwait(false) is { } sourceSlot
+				? await CreateWorktreeSessionAsync(
+					sourceSlot,
+					request.Branch,
+					"source",
+					input,
+					sourceSlot.AgentProviderId,
+					ct).ConfigureAwait(false)
+				: SourceGone(), ct);
 	}
 
 	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
-		RunSessionLifecycleAsync(() => LoadSessionCoreAsync(sessionId, ct), ct);
+		string.IsNullOrWhiteSpace(sessionId)
+			? Task.FromResult(CommandResult.Failure("Load needs a session id."))
+			: RunSlotLifecycleAsync(sessionId, "No such session.", target => LoadSessionCoreAsync(target, ct), ct);
 
-	private Task<CommandResult> LoadSessionCoreAsync(string? sessionId, CancellationToken ct) {
+	private Task<CommandResult> LoadSessionCoreAsync(SessionSlot target, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		if (string.IsNullOrWhiteSpace(sessionId)) {
-			return Task.FromResult(CommandResult.Failure("Load needs a session id."));
-		}
-
-		var target = _sessions?.Find(sessionId);
-		if (target is null) {
-			return Task.FromResult(CommandResult.Failure("No such session."));
-		}
-
 		if (target.Loaded) {
 			return Task.FromResult(CommandResult.Success(
 				"That session is already loaded.",
@@ -722,21 +712,18 @@ public sealed partial class HostCore {
 		string? sessionId,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
-		await RunSessionLifecycleAsync(
-			() => UnloadSessionCoreAsync(source, sessionId, context, ct),
+		await RunSlotLifecycleAsync(
+			sessionId,
+			"No such session.",
+			target => UnloadSessionCoreAsync(source, target, context, ct),
 			ct).ConfigureAwait(false);
 
 	private async Task<CommandResult> UnloadSessionCoreAsync(
 		HostSession? source,
-		string? sessionId,
+		SessionSlot target,
 		CommandInvocationContext context,
 		CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
-		if (target is null) {
-			return CommandResult.Failure("No such session.");
-		}
-
 		if (!target.Loaded) {
 			return CommandResult.Success("That session is already unloaded.");
 		}
@@ -756,7 +743,8 @@ public sealed partial class HostCore {
 
 	private async Task UnloadAfterReplyAsync(SessionSlot target, CancellationToken ct) {
 		try {
-			await RunSessionLifecycleAsync(
+			await GatedAsync(
+				target.Lifecycle,
 				() => UnloadSlotAndNotifyAsync(target, ct),
 				ct).ConfigureAwait(false);
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
@@ -779,35 +767,29 @@ public sealed partial class HostCore {
 		bool force,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
-		RunSessionLifecycleAsync(
-			() => DeleteSessionCoreAsync(source, sessionId, force, context, ct),
+		RunSlotLifecycleAsync(
+			sessionId,
+			"No such session.",
+			target => DeleteSessionCoreAsync(source, target, force, context, ct),
 			ct);
 
 	/// <summary>
-	/// Resolves a delete/classify target, refusing an unknown id and the workspace's own checkout — that slot is a
-	/// catalog invariant, since Weavie does not own the directory the user opened and always offers a session on
-	/// it. Unload releases its resources instead.
+	/// Refuses deleting the workspace's own checkout — that slot is a catalog invariant, since Weavie does not own
+	/// the directory the user opened and always offers a session on it. Unload releases its resources instead.
 	/// </summary>
-	private (SessionSlot? Target, CommandResult Refusal) DeletableTarget(string? sessionId) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
-		if (target is null) {
-			return (null, CommandResult.Failure("No such session."));
-		}
-
-		return IsWorkspaceCheckout(target)
-			? (null, CommandResult.Failure(
-				$"'{target.Label}' is the workspace's own checkout, so it can't be deleted. Unload it instead."))
-			: (target, default);
-	}
+	private CommandResult? DeleteRefusal(SessionSlot target) =>
+		IsWorkspaceCheckout(target)
+			? CommandResult.Failure(
+				$"'{target.Label}' is the workspace's own checkout, so it can't be deleted. Unload it instead.")
+			: null;
 
 	private Task<CommandResult> DeleteSessionCoreAsync(
 		HostSession? source,
-		string? sessionId,
+		SessionSlot target,
 		bool force,
 		CommandInvocationContext context,
 		CancellationToken ct) {
-		var (target, refusal) = DeletableTarget(sessionId);
-		if (target is null) {
+		if (DeleteRefusal(target) is { } refusal) {
 			return Task.FromResult(refusal);
 		}
 
@@ -890,7 +872,8 @@ public sealed partial class HostCore {
 		bool branchless,
 		CancellationToken ct) {
 		try {
-			var result = await RunSessionLifecycleAsync(
+			var result = await GatedAsync(
+				target.Lifecycle,
 				() => DeleteAfterPreflightAsync(target, worktreePath, label, force, branchless, ct),
 				ct).ConfigureAwait(false);
 			if (!result.Ok) {
@@ -906,15 +889,16 @@ public sealed partial class HostCore {
 
 	private async Task<CommandResult?> FlushSessionViewAsync(HostSession session, CancellationToken ct) {
 		try {
-			var result = await session.View.Feature("editor")
-				.TryRequestAsync<EmptySessionMessage, EditorFlushResult>(
-					"flush",
-					new EmptySessionMessage(),
-					ct)
-				.ConfigureAwait(false);
-			if (result is not null) {
-				HandleEditorSessionChanged(session, result.Session);
-			}
+			// A reply taken before a host edit the page had not yet applied is refused; the next one includes it.
+			EditorFlushResult? result;
+			do {
+				result = await session.View.Feature("editor")
+					.TryRequestAsync(
+						"flush", WireJson.Default.EmptyPayload, WireJson.Default.EditorFlushResult,
+						EmptyPayload.Value,
+						ct)
+					.ConfigureAwait(false);
+			} while (result is not null && !HandleEditorSessionChanged(session, result.Session, result.Basis));
 
 			return null;
 		} catch (OperationCanceledException) {
@@ -969,34 +953,11 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private async Task<T> RunSessionLifecycleAsync<T>(
-		Func<Task<T>> action,
-		CancellationToken ct) {
-		await _sessionLifecycle.WaitAsync(ct).ConfigureAwait(false);
-		try {
-			return await action().ConfigureAwait(false);
-		} finally {
-			_sessionLifecycle.Release();
-		}
-	}
-
-	private async Task RunSessionLifecycleAsync(
-		Func<Task> action,
-		CancellationToken ct) {
-		await _sessionLifecycle.WaitAsync(ct).ConfigureAwait(false);
-		try {
-			await action().ConfigureAwait(false);
-		} finally {
-			_sessionLifecycle.Release();
-		}
-	}
-
 	private Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
-		RunSessionLifecycleAsync(() => ClassifyDeleteCoreAsync(sessionId, ct), ct);
+		RunSlotLifecycleAsync(sessionId, "No such session.", target => ClassifyDeleteCoreAsync(target, ct), ct);
 
-	private async Task<CommandResult> ClassifyDeleteCoreAsync(string? sessionId, CancellationToken ct) {
-		var (target, refusal) = DeletableTarget(sessionId);
-		if (target is null) {
+	private async Task<CommandResult> ClassifyDeleteCoreAsync(SessionSlot target, CancellationToken ct) {
+		if (DeleteRefusal(target) is { } refusal) {
 			return refusal;
 		}
 
@@ -1024,13 +985,9 @@ public sealed partial class HostCore {
 		// Name the first few changes the delete would discard; the dialog renders "…and N more" from the total.
 		const int previewLimit = 5;
 		string[] changed = [.. tracked.Concat(untracked).Order(StringComparer.Ordinal)];
-		return CommandResult.Success(null, JsonSerializer.Serialize(new {
-			state,
-			label = target.Label,
-			branchless,
-			changedFiles = changed.Take(previewLimit).ToArray(),
-			changedCount = changed.Length,
-		}));
+		return CommandResult.Success(null, JsonSerializer.Serialize(
+			new SessionDeletePreview(state, target.Label, branchless, [.. changed.Take(previewLimit)], changed.Length),
+			WireJson.Default.SessionDeletePreview));
 	}
 
 	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
@@ -1172,7 +1129,7 @@ public sealed partial class HostCore {
 			if (ExistingSessionInputError(input) is { } error) {
 				return error;
 			}
-			return await LoadExistingAsync(existingSlot, branch).ConfigureAwait(false);
+			return await LoadExistingAsync(existingSlot, branch, ct).ConfigureAwait(false);
 		}
 
 		// The branch checked out in the workspace root can't be attached to a second worktree (git refuses), so
@@ -1184,7 +1141,7 @@ public sealed partial class HostCore {
 				if (ExistingSessionInputError(input) is { } error) {
 					return error;
 				}
-				return await LoadExistingAsync(workspaceSlot, branch).ConfigureAwait(false);
+				return await LoadExistingAsync(workspaceSlot, branch, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't read the current branch: {ex.Message}");
@@ -1342,7 +1299,14 @@ public sealed partial class HostCore {
 		public static InitialSessionInput? FromText(string? text) => Create(text, []);
 	}
 
-	private Task<CommandResult> LoadExistingAsync(SessionSlot slot, string branch) {
+	private Task<CommandResult> LoadExistingAsync(SessionSlot existing, string branch, CancellationToken ct) =>
+		RunSlotLifecycleAsync(
+			existing.Id,
+			$"Session '{branch}' was deleted while opening it.",
+			slot => LoadExistingCoreAsync(slot, branch),
+			ct);
+
+	private Task<CommandResult> LoadExistingCoreAsync(SessionSlot slot, string branch) {
 		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
@@ -1360,41 +1324,21 @@ public sealed partial class HostCore {
 	private static string SessionAddressJson(SessionSlot slot) {
 		var address = slot.Session?.Address
 			?? throw new InvalidOperationException("A dormant session has no live address.");
-		return JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = new {
-				slot = address.Slot,
-				incarnation = address.Incarnation,
-			},
-		});
+		return JsonSerializer.Serialize(new SessionAddressData(slot.Id, address), WireJson.Default.SessionAddressData);
 	}
 
-	private static string SessionActivationJson(SessionSlot slot) {
-		return JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = LiveAddress(slot),
-			activateSession = true,
-		});
-	}
+	private static string SessionActivationJson(SessionSlot slot) =>
+		JsonSerializer.Serialize(new SessionActivation(slot.Id, LiveAddress(slot), true), WireJson.Default.SessionActivation);
 
 	private static string CreatedSessionActivationJson(SessionSlot slot) =>
-		JsonSerializer.Serialize(new {
-			id = slot.Id,
-			address = LiveAddress(slot),
-			activateSession = true,
-			createdSession = true,
-		});
+		JsonSerializer.Serialize(
+			new CreatedSessionActivation(slot.Id, LiveAddress(slot), true, true),
+			WireJson.Default.CreatedSessionActivation);
 
-	private static object LiveAddress(SessionSlot slot) => LiveAddress(
+	private static SessionAddress LiveAddress(SessionSlot slot) => LiveAddress(
 		slot.Session ?? throw new InvalidOperationException("A dormant session has no live address."));
 
-	private static object LiveAddress(HostSession session) {
-		var address = session.Address;
-		return new {
-			slot = address.Slot,
-			incarnation = address.Incarnation,
-		};
-	}
+	private static SessionAddress LiveAddress(HostSession session) => session.Address;
 
 	private async Task<string> ResolveBaseRefAsync(
 		SessionSlot? source,
@@ -1411,17 +1355,18 @@ public sealed partial class HostCore {
 
 		if (string.IsNullOrWhiteSpace(baseSpec)
 			|| string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
-			// origin's tip, read from FETCH_HEAD: the local ref is only as new as the last pull, and a
-			// single-branch clone's refspec never writes origin/<branch>.
+			// origin's tip, by sha: the local ref is only as new as the last pull, and a single-branch clone's
+			// refspec never writes origin/<branch>.
 			string branch = await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException("This repository has no default branch.");
 			if (await git.GetRemoteUrlAsync(WorkspaceRoot, "origin", ct).ConfigureAwait(false) is null) {
 				return branch;
 			}
 
-			await git.FetchAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false);
-			return await git.ResolveCommitAsync(WorkspaceRoot, "FETCH_HEAD", ct).ConfigureAwait(false)
+			string sha = await git.RemoteBranchCommitAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException($"origin has no '{branch}'.");
+			await git.FetchCommitAsync(WorkspaceRoot, "origin", sha, ct).ConfigureAwait(false);
+			return sha;
 		}
 
 		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");
@@ -1429,3 +1374,13 @@ public sealed partial class HostCore {
 
 
 }
+
+internal sealed record SessionStatusChanged(string Status);
+
+internal sealed record SessionAddressData(string Id, SessionAddress Address);
+
+internal sealed record SessionActivation(string Id, SessionAddress Address, bool ActivateSession);
+
+internal sealed record CreatedSessionActivation(string Id, SessionAddress Address, bool ActivateSession, bool CreatedSession);
+
+internal sealed record SessionDeletePreview(string State, string Label, bool Branchless, IReadOnlyList<string> ChangedFiles, int ChangedCount);

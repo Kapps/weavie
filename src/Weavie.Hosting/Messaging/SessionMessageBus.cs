@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
 internal partial class MessageBus : IAsyncDisposable {
-	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private static readonly Func<MessagePeer, bool> AdmitEveryPeer = static _ => true;
 	private readonly Action<WebTransportMessage> _broadcast;
 	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
@@ -77,6 +77,8 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable Handle<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
@@ -86,10 +88,10 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			async (_, payload, ct) => {
-				var request = DeserializePayload<TRequest>(payload, feature, name);
+				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
 				return new HandlerResponse(
-					JsonSerializer.SerializeToElement(response, JsonOptions),
+					JsonSerializer.SerializeToElement(response, responseType),
 					null);
 			},
 			execution,
@@ -100,6 +102,8 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) {
 		ArgumentNullException.ThrowIfNull(lane);
@@ -108,18 +112,20 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			async (_, payload, ct) => {
-				var request = DeserializePayload<TRequest>(payload, feature, name);
+				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
-				return new HandlerResponse(JsonSerializer.SerializeToElement(response, JsonOptions), null);
+				return new HandlerResponse(JsonSerializer.SerializeToElement(response, responseType), null);
 			},
 			SessionExecution.Keyed,
-			payload => lane(DeserializePayload<TRequest>(payload, feature, name)),
+			payload => lane(DeserializePayload(payload, requestType, feature, name)),
 			AdmitEveryPeer);
 	}
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
@@ -129,10 +135,10 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			async (_, payload, ct) => {
-				var request = DeserializePayload<TRequest>(payload, feature, name);
+				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
 				return new HandlerResponse(
-					JsonSerializer.SerializeToElement(response.Payload, JsonOptions),
+					JsonSerializer.SerializeToElement(response.Payload, responseType),
 					response.AfterResponse);
 			},
 			execution,
@@ -143,6 +149,8 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) {
 		ArgumentNullException.ThrowIfNull(lane);
@@ -151,33 +159,38 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			async (_, payload, ct) => {
-				var request = DeserializePayload<TRequest>(payload, feature, name);
+				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
 				return new HandlerResponse(
-					JsonSerializer.SerializeToElement(response.Payload, JsonOptions),
+					JsonSerializer.SerializeToElement(response.Payload, responseType),
 					response.AfterResponse);
 			},
 			SessionExecution.Keyed,
-			payload => lane(DeserializePayload<TRequest>(payload, feature, name)),
+			payload => lane(DeserializePayload(payload, requestType, feature, name)),
 			AdmitEveryPeer);
 	}
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string feature,
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler,
 		SessionExecution execution) =>
-		HandleAfterResponse<TEvent, NoResponse>(
+		HandleAfterResponse(
 			feature,
 			name,
-			async (message, ct) => new ResponseWithCompletion<NoResponse>(
-				NoResponse.Value,
+			eventType,
+			WireJson.Default.EmptyPayload,
+			async (message, ct) => new ResponseWithCompletion<EmptyPayload>(
+				EmptyPayload.Value,
 				await handler(message, ct).ConfigureAwait(false)),
 			execution);
 
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
@@ -186,6 +199,8 @@ internal partial class MessageBus : IAsyncDisposable {
 		return HandleOwnedWhen(
 			feature,
 			name,
+			requestType,
+			responseType,
 			AdmitEveryPeer,
 			handler,
 			execution);
@@ -194,6 +209,8 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TRequest, TResponse>(
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		Func<MessagePeer, bool> admit,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler,
 		SessionExecution execution) {
@@ -205,10 +222,10 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			async (peer, payload, ct) => {
-				var request = DeserializePayload<TRequest>(payload, feature, name);
+				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, peer, ct).ConfigureAwait(false);
 				return new HandlerResponse(
-					JsonSerializer.SerializeToElement(response, JsonOptions),
+					JsonSerializer.SerializeToElement(response, responseType),
 					null);
 			},
 			execution,
@@ -252,24 +269,27 @@ internal partial class MessageBus : IAsyncDisposable {
 		});
 	}
 
-	private static T DeserializePayload<T>(JsonElement payload, string feature, string name) =>
-		payload.Deserialize<T>(JsonOptions)
+	private static T DeserializePayload<T>(JsonElement payload, JsonTypeInfo<T> type, string feature, string name) =>
+		payload.Deserialize(type)
 		?? throw new JsonException($"Session handler {feature}.{name} received a null payload.");
 
 	internal IDisposable Handle<TEvent>(
 		string feature,
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ArgumentNullException.ThrowIfNull(handler);
-		return Handle<TEvent, NoResponse>(
+		return Handle(
 			feature,
 			name,
+			eventType,
+			WireJson.Default.EmptyPayload,
 			async (message, ct) => {
 				await handler(message, ct).ConfigureAwait(false);
-				return NoResponse.Value;
+				return EmptyPayload.Value;
 			},
 			execution);
 	}
@@ -277,17 +297,20 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwned<TEvent>(
 		string feature,
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
 		SessionExecution execution) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ArgumentNullException.ThrowIfNull(handler);
-		return HandleOwned<TEvent, NoResponse>(
+		return HandleOwned(
 			feature,
 			name,
+			eventType,
+			WireJson.Default.EmptyPayload,
 			async (message, peer, ct) => {
 				await handler(message, peer, ct).ConfigureAwait(false);
-				return NoResponse.Value;
+				return EmptyPayload.Value;
 			},
 			execution);
 	}
@@ -295,6 +318,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TEvent>(
 		string feature,
 		string name,
+		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
 		SessionExecution execution) {
@@ -302,18 +326,20 @@ internal partial class MessageBus : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ArgumentNullException.ThrowIfNull(admit);
 		ArgumentNullException.ThrowIfNull(handler);
-		return HandleOwnedWhen<TEvent, NoResponse>(
+		return HandleOwnedWhen(
 			feature,
 			name,
+			eventType,
+			WireJson.Default.EmptyPayload,
 			admit,
 			async (message, peer, ct) => {
 				await handler(message, peer, ct).ConfigureAwait(false);
-				return NoResponse.Value;
+				return EmptyPayload.Value;
 			},
 			execution);
 	}
 
-	internal void Publish<T>(string feature, string name, T payload) {
+	internal void Publish<T>(string feature, string name, JsonTypeInfo<T> type, T payload) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ThrowIfClosed();
@@ -322,7 +348,7 @@ internal partial class MessageBus : IAsyncDisposable {
 			Address,
 			feature,
 			name,
-			JsonSerializer.SerializeToElement(payload, JsonOptions));
+			JsonSerializer.SerializeToElement(payload, type));
 		_broadcast(envelope.ToTransportMessage());
 	}
 
@@ -341,7 +367,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		_broadcast(envelope.ToTransportMessage());
 	}
 
-	internal void PublishTo<T>(WebPeer peer, string feature, string name, T payload) {
+	internal void PublishTo<T>(WebPeer peer, string feature, string name, JsonTypeInfo<T> type, T payload) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ThrowIfClosed();
@@ -352,7 +378,7 @@ internal partial class MessageBus : IAsyncDisposable {
 				Address,
 				feature,
 				name,
-				JsonSerializer.SerializeToElement(payload, JsonOptions)).ToTransportMessage());
+				JsonSerializer.SerializeToElement(payload, type)).ToTransportMessage());
 	}
 
 	internal void PublishJsonTo(WebPeer peer, string feature, string name, string payloadJson) {
@@ -473,6 +499,8 @@ internal partial class MessageBus : IAsyncDisposable {
 		WebPeer peer,
 		string feature,
 		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
 		TRequest payload,
 		CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
@@ -494,11 +522,11 @@ internal partial class MessageBus : IAsyncDisposable {
 					requestId,
 					feature,
 					name,
-					JsonSerializer.SerializeToElement(payload, JsonOptions)).ToTransportMessage());
+					JsonSerializer.SerializeToElement(payload, requestType)).ToTransportMessage());
 			using var cancellation = ct.Register(
 				() => CancelOutbound(peer, requestId, feature, name, ct));
 			var response = await request.Completion.Task.ConfigureAwait(false);
-			return response.Deserialize<TResponse>(JsonOptions)!;
+			return response.Deserialize(responseType)!;
 		} catch {
 			_outbound.TryRemove((peer, requestId), out _);
 			throw;

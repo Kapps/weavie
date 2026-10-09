@@ -103,7 +103,7 @@ jobs:
       - name: Publish runner and worker
         run: >-
           dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
-          --self-contained -p:PublishReadyToRun=true -o layout/versions/$BuildNumber
+          --self-contained -o layout/versions/$BuildNumber
       - name: Package managed layout
         run: |
           ln -s "versions/$BuildNumber" layout/current
@@ -145,27 +145,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends libdrm-dev pkg-config
 
-      # The hosted image's default Xcode lags the .NET macOS workload's requirement (e.g. workload
-      # 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship side-by-side on the
-      # runner, so select the newest installed one rather than a version pinned here that would
-      # itself go stale the next time the workload's requirement moves. See ci.yml.
-      - name: Select latest Xcode
+      - uses: ./temp/workflow/.github/actions/setup-macos-workload
         if: matrix.platform.name == 'macos'
-        run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
-
-      - name: Restore macOS workload
-        if: matrix.platform.name == 'macos'
-        run: dotnet workload restore ${{ matrix.platform.project }}
+        with:
+          restore: ${{ matrix.platform.project }}
 
       - name: Publish
         run: >
           dotnet publish ${{ matrix.platform.project }} -c Release -r ${{ matrix.platform.rid }}
           ${{ matrix.platform.extra }} -o artifacts/${{ matrix.platform.name }}
 
-      # The COMPLETE macOS bundle is the .app the build assembles at bin/ (populated by CopyWebAssets +
-      # BuildPtyShim + the hook-relay co-location), NOT the .pkg `dotnet publish` emits — that .pkg
-      # lacks the hand-copied web UI / PTY shim / hook relay and boots to a blank WKWebView. Verify
-      # that .app, re-sign it (the post-build copies invalidate the SDK's mid-build ad-hoc signature,
+      # The COMPLETE macOS bundle is the Native AOT .app the publish assembles at bin/ (populated by
+      # CopyWebAssets + BuildPtyShim + the hook-relay co-location into Contents/MacOS), NOT the .pkg
+      # `dotnet publish` emits — that .pkg lacks the hand-copied web UI / PTY shim / hook relay and boots
+      # to a blank WKWebView. Verify that .app, re-sign it (the post-build copies invalidate the SDK's mid-build ad-hoc signature,
       # and on Apple Silicon an invalid signature reads as "damaged and can't be opened"), and zip it
       # (a drag-to-Applications bundle — friendlier for an unsigned app than an unsigned .pkg). It's
       # still not Developer-ID-signed/notarized, so first launch is right-click > Open (or
@@ -178,9 +171,10 @@ jobs:
           required=(
             "$app/Contents/MacOS/Weavie"
             "$app/Contents/Resources/wwwroot/index.html"
-            "$app/Contents/MonoBundle/libweavie_pty.dylib"
-            "$app/Contents/MonoBundle/weavie-pty-launcher"
-            "$app/Contents/MonoBundle/weavie-hook-relay"
+            "$app/Contents/MacOS/libweavie_pty.dylib"
+            "$app/Contents/MacOS/weavie-pty-launcher"
+            "$app/Contents/MacOS/weavie-hook-relay"
+            "$app/Contents/MacOS/weavie-mcp-proxy"
           )
           missing=0
           for f in "${required[@]}"; do

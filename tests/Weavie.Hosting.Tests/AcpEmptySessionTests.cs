@@ -46,7 +46,7 @@ public sealed class AcpEmptySessionTests {
 		});
 		await fixture.StartAsync();
 
-		fixture.Session.ReplyAside("saved-aside", "continue inherited conversation");
+		fixture.ReplyAside("saved-aside", "continue inherited conversation");
 		var response = await fixture.WaitForMessageAsync(message => message.Text == "echo: continue inherited conversation");
 
 		Assert.Equal("saved-child", response.ThreadId);

@@ -72,9 +72,10 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
   await walkToChangedFile(page, "hello.ts");
 
   // Reply in the thread → it must round-trip through the (correct) PR's comment store.
-  const thread = page.locator(".weavie-pr-thread").first();
+  const thread = page.locator(".weavie-pr-card").first();
+  await thread.locator(".weavie-pr-reply-stub").click();
   await thread.locator(".weavie-pr-composer-input").fill("Reply after switching back.");
-  await thread.locator(".weavie-pr-composer-submit").click();
+  await thread.locator(".weavie-pr-button-primary").click();
   await expect(
     page.locator(".weavie-pr-comment-body", { hasText: "Reply after switching back." }),
   ).toBeVisible({ timeout: 10_000 });
@@ -139,6 +140,6 @@ test("S4b: PR comment surface is not reachable while a non-PR session is active"
   // Switch to the non-PR workspace session.
   await page.locator(chips).first().click();
   // The whole PR comment surface should be gone — no thread, no composer to mis-post from.
-  await expect(page.locator(".weavie-pr-thread")).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.locator(".weavie-pr-card")).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
 });

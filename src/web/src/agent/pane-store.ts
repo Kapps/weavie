@@ -20,8 +20,7 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
-import { clearAsideReplyState, clearAsideReplyStates } from "./aside-reply-store";
-import { setComposerDraft } from "./composer-store";
+import { clearReplyComposers, setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
@@ -42,7 +41,6 @@ function createHistory(session: ClientSession) {
   );
   const feature = session.feature("agent");
   let historyAbort: AbortController | null = null;
-  let historyComplete = false;
   let historyGeneration: number | null = null;
   let historyRevision: number | null = null;
 
@@ -55,7 +53,7 @@ function createHistory(session: ClientSession) {
   }
 
   const startHistory = (): void => {
-    if (historyAbort !== null || historyComplete) {
+    if (historyAbort !== null || model.historyComplete()) {
       return;
     }
     const abort = new AbortController();
@@ -81,7 +79,7 @@ function createHistory(session: ClientSession) {
   const model = models.get(session)!;
 
   const offHello = session.connection.onHello(() => {
-    historyComplete = false;
+    model.setHistoryComplete(false);
     historyAbort?.abort();
     historyAbort = null;
     accumulator.abandonHistory("pane");
@@ -117,7 +115,7 @@ function createHistory(session: ClientSession) {
       if (batch.complete) {
         historyGeneration = batch.generation;
         historyRevision = batch.revision;
-        historyComplete = true;
+        model.setHistoryComplete(true);
         clearNotification(errorKey);
         return;
       }
@@ -132,9 +130,6 @@ function createHistory(session: ClientSession) {
   const applyMessageState = (message: AgentPaneUpdate): void => {
     if (message.type === "input-resolved") {
       clearAgentInputDraft(session, agentInputRequestKey(message));
-    }
-    if (message.type === "side-conversation-failed" && message.conversationId) {
-      clearAsideReplyState(session, message.conversationId);
     }
   };
   const applyNewDrafts = (messages: readonly AgentPaneUpdate[]): void => {
@@ -155,6 +150,7 @@ function createHistory(session: ClientSession) {
     model.publish(updates, changes);
   };
   const ingest = (message: AgentPaneUpdate): void => {
+    model.noteLive();
     applyMessageState(message);
     accumulator.ingest("pane", message, publish);
   };
@@ -166,6 +162,7 @@ function createHistory(session: ClientSession) {
     },
   );
   const offBatch = feature.on<{ messages: AgentPaneWireUpdate[] }>("paneBatch", ({ messages }) => {
+    model.noteLive();
     for (const message of messages) {
       applyMessageState(message);
     }
@@ -176,11 +173,11 @@ function createHistory(session: ClientSession) {
   function resyncPane(): void {
     historyAbort?.abort();
     historyAbort = null;
-    historyComplete = false;
+    model.setHistoryComplete(false);
     historyGeneration = null;
     historyRevision = null;
     appliedDrafts = 0;
-    clearAsideReplyStates(session);
+    clearReplyComposers(session);
     accumulator.reset("pane", () => model.reset());
     startHistory();
   }
@@ -191,7 +188,7 @@ function createHistory(session: ClientSession) {
     reload: () => {
       historyAbort?.abort();
       historyAbort = null;
-      historyComplete = false;
+      model.setHistoryComplete(false);
       accumulator.abandonHistory("pane");
       startHistory();
     },
@@ -211,6 +208,19 @@ registerCommand(CommandIds.reloadAgentHistory, (_args, { session }) => {
   if (session === null) return false;
   histories.get(session)?.reload();
 });
+
+/** Fetches the complete record behind a history row whose tool output was deferred. */
+export function loadToolOutput(
+  session: ClientSession,
+  message: AgentPaneWireUpdate,
+): Promise<AgentPaneWireUpdate> {
+  return session
+    .feature("agent")
+    .request<AgentPaneWireUpdate, { generation: number; ordinal: number }>("toolOutput", {
+      generation: message.generation,
+      ordinal: message.ordinal,
+    });
+}
 
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {
   return models.get(session) ?? null;

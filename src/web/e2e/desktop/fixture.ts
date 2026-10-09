@@ -1,22 +1,28 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createWriteStream } from "node:fs";
 import { cp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { test as base } from "@playwright/test";
+import { finished } from "node:stream/promises";
+import { test as base, expect } from "@playwright/test";
 import { killProcessTree, prepareFake } from "../harness/weavie-host";
 
 type Desktop = { workspace: string; exited: Promise<never> };
 export const test = base.extend<{
+  desktopDocument: "app" | "bridge";
   desktop: (driver: (workspace: string) => string) => Promise<Desktop>;
 }>({
-  desktop: async ({ browserName: _browserName }, use, info) => {
+  desktopDocument: ["app", { option: true }],
+  desktop: async ({ browserName: _browserName, desktopDocument }, use, info) => {
     const fake = await prepareFake({
       fakeScript: null,
       workspaceSeed: null,
       inference: "disabled",
       automaticInference: false,
+      setupCompleted: true,
     });
-    let log = "";
+    const logPath = info.outputPath("desktop.log");
+    const log = createWriteStream(logPath);
     let proc: ChildProcess | null = null;
     let launch: Promise<Desktop> | null = null;
     try {
@@ -25,19 +31,35 @@ export const test = base.extend<{
         const platform = platforms[process.platform];
         if (!platform) throw new Error(`Unsupported desktop platform: ${process.platform}`);
         const project = resolve(import.meta.dirname, `../../../Weavie.${platform}`);
-        const query = ["-p:Configuration=Release", "-getProperty:TargetDir,AssemblyName"];
+        const mac = process.platform === "darwin";
+        // The app under test is the published one CI ships: the .app bundle on macOS (its project pins the RID),
+        // the publish output for this machine's RID elsewhere.
+        const rid = mac
+          ? []
+          : [
+              `-p:RuntimeIdentifier=${process.platform === "win32" ? "win" : "linux"}-${process.arch}`,
+            ];
+        const query = [
+          "-p:Configuration=Release",
+          ...rid,
+          "-getProperty:TargetDir,PublishDir,AssemblyName",
+        ];
         const result = execFileSync("dotnet", ["msbuild", project, ...query], { encoding: "utf8" });
         const properties = JSON.parse(result).Properties;
-        const mac = process.platform === "darwin";
         const name = properties.AssemblyName;
         const app = join(fake.home, mac ? `${name}.app` : "app");
-        const source = mac ? join(properties.TargetDir, `${name}.app`) : properties.TargetDir;
+        const source = mac
+          ? join(properties.TargetDir, `${name}.app`)
+          : resolve(project, properties.PublishDir.replaceAll("\\", "/"));
         await cp(source, app, { recursive: true, verbatimSymlinks: true });
         const assets = mac ? join(app, "Contents", "Resources", "wwwroot") : join(app, "wwwroot");
         const script = `<script>${driver(fake.workspace).replace(/<\/script/gi, "<\\/script")}</script>`;
         for (const name of ["index.html", "welcome.html"]) {
           const file = join(assets, name);
-          const html = await readFile(file, "utf8");
+          const html =
+            desktopDocument === "app"
+              ? await readFile(file, "utf8")
+              : "<!doctype html><body><h1>Native bridge navigation test</h1></body>";
           await writeFile(file, html.replace("</body>", `${script}</body>`));
         }
         const signing = ["--force", "--sign", "-", "--preserve-metadata=entitlements"];
@@ -52,10 +74,7 @@ export const test = base.extend<{
           env: { ...process.env, ...fake.env, WEAVIE_WORKSPACE: `${fake.workspace}.missing` },
           stdio: ["ignore", "pipe", "pipe"],
         });
-        for (const stream of [proc.stdout, proc.stderr])
-          stream?.on("data", (chunk) => {
-            log += chunk;
-          });
+        for (const stream of [proc.stdout, proc.stderr]) stream?.pipe(log, { end: false });
         const exited = once(proc, "exit").then(([code, signal]): never => {
           throw new Error(`Desktop exited (${code ?? signal}); see desktop.log`);
         });
@@ -70,11 +89,19 @@ export const test = base.extend<{
     } finally {
       try {
         await Promise.allSettled(launch ? [launch] : []);
-        if (proc) await killProcessTree(proc);
+        if (proc) {
+          await killProcessTree(proc);
+          if (process.platform !== "win32")
+            expect(proc.exitCode, `Desktop exited via ${proc.signalCode ?? "exit code"}`).toBe(0);
+        }
       } finally {
-        await writeFile(info.outputPath("desktop.log"), log);
-        await info.attach("desktop.log", { path: info.outputPath("desktop.log") });
-        await fake.cleanup();
+        log.end();
+        try {
+          await finished(log);
+          await info.attach("desktop.log", { path: logPath });
+        } finally {
+          await fake.cleanup();
+        }
       }
     }
   },

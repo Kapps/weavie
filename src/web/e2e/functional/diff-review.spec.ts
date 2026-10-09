@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { awaitReviewSet, navChord, walkToChangedFile } from "../harness/navigator";
+import { awaitReviewSet, focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -585,24 +585,6 @@ test.describe("multi-file review walk", () => {
     await expect(page.locator(".weavie-inline-file")).toHaveCount(2);
   });
 
-  // Keeping the last bright hunk of a file fades it but the file stays in the review set (faded band), so the
-  // host's re-emit won't advance — Keep must step to the next file itself, or the walk strands on a file with
-  // nothing left to review.
-  test("keeping the last change in a file advances to the next file", async ({ page }) => {
-    await openFile(page, "hello.ts");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
-    await expect(page.locator(ADDED)).toHaveCount(2); // two bright pending hunks
-
-    await focusFirstHunk(page);
-    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → fades; caret lands on hunk 2
-    await expect(page.locator(ADDED)).toHaveCount(1);
-
-    await page.keyboard.press("ControlOrMeta+Enter"); // keep the last bright hunk → advance to the next file
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
-      timeout: 15_000,
-    });
-  });
-
   // Same strand on revert: once a hunk is kept (faded band present), reverting the file's last bright hunk
   // leaves acceptedBaseline != current, so the host's re-emit won't advance — revert must step on itself.
   test("reverting the last pending change after a keep advances to the next file", async ({
@@ -621,6 +603,55 @@ test.describe("multi-file review walk", () => {
     await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
       timeout: 15_000,
     });
+  });
+});
+
+// Issue #946: a fully-kept file lingers in the review set at "change 0/0". Keep must walk past it to the next
+// file with pending changes, and at 0/0 with nothing pending anywhere it finishes the review instead of sticking.
+test.describe("multi-file review walk — fully-kept files", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\nand a second changed line\n"),
+        ...appliedEdit("long.ts", fourHunks()),
+      ],
+    },
+  });
+
+  const keepNotes = async (page: import("@playwright/test").Page) => {
+    await awaitReviewSet(page, ["hello.ts", "notes.txt", "long.ts"]);
+    await openFile(page, "notes.txt");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+  };
+
+  test("Keep at 0/0 steps to a file with pending changes", async ({ page }) => {
+    await keepNotes(page);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText(/^(hello|long)\.ts$/, {
+      timeout: 15_000,
+    });
+  });
+
+  test("keeping skips fully-kept files, then finishes at 0/0", async ({ page }) => {
+    await keepNotes(page);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+Enter"); // last hunk → past the kept notes.txt
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("long.ts", {
+      timeout: 15_000,
+    });
+    await runCommand(page, "Keep File (Review)");
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await focusEditor(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // 0/0 everywhere → finish
+    await expect(page.locator(TOOLBAR)).toHaveCount(0, { timeout: 15_000 });
   });
 });
 
@@ -723,7 +754,6 @@ test.describe("applied review — walking to a new file lands on its top", () =>
 });
 
 test.describe("applied review — large files stay responsive", () => {
-  const TYPING_HEARTBEAT_BUDGET_MS = 230;
   const original = Array.from({ length: 5_000 }, (_, index) => `old line ${index}`).join("\n");
   const modified = Array.from({ length: 5_000 }, (_, index) => `new line ${index}`).join("\n");
   test.use({
@@ -771,9 +801,38 @@ test.describe("applied review — large files stay responsive", () => {
       throw new Error("large diff ghost not rendered");
     }
 
-    // The recompute debounce matures at 120ms. A second edit at 130ms lands while the worker owns the old
-    // version; it must stay responsive, supersede that result, and render only the final text.
-    const typingPerformance = await page.evaluate(async (paintedGhost) => {
+    const worker = await page.evaluateHandle(() => {
+      const uri = window.__WEAVIE_EDITOR__!.getModel()!.uri.toString();
+      const post = Worker.prototype.postMessage;
+      const held: (() => void)[] = [];
+      const listeners = new Map<(event: MessageEvent) => void, Worker>();
+      Worker.prototype.postMessage = function (message, transfer) {
+        if (message?.method === "$computeDiff" && message.args[1] === uri) {
+          const request = message.req;
+          const receive = (event: MessageEvent): void => {
+            if (event.data?.seq !== request) return;
+            event.stopImmediatePropagation();
+            this.removeEventListener("message", receive, true);
+            const response = new MessageEvent("message", { data: event.data });
+            held.push(() => this.dispatchEvent(response));
+          };
+          this.addEventListener("message", receive, true);
+          listeners.set(receive, this);
+        }
+        post.call(this, message, transfer);
+      };
+      return {
+        pending: () => held.length,
+        release: () => {
+          Worker.prototype.postMessage = post;
+          for (const [receive, worker] of listeners) {
+            worker.removeEventListener("message", receive, true);
+          }
+          for (const send of held.splice(0)) send();
+        },
+      };
+    });
+    const typing = await page.evaluate((paintedGhost) => {
       const editor = window.__WEAVIE_EDITOR__;
       const model = editor?.getModel();
       if (editor === undefined || model === null || model === undefined) {
@@ -788,6 +847,8 @@ test.describe("applied review — large files stay responsive", () => {
           diffAfter: boolean;
           diffBefore: boolean;
           diffAdds: number;
+          addedEndLine: number;
+          modelLines: number;
           heldAfter: boolean;
           heldBefore: boolean;
           removed: number;
@@ -803,6 +864,8 @@ test.describe("applied review — large files stay responsive", () => {
             diffAfter: false,
             diffBefore: document.querySelector(".weavie-inline-removed-line") !== null,
             diffAdds: 0,
+            addedEndLine: 0,
+            modelLines: model.getLineCount(),
             heldAfter: false,
             heldBefore: paintedGhost.isConnected,
             removed: 0,
@@ -822,54 +885,47 @@ test.describe("applied review — large files stay responsive", () => {
             layoutZone: (id) => accessor.layoutZone(id),
           });
           transaction.diffAfter = document.querySelector(".weavie-inline-removed-line") !== null;
+          transaction.addedEndLine = Math.max(
+            ...model
+              .getAllDecorations()
+              .filter((decoration) => decoration.options.className === "weavie-inline-added")
+              .map((decoration) => decoration.range.endLineNumber),
+          );
           transaction.heldAfter = paintedGhost.isConnected;
           if (transaction.added > 0 || transaction.removed > 0) {
             zoneTransactions.push(transaction);
           }
         })) as typeof editor.changeViewZones;
       const reviewRev = window.__WEAVIE_REVIEW__?.rev ?? 0;
-      const started = performance.now();
       editor.executeEdits("large-diff-typing", [
         {
           range: new window.__WEAVIE_MONACO__.Range(line, column, line, column),
           text: " typed",
         },
       ]);
-      const editMs = performance.now() - started;
       const pendingPaint = {
         ghostConnected: paintedGhost.isConnected,
         zoneTransactions: zoneTransactions.length,
       };
-      await new Promise((resolve) => setTimeout(resolve, 130));
-      const secondStarted = performance.now();
-      const secondColumn = model.getLineMaxColumn(line);
+      return { pendingPaint, reviewRev };
+    }, paintedGhost);
+    await expect.poll(() => worker.evaluate((gate) => gate.pending())).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__!;
+      const model = editor.getModel()!;
+      const line = 2_500;
+      const column = model.getLineMaxColumn(line);
       editor.executeEdits("large-diff-typing-latest", [
         {
-          range: new window.__WEAVIE_MONACO__.Range(line, secondColumn, line, secondColumn),
+          range: new window.__WEAVIE_MONACO__.Range(line, column, line, column),
           text: "\nlatest line",
         },
       ]);
-      const secondEditMs = performance.now() - secondStarted;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      return {
-        editMs,
-        secondEditMs,
-        heartbeatMs: performance.now() - started,
-        pendingPaint,
-        reviewRev,
-      };
-    }, paintedGhost);
-    await test.info().attach("large-diff-typing-performance.json", {
-      body: Buffer.from(
-        JSON.stringify({ budgetMs: TYPING_HEARTBEAT_BUDGET_MS, ...typingPerformance }),
-      ),
-      contentType: "application/json",
     });
-    expect(
-      typingPerformance.heartbeatMs,
-      `5,000-line diff recomputation blocked the typing heartbeat: ${JSON.stringify(typingPerformance)}`,
-    ).toBeLessThan(TYPING_HEARTBEAT_BUDGET_MS);
-    expect(typingPerformance.pendingPaint).toEqual({
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__!.getModel()!.getLineContent(2_501)))
+      .toBe("latest line");
+    expect(typing.pendingPaint).toEqual({
       ghostConnected: true,
       zoneTransactions: 0,
     });
@@ -878,9 +934,11 @@ test.describe("applied review — large files stay responsive", () => {
     await expect(page.locator(KEEP_BTN)).toBeDisabled();
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(SCOPE)).toBeVisible();
+    await worker.evaluate((gate) => gate.release());
+    await worker.dispose();
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.rev ?? 0))
-      .toBeGreaterThan(typingPerformance.reviewRev);
+      .toBeGreaterThan(typing.reviewRev);
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
     await expect
       .poll(() =>
@@ -903,6 +961,8 @@ test.describe("applied review — large files stay responsive", () => {
           diffAfter: boolean;
           diffBefore: boolean;
           diffAdds: number;
+          addedEndLine: number;
+          modelLines: number;
           heldAfter: boolean;
           heldBefore: boolean;
           removed: number;
@@ -919,6 +979,9 @@ test.describe("applied review — large files stay responsive", () => {
     });
     expect(finalPaint.anchorVisible).toBe(true);
     for (const transaction of finalPaint.transactions) {
+      if (transaction.diffAdds > 0) {
+        expect(transaction.addedEndLine).toBe(transaction.modelLines);
+      }
       expect(transaction.removed > 0).toBe(transaction.diffAdds > 0);
       if (transaction.diffBefore && !transaction.diffAfter) {
         expect(transaction.diffAdds).toBeGreaterThan(0);
@@ -975,12 +1038,15 @@ test.describe("large review — every file remains reviewable", () => {
       writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
     }
     await runCommand(page, "Diff Against HEAD");
+    // The review lands on its first file because nothing navigated while it computed.
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]bulk-0\.txt$/);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
     await openFile(page, "README.md");
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
       .toBe(100);
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
 
     await openFile(page, "bulk-0.txt");
     await page.locator(".weavie-inline-scope-btn").click();
@@ -992,5 +1058,19 @@ test.describe("large review — every file remains reviewable", () => {
       .toBe(0);
     await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+
+  test("a file opened while the review computes keeps the editor", async ({ page, weavie }) => {
+    for (let index = 0; index < 100; index++) {
+      writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
+    }
+    await runCommand(page, "Diff Against HEAD");
+    await openFile(page, "README.md");
+
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
+      .toBe(100);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]README\.md$/);
   });
 });

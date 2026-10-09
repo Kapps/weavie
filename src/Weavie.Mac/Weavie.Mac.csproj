@@ -12,17 +12,11 @@
     <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
     <!-- LibraryImport (objc_msgSend SPI for the WebKit refresh-rate feature flag) needs unsafe. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Do NOT trim. Weavie.Core (de)serializes its own model types through the reflection-based
-         System.Text.Json overloads (JsonSerializer.Serialize/Deserialize with JsonSerializerOptions),
-         which the trimmer can't statically analyze: trimming raises IL2026, and under the repo's
-         zero-warning gate (TreatWarningsAsErrors) that fails the build (NETSDK1144). Even if forced
-         through, full trimming could strip the very members being serialized and break at runtime.
-         On the macOS SDK trimming is controlled by LinkMode, NOT PublishTrimmed — the SDK hard-errors
-         (Xamarin.Shared.Sdk.targets) if an executable app sets PublishTrimmed=false and tells you to
-         use LinkMode=None instead. LinkMode=None makes ILLink run in copy mode (assemblies passed
-         through unmodified) AND auto-sets SuppressTrimAnalysisWarnings=true, so no IL2026 is emitted.
-         Matches the Win/Linux shells, which publish self-contained without trimming. -->
-    <LinkMode>None</LinkMode>
+    <!-- `dotnet publish` compiles the shipped app with Native AOT (the SDK then trims fully); `dotnet build` stays
+         CoreCLR. Every serialized type has a source-generated contract, so trimming loses nothing. -->
+    <PublishAot>true</PublishAot>
+    <!-- Only Apple silicon ships; one RID keeps build, publish, and the desktop tests on the same bundle path. -->
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
     <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
   </PropertyGroup>
 
@@ -83,7 +77,7 @@
 
   <Import Project="../MacPty.targets" />
 
-  <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
+  <!-- Build + co-locate the standalone hook relay (into the .app's helper directory; see ResolveHelperDirectory). -->
   <Import Project="..\HookRelay.targets" />
 
 </Project>

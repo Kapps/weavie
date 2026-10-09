@@ -59,7 +59,7 @@ internal sealed class AgentAuthenticationTerminal : IAgentAuthenticationTerminal
 				TaskCreationOptions.RunContinuationsAsynchronously);
 			completion = _completion.Task;
 		}
-		_agentMessages.Publish("authenticationTerminal", new { active = true });
+		_agentMessages.Publish("authenticationTerminal", WireJson.Default.AuthenticationTerminalState, new(true));
 		try {
 			return await completion.WaitAsync(ct).ConfigureAwait(false);
 		} finally {
@@ -68,7 +68,7 @@ internal sealed class AgentAuthenticationTerminal : IAgentAuthenticationTerminal
 				_launch = null;
 				_completion = null;
 			}
-			_agentMessages.Publish("authenticationTerminal", new { active = false });
+			_agentMessages.Publish("authenticationTerminal", WireJson.Default.AuthenticationTerminalState, new(false));
 		}
 	}
 
@@ -100,3 +100,5 @@ internal sealed class AgentAuthenticationTerminal : IAgentAuthenticationTerminal
 		return ValueTask.CompletedTask;
 	}
 }
+
+internal sealed record AuthenticationTerminalState(bool Active);

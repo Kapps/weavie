@@ -7,6 +7,7 @@
          worker serves the actual UI + bridge. See docs/specs/remote-sessions.md. -->
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>

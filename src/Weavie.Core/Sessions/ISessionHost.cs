@@ -26,7 +26,7 @@ public sealed record NewSessionRequest {
 	public string? Prompt { get; init; }
 
 	/// <summary>Images submitted atomically with <see cref="Prompt"/> as the new session's first input.</summary>
-	public IReadOnlyList<NewSessionAttachment> Attachments { get; init; } = [];
+	public IReadOnlyList<NewSessionAttachment> Attachments { get; set; } = [];
 
 	/// <summary>The provider for this new session; <c>null</c> means the host's default provider setting.</summary>
 	public string? AgentProviderId { get; init; }

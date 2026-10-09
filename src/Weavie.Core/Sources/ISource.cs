@@ -16,7 +16,7 @@ namespace Weavie.Core.Sources;
 public sealed record SourceDoc(string Title, string Markdown, string EditedTime, bool Truncated, int UnknownBlocks);
 
 /// <summary>
-/// A registered source plugin: it matches a target (URL/id), validates the user's access token, and fetches a
+/// A registered source plugin: it claims link hosts, validates the user's access token, and fetches a
 /// target into a <see cref="SourceDoc"/>. Auth is a user-supplied personal access token (the host stores it and
 /// hands it back); the source only knows how to validate one and fetch with it. The host owns presentation,
 /// routing, and the token file; a source is thin — match + validate + fetch + map. See
@@ -29,8 +29,9 @@ public interface ISource {
 	/// <summary>Where the user creates an access token — opened in their browser when they connect.</summary>
 	string SetupUrl { get; }
 
-	/// <summary>True when <paramref name="target"/> (a URL) belongs to this source — the routing predicate.</summary>
-	bool Match(string target);
+	/// <summary>The hosts whose http(s) URLs this source opens — the routing rule, applied by <see cref="SourceLinks.Claims"/>.
+	/// An entry with a leading dot claims every subdomain of it.</summary>
+	IReadOnlyList<string> LinkHosts { get; }
 
 	/// <summary>
 	/// Validates <paramref name="accessToken"/> against the source's API and returns the authorized workspace's

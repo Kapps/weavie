@@ -53,6 +53,7 @@ export interface AgentProviderInfo {
   name: string;
   available: boolean;
   unavailableReason: string | null;
+  warning: string | null;
   surface: "terminal" | "structured";
 }
 
@@ -117,6 +118,8 @@ export interface AgentPaneWireUpdate extends AgentPaneUpdate {
   revision: number;
   textOffset: number;
   textLength: number;
+  /** A history record whose tool output is fetched on expand via `agent.toolOutput`. */
+  outputDeferred?: boolean;
 }
 
 export interface AgentInputQuestion {
@@ -181,6 +184,7 @@ export type AgentSlashEntry =
 
 export interface AgentControlState {
   ready: boolean;
+  rewindable: boolean;
   axes: AgentControlAxis[];
   slash: AgentSlashEntry[];
 }
@@ -294,14 +298,4 @@ export interface PullRequestInfo {
   headRef: string;
   url: string;
   draft: boolean;
-}
-
-export interface ReviewCommentInfo {
-  id: number;
-  line: number;
-  side: "left" | "right";
-  author: string;
-  body: string;
-  createdAt: string;
-  inReplyTo: number;
 }

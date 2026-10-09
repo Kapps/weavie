@@ -92,6 +92,29 @@
   outline-offset: 2px;
 }
 
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.welcome-setup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.7em 0.2em;
+  font-size: var(--font-prose-size);
+  color: var(--dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.welcome-setup:hover,
+.welcome-setup:focus-visible {
+  color: var(--accent);
+}
+
 .welcome-recent {
   margin-top: 2.75rem;
 }
@@ -194,4 +217,10 @@
 .welcome-row:focus-visible .welcome-row-go {
   opacity: 1;
   transform: none;
+}
+
+.welcome .getting-started {
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }

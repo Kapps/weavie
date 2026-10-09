@@ -3,7 +3,7 @@ using Weavie.Core.Agents;
 
 namespace Weavie.Hosting.Tests;
 
-internal sealed class FakeStructuredAgentProvider : IAgentProvider {
+internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	// The provider owns its conversation the way a real agent owns its on-disk transcript: it outlives a worker
 	// restart and is replayed on load. Keyed by worktree so each session replays only its own.
 	private static readonly ConcurrentDictionary<string, List<AgentPaneMessage>> Transcripts =
@@ -38,6 +38,13 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 
 	public Action<AgentSessionContext> CreatingSession { get; set; } = _ => { };
 
+	// Probes report nothing, so any model in the catalog was harvested from a live session.
+	public Task<IReadOnlyList<AgentControlAxis>> ProbeControlsAsync(CancellationToken ct) =>
+		Task.FromResult<IReadOnlyList<AgentControlAxis>>([]);
+
+	public Task<AgentConsultOutcome> ConsultAsync(AgentConsultRequest request, CancellationToken ct) =>
+		throw new NotSupportedException();
+
 	public IAgentSession CreateSession(AgentSessionContext context) {
 		ArgumentNullException.ThrowIfNull(context);
 		CreatingSession(context);
@@ -69,13 +76,22 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 
 		public AgentControlState ControlState { get; } = new() {
 			Ready = true,
+			Rewindable = false,
 			Axes = [
-				Axis("model", "Model", "GPT Test"),
+				Axis("model", "Model", "GPT Test") with {
+					Category = "model",
+					Options = [new AgentControlOption { Id = "GPT Test", Label = "GPT Test" }],
+				},
 				Axis("approvalPolicy", "Approvals", "On request"),
 				Axis("sandbox", "Sandbox", "Workspace write"),
 			],
 			Slash = [],
 		};
+
+		public IReadOnlyList<AgentPaneMessage> Restore() {
+			_turns = transcript.Count(message => message.Type == "user-message");
+			return [.. transcript];
+		}
 
 		public void Start() {
 			if (_started) {
@@ -84,10 +100,6 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 			_started = true;
 			events.Observe(new AgentSessionStarted("startup"));
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "structured", Status = "ready" });
-			if (transcript.Count > 0) {
-				_turns = transcript.Count(message => message.Type == "user-message");
-				PaneSnapshot?.Invoke([.. transcript]);
-			}
 
 			ControlStateChanged?.Invoke(ControlState);
 		}

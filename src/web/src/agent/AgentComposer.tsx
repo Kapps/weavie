@@ -1,6 +1,14 @@
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
-import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
@@ -18,6 +26,7 @@ import {
   planIdentityFromArgs,
 } from "./agent-plan";
 import { agentQueuedSubmissions, queuedSubmissionLabel } from "./agent-queue-store";
+import { registerComposerPasteTarget } from "./composer-clipboard";
 import {
   captureAgentImagePaste,
   composerState,
@@ -203,43 +212,26 @@ export function AgentComposer(props: {
     }
   };
 
-  const paste = async (): Promise<void> => {
-    const session = props.session;
-    if (session === null) {
-      return;
-    }
-    const inputProtocol = props.inputProtocol;
-    const selectionStart = textareaRef?.selectionStart;
-    const selectionEnd = textareaRef?.selectionEnd;
-    try {
-      const content = await readClipboardContent();
-      if (content.kind === "image") {
-        if (inputProtocol >= 2) {
-          uploadAgentImage(session, agentImageBlob(content.mime, content.dataB64));
-        } else {
-          sendPastedImage(session, content.mime, content.dataB64);
-        }
-        return;
-      }
-      if (content.kind !== "text") {
-        return;
-      }
-      const current = composerState(session).draft;
-      const start = selectionStart ?? current.length;
-      const end = selectionEnd ?? start;
-      const draft = current.slice(0, start) + content.text + current.slice(end);
-      setComposerDraft(session, draft);
-      if (props.session === session) {
-        placeCaretAfterDraftUpdate(draft, start + content.text.length);
-      }
-    } catch (error) {
-      notify(
-        "warn",
-        `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
+  onMount(() => {
+    onCleanup(
+      registerComposerPasteTarget(textareaRef!, () => {
+        const session = props.session;
+        if (session === null) return null;
+        const inputProtocol = props.inputProtocol;
+        return {
+          session,
+          draft: () => composerState(session).draft,
+          setDraft: (draft) => setComposerDraft(session, draft),
+          pasteImage: (mime, dataB64) => {
+            if (inputProtocol >= 2) uploadAgentImage(session, agentImageBlob(mime, dataB64));
+            else sendPastedImage(session, mime, dataB64);
+          },
+        };
+      }),
+    );
+  });
 
+  // A refusal shows its reason in the composer and still consumes Enter, so it never types a newline.
   const submit = (): boolean => {
     const session = props.session;
     if (!props.active || session === null) {
@@ -257,9 +249,7 @@ export function AgentComposer(props: {
           setComposerError(session, `/${inner.entry.name} cannot run in a side conversation.`);
           return true;
         }
-        if (!submitAgentAside(session, input ?? "", invocationForAction(inner))) return false;
-        setHistoryCursor(IDLE_CURSOR);
-        props.onSubmitted();
+        if (submitAgentAside(session, input ?? "", invocationForAction(inner))) submitted();
         return true;
       }
       if (weavieCommand.inputName !== null && input === null) {
@@ -267,7 +257,7 @@ export function AgentComposer(props: {
           session,
           `${weavieCommand.name} requires ${weavieCommand.inputHint ?? "input"}.`,
         );
-        return false;
+        return true;
       }
       const args =
         weavieCommand.inputName === null || input === null
@@ -281,7 +271,7 @@ export function AgentComposer(props: {
     if (props.inputProtocol < 2) {
       const state = composerState(session);
       if (state.draft.trim().length === 0 && props.pendingLegacyImageCount === 0) {
-        return false;
+        return true;
       }
       session.feature("agent").publish("submit", {
         id: "",
@@ -291,12 +281,16 @@ export function AgentComposer(props: {
         attachmentIds: [],
       });
       setComposerDraft(session, "");
-    } else {
-      if (!submitAgentTurn(session, invocationForAction(action))) return false;
+      submitted();
+    } else if (submitAgentTurn(session, invocationForAction(action))) {
+      submitted();
     }
+    return true;
+  };
+
+  const submitted = (): void => {
     setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();
-    return true;
   };
 
   const interrupt = (): boolean => {
@@ -328,7 +322,6 @@ export function AgentComposer(props: {
       return true;
     });
 
-  const offPaste = registerCommand(CommandIds.agentPaste, paste);
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offOpenPlan = registerCommand(CommandIds.openAgentPlan, (args) => {
@@ -380,7 +373,6 @@ export function AgentComposer(props: {
     setAgentControl(session, fast.id, target.id);
     return true;
   });
-  onCleanup(offPaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
   onCleanup(offOpenPlan);
@@ -438,6 +430,7 @@ export function AgentComposer(props: {
       />
       <textarea
         ref={textareaRef}
+        data-agent-paste-target
         rows={1}
         value={composer().draft}
         placeholder={

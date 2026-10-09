@@ -50,7 +50,7 @@ public sealed class AcpTranscriptRecoveryTests {
 		var continued = await fixture.WaitForMessageAsync(message => message.Text == "echo: continue original");
 		Assert.Equal(parentId, continued.ThreadId);
 		Assert.Equal("2", continued.TurnId);
-		fixture.Session.ReplyAside(Assert.IsType<string>(side.ConversationId), "continue side");
+		fixture.ReplyAside(Assert.IsType<string>(side.ConversationId), "continue side");
 		var reply = await fixture.WaitForMessageAsync(message => message.Text == "echo: continue side");
 		Assert.Equal(side.ThreadId, reply.ThreadId);
 		Assert.Equal("2", reply.TurnId);
@@ -73,7 +73,7 @@ public sealed class AcpTranscriptRecoveryTests {
 			command.CommandText = "UPDATE pane_events SET message = 'broken'";
 			command.ExecuteNonQuery();
 		} else File.WriteAllText(fixture.Sessions.FilePath, "temporarily unreadable database");
-		fixture.Session.Start();
+		fixture.Start();
 		await fixture.WaitForMessageAsync(message => message.Type == "error");
 		File.WriteAllBytes(fixture.Sessions.FilePath, database);
 
@@ -109,7 +109,7 @@ public sealed class AcpTranscriptRecoveryTests {
 		var snapshot = await fixture.WaitForSnapshotAsync();
 
 		Assert.Single(snapshot, message => message.Type == "side-conversation-failed" && message.ConversationId == "btw");
-		Assert.Throws<InvalidOperationException>(() => fixture.Session.ReplyAside("btw", "follow up"));
+		Assert.Throws<InvalidOperationException>(() => fixture.ReplyAside("btw", "follow up"));
 		Assert.Single(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.Type == "side-conversation-failed");
 	}
 }

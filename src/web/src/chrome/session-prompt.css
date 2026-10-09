@@ -102,6 +102,7 @@
 
 .session-prompt-error {
   margin-top: 0.8em;
+  white-space: pre-wrap;
   color: var(--danger, #f85149);
   font-size: 0.85em;
 }
@@ -219,9 +220,30 @@
   cursor: pointer;
 }
 
-.acp-registry-list {
-  max-height: min(610px, 70vh);
+.acp-registry-heading > select {
+  margin-left: auto;
+  padding: 0.3em 0.5em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.acp-registry-filter {
+  width: 100%;
   margin-top: 18px;
+  padding: 0.45em 0.7em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.acp-registry-list {
+  max-height: min(560px, 64vh);
+  margin-top: 12px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
 }
@@ -255,6 +277,11 @@
 
 .acp-registry-agent-title > span.acp-registry-installed {
   color: var(--accent);
+}
+
+.acp-registry-agent-title > span.acp-registry-broken,
+.acp-registry-agent p.acp-registry-broken-reason {
+  color: var(--danger);
 }
 
 .acp-registry-agent-actions {

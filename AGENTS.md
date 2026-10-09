@@ -58,9 +58,18 @@ load it only when you need it.
   cost semantics. Strict typed JSON, one attempt, feature-owned failure handling. First consumer:
   convention-aware branch naming, which leaves the field blank for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
+- **Agent consultation** — any embedded agent can consult another configured agent by name ("check with
+  Astra") through the registry tools `listAgents`/`consultAgent`: a Core-owned model catalog (refreshed at
+  startup, on provider changes, and from live sessions — never on a timer) resolves the name, and one transient,
+  read-only ACP turn with no Weavie MCP answers it. See [docs/specs/agent-consultation.md](docs/specs/agent-consultation.md).
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom
   commands launch external ACP agents directly, with no private provider protocol inside Weavie. See
   [docs/concepts/native-acp-agents.md](docs/concepts/native-acp-agents.md).
+- **ACP conversations** — each ACP session is an owned `AcpConversation` incarnation (endpoint, lifetime,
+  output port); replacing one retires the object, so late work can't reach its successor and no
+  conversation code takes a generation or session id. `/clear` and Rewind replace it on the running process
+  when the agent can close sessions. See
+  [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
@@ -181,6 +190,10 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   or any other dev-only sink is still a silent fallback, because the person hitting the limit never
   sees it (e.g. capping a file index at 20k and only logging it leaves files silently unopenable).
   Surface it where the affected user is, or don't impose the bound.
+- **Native AOT-safe code only.** The macOS, Linux, headless, and runner apps ship Native AOT, so shipped code is
+  reflection-free: JSON goes through source-generated contracts (`JsonTypeInfo<T>`; bus payloads in `WireJson`),
+  and a deserialized type keeps an initializer default only on a `set` property. See
+  [docs/specs/native-aot.md](docs/specs/native-aot.md).
 - **No nullable injected dependencies.** Don't accept `IFoo? = null`. Provide a `Noop`/`Headless`
   implementation and require the real thing.
 - **No optional / default-valued parameters.** Banned repo-wide by the `WV0001` analyzer (only

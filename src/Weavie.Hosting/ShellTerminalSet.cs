@@ -175,7 +175,7 @@ internal sealed class ShellTerminalSet : IDisposable {
 	}
 
 	private static void PublishCatalog(IMessageFeatureTarget target, IReadOnlyList<string> ids) =>
-		target.Publish("catalog", new { terminalIds = ids });
+		target.Publish("catalog", WireJson.Default.ShellTerminalCatalog, new(ids));
 
 	public void Dispose() {
 		ShellTerminal[] terminals;
@@ -228,3 +228,5 @@ internal enum ShellTerminalCloseResult {
 	NotFound,
 	Busy,
 }
+
+internal sealed record ShellTerminalCatalog(IReadOnlyList<string> TerminalIds);

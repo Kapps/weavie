@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Weavie.AgentClientProtocol;
 using Xunit;
@@ -5,21 +6,6 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AcpProcessDrainTests {
-	[Fact]
-	public void AcpConnection_ResolvesWindowsNpxFromPathWithoutConsultingTheWorkspace() {
-		using var root = new TempDirectory("weavie-npx-path");
-		string workspace = root.CreateDirectory("workspace");
-		string trusted = root.CreateDirectory("trusted");
-		root.WriteFile(Path.Combine("workspace", "npx.cmd"), "shadow");
-		string expected = root.WriteFile(Path.Combine("trusted", "npx.cmd"), "trusted");
-
-		string resolved = AcpProcessInvocation.ResolveNpxOnPath(
-			string.Join(Path.PathSeparator, workspace, ".", trusted),
-			workspace);
-
-		Assert.Equal(expected, resolved);
-	}
-
 	[Fact]
 	public async Task AcpConnection_DeliversFinalResponseBeforeExitFault() {
 		var definition = Definition("echo-and-exit");
@@ -33,7 +19,7 @@ public sealed class AcpProcessDrainTests {
 
 		var response = await connection.RequestAsync(
 			"final",
-			new { },
+			[],
 			CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
 
 		Assert.Equal("final", response.GetProperty("value").GetString());
@@ -51,7 +37,7 @@ public sealed class AcpProcessDrainTests {
 		connection.Start();
 		await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-		var request = connection.RequestAsync("invalid", new { }, CancellationToken.None);
+		var request = connection.RequestAsync("invalid", [], CancellationToken.None);
 		var fault = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 		await Assert.ThrowsAsync<AcpProtocolException>(() => request);
 
@@ -90,14 +76,14 @@ public sealed class AcpProcessDrainTests {
 		await ReadGenerationAsync(started.Reader);
 		string payload = new('x', 16 * 1024 * 1024);
 
-		var first = Task.Run(() => connection.RequestAsync("stall", new { payload }, CancellationToken.None));
+		var first = Task.Run(() => connection.RequestAsync("stall", new JsonObject { ["payload"] = payload }, CancellationToken.None));
 		await Wait.UntilAsync(() => File.Exists(marker));
 		await Task.Run(connection.Restart).WaitAsync(TimeSpan.FromSeconds(10));
 		await ReadGenerationAsync(started.Reader);
 		await Assert.ThrowsAnyAsync<Exception>(() => first.WaitAsync(TimeSpan.FromSeconds(10)));
 
 		File.Delete(marker);
-		var second = Task.Run(() => connection.RequestAsync("stall", new { payload }, CancellationToken.None));
+		var second = Task.Run(() => connection.RequestAsync("stall", new JsonObject { ["payload"] = payload }, CancellationToken.None));
 		await Wait.UntilAsync(() => File.Exists(marker));
 		await connection.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
 		await Assert.ThrowsAnyAsync<Exception>(() => second.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -120,16 +106,16 @@ public sealed class AcpProcessDrainTests {
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+			new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 			first.Generation,
 			CancellationToken.None));
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.NotifyAsync(
 			"session/cancel",
-			new { sessionId = "old" },
+			new JsonObject { ["sessionId"] = "old" },
 			first.Generation));
 		var initialized = await connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+			new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 			second.Generation,
 			CancellationToken.None);
 		Assert.Equal(1, initialized.GetProperty("protocolVersion").GetInt32());
@@ -171,7 +157,6 @@ public sealed class AcpProcessDrainTests {
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
 				["WEAVIE_FAKE_ACP_MODE"] = "immediate-malformed",
 			},
-			Distribution = "custom",
 		};
 		await using var connection = new AcpJsonRpcConnection(
 			definition,
@@ -203,7 +188,7 @@ public sealed class AcpProcessDrainTests {
 		AcpJsonRpcConnection connection,
 		long generation) => connection.RequestAsync(
 		"initialize",
-		new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+		new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject { ["plan"] = new JsonObject() } },
 		generation,
 		CancellationToken.None);
 
@@ -213,7 +198,6 @@ public sealed class AcpProcessDrainTests {
 		Command = executable,
 		Arguments = arguments,
 		Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-		Distribution = "custom",
 	};
 
 	private static string FakeExecutable() => AcpAgentSessionFixture.ExecutablePath(

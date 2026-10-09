@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
@@ -33,6 +34,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly KeybindingStore? _keybindings;
 	private readonly ThemeOverridesStore? _themeOverrides;
 	private readonly Func<string>? _currentSessionId;
+	private readonly AgentConsultation _agents;
 	private readonly string _toolsListJson;
 	private readonly IReadOnlyList<McpPrompt> _prompts;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -63,8 +65,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		CommandDispatcher? commands,
 		KeybindingStore? keybindings,
 		ThemeOverridesStore? themeOverrides,
-		Func<string>? currentSessionId) {
+		Func<string>? currentSessionId,
+		AgentConsultation agents) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
+		ArgumentNullException.ThrowIfNull(agents);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		if (registryMode && settings is null) {
@@ -84,6 +88,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
 		_currentSessionId = currentSessionId;
+		_agents = agents;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
@@ -93,7 +98,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			var parts = new List<string> { SettingsToolEntries };
+			var parts = new List<string> { SettingsToolEntries, AgentToolEntries };
 			if (exposeIdeTools) {
 				parts.Add(IdeToolEntries);
 			}
@@ -197,9 +202,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 				Emit("client connected + authenticated");
 				_activeWebSocket = ws;
 				ClientConnected?.Invoke();
+				using var connection = CancellationTokenSource.CreateLinkedTokenSource(ct);
 				try {
-					await MessageLoopAsync(ws, new WebSocketResponder(this, ws), ct).ConfigureAwait(false);
+					await MessageLoopAsync(ws, new WebSocketResponder(this, ws), connection.Token).ConfigureAwait(false);
 				} finally {
+					// The caller is gone: its in-flight tool calls stop with it.
+					await connection.CancelAsync().ConfigureAwait(false);
 					if (ReferenceEquals(_activeWebSocket, ws)) {
 						_activeWebSocket = null;
 					}
@@ -223,10 +231,24 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		string body = await WebSocketHandshake.ReadBodyAsync(stream, request.Headers, ct).ConfigureAwait(false);
-		var responder = new HttpResponder();
-		await DispatchAsync(responder, body, ct).ConfigureAwait(false);
+		// A client without a session is issued one; it scopes that client's request ids for cancellation.
+		string sessionId = request.Headers.TryGetValue("mcp-session-id", out string? presented) && presented.Length > 0
+			? presented
+			: Guid.NewGuid().ToString("N");
+		var responder = new HttpResponder(sessionId);
+		using (var connection = CancellationTokenSource.CreateLinkedTokenSource(ct)) {
+			var watch = CancelOnDisconnectAsync(stream, connection);
+			try {
+				await DispatchAsync(responder, body, connection.Token).ConfigureAwait(false);
+			} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+				// The client cancelled the call or hung up; it expects no result either way.
+			} finally {
+				await connection.CancelAsync().ConfigureAwait(false);
+				await watch.ConfigureAwait(false);
+			}
+		}
 		if (responder.ResponseJson is { } response) {
-			await WebSocketHandshake.WriteJsonAsync(stream, "200 OK", response, ct).ConfigureAwait(false);
+			await WebSocketHandshake.WriteJsonAsync(stream, "200 OK", response, sessionId, ct).ConfigureAwait(false);
 		} else {
 			await WebSocketHandshake.WriteStatusAsync(stream, "202 Accepted", ct).ConfigureAwait(false);
 		}
@@ -297,8 +319,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await HandleInitializeAsync(responder, root, idRaw, ct).ConfigureAwait(false);
 					break;
 				case "notifications/initialized":
+					break;
 				case "notifications/cancelled":
-					break; // notifications: no reply
+					CancelCall(responder.Client, root);
+					break;
 				case "ping":
 					await responder.SendResultAsync(idRaw, "{}", ct).ConfigureAwait(false);
 					break;
@@ -306,7 +330,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await responder.SendResultAsync(idRaw, _toolsListJson, ct).ConfigureAwait(false);
 					break;
 				case "tools/call":
-					await HandleToolCallAsync(responder, root, idRaw, ct).ConfigureAwait(false);
+					using (var call = BeginCall(responder.Client, idRaw, ct)) {
+						await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+					}
 					break;
 				case "prompts/list":
 					await responder.SendResultAsync(idRaw, BuildPromptsListJson(), ct).ConfigureAwait(false);
@@ -444,6 +470,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "runCommand":
 				await HandleRunCommandAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "listAgents":
+				await SendToolTextAsync(responder, idRaw, BuildAgentRosterJson(), ct).ConfigureAwait(false);
+				break;
+			case "consultAgent":
+				await HandleConsultAgentAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listThemes":
 				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);
@@ -588,7 +620,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		LayoutNode? root;
 		try {
-			root = JsonSerializer.Deserialize<LayoutNode>(rootElement.GetRawText(), LayoutSerialization.Options);
+			root = LayoutSerialization.DeserializeNode(rootElement.GetRawText());
 		} catch (JsonException ex) {
 			await SendToolErrorAsync(responder, idRaw, $"setLayout: invalid root ({ex.Message}).", ct).ConfigureAwait(false);
 			return;

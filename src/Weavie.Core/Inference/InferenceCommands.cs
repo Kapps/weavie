@@ -57,7 +57,7 @@ public static class InferenceCommands {
 		&& settings.RequireBool(InferenceSettings.AllowAutomatic);
 
 	private static void SetTrue(SettingsStore settings, string key, List<string> shadows) {
-		string? shadow = settings.Set(key, JsonSerializer.SerializeToElement(true)).ShadowedByEnv;
+		string? shadow = settings.Set(key, JsonSerializer.SerializeToElement(true, CoreJson.Default.Boolean)).ShadowedByEnv;
 		if (shadow is not null && !shadows.Contains(shadow)) {
 			shadows.Add(shadow);
 		}

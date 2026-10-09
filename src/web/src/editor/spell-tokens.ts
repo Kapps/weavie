@@ -1,5 +1,6 @@
 import { StandaloneServices } from "@codingame/monaco-vscode-api";
 import { CancellationTokenSource } from "@codingame/monaco-vscode-api/vscode/vs/base/common/cancellation";
+import { Range } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/core/range";
 import type {
   DocumentRangeSemanticTokensProvider,
   DocumentSemanticTokensProvider,
@@ -43,7 +44,7 @@ const modelTokens = new WeakMap<monaco.editor.ITextModel, ModelTokens>();
 
 interface ModelTokens {
   listeners: Set<() => void>;
-  read(): Promise<IdentifierRange[]>;
+  read(ranges: SpellSpan[]): Promise<IdentifierRange[]>;
 }
 
 /** Declaration requests belong to the working model, so remounting an editor reuses them. */
@@ -54,11 +55,11 @@ function tokensForModel(current: monaco.editor.ITextModel): ModelTokens {
   const listeners = new Set<() => void>();
   let providers: Provider[] = [];
   let providerSubscriptions: monaco.IDisposable[] = [];
-  let pending: CancellationTokenSource | undefined;
-  let cached: Promise<IdentifierRange[]> | undefined;
+  const pending = new Set<CancellationTokenSource>();
+  let cached: { key: string; result: Promise<IdentifierRange[]> } | undefined;
   const invalidate = (): void => {
-    pending?.dispose(true);
-    pending = undefined;
+    for (const source of pending) source.dispose(true);
+    pending.clear();
     cached = undefined;
   };
   const refresh = (): void => {
@@ -68,8 +69,8 @@ function tokensForModel(current: monaco.editor.ITextModel): ModelTokens {
   const bindProviders = (): void => {
     for (const subscription of providerSubscriptions) subscription.dispose();
     providers =
-      features.documentSemanticTokensProvider.orderedGroups(current)[0] ??
       features.documentRangeSemanticTokensProvider.orderedGroups(current)[0] ??
+      features.documentSemanticTokensProvider.orderedGroups(current)[0] ??
       [];
     providerSubscriptions = providers.flatMap((provider) =>
       provider.onDidChange === undefined ? [] : [provider.onDidChange(refresh)],
@@ -94,40 +95,55 @@ function tokensForModel(current: monaco.editor.ITextModel): ModelTokens {
     }),
   ];
   bindProviders();
+  const fetch = (segments: Range[]): Promise<IdentifierRange[]> => {
+    const source = new CancellationTokenSource();
+    pending.add(source);
+    return Promise.all(
+      providers.flatMap((provider) =>
+        ("provideDocumentSemanticTokens" in provider ? [null] : segments).map(async (range) => {
+          const full = "provideDocumentSemanticTokens" in provider;
+          const tokens = await (full
+            ? provider.provideDocumentSemanticTokens(current, null, source.token)
+            : provider.provideDocumentRangeSemanticTokens(current, range!, source.token));
+          try {
+            if (source.token.isCancellationRequested)
+              throw new DOMException("Model changed", "AbortError");
+            if (tokens == null) return [];
+            if (!("data" in tokens))
+              throw new Error("Semantic-token provider returned edits without a previous result");
+            return declarations(tokens, provider);
+          } finally {
+            if (full && tokens != null) provider.releaseDocumentSemanticTokens(tokens.resultId);
+          }
+        }),
+      ),
+    )
+      .then((results) => results.flat())
+      .finally(() => pending.delete(source));
+  };
   const result: ModelTokens = {
     listeners,
-    read: () => {
-      if (cached === undefined) {
-        const source = new CancellationTokenSource();
-        pending = source;
-        cached = Promise.all(
-          providers.map(async (provider) => {
-            const full = "provideDocumentSemanticTokens" in provider;
-            const tokens = await (full
-              ? provider.provideDocumentSemanticTokens(current, null, source.token)
-              : provider.provideDocumentRangeSemanticTokens(
-                  current,
-                  current.getFullModelRange(),
-                  source.token,
-                ));
-            try {
-              if (source.token.isCancellationRequested)
-                throw new DOMException("Model changed", "AbortError");
-              if (tokens == null) return [];
-              if (!("data" in tokens))
-                throw new Error("Semantic-token provider returned edits without a previous result");
-              return declarations(tokens, provider);
-            } finally {
-              if (full && tokens != null) provider.releaseDocumentSemanticTokens(tokens.resultId);
-            }
-          }),
-        ).then((results) => results.flat());
-        const request = cached;
-        void request.catch(() => {
-          if (cached === request) invalidate();
+    read: (ranges) => {
+      // Folding splits the viewport, so each contiguous run of lines is its own request.
+      const segments: Range[] = [];
+      for (const line of [...new Set(ranges.map((range) => range.line))].sort((a, b) => a - b)) {
+        const last = segments.at(-1);
+        const end = current.getLineMaxColumn(line);
+        if (last?.endLineNumber === line - 1)
+          segments[segments.length - 1] = last.setEndPosition(line, end);
+        else segments.push(new Range(line, 1, line, end));
+      }
+      const key = providers.every((provider) => "provideDocumentSemanticTokens" in provider)
+        ? "document"
+        : segments.map((range) => `${range.startLineNumber}:${range.endLineNumber}`).join(",");
+      if (cached?.key !== key) {
+        const request = { key, result: fetch(segments) };
+        cached = request;
+        void request.result.catch(() => {
+          if (cached === request) cached = undefined;
         });
       }
-      return cached;
+      return cached.result;
     },
   };
   modelTokens.set(current, result);
@@ -152,7 +168,7 @@ export function createSpellingTokens(changed: () => void) {
         currentTokens.listeners.add(listener);
       }
       if (ranges.length === 0) return [];
-      const tokens = await currentTokens.read();
+      const tokens = await currentTokens.read(ranges);
       signal.throwIfAborted();
       const visible = new Map<number, SpellSpan[]>();
       for (const range of ranges) {

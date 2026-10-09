@@ -109,7 +109,7 @@ the same way"), which is also what makes it visible to Claude.
 ```ts
 interface Source {
   id: string;                       // e.g. "notion"
-  match(target: string): boolean;   // routing predicate
+  linkHosts: string[];              // routing rule (leading "." = any subdomain)
   icon: IconRef;                    // brand icon (≈ favicon, but bundled / instant)
   auth: OAuthDescriptor;            // endpoints + scopes; host runs the flow, owns the token
   fetch(target, token): Promise<SourceDoc>;

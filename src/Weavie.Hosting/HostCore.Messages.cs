@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Git;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
@@ -14,29 +15,34 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void WireHostMessages() {
 		WireSystemNotificationMessages();
-		WireThemeMessages();
 
 		var connection = _messages.Host.Feature("connection");
-		connection.HandleAfterResponse<HelloRequest, HostHello>(
-			"hello",
+		connection.HandleAfterResponse(
+			"hello", WireJson.Default.EmptyPayload, WireJson.Default.HostHello,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
 				BuildHello(),
 				_ => {
-					OfferStartupTip();
-					OfferAutomaticInference();
+					// Getting Started covers inference, so the tip and inference offer wait until setup is done.
+					if (_settings.RequireBool(CoreSettings.GettingStartedCompleted)) {
+						OfferStartupTip();
+						OfferAutomaticInference();
+					} else {
+						_messages.Host.Feature("gettingStarted").Publish("show", WireJson.Default.EmptyPayload, EmptyPayload.Value);
+					}
+
 					return Task.CompletedTask;
 				})));
 
 		var clipboard = _messages.Host.Feature("clipboard");
-		clipboard.Handle<ClipboardWrite>("write", (message, _) => {
+		clipboard.Handle("write", WireJson.Default.ClipboardWrite, (message, _) => {
 			_platform.WriteClipboard(message.Text);
 			return Task.CompletedTask;
 		});
-		clipboard.Handle<EmptyMessage, ClipboardText>(
-			"read",
+		clipboard.Handle(
+			"read", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardText,
 			(_, _) => Task.FromResult(new ClipboardText(_platform.ReadClipboard())));
-		clipboard.Handle<EmptyMessage, ClipboardImage>(
-			"readImage",
+		clipboard.Handle(
+			"readImage", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardImage,
 			(_, _) => {
 				var image = _platform.ReadClipboardImage();
 				return Task.FromResult(new ClipboardImage(
@@ -44,7 +50,7 @@ public sealed partial class HostCore {
 					Convert.ToBase64String(image.Bytes)));
 			});
 
-		_messages.Host.Feature("platform").Handle<OpenUrlMessage>("openUrl", (message, _) => {
+		_messages.Host.Feature("platform").Handle("openUrl", WireJson.Default.OpenUrlMessage, (message, _) => {
 			if (IsHttpUrl(message.Url)) {
 				_platform.OpenExternalUrl(message.Url);
 			} else {
@@ -54,54 +60,49 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("diagnostics").Handle<WebLogMessage>("log", (message, _) => {
-			Log($"[web:{message.Level}] {message.Message}");
-			return Task.CompletedTask;
-		});
-
-		_messages.Host.Feature("layout").Handle<ToolLayoutMessage, bool>("tool", (message, _) => {
+		_messages.Host.Feature("layout").Handle("tool", WireJson.Default.ToolLayoutMessage, WireJson.Default.Boolean, (message, _) => {
 			_layout.ChangeTool(message.Kind, message.Action);
 			return Task.FromResult(true);
 		});
-		_messages.Host.Feature("layout").Handle<LayoutResizeMessage, bool>("resize", (message, _) => {
+		_messages.Host.Feature("layout").Handle("resize", WireJson.Default.LayoutResizeMessage, WireJson.Default.Boolean, (message, _) => {
 			_layout.Resize(message.Expected, message.Root);
 			return Task.FromResult(true);
 		});
 
-		_messages.Host.Feature("suggestions").Handle<SuggestionDismissal>("dismiss", (message, _) => {
+		_messages.Host.Feature("suggestions").Handle("dismiss", WireJson.Default.SuggestionDismissal, (message, _) => {
 			DismissSuggestion(message.Id, message.Forever);
 			return Task.CompletedTask;
 		});
 
 		var remoteAgents = _messages.Host.Feature("remoteAgents");
-		remoteAgents.Handle<RemoteAgentMessage>("add", (message, _) => {
+		remoteAgents.Handle("add", WireJson.Default.RemoteAgentMessage, (message, _) => {
 			if (!string.IsNullOrWhiteSpace(message.Name)) {
 				_remoteAgents.Add(new RemoteAgent(message.Name, message.Url, message.Token));
 			}
 
 			return Task.CompletedTask;
 		});
-		remoteAgents.Handle<RemoteAgentName>("remove", (message, _) => {
+		remoteAgents.Handle("remove", WireJson.Default.RemoteAgentName, (message, _) => {
 			_remoteAgents.Remove(message.Name);
 			return Task.CompletedTask;
 		});
 
 		var rail = _messages.Host.Feature("rail");
-		rail.Handle<RailLocation>("setLastLocation", (message, _) => {
+		rail.Handle("setLastLocation", WireJson.Default.RailLocation, (message, _) => {
 			_railState.SetLastLocation(message.Location);
 			return Task.CompletedTask;
 		});
-		rail.Handle<RailPromotionSet>("setPromoted", (message, _) => {
+		rail.Handle("setPromoted", WireJson.Default.RailPromotionSet, (message, _) => {
 			_railState.SetPromoted(message.Promoted);
 			return Task.CompletedTask;
 		});
-		rail.Handle<RailSelectionMessage>("setSelected", (message, _) => {
+		rail.Handle("setSelected", WireJson.Default.RailSelectionMessage, (message, _) => {
 			_railState.SetSelected(message.BackendId, message.Slot);
 			return Task.CompletedTask;
 		});
 
 		var search = _messages.Host.Feature("search");
-		search.Handle<SearchOptionsMessage>("setOptions", (message, _) => {
+		search.Handle("setOptions", WireJson.Default.SearchOptionsMessage, (message, _) => {
 			_searchState.SetOptions(new GrepOptions {
 				CaseSensitive = message.CaseSensitive,
 				WholeWord = message.WholeWord,
@@ -112,56 +113,43 @@ public sealed partial class HostCore {
 			});
 			return Task.CompletedTask;
 		});
-		search.Handle<SearchTerm>("addRecent", (message, _) => {
+		search.Handle("addRecent", WireJson.Default.SearchTerm, (message, _) => {
 			_searchState.AddRecentTerm(message.Term);
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage, JsonElement>(
-			"setProvider",
-			(message, _) => {
-				RememberDefaultProvider(message.ProviderId);
-				return Task.FromResult(ParseJsonElement(BuildAgentDefaults()));
-			});
-
 		var acpRegistry = _messages.Host.Feature("acpRegistry");
-		acpRegistry.Handle<EmptyMessage, IReadOnlyList<AcpRegistryAgent>>(
-			"list",
-			(_, ct) => _acpAgents.ListRegistryAsync(ct));
-		acpRegistry.Handle<AcpInstallMessage>(
-			"install",
-			(message, ct) => _acpAgents.InstallAsync(message.Id, message.Distribution, ct));
-		acpRegistry.Handle<AcpAgentMessage>("remove", (message, _) => {
+		acpRegistry.Handle("remove", WireJson.Default.AcpAgentMessage, (message, _) => {
 			EnsureProviderCanBeRemoved(message.Id);
 			_acpAgents.Remove(message.Id);
 			return Task.CompletedTask;
 		});
-		acpRegistry.Handle<EmptyMessage>("reload", (_, _) => {
-			var currentIds = _acpAgents.LaunchSpecs.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+		acpRegistry.Handle("reload", WireJson.Default.EmptyPayload, (_, _) => {
+			var currentIds = _acpAgents.ProviderIds;
 			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("git").Handle<EmptyMessage, string[]>(
-			"branches",
+		_messages.Host.Feature("git").Handle(
+			"branches", WireJson.Default.EmptyPayload, WireJson.Default.StringArray,
 			(_, ct) => ListBranchesAsync(ct));
 
-		_messages.Host.Feature("sessions").HandleKeyed<CommandRequest, CommandWireResult>(
-			"invoke",
+		_messages.Host.Feature("sessions").HandleKeyed(
+			"invoke", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			CommandExecutionLane,
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
-		_messages.Host.Feature("sessionCreation").Handle<HostBranchPreviewRequest, BranchPreviewResult>(
-			"previewBranch",
+		_messages.Host.Feature("sessionCreation").Handle(
+			"previewBranch", WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
-		_messages.Host.Feature("commands").HandleKeyed<CommandRequest, CommandWireResult>(
-			"invoke",
+		_messages.Host.Feature("commands").HandleKeyed(
+			"invoke", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			CommandExecutionLane,
-			async (message, ct) => ToWireResult(
+			async (message, ct) => CommandWireResult.From(
 				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
 
-		_messages.Host.Feature("applicationMenu").HandleOwned<ApplicationMenuState>(
-			"state",
+		_messages.Host.Feature("applicationMenu").HandleOwned(
+			"state", WireJson.Default.ApplicationMenuState,
 			(message, peer, _) => {
 				_applicationMenuOwner = peer;
 				_platform.ApplicationMenu.Apply(message);
@@ -169,25 +157,24 @@ public sealed partial class HostCore {
 			});
 
 		var window = _messages.Host.Feature("window");
-		window.Handle<JsonElement>("control", (message, _) => {
+		window.Handle("control", WireJson.Default.JsonElement, (message, _) => {
 			_shell?.HandleWindowControl(message);
 			return Task.CompletedTask;
 		});
-		window.Handle<JsonElement>("resize", (message, _) => {
+		window.Handle("resize", WireJson.Default.JsonElement, (message, _) => {
 			_shell?.HandleWindowResize(message);
 			return Task.CompletedTask;
 		});
-		window.HandleAfterEvent<JsonElement>("menu", (message, _) =>
-			Task.FromResult<Func<CancellationToken, Task>>(ct => _ui.InvokeAsync(() => {
-				(_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
-					.HandleMenuAction(message);
-				return Task.CompletedTask;
-			}, ct)));
+		window.Handle("menu", WireJson.Default.JsonElement, (message, _) => {
+			_menuActions.Enqueue(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
+				.HandleMenuAction(message));
+			return Task.CompletedTask;
+		});
 	}
 
 	private void OnApplicationMenuActivated(ApplicationMenuActivation activation) {
 		if (_applicationMenuOwner is { } owner) {
-			_messages.Host.Feature("applicationMenu").Target(owner).Publish("invoke", activation);
+			_messages.Host.Feature("applicationMenu").Target(owner).Publish("invoke", WireJson.Default.ApplicationMenuActivation, activation);
 		}
 	}
 
@@ -241,7 +228,7 @@ public sealed partial class HostCore {
 
 	private string CommandExecutionLane(CommandRequest message) =>
 		_commandRegistry.TryGet(message.Id, out var definition)
-			? definition.ExecutionLane
+			? definition.ExecutionLaneFor(message.Args?.GetRawText())
 			: "unknown-command";
 
 	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {
@@ -249,9 +236,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure("New session arguments must be an object."));
 		}
 
-		var request = JsonSerializer.Deserialize<NewSessionRequest>(
-			element.GetRawText(),
-			new JsonSerializerOptions(JsonSerializerDefaults.Web))
+		var request = element.Deserialize(WireJson.Default.NewSessionRequest)
 			?? throw new JsonException("New session arguments were empty.");
 		bool hasSource = element.TryGetProperty("source", out var sourceElement)
 			&& sourceElement.ValueKind != JsonValueKind.Null;
@@ -309,30 +294,17 @@ public sealed partial class HostCore {
 
 	private HostHello BuildHello() {
 		using var layout = JsonDocument.Parse(LayoutSerialization.SerializeCompact(_layout.Current));
-		var search = _searchState.Current;
 		var hello = new HostHello(
 			_hostIncarnation,
 			BuildNumber,
 			BuildSessionCatalog(),
 			layout.RootElement.Clone(),
-			[.. _remoteAgents.Agents
-				.Select(agent => new RemoteAgentSnapshot(agent.Name, agent.Url, agent.Token))
-			],
-			new RailSnapshot(
-				_railState.LastLocation,
-				[.. _railState.Promoted],
-				RailSelectionSnapshot()),
-			new SearchSnapshot(
-				new SearchOptionsSnapshot(
-					search.Options.CaseSensitive,
-					search.Options.WholeWord,
-					search.Options.Regex,
-					search.Options.ExcludeGitignored,
-					search.Options.Include,
-					search.Options.Exclude),
-				[.. search.RecentTerms]),
+			RemoteAgentSnapshots(),
+			BuildRailSnapshot(),
+			BuildSearchSnapshot(),
 			ResolvedTestProfile(),
-			ParseJsonElement(BuildAgentDefaults()),
+			[.. _sources.ConnectedLinkHosts()],
+			ParseJsonElement(_global.AgentDefaultsJson()),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
@@ -364,33 +336,27 @@ public sealed partial class HostCore {
 		return document.RootElement.Clone();
 	}
 
-	private sealed record EmptyMessage;
+	internal sealed record ClipboardWrite(string Text);
 
-	private sealed record HelloRequest;
+	internal sealed record ClipboardText(string Text);
 
-	private sealed record ClipboardWrite(string Text);
+	internal sealed record ClipboardImage(string Mime, string DataB64);
 
-	private sealed record ClipboardText(string Text);
+	internal sealed record OpenUrlMessage(string Url);
 
-	private sealed record ClipboardImage(string Mime, string DataB64);
+	internal sealed record SuggestionDismissal(string Id, bool Forever);
 
-	private sealed record OpenUrlMessage(string Url);
+	internal sealed record RemoteAgentMessage(string Name, string Url, string Token);
 
-	private sealed record WebLogMessage(string Level, string Message);
+	internal sealed record RemoteAgentName(string Name);
 
-	private sealed record SuggestionDismissal(string Id, bool Forever);
+	internal sealed record RailLocation(string Location);
 
-	private sealed record RemoteAgentMessage(string Name, string Url, string Token);
+	internal sealed record RailPromotionSet(string[] Promoted);
 
-	private sealed record RemoteAgentName(string Name);
+	internal sealed record RailSelectionMessage(string BackendId, string Slot);
 
-	private sealed record RailLocation(string Location);
-
-	private sealed record RailPromotionSet(string[] Promoted);
-
-	private sealed record RailSelectionMessage(string BackendId, string Slot);
-
-	private sealed record SearchOptionsMessage(
+	internal sealed record SearchOptionsMessage(
 		bool CaseSensitive,
 		bool WholeWord,
 		bool Regex,
@@ -398,11 +364,9 @@ public sealed partial class HostCore {
 		string Include,
 		string Exclude);
 
-	private sealed record SearchTerm(string Term);
+	internal sealed record SearchTerm(string Term);
 
-	private sealed record AgentProviderMessage(string ProviderId);
-
-	private sealed record HostHello(
+	internal sealed record HostHello(
 		string HostIncarnation,
 		string BuildNumber,
 		SessionCatalogEntry[] Sessions,
@@ -411,23 +375,24 @@ public sealed partial class HostCore {
 		RailSnapshot Rail,
 		SearchSnapshot Search,
 		string TestProfile,
+		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
 		CommandCatalogSnapshot CommandCatalog);
 
-	private sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
+	internal sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
 
-	private sealed record RemoteAgentSnapshot(string Name, string Url, string Token);
+	internal sealed record RemoteAgentSnapshot(string Name, string Url, string Token);
 
-	private sealed record RailSnapshot(
+	internal sealed record RailSnapshot(
 		string LastLocation,
 		string[] Promoted,
 		RailSelection? Selected);
 
-	private sealed record RailSelection(string BackendId, string Slot);
+	internal sealed record RailSelection(string BackendId, string Slot);
 
-	private sealed record SearchSnapshot(SearchOptionsSnapshot Options, string[] RecentTerms);
+	internal sealed record SearchSnapshot(SearchOptionsSnapshot Options, string[] RecentTerms);
 
-	private sealed record SearchOptionsSnapshot(
+	internal sealed record SearchOptionsSnapshot(
 		bool CaseSensitive,
 		bool WholeWord,
 		bool Regex,
@@ -435,12 +400,28 @@ public sealed partial class HostCore {
 		string Include,
 		string Exclude);
 
-	private RailSelection? RailSelectionSnapshot() =>
-		_railState.Selected is { } selected
-			? new RailSelection(selected.BackendId, selected.Slot)
-			: null;
+	private RemoteAgentSnapshot[] RemoteAgentSnapshots() =>
+		[.. _remoteAgents.Agents.Select(agent => new RemoteAgentSnapshot(agent.Name, agent.Url, agent.Token))];
+
+	private RailSnapshot BuildRailSnapshot() => new(
+		_railState.LastLocation,
+		[.. _railState.Promoted],
+		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null);
+
+	private SearchSnapshot BuildSearchSnapshot() {
+		var search = _searchState.Current;
+		return new(
+			new SearchOptionsSnapshot(
+				search.Options.CaseSensitive,
+				search.Options.WholeWord,
+				search.Options.Regex,
+				search.Options.ExcludeGitignored,
+				search.Options.Include,
+				search.Options.Exclude),
+			[.. search.RecentTerms]);
+	}
 }
 
-internal sealed record AcpInstallMessage(string Id, string Distribution);
+internal sealed record AcpInstallMessage(string Id, string Distribution, string Operation);
 
 internal sealed record AcpAgentMessage(string Id);

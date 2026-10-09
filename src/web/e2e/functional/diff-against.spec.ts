@@ -50,7 +50,6 @@ test("Diff Against HEAD reviews uncommitted changes with Keep/Revert", async ({ 
   // absent — a local ref has no forge behind it.
   await expect(toolbar.locator(".weavie-inline-accept")).toBeVisible();
   await expect(toolbar.locator(".weavie-inline-reject")).toBeVisible();
-  await expect(toolbar.locator(".weavie-inline-comment")).toHaveCount(0);
 
   // Reject the change → the uncommitted line is backed out on disk (the file returns to its committed content)
   // and its added marker clears, exactly as a turn revert.

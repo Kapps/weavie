@@ -15,6 +15,11 @@ import {
 import { currentFonts, onFontsChanged } from "../fonts";
 import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
+type EditorConstruction = Pick<
+  monaco.editor.IStandaloneEditorConstructionOptions,
+  "dimension" | "overflowWidgetsDomNode"
+>;
+
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
 // before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
 
@@ -24,7 +29,7 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
  * tsserver-family servers treat them as project files and publish diagnostics.
  */
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  const editor = buildEditor(container, null, {});
+  const editor = buildEditor(container, null, {}, {});
 
   // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
   // global.d.ts.
@@ -43,9 +48,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
 export function createEmbeddedEditor(
   container: HTMLElement,
   model: monaco.editor.ITextModel,
+  construction: Required<EditorConstruction>,
   overrides: monaco.editor.IEditorOptions,
 ): monaco.editor.IStandaloneCodeEditor {
-  return buildEditor(container, model, overrides);
+  return buildEditor(container, model, overrides, construction);
 }
 
 // The construction options + live font/settings wiring every weavie editor shares.
@@ -53,6 +59,7 @@ function buildEditor(
   container: HTMLElement,
   model: monaco.editor.ITextModel | null,
   overrides: monaco.editor.IEditorOptions,
+  construction: EditorConstruction,
 ): monaco.editor.IStandaloneCodeEditor {
   // Typography + behavior are user settings, live-updated below.
   const font = currentFonts().editor;
@@ -83,6 +90,7 @@ function buildEditor(
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
     ...toMonacoOptions(editorOptions),
     ...overrides,
+    ...construction,
   });
   // Linux PRIMARY paste runs on release, independently of Monaco's mousedown gesture.
   const suppressMiddleClickPaste = (event: MouseEvent): void => {

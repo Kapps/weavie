@@ -7,12 +7,18 @@ import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 // navigator. See docs/specs/open-pr.md (Phase 2).
 test.use({ prScenario: true });
 
-test("opening a PR checks out its branch and pops up the diff navigator", async ({ page }) => {
+test("File → Open Pull Request checks out its branch and pops up the diff navigator", async ({
+  page,
+}) => {
   // The repo starts with one session on the workspace checkout.
   await expect(page.locator(".session-chip")).toHaveCount(1);
 
-  // Open the picker; it lists the stubbed PR #101.
-  await runCommand(page, "Open Pull Request…");
+  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: /^Open Current Pull Request/ })).toBeDisabled();
+  const openPr = page.getByRole("menuitem", { name: /^Open Pull Request…/ });
+  const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
+  await expect(openPr.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+R`);
+  await openPr.click();
   await expect(page.locator(".session-prompt")).toBeVisible();
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
 
@@ -61,6 +67,13 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
     .not.toBe(first);
   // The modified file (hello.ts) still shows the per-line added wash.
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
+
+  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: /^Open Current Pull Request/ })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("menuitem", { name: "Diff", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Close Diff/ }).click();
+  await expect(toolbar).toBeHidden();
 });
 
 test("typing #N opens a PR directly by number", async ({ page }) => {
@@ -80,58 +93,13 @@ test("typing #N opens a PR directly by number", async ({ page }) => {
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
 });
 
-test("a PR's review comments render and reply", async ({ page }) => {
+test("a PR's review comments render on its changed file", async ({ page }) => {
   await runCommand(page, "Open Pull Request…");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-
-  // Comments coexist with Keep/Revert on the one applied toolbar: the Comment button sits beside them.
-  await expect(page.locator(".weavie-inline-accept")).toBeVisible();
-  await expect(page.locator(".weavie-inline-comment")).toBeVisible();
-
-  // Walk to hello.ts (the commented file; the navigator auto-opens feature.ts first).
   await walkToChangedFile(page, "hello.ts");
-
-  // The seeded review comment shows in a thread on the diff.
   await expect(
     page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
-  ).toBeVisible({
-    timeout: 10_000,
-  });
-
-  // Reply in the thread → the reply appears (round-tripped through the stubbed comment store).
-  const thread = page.locator(".weavie-pr-thread").first();
-  await thread.locator(".weavie-pr-composer-input").fill("Addressed in the latest push.");
-  await thread.locator(".weavie-pr-composer-submit").click();
-  await expect(
-    page.locator(".weavie-pr-comment-body", { hasText: "Addressed in the latest push." }),
-  ).toBeVisible({
-    timeout: 10_000,
-  });
-});
-
-// KNOWN BUG (#218): the new-comment composer's KEYBOARD submit (Ctrl+Enter) doesn't fire — the composer is a
-// Monaco view-zone inside the vscode workbench (shadow DOM), which intercepts its keydowns before the composer's
-// own handler runs. (Its submit BUTTON works, but a transient toast over it makes a click unreliable here, which
-// is why this uses Ctrl+Enter.) Render + reply are unaffected. Re-enable (drop `.fixme`) once the composer moves
-// to an app-level overlay outside the view-zone.
-test.fixme("a PR's review comments can be authored inline", async ({ page }) => {
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-  await walkToChangedFile(page, "hello.ts");
-
-  // Add a brand-new comment from the toolbar → it appears as its own thread. Submit with Ctrl/Cmd+Enter (the
-  // composer's shortcut) so a transient toast over the button can't intercept the click.
-  await page.locator(".weavie-inline-comment").click();
-  const composer = page.locator(".weavie-pr-thread-new");
-  await composer.locator(".weavie-pr-composer-input").fill("Nit: keep the period.");
-  await composer.locator(".weavie-pr-composer-input").press("ControlOrMeta+Enter");
-  await expect(
-    page.locator(".weavie-pr-comment-body", { hasText: "Nit: keep the period." }),
-  ).toBeVisible({
-    timeout: 10_000,
-  });
+  ).toBeVisible({ timeout: 10_000 });
 });

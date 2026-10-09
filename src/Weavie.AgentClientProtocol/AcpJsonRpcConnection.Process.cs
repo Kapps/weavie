@@ -93,10 +93,7 @@ public sealed partial class AcpJsonRpcConnection {
 	}
 
 	private ProcessStartInfo BuildStartInfo(AcpAgentDefinition definition) {
-		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, _workingDirectory, []);
-		string command = invocation.Command;
-		var arguments = invocation.Arguments;
-		var info = new ProcessStartInfo(command) {
+		var info = new ProcessStartInfo(definition.Command) {
 			WorkingDirectory = _workingDirectory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
@@ -107,7 +104,7 @@ public sealed partial class AcpJsonRpcConnection {
 			UseShellExecute = false,
 			CreateNoWindow = true,
 		};
-		foreach (string argument in arguments) {
+		foreach (string argument in definition.Arguments) {
 			info.ArgumentList.Add(argument);
 		}
 		foreach (var entry in definition.Environment) {

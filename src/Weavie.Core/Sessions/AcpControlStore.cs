@@ -9,12 +9,8 @@ namespace Weavie.Core.Sessions;
 /// or backed up: the failure is held and rethrown from the first use, so a provider never silently loses the
 /// controls the user accepted.
 /// </summary>
-public sealed class AcpControlStore : JsonDocumentStore {
+public sealed partial class AcpControlStore : JsonDocumentStore {
 	private const int Version = 1;
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		WriteIndented = true,
-		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-	};
 
 	private AcpControlStoreException? _loadFailure;
 	private Dictionary<string, Dictionary<string, string>> _providers = new(StringComparer.Ordinal);
@@ -78,7 +74,7 @@ public sealed class AcpControlStore : JsonDocumentStore {
 			throw new JsonException("The ACP control document requires a numeric version.");
 		}
 		if (version != Version) return;
-		var document = JsonSerializer.Deserialize<Document>(probe.RootElement.GetRawText(), JsonOptions)
+		var document = JsonSerializer.Deserialize(probe.RootElement.GetRawText(), AcpControlStoreJson.Default.Document)
 			?? throw new JsonException("The ACP control document is empty.");
 		foreach (var provider in document.Providers ?? throw new JsonException("The ACP control document requires providers.")) {
 			if (string.IsNullOrEmpty(provider.Key) || provider.Value is null
@@ -91,7 +87,7 @@ public sealed class AcpControlStore : JsonDocumentStore {
 
 	/// <inheritdoc/>
 	protected override string Render() =>
-		JsonSerializer.Serialize(new Document { Version = Version, Providers = _providers }, JsonOptions);
+		JsonSerializer.Serialize(new Document { Version = Version, Providers = _providers }, AcpControlStoreJson.Default.Document);
 
 	/// <inheritdoc/>
 	protected override void OnUnusable(string? text, Exception cause) {
@@ -134,6 +130,10 @@ public sealed class AcpControlStore : JsonDocumentStore {
 		[JsonPropertyName("providers")]
 		public Dictionary<string, Dictionary<string, string>>? Providers { get; set; }
 	}
+
+	[JsonSourceGenerationOptions(WriteIndented = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+	[JsonSerializable(typeof(Document))]
+	private sealed partial class AcpControlStoreJson : JsonSerializerContext;
 }
 
 /// <summary>Reports an ACP control-default load or persistence failure without resetting its data.</summary>

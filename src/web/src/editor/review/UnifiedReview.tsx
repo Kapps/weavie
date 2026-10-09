@@ -1,6 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -29,7 +28,13 @@ import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
-import type { ReviewFile, ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
+import type {
+  LineSpan,
+  ReviewFile,
+  ReviewFileDiff,
+  ReviewFileView,
+  ReviewOverview,
+} from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
 import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from "./review-toolbar";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
@@ -45,6 +50,7 @@ export function UnifiedReview(props: {
   tab: TabOwner;
   changed: () => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
+  onRevealContext: (session: ClientSession, path: string, span: LineSpan) => void;
   bindSurface: (surface: UnifiedReviewSurface) => () => void;
   clear: () => void;
   configureDiff: (
@@ -65,15 +71,24 @@ export function UnifiedReview(props: {
     scroll()?.setContentHeight(height);
   };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const visibleFile = (): number =>
-    Math.max(
-      0,
-      props
-        .overview()
-        .files.findIndex(
-          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
-        ),
-    );
+  const [viewTop, setViewTop] = createSignal(0);
+  const [anchorPath, setAnchorPath] = createSignal<string>();
+  // The selected file, else the first file on screen; none while only the file tree is in view. Memoised because
+  // several consumers ask per frame, and it takes the viewport height from the scroll owner rather than the DOM: a
+  // read there lands mid-gesture and forces a synchronous layout.
+  const visibleFile = createMemo((): number | undefined => {
+    const path = selectedPath();
+    if (path !== null) {
+      const index = props.overview().files.findIndex((file) => samePath(file.summary().path, path));
+      if (index >= 0) return index;
+    }
+    const owner = scroll();
+    if (owner === undefined) return undefined;
+    const top = viewTop();
+    const bottom = top + owner.getViewportHeight();
+    const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
+    return row === undefined ? undefined : row.index - 1;
+  });
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
   };
@@ -144,10 +159,48 @@ export function UnifiedReview(props: {
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
     getScrollElement: () => scroll()?.viewport ?? null,
+    // Report the gesture truthfully. While the review is scrolling the virtualiser still registers a new section
+    // with its ResizeObserver but skips its own synchronous measurement, so the size arrives from that observer's
+    // entry instead of a `getBoundingClientRect` that forces a layout mid-gesture. Claiming a settled scroll, as
+    // this did before, took the forced read on every section that came into view.
     observeElementOffset: (_instance, callback) => {
       const owner = scroll()!;
       callback(owner.getScrollTop(), false);
-      return owner.onScroll(() => callback(owner.getScrollTop(), false));
+      let moved = false;
+      let settling = false;
+      let stopped = false;
+      const settle = (): void => {
+        if (stopped) return;
+        if (moved) {
+          moved = false;
+          requestAnimationFrame(settle);
+          return;
+        }
+        settling = false;
+        callback(owner.getScrollTop(), false);
+      };
+      const unsubscribe = owner.onScroll((userInitiated) => {
+        // A programmatic scroll arriving while the review is still — a saved-position restore, a Find or
+        // go-to-line reveal, the scroll-into-view on focus — must let the virtualiser measure a section as it
+        // mounts, or it lands against an estimate. One arriving mid-gesture belongs to that gesture: the
+        // virtualiser's own size corrections write the scroll position this way, and flapping the flag per frame
+        // would re-render the list on every edge.
+        if (!userInitiated && !settling) {
+          callback(owner.getScrollTop(), false);
+          return;
+        }
+        moved = true;
+        callback(owner.getScrollTop(), true);
+        if (settling) return;
+        settling = true;
+        requestAnimationFrame(settle);
+      });
+      // The pending frame outlives the subscription, so it has to be stopped too: reporting a settled scroll after
+      // teardown would call back into a virtualiser that is already gone.
+      return () => {
+        stopped = true;
+        unsubscribe();
+      };
     },
     gap: 20,
     scrollToFn: (offset, options, instance) => {
@@ -157,10 +210,15 @@ export function UnifiedReview(props: {
       sizeVirtualList(instance.getTotalSize());
       owner.setScrollTop(top);
     },
-    measureElement: (element) => element.getBoundingClientRect().height,
+    // Observer snapshots must apply before navigation, not overwrite newer explicit sizes next frame.
+    measureElement: (element, entry, instance) =>
+      entry === undefined
+        ? (instance.itemSizeCache.get(
+            instance.options.getItemKey(instance.indexFromElement(element)),
+          ) ?? element.getBoundingClientRect().height)
+        : entry.borderBoxSize[0]!.blockSize,
     onChange: (instance) => sizeVirtualList(instance.getTotalSize()),
     overscan: 1,
-    useAnimationFrameWithResizeObserver: true,
   });
   createEffect(() => sizeVirtualList(virtualizer.getTotalSize()));
 
@@ -193,12 +251,16 @@ export function UnifiedReview(props: {
     signal: props.tab.signal,
     clear: props.clear,
     getScrollTop: () => scroll()!.getScrollTop(),
-    setScrollTop: (top) => scroll()!.setScrollTop(top),
+    setScrollTop: (top) => {
+      setAnchorPath(undefined);
+      scroll()!.setScrollTop(top);
+    },
     focus: () => scroller?.focus(),
     changed,
     files,
     currentIndex: visibleFile,
     select: (index) => {
+      setAnchorPath(props.overview().files[index]?.summary().path);
       setVisibleFile(index);
       props.changed();
     },
@@ -213,6 +275,7 @@ export function UnifiedReview(props: {
   const summary = () => {
     const overview = props.overview();
     const index = visibleFile();
+    const count = overview.files.length;
     const reveal = (index: number): void => {
       const file = overview.files[index]?.summary();
       if (file !== undefined) surface.reveal(file.path, file.line);
@@ -220,9 +283,9 @@ export function UnifiedReview(props: {
     return {
       fileCount: overview.files.length,
       label: overview.label,
-      stepIn: () => reveal(index),
-      nextFile: () => reveal((index + 1) % overview.files.length),
-      prevFile: () => reveal((index - 1 + overview.files.length) % overview.files.length),
+      stepIn: () => reveal(index ?? 0),
+      nextFile: () => reveal(index === undefined ? 0 : (index + 1) % count),
+      prevFile: () => reveal(((index ?? 0) - 1 + count) % count),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {
@@ -281,7 +344,16 @@ export function UnifiedReview(props: {
     onCleanup(() => controls.bar.remove());
   });
 
+  // A navigated file holds its place while files above it measure, until the user takes over.
+  createEffect(() => {
+    const path = anchorPath();
+    const index =
+      path === undefined ? -1 : files().findIndex((file) => samePath(file.summary().path, path));
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+      index < 0 ? undefined : (item) => item.index <= index;
+  });
   const followViewport = (): void => {
+    setAnchorPath(undefined);
     surface.takeControl();
   };
   onMount(() => {
@@ -290,7 +362,9 @@ export function UnifiedReview(props: {
     setScroll(owner);
     sizeVirtualList(virtualizer.getTotalSize());
     const changedScroll = owner.onScroll((userInitiated) => {
+      setViewTop(owner.getScrollTop());
       if (userInitiated) {
+        setAnchorPath(undefined);
         const row = virtualizer.getVirtualItemForOffset(owner.getScrollTop());
         if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
       }
@@ -306,19 +380,19 @@ export function UnifiedReview(props: {
       onCleanup(() => element.removeEventListener(event, followViewport, true));
     }
   });
-  const measure = (element: HTMLElement): void => {
+  const observe = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
-        const index = virtualizer.indexFromElement(element);
-        const height = element.getBoundingClientRect().height;
-        batch(() => {
-          virtualizer.measureElement(element);
-          virtualizer.resizeItem(index, height);
-        });
+        virtualizer.measureElement(element);
       }
     };
     if (element.isConnected) commit();
     else queueMicrotask(commit);
+  };
+  const measure = (element: HTMLElement): void => {
+    if (element.isConnected) {
+      virtualizer.resizeItem(Number(element.dataset.index), element.getBoundingClientRect().height);
+    }
   };
 
   return (
@@ -354,7 +428,12 @@ export function UnifiedReview(props: {
                               tab={props.tab}
                               scroller={() => scroll()!}
                               editorHeight={() => editorHeight(view())}
-                              onEditorHeight={(height) => editorHeights.set(view(), height)}
+                              onEditorHeight={(height) => {
+                                const file = view();
+                                if (editorHeights.get(file) === height) return false;
+                                editorHeights.set(file, height);
+                                return true;
+                              }}
                               scope={props.scope}
                               displayPath={displayPath}
                               file={view}
@@ -370,7 +449,11 @@ export function UnifiedReview(props: {
                               openCopy={(diff) =>
                                 copies.open(diff.path, diff.current, diff.currentExists)
                               }
+                              revealContext={(span) =>
+                                props.onRevealContext(props.session, view().summary().path, span)
+                              }
                               measure={measure}
+                              observe={observe}
                               onFocus={() => {
                                 setVisibleFile(item().index - 1);
                                 props.changed();
@@ -384,14 +467,19 @@ export function UnifiedReview(props: {
                       <ReviewFileTree
                         expanded={expandedDirectories}
                         index={0}
-                        measure={measure}
+                        measure={observe}
                         nodes={treeNodes}
                         onSelect={(file) =>
                           surface.reveal(file.summary().path, file.summary().line)
                         }
                         onToggleDirectory={toggleDirectory}
                         overview={props.overview}
-                        selectedPath={() => files()[visibleFile()]?.summary().path ?? null}
+                        selectedPath={() => {
+                          const index = visibleFile();
+                          return index === undefined
+                            ? null
+                            : (files()[index]?.summary().path ?? null);
+                        }}
                         style={`top:${item().start}px`}
                       />
                     </Show>

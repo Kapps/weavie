@@ -1,5 +1,5 @@
 import type { VirtualItem, Virtualizer } from "@tanstack/solid-virtual";
-import { For, type JSX, onCleanup, Show } from "solid-js";
+import { createMemo, For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -20,6 +20,10 @@ export function AgentTranscript(props: {
   session: ClientSession;
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
+  // The rewind shortcut acts on the latest prompt, so only that row advertises it.
+  const latestPromptTurn = createMemo(
+    () => props.entries.findLast((entry) => entry.promptTurnId)?.promptTurnId ?? null,
+  );
   return (
     <Show
       when={props.entries.length > 0}
@@ -66,6 +70,7 @@ export function AgentTranscript(props: {
                   expandedDetails={props.expandedDetails}
                   entry={entry}
                   keyboardRequestKey={props.keyboardRequestKey}
+                  latestPromptTurn={latestPromptTurn()}
                   onDetailsToggle={props.onDetailsToggle}
                   sectionLabel={props.sectionLabels.get(entry.id) ?? null}
                   session={props.session}

@@ -49,7 +49,7 @@ public sealed partial class SessionMessageBusTests {
 		router.Add(bus);
 		int value = 0;
 		using var registration = bus.Feature("dummy").Handle(
-			"increment", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"increment", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(new Counter(value += request.By)));
 
 		var request = MessageEnvelope.SessionRequest(
@@ -81,7 +81,7 @@ public sealed partial class SessionMessageBusTests {
 		router.Add(current);
 		int calls = 0;
 		using var registration = current.Feature("dummy").Handle(
-			"increment", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"increment", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(new Counter(calls += request.By)));
 
 		await router.RouteAsync(
@@ -109,14 +109,14 @@ public sealed partial class SessionMessageBusTests {
 		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var fastFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var slow = bus.Feature("slow").Handle(
-			"run", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"run", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			async (request, _) => {
 				slowEntered.SetResult();
 				await releaseSlow.Task;
 				return new Counter(request.By);
 			});
 		using var fast = bus.Feature("fast").Handle(
-			"run", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"run", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => {
 				fastFinished.SetResult();
 				return Task.FromResult(new Counter(request.By));
@@ -154,7 +154,7 @@ public sealed partial class SessionMessageBusTests {
 		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var first = bus.Feature("counter").Handle(
-			"increment", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"increment", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			async (request, _) => {
 				order.Enqueue("first-entered");
 				firstEntered.SetResult();
@@ -163,7 +163,7 @@ public sealed partial class SessionMessageBusTests {
 				return new Counter(request.By);
 			});
 		using var second = bus.Feature("counter").Handle(
-			"reset", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"reset", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => {
 				order.Enqueue("second-entered");
 				return Task.FromResult(new Counter(request.By));
@@ -212,7 +212,7 @@ public sealed partial class SessionMessageBusTests {
 		int slowLaneEntries = 0;
 		var feature = endpoint.Bus.Feature("commands");
 		using var handler = feature.HandleKeyedAfterResponse(
-			"invoke", SessionMessageBusJson.Default.KeyedIncrement, SessionMessageBusJson.Default.Counter,
+			"invoke", _ => "Running a test operation", SessionMessageBusJson.Default.KeyedIncrement, SessionMessageBusJson.Default.Counter,
 			request => request.Lane,
 			async (request, _) => {
 				bool firstSlow = request.Lane == "slow" && Interlocked.Increment(ref slowLaneEntries) == 1;
@@ -297,7 +297,7 @@ public sealed partial class SessionMessageBusTests {
 			_ => { });
 		router.Add(bus);
 		using var handler = bus.Feature("counter").HandleConcurrent(
-			"read", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"read", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(new Counter(request.By)));
 		var request = MessageEnvelope.SessionRequest(
 			address,
@@ -325,7 +325,7 @@ public sealed partial class SessionMessageBusTests {
 		var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = bus.Feature("counter").HandleConcurrent(
-			"wait", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"wait", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			async (request, ct) => {
 				using var registration = ct.Register(() => cancelled.TrySetResult());
 				entered.SetResult();
@@ -371,7 +371,7 @@ public sealed partial class SessionMessageBusTests {
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		int calls = 0;
 		using var handler = bus.Feature("counter").HandleConcurrent(
-			"wait", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"wait", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			async (request, _) => {
 				Interlocked.Increment(ref calls);
 				entered.SetResult();
@@ -537,13 +537,13 @@ public sealed partial class SessionMessageBusTests {
 		var values = new ConcurrentQueue<int>();
 		var editor = endpoint.Bus.Feature("editor");
 		using var blocker = editor.Handle(
-			"block", SessionMessageBusJson.Default.Increment,
+			"block", "Running a test operation", SessionMessageBusJson.Default.Increment,
 			async (_, _) => {
 				entered.SetResult();
 				await release.Task;
 			});
 		using var changed = editor.HandleOwned(
-			"changed", SessionMessageBusJson.Default.Increment,
+			"changed", "Running a test operation", SessionMessageBusJson.Default.Increment,
 			endpoint.View.IsBound,
 			(message, _, _) => {
 				values.Enqueue(message.By);
@@ -734,7 +734,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").Handle(
-			"wait", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"wait", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			async (request, ct) => {
 				entered.SetResult();
 				await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -781,7 +781,7 @@ public sealed partial class SessionMessageBusTests {
 		Task? quiesce = null;
 		bool completedInsideHandler = true;
 		using var handler = endpoint.Bus.Feature("dummy").Handle(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => {
 				quiesce = endpoint.QuiesceAsync();
 				completedInsideHandler = quiesce.IsCompleted;
@@ -809,7 +809,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(
 				new ResponseWithCompletion<Counter>(
 					new Counter(request.By),
@@ -842,7 +842,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(
 				new ResponseWithCompletion<Counter>(
 					new Counter(request.By),
@@ -874,7 +874,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		bool enteredUi = false;
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(
 				new ResponseWithCompletion<Counter>(
 					new Counter(request.By),
@@ -910,7 +910,7 @@ public sealed partial class SessionMessageBusTests {
 		var afterResponseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var allowSelfQuiescence = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(
 				new ResponseWithCompletion<Counter>(
 					new Counter(request.By),
@@ -947,7 +947,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterEvent(
-			"close", SessionMessageBusJson.Default.Increment,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment,
 			(_, _) => Task.FromResult<Func<CancellationToken, Task>>(async _ => {
 				await endpoint.QuiesceAsync();
 				completed.SetResult();
@@ -974,7 +974,7 @@ public sealed partial class SessionMessageBusTests {
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse(
-			"close", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
+			"close", "Running a test operation", SessionMessageBusJson.Default.Increment, SessionMessageBusJson.Default.Counter,
 			(request, _) => Task.FromResult(
 				new ResponseWithCompletion<Counter>(
 					new Counter(request.By),
@@ -1010,7 +1010,7 @@ public sealed partial class SessionMessageBusTests {
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		using var handler = endpoint.Bus.Feature("dummy").Handle(
-			"fail", SessionMessageBusJson.Default.Increment,
+			"fail", "Running a test operation", SessionMessageBusJson.Default.Increment,
 			(_, _) => throw new InvalidOperationException("handler failed"));
 
 		await router.RouteAsync(

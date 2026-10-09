@@ -37,6 +37,7 @@ internal sealed class MessageOperationRegistry {
 	public MessageOperation Start(
 		WebPeer peer,
 		MessageEnvelope envelope,
+		PendingPresenter presenter,
 		Action<MessageOperation, string> timedOut) {
 		ArgumentNullException.ThrowIfNull(envelope);
 		ArgumentNullException.ThrowIfNull(timedOut);
@@ -45,6 +46,7 @@ internal sealed class MessageOperationRegistry {
 			$"msg-{sequence}",
 			peer,
 			envelope,
+			presenter,
 			_policy,
 			_time,
 			OnSlow,
@@ -73,7 +75,7 @@ internal sealed class MessageOperationRegistry {
 			SendNotification(
 				operation,
 				"busy",
-				SlowMessage(snapshot),
+				SlowMessage,
 				operation.NotificationKey)));
 	}
 
@@ -87,7 +89,7 @@ internal sealed class MessageOperationRegistry {
 		timedOut(operation, detail);
 		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.RunTimeoutDiagnostic(
-			() => SendNotification(operation, "busy", SlowMessage(snapshot), operation.NotificationKey),
+			() => SendNotification(operation, "busy", SlowMessage, operation.NotificationKey),
 			() => SendNotification(operation, "error", detail, operation.NotificationKey)));
 	}
 
@@ -125,9 +127,8 @@ internal sealed class MessageOperationRegistry {
 		+ $"kind={snapshot.Kind} request={snapshot.RequestId ?? "-"} "
 		+ $"handler={snapshot.Feature}.{snapshot.Name} stage={snapshot.Stage} elapsedMs={snapshot.ElapsedMs}";
 
-	private static string SlowMessage(MessageOperationSnapshot snapshot) =>
-		$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
-		+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).";
+	// The log line carries the operation's identity; the user only needs to know Weavie is still working.
+	private const string SlowMessage = "Weavie is taking longer than usual to respond…";
 }
 
 internal sealed record MessageOperationSnapshot(

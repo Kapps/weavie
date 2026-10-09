@@ -145,9 +145,10 @@ public sealed partial class MessageOperationSupervisionTests {
 			Assert.Contains("stage handler", response.Error, StringComparison.Ordinal);
 			await Wait.UntilAsync(() => transport.Events("notifications", "show")
 				.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
-			Assert.Contains(
+			var busy = Assert.Single(
 				transport.Events("notifications", "show"),
 				eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
+			Assert.DoesNotContain("msg-", busy.GetProperty("message").GetString(), StringComparison.Ordinal);
 			Assert.Contains(
 				transport.Events("notifications", "show"),
 				eventPayload => eventPayload.GetProperty("level").GetString() == "error"
@@ -158,6 +159,47 @@ public sealed partial class MessageOperationSupervisionTests {
 			Assert.False(health.Healthy);
 			Assert.Equal("handler", health.LastFailure!.Stage);
 			Assert.Equal("lifecycle", health.LastFailure.Feature);
+		} finally {
+			release.TrySetResult();
+		}
+	}
+
+	[Fact]
+	public async Task CallerPresentedRequestRaisesNoBusyNotificationButStillTimesOut() {
+		var transport = new RecordingTransport();
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(150));
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { }, policy, time);
+		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i3"));
+		endpoint.Activate();
+		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var handler = endpoint.Bus.Feature("naming").HandleWithCallerProgress(
+			"preview", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			async (_, _) => {
+				entered.TrySetResult();
+				await release.Task;
+				return new Result(true);
+			});
+		var request = MessageEnvelope.SessionRequest(
+			endpoint.Address,
+			"request-9",
+			"naming",
+			"preview",
+			JsonSerializer.SerializeToElement(new Empty()));
+
+		var dispatch = router.RouteAsync(new WebPeer("page"), request.ToJson());
+		try {
+			await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.SlowAfter);
+			Assert.Empty(transport.Events("notifications", "show"));
+			time.Advance(policy.Deadline - policy.SlowAfter);
+			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
+			await Wait.UntilAsync(() => transport.Events("notifications", "show").Any());
+			Assert.Equal(
+				"error",
+				Assert.Single(transport.Events("notifications", "show")).GetProperty("level").GetString());
+			Assert.Contains("naming.preview", Assert.Single(transport.Envelopes(MessageKind.Response)).Error, StringComparison.Ordinal);
 		} finally {
 			release.TrySetResult();
 		}
@@ -271,6 +313,7 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"blockedDiagnostics",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
 			policy,
 			time,
 			_ => {
@@ -311,6 +354,7 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"complete",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
 			policy,
 			time,
 			_ => {
@@ -347,6 +391,7 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"responseRace",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
 			policy,
 			time,
 			_ => { },

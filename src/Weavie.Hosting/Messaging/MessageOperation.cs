@@ -5,6 +5,7 @@ internal sealed class MessageOperation {
 	private const int Completed = 1;
 	private const int TimedOut = 2;
 
+	private readonly PendingPresenter _presenter;
 	private readonly MessageExecutionPolicy _policy;
 	private readonly TimeProvider _time;
 	private readonly Action<MessageOperation> _slow;
@@ -28,6 +29,7 @@ internal sealed class MessageOperation {
 		string id,
 		WebPeer peer,
 		MessageEnvelope envelope,
+		PendingPresenter presenter,
 		MessageExecutionPolicy policy,
 		TimeProvider time,
 		Action<MessageOperation> slow,
@@ -36,6 +38,7 @@ internal sealed class MessageOperation {
 		Id = id;
 		Peer = peer;
 		Envelope = envelope;
+		_presenter = presenter;
 		_policy = policy;
 		_time = time;
 		_slow = slow;
@@ -62,7 +65,9 @@ internal sealed class MessageOperation {
 	public bool TimeoutOwnsResponse => Volatile.Read(ref _timeoutOwnsResponse) != 0;
 
 	public void StartWatchdog() {
-		_ = WatchSlowAsync();
+		if (_presenter == PendingPresenter.Bus) {
+			_ = WatchSlowAsync();
+		}
 		_ = WatchDeadlineAsync();
 	}
 
@@ -124,7 +129,7 @@ internal sealed class MessageOperation {
 		ArgumentNullException.ThrowIfNull(slowDiagnostic);
 		ArgumentNullException.ThrowIfNull(terminalDiagnostic);
 		lock (_diagnostics) {
-			if (_slowDiagnosticDelivered == 0) {
+			if (_slowDiagnosticDelivered == 0 && _presenter == PendingPresenter.Bus) {
 				_slowDiagnosticDelivered = 1;
 				slowDiagnostic();
 			}

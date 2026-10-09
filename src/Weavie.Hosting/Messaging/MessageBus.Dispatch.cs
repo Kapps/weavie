@@ -157,13 +157,17 @@ internal partial class MessageBus {
 		public HandlerRegistration(
 			Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
 			Func<JsonElement, FeatureLane?> lane,
-			Func<MessagePeer, bool> admit) {
+			Func<MessagePeer, bool> admit,
+			PendingPresenter presenter) {
 			_handler = handler;
 			_lane = lane;
 			_admit = admit;
+			Presenter = presenter;
 		}
 
 		private readonly Func<MessagePeer, bool> _admit;
+
+		public PendingPresenter Presenter { get; }
 
 		public bool Admits(MessagePeer peer) => _admit(peer);
 

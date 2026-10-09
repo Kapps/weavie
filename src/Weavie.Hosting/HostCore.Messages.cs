@@ -139,7 +139,7 @@ public sealed partial class HostCore {
 			CommandExecutionLane,
 			async (message, ct) => CommandWireResult.From(
 				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
-		_messages.Host.Feature("sessionCreation").Handle(
+		_messages.Host.Feature("sessionCreation").HandleWithCallerProgress(
 			"previewBranch", WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
 		_messages.Host.Feature("commands").HandleKeyed(

@@ -19,10 +19,14 @@ handler or wait for one.
    after-response work. Slow and failed logs include that identity, endpoint, peer, request id, feature, name,
    stage, and elapsed time. Diagnostics use bounded, ordered workers; a blocked sink consumes one worker and a
    later coalescing summary makes any suppressed volume explicit.
-4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Slow
-   reporting and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout.
-   Completion clears it. At the global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default),
-   the same key becomes a persistent error and a request receives the same detailed failure.
+4. At two seconds, an unfinished operation logs its identity, stage, and elapsed time and raises a keyed,
+   plain-language busy notification for its originating page. A handler registered with
+   `HandleWithCallerProgress` declares that its caller already shows the wait in place (e.g. the branch field's
+   "Suggesting…"), so its operation has no slow watch. Slow reporting and the absolute deadline run
+   independently, so blocked diagnostics cannot postpone timeout. Completion clears the busy notification. At the
+   global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default), every operation — including
+   caller-presented ones — raises a persistent error under the same key and a request receives the same detailed
+   failure.
 5. The deadline covers time waiting in a serialized feature lane, handler execution, and after-response work. A
    queued operation that expires never enters its handler. UI-dispatch admission is instead covered by the ingress
    health probe because no application operation exists before an envelope is admitted. A running operation is

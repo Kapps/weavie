@@ -24,7 +24,18 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
+		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Serialized, PendingPresenter.Bus);
+
+	/// <summary>
+	/// Registers a serialized request whose caller shows its own in-place progress, so a long wait raises no busy
+	/// notification; the operation deadline still applies.
+	/// </summary>
+	internal IDisposable HandleWithCallerProgress<TRequest, TResponse>(
+		string name,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
+		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
+		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Serialized, PendingPresenter.Caller);
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string name,
@@ -85,7 +96,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Concurrent);
+		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Concurrent, PendingPresenter.Bus);
 
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string name,

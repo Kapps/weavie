@@ -15,6 +15,8 @@ interface UpdateState {
 
 const UPDATED_KEY = "weavie-updated-to";
 const UPDATE_TOAST_KEY = "weavie-update-ready";
+// The identity Directory.Build.props stamps on any build release.yml didn't allocate; it says nothing about protocol.
+const DEV_BUILD = "0.1.0.0";
 const EMPTY: UpdateState = { holds: null, restarting: false, pending: false };
 const [states, setStates] = createSignal(new Map<string, UpdateState>());
 const [builds, setBuilds] = createSignal(new Map<string, string>());
@@ -110,17 +112,10 @@ export function backendBuildMismatch(
     client !== undefined &&
     backend !== undefined &&
     client !== backend &&
-    !isDevBuild(client) &&
-    !isDevBuild(backend)
+    client !== DEV_BUILD &&
+    backend !== DEV_BUILD
     ? { client, backend }
     : null;
-}
-
-// Only release.yml allocates build numbers; any other build is stamped `<version>.0` (Directory.Build.props), so
-// its protocol is unknowable from the identity and comparing it would always cry mismatch.
-function isDevBuild(build: string): boolean {
-  const parts = build.split(".");
-  return parts.length === 4 && parts[3] === "0";
 }
 
 export function surfacePostUpdateNotice(): void {

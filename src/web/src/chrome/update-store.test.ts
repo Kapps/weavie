@@ -195,7 +195,7 @@ describe("update-store", () => {
     expect(store.activeBackendBuildMismatch()).toBeNull();
 
     // A local dev build has no release identity on either side, so it never mismatches.
-    deliverHello(remote, "0.2.24.0");
+    deliverHello(remote, "0.1.0.0");
     expect(store.activeBackendBuildMismatch()).toBeNull();
     deliverHello(local, "0.1.0.0");
     deliverHello(remote, "0.2.24.2117");

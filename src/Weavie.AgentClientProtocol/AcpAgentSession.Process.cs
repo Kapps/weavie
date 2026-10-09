@@ -47,8 +47,7 @@ public sealed partial class AcpAgentSession {
 				throw;
 			}
 			// The predecessor dies before the restart fails its pending requests.
-			ReplacePrimary(_primary.Retire());
-			_connection.Restart();
+			Launch(Succeed(_primary, null, CreatePrimary), null);
 		}
 	}
 
@@ -56,23 +55,27 @@ public sealed partial class AcpAgentSession {
 	public void StartNewConversation() {
 		SideRuntime[] sides;
 		lock (_turnTransitionGate) {
+			var predecessor = _primary;
 			sides = Sides();
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sides);
-				_primary.SettleInteractions();
+				predecessor.SettleInteractions();
 				_sessions.Replace(_definition.Id, _context.Workspace, [], []);
 			} catch (AcpSessionStoreException error) {
 				StopForStorageFailure(error, sides);
 				throw;
 			}
-			ReplacePrimary(_primary.Retire() with { Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false) });
+			var process = ReplaceableProcess(predecessor);
+			var successor = Succeed(predecessor, process, handoff => CreatePrimary(handoff with {
+				Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false),
+			}));
 			lock (_gate) _sides.Clear();
 			foreach (var side in sides) side.Conversation.Retire();
 			_sideConversations.Clear();
 			_storageFailed = false;
 			_displayRestored = true;
-			_primary.Publish(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
-			_connection.Restart();
+			successor.Publish(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
+			Launch(successor, process);
 		}
 		foreach (var side in sides) DisposeSide(side);
 	}
@@ -111,7 +114,7 @@ public sealed partial class AcpAgentSession {
 		AcpConversation conversation;
 		lock (_turnTransitionGate) {
 			conversation = _primary;
-			lock (_gate) _processGeneration = process.Generation;
+			lock (_gate) (_processGeneration, _process) = (process.Generation, null);
 			conversation.Attach(new AcpProcess(_connection, process.Generation));
 		}
 		conversation.RunRuntime(() => InitializeAsync(conversation, process.Generation));
@@ -137,7 +140,7 @@ public sealed partial class AcpAgentSession {
 			CancellationToken.None).ConfigureAwait(false));
 		lock (_turnTransitionGate) {
 			if (!conversation.Live) return;
-			lock (_gate) _features = features;
+			lock (_gate) (_features, _process) = (features, new AcpProcess(_connection, generation));
 		}
 		await conversation.OpenAsync(features).ConfigureAwait(false);
 	}

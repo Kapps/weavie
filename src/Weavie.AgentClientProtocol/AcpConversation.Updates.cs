@@ -37,8 +37,10 @@ internal sealed partial class AcpConversation {
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
 		if (sessionId != _endpoint.Value.SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
-		if (_loadingTranscript && kind is not ("available_commands_update" or "current_mode_update"
-			or "config_option_update" or "usage_update")) return;
+		if (_loadingTranscript) {
+			_replay.Observe(kind, update);
+			if (kind is not ("available_commands_update" or "current_mode_update" or "config_option_update" or "usage_update")) return;
+		}
 		switch (kind) {
 			case "user_message_chunk": break;
 			case "agent_message_chunk": EmitContent(update, "agent-message-delta", "agentMessage"); break;

@@ -31,6 +31,7 @@ internal sealed partial class AcpConversation {
 	private readonly Dictionary<string, HashSet<string>> _turnItemIds = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, AgentControlAxis> _controls = new(StringComparer.Ordinal);
 	private readonly Queue<AgentPaneMessage> _pendingTerminalMessages = new();
+	private readonly RewindReplay _replay = new();
 	private IReadOnlyList<AgentSlashEntry> _commands = [];
 	private AcpAgentFeatures _features = AcpAgentFeatures.None;
 	private string? _sessionId;
@@ -67,10 +68,8 @@ internal sealed partial class AcpConversation {
 		_spec = spec;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);
 		RestoreContinuation(spec.Seed.Continuation);
-		foreach (var submission in spec.Seed.Pending) _pendingSubmissions.Enqueue(submission);
+		Inherit(spec.Seed);
 		_publishedQueueVersion = _pendingSubmissions.Version;
-		_resolvedRequests.UnionWith(spec.Seed.ResolvedRequests);
-		_authenticationSequence = spec.Seed.AuthenticationSequence;
 	}
 
 	private AcpAgentDefinition Definition => _definition();
@@ -131,6 +130,11 @@ internal sealed partial class AcpConversation {
 			lock (_gate) return _sessionOpening || _pendingSubmissions.Count > 0 || _promptActive
 				|| HasBackgroundWorkLocked() || HasPendingInteractionLocked();
 		}
+	}
+
+	/// <summary>Whether a request opening the provider session is still in flight.</summary>
+	internal bool Opening {
+		get { lock (_gate) return _sessionOpening; }
 	}
 
 	/// <summary>Whether a turn, background tool, or user interaction is in progress.</summary>

@@ -67,7 +67,8 @@ load it only when you need it.
   [docs/concepts/native-acp-agents.md](docs/concepts/native-acp-agents.md).
 - **ACP conversations** — each ACP session is an owned `AcpConversation` incarnation (endpoint, lifetime,
   output port); replacing one retires the object, so late work can't reach its successor and no
-  conversation code takes a generation or session id. See
+  conversation code takes a generation or session id. `/clear` and Rewind replace it on the running process
+  when the agent can close sessions. See
   [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —

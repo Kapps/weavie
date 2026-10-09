@@ -34,8 +34,8 @@ internal abstract record AcpConversationOpening {
 	private sealed record ContinueOpening : AcpConversationOpening;
 }
 
-/// <summary>Forks the parent's provider session; the parent must still be live.</summary>
-internal sealed record ForkFromOpening(AcpConversation Parent) : AcpConversationOpening;
+/// <summary>Forks the live parent's provider session, at the agent message <paramref name="MessageId"/> when set.</summary>
+internal sealed record ForkFromOpening(AcpConversation Parent, string? MessageId) : AcpConversationOpening;
 
 /// <summary>A conversation's display-facing control state.</summary>
 internal sealed record AcpConversationSnapshot(

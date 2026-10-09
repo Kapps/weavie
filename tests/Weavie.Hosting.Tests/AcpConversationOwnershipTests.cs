@@ -52,7 +52,7 @@ public sealed class AcpConversationOwnershipTests {
 	[Fact]
 	public void NoMemberTakesAProcessAddressOrSessionIdentity() {
 		Type[] forbidden = [typeof(AcpJsonRpcConnection), typeof(AcpSessionEndpoint)];
-		var parameters = Types()
+		var parameters = Types().Append(typeof(AcpConversationPort))
 			.SelectMany(type => type.GetMethods(Declared).Cast<MethodBase>().Concat(type.GetConstructors(Declared)))
 			.Where(method => !method.IsDefined(typeof(CompilerGeneratedAttribute)))
 			.SelectMany(method => method.GetParameters().Select(parameter => (Method: method, Parameter: parameter)));

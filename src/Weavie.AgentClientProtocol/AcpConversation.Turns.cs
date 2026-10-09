@@ -219,6 +219,12 @@ internal sealed partial class AcpConversation {
 		});
 	}
 
+	// Started synchronously so it reaches the agent ahead of anything sent after it, such as session/close.
+	private void CancelPrompt() {
+		var cancellation = _endpoint.Value.CancelAsync();
+		RunRuntime(() => cancellation);
+	}
+
 	internal void Interrupt() {
 		lock (_turnTransitionGate) {
 			string? sessionId;
@@ -233,10 +239,7 @@ internal sealed partial class AcpConversation {
 					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId);
 				}
 			}
-			if (sessionId is not null) {
-				var cancellation = _endpoint.Value.NotifyAsync("session/cancel", []);
-				RunRuntime(() => cancellation);
-			}
+			if (sessionId is not null) CancelPrompt();
 			ObserveTerminalizedTools(cancelled);
 			PublishTerminalizedToolMessages(cancelled);
 			PublishQueue();

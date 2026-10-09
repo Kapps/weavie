@@ -24,6 +24,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private bool _expiredAuthentication;
 	private bool _prompted;
 	private bool _supportsPlanUpdates;
+	private bool _closed;
 	private string? _sessionId;
 
 	public FakeAcpAgent() {
@@ -59,15 +60,17 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		method switch {
 			"initialize" => Initialize(parameters),
 			"authenticate" => await AuthenticateAsync(ct).ConfigureAwait(false),
-			"session/new" => Open(parameters, NewSessionId(), replay: false),
-			"session/load" => Open(
+			"session/new" => await OpenAsync(parameters, NewSessionId(), replay: false, ct).ConfigureAwait(false),
+			"session/load" => await OpenAsync(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
-				replay: true),
-			"session/resume" => Open(
+				replay: true,
+				ct).ConfigureAwait(false),
+			"session/resume" => await OpenAsync(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
-				replay: false),
+				replay: false,
+				ct).ConfigureAwait(false),
 			"session/fork" => await ForkAsync(parameters, ct).ConfigureAwait(false),
 			"session/close" => await CloseAsync(parameters, ct).ConfigureAwait(false),
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
@@ -131,7 +134,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			},
 			["sessionCapabilities"] = new JsonObject {
 				["resume"] = _fakeMode == "flatten-replay" ? null : new JsonObject(),
-				["close"] = new JsonObject(),
+				["close"] = _fakeMode == "no-close" ? null : new JsonObject(),
 				["fork"] = new JsonObject(),
 			},
 			["mcpCapabilities"] = new JsonObject { ["http"] = true, ["sse"] = false },
@@ -383,7 +386,13 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "close-started"), string.Empty);
 			await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
 		}
-		_sessionId = null;
+		_closed = true;
+		TaskCompletionSource<string>? held;
+		lock (_gate) held = _heldPrompt;
+		held?.TrySetResult("cancelled");
+		File.AppendAllText(StatePath("closes.log"), _sessionId + Environment.NewLine);
+		// A test opts into an update racing the close by creating late-after-close.
+		if (File.Exists(Path.Combine(Environment.CurrentDirectory, "late-after-close"))) Message("late after close");
 		return [];
 	}
 
@@ -469,6 +478,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		else if (text is "terminal-output" or "terminal-null-optionals") {
 			await TerminalOutputAsync(text == "terminal-null-optionals", ct).ConfigureAwait(false);
 		} else if (text == "terminal-cancel") await TerminalCancellationAsync(ct).ConfigureAwait(false);
+		else if (text == "terminal-wait") await TerminalWaitAsync(ct).ConfigureAwait(false);
 		else if (text == "agent-terminal") AgentOwnedTerminal();
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
@@ -1147,6 +1157,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "control-started"), string.Empty);
 				await Task.Delay(TimeSpan.FromMilliseconds(200), ct).ConfigureAwait(false);
 			}
+			await HoldOnceAsync("control", ct).ConfigureAwait(false);
 			_model = model;
 		} else if (id == "fast") _fast = value.GetBoolean();
 		else if (id == "mode" && _fakeMode == "mirrored-mode") {
@@ -1336,7 +1347,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private void RequireSession(JsonElement parameters) {
 		string id = AcpJson.RequiredString(parameters, "sessionId", "fake session request");
-		if (id != _sessionId) throw AcpAdapterException.InvalidParams($"Unknown fake session '{id}'.");
+		if (id != _sessionId || _closed) throw AcpAdapterException.InvalidParams($"Unknown fake session '{id}'.");
 	}
 
 	private void Message(string text) => Update(new JsonObject {

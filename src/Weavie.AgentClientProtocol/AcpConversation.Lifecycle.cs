@@ -7,8 +7,22 @@ internal sealed partial class AcpConversation {
 	/// <summary>Binds this conversation to a started process; a conversation attaches once.</summary>
 	internal void Attach(AcpProcess process) {
 		lock (_turnTransitionGate) _endpoint.Set(process.OpenEndpoint(HandleNotification, RegisterClientRequest, FailRuntime));
+		Announce();
+	}
+
+	/// <summary>Publishes this conversation's controls and usage to its owner.</summary>
+	internal void Announce() {
 		RaiseControls();
 		_port.UsageChanged(Usage);
+	}
+
+	/// <summary>Takes over a retired predecessor's queue and the interaction identities already shown in its pane.</summary>
+	internal void Inherit(AcpConversationHandoff predecessor) {
+		lock (_gate) {
+			foreach (var submission in predecessor.Pending) _pendingSubmissions.Enqueue(submission);
+			_resolvedRequests.UnionWith(predecessor.ResolvedRequests);
+			_authenticationSequence = Math.Max(_authenticationSequence, predecessor.AuthenticationSequence);
+		}
 	}
 
 	/// <summary>Ends this conversation after an unrecoverable failure.</summary>
@@ -66,6 +80,7 @@ internal sealed partial class AcpConversation {
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		if (promptActive) CancelPrompt();
 		AbandonRunningRequests();
 		// Abandoned requests complete before the lifetime cancels their linked tokens.
 		_lifetime.Cancel();
@@ -110,11 +125,16 @@ internal sealed partial class AcpConversation {
 	}
 
 	/// <summary>Ends this incarnation; nothing it does afterwards reaches its owner or the agent.</summary>
-	internal AcpConversationHandoff Retire() {
+	internal AcpConversationHandoff Retire() => Retire(static endpoint => endpoint.Retire());
+
+	/// <summary>Ends this incarnation on a process that keeps running, closing its provider session there.</summary>
+	internal AcpConversationHandoff RetireClosing() => Retire(static endpoint => _ = endpoint.CloseAsync());
+
+	private AcpConversationHandoff Retire(Action<AcpSessionEndpoint> release) {
 		lock (_turnTransitionGate) {
 			_lifetime.Cancel();
 			_port.Detach();
-			if (_endpoint.IsSet) _endpoint.Value.Retire();
+			if (_endpoint.IsSet) release(_endpoint.Value);
 			_terminals.Close();
 			lock (_gate) return new(Continuation, _pendingSubmissions.Snapshot(), [.. _resolvedRequests], _authenticationSequence);
 		}
@@ -137,21 +157,15 @@ internal sealed partial class AcpConversation {
 		AcpSessionEndpoint? endpoint;
 		lock (_gate) {
 			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
-			close = (_ready || _spec.SideScoped) && _features.Close && endpoint?.SessionId is not null;
+			close = (_ready || _spec.SideScoped) && _features.Close;
 		}
 		SettleInteractions();
-		var closeRequest = close ? endpoint!.CloseAsync() : null;
+		var closing = close ? endpoint!.CloseAsync() : Task.CompletedTask;
 		endpoint?.Retire();
 		try {
 			await teardown().ConfigureAwait(false);
 		} finally {
-			if (closeRequest is not null) {
-				try {
-					await closeRequest.ConfigureAwait(false);
-				} catch (Exception ex) {
-					_log($"[acp:{Definition.Id}] session/close ended during process teardown: {ex.Message}");
-				}
-			}
+			await closing.ConfigureAwait(false);
 			await _terminals.DisposeAsync().ConfigureAwait(false);
 		}
 	}

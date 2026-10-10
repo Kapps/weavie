@@ -32,8 +32,8 @@ export function SessionInboxRow(props: {
       >
         <span class="session-inbox-monogram">{session().monogram}</span>
         <span class="session-inbox-details">
-          <strong>{session().label}</strong>
-          <span>
+          <span class="session-inbox-name">{session().label}</span>
+          <span class="session-inbox-meta">
             {session().locationName} ·{" "}
             {agentProviders(session().backendId).find(
               (provider) => provider.id === session().providerId,

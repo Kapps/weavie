@@ -5,7 +5,7 @@
   --bg: #000000;
   --bar: #101319;
   --border: #191c21;
-  --fg: #cdd5dc;
+  --fg: #e2e7ec;
   --accent: #54c6a4;
   --button-bg: #54c6a4;
   --button-fg: #042019;
@@ -13,8 +13,8 @@
   --list-active-bg: #161a21;
   --list-active-fg: #eef2f8;
   --list-hover-bg: #111419;
-  --list-hover-fg: #cdd5dc;
-  --dim: #6f7884;
+  --list-hover-fg: #e2e7ec;
+  --dim: #8a929c;
   /* Session-status accents (pane/rail indicator); overwritten by the theme controller at runtime. */
   --ok: #6fdc66;
   --warn: #ffb74d;

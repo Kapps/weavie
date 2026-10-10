@@ -1259,7 +1259,6 @@ label.agent-input-choice:hover {
 
 .agent-status-model .agent-status-value {
   color: color-mix(in srgb, var(--fg) 88%, var(--dim));
-  font-weight: 600;
 }
 
 .agent-status-usage {
@@ -1465,7 +1464,6 @@ label.agent-input-choice:hover {
 
 .agent-slash-name {
   color: var(--accent);
-  font-weight: 600;
   white-space: nowrap;
 }
 

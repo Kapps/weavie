@@ -10,7 +10,7 @@
   box-shadow: 0 6px 18px color-mix(in srgb, #000 16%, transparent);
   font-family: var(--font-chrome-family);
   font-size: var(--font-chrome-size);
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
 }
 
 .weavie-pr-card::before {
@@ -34,7 +34,7 @@
   border: none;
   border-radius: 4px;
   background: none;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   cursor: pointer;
 }
 
@@ -52,7 +52,7 @@
 
 .weavie-pr-collapse:hover,
 .weavie-pr-icon-button:hover {
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
@@ -79,7 +79,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   font-family: var(--font-content-family);
   font-size: var(--font-metadata-size);
   text-decoration: line-through;
@@ -129,7 +129,7 @@
 .weavie-pr-time {
   flex: none;
   white-space: nowrap;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   font-size: var(--font-metadata-size);
 }
 
@@ -224,7 +224,7 @@
   border-radius: 13px;
   background: var(--bg);
   font: inherit;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   text-align: left;
   cursor: text;
 }
@@ -243,7 +243,7 @@
   border-radius: 8px;
   background: none;
   font: inherit;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   text-align: left;
   cursor: pointer;
 }
@@ -274,7 +274,7 @@
 }
 
 .weavie-pr-summary-text b {
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   font-weight: 600;
 }
 
@@ -301,7 +301,7 @@
   border: 1px solid var(--pr-line);
   border-radius: 6px;
   background: var(--bg);
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
   line-height: 1.5;
@@ -330,7 +330,7 @@
   border-radius: 6px;
   background: none;
   font: inherit;
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   cursor: pointer;
 }
 

@@ -58,7 +58,7 @@ test("the prompt-free action opens an existing branch", async ({ page }) => {
     initialSlot,
   );
   const openGroup = inbox.getByRole("region", { name: "Open an existing branch" });
-  const branch = await inbox.locator(".session-inbox-row.active strong").innerText();
+  const branch = await inbox.locator(".session-inbox-row.active .session-inbox-name").innerText();
 
   await inbox
     .getByRole("textbox", { name: "Prompt for a new session" })

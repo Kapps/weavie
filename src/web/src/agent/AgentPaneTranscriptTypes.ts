@@ -24,7 +24,7 @@ export interface AgentTranscriptEntry {
   detailCount: number;
   details: AgentActivityStep[];
   id: string;
-  kind: "activity" | "aside" | "message" | "notice" | "plan" | "request" | "subagent";
+  kind: "activity" | "aside" | "message" | "notice" | "plan" | "request" | "subagent" | "workflow";
   label: string;
   status: string | null;
   streaming: boolean;

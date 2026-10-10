@@ -48,6 +48,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(ClaudeFastModeSettings))]
 [JsonSerializable(typeof(HostCore.AgentAsideCommand))]
 [JsonSerializable(typeof(HostCore.AgentRewindCommand))]
+[JsonSerializable(typeof(HostCore.StopBackgroundTaskCommand))]
 [JsonSerializable(typeof(NewSessionRequest))]
 [JsonSerializable(typeof(HandoffRequest))]
 [JsonSerializable(typeof(HandoffReply))]

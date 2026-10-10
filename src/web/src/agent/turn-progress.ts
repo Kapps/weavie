@@ -67,12 +67,13 @@ function turnProgress(messages: readonly AgentPaneUpdate[]): TurnProgress {
       message.itemId !== null &&
       message.itemId !== undefined
     ) {
-      if (message.type === "item-started") {
+      // A backgrounded tool's liveness is its background task's, so it never holds the turn.
+      if (message.type === "item-started" && message.background !== true) {
         activeTools.set(
           message.itemId,
           message.startedAtMs ?? activeTools.get(message.itemId) ?? null,
         );
-      } else if (message.type === "item-completed" || message.type === "item-retracted") {
+      } else if (message.type.startsWith("item-")) {
         activeTools.delete(message.itemId);
       }
     }

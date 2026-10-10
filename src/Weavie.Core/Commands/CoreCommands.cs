@@ -148,6 +148,12 @@ public static class CoreCommands {
 	/// <summary>Toggles the focused or newest side conversation.</summary>
 	public const string ToggleAgentAside = "weavie.agent.toggleAside";
 
+	/// <summary>Stops one background task of the focused agent, or its most recently started stoppable one.</summary>
+	public const string StopBackgroundTask = "weavie.agent.stopBackgroundTask";
+
+	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
+	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
+
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
 
@@ -1058,6 +1064,28 @@ public static class CoreCommands {
 			Aliases = ["collapse btw", "expand btw", "toggle side conversation"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
 			When = "agentFocused",
+		});
+
+		// Neither has a default keybinding: background work is occasional, and the tray already offers both.
+		registry.Register(new CommandDefinition {
+			Id = StopBackgroundTask,
+			Title = "Stop Background Task",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Stop one of the agent's background tasks, or the most recently started one that can be stopped.",
+			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
+			When = "agentBackgroundActive",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started stoppable task\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ShowBackgroundWork,
+			Title = "Show Background Work",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Focus the tray of subagents and background tasks above the agent composer.",
+			Aliases = ["background tasks", "subagents", "running work"],
+			When = "agentBackgroundActive",
 		});
 
 		registry.Register(new CommandDefinition {

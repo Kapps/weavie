@@ -227,6 +227,12 @@ function durableEntry(
   sequence: number,
 ): AgentTranscriptEntry | null {
   const status = displayStatus(message, resolved);
+  if (message.itemType === "backgroundTask") {
+    return {
+      ...entry(message, sequence, "workflow", "assistant", "Workflow", message.status ?? null),
+      actionMessage: message,
+    };
+  }
   switch (message.type) {
     case "approval-requested":
       return entry(message, sequence, "request", "pending", "Permission", status);

@@ -657,14 +657,16 @@ a.agent-entry-media {
 .agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request,
-.agent-entry-subagent {
+.agent-entry-subagent,
+.agent-entry-workflow {
   padding: 5px 8px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-left-width: 3px;
   background: color-mix(in srgb, var(--bar) 58%, transparent);
 }
 
-.agent-entry-subagent {
+.agent-entry-subagent,
+.agent-entry-workflow {
   border-left-color: var(--accent);
 }
 
@@ -1191,6 +1193,20 @@ label.agent-input-choice:hover {
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
   line-height: 1.4;
+}
+
+.agent-background-tray {
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+}
+
+.agent-background-label {
+  color: var(--dim);
+}
+
+.agent-background-item {
+  display: inline-flex;
+  align-items: baseline;
 }
 
 .agent-status-scroll {

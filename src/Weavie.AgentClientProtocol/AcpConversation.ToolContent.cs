@@ -31,6 +31,7 @@ internal sealed partial class AcpConversation {
 		Content = tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
+		Background = tool.Backgrounded ? true : null,
 	};
 
 	private void ReadToolContent(JsonElement content, AcpToolState tool) {

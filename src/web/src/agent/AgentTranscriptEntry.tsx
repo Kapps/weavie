@@ -13,6 +13,7 @@ import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentSubagentEntry } from "./AgentSubagentEntry";
+import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import type { AgentSectionLabel } from "./pane-store";
 
@@ -25,6 +26,9 @@ export function TranscriptEntry(props: {
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
+  if (props.entry.kind === "workflow") {
+    return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
+  }
   if (props.entry.kind === "subagent") {
     return (
       <AgentSubagentEntry

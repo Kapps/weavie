@@ -98,6 +98,8 @@ export const CommandIds = {
   agentJumpToTurn: "weavie.agent.jumpToTurn",
   agentJumpToLatest: "weavie.agent.jumpToLatest",
   toggleAgentAside: "weavie.agent.toggleAside",
+  stopBackgroundTask: "weavie.agent.stopBackgroundTask",
+  showBackgroundWork: "weavie.agent.showBackgroundWork",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
   openAgentPlan: "weavie.agent.openPlan",

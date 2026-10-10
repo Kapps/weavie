@@ -1,13 +1,13 @@
 import { createSignal, type JSX, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { liveKeyLabel } from "../commands/keys-live";
+import { liveKeyHint } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentSubagentReader } from "./AgentSubagentReader";
+import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
-import { formatElapsed } from "./turn-progress";
 
 /** A read-only subagent row: expanded while it runs, collapsed once it finishes, with Open for its full transcript. */
 export function AgentSubagentEntry(props: {
@@ -25,18 +25,17 @@ export function AgentSubagentEntry(props: {
   const [reading, setReading] = createSignal(false);
   const now = liveNow(running);
   const status = () => {
-    const started = info().startedAtMs;
-    const elapsed =
-      started === null ? null : formatElapsed((info().completedAtMs ?? now()) - started);
-    return [info().state, elapsed, info().via === null ? null : `via ${info().via}`]
-      .filter((part) => part !== null)
-      .join(" · ");
+    const base = backgroundStatus(
+      info().state,
+      info().startedAtMs,
+      info().completedAtMs,
+      now(),
+      null,
+    );
+    return info().via === null ? base : `${base} · via ${info().via}`;
   };
-  const toggleTitle = () => {
-    const label = collapsed() ? "Expand subagent" : "Collapse subagent";
-    const key = liveKeyLabel(CommandIds.toggleAgentAside);
-    return key === "" ? label : `${label} (${key})`;
-  };
+  const toggleTitle = () =>
+    `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
   let card: HTMLElement | undefined;
   onMount(() => registerNestedToggle(card!, toggle));
 

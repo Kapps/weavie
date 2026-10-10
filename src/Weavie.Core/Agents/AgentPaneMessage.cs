@@ -77,7 +77,7 @@ public sealed record AgentPaneMessage {
 	/// <summary>The parent tool call for a nested subagent update, when advertised.</summary>
 	public string? ParentItemId { get; init; }
 
-	/// <summary>Whether the item represents background or subagent work.</summary>
+	/// <summary>Whether a tool handed its work to a background task, so its liveness never holds the turn.</summary>
 	public bool? Background { get; init; }
 
 	/// <summary>The terminal referenced by a tool update, when any.</summary>

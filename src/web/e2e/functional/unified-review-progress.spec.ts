@@ -45,6 +45,9 @@ test("the review strip fills as changes are kept and drops when the agent edits 
 
   await toolbar.locator(".weavie-inline-accept").click();
   await expect(segment).toHaveAttribute("title", /· 100% reviewed$/);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+P" : "Control+Alt+P");
+  await expect(page.locator(".unified-review-switcher")).toContainText("1 of 2 reviewed");
+  await page.keyboard.press("Escape");
 
   await writeFile(join(weavie.workspace, ".second-edit"), "go\n");
   await expect(segment).toHaveAttribute("title", "progress.txt +3 −3 · 67% reviewed");

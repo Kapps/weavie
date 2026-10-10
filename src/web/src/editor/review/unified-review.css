@@ -284,7 +284,6 @@
 
 .unified-review-map-file.current {
   --track: color-mix(in srgb, var(--accent) 45%, var(--bar));
-  box-shadow: inset 0 -2px 0 var(--fg);
 }
 
 .unified-review-file-toggle,
@@ -441,4 +440,68 @@
     top: 0;
     flex-wrap: wrap;
   }
+}
+
+/* The file tree under a file name; its rows are the omnibar's tree rows. */
+.unified-review-switcher {
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  width: 440px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bar);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+}
+
+.unified-review-switcher input {
+  padding: 0.55em 0.8em;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+
+.unified-review-switcher .tb-omnibar-list {
+  flex: 1 1 auto;
+}
+
+.unified-review-switcher-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-left: auto;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+
+.unified-review-switcher-state {
+  width: 0.55em;
+  height: 0.55em;
+  border: 1.5px solid var(--dim);
+  border-radius: 50%;
+}
+
+.unified-review-switcher-state.reviewed {
+  border-color: var(--diff-added, #5a9a6a);
+  background: var(--diff-added, #5a9a6a);
+}
+
+.unified-review-switcher-empty {
+  padding: 0.6em 0.8em;
+  color: var(--dim);
+}
+
+.unified-review-switcher footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4em 0.8em;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: var(--font-hint-size);
 }

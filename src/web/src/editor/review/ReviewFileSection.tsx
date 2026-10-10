@@ -49,7 +49,7 @@ export function ReviewFileSection(props: {
   index: number;
   fileCount: number;
   onStep: (delta: 1 | -1) => void;
-  onPickFile: () => void;
+  onPickFile: (anchor: HTMLElement) => void;
   measure: (element: HTMLElement) => void;
   observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
@@ -157,7 +157,7 @@ export function ReviewFileSection(props: {
           class="unified-review-file-name"
           title={`Go to file${keyHint(CommandIds.reviewGoToFile)}`}
           aria-haspopup="listbox"
-          onClick={props.onPickFile}
+          onClick={(event) => props.onPickFile(event.currentTarget)}
         >
           <span class="unified-review-file-dir">{directory()}</span>
           <span class="unified-review-file-leaf">{leaf()}</span>

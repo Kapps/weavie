@@ -21,7 +21,6 @@ import {
   type PathTreeNode,
   type PathTreeRow,
   pathAncestorKeys,
-  pathTreeDirectoryKeys,
   visiblePathTreeRows,
 } from "../files/path-tree";
 import {
@@ -36,7 +35,7 @@ import { createFileSearch, FILE_SEARCH_VIEW_CAP as VIEW_CAP } from "./create-fil
 import { splitPath } from "./file-search";
 import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
-import { type OmnibarFileScope, type OmnibarMode, omnibarRequest } from "./omnibar-controller";
+import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
 
@@ -87,8 +86,6 @@ export function Omnibar(props: {
   const selected = nav.index;
   const setSelected = nav.setIndex;
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
-  const [scope, setScope] = createSignal<OmnibarFileScope | null>(null);
-  const currentFile = (): string | null => scope()?.current() ?? props.currentFile;
   let inputRef!: HTMLInputElement;
   let rootRef!: HTMLDivElement;
 
@@ -159,11 +156,11 @@ export function Omnibar(props: {
   const pathView = createMemo(() => pathRows().slice(0, VIEW_CAP));
 
   const fileSearch = createFileSearch({
-    files: () => scope()?.files() ?? props.files,
+    files: () => props.files,
     root: () => props.root ?? "",
     query: () => (searchMode() ? query() : ""),
-    recent: () => (scope() === null ? recentFiles() : []),
-    currentFile,
+    recent: recentFiles,
+    currentFile: () => props.currentFile,
   });
   const rows = fileSearch.rows;
   const view = fileSearch.view;
@@ -246,13 +243,10 @@ export function Omnibar(props: {
 
   // Expand the current file's folder chain and center the selection on it. Returns false when the current
   // file isn't in the index yet (host reply in flight); the caller re-attempts once `rows()` arrives.
-  // A scoped set is small enough to show whole, so every folder opens.
   const focusCurrentInTree = (): boolean => {
-    const cf = currentFile();
+    const cf = props.currentFile;
     let revealed = true;
-    if (scope() !== null) {
-      setExpanded(new Set(pathTreeDirectoryKeys(treeNodes())));
-    } else if (cf !== null) {
+    if (cf !== null) {
       const row = rows().find((r) => samePath(r.abs, cf));
       if (row !== undefined) {
         setExpanded(new Set(pathAncestorKeys(row.rel)));
@@ -338,7 +332,6 @@ export function Omnibar(props: {
           runCapturedCommand = captureCommandRunner();
           capturedSymbols = props.symbols();
         }
-        setScope(request.scope);
         setQuery(MODE_PREFIX[request.mode] + request.query);
         pendingLine = request.line;
         // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
@@ -348,7 +341,7 @@ export function Omnibar(props: {
           priorFocus = active;
         }
         setOpen(true);
-        if (request.scope === null) props.onRequestIndex();
+        props.onRequestIndex();
         queueMicrotask(() => {
           inputRef.focus();
           // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
@@ -376,7 +369,6 @@ export function Omnibar(props: {
 
   const close = (): void => {
     setOpen(false);
-    setScope(null);
     setQuery("");
     pendingLine = undefined;
     restorePriorFocus();
@@ -387,7 +379,6 @@ export function Omnibar(props: {
   // priorFocus and used an uncleared timer).
   const dismiss = (): void => {
     setOpen(false);
-    setScope(null);
     setQuery("");
     pendingLine = undefined;
     priorFocus = null;
@@ -396,12 +387,6 @@ export function Omnibar(props: {
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
-      return;
-    }
-    const scoped = scope();
-    if (scoped !== null && (treeMode() || searchMode())) {
-      close();
-      scoped.choose(abs);
       return;
     }
     // Canonical (lowercase-drive) form the editor keys working copies by, so an already-open file is reused
@@ -635,7 +620,7 @@ export function Omnibar(props: {
                 ? "Go to symbol in file"
                 : wsSymbolMode()
                   ? "Go to symbol in workspace"
-                  : (scope()?.label ?? "Go to file")
+                  : "Go to file"
           }
           aria-expanded={open() && activeLen() > 0}
           aria-controls={open() && activeLen() > 0 ? "tb-omnibar-listbox" : undefined}
@@ -644,7 +629,7 @@ export function Omnibar(props: {
           }
           aria-autocomplete="list"
           spellcheck={false}
-          placeholder={scope()?.label ?? props.workspaceLabel}
+          placeholder={props.workspaceLabel}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
           onFocus={(e) => {
@@ -673,8 +658,8 @@ export function Omnibar(props: {
             onSelect={setSelected}
             rowProps={nav.row}
             hiddenCount={hiddenCount}
-            filesPending={scope() === null && props.filesPending}
-            currentFile={currentFile()}
+            filesPending={props.filesPending}
+            currentFile={props.currentFile}
             pathRows={pathView}
             pathError={pathError}
             pathReady={() => pathListing()?.status === "ready"}

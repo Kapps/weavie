@@ -213,22 +213,24 @@ test.describe("Review Changes tab — file switcher", () => {
     );
     await overview.locator(".unified-review-diffs").focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+P" : "Control+Alt+P");
-    const omnibar = page.locator(".tb-omnibar-pop");
-    const fileRows = omnibar.locator(".tb-omnibar-row:not(.dir)");
-    await expect(page.locator(".tb-omnibar-input")).toBeFocused();
-    await expect(page.locator(".tb-omnibar-input")).toHaveAttribute(
-      "placeholder",
-      "Go to review file",
-    );
-    await expect(omnibar.locator(".tb-omnibar-row.dir")).toHaveText(["docs", "src"]);
-    await expect(fileRows).toHaveText(["notes.txt", "hello.ts"]);
-    await omnibar.locator(".tb-omnibar-row.dir", { hasText: "docs" }).dispatchEvent("mousedown");
-    await expect(fileRows).toHaveText(["hello.ts"]);
+    const picker = page.locator(".unified-review-switcher");
+    const fileRows = picker.locator(".tb-omnibar-row:not(.dir)");
+    await expect(picker.locator("input")).toBeFocused();
+    // It opens right under the current file's name, not somewhere down the review.
+    const name = await overview.locator(".unified-review-file-name").first().boundingBox();
+    const box = await picker.boundingBox();
+    expect(Math.abs(box!.y - (name!.y + name!.height))).toBeLessThan(10);
+    await expect(picker.locator(".tb-omnibar-row.dir")).toHaveText([/docs/i, /src/i]);
+    await expect(fileRows).toContainText(["notes.txt", "hello.ts"]);
+    await expect(picker).toContainText("0 of 2 reviewed");
+    await picker.locator(".tb-omnibar-row.dir", { hasText: /docs/i }).click();
+    await expect(fileRows).toContainText(["hello.ts"]);
+    await expect(fileRows).toHaveCount(1);
     await page.keyboard.type("notes");
     await expect(fileRows).toHaveCount(1);
-    await expect(fileRows).toContainText("docs");
+    await expect(fileRows).toContainText("notes.txt");
     await page.keyboard.press("Enter");
-    await expect(omnibar).toHaveCount(0);
+    await expect(picker).toHaveCount(0);
     await expect(overview.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(
       "title",
       /^docs\/notes\.txt /,
@@ -236,9 +238,9 @@ test.describe("Review Changes tab — file switcher", () => {
     await expect(notes.locator(".monaco-editor.focused")).toHaveCount(1);
 
     await notes.locator(".unified-review-file-name").click();
-    await expect(omnibar).toBeVisible();
+    await expect(picker).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(omnibar).toHaveCount(0);
+    await expect(picker).toHaveCount(0);
   });
 });
 
@@ -397,7 +399,7 @@ test.describe("Review Changes tab — large file set", () => {
     await expect(overview.locator(".unified-review-map-file")).toHaveCount(fileCount);
     await overview.locator(".unified-review-diffs").focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+P" : "Control+Alt+P");
-    await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+    await expect(page.locator(".unified-review-switcher input")).toBeFocused();
     await page.keyboard.type(targetName);
     await page.keyboard.press("Enter");
     const targetSection = sectionFor(page, targetName);

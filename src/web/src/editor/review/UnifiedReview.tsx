@@ -11,7 +11,6 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
-import { focusOmnibarScope } from "../../chrome/omnibar-controller";
 import { setContext } from "../../commands/context";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
@@ -20,6 +19,7 @@ import { activeTabFor } from "../session-store";
 import type { TabOwner } from "../tab-owner";
 import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
+import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
@@ -235,19 +235,20 @@ export function UnifiedReview(props: {
     const file = files()[index]?.summary();
     if (file !== undefined) surface.revealFile(file.path, file.line);
   };
-  const pickFile = (): void =>
-    focusOmnibarScope({
-      label: "Go to review file",
-      files: () => files().map((file) => file.summary().path),
-      current: () => {
-        const index = visibleFile();
-        return index === undefined ? null : (files()[index]?.summary().path ?? null);
-      },
-      choose: (path) => void goToFile(path),
-    });
+  // The file list opens under a file name: the clicked one, else the current file's pinned header.
+  const [pickerAnchor, setPickerAnchor] = createSignal<HTMLElement>();
+  const pickFile = (anchor: HTMLElement | undefined): void => {
+    setPickerAnchor(
+      anchor ??
+        scroller?.querySelector<HTMLElement>(
+          `.unified-review-file[data-index="${visibleFile() ?? 0}"] .unified-review-file-name`,
+        ) ??
+        undefined,
+    );
+  };
   const goToFile = (path: string | undefined): boolean => {
     if (path === undefined) {
-      pickFile();
+      pickFile(undefined);
       return true;
     }
     const index = files().findIndex(
@@ -381,6 +382,25 @@ export function UnifiedReview(props: {
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
+      <Show when={pickerAnchor()}>
+        {(anchor) => (
+          <ReviewFileSwitcher
+            anchor={anchor()}
+            files={files}
+            current={visibleFile}
+            displayPath={displayPath}
+            onChoose={(index) => {
+              setPickerAnchor();
+              revealFile(index);
+            }}
+            onClose={() => setPickerAnchor()}
+            onCancel={() => {
+              setPickerAnchor();
+              surface.focus();
+            }}
+          />
+        )}
+      </Show>
       <ReviewFileMap
         overview={props.overview}
         current={visibleFile}
@@ -428,7 +448,9 @@ export function UnifiedReview(props: {
                           onStep={(delta) =>
                             revealFile((item().index + delta + files().length) % files().length)
                           }
-                          onPickFile={pickFile}
+                          onPickFile={(anchor) =>
+                            pickerAnchor() === undefined ? pickFile(anchor) : setPickerAnchor()
+                          }
                           register={surface.sections}
                           active={() => visibleFile() === item().index}
                           toolbarHost={() => toolbarHost ?? null}

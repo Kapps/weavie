@@ -1,12 +1,12 @@
-import { createSignal, type JSX, onMount, Show } from "solid-js";
+import { type JSX, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyHint } from "../commands/keys-live";
+import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { AgentSubagentReader } from "./AgentSubagentReader";
-import { backgroundStatus } from "./background-format";
+import { subagentStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
 /** A read-only subagent row: expanded while it runs, collapsed once it finishes, with Open for its full transcript. */
@@ -22,18 +22,7 @@ export function AgentSubagentEntry(props: {
   const flipped = () => props.expandedDetails.has(props.entry.id);
   const collapsed = () => running() === flipped();
   const toggle = () => props.onDetailsToggle(props.entry.id, !flipped());
-  const [reading, setReading] = createSignal(false);
   const now = liveNow(running);
-  const status = () => {
-    const base = backgroundStatus(
-      info().state,
-      info().startedAtMs,
-      info().completedAtMs,
-      now(),
-      null,
-    );
-    return info().via === null ? base : `${base} · via ${info().via}`;
-  };
   const toggleTitle = () =>
     `${collapsed() ? "Expand" : "Collapse"} subagent${liveKeyHint(CommandIds.toggleAgentAside)}`;
   let card: HTMLElement | undefined;
@@ -61,11 +50,16 @@ export function AgentSubagentEntry(props: {
         <Show when={running()}>
           <span class="agent-working-spinner" aria-hidden="true" />
         </Show>
-        <small class="agent-entry-status">{status()}</small>
+        <small class="agent-entry-status">{subagentStatus(info(), now())}</small>
         <button
           type="button"
           class="agent-entry-rewind agent-entry-open"
-          onClick={() => setReading(true)}
+          title={`Open the subagent's transcript in a tab${liveKeyHint(CommandIds.openSubagent)}`}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.openSubagent, {
+              conversationId: props.entry.conversationId,
+            })
+          }
         >
           Open
         </button>
@@ -84,16 +78,6 @@ export function AgentSubagentEntry(props: {
           />
         </Show>
       </div>
-      <Show when={reading()}>
-        <AgentSubagentReader
-          entry={props.entry}
-          expandedDetails={props.expandedDetails}
-          keyboardRequestKey={props.keyboardRequestKey}
-          onClose={() => setReading(false)}
-          onDetailsToggle={props.onDetailsToggle}
-          session={props.session}
-        />
-      </Show>
     </article>
   );
 }

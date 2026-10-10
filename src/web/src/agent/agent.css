@@ -249,14 +249,11 @@
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
-.agent-subagent-reader {
-  width: min(880px, 92vw);
-}
-
-.agent-subagent-reader-body {
-  max-height: 70vh;
-  overflow: auto;
-  margin: 8px 0 12px;
+.editor-subagent {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  padding: 5px 0;
 }
 
 .agent-aside-head small {

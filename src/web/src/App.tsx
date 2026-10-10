@@ -1516,6 +1516,11 @@ export default function App(): JSX.Element {
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
       registerCommand(CommandIds.toggleAgentAside, toggleAgentAside),
+      registerCommand(CommandIds.openSubagent, (args, context) => {
+        const conversationId = (args as { conversationId?: unknown } | undefined)?.conversationId;
+        if (context.session === null || typeof conversationId !== "string") return false;
+        editor.openSubagentTab(context.session, conversationId);
+      }),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),

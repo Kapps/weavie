@@ -7,9 +7,9 @@ export type EditorViewState = unknown;
 
 export interface EditorSessionEntry {
   path: string;
-  // Tab kind: a file, iframe web tab, fetched source document, or read-only transient plan.
+  // Tab kind: a file, iframe web tab, fetched source document, read-only transient plan, or subagent transcript.
   // Overlay kinds are session-owned and round-trip with the tab set. Absent ⇒ "file".
-  kind?: "file" | "web" | "source" | "plan" | "review";
+  kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a
   // persistent tab by editing or double-clicking. Absent ⇒ false.

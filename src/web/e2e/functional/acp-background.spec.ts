@@ -31,14 +31,16 @@ test("a subagent renders as a live card that collapses when it finishes", async 
   await expect(card.locator(".agent-entry-toggle")).toHaveAttribute("aria-expanded", "false");
 
   await card.getByRole("button", { name: "Open" }).click();
-  const reader = page.getByRole("dialog");
-  await expect(reader).toContainText("held subagent finished");
-  await page.screenshot({ path: "../../temp/bg984/subagent-reader.png" });
-  await page.keyboard.press("Escape");
-  await surface.screenshot({ path: "../../temp/bg984/subagent-done.png" });
-  await card.getByRole("button", { name: "Open" }).click();
-  await page.keyboard.press("Escape");
-  await expect(reader).toBeHidden();
+  const tab = page.locator(".editor-tab", { hasText: "Subagent · Explore" });
+  await expect(tab).toBeVisible();
+  const transcript = page.locator(".editor-subagent");
+  await expect(transcript).toContainText("held subagent finished");
+  await expect(transcript.locator(".agent-entry-status").first()).toContainText("completed");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: "../../temp/bg984/subagent-tab.png" });
+  await tab.hover();
+  await tab.locator(".editor-tab-close").click();
+  await expect(tab).toHaveCount(0);
 });
 
 test("a background task waits in the tray until Stop ends it with a notice", async ({ page }) => {

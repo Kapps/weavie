@@ -102,6 +102,7 @@ export const CommandIds = {
   toggleAgentAside: "weavie.agent.toggleAside",
   stopBackgroundTask: "weavie.agent.stopBackgroundTask",
   showBackgroundWork: "weavie.agent.showBackgroundWork",
+  openSubagent: "weavie.agent.openSubagent",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
   openAgentPlan: "weavie.agent.openPlan",

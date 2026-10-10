@@ -151,6 +151,9 @@ public static class CoreCommands {
 	/// <summary>Stops one background task of the focused agent, or its most recently started stoppable one.</summary>
 	public const string StopBackgroundTask = "weavie.agent.stopBackgroundTask";
 
+	/// <summary>Opens one subagent's read-only transcript as an editor tab.</summary>
+	public const string OpenSubagent = "weavie.agent.openSubagent";
+
 	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
 	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
 
@@ -1079,6 +1082,16 @@ public static class CoreCommands {
 			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
 			When = "agentBackgroundActive",
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started stoppable task\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenSubagent,
+			Title = "Open Subagent Transcript",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Open one subagent's whole read-only transcript as an editor tab that follows it live.",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"conversationId\":{\"type\":\"string\",\"description\":\"The subagent's conversation id\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

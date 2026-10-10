@@ -1,3 +1,4 @@
+import type { AgentSubagentInfo } from "./AgentPaneTranscriptTypes";
 import type { AgentBackgroundItem } from "./agent-background-store";
 import { formatElapsed } from "./turn-progress";
 
@@ -42,4 +43,10 @@ export function rovingTarget(key: string, current: number, count: number): numbe
     default:
       return null;
   }
+}
+
+/** A subagent's state, elapsed time, and the parent a nested spawn came from. */
+export function subagentStatus(info: AgentSubagentInfo, now: number): string {
+  const base = backgroundStatus(info.state, info.startedAtMs, info.completedAtMs, now, null);
+  return info.via === null ? base : `${base} · via ${info.via}`;
 }

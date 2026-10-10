@@ -108,6 +108,17 @@ public sealed partial class HostCore {
 		files.Handle(
 			"refs", "Listing git refs", WireJson.Default.EmptyPayload, WireJson.Default.DiffRefsResult,
 			(_, ct) => ListRefsAsync(session, ct));
+		files.HandleOwned(
+			"previewGrant", "Opening an HTML preview", WireJson.Default.FilePathRequest, WireJson.Default.PreviewGrant,
+			(message, peer, _) => {
+				var (grant, baseUrl) = _fileRoutes.GrantPreview(session.Incarnation, peer, message.Path);
+				return Task.FromResult(new PreviewGrant(grant, baseUrl));
+			});
+		files.HandleOwned("previewRelease", "Closing an HTML preview", WireJson.Default.PreviewRelease, (message, peer, _) => {
+			_fileRoutes.ReleasePreview(peer, message.Grant);
+			return Task.CompletedTask;
+		});
+		session.Bus.PeerDisconnected += _fileRoutes.ReleasePreviews;
 		files.Handle("refreshIndex", "Refreshing the file index", WireJson.Default.EmptyPayload, (_, _) => {
 			PushFileIndexToWeb(session, false);
 			return Task.CompletedTask;
@@ -214,6 +225,10 @@ public sealed partial class HostCore {
 	internal sealed record EditorFlushResult(JsonElement Session, long Basis);
 
 	internal sealed record FilePathMessage(string Path);
+
+	internal sealed record PreviewGrant(string Grant, string Base);
+
+	internal sealed record PreviewRelease(string Grant);
 
 	internal sealed record DiffAgainstMessage(string Reference);
 

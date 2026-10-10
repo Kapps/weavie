@@ -531,7 +531,7 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			_mediaRoutes.Register(session.Incarnation);
+			_fileRoutes.Register(session.Incarnation, session.WorkspaceRoot);
 			LogStartup($"session {slotId}: constructed");
 			return session;
 		} catch (Exception creationError) {
@@ -614,7 +614,7 @@ public sealed partial class HostCore {
 			if (ReferenceEquals(slot.Session, session)) {
 				slot.Session = null;
 			}
-			_mediaRoutes.Unregister(session.Incarnation);
+			_fileRoutes.Unregister(session.Incarnation);
 		}
 
 		if (removeSlot) {
@@ -1015,7 +1015,7 @@ public sealed partial class HostCore {
 		return await _ui.InvokeAsync(() => {
 			if (ReferenceEquals(slot.Session, session)) {
 				slot.Session = null;
-				_mediaRoutes.Unregister(session.Incarnation);
+				_fileRoutes.Unregister(session.Incarnation);
 				PushSessionList();
 				PersistSessionState();
 				return Task.FromResult(true);

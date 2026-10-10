@@ -84,7 +84,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
-	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
+	private readonly WorkspaceFileRoutes _fileRoutes = new();
 	private readonly WorkspaceHttpServer _http;
 	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
 	private SessionManager? _sessions;
@@ -217,7 +217,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
-		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
+		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
 		_messages.Host.PeerDisconnected += OnApplicationMenuPeerDisconnected;

@@ -16,8 +16,8 @@ load it only when you need it.
 
 - **Claude-facing capability registry** — Weavie embeds Claude Code and exposes its own
   capabilities back to it over the IDE-MCP server, so the user can drive Weavie by talking to
-  Claude. Capabilities are *registered* in Core and surfaced as MCP tools: **settings** (being
-  built now) and **commands** (named actions, not yet implemented). See
+  Claude. Capabilities are *registered* in Core and surfaced as MCP tools: **settings**, **commands**
+  (named actions), and **workflows** (bundled prompts an agent starts via `runWorkflow`). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
 - **Hook bridge** — the spawned `claude` runs a standalone relay binary (`Weavie.HookRelay`, co-located with the host
   by the build) as its hooks — PermissionRequest (the permission gate, fires only when a tool would prompt)

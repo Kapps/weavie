@@ -54,6 +54,19 @@ public sealed partial class AcpJsonRpcConnection {
 		}
 	}
 
+	internal async Task CloseSessionAsync(AcpSessionEndpoint endpoint, long generation, Task<bool> opening) {
+		if (!await opening.ConfigureAwait(false) || endpoint.SessionId is not { } sessionId) return;
+		try {
+			await RequestForEndpointAsync("session/close", new JsonObject { ["sessionId"] = sessionId },
+				endpoint, generation, null, CancellationToken.None).ConfigureAwait(false);
+		} catch (AcpRequestException error) {
+			// Only closing stops a session on a process that keeps running, so a refusal stops the process.
+			TerminateGeneration(generation, $"{_providerName} could not close a replaced conversation: {error.Message}");
+		} catch (Exception error) when (error is IOException or InvalidOperationException or ObjectDisposedException) {
+			_log($"[acp:{_providerId}] session/close for {sessionId} ended with its process: {error.Message}");
+		}
+	}
+
 	internal void BindEndpoint(AcpSessionEndpoint endpoint, long generation, string sessionId) {
 		lock (_endpointGate) {
 			if (_endpoints.Any(owner => owner.Endpoint != endpoint && owner.Generation == generation && owner.Endpoint.SessionId == sessionId)) {

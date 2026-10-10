@@ -23,6 +23,7 @@ public sealed partial class AcpAgentSession :
 	private AcpConversation _primary;
 	private AcpAgentFeatures _features = AcpAgentFeatures.None;
 	private long _processGeneration;
+	private AcpProcess? _process;
 	private bool _started;
 	private bool _disposed;
 
@@ -139,13 +140,31 @@ public sealed partial class AcpAgentSession :
 	private static AcpConversationState Untouched(AcpConversationState continuation) =>
 		continuation.TurnNumber == 0 ? continuation with { SessionId = null } : continuation;
 
-	/// <summary>Installs the successor of the retired primary; call before restarting the process.</summary>
-	private void ReplacePrimary(AcpConversationHandoff handoff) {
-		var successor = CreatePrimary(handoff);
+	// A successor shares the running, initialized process only when the agent can close the predecessor's settled
+	// session; otherwise only stopping the process stops its work or an opening that may never return.
+	private AcpProcess? ReplaceableProcess(AcpConversation predecessor) {
+		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening ? _process : null;
+	}
+
+	/// <summary>Retires the predecessor and installs its successor; without a process it waits for <see cref="Launch"/> to restart.</summary>
+	private AcpConversation Succeed(AcpConversation predecessor, AcpProcess? process, Func<AcpConversationHandoff, AcpConversation> successor) {
+		var next = successor(process is null ? predecessor.Retire() : predecessor.RetireClosing());
 		lock (_gate) {
-			_primary = successor;
-			_processGeneration = 0;
+			_primary = next;
+			if (process is null) (_processGeneration, _process) = (0, null);
 		}
+		return next;
+	}
+
+	/// <summary>Opens the installed <paramref name="primary"/> on <paramref name="process"/>, or restarts the process, which attaches it.</summary>
+	private void Launch(AcpConversation primary, AcpProcess? process) {
+		if (process is null) _connection.Restart();
+		else Open(primary, process);
+	}
+
+	private void Open(AcpConversation conversation, AcpProcess process) {
+		conversation.Attach(process);
+		conversation.RunRuntime(() => conversation.OpenAsync(Features));
 	}
 
 	private static AcpConversationState NewContinuation(

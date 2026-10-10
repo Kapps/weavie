@@ -21,6 +21,25 @@ vi.mock("./AgentPaneMessages", async (importOriginal) => {
 describe("agent pane model isolation", () => {
   beforeEach(() => transcriptCalls.mockClear());
 
+  it("preserves live output through history completion and clears it on reload", () => {
+    createRoot((dispose) => {
+      const model = createAgentPaneModel({} as ClientSession);
+      const answer = message("answer", "Streamed answer");
+      model.noteLive();
+      model.publish([answer], [answer]);
+      expect(model.liveResultIndex()).toBe(0);
+
+      model.setHistoryComplete(true);
+      expect(model.liveResultIndex()).toBe(0);
+
+      model.setHistoryComplete(false);
+      model.replace([answer]);
+      model.setHistoryComplete(true);
+      expect(model.liveResultIndex()).toBeNull();
+      dispose();
+    });
+  });
+
   it("projects a background transcript before the session is selected", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);

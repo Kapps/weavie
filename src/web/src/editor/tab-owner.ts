@@ -87,6 +87,11 @@ export class TabOwner {
   }
 }
 
+/** Whether `error` is a navigation or activation cancelled because a newer one superseded it. */
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export function focusTabContent(element: HTMLElement): void {
   if (element.shadowRoot?.activeElement == null && !element.contains(document.activeElement))
     element.focus();

@@ -32,7 +32,7 @@ export interface AgentPaneModel {
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardRequestKey: Accessor<string | null>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
-  /** The final row's index when it is an agent result updated since history loaded. */
+  /** The final row's index when it is an agent result updated by live output rather than history. */
   readonly liveResultIndex: Accessor<number | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
@@ -49,6 +49,8 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
   publish(updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void;
   replace(updates: AgentPaneUpdate[]): void;
   setHistoryComplete(complete: boolean): void;
+  /** Marks the transcript as receiving live output, which history loading never clears. */
+  noteLive(): void;
   reset(): void;
 }
 
@@ -69,7 +71,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [keyboardRequestKey, setKeyboardRequestKey] = createSignal<string | null>(null);
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
-  const [liveFrom, setLiveFrom] = createSignal<number | null>(null);
+  const [historyComplete, setHistoryComplete] = createSignal(false);
+  const [live, setLive] = createSignal(false);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
   const [latestResultIndex, setLatestResultIndex] = createSignal<number | null>(null);
   const [pendingRowIndexes, setPendingRowIndexes] = createSignal<readonly number[]>([]);
@@ -192,15 +195,12 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     entries,
     generation,
     history,
-    historyComplete: () => liveFrom() !== null,
+    historyComplete,
     interruptible,
     keyboardApprovalId,
     keyboardRequestKey,
     latestPlan,
-    liveResultIndex: () => {
-      const from = liveFrom();
-      return from !== null && revision() > from ? latestResultIndex() : null;
-    },
+    liveResultIndex: () => (live() ? latestResultIndex() : null),
     pendingLegacyImageCount,
     pendingRequestKind,
     pendingRowIndexes,
@@ -222,8 +222,12 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       project(updates);
     },
     setHistoryComplete(complete) {
-      setLiveFrom(complete ? revision() : null);
+      batch(() => {
+        setHistoryComplete(complete);
+        if (!complete) setLive(false);
+      });
     },
+    noteLive: () => setLive(true),
     reset() {
       expandedActivities.clear();
       project([]);

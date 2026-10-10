@@ -1,7 +1,7 @@
 import { notify } from "../../notify/notify";
 import { normalizePath } from "../fs-path";
 import type { TextLocation } from "../nav-history";
-import type { TabPresenter } from "../tab-owner";
+import { isAbortError, type TabPresenter } from "../tab-owner";
 import type { ReviewEditor } from "./review-editor";
 import { hasReviewChanges, type ReviewFileView } from "./review-store";
 
@@ -155,8 +155,7 @@ export function createReviewSurface(surface: {
     void restore(location, lifetime.signal, alignment)
       .then(focus)
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
-          notify("warn", String(error));
+        if (!isAbortError(error)) notify("warn", String(error));
       });
   };
   const advanceReviewedFile = (): void => {

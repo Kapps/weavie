@@ -34,15 +34,20 @@ An `.html` preview renders the live working copy in `<iframe sandbox="allow-scri
 or bridge. Its relative URLs resolve through an injected `<base>` pointing at `/weavie-preview/{grant}/<folder>/`.
 
 - The pane requests a grant over the session bus (`files.previewGrant`) and revokes it on unmount
-  (`files.previewRelease`); unloading the session revokes all of its grants.
-- A grant is 128 random bits bound to one loaded session and reads only that session's workspace. The file
-  being previewed must be inside it, or the pane shows the refusal instead of rendering.
+  (`files.previewRelease`); the page disconnecting or the session unloading revokes all of its grants.
+- A grant is 128 random bits bound to one page and one loaded session, and reads only that session's workspace.
+  A file outside it, or in a hidden folder, is refused in the pane instead of rendering with broken assets.
 - The route is exempt from the token/cookie gate because an opaque-origin frame can send neither; the grant is
   the only credential, and the page can read it, so no workspace token ever appears in the frame.
-- Dot-prefixed segments (`.git`, `.env`) and any symlinked segment return 404.
+- Each segment is matched against its real on-disk entry: hidden entries (`.git`, `.env`, including via a
+  Windows 8.3 short name), drive/stream syntax, and symlinks return 404.
 - Responses carry `Content-Security-Policy: sandbox allow-scripts` (a directly opened asset still gets no
   origin) and `Access-Control-Allow-Origin: *` (the null-origin frame loads modules, `fetch`, and fonts in CORS
   mode without credentials).
+
+Residual risk: the page has network access, so a hostile `.html` the user chooses to preview can read
+non-hidden workspace files and send them elsewhere. Preview is opt-in per file; the sandbox protects Weavie
+itself, not the workspace from the page.
 
 ## HTTP behavior
 

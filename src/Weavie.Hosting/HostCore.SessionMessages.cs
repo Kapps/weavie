@@ -108,16 +108,17 @@ public sealed partial class HostCore {
 		files.Handle(
 			"refs", "Listing git refs", WireJson.Default.EmptyPayload, WireJson.Default.DiffRefsResult,
 			(_, ct) => ListRefsAsync(session, ct));
-		files.Handle(
+		files.HandleOwned(
 			"previewGrant", "Opening an HTML preview", WireJson.Default.FilePathRequest, WireJson.Default.PreviewGrant,
-			(message, _) => {
-				var (grant, baseUrl) = _fileRoutes.GrantPreview(session.Incarnation, message.Path);
+			(message, peer, _) => {
+				var (grant, baseUrl) = _fileRoutes.GrantPreview(session.Incarnation, peer, message.Path);
 				return Task.FromResult(new PreviewGrant(grant, baseUrl));
 			});
-		files.Handle("previewRelease", "Closing an HTML preview", WireJson.Default.PreviewRelease, (message, _) => {
-			_fileRoutes.ReleasePreview(message.Grant);
+		files.HandleOwned("previewRelease", "Closing an HTML preview", WireJson.Default.PreviewRelease, (message, peer, _) => {
+			_fileRoutes.ReleasePreview(peer, message.Grant);
 			return Task.CompletedTask;
 		});
+		session.Bus.PeerDisconnected += _fileRoutes.ReleasePreviews;
 		files.Handle("refreshIndex", "Refreshing the file index", WireJson.Default.EmptyPayload, (_, _) => {
 			PushFileIndexToWeb(session, false);
 			return Task.CompletedTask;

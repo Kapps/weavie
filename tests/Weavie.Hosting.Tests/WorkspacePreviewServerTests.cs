@@ -54,6 +54,22 @@ public sealed class WorkspacePreviewServerTests {
 		var outsideGrant = await Assert.ThrowsAsync<InvalidOperationException>(
 			() => GrantAsync(host, host.WorkspaceSession, Path.Combine(outside, "page.html")));
 		Assert.Contains("outside this session's workspace", outsideGrant.Message, StringComparison.Ordinal);
+		await Assert.ThrowsAsync<InvalidOperationException>(
+			() => GrantAsync(host, host.WorkspaceSession, Path.Combine(host.RepoRoot, ".github", "page.html")));
+	}
+
+	[Fact]
+	public async Task RevokesAPagesGrantsWhenItDisconnects() {
+		await using var host = await TestHost.StartAsync();
+		await File.WriteAllTextAsync(Path.Combine(host.RepoRoot, "style.css"), "p{}");
+		var (_, baseUrl) = await GrantAsync(host, host.WorkspaceSession, Path.Combine(host.RepoRoot, "page.html"));
+		using var granted = await Http.GetAsync(baseUrl + "style.css");
+		Assert.Equal(HttpStatusCode.OK, granted.StatusCode);
+
+		host.Bridge.Disconnect(new WebPeer(TestHost.TestPageId));
+		host.DrainMessages();
+		using var revoked = await Http.GetAsync(baseUrl + "style.css");
+		Assert.Equal(HttpStatusCode.NotFound, revoked.StatusCode);
 	}
 
 	[Fact]

@@ -45,8 +45,6 @@ export interface NotificationPrefs {
 
 export interface AgentDefaults {
   defaultProvider: string;
-  /** Which model automatic suggestions run on, worded for the user. */
-  inferenceModel: string;
   providers: AgentProviderInfo[];
 }
 
@@ -163,6 +161,16 @@ export interface AgentControlAxis {
   value: string;
   valueLabel: string;
   options: AgentControlOption[];
+}
+
+/** The suggestion profile pickers; each axis id is a setting key and each option id a value for it. */
+export interface InferenceControlsState {
+  enabled: boolean;
+  automatic: boolean;
+  status: "probing" | "ready" | "failed";
+  error: string | null;
+  warning: string | null;
+  axes: AgentControlAxis[];
 }
 
 interface AgentSlashEntryBase {

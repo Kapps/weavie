@@ -131,8 +131,43 @@ inference.fastMode = "on"
 ```
 
 An ACP profile uses the same keys with its installed provider id and advertised option value ids. The provider is
-open-ended because ACP installations are dynamic. An unavailable configured provider fails visibly, and an ACP
+open-ended because ACP installations are dynamic. Changing `inference.defaultProvider` clears the model, effort,
+and Fast Mode it scoped, and changing `inference.model` clears its effort (`SettingDefinition.Resets`), so a value
+one agent advertised never carries over to an agent that doesn't. An unavailable configured provider fails visibly, and an ACP
 provider referenced by `inference.defaultProvider` cannot be removed until the setting changes.
+
+### Profile pickers
+
+Users pick the profile from the agent's own options, never a typed id. `InferenceControlCatalog` (Core) asks the
+selected provider once a surface opens it, and again whenever the provider, the model, or the provider catalog
+changes — never on a timer. `IInferenceProvider.ProbeInferenceControlsAsync(model)` answers with the controls a
+blank-profile query runs with (the defaults) and the controls once the configured model is applied, so
+model-dependent effort lists are current:
+
+- **ACP** opens one transient, isolated session and applies the model exactly as a query would.
+- **Terminal Claude** reads the CLI's `initialize` control handshake (`--input-format stream-json`), which lists every
+  model with its effort levels and Fast Mode support. No model turn runs.
+
+`InferenceControlAxes` maps the answer onto pickers whose axis ids are the setting keys and whose option ids are the
+values, each led by a "Default (…)" option naming what the provider resolves it to. A configured value the agent
+doesn't offer stays selected with a visible warning. The host pushes the state over the `inferenceControls`
+feature; the setup suggestions step and the **Configure Suggestions…** command (`weavie.inference.configure`) render
+it as a bar styled after the agent status line's pickers. A failed ask shows its reason with **Try again**.
+
+```mermaid
+sequenceDiagram
+  participant W as Web
+  participant H as Host feature
+  participant C as InferenceControlCatalog
+  participant P as Provider
+  W->>H: inferenceControls.open
+  H->>C: Open()
+  C->>P: ProbeInferenceControlsAsync(model)
+  P-->>C: defaults + selected controls
+  C-->>W: inferenceControls.state
+  W->>H: settings.set(inference.model)
+  H->>C: setting changed: ask again
+```
 
 After the first page hello in each host run, Weavie offers a persistent action notification when either gate is
 off. Its action runs `weavie.inference.enableAutomatic`, which writes `inference.allowAutomatic` before

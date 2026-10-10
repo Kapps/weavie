@@ -90,14 +90,7 @@ internal sealed class AcpProfile(AcpTransientConnection connection, string sessi
 		state.FirstOrDefault(matches) ?? throw ProfileFailure($"no {description} control is advertised");
 
 	private AgentControlAxis FindFastControl(IReadOnlyList<AgentControlAxis> state) {
-		var candidates = state.Where(control =>
-			(control.Id is "fast" or "fast-mode")
-			&& (control.Kind == "boolean"
-				|| control.Kind == "select"
-					&& control.Options.Count == 2
-					&& control.Options.Any(option => option.Id == "on")
-					&& control.Options.Any(option => option.Id == "off")))
-			.ToArray();
+		var candidates = state.Where(InferenceControlAxes.IsFastMode).ToArray();
 		return candidates.Length switch {
 			0 => throw ProfileFailure("no Fast Mode control is advertised"),
 			1 => candidates[0],

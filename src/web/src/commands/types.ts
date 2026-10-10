@@ -179,6 +179,7 @@ export const CommandIds = {
   decreaseFontSize: "weavie.font.decrease",
   resetFontSize: "weavie.font.reset",
   selectTheme: "weavie.theme.select",
+  configureSuggestions: "weavie.inference.configure",
   cycleThemeMode: "weavie.theme.cycleMode",
   viewLogs: "weavie.view.logs",
   runTests: "weavie.tests.run",

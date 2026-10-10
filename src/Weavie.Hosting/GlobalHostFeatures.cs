@@ -28,6 +28,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		WireThemes();
 		WireSettings();
 		WireAgents();
+		WireInferenceControls();
 		_handlers.Add(_host.Feature("diagnostics").Handle("log", WireJson.Default.WebLogMessage, (message, _) => {
 			_log($"[web:{message.Level}] {message.Message}");
 			return Task.CompletedTask;
@@ -45,7 +46,9 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		+ $"window.__WEAVIE_COMMANDS__ = {_services.Keybindings.BuildCommandsJson()};"
 		+ $"window.__WEAVIE_KEYBINDINGS__ = {_services.Keybindings.BuildKeybindingsJson()};";
 
-	public string AgentDefaultsJson() => AgentSettings.BuildJson(_services.Settings, _services.AgentProviders);
+	public string AgentDefaultsJson() => AgentSettings.BuildJson(
+		_services.Settings,
+		[.. _services.AgentProviders.Providers.Select(provider => provider.Info)]);
 
 	/// <summary>Makes <paramref name="providerId"/> the default for new sessions when it names an installed provider.</summary>
 	public void RememberDefaultProvider(string? providerId) {
@@ -99,6 +102,21 @@ internal sealed class GlobalHostFeatures : IDisposable {
 				: Task.CompletedTask;
 		}));
 	}
+
+	private void WireInferenceControls() {
+		var feature = _host.Feature("inferenceControls");
+		var state = WireJson.Default.InferenceControlsState;
+		_handlers.Add(feature.Handle("open", WireJson.Default.EmptyPayload, state, (_, _) =>
+			Task.FromResult(_services.InferenceControls.Open())));
+		_handlers.Add(feature.Handle("refresh", WireJson.Default.EmptyPayload, (_, _) => {
+			_services.InferenceControls.Refresh();
+			return Task.CompletedTask;
+		}));
+		_services.InferenceControls.Changed += PushInferenceControls;
+	}
+
+	private void PushInferenceControls() => _host.Feature("inferenceControls")
+		.Publish("state", WireJson.Default.InferenceControlsState, _services.InferenceControls.State);
 
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");
@@ -180,6 +198,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		_services.ThemeOverrides.Changed -= OnThemeOverridesChanged;
 		_services.Keybindings.KeybindingsChanged -= PushCommandCatalog;
 		_services.AgentProviders.Changed -= PushAgentDefaults;
+		_services.InferenceControls.Changed -= PushInferenceControls;
 		foreach (var handler in _handlers) {
 			handler.Dispose();
 		}

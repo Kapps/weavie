@@ -164,6 +164,7 @@ import {
   selectedFileIndex,
 } from "./files/session-files";
 import { GettingStartedModal } from "./getting-started/GettingStarted";
+import { SuggestionsDialog } from "./inference/SuggestionsDialog";
 import { ThemePicker } from "./theme/ThemePicker";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
@@ -2073,6 +2074,7 @@ export default function App(): JSX.Element {
         }
       />
       <ThemePicker />
+      <SuggestionsDialog />
       <GettingStartedModal />
       <Show when={updateRestarting()}>
         <UpdateOverlay />

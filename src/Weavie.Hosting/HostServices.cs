@@ -46,6 +46,9 @@ public sealed record HostServices : IDisposable {
 	/// <summary>The advertised models of every consultable provider, refreshed from probes and live sessions.</summary>
 	public required AgentModelCatalog AgentModels { get; init; }
 
+	/// <summary>What the suggestion profile can be set to, asked of the selected inference provider.</summary>
+	public required InferenceControlCatalog InferenceControls { get; init; }
+
 	/// <summary>Resolves embedded agents' requests to consult another configured agent.</summary>
 	public required AgentConsultation AgentConsultation { get; init; }
 
@@ -140,6 +143,7 @@ public sealed record HostServices : IDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AgentModels = agentModels,
+			InferenceControls = new InferenceControlCatalog(settings, agentProviders),
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = acpSessions,
@@ -160,6 +164,7 @@ public sealed record HostServices : IDisposable {
 	/// <summary>Stops model probes and the settings/keybinding watchers; called once the hosts are torn down.</summary>
 	public void Dispose() {
 		AgentModels.Dispose();
+		InferenceControls.Dispose();
 		Keybindings.Dispose();
 		Settings.Dispose();
 	}

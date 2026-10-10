@@ -452,6 +452,9 @@ public sealed class InferenceServiceTests : IDisposable {
 			return _query(request, ct);
 		}
 
+		public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+			throw new NotSupportedException();
+
 		public void ClearConversation(string workspace) { }
 
 		public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();

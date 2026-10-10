@@ -426,6 +426,9 @@ public static class CoreCommands {
 	/// <summary>Allows isolated automatic model queries for small product suggestions.</summary>
 	public const string EnableAutomaticInference = "weavie.inference.enableAutomatic";
 
+	/// <summary>Opens the suggestion settings: whether suggestions run, and the agent, model, effort, and Fast Mode they use.</summary>
+	public const string ConfigureSuggestions = "weavie.inference.configure";
+
 	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
 	public const string RunTests = "weavie.tests.run";
 

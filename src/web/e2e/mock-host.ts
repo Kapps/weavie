@@ -117,7 +117,6 @@ const DEFAULT_LAYOUT = {
 
 const MOCK_AGENT_DEFAULTS = {
   defaultProvider: "claude",
-  inferenceModel: "Suggestions use Claude's 'haiku' model at low effort.",
   providers: [
     {
       id: "claude",

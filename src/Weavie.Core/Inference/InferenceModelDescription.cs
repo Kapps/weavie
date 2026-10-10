@@ -22,7 +22,7 @@ public static class InferenceModelDescription {
 			? configuredEffort
 			: info.UtilityEffort;
 		string atEffort = effort.Length > 0 ? $" at {effort} effort" : "";
-		return $"Suggestions use {model}{atEffort}, independent of your chat's model; "
-			+ $"change it with the {InferenceSettings.Model} setting.";
+		return $"Suggestions use {model}{atEffort}, independent of your chat's model. "
+			+ "Change it with Configure Suggestions.";
 	}
 }

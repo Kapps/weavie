@@ -390,7 +390,7 @@ test.describe("ACP composer", () => {
       await page.getByRole("button", { name: /^Model / }).click();
       const picker = page.locator(".agent-control-picker");
       await expect(picker).toBeVisible();
-      await expect(picker.locator(".agent-control-option")).toHaveCount(2);
+      await expect(picker.locator(".control-menu-option")).toHaveCount(2);
       await page.screenshot({ path: join(shotsDir, "02-model-picker.png") });
 
       await page.keyboard.press("ArrowDown");
@@ -404,7 +404,7 @@ test.describe("ACP composer", () => {
     await test.step("reasoning selection sends the thought level", async () => {
       const checkpoint = host.received.length;
       await page.getByRole("button", { name: /^Reasoning / }).click();
-      const sub = page.locator(".agent-control-picker .agent-control-option");
+      const sub = page.locator(".agent-control-picker .control-menu-option");
       await expect(sub).toHaveCount(3);
       await page.screenshot({ path: join(shotsDir, "02b-effort-submenu.png") });
 
@@ -419,7 +419,7 @@ test.describe("ACP composer", () => {
     await test.step("boolean selection reflects the host acknowledgement", async () => {
       const checkpoint = host.received.length;
       await page.getByRole("button", { name: /^Fast / }).click();
-      const fastItems = page.locator(".agent-control-picker .agent-control-option");
+      const fastItems = page.locator(".agent-control-picker .control-menu-option");
       await expect(fastItems).toHaveCount(2);
       await fastItems.filter({ hasText: "On" }).click();
 
@@ -1682,7 +1682,7 @@ test.describe("ACP composer", () => {
     await test.step("reasoning highlight survives", async () => {
       await page.getByRole("button", { name: /^Reasoning / }).click();
       await page.keyboard.press("ArrowDown");
-      const high = page.locator(".agent-control-option", { hasText: "High" });
+      const high = page.locator(".control-menu-option", { hasText: "High" });
       await expect(high).toHaveClass(/active/);
 
       publishControls(controls);
@@ -1692,7 +1692,7 @@ test.describe("ACP composer", () => {
 
     await test.step("model highlight survives and selects the highlighted value", async () => {
       await page.getByRole("button", { name: /^Model / }).click();
-      const options = page.locator(".agent-control-picker .agent-control-option");
+      const options = page.locator(".agent-control-picker .control-menu-option");
       await expect(options.nth(0)).toHaveClass(/active/); // seeded on the current value
       await page.keyboard.press("ArrowDown");
       await expect(options.nth(1)).toHaveClass(/active/);

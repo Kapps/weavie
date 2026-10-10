@@ -1,0 +1,329 @@
+/* Suggestion settings: setup's suggestions step and the Configure Suggestions dialog. */
+
+.suggestion-settings {
+  --sg-surface: color-mix(in srgb, var(--fg) 5%, transparent);
+  --sg-line: color-mix(in srgb, var(--fg) 18%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--fg);
+}
+
+.sg-row,
+.sg-profile {
+  padding: 10px 14px;
+  background: var(--sg-surface);
+  border-radius: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.sg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.sg-disabled {
+  opacity: 0.55;
+}
+
+.sg-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.sg-row .sg-text {
+  cursor: pointer;
+}
+
+.sg-text strong {
+  font-weight: 600;
+}
+
+.sg-text small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  line-height: 1.4;
+}
+
+.sg-switch {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--sg-line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sg-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s ease;
+}
+
+.sg-switch:checked {
+  background: var(--accent);
+}
+
+.sg-switch:checked::before {
+  background: var(--button-fg);
+  transform: translateX(14px);
+}
+
+.sg-switch:disabled {
+  cursor: default;
+}
+
+/* What suggestions run on: one bar of pickers, echoing the agent status line. */
+
+.sg-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sg-profile-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+
+.sg-profile-head strong {
+  font-weight: 600;
+}
+
+.sg-profile-head small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.sg-bar {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--sg-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.sg-segment {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 10px 7px;
+  border: 0;
+  border-left: 1px solid var(--sg-line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.sg-segment:first-child {
+  flex-grow: 1.3;
+  border-left: 0;
+}
+
+.sg-segment:not(:disabled):hover,
+.sg-segment[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.sg-segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sg-segment:disabled {
+  cursor: default;
+}
+
+.sg-caption {
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sg-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sg-value-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sg-value svg {
+  flex: none;
+  color: var(--dim);
+}
+
+/* Asking the agent: a known value dims while it's re-checked; an unknown one shimmers in its place. */
+
+.sg-busy .sg-value {
+  opacity: 0.55;
+}
+
+.sg-placeholder .sg-value-text {
+  flex: 1;
+  height: 0.9em;
+  max-width: 7em;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--sg-line) 0%,
+    color-mix(in srgb, var(--fg) 30%, transparent) 50%,
+    var(--sg-line) 100%
+  );
+  background-size: 200% 100%;
+  animation: sg-shimmer 1.2s ease-in-out infinite;
+}
+
+.sg-placeholder .sg-value svg {
+  visibility: hidden;
+}
+
+@keyframes sg-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-placeholder .sg-value-text {
+    animation: none;
+  }
+}
+
+.sg-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--font-metadata-size);
+  line-height: 1.4;
+}
+
+.sg-status svg {
+  flex: none;
+}
+
+.sg-bad {
+  color: var(--bad);
+}
+
+.sg-warn {
+  color: var(--warn);
+}
+
+.sg-retry {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.control-menu.sg-menu {
+  z-index: 80;
+}
+
+/* The Configure Suggestions dialog. */
+
+.confirm-dialog.suggestions-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(680px, 94vw);
+  padding: 26px 32px 20px;
+}
+
+.sg-dialog-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sg-dialog-header h2 {
+  margin: 0;
+  font-size: calc(var(--font-chrome-size) * 1.45);
+  font-weight: 650;
+}
+
+.sg-dialog-header span,
+.sg-dialog-footer small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.sg-dialog-hint {
+  margin: -8px 0 0;
+  color: var(--dim);
+}
+
+.sg-dialog-error {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--bad);
+}
+
+.sg-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sg-done {
+  padding: 0.45em 1.2em;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--button-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sg-done:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -1,14 +1,11 @@
 import { createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { controlMenuOpen } from "../chrome/ControlMenu";
 import { ModalShell } from "../chrome/ModalShell";
+import { writeSetting } from "../host-settings";
 import { notify } from "../notify/notify";
 import { AgentStep } from "./AgentStep";
-import {
-  COMPLETED_SETTING,
-  gettingStartedOpen,
-  setGettingStartedOpen,
-  writeSetting,
-} from "./state";
+import { COMPLETED_SETTING, gettingStartedOpen, setGettingStartedOpen } from "./state";
 import { FinishStep, InferenceStep, Keycaps, type SetupRun, ThemeStep } from "./steps";
 import "./getting-started.css";
 
@@ -135,7 +132,7 @@ export function GettingStartedModal(): JSX.Element {
         class="getting-started-dialog"
         onDismiss={dismiss}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
+          if (event.key === "Escape" && !controlMenuOpen()) {
             event.preventDefault();
             dismiss();
           }

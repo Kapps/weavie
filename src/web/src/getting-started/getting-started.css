@@ -327,65 +327,6 @@ fieldset.gs-choices {
   border-radius: 6px;
 }
 
-/* Smart suggestions: setting rows with switches. */
-
-.gs-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 12px 14px;
-  background: var(--gs-surface);
-  border-radius: 10px;
-  transition: opacity 0.15s ease;
-}
-
-.gs-row .gs-text {
-  cursor: pointer;
-}
-
-.gs-row.gs-disabled {
-  opacity: 0.55;
-}
-
-.gs-switch {
-  flex: none;
-  appearance: none;
-  position: relative;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border-radius: 10px;
-  background: var(--gs-line);
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.gs-switch::before {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--fg);
-  transition: transform 0.15s ease;
-}
-
-.gs-switch:checked {
-  background: var(--accent);
-}
-
-.gs-switch:checked::before {
-  background: var(--button-fg);
-  transform: translateX(14px);
-}
-
-.gs-switch:disabled {
-  cursor: default;
-}
-
 /* Keyboard: command, what it's for, and its keys. */
 
 .gs-keys {

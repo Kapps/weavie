@@ -8,7 +8,8 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentSession,
 	IStructuredAgentControls,
 	IStructuredAgentUsage,
-	IStructuredAgentSideConversations {
+	IStructuredAgentSideConversations,
+	IStructuredAgentBackgroundWork {
 	private readonly AgentSessionContext _context;
 	private readonly Func<AcpAgentDefinition> _definitionSource;
 	private AcpAgentDefinition _definition;
@@ -153,6 +154,7 @@ public sealed partial class AcpAgentSession :
 			_primary = next;
 			if (process is null) (_processGeneration, _process) = (0, null);
 		}
+		PublishBackground();
 		return next;
 	}
 

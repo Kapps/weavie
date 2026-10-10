@@ -129,6 +129,7 @@ public sealed partial class AcpAgentSession {
 					["auth"] = new JsonObject { ["terminal"] = true },
 					["fs"] = new JsonObject { ["readTextFile"] = true, ["writeTextFile"] = true },
 					["plan"] = new JsonObject(),
+					["subagents"] = new JsonObject(),
 					["terminal"] = true,
 					["session"] = AcpInferenceClient.SessionCapabilities(),
 					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },

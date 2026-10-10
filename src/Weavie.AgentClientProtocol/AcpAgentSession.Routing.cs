@@ -76,13 +76,10 @@ public sealed partial class AcpAgentSession {
 		conversation.Authenticate(id, methodId);
 	}
 
-	// Side request ids are namespaced by their conversation; everything else belongs to the primary.
+	// Nested request ids are namespaced by their side or subagent conversation; everything else belongs to the primary.
 	private (AcpConversation Conversation, string RequestId) RequestOwner(string requestId) {
 		int separator = requestId.IndexOf(':', StringComparison.Ordinal);
-		lock (_gate) {
-			return separator > 0 && _sides.TryGetValue(requestId[..separator], out var side)
-				? (side.Conversation, requestId[(separator + 1)..])
-				: (_primary, requestId);
-		}
+		if (separator > 0 && NestedConversation(requestId[..separator]) is { } nested) return (nested, requestId[(separator + 1)..]);
+		return (Primary, requestId);
 	}
 }

@@ -43,6 +43,9 @@ internal abstract record AcpConversationOpening {
 /// <summary>Forks the live parent's provider session, at the agent message <paramref name="MessageId"/> when set.</summary>
 internal sealed record ForkFromOpening(AcpConversation Parent, string? MessageId) : AcpConversationOpening;
 
+/// <summary>Takes over the subagent session <paramref name="SessionId"/> a parent announced; it never opens, prompts, or closes.</summary>
+internal sealed record AdoptedOpening(string SessionId, AcpBackgroundWork Work, string? ParentConversationId) : AcpConversationOpening;
+
 /// <summary>A conversation's display-facing control state.</summary>
 internal sealed record AcpConversationSnapshot(
 	bool Ready,

@@ -268,6 +268,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (replay && sessionId != "replay-session") {
 			ReplayTranscript(sessionId);
 		}
+		if (replay) ReplaySubagents(sessionId);
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = _fakeMode == "side-no-commands" && sessionId.StartsWith("fake-fork-", StringComparison.Ordinal)
@@ -393,6 +394,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(StatePath("closes.log"), _sessionId + Environment.NewLine);
 		// A test opts into an update racing the close by creating late-after-close.
 		if (File.Exists(Path.Combine(Environment.CurrentDirectory, "late-after-close"))) Message("late after close");
+		SpawnAfterClose();
 		return [];
 	}
 
@@ -430,6 +432,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
+		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
 		else if (text == "held-background") {

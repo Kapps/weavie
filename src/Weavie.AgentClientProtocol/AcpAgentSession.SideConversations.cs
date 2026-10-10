@@ -103,6 +103,7 @@ public sealed partial class AcpAgentSession {
 
 	private void DisposeSide(SideRuntime runtime) {
 		_context.Events.Observe(new AgentConversationRemoved(runtime.Side.ConversationId));
+		PublishBackground();
 		Primary.Run(() => runtime.Conversation.CloseAsync(static () => Task.CompletedTask));
 	}
 

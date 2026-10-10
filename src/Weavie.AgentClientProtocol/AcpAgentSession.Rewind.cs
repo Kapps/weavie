@@ -48,12 +48,15 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 		var sides = Sides();
 		var continuation = rewind?.Fork.Continuation ?? RewindContinuation(predecessor, plan);
 		string[] dropped;
+		IReadOnlyList<AgentPaneMessage> kept;
 		try {
 			predecessor.TerminalizeForRestart(clearSubmissions: false, "Conversation rewound.");
 			SuspendSides("Conversation rewound.");
 			predecessor.SettleInteractions();
+			// Nested conversations kept running while the fork opened, and settling them just journalled their ends.
+			kept = AcpRewindPlan.Create(_sessions.ReadMessages(_definition.Id, _context.Workspace), plan.Turn.ToString(CultureInfo.InvariantCulture)).Kept;
 			dropped = [.. _sideConversations.Values.Where(side => !plan.Keeps(side.AnchorTurnNumber)).Select(side => side.ConversationId)];
-			_sessions.Replace(_definition.Id, _context.Workspace, [continuation, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], plan.Kept);
+			_sessions.Replace(_definition.Id, _context.Workspace, [continuation, .. _sideConversations.Values.Where(side => !dropped.Contains(side.ConversationId))], kept);
 		} catch (AcpSessionStoreException error) {
 			StopForStorageFailure(error, sides);
 			throw;
@@ -69,7 +72,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			adopted.Fork.Inherit(handoff);
 			return adopted.Fork;
 		});
-		PaneSnapshot?.Invoke(plan.Kept);
+		PaneSnapshot?.Invoke(kept);
 		if (adopted is null) Launch(successor, process);
 		else adopted.Promote();
 		if (plan.Prompt.Length > 0) successor.Prefill(plan.Prompt);

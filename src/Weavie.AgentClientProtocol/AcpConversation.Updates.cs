@@ -39,6 +39,7 @@ internal sealed partial class AcpConversation {
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
 		if (_loadingTranscript) {
 			_replay.Observe(kind, update);
+			ObserveReplayedBackground(kind, update);
 			if (kind is not ("available_commands_update" or "current_mode_update" or "config_option_update" or "usage_update")) return;
 		}
 		switch (kind) {
@@ -55,6 +56,7 @@ internal sealed partial class AcpConversation {
 			case "config_option_update": UpdateConfig(update); break;
 			case "session_info_update": EmitSessionInfo(update); break;
 			case "usage_update": EmitUsage(update); break;
+			case "subagent_spawned" or "subagent_state_update": HandleBackgroundUpdate(kind, update); break;
 			default: throw new AcpProtocolException($"Unsupported ACP session update '{kind}'.");
 		}
 	}

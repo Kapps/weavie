@@ -26,6 +26,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	internal void Submit(AgentTurnSubmission submission) {
+		if (!OwnsWork) throw new InvalidOperationException("A subagent takes no prompts.");
 		if (Normalize(submission) is not { } normalized) return;
 		Enqueue(normalized);
 		DispatchPendingSubmission();

@@ -46,6 +46,7 @@ internal sealed partial class AcpConversation {
 			AbandonClientRequests();
 			// Abandoned requests complete before the lifetime cancels their linked tokens.
 			_lifetime.Cancel();
+			if (OwnsWork) Background.End("failed");
 			ObserveTerminalizedTools(tools);
 			RaiseControls();
 			Observe(new AgentRuntimeFailed());
@@ -84,6 +85,7 @@ internal sealed partial class AcpConversation {
 		AbandonRunningRequests();
 		// Abandoned requests complete before the lifetime cancels their linked tokens.
 		_lifetime.Cancel();
+		if (OwnsWork) Background.End("cancelled");
 		RaiseControls();
 		foreach (var message in DrainContentStreams()) _pendingTerminalMessages.Enqueue(message);
 		foreach (var tool in tools) {
@@ -133,6 +135,7 @@ internal sealed partial class AcpConversation {
 	private AcpConversationHandoff Retire(Action<AcpSessionEndpoint> release) {
 		lock (_turnTransitionGate) {
 			_lifetime.Cancel();
+			if (OwnsWork) Background.Abandon();
 			_port.Detach();
 			if (_endpoint.IsSet) release(_endpoint.Value);
 			_terminals.Close();
@@ -148,6 +151,7 @@ internal sealed partial class AcpConversation {
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
 		_lifetime.Cancel();
+		if (OwnsWork) Background.Abandon();
 		ObserveTerminalizedTools(tools);
 	}
 

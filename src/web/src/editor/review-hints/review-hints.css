@@ -44,14 +44,13 @@
   content: "!";
 }
 
-/* A line's pills, after its end; --pill-room is the space from the line end to the viewport's right edge. */
+/* A line's pills in the shared line-end row; they shrink and ellipsize, never pushing other items away. */
 .weavie-hint-pills {
   display: flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  height: 100%;
-  max-width: max(0px, calc(var(--pill-room) - 8px));
+  min-width: 0;
   padding-left: 24px;
   overflow: hidden;
 }

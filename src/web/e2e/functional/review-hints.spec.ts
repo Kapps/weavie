@@ -322,6 +322,15 @@ test.describe("PR review", () => {
     await expect
       .poll(() => hintRowOffset(review, 'const message = greet("pull request");'))
       .toBe(0);
+    // The pill shares the line-end row with the hunk's keep/revert actions instead of drawing over them.
+    const row = review.locator(".weavie-line-end", { has: page.locator(".weavie-hint-pill") });
+    const keepRight = await row
+      .locator(".weavie-inline-pending-tag")
+      .evaluate((el) => el.getBoundingClientRect().right);
+    const pillLeft = await row
+      .locator(".weavie-hint-pill")
+      .evaluate((el) => el.getBoundingClientRect().left);
+    expect(pillLeft).toBeGreaterThanOrEqual(keepRight);
 
     await test.step("Comment on PR opens a prefilled draft the user posts", async () => {
       await review.locator(".weavie-hint-pill").click();

@@ -21,13 +21,14 @@ export const SEVERITY_LABELS: Record<HintSeverity, string> = {
   nit: "Nit",
 };
 
+// Command, accessible label, icon, and visible text (null for icon-only buttons).
 const ACTIONS = [
-  [CommandIds.reviewHintsFix, "Fix", Wrench],
-  [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles],
-  [CommandIds.reviewHintsComment, "Comment on PR", MessageSquarePlus],
-  [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft],
-  [CommandIds.reviewHintsNext, "Next hint", ChevronRight],
-  [CommandIds.reviewHintsDismiss, "Dismiss hint", X],
+  [CommandIds.reviewHintsFix, "Fix", Wrench, "Fix"],
+  [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles, "Fix with…"],
+  [CommandIds.reviewHintsComment, "Comment on PR", MessageSquarePlus, "Comment"],
+  [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft, null],
+  [CommandIds.reviewHintsNext, "Next hint", ChevronRight, null],
+  [CommandIds.reviewHintsDismiss, "Dismiss hint", X, null],
 ] as const;
 
 /** A hint title with its `code` spans rendered as code, matching the markdown body; unpaired backticks stay text. */
@@ -86,7 +87,7 @@ export function HintPopover(props: {
               ([id]) => id !== CommandIds.reviewHintsComment || props.commentable,
             )}
           >
-            {([id, label, Icon]) => (
+            {([id, label, Icon, text]) => (
               <button
                 type="button"
                 title={`${label}${keyHint(id)}`}
@@ -94,11 +95,7 @@ export function HintPopover(props: {
                 onClick={() => void run(id, undefined)}
               >
                 <Icon size={13} />
-                <Show
-                  when={id === CommandIds.reviewHintsFix || id === CommandIds.reviewHintsFixWith}
-                >
-                  {label}
-                </Show>
+                {text}
               </button>
             )}
           </For>

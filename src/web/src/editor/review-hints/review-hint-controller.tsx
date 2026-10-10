@@ -7,6 +7,7 @@ import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { samePath } from "../fs-path";
+import { addLineEndItem } from "../line-end-lane";
 import { monaco } from "../monaco-setup";
 import type { PrCommentController } from "../pr-comments/pr-comment-controller";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
@@ -79,17 +80,17 @@ export function createReviewHints(
       const loaded = sources();
       try {
         const ready = hints().filter((hint) => loaded.has(hint.sourceHash));
-        return placeHints(ready, loaded, model.getValue());
+        // Most editors have no hints; skip copying and diffing their text on every edit.
+        return ready.length === 0 ? [] : placeHints(ready, loaded, model.getValue());
       } catch (error) {
         notify("warn", describeError(error), "review-hints");
         return [];
       }
     });
 
-    // Each pill is a content widget, not injected text: Monaco splits long injected text into separately
-    // styled chunks, and only a real element can ellipsize at the viewport's edge.
+    // Pills are real elements in the shared line-end row, not injected text: Monaco splits long injected text
+    // into separately styled chunks, and only an element can ellipsize at the viewport's edge.
     const decorations = editor.createDecorationsCollection();
-    let pills: monaco.editor.IContentWidget[] = [];
     createEffect(() => {
       const entries = placed();
       decorations.set(
@@ -114,50 +115,25 @@ export function createReviewHints(
         if (line === undefined) lines.set(entry.line, { index, group: [entry] });
         else line.group.push(entry);
       });
-      pills = [...lines.values()].map(({ index, group }) => {
+      for (const { index, group } of lines.values()) {
         const dom = document.createElement("div");
+        dom.className = "weavie-hint-pills weavie-line-end-flexible";
         const unmount = render(
-          () => (
-            <div class="weavie-hint-pills">
-              <For each={group}>{(entry) => <HintPill placed={entry} />}</For>
-            </div>
-          ),
+          () => <For each={group}>{(entry) => <HintPill placed={entry} />}</For>,
           dom,
         );
-        const widget: monaco.editor.IContentWidget = {
-          getId: () => `weavie.reviewHintPills.${entries[index]?.hint.id}`,
-          getDomNode: () => dom,
-          // The tracked decoration carries the line through edits until the debounced re-anchor replaces it.
-          getPosition: () => {
-            const line = decorations.getRange(index)?.startLineNumber;
-            return line === undefined
-              ? null
-              : {
-                  position: { lineNumber: line, column: model.getLineMaxColumn(line) },
-                  preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
-                  // Right of any text injected at the line end, such as the blame annotation.
-                  positionAffinity: monaco.editor.PositionAffinity.Right,
-                };
-          },
-          afterRender: (_position, coordinate) => {
-            if (coordinate === null) return;
-            const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth;
-            dom.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
-            dom.style.setProperty("--pill-room", `${visibleRight - coordinate.left}px`);
-          },
-        };
-        editor.addContentWidget(widget);
+        // The tracked decoration carries the line through edits until the debounced re-anchor replaces it.
+        const remove = addLineEndItem(editor, {
+          dom,
+          order: 1,
+          line: () => decorations.getRange(index)?.startLineNumber ?? null,
+        });
         onCleanup(() => {
-          editor.removeContentWidget(widget);
+          remove();
           unmount();
         });
-        return widget;
-      });
+      }
     });
-    const relayoutPills = model.onDidChangeContent(() => {
-      for (const widget of pills) editor.layoutContentWidget(widget);
-    });
-
     const owned = () => {
       const open = openedHint(session);
       return open?.owner === editor ? open : null;
@@ -283,7 +259,6 @@ export function createReviewHints(
         clearTimeout(recompute);
         clearTimeout(closing);
         onContent.dispose();
-        relayoutPills.dispose();
         for (const subscription of mouse) subscription.dispose();
         if (owned() !== null) openHint(session, null);
         decorations.clear();

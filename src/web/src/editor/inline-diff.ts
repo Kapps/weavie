@@ -7,7 +7,8 @@ import { setContext } from "../commands/context";
 import { IS_MAC } from "../commands/keybindings";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
-import { monaco } from "./monaco-setup";
+import { addLineEndItem, type LineEndItem } from "./line-end-lane";
+import type { monaco } from "./monaco-setup";
 import { DiffComputer } from "./review/diff-computer";
 import {
   type AcceptedDiffHunk,
@@ -247,9 +248,9 @@ export function createInlineDiff(
   let currentOptions: InlineDiffOptions | undefined;
   let fallbackNavigation: InlineDiffOptions | undefined;
   let currentHunks: DiffHunk[] = [];
-  // Monaco content widgets for the per-hunk inline affordances — ✓ keep / ✕ revert beside each bright pending
-  // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
-  let hunkWidgets: monaco.editor.IContentWidget[] = [];
+  // The per-hunk line-end affordances — ✓ keep / ✕ revert beside each bright pending hunk, ↶ undo beside each
+  // faded accepted one — as removals, run on every re-render.
+  let hunkWidgets: (() => void)[] = [];
   // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
   let renderedScope = presentation.scope.current;
   // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
@@ -289,9 +290,7 @@ export function createInlineDiff(
   };
 
   const clearControls = (): void => {
-    for (const widget of hunkWidgets) {
-      editor.removeContentWidget(widget);
-    }
+    for (const remove of hunkWidgets) remove();
     hunkWidgets = [];
     counterNode = undefined;
     dotsNode = undefined;
@@ -334,34 +333,23 @@ export function createInlineDiff(
     replaceToolbar(undefined);
   };
 
-  // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
+  // A hunk's affordance at its first line's end, first in the shared line-end row.
   const anchoredWidget = (
-    id: string,
     model: monaco.editor.ITextModel,
     anchorLine: number,
     dom: HTMLElement,
-  ): monaco.editor.IContentWidget => {
+  ): LineEndItem => {
     const line = Math.min(model.getLineCount(), Math.max(1, anchorLine));
-    return {
-      getId: () => `${id}.${line}`,
-      getDomNode: () => dom,
-      getPosition: () => ({
-        position: { lineNumber: line, column: model.getLineMaxColumn(line) },
-        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
-        // Model-to-view conversion needs Right to include text injected at the anchor.
-        positionAffinity: monaco.editor.PositionAffinity.Right,
-      }),
-    };
+    return { dom, order: 0, line: () => line };
   };
 
   // The faded hunk's widget: a "✓ accepted" tag + an inline ↶ undo that un-keeps just that hunk (posts
   // onUnkeepHunk).
   const buildUndoWidget = (
     hunk: AcceptedDiffHunk,
-    index: number,
     model: monaco.editor.ITextModel,
     onUnkeep: (hunk: HunkUnkeep) => void,
-  ): monaco.editor.IContentWidget => {
+  ): LineEndItem => {
     const dom = document.createElement("div");
     dom.className = "weavie-inline-accepted-tag";
     const kept = document.createElement("span");
@@ -386,16 +374,12 @@ export function createInlineDiff(
       },
     );
     dom.append(kept, undo);
-    return anchoredWidget(`weavie.accepted.${index}`, model, hunk.anchorLine, dom);
+    return anchoredWidget(model, hunk.anchorLine, dom);
   };
 
   // The pending-band counterpart: ✓ keep / ✕ revert beside a bright hunk's first line — the mouse path to the
   // same per-hunk actions the keyboard chords and toolbar drive.
-  const buildPendingWidget = (
-    hunk: DiffHunk,
-    index: number,
-    model: monaco.editor.ITextModel,
-  ): monaco.editor.IContentWidget => {
+  const buildPendingWidget = (hunk: DiffHunk, model: monaco.editor.ITextModel): LineEndItem => {
     const dom = document.createElement("div");
     dom.className = "weavie-inline-pending-tag";
     dom.append(
@@ -416,7 +400,7 @@ export function createInlineDiff(
         ),
       ),
     );
-    return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
+    return anchoredWidget(model, hunk.anchorLine, dom);
   };
 
   const reveal = (line: number): void => {
@@ -1128,20 +1112,16 @@ export function createInlineDiff(
         options.onKeepHunk !== undefined &&
         options.onRevertHunk !== undefined
       ) {
-        hunks.forEach((hunk, index) => {
-          const widget = buildPendingWidget(hunk, index, model);
-          hunkWidgets.push(widget);
-          editor.addContentWidget(widget);
-        });
+        for (const hunk of hunks) {
+          hunkWidgets.push(addLineEndItem(editor, buildPendingWidget(hunk, model)));
+        }
       }
       // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
       if (options.onUnkeepHunk !== undefined) {
         const onUnkeep = options.onUnkeepHunk;
-        acceptedHunks.forEach((hunk, index) => {
-          const widget = buildUndoWidget(hunk, index, model, onUnkeep);
-          hunkWidgets.push(widget);
-          editor.addContentWidget(widget);
-        });
+        for (const hunk of acceptedHunks) {
+          hunkWidgets.push(addLineEndItem(editor, buildUndoWidget(hunk, model, onUnkeep)));
+        }
       }
       renderedUri = uriString;
       presentation.prepareGeometry(markers);

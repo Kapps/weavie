@@ -3,7 +3,7 @@
   inset: 0;
   z-index: 12;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
@@ -37,10 +37,9 @@
 .unified-review-header {
   z-index: 3;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.55em 1em;
+  gap: 1em;
   min-height: 3.5em;
   padding: 0.65em 1em;
   border-bottom: 1px solid var(--border);
@@ -259,130 +258,33 @@
 
 .unified-review-map {
   display: flex;
-  flex-basis: 100%;
-  gap: 3px;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar);
 }
 
 .unified-review-map-file {
-  flex: 1 1 0;
-  min-width: 6px;
+  --track: color-mix(in srgb, var(--dim) 30%, var(--bar));
+  flex: 1 1 12px;
+  min-width: 3px;
   height: 6px;
   padding: 0;
   border: 0;
-  border-radius: 2px;
   background: linear-gradient(
     90deg,
     var(--diff-added, #5a9a6a) var(--reviewed),
-    var(--border) var(--reviewed)
+    var(--track) var(--reviewed)
   );
   cursor: pointer;
 }
 
 .unified-review-map-file:hover {
-  filter: brightness(1.3);
+  --track: color-mix(in srgb, var(--dim) 55%, var(--bar));
 }
 
 .unified-review-map-file.current {
-  outline: 1.5px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* Positioned against the diff row of the review grid, just below the header. */
-.unified-review-switcher {
-  position: absolute;
-  grid-row: 2;
-  grid-column: 1;
-  top: 0.5em;
-  left: 1em;
-  z-index: 61; /* above the floating review toolbar */
-  display: flex;
-  flex-direction: column;
-  width: min(30em, calc(100% - 2em));
-  max-height: calc(100% - 1em);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bar);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 35%);
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-chrome-size);
-}
-
-.unified-review-switcher input {
-  padding: 0.6em 0.8em;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  outline: none;
-}
-
-.unified-review-switcher-list {
-  overflow-y: auto;
-  padding: 0.3em 0;
-}
-
-.unified-review-switcher-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  width: 100%;
-  padding: 0.3em 0.8em 0.3em 1.8em;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.unified-review-switcher-row.selected {
-  background: var(--list-active-bg);
-}
-
-.unified-review-switcher-row.current .unified-review-switcher-leaf {
-  color: var(--accent);
-}
-
-.unified-review-switcher-state {
-  flex: none;
-  width: 0.55em;
-  height: 0.55em;
-  border: 1.5px solid var(--dim);
-  border-radius: 50%;
-}
-
-.unified-review-switcher-state.reviewed {
-  border-color: var(--diff-added, #5a9a6a);
-  background: var(--diff-added, #5a9a6a);
-}
-
-.unified-review-switcher-dir {
-  overflow: hidden;
-  padding: 0.45em 0.8em 0.15em;
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.unified-review-switcher-row .unified-review-file-stats {
-  margin-left: auto;
-}
-
-.unified-review-switcher-empty {
-  padding: 0.6em 0.8em;
-  color: var(--dim);
-}
-
-.unified-review-switcher footer {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.45em 0.8em;
-  border-top: 1px solid var(--border);
-  color: var(--dim);
-  font-size: var(--font-hint-size);
+  --track: color-mix(in srgb, var(--accent) 45%, var(--bar));
+  box-shadow: inset 0 -2px 0 var(--fg);
 }
 
 .unified-review-file-toggle,

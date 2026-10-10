@@ -11,14 +11,15 @@ import {
 } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
+import { focusOmnibarScope } from "../../chrome/omnibar-controller";
 import { setContext } from "../../commands/context";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { activeTabFor } from "../session-store";
 import type { TabOwner } from "../tab-owner";
+import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
-import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
@@ -234,10 +235,19 @@ export function UnifiedReview(props: {
     const file = files()[index]?.summary();
     if (file !== undefined) surface.revealFile(file.path, file.line);
   };
-  const [switcherOpen, setSwitcherOpen] = createSignal(false);
+  const pickFile = (): void =>
+    focusOmnibarScope({
+      label: "Go to review file",
+      files: () => files().map((file) => file.summary().path),
+      current: () => {
+        const index = visibleFile();
+        return index === undefined ? null : (files()[index]?.summary().path ?? null);
+      },
+      choose: (path) => void goToFile(path),
+    });
   const goToFile = (path: string | undefined): boolean => {
     if (path === undefined) {
-      setSwitcherOpen(true);
+      pickFile();
       return true;
     }
     const index = files().findIndex(
@@ -370,28 +380,13 @@ export function UnifiedReview(props: {
 
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
-      <UnifiedReviewHeader
+      <UnifiedReviewHeader overview={props.overview} />
+      <ReviewFileMap
         overview={props.overview}
         current={visibleFile}
         displayPath={displayPath}
         onReveal={revealFile}
       />
-      <Show when={switcherOpen()}>
-        <ReviewFileSwitcher
-          files={files}
-          current={visibleFile}
-          displayPath={displayPath}
-          onChoose={(index) => {
-            setSwitcherOpen(false);
-            revealFile(index);
-          }}
-          onClose={() => setSwitcherOpen(false)}
-          onCancel={() => {
-            setSwitcherOpen(false);
-            surface.focus();
-          }}
-        />
-      </Show>
 
       <main class="unified-review-diffs" ref={scroller} tabIndex={-1}>
         <div
@@ -433,7 +428,7 @@ export function UnifiedReview(props: {
                           onStep={(delta) =>
                             revealFile((item().index + delta + files().length) % files().length)
                           }
-                          onPickFile={() => setSwitcherOpen((open) => !open)}
+                          onPickFile={pickFile}
                           register={surface.sections}
                           active={() => visibleFile() === item().index}
                           toolbarHost={() => toolbarHost ?? null}

@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit, reviewFileSegment } from "../harness/review";
@@ -46,9 +45,6 @@ test("the review strip fills as changes are kept and drops when the agent edits 
 
   await toolbar.locator(".weavie-inline-accept").click();
   await expect(segment).toHaveAttribute("title", /· 100% reviewed$/);
-  await runCommand(page, "Go to File (Review)");
-  await expect(overview.locator(".unified-review-switcher")).toContainText("1 of 2 reviewed");
-  await page.keyboard.press("Escape");
 
   await writeFile(join(weavie.workspace, ".second-edit"), "go\n");
   await expect(segment).toHaveAttribute("title", "progress.txt +3 −3 · 67% reviewed");

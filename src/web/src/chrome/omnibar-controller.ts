@@ -6,6 +6,14 @@ import { pathSeed } from "./path-query";
 
 export type OmnibarMode = "file" | "command" | "docSymbol" | "wsSymbol";
 
+/** A narrowed file set the file modes pick from instead of the workspace, e.g. the open review's files. */
+export interface OmnibarFileScope {
+  label: string;
+  files: () => readonly string[];
+  current: () => string | null;
+  choose: (path: string) => void;
+}
+
 const [request, setRequest] = createSignal<{
   mode: OmnibarMode;
   query: string;
@@ -13,6 +21,7 @@ const [request, setRequest] = createSignal<{
   line: number | undefined;
   /** Whether the preloaded query is selected (replace-on-type) or left with the caret at its end. */
   select: boolean;
+  scope: OmnibarFileScope | null;
   nonce: number;
 } | null>(null);
 
@@ -24,7 +33,7 @@ let nonce = 0;
 /** Asks the omnibar to open + focus in the given mode (file quick-open, command palette, or symbol search). */
 export function focusOmnibar(mode: OmnibarMode): void {
   nonce += 1;
-  setRequest({ mode, query: "", line: undefined, select: true, nonce });
+  setRequest({ mode, query: "", line: undefined, select: true, scope: null, nonce });
 }
 
 /**
@@ -33,7 +42,7 @@ export function focusOmnibar(mode: OmnibarMode): void {
  */
 export function focusOmnibarFileSearch(query: string, line: number | undefined): void {
   nonce += 1;
-  setRequest({ mode: "file", query, line, select: true, nonce });
+  setRequest({ mode: "file", query, line, select: true, scope: null, nonce });
 }
 
 /**
@@ -43,5 +52,18 @@ export function focusOmnibarFileSearch(query: string, line: number | undefined):
  */
 export function focusOmnibarPath(root: string): void {
   nonce += 1;
-  setRequest({ mode: "file", query: pathSeed(root), line: undefined, select: false, nonce });
+  setRequest({
+    mode: "file",
+    query: pathSeed(root),
+    line: undefined,
+    select: false,
+    scope: null,
+    nonce,
+  });
+}
+
+/** Opens the file tree and search over `scope`'s files; choosing one hands it to the scope, not the editor. */
+export function focusOmnibarScope(scope: OmnibarFileScope): void {
+  nonce += 1;
+  setRequest({ mode: "file", query: "", line: undefined, select: true, scope, nonce });
 }

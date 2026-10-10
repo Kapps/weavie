@@ -294,6 +294,8 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("before ANY external action", text, StringComparison.Ordinal);
 		Assert.Contains("approval of that concrete content before publishing", text, StringComparison.Ordinal);
 		Assert.Contains("--repo Kapps/weavie", text, StringComparison.Ordinal);
+		int readiness = text.IndexOf("gh auth status --hostname github.com", StringComparison.Ordinal);
+		Assert.InRange(readiness, 0, text.IndexOf("Prepare the exact public title", StringComparison.Ordinal));
 		await SendAsync(ws, Request(3, "tools/call", JsonSerializer.Serialize(new { name = "runWorkflow", arguments = new { name } })));
 		using var called = await ReceiveAsync(ws);
 		Assert.Equal(text, called.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());

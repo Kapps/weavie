@@ -53,6 +53,10 @@ public static class EmbeddedAgentGuidance {
 		model id, then call `mcp__weavie__consultAgent`. The consulted agent can't see this conversation, so give
 		it everything it needs in the prompt.
 
+		Before a task that creates GitHub issues, PRs, or comments (e.g. filing a Weavie issue), first run
+		`gh auth status` or confirm an authenticated GitHub tool. If neither is available, tell the user up front
+		what setup is missing (install gh, or run `gh auth login`) instead of discovering it at the final step.
+
 		When you reference a file in your replies, write its path relative to the repository root with the line
 		number (e.g. `src/web/src/editor/preview/preview.css:22`), never a bare filename. Weavie turns
 		`path:line` references into clickable links that reveal the file in the editor, and a bare name can't be

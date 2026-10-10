@@ -2,6 +2,13 @@ namespace Weavie.Core.Mcp;
 
 /// <summary>Bundled issue-reporting workflows for the public Weavie issue tracker.</summary>
 public static class IssueReportingPrompts {
+	private const string ReadinessCheck = """
+		Before searching for duplicates or drafting anything, confirm you can publish: run
+		`gh auth status --hostname github.com` or confirm an authenticated GitHub tool is available. If neither
+		is, tell the user now and name the fix - gh is not installed (https://cli.github.com) or not signed in
+		(run `gh auth login`) - then ask whether to set it up first or to prepare a draft for manual submission.
+		""";
+
 	private const string PublicationInstructions = """
 		The destination is Weavie's PUBLIC issue tracker: https://github.com/Kapps/weavie/issues.
 		Always target Kapps/weavie explicitly, never the repository open in this workspace.
@@ -29,8 +36,9 @@ public static class IssueReportingPrompts {
 		After approval, use an available authenticated GitHub tool or `gh issue create --repo Kapps/weavie`.
 		With gh, write the approved body to a temporary file and use --body-file; pass the title as a safely
 		quoted argument, never interpolate report text into shell code. Do not invent labels or credentials.
-		If submission is unavailable or fails, clearly report the blocker and preserve the sanitized draft
-		for manual submission at https://github.com/Kapps/weavie/issues/new. Do not claim it was filed.
+		If submission is unavailable or fails, state the exact cause and its fix (install gh, run
+		`gh auth login`, or the error gh printed) and preserve the sanitized draft for manual submission at
+		https://github.com/Kapps/weavie/issues/new. Do not claim it was filed.
 		If the result is ambiguous, check whether the issue exists before attempting creation again.
 		On success, return the actual issue link. Do not publish follow-up comments or extra uploads unless
 		they are part of the approved content.
@@ -47,7 +55,7 @@ public static class IssueReportingPrompts {
 			Include verified Weavie build, OS, transport, and agent/provider details when relevant; distinguish
 			observed facts from hypotheses and unknowns. Do not invent reproduction results or diagnostics.
 			If a matching issue exists, show its link and ask whether a new report is needed before drafting one.
-			""" + "\n\n" + PublicationInstructions,
+			""" + "\n\n" + ReadinessCheck + "\n\n" + PublicationInstructions,
 	};
 
 	/// <summary>The feature-request prompt.</summary>
@@ -61,6 +69,6 @@ public static class IssueReportingPrompts {
 			Mention relevant workarounds or alternatives and their limitations. Keep implementation suggestions
 			optional and distinguish them from requirements; do not promise a design or delivery timeline.
 			If a matching issue exists, show its link and ask whether a new request is needed before drafting one.
-			""" + "\n\n" + PublicationInstructions,
+			""" + "\n\n" + ReadinessCheck + "\n\n" + PublicationInstructions,
 	};
 }

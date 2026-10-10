@@ -28,7 +28,6 @@ public static class InferenceCommands {
 			Description = "Choose whether Weavie makes small suggestions, such as branch names, and which agent, model, "
 				+ "effort, and Fast Mode they use, independent of your chat's model.",
 			Aliases = ["suggestion model", "inference model", "suggestion settings", "smart suggestions", "inference effort"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+shift+s" }],
 		});
 	}
 

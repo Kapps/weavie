@@ -218,7 +218,9 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       </Show>
       <p class="gs-later">
         Change it anytime with <CommandName id={CommandIds.configureSuggestions} />
-        <Keycaps label={liveKeyLabel(CommandIds.configureSuggestions)} />
+        <Show when={liveKeyLabel(CommandIds.configureSuggestions)}>
+          {(keys) => <Keycaps label={keys()} />}
+        </Show>
       </p>
     </>
   );

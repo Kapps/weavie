@@ -1180,6 +1180,11 @@ label.agent-input-choice:hover {
   cursor: pointer;
 }
 
+.agent-approval-actions button {
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+  text-align: left;
+}
+
 .agent-compose button:hover,
 .agent-approval-actions button:hover {
   border-color: var(--accent);
@@ -1192,6 +1197,7 @@ label.agent-input-choice:hover {
 
 .agent-key-chip {
   margin-left: 7px;
+  white-space: nowrap;
   padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
   border-radius: 3px;

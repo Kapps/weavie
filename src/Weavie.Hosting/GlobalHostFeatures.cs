@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Messaging;
 
@@ -28,6 +29,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		WireThemes();
 		WireSettings();
 		WireAgents();
+		WireInferenceControls();
 		_handlers.Add(_host.Feature("diagnostics").Handle("log", "Recording a page log entry", WireJson.Default.WebLogMessage, (message, _) => {
 			_log($"[web:{message.Level}] {message.Message}");
 			return Task.CompletedTask;
@@ -101,6 +103,13 @@ internal sealed class GlobalHostFeatures : IDisposable {
 				: Task.CompletedTask;
 		}));
 	}
+
+	private void WireInferenceControls() => _handlers.Add(_host.Feature("inferenceControls").HandleConcurrent(
+		"get",
+		"Asking the agent for its suggestion options",
+		WireJson.Default.EmptyPayload,
+		WireJson.Default.InferenceChoices,
+		(_, ct) => InferenceControlAxes.AskAsync(_services.Settings, _services.AgentProviders, ct)));
 
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");

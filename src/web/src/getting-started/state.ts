@@ -9,15 +9,22 @@ export const COMPLETED_SETTING = "gettingStarted.completed";
 /** Whether the Getting Started modal is showing over the workspace. */
 export const [gettingStartedOpen, setGettingStartedOpen] = createSignal(false);
 
-registerCommand(CommandIds.gettingStarted, () => {
+/** The step Getting Started opens on. */
+export const [gettingStartedStep, setGettingStartedStep] = createSignal(0);
+
+/** Opens Getting Started on `step`. */
+export function openGettingStarted(step: number): void {
+  setGettingStartedStep(step);
   setGettingStartedOpen(true);
-});
+}
+
+registerCommand(CommandIds.gettingStarted, () => openGettingStarted(0));
 
 // The host asks for setup on connect while it hasn't been finished or dismissed.
 registerHostFeature((connection) =>
   connection.isLocal
     ? connection.host.feature("gettingStarted").on("show", () => {
-        setGettingStartedOpen(true);
+        openGettingStarted(0);
       })
     : undefined,
 );
@@ -39,7 +46,7 @@ createRoot(() =>
       (open) => {
         if (!open && resumeAfterThemes) {
           resumeAfterThemes = false;
-          setGettingStartedOpen(true);
+          openGettingStarted(0);
         }
       },
       { defer: true },
@@ -47,11 +54,14 @@ createRoot(() =>
   ),
 );
 
-function settings() {
+/** One of the local host's features, for request/response calls. */
+export function localFeature(name: string) {
   const connection = hostConnection(LOCAL_BACKEND_ID);
   if (connection === undefined) throw new Error("The Weavie host is not connected.");
-  return connection.host.feature("settings");
+  return connection.host.feature(name);
 }
+
+const settings = () => localFeature("settings");
 
 /** Reads one global setting's effective value from the local host, and whether it's still the default. */
 export async function readSetting<T>(key: string): Promise<{ value: T; isDefault: boolean }> {

@@ -27,12 +27,37 @@ internal sealed class AcpConsultClient {
 	private string Name => _connection.Definition.Name;
 
 	/// <summary>Opens one throwaway session and returns the controls it advertises, or throws why it couldn't.</summary>
-	public static async Task<IReadOnlyList<AgentControlAxis>> ProbeAsync(AcpAgentDefinition definition, CancellationToken ct) {
+	public static Task<IReadOnlyList<AgentControlAxis>> ProbeAsync(AcpAgentDefinition definition, CancellationToken ct) =>
+		ProbeAsync(definition, (_, setup) => Task.FromResult(AcpConfigurationOptions.ReadIfPresent(setup)), ct);
+
+	/// <summary>
+	/// Opens one throwaway session and applies <paramref name="model"/> as a query would, so model-dependent options
+	/// are current. A model the agent refuses leaves the defaults selected, for the caller to flag.
+	/// </summary>
+	public static Task<InferenceControls> ProbeInferenceAsync(AcpAgentDefinition definition, string model, CancellationToken ct) =>
+		ProbeAsync(definition, async (client, setup) => {
+			var defaults = AcpConfigurationOptions.ReadIfPresent(setup);
+			var selected = defaults;
+			if (model.Length > 0) {
+				var profile = new InferenceProviderProfile { Model = model, Effort = "", FastMode = InferenceFastMode.Inherit };
+				try {
+					selected = await AcpProfile.ApplyAsync(client._connection, client._sessionId, setup, profile, ct).ConfigureAwait(false);
+				} catch (AcpInferenceProfileException) {
+					// The refused model stays configured and selected; the pickers flag it as not offered.
+				}
+			}
+			return new InferenceControls { Defaults = defaults, Selected = selected };
+		}, ct);
+
+	private static async Task<T> ProbeAsync<T>(
+		AcpAgentDefinition definition,
+		Func<AcpConsultClient, JsonElement, Task<T>> read,
+		CancellationToken ct) {
 		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		await using var connection = AcpTransientConnection.Start(definition, home);
 		try {
-			var setup = await new AcpConsultClient(connection).OpenSessionAsync(home, ct).ConfigureAwait(false);
-			return AcpConfigurationOptions.ReadIfPresent(setup);
+			var client = new AcpConsultClient(connection);
+			return await read(client, await client.OpenSessionAsync(home, ct).ConfigureAwait(false)).ConfigureAwait(false);
 		} catch (AcpAuthenticationRequiredException) {
 			throw new InvalidOperationException(connection.AuthenticationRequired);
 		} catch (Exception ex) when (ex is IOException or AcpProtocolException) {

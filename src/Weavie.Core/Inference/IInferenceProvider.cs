@@ -4,6 +4,12 @@ namespace Weavie.Core.Inference;
 public sealed record InferenceProviderInfo {
 	/// <summary>The model categories this provider maps explicitly.</summary>
 	public required IReadOnlyList<InferenceModelCategory> Categories { get; init; }
+
+	/// <summary>The user-facing model a blank profile uses for <see cref="InferenceModelCategory.Utility"/>.</summary>
+	public required string UtilityModel { get; init; }
+
+	/// <summary>The user-facing effort a blank profile uses for utility queries, or empty for the provider's own.</summary>
+	public required string UtilityEffort { get; init; }
 }
 
 /// <summary>How a configured inference profile treats the provider's Fast Mode control.</summary>
@@ -88,4 +94,7 @@ public interface IInferenceProvider {
 
 	/// <summary>Runs exactly one attempt. Implementations never retry or escalate categories.</summary>
 	Task<InferenceProviderResult> QueryInferenceAsync(InferenceProviderRequest request, CancellationToken ct);
+
+	/// <summary>Asks the provider what a query can be set to with <paramref name="model"/> applied; throws why it couldn't.</summary>
+	Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct);
 }

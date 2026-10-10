@@ -63,6 +63,10 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 		_inference.QueryInferenceAsync(request, ct);
 
 	/// <inheritdoc/>
+	public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+		_inference.ProbeInferenceControlsAsync(model, ct);
+
+	/// <inheritdoc/>
 	public void ClearConversation(string workspace) => _sessions.Clear(workspace);
 
 	/// <inheritdoc/>

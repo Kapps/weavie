@@ -221,7 +221,9 @@ public sealed class SettingsStore : IDisposable {
 				throw new SettingValidationException(key, validation.Message ?? "invalid value");
 			}
 
+			object? previous = ResolveLocked(definition, workspaceRoot).Value;
 			layer.SetValue(definition, coerced);
+			ResetDependentsLocked(definition, layer, workspaceRoot, previous);
 			if (_enableWatcher) {
 				layer.Watch();
 			}
@@ -246,7 +248,9 @@ public sealed class SettingsStore : IDisposable {
 					$"{layer.FilePath} has TOML parse errors; fix or delete it before changing settings.");
 			}
 
+			object? previous = ResolveLocked(definition, workspaceRoot).Value;
 			bool removed = layer.RemoveKey(definition.Key);
+			ResetDependentsLocked(definition, layer, workspaceRoot, previous);
 
 			changes = RecomputeAndDiffLocked();
 			string? shadow = ResolveLocked(definition, workspaceRoot).Source == SettingSource.Environment ? definition.EnvVar : null;
@@ -255,6 +259,20 @@ public sealed class SettingsStore : IDisposable {
 
 		RaiseChanges(changes);
 		return result;
+	}
+
+	private void ResetDependentsLocked(
+		SettingDefinition definition,
+		SettingsFileLayer layer,
+		string? workspaceRoot,
+		object? previous) {
+		if (Equals(previous, ResolveLocked(definition, workspaceRoot).Value)) {
+			return;
+		}
+
+		foreach (string key in definition.Resets) {
+			layer.RemoveKey(key);
+		}
 	}
 
 	// The file a write targets: a Workspace-scoped key with a root goes to that workspace's overlay (registered
@@ -358,7 +376,11 @@ public sealed class SettingsStore : IDisposable {
 		writer.WriteStartObject();
 		writer.WriteString("key", definition.Key);
 		writer.WriteString("type", KindName(definition.Kind));
-		writer.WriteString("description", definition.Description);
+		writer.WriteString(
+			"description",
+			definition.Resets.Count == 0
+				? definition.Description
+				: $"{definition.Description} Changing it clears {string.Join(", ", definition.Resets)}.");
 		writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
 		writer.WriteStartArray("aliases");
 		foreach (string alias in definition.Aliases) {

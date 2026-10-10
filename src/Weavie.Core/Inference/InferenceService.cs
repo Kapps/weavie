@@ -47,6 +47,23 @@ public sealed class InferenceService : IInferenceService {
 		_agentProviders = agentProviders;
 	}
 
+	/// <summary>Returns the available inference provider <paramref name="id"/> names, or why it can't serve queries.</summary>
+	internal static IAgentInferenceProvider? Resolve(AgentProviderRegistry agentProviders, string id, out string failure) {
+		failure = "";
+		IAgentProvider agentProvider;
+		try {
+			agentProvider = agentProviders.RequireAvailable(id);
+		} catch (InvalidOperationException ex) {
+			failure = ex.Message;
+			return null;
+		}
+		if (agentProvider is not IAgentInferenceProvider provider) {
+			failure = $"Agent provider '{id}' does not support ad-hoc inference.";
+			return null;
+		}
+		return provider;
+	}
+
 	/// <inheritdoc/>
 	public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 		InferenceOwner owner,
@@ -111,18 +128,8 @@ public sealed class InferenceService : IInferenceService {
 			FastMode = ReadFastMode(_settings.RequireString(InferenceSettings.FastMode)),
 		};
 
-		IAgentProvider agentProvider;
-		try {
-			agentProvider = _agentProviders.RequireAvailable(agentProviderId);
-		} catch (InvalidOperationException ex) {
-			return Failure<TResponse>(
-				InferenceFailureKind.NotConfigured,
-				ex.Message);
-		}
-		if (agentProvider is not IAgentInferenceProvider provider) {
-			return Failure<TResponse>(
-				InferenceFailureKind.NotConfigured,
-				$"Agent provider '{agentProviderId}' does not support ad-hoc inference.");
+		if (Resolve(_agentProviders, agentProviderId, out string unavailable) is not { } provider) {
+			return Failure<TResponse>(InferenceFailureKind.NotConfigured, unavailable);
 		}
 		if (!provider.InferenceInfo.Categories.Contains(category)) {
 			return Failure<TResponse>(

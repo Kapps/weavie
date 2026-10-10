@@ -12,6 +12,20 @@ using Weavie.Core.Hooks;
 string? mcpConfigPath = ArgValue(args, "--mcp-config");
 string? scriptPath = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_SCRIPT");
 
+if (ArgValue(args, "--input-format") == "stream-json") {
+	// The control handshake Weavie reads Claude's model catalog from; no model turn runs.
+	string request = await Console.In.ReadLineAsync().ConfigureAwait(false) ?? "";
+	using var initialize = JsonDocument.Parse(request);
+	string id = initialize.RootElement.GetProperty("request_id").GetString()!;
+	Console.Out.WriteLine("{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"" + id
+		+ "\",\"response\":{\"fast_mode_state\":\"off\",\"models\":["
+		+ "{\"value\":\"default\",\"displayName\":\"Default (recommended)\"},"
+		+ "{\"value\":\"opus\",\"displayName\":\"Fake Opus\",\"description\":\"For hard work\",\"supportedEffortLevels\":[\"low\",\"high\",\"max\"],\"supportsFastMode\":true},"
+		+ "{\"value\":\"haiku\",\"displayName\":\"Fake Haiku\",\"description\":\"For quick answers\",\"supportedEffortLevels\":[\"low\",\"high\"]}"
+		+ "]}}}");
+	return 0;
+}
+
 if (args.Contains("--print", StringComparer.Ordinal)) {
 	// A "needsDetail" run answers the way the model does for a draft that names no task: vague until the
 	// draft the query carries grows past a handful of words.

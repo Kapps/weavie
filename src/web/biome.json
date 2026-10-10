@@ -77,7 +77,7 @@
     },
     {
       "includes": [
-        "**/src/agent/AgentControlPicker.tsx",
+        "**/src/chrome/ControlMenu.tsx",
         "**/src/agent/AgentSlashMenu.tsx",
         "**/src/chrome/Omnibar.tsx",
         "**/src/chrome/BranchTypeahead.tsx",

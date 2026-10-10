@@ -19,6 +19,16 @@ public static class InferenceCommands {
 				+ "Calls use the selected provider when it exposes ad-hoc inference and may spend tokens.",
 			Aliases = ["automatic inference", "automatic AI suggestions", "AI branch names", "allow inference"],
 		});
+		registry.Register(new CommandDefinition {
+			Id = CoreCommands.ConfigureSuggestions,
+			Title = "Configure Suggestions…",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "AI",
+			Description = "Choose whether Weavie makes small suggestions, such as branch names, and which agent, model, "
+				+ "effort, and Fast Mode they use, independent of your chat's model.",
+			Aliases = ["suggestion model", "inference model", "suggestion settings", "smart suggestions", "inference effort"],
+		});
 	}
 
 	/// <summary>Registers the automatic-inference command handler.</summary>

@@ -126,6 +126,9 @@ public sealed record SettingDefinition {
 	/// </summary>
 	public Func<object?, ValidationResult>? Validate { get; init; }
 
+	/// <summary>Keys removed from the same file whenever a write changes this setting's value, e.g. options it scopes.</summary>
+	public IReadOnlyList<string> Resets { get; init; } = [];
+
 	/// <summary>How a change to this setting takes effect.</summary>
 	public ApplyMode Apply { get; init; } = ApplyMode.NextSession;
 

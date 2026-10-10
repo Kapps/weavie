@@ -24,6 +24,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	private bool _expiredAuthentication;
 	private bool _prompted;
 	private bool _supportsPlanUpdates;
+	private bool _isolated;
 	private bool _closed;
 	private string? _sessionId;
 
@@ -47,6 +48,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	internal void CopyConnectionState(FakeAcpAgent source) {
 		_authenticated = source._authenticated;
 		_supportsPlanUpdates = source._supportsPlanUpdates;
+		_isolated = source._isolated;
 	}
 
 	public void Attach(AcpAgentConnection connection) =>
@@ -60,7 +62,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		method switch {
 			"initialize" => Initialize(parameters),
 			"authenticate" => await AuthenticateAsync(ct).ConfigureAwait(false),
-			"session/new" => await OpenAsync(parameters, NewSessionId(), replay: false, ct).ConfigureAwait(false),
+			"session/new" => _isolated
+				? OpenIsolated(parameters)
+				: await OpenAsync(parameters, NewSessionId(), replay: false, ct).ConfigureAwait(false),
 			"session/load" => await OpenAsync(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
@@ -104,7 +108,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		_supportsPlanUpdates = parameters.TryGetProperty("clientCapabilities", out var capabilities)
 			&& capabilities.TryGetProperty("plan", out var plan)
 			&& plan.ValueKind == JsonValueKind.Object;
-		if (!_supportsPlanUpdates) {
+		// Weavie's transient helpers (probes, consults, inference) offer no filesystem: they're isolated, not sessions.
+		_isolated = capabilities.ValueKind == JsonValueKind.Object && !capabilities.TryGetProperty("fs", out _);
+		if (!_supportsPlanUpdates && !_isolated) {
 			throw new AcpAdapterException(-32600, "Fake ACP requires plan document support.", null);
 		}
 		var response = new JsonObject {
@@ -139,6 +145,17 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			},
 			["mcpCapabilities"] = new JsonObject { ["http"] = true, ["sse"] = false },
 		};
+		return response;
+	}
+
+	// An isolated helper session must be offered no MCP servers at all.
+	private JsonObject OpenIsolated(JsonElement parameters) {
+		if (AcpJson.RequiredArray(parameters, "mcpServers", "session open").GetArrayLength() != 0) {
+			throw AcpAdapterException.InvalidParams("An isolated session must not be offered MCP servers.");
+		}
+		_sessionId = "fake-isolated-session";
+		var response = Setup();
+		response["sessionId"] = _sessionId;
 		return response;
 	}
 

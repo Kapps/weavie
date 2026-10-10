@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 
 namespace Weavie.Hosting;
 
@@ -15,7 +16,8 @@ public sealed partial class HostCore {
 
 		Notify(
 			"info",
-			"Let Weavie use automatic inference for small suggestions, such as repository-aware branch names. This may use tokens.",
+			"Let Weavie use automatic inference for small suggestions, such as repository-aware branch names. "
+				+ $"{InferenceModelDescription.Describe(_settings, _agentProviders)} This may use tokens.",
 			AutomaticInferenceOfferKey,
 			"Allow",
 			CoreCommands.EnableAutomaticInference,

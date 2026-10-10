@@ -26,9 +26,28 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		_imageRoot = imageRoot;
 	}
 
+	private static readonly ClaudeProfile UtilityProfile = new("haiku", "low");
+
+	// A one-shot Claude with no tools, MCP servers, slash commands, or saved session.
+	internal static readonly IReadOnlyList<string> IsolationArguments = [
+		"--print", "--safe-mode", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+		"--no-session-persistence",
+	];
+
 	public InferenceProviderInfo InferenceInfo { get; } = new() {
 		Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
+		UtilityModel = $"Claude's '{UtilityProfile.Model}' model",
+		UtilityEffort = UtilityProfile.Effort,
 	};
+
+	public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+		ClaudeCliControlProbe.ProbeAsync(
+			_processes,
+			_settings.RequireString(CoreSettings.ClaudePath),
+			UtilityProfile.Model,
+			UtilityProfile.Effort,
+			model,
+			ct);
 
 	public async Task<InferenceProviderResult> QueryInferenceAsync(
 		InferenceProviderRequest request,
@@ -132,13 +151,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 			: null;
 
 	private static IReadOnlyList<string> Arguments(InferenceProviderRequest request, ClaudeProfile profile) {
-		var arguments = new List<string> {
-			"--print",
-			"--safe-mode",
-			"--tools", "",
-			"--strict-mcp-config",
-			"--disable-slash-commands",
-			"--no-session-persistence",
+		var arguments = new List<string>(IsolationArguments) {
 			"--output-format", "json",
 			"--json-schema", request.OutputSchemaJson,
 			"--model", profile.Model,
@@ -157,7 +170,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		InferenceModelCategory category,
 		InferenceProviderProfile configured) {
 		var categoryProfile = category switch {
-			InferenceModelCategory.Utility => new ClaudeProfile("haiku", "low"),
+			InferenceModelCategory.Utility => UtilityProfile,
 			InferenceModelCategory.Reasoning => new ClaudeProfile("sonnet", "medium"),
 			_ => throw new ArgumentOutOfRangeException(nameof(category), category, "Unknown inference model category."),
 		};

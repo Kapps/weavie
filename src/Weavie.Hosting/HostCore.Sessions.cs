@@ -38,12 +38,14 @@ public sealed partial class HostCore {
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		RegisterShellTerminalHandlers(session);
-		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (_, _) => {
+		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, _) => {
+			if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
 			_ui.Post(session.RestartAgent);
 			return Task.FromResult(CommandResult.Success("Restarted the agent."));
 		});
-		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (_, _) => {
+		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (argsJson, _) => {
 			try {
+				if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
 				session.StartNewAgentConversation();
 				return Task.FromResult(CommandResult.Success("Started a fresh agent conversation."));
 			} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
@@ -71,6 +73,7 @@ public sealed partial class HostCore {
 			try {
 				if (session.Agent.Rewind is not { } rewind) return CommandResult.Failure("This agent cannot rewind its conversation.");
 				if (_drainInputFrozen) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return refusal;
 				string? turnId = JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.AgentRewindCommand)?.TurnId;
 				await (turnId is null ? rewind.RewindLatestAsync() : rewind.RewindBeforeAsync(turnId)).ConfigureAwait(false);
 				return CommandResult.Success("Rewound the agent conversation.");
@@ -711,12 +714,15 @@ public sealed partial class HostCore {
 	private async Task<CommandResult> UnloadSessionAsync(
 		HostSession? source,
 		string? sessionId,
+		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
 		await RunSlotLifecycleAsync(
 			sessionId,
 			"No such session.",
-			target => UnloadSessionCoreAsync(source, target, context, ct),
+			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
+				? Task.FromResult(refusal)
+				: UnloadSessionCoreAsync(source, target, context, ct),
 			ct).ConfigureAwait(false);
 
 	private async Task<CommandResult> UnloadSessionCoreAsync(
@@ -766,12 +772,15 @@ public sealed partial class HostCore {
 		HostSession? source,
 		string? sessionId,
 		bool force,
+		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
 		RunSlotLifecycleAsync(
 			sessionId,
 			"No such session.",
-			target => DeleteSessionCoreAsync(source, target, force, context, ct),
+			target => BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal
+				? Task.FromResult(refusal)
+				: DeleteSessionCoreAsync(source, target, force, context, ct),
 			ct);
 
 	/// <summary>

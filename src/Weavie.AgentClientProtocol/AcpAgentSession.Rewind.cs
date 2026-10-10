@@ -46,6 +46,8 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 	private void CommitRewind(AcpConversation predecessor, AcpRewindPlan plan, RewindPort? rewind) {
 		if (!predecessor.Live) throw new InvalidOperationException("The conversation was replaced during the rewind.");
 		var sides = Sides();
+		// Decided before settling: settling ends the background work only a restart actually stops.
+		var process = ReplaceableProcess(predecessor);
 		var continuation = rewind?.Fork.Continuation ?? RewindContinuation(predecessor, plan);
 		string[] dropped;
 		IReadOnlyList<AgentPaneMessage> kept;
@@ -62,7 +64,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			throw;
 		}
 		foreach (string conversationId in dropped) _sideConversations.Remove(conversationId);
-		var process = ReplaceableProcess(predecessor);
 		var adopted = process is null ? null : rewind;
 		var successor = Succeed(predecessor, process, handoff => {
 			if (adopted is null) {

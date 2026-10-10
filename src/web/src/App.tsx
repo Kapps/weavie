@@ -14,7 +14,10 @@ import {
 import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
+import { runningBackgroundEverywhere } from "./agent/agent-background-store";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
+import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
+import { confirmStopBackgroundWork } from "./agent/background-guard";
 import {
   type AgentPaneModel,
   agentAuthenticationTerminalActive,
@@ -1620,7 +1623,14 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.closeWindow, () =>
         NATIVE_SHELL ? publishMenuAction("close-window") : false,
       ),
-      registerCommand(CommandIds.exit, () => (NATIVE_SHELL ? publishMenuAction("exit") : false)),
+      registerCommand(CommandIds.exit, () => {
+        if (!NATIVE_SHELL) return false;
+        const running = runningBackgroundEverywhere();
+        if (running.length === 0) return publishMenuAction("exit");
+        return confirmStopBackgroundWork(running).then((stop) => {
+          if (stop) publishMenuAction("exit");
+        });
+      }),
       // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
       // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.
       registerCommand(CommandIds.openUrl, (args) => {
@@ -2121,6 +2131,7 @@ export default function App(): JSX.Element {
         )}
       </Show>
       <RecreateSessionPrompt />
+      <BackgroundStopPrompt />
       <Show when={deleteReq()}>
         {(req) => (
           <DeleteSessionDialog

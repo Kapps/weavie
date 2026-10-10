@@ -22,5 +22,28 @@ public sealed partial class HostCore {
 			}
 		});
 
+	// Actions that stop a session's subagents and background tasks refuse until the caller says to stop them.
+	private static CommandResult? BackgroundWorkRefusal(HostSession? session, bool stopBackgroundWork) {
+		if (stopBackgroundWork || session?.Agent.Background is not { } background) return null;
+		AgentBackgroundItem[] running = [.. background.BackgroundWork.Where(item => item.Running)];
+		return running.Length == 0
+			? null
+			: CommandResult.Failure(
+				"This session still has background work running. Stopping it ends that work, and its results won't come back.",
+				JsonSerializer.Serialize(
+					new BackgroundWorkRefusalData([.. running.Select(item => new BackgroundWorkSummary(
+						item.Name, item.Type, item.State.ToString().ToLowerInvariant(), item.StartedAtMs))]),
+					WireJson.Default.BackgroundWorkRefusalData));
+	}
+
+	private static bool StopsBackgroundWork(string? argsJson) =>
+		JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.BackgroundWorkConsent)?.StopBackgroundWork == true;
+
 	internal sealed record StopBackgroundTaskCommand(string? Id);
+
+	internal sealed record BackgroundWorkConsent(bool? StopBackgroundWork);
+
+	internal sealed record BackgroundWorkRefusalData(IReadOnlyList<BackgroundWorkSummary> BackgroundWork);
+
+	internal sealed record BackgroundWorkSummary(string Name, string Type, string State, long StartedAtMs);
 }

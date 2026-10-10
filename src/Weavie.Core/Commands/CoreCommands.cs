@@ -849,6 +849,7 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -859,6 +860,7 @@ public static class CoreCommands {
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
 			When = "agentFocused",
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -891,7 +893,8 @@ public static class CoreCommands {
 				+ "Files are not changed.",
 			Aliases = ["rewind", "undo prompt", "edit last prompt"],
 			When = "agentFocused && agentRewindable",
-			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"}}",
+			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"},"
+				+ SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {

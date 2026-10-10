@@ -1,5 +1,5 @@
-import type { ClientSession } from "../bridge";
-import { createSessionFeatureValue } from "../messaging/session-feature-value";
+import { createSignal } from "solid-js";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 
 /** One subagent or background task a structured agent runs beside its turns. */
 export interface AgentBackgroundItem {
@@ -17,15 +17,30 @@ export interface AgentBackgroundItem {
   transcriptItemId: string | null;
 }
 
-const itemsFor = createSessionFeatureValue<{ items: AgentBackgroundItem[] }, AgentBackgroundItem[]>(
-  "agent",
-  "background",
-  ({ items }) => items,
-);
+const [bySession, setBySession] = createSignal(new Map<ClientSession, AgentBackgroundItem[]>());
+
+registerSessionFeature((session) => {
+  const stop = session
+    .feature("agent")
+    .on<{ items: AgentBackgroundItem[] }>("background", ({ items }) => {
+      setBySession(new Map(bySession()).set(session, items));
+    });
+  return () => {
+    stop();
+    const next = new Map(bySession());
+    next.delete(session);
+    setBySession(next);
+  };
+});
 
 /** One exact session's background work: live items, plus finished ones until its next prompt. */
 export function agentBackground(session: ClientSession | null): AgentBackgroundItem[] {
-  return itemsFor(session) ?? [];
+  return (session === null ? undefined : bySession().get(session)) ?? [];
+}
+
+/** Every live session's running background work, for actions that stop them all. */
+export function runningBackgroundEverywhere(): AgentBackgroundItem[] {
+  return [...bySession().values()].flat().filter(backgroundRunning);
 }
 
 export function backgroundRunning(item: AgentBackgroundItem): boolean {

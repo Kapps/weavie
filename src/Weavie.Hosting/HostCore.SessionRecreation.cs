@@ -8,11 +8,13 @@ public sealed partial class HostCore {
 		HostSession? source,
 		string? sessionId,
 		string? agentProviderId,
+		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct) => RunSlotLifecycleAsync(sessionId, "Recreate needs an existing session id.", async target => {
 			if (string.IsNullOrWhiteSpace(agentProviderId)) {
 				return CommandResult.Failure("Recreate needs an agent provider id.");
 			}
+			if (BackgroundWorkRefusal(target.Session, stopBackgroundWork) is { } refusal) return refusal;
 
 			IAgentProvider provider;
 			try {

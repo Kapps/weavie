@@ -57,6 +57,8 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			var predecessor = _primary;
 			sides = Sides();
+			// Decided before settling: settling ends the background work only a restart actually stops.
+			var process = ReplaceableProcess(predecessor);
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sides);
 				predecessor.SettleInteractions();
@@ -65,7 +67,6 @@ public sealed partial class AcpAgentSession {
 				StopForStorageFailure(error, sides);
 				throw;
 			}
-			var process = ReplaceableProcess(predecessor);
 			var successor = Succeed(predecessor, process, handoff => CreatePrimary(handoff with {
 				Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false),
 			}));

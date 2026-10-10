@@ -88,3 +88,43 @@ test("a workflow renders a card, and Show Background Work focuses the tray", asy
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 });
+
+async function runPalette(page: import("@playwright/test").Page, title: string): Promise<void> {
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await page.locator(".tb-omnibar-input").fill(`>${title}`);
+  await page
+    .locator(".tb-omnibar-row")
+    .filter({ has: page.locator(".tb-row-leaf", { hasText: new RegExp(`^${title}$`) }) })
+    .click();
+}
+
+test("running work survives a page reload and stopping actions confirm before ending it", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "acp-background-guard");
+  await submitAcpDraft(surface, "subagent-held");
+  const card = surface.locator("[data-agent-subagent]");
+  await expect(card).toHaveAttribute("data-state", "running");
+
+  await page.reload();
+  await expect(surface.locator(".agent-background-tray [data-background-item]")).toHaveAttribute(
+    "data-state",
+    "running",
+  );
+
+  await runPalette(page, "Unload Session");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Stop background work?");
+  await expect(dialog).toContainText("Explore — subagent");
+  await dialog.getByRole("button", { name: "Keep session" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(card).toHaveAttribute("data-state", "running");
+
+  await runPalette(page, "Restart Agent");
+  await dialog.getByRole("button", { name: "Close anyway" }).click();
+  await expect(card).toHaveAttribute("data-state", "cancelled");
+  await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
+    "data-agent-controls-ready",
+    "true",
+  );
+});

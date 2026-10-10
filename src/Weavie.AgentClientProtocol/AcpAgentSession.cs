@@ -142,9 +142,11 @@ public sealed partial class AcpAgentSession :
 		continuation.TurnNumber == 0 ? continuation with { SessionId = null } : continuation;
 
 	// A successor shares the running, initialized process only when the agent can close the predecessor's settled
-	// session; otherwise only stopping the process stops its work or an opening that may never return.
+	// session and nothing runs in the background; otherwise only stopping the process stops that work, or an opening
+	// that may never return.
 	private AcpProcess? ReplaceableProcess(AcpConversation predecessor) {
-		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening ? _process : null;
+		bool background = BackgroundWork.Any(item => item.Running);
+		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening && !background ? _process : null;
 	}
 
 	/// <summary>Retires the predecessor and installs its successor; without a process it waits for <see cref="Launch"/> to restart.</summary>

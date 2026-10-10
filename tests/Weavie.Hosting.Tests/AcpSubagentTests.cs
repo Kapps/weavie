@@ -142,6 +142,19 @@ public sealed class AcpSubagentTests {
 	}
 
 	[Fact]
+	public async Task ClearWithARunningSubagentRestartsTheProcessSoTheWorkStops() {
+		await using var fixture = await StartedAsync(allowAllPermissions: true);
+		var marker = await StartHeldSubagentAsync(fixture, "1");
+
+		fixture.Session.StartNewConversation();
+
+		await fixture.WaitForControlsAsync(state => state.Ready);
+		Assert.Equal(2, ProcessStarts(fixture));
+		Assert.Contains(fixture.Messages, message => message.ConversationId == marker.ConversationId && message.Status == "cancelled");
+		Assert.Empty(fixture.Session.BackgroundWork);
+	}
+
+	[Fact]
 	public async Task ASecondLiveOwnerForOneSubagentFailsTheRuntime() {
 		await using var fixture = await StartedAsync(allowAllPermissions: true);
 		fixture.Submit("subagent-duplicate");

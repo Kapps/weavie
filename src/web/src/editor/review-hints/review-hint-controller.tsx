@@ -1,7 +1,7 @@
 // Shows the session's review hints in one editor binding: a margin badge, a line wash and an end-of-line pill per
 // hint, anchored to the live buffer, plus the hint popover as a content widget that overlays code without moving it.
 
-import { createEffect, createMemo, createRoot, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createRoot, createSignal, For, onCleanup, Show } from "solid-js";
 import { render } from "solid-js/web";
 import type { ClientSession } from "../../bridge";
 import { describeError } from "../../lsp/lsp-errors";
@@ -10,7 +10,7 @@ import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
-import { HintPopover, SEVERITY_LABELS } from "./HintPopover";
+import { HintPill, HintPopover } from "./HintPopover";
 import { type PlacedHint, placeHints } from "./hint-anchor";
 import {
   fetchHintSource,
@@ -29,14 +29,7 @@ export interface ReviewHintController {
 
 const inert: ReviewHintController = { placed: () => [], dispose: () => {} };
 
-// The pill is one line of injected text, which CSS can't ellipsize; the popover always has the full text.
-const PILL_TITLE_MAX = 80;
 const HOVER_CLOSE_MS = 250;
-
-const pill = ({ hint }: PlacedHint): string =>
-  `✦ ${SEVERITY_LABELS[hint.severity]}  ${
-    hint.title.length > PILL_TITLE_MAX ? `${hint.title.slice(0, PILL_TITLE_MAX - 1)}…` : hint.title
-  }`;
 
 export function createReviewHints(
   session: ClientSession,
@@ -91,33 +84,77 @@ export function createReviewHints(
       }
     });
 
+    // Each pill is a content widget, not injected text: Monaco splits long injected text into separately
+    // styled chunks, and only a real element can ellipsize at the viewport's edge.
     const decorations = editor.createDecorationsCollection();
-    createEffect(() =>
+    let pills: monaco.editor.IContentWidget[] = [];
+    createEffect(() => {
+      const entries = placed();
       decorations.set(
-        placed().map((entry) => {
+        entries.map((entry) => {
           const kind = `weavie-hint-${entry.hint.severity}${entry.changed ? " weavie-hint-changed" : ""}`;
           const end = model.getLineMaxColumn(entry.line);
           return {
             range: new monaco.Range(entry.line, end, entry.line, end),
             options: {
               isWholeLine: true,
-              // Monaco drops injected text on an empty range unless told to show it.
-              showIfCollapsed: true,
               className: `weavie-hint-line ${kind}`,
               glyphMarginClassName: `weavie-hint-mark ${kind}`,
-              after: {
-                content: pill(entry),
-                inlineClassName: `weavie-hint-inline ${kind}`,
-                cursorStops: monaco.editor.InjectedTextCursorStops.None,
-                // The pill renders smaller than code, so Monaco can't assume the uniform advance.
-                inlineClassNameAffectsLetterSpacing: true,
-              },
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
             },
           };
         }),
-      ),
-    );
+      );
+      // One widget per line, so several hints on a line sit side by side instead of stacking.
+      const lines = new Map<number, { index: number; group: PlacedHint[] }>();
+      entries.forEach((entry, index) => {
+        const line = lines.get(entry.line);
+        if (line === undefined) lines.set(entry.line, { index, group: [entry] });
+        else line.group.push(entry);
+      });
+      pills = [...lines.values()].map(({ index, group }) => {
+        const dom = document.createElement("div");
+        const unmount = render(
+          () => (
+            <div class="weavie-hint-pills">
+              <For each={group}>{(entry) => <HintPill placed={entry} />}</For>
+            </div>
+          ),
+          dom,
+        );
+        const widget: monaco.editor.IContentWidget = {
+          getId: () => `weavie.reviewHintPills.${entries[index]?.hint.id}`,
+          getDomNode: () => dom,
+          // The tracked decoration carries the line through edits until the debounced re-anchor replaces it.
+          getPosition: () => {
+            const line = decorations.getRange(index)?.startLineNumber;
+            return line === undefined
+              ? null
+              : {
+                  position: { lineNumber: line, column: model.getLineMaxColumn(line) },
+                  preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+                  // Right of any text injected at the line end, such as the blame annotation.
+                  positionAffinity: monaco.editor.PositionAffinity.Right,
+                };
+          },
+          afterRender: (_position, coordinate) => {
+            if (coordinate === null) return;
+            const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth;
+            dom.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
+            dom.style.setProperty("--pill-room", `${visibleRight - coordinate.left}px`);
+          },
+        };
+        editor.addContentWidget(widget);
+        onCleanup(() => {
+          editor.removeContentWidget(widget);
+          unmount();
+        });
+        return widget;
+      });
+    });
+    const relayoutPills = model.onDidChangeContent(() => {
+      for (const widget of pills) editor.layoutContentWidget(widget);
+    });
 
     const owned = () => {
       const open = openedHint(session);
@@ -138,8 +175,12 @@ export function createReviewHints(
       }, HOVER_CLOSE_MS);
     };
     const hintAt = (event: monaco.editor.IEditorMouseEvent): PlacedHint | undefined => {
+      const element = event.target.element;
+      const pill = element?.closest<HTMLElement>(".weavie-hint-pill");
+      if (pill != null)
+        return placed().find((entry) => String(entry.hint.id) === pill.dataset.hintId);
       const line = event.target.position?.lineNumber;
-      return event.target.element?.closest(".weavie-hint-mark, .weavie-hint-inline") == null
+      return element?.closest(".weavie-hint-mark") == null
         ? undefined
         : placed().find((entry) => entry.line === line);
     };
@@ -189,6 +230,7 @@ export function createReviewHints(
       if (id === undefined) return;
       const current = () => placed().find((entry) => entry.hint.id === id);
       const dom = document.createElement("div");
+      dom.className = "weavie-hint-popover-anchor";
       const unmount = render(
         () => (
           <Show when={current()}>
@@ -232,6 +274,7 @@ export function createReviewHints(
         clearTimeout(recompute);
         clearTimeout(closing);
         onContent.dispose();
+        relayoutPills.dispose();
         for (const subscription of mouse) subscription.dispose();
         if (owned() !== null) openHint(session, null);
         decorations.clear();

@@ -22,6 +22,31 @@ const ACTIONS = [
   [CommandIds.reviewHintsDismiss, "Dismiss hint", X],
 ] as const;
 
+/** A hint title with its `code` spans rendered as code, matching the markdown body; unpaired backticks stay text. */
+export function HintTitle(props: { text: string }): JSX.Element {
+  const parts = () => {
+    const split = props.text.split("`");
+    return split.length % 2 === 1 ? split : [props.text];
+  };
+  return (
+    <For each={parts()}>{(part, index) => (index() % 2 === 1 ? <code>{part}</code> : part)}</For>
+  );
+}
+
+/** The collapsed hint after its line's end: one element, ellipsized to the editor's visible width. */
+export function HintPill(props: { placed: PlacedHint }): JSX.Element {
+  const hint = () => props.placed.hint;
+  return (
+    <div
+      class={`weavie-hint-pill weavie-hint-${hint().severity}`}
+      classList={{ "weavie-hint-changed": props.placed.changed }}
+      data-hint-id={hint().id}
+    >
+      <b>✦ {SEVERITY_LABELS[hint().severity]}</b> <HintTitle text={hint().title} />
+    </div>
+  );
+}
+
 /** The expanded hint below its line: buttons only, since editor-hosted inputs never receive keystrokes. */
 export function HintPopover(props: {
   placed: PlacedHint;
@@ -65,7 +90,9 @@ export function HintPopover(props: {
           </For>
         </span>
       </div>
-      <div class="weavie-hint-title">{hint().title}</div>
+      <div class="weavie-hint-title">
+        <HintTitle text={hint().title} />
+      </div>
       <Show when={hint().body !== ""}>
         <div class="weavie-hint-text">
           <AgentMarkdown

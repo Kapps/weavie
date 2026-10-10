@@ -89,14 +89,14 @@ test.describe("ReportFindings", () => {
     await test.step("the plain tab shows the badge, wash and pill", async () => {
       await expect(editor.locator(".weavie-hint-mark.weavie-hint-warn")).toHaveCount(1);
       await expect(editor.locator(".weavie-hint-line.weavie-hint-warn")).toHaveCount(1);
-      await expect(editor.locator(".weavie-hint-inline")).toHaveText(
-        "✦ Warning  Name shadows the default export",
+      await expect(editor.locator(".weavie-hint-pill")).toHaveText(
+        "✦ Warning Name shadows the default export",
       );
-      expect(await hintRowOffset(editor, 'export const name = "weavie";')).toBe(0);
+      await expect.poll(() => hintRowOffset(editor, 'export const name = "weavie";')).toBe(0);
     });
 
     await test.step("hovering the pill opens the popover with the finding", async () => {
-      await editor.locator(".weavie-hint-inline").hover();
+      await editor.locator(".weavie-hint-pill").hover();
       await expect(popover(page).locator(".weavie-hint-title")).toHaveText(
         "Name shadows the default export",
       );
@@ -146,6 +146,83 @@ test.describe("ReportFindings", () => {
   });
 });
 
+test.describe("a long title", () => {
+  const SUMMARY =
+    "The discount `percent` is no longer divided by 100, so `total - percent` subtracts whole units";
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("notes.txt", "// pricing\nconst discount = total - percent;\n"),
+        reportFindings([
+          {
+            file: "notes.txt",
+            line: 2,
+            summary: SUMMARY,
+            verdict: "CONFIRMED",
+            category: "correctness",
+          },
+        ]),
+      ],
+    },
+  });
+
+  test("renders as one ellipsized pill with code spans, and the popover header stays on one line", async ({
+    page,
+  }) => {
+    await openFile(page, "notes.txt");
+    const editor = page.locator(".editor-surface .monaco-editor").first();
+    const pill = editor.locator(".weavie-hint-pill");
+    // The cursor rests on line 1, so the blame annotation sits there rather than before the pill.
+    await expect(pill).toHaveCount(1);
+    await expect(pill).toBeVisible();
+    await expect(pill.locator("code")).toHaveText(["percent", "total - percent"]);
+    await expect(pill).not.toContainText("`");
+    expect(
+      await pill.evaluate(
+        (element) =>
+          getComputedStyle(element).textOverflow === "ellipsis" &&
+          element.scrollWidth > element.clientWidth,
+      ),
+    ).toBe(true);
+    const viewport = await editor
+      .locator(".monaco-scrollable-element.editor-scrollable")
+      .boundingBox();
+    const box = await pill.boundingBox();
+    expect((box?.x ?? Number.NaN) + (box?.width ?? Number.NaN)).toBeLessThanOrEqual(
+      (viewport?.x ?? Number.NaN) + (viewport?.width ?? Number.NaN),
+    );
+
+    await editor.locator(".view-line", { hasText: "discount" }).click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("End");
+    await page.keyboard.type(" // edited");
+    await expect(editor.locator(".weavie-hint-line.weavie-hint-changed")).toHaveCount(1);
+    await editor.locator(".weavie-hint-mark").click();
+    await expect(popover(page).locator(".weavie-hint-title code")).toHaveText([
+      "percent",
+      "total - percent",
+    ]);
+    const meta = popover(page).locator(".weavie-hint-meta");
+    await expect(meta).toContainText("Changed");
+    // All the header's text shares one line, and no label is truncated.
+    const header = await meta.evaluate((root) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const middles = new Set<number>();
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects())
+          middles.add(Math.round(rect.top + rect.height / 2));
+      }
+      const truncated = [...root.querySelectorAll(":scope > b, :scope > span")].filter(
+        (label) => label.scrollWidth > label.clientWidth,
+      );
+      return { spread: Math.max(...middles) - Math.min(...middles), truncated: truncated.length };
+    });
+    expect(header.spread).toBeLessThanOrEqual(2);
+    expect(header.truncated).toBe(0);
+  });
+});
+
 test.describe("addReviewHint from Claude", () => {
   const STEPS = "one\ntwo\nthree\n\nfive is the target\nsix\n";
   test.use({
@@ -180,8 +257,8 @@ test.describe("addReviewHint from Claude", () => {
     });
     const review = page.locator(".editor-surface .monaco-editor").first();
     const target = "five is the target";
-    await expect(review.locator(".weavie-hint-inline")).toHaveText("✦ Bug  Target is vague");
-    expect(await hintRowOffset(review, target)).toBe(0);
+    await expect(review.locator(".weavie-hint-pill")).toHaveText("✦ Bug Target is vague");
+    await expect.poll(() => hintRowOffset(review, target)).toBe(0);
 
     await test.step("a line inserted above carries the hint down with its text", async () => {
       await review.locator(".view-line", { hasText: /^six$/ }).click({ position: { x: 4, y: 4 } });
@@ -237,10 +314,12 @@ test.describe("PR review", () => {
     const thread = page.locator(".weavie-pr-card").filter({ hasText: "Why change this greeting?" });
     await expect(thread).toBeVisible({ timeout: 10_000 });
     const review = page.locator(".editor-surface .monaco-editor").first();
-    await expect(review.locator(".weavie-hint-inline")).toHaveText(
-      "✦ Bug  The PR greeting is hardcoded",
+    await expect(review.locator(".weavie-hint-pill")).toHaveText(
+      "✦ Bug The PR greeting is hardcoded",
     );
-    expect(await hintRowOffset(review, 'const message = greet("pull request");')).toBe(0);
+    await expect
+      .poll(() => hintRowOffset(review, 'const message = greet("pull request");'))
+      .toBe(0);
 
     await test.step("a live thread's Fix sends it to the agent", async () => {
       await thread.getByRole("button", { name: "Fix", exact: true }).click();
@@ -341,14 +420,14 @@ test.describe("persistence", () => {
   test("hints replay after a page reload and a host restart", async ({ page, weavie }) => {
     test.slow();
     await openFile(page, "hello.ts");
-    const pill = page.locator(".weavie-hint-inline");
-    await expect(pill).toHaveText("✦ Warning  Persisted hint");
+    const pill = page.locator(".weavie-hint-pill");
+    await expect(pill).toHaveText("✦ Warning Persisted hint");
 
     await test.step("page reload", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
       await openFile(page, "hello.ts");
-      await expect(pill).toHaveText("✦ Warning  Persisted hint");
+      await expect(pill).toHaveText("✦ Warning Persisted hint");
     });
 
     await test.step("host restart", async () => {
@@ -363,7 +442,7 @@ test.describe("persistence", () => {
       await page.goto(weavie.url);
       await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
       await openFile(page, "hello.ts");
-      await expect(pill).toHaveText("✦ Warning  Persisted hint");
+      await expect(pill).toHaveText("✦ Warning Persisted hint");
     });
   });
 });
@@ -376,7 +455,7 @@ test("an ACP agent's addReviewHint renders", async ({ page }) => {
   );
   await expect(surface).toContainText("review hint: Hint added at notes.txt:1.");
   await openFile(page, "notes.txt");
-  await expect(page.locator(".weavie-hint-inline")).toHaveText("✦ Bug  ACP finding");
+  await expect(page.locator(".weavie-hint-pill")).toHaveText("✦ Bug ACP finding");
   await page.locator(".weavie-hint-mark").click();
   await expect(popover(page).locator(".weavie-hint-meta")).toContainText("✦ Fake ACP");
 });
@@ -404,8 +483,8 @@ test.describe("reconnect", () => {
 
   test("hints replay on bridge reconnect @remote", async ({ page }) => {
     await openFile(page, "notes.txt");
-    const pill = page.locator(".weavie-hint-inline");
-    await expect(pill).toHaveText("✦ Bug  Survives reconnect");
+    const pill = page.locator(".weavie-hint-pill");
+    await expect(pill).toHaveText("✦ Bug Survives reconnect");
     const before = connections.length;
     await connections[before - 1]?.socket.close();
     await expect
@@ -421,7 +500,7 @@ test.describe("reconnect", () => {
       )
       .toBe(true);
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
-    await expect(pill).toHaveText("✦ Bug  Survives reconnect");
+    await expect(pill).toHaveText("✦ Bug Survives reconnect");
     await page.locator(".weavie-hint-mark").click();
     await expect(popover(page).locator(".weavie-hint-title")).toHaveText("Survives reconnect");
   });

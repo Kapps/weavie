@@ -47,7 +47,8 @@ anchors after reloads.
 ## Presentation
 
 - **Default:** a solid severity badge in the glyph margin (`!` bug, `i` otherwise), a severity wash on the line,
-  and a tinted pill after the line end (`✦ Bug  <summary>`). Adds no height.
+  and a tinted pill after the line end (`✦ Bug <summary>`) — one content widget, ellipsized at the editor's
+  visible edge; several hints on a line sit side by side. Adds no height.
 - **Expanded:** a Monaco content-widget popover just below the line — overlays code, never shifts it. Opens on
   hover/click of the badge or pill, or Next/Previous Hint. Shows severity, `✦ <agent>`, full text, and
   Fix, Fix with…, Previous, Next, Dismiss with keybinding tooltips from the command catalog. The popover holds

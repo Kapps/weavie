@@ -19,6 +19,7 @@ export interface TextEditorConnection {
   readonly prComments: PrCommentController;
   capture(): TextLocation | undefined;
   restore(location: TextLocation): void;
+  reveal(range: monaco.IRange): void;
 }
 
 export type TextEditorMenuHandler = (

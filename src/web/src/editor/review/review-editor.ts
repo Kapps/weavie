@@ -1,3 +1,4 @@
+import { CodeLensContribution } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/codelens/browser/codelensController";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
@@ -15,7 +16,7 @@ import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
 import { collapseUnchanged } from "./review-context";
-import { createReviewEditorViewport } from "./review-editor-viewport";
+import { createReviewEditorViewport, type ReviewSectionGeometry } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
 
@@ -33,11 +34,10 @@ export interface ReviewEditor {
   restore(location: TextLocation): void;
   revealFileStart(line: number): void;
   focus(): void;
-  layout(): void;
+  measured(): void;
   /** Re-applies the collapsed stretches after the file's revealed context changed. */
   refreshContext(): void;
-  /** Applies a known change to the section's own offset without re-reading the DOM. */
-  shift(delta: number): void;
+  position(): void;
   inline: InlineDiff;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
@@ -51,11 +51,13 @@ export function createReviewEditor(options: {
   container: HTMLElement;
   scroller: ReviewScroll;
   header: HTMLElement;
+  section: ReviewSectionGeometry;
   model: monaco.editor.ITextModel;
   editable: boolean;
-  diff: ReviewFileDiff;
+  path: string;
+  currentExists: boolean;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   context: () => readonly LineSpan[];
   revealContext: (span: LineSpan) => void;
@@ -82,8 +84,8 @@ export function createReviewEditor(options: {
     mount,
     options.scroller,
     options.header,
-    (dimension) =>
-      createEmbeddedEditor(
+    (dimension) => {
+      const editor = createEmbeddedEditor(
         mount,
         model,
         { dimension, overflowWidgetsDomNode: widgets },
@@ -103,7 +105,14 @@ export function createReviewEditor(options: {
           scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
           padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
         },
-      ),
+      );
+      // Cached CodeLens zones must precede the first published section height.
+      if (editor.getContribution(CodeLensContribution.ID) === null) {
+        throw new Error("Monaco CodeLens contribution is not registered.");
+      }
+      return editor;
+    },
+    options.section,
   );
   const editor = viewport.editor as CollapsingEditor;
   // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
@@ -125,12 +134,12 @@ export function createReviewEditor(options: {
     mount.classList.toggle("gap-hover", gap !== undefined);
     mount.title = gap?.zone.domNode.title ?? "";
   };
-  let constructing = true;
   let disposed = false;
   const publish = (): void => {
     if (!disposed) options.onPainted();
   };
   let geometryReady = false;
+  let pendingContextLocation: TextLocation | undefined;
   let height = 0;
   const measure = (): void => {
     if (!geometryReady) return;
@@ -138,7 +147,7 @@ export function createReviewEditor(options: {
     if (height === next) return;
     height = next;
     container.style.height = `${next}px`;
-    viewport.layout();
+    viewport.setContentHeight(next);
     options.onHeight(height);
   };
   const revealLine = (line: number): void => {
@@ -189,7 +198,7 @@ export function createReviewEditor(options: {
     scope: options.scope,
     updateGeometry: viewport.update,
     active: options.active,
-    toolbarHost: options.toolbarHost,
+    publishToolbar: options.onToolbar,
     revealLine,
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
@@ -219,17 +228,15 @@ export function createReviewEditor(options: {
     painted: () => {
       if (loading.parentNode !== null) {
         loading.remove();
-        editor.render(true);
         mount.style.removeProperty("visibility");
       }
-      if (constructing) queueMicrotask(publish);
-      else publish();
+      publish();
     },
   };
   const capture = (): TextLocation => {
     const line = presentation.reviewLine();
     return {
-      path: options.diff.path,
+      path: options.path,
       line,
       viewState: editor.saveViewState(),
       anchor: {
@@ -254,6 +261,19 @@ export function createReviewEditor(options: {
     model,
     capture,
     restore,
+    reveal: (range) => {
+      viewport.update(() =>
+        editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate),
+      );
+      const top = editor.getTopForPosition(range.startLineNumber, range.startColumn);
+      const bottom =
+        editor.getTopForPosition(range.endLineNumber, range.endColumn) +
+        editor.getOption(monaco.editor.EditorOption.lineHeight);
+      const bounds = viewport.bounds();
+      if (top < bounds.top || bottom > bounds.bottom) {
+        viewport.reveal((top + bottom - bounds.height) / 2);
+      }
+    },
   });
   widgets.addEventListener("focusin", () => {
     editorContexts.activate(binding.connection);
@@ -261,10 +281,7 @@ export function createReviewEditor(options: {
   });
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
-  options.configure(inline, model.uri.toString(), options.diff);
-  measure();
-  constructing = false;
-  container.classList.toggle("navigable", options.diff.currentExists);
+  container.classList.toggle("navigable", options.currentExists);
   let pressed = "";
   let bandAnchor: number | undefined;
   const clickTarget = (event: monaco.editor.IEditorMouseEvent): string => {
@@ -278,11 +295,13 @@ export function createReviewEditor(options: {
   };
   const subscriptions = [
     contentSize,
-    editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
+    editor.onDidChangeCursorPosition((event) => {
+      if (editor.hasWidgetFocus()) options.onCursor(event.position.lineNumber);
+    }),
     editor.onMouseLeave(() => hover(undefined)),
     editor.onMouseMove((event) => {
       hover(gaps.get(clickTarget(event)));
-      if (options.diff.currentExists && isLineNumber(event.target))
+      if (options.currentExists && isLineNumber(event.target))
         event.target.element!.title = `Open file at this line${keyHint(CommandIds.reviewOpenLine)}`;
     }),
     // A plain click on a band or line number acts; a drag or modified click keeps Monaco's selection.
@@ -302,9 +321,9 @@ export function createReviewEditor(options: {
         bandAnchor = start === 1 ? end + 1 : start - 1;
         options.revealContext(gap.span);
         bandAnchor = undefined;
-      } else if (options.diff.currentExists)
+      } else if (options.currentExists)
         void runCommandWithFeedback(CommandIds.reviewOpen, {
-          path: options.diff.path,
+          path: options.path,
           line: event.target.position!.lineNumber,
         });
     }),
@@ -320,21 +339,28 @@ export function createReviewEditor(options: {
       editorContexts.activate(binding.connection);
       editor.focus();
     },
-    layout: viewport.layout,
+    measured: () => {
+      const location = pendingContextLocation;
+      pendingContextLocation = undefined;
+      if (!disposed && location !== undefined) restore(location);
+    },
     refreshContext: () => {
-      const location = capture();
+      if (!geometryReady) return;
+      const location = pendingContextLocation ?? capture();
       if (bandAnchor !== undefined) {
         const offset = viewport.bounds().top - editor.getTopForLineNumber(bandAnchor);
         location.anchor = { line: bandAnchor, offset };
       }
       viewport.update(applyContext);
-      restore(location);
+      pendingContextLocation = location;
+      options.onPainted();
     },
-    shift: viewport.shift,
+    position: viewport.position,
     inline,
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
       disposed = true;
+      pendingContextLocation = undefined;
       if (container.contains(document.activeElement) || widgets.contains(document.activeElement)) {
         options.scroller.element.focus({ preventScroll: true });
       }

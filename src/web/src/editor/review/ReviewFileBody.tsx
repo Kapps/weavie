@@ -2,6 +2,7 @@ import {
   type Accessor,
   batch,
   createEffect,
+  createMemo,
   createSignal,
   type JSX,
   on,
@@ -14,6 +15,7 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
+import type { ReviewSectionGeometry } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import {
   hasReviewChanges,
@@ -23,27 +25,34 @@ import {
 } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
+export interface ReviewBodyMeasurement {
+  observe(element: HTMLElement | undefined): void;
+  ready(height: () => number, publish: () => void): void;
+}
+
 export function ReviewFileBody(props: {
   session: ClientSession;
   tab: TabOwner;
   onEditor(editor: ReviewEditor | undefined): void;
   header: () => HTMLElement;
+  section: ReviewSectionGeometry;
   scope: ReviewScopeState;
   active: () => boolean;
-  toolbarHost: () => HTMLElement | null;
+  onToolbar: () => void;
   configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onCursor: (line: number) => void;
   revealContext: (span: LineSpan) => void;
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
-  onEditorHeight: (height: number) => boolean;
-  measure: () => void;
+  onEditorHeight: (height: number) => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
+  measurement: ReviewBodyMeasurement;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
+  const active = createMemo(props.active);
   const [openError, setOpenError] = createSignal("");
 
   let mount: HTMLDivElement | undefined;
@@ -52,12 +61,21 @@ export function ReviewFileBody(props: {
   let liveExists: boolean | undefined;
   let resolution = 0;
   let dropped = false;
+  let editorHeight = props.editorHeight();
 
   // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
   const publish = (): void => {
-    if (live !== undefined) props.register.set(path, live);
+    props.measurement.ready(
+      () => editorHeight,
+      () => {
+        const editor = live;
+        if (dropped || editor === undefined) return;
+        editor.measured();
+        if (!dropped && live === editor) props.register.set(path, editor);
+      },
+    );
   };
   const disposeEditor = (): void => {
     if (live === undefined) return;
@@ -69,7 +87,7 @@ export function ReviewFileBody(props: {
     liveExists = undefined;
   };
   createEffect(() => {
-    props.active();
+    active();
     const editor = mounted();
     untrack(() => editor?.inline.refreshPresentation());
   });
@@ -101,7 +119,6 @@ export function ReviewFileBody(props: {
       if (live !== undefined) {
         disposeEditor();
         mount?.style.removeProperty("height");
-        props.measure();
       }
       return;
     }
@@ -131,15 +148,18 @@ export function ReviewFileBody(props: {
             container,
             scroller: props.scroller(),
             header: props.header(),
+            section: props.section,
             model: copy.model,
             editable: copy.editable,
-            diff: latest,
+            path,
+            currentExists: latest.currentExists,
             onHeight: (height) => {
-              if (props.onEditorHeight(height)) props.measure();
+              editorHeight = height;
+              props.onEditorHeight(height);
             },
             onPainted: publish,
             active: props.active,
-            toolbarHost: () => (props.active() ? props.toolbarHost() : null),
+            onToolbar: props.onToolbar,
             configure: props.configureDiff,
             context: props.file().context,
             revealContext: props.revealContext,
@@ -161,6 +181,7 @@ export function ReviewFileBody(props: {
   onCleanup(() => {
     dropped = true;
     resolution += 1;
+    props.measurement.observe(undefined);
     disposeEditor();
   });
 
@@ -180,6 +201,7 @@ export function ReviewFileBody(props: {
         ref={(element) => {
           mount = element;
           element.style.height = `${props.editorHeight()}px`;
+          props.measurement.observe(element);
         }}
       />
     </>

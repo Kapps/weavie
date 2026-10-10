@@ -78,6 +78,11 @@ function fixture() {
     duringLayout: () => {},
     containerHeight: () => contentHeight,
     containerOffset: 38,
+    sectionTop: 0,
+    sectionRemoved: false,
+    cursorLine: 1,
+    widgetFocus: true,
+    zoneHeight: 0,
     headerHeight: 32,
     viewportHeight: 594,
     focused: false,
@@ -105,7 +110,7 @@ function fixture() {
     clientWidth: 716,
     getBoundingClientRect: () => {
       measure();
-      return { top: state.containerOffset - rootTop };
+      return { top: state.sectionTop + state.containerOffset - rootTop };
     },
   };
   const mount = {
@@ -113,7 +118,18 @@ function fixture() {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   };
+  let cursorChanged = (_event: {
+    position: { lineNumber: number; column: number };
+    source: string;
+  }) => {};
   const editor = {
+    hasWidgetFocus: () => state.widgetFocus,
+    getPosition: () => ({ lineNumber: state.cursorLine, column: 1 }),
+    getTopForPosition: (line: number) => (line - 1) * 22 + 6 + state.zoneHeight,
+    onDidChangeCursorPosition: (listener: typeof cursorChanged) => {
+      cursorChanged = listener;
+      return { dispose() {} };
+    },
     layout: vi.fn(({ width, height }: { width: number; height: number }) => {
       layoutInfo.width = width;
       layoutInfo.height = height;
@@ -150,6 +166,7 @@ function fixture() {
       for (const listener of listeners) listener(false);
     },
     setContentHeight: vi.fn(),
+    setScrollAnchor: vi.fn(),
     onScroll: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -164,6 +181,12 @@ function fixture() {
     owner,
     { getBoundingClientRect: () => ({ height: state.headerHeight }) } as HTMLElement,
     createEditor,
+    {
+      top: () => {
+        if (state.sectionRemoved) throw new Error("Stale read from <Show>");
+        return state.sectionTop;
+      },
+    },
   );
   // Monaco publishes its clamped scroll before this DOM height mirror receives content-size changes.
   const content = view.onDidContentSizeChange(() => {
@@ -187,6 +210,10 @@ function fixture() {
     createEditor,
     container,
     measure,
+    moveCursor: (lineNumber: number) => {
+      state.cursorLine = lineNumber;
+      cursorChanged({ position: { lineNumber, column: 1 }, source: "keyboard" });
+    },
     scrollTo: (top: number) => {
       owner.setScrollTop(top);
     },
@@ -194,11 +221,46 @@ function fixture() {
 }
 
 describe("review viewport geometry ownership", () => {
-  it("follows a moved section by its known delta, landing where a re-measure would", () => {
+  it("retains offscreen editors without scroll-driven Monaco work and syncs on reentry", () => {
+    const current = fixture();
+    current.state.containerOffset = 2_000;
+    current.state.containerHeight = () => 1_000;
+    current.viewport.layout();
+    current.scrollTo(0);
+    current.editor.layout.mockClear();
+    current.measure.mockClear();
+    const position = vi.spyOn(current.editor, "getPosition");
+    const scroll = vi.spyOn(current.editor, "getScrollTop");
+    const content = vi.spyOn(current.editor, "getContentHeight");
+    for (const top of [40, 80, 400]) current.scrollTo(top);
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(position).not.toHaveBeenCalled();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(content).not.toHaveBeenCalled();
+    current.scrollTo(1_500);
+    expect(position).toHaveBeenCalled();
+    expect(current.editor.getScrollTop()).toBe(0);
+    current.scrollTo(2_600);
+    expect(current.editor.getScrollTop()).toBe(438);
+  });
+
+  it("does not reveal a retained offscreen cursor when its content height changes", () => {
+    const current = fixture();
+    current.state.containerHeight = () => 1_000;
+    current.viewport.layout();
+    current.scrollTo(0);
+    current.scrollTo(2_000);
+    current.viewport.setContentHeight(1_021);
+    expect(current.rootTop()).toBe(2_000);
+  });
+
+  it("follows a moved section by its known position, landing where a re-measure would", () => {
     const shifted = fixture();
     shifted.scrollTo(600);
     const measures = shifted.measure.mock.calls.length;
-    shifted.viewport.shift(-100);
+    shifted.state.sectionTop = -100;
+    shifted.viewport.position();
     expect(shifted.measure).toHaveBeenCalledTimes(measures);
 
     // The same move applied to the DOM and re-measured has to put the band in the same place.
@@ -291,22 +353,127 @@ describe("review viewport geometry ownership", () => {
     expect(current.editor.getLayoutInfo().height).toBe(562);
   });
 
-  it("rounds a band growing into view up to a step, and leaves a full one exact", () => {
+  it("keeps a stable render window while crossing file boundaries", () => {
     const current = fixture();
     current.state.containerOffset = 238;
     current.viewport.layout();
     current.scrollTo(0);
-    // 362 px of the section are visible; the band takes the next whole step and clips the rest.
-    expect(current.editor.getLayoutInfo().height).toBe(512);
+    expect(current.editor.getLayoutInfo().height).toBe(562);
+    current.editor.layout.mockClear();
     current.scrollTo(200);
     expect(current.editor.getLayoutInfo().height).toBe(562);
+    expect(current.editor.layout).not.toHaveBeenCalled();
     current.state.containerOffset = 700;
     current.viewport.layout();
     current.scrollTo(0);
-    expect(current.editor.getLayoutInfo().height).toBe(0);
+    expect(current.editor.getLayoutInfo().height).toBe(562);
+    expect(current.editor.layout).not.toHaveBeenCalled();
   });
 
-  it("relayouts once per step while a section grows into view", () => {
+  it("repositions a virtual section without rereading geometry", () => {
+    const current = fixture();
+    current.scrollTo(10_000);
+    current.measure.mockClear();
+    current.editor.layout.mockClear();
+    current.state.sectionTop = 250.25;
+    current.viewport.position();
+    expect(current.view.getCurrentScrollTop()).toBe(9750);
+    expect(current.mount.style.transform).toBe("translateY(9750px)");
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+  });
+
+  it("synchronizes nested geometry changes once without measuring writes", () => {
+    const current = fixture();
+    current.scrollTo(0);
+    current.editor.layout.mockClear();
+    current.measure.mockClear();
+    current.viewport.update(() => {
+      current.viewport.setContentHeight(300);
+      current.viewport.update(() => current.viewport.setContentHeight(200));
+      expect(current.editor.layout).not.toHaveBeenCalled();
+    });
+    expect(current.editor.getLayoutInfo().height).toBe(200);
+    expect(current.editor.layout).toHaveBeenCalledTimes(1);
+    expect(current.measure).not.toHaveBeenCalled();
+  });
+
+  it("executes diff cleanup without geometry work after disposal", () => {
+    const current = fixture();
+    current.viewport.dispose();
+    current.measure.mockClear();
+    current.editor.layout.mockClear();
+    const cleanup = vi.fn();
+    current.viewport.update(cleanup);
+    current.viewport.layout();
+    current.viewport.position();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(current.measure).not.toHaveBeenCalled();
+    expect(current.editor.layout).not.toHaveBeenCalled();
+  });
+
+  it("keeps capture geometry readable while its virtual row is being removed", () => {
+    const current = fixture();
+    const before = current.viewport.bounds();
+    current.state.sectionRemoved = true;
+    expect(current.viewport.bounds()).toEqual(before);
+    current.viewport.dispose();
+    current.viewport.position();
+    expect(current.viewport.bounds()).toEqual(before);
+  });
+
+  it("reveals a cursor clipped by the outer viewport without resizing Monaco", () => {
+    const current = fixture();
+    current.scrollTo(0);
+    current.state.sectionTop = 450;
+    current.viewport.position();
+    current.viewport.setContentHeight(200);
+    current.editor.layout.mockClear();
+    current.measure.mockClear();
+    current.moveCursor(8);
+    expect(current.rootTop()).toBe(70);
+    expect(current.editor.layout).not.toHaveBeenCalled();
+    expect(current.measure).not.toHaveBeenCalled();
+  });
+
+  it("leaves cursor restoration inside a geometry transaction to its owner", () => {
+    const current = fixture();
+    current.scrollTo(0);
+    current.state.sectionTop = 450;
+    current.viewport.position();
+    current.viewport.update(() => current.moveCursor(80));
+    expect(current.rootTop()).toBe(0);
+  });
+
+  it("keeps the unchanged focused cursor visible when a Find view zone is removed", () => {
+    const current = fixture();
+    current.state.zoneHeight = 27;
+    current.viewport.setContentHeight(227);
+    current.scrollTo(33);
+    current.state.zoneHeight = 0;
+    current.viewport.setContentHeight(200);
+    expect(current.rootTop()).toBe(6);
+  });
+
+  it("does not reveal content-size changes in unfocused editors or diff transactions", () => {
+    const current = fixture();
+    current.scrollTo(300);
+    current.state.widgetFocus = false;
+    current.viewport.setContentHeight(800);
+    expect(current.rootTop()).toBe(300);
+    current.state.widgetFocus = true;
+    current.viewport.update(() => current.viewport.setContentHeight(600));
+    expect(current.rootTop()).toBe(300);
+  });
+
+  it("does not bring an offscreen focused caret back after a content-size change", () => {
+    const current = fixture();
+    current.scrollTo(300);
+    current.viewport.setContentHeight(800);
+    expect(current.rootTop()).toBe(300);
+  });
+
+  it("does not relayout while a section grows into view", () => {
     const current = fixture();
     current.state.containerHeight = () => 1_000;
     current.state.containerOffset = 1_100;
@@ -319,19 +486,17 @@ describe("review viewport geometry ownership", () => {
       current.scrollTo(top);
       bands.add(current.editor.getLayoutInfo().height);
     }
-    // Whole steps while it grows in, then the exact viewport extent — not a height per scroll position.
-    expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562, 768]);
-    expect(current.editor.layout.mock.calls.length).toBeLessThanOrEqual(6);
+    expect([...bands]).toEqual([562]);
+    expect(current.editor.layout).not.toHaveBeenCalled();
   });
 
-  it("keeps the exact extent while a growing section holds the cursor", () => {
+  it("keeps the render window stable while a growing section holds the cursor", () => {
     const current = fixture();
     current.state.containerOffset = 238;
     current.state.focused = true;
     current.viewport.layout();
     current.scrollTo(0);
-    // Monaco travels its own cursor against this height, so a focused band must not claim offscreen rows.
-    expect(current.editor.getLayoutInfo().height).toBe(362);
+    expect(current.editor.getLayoutInfo().height).toBe(562);
   });
 
   it("does not resize or repaint editors when measured dimensions are unchanged", () => {
@@ -393,7 +558,7 @@ describe("review viewport geometry ownership", () => {
     );
   });
 
-  it("keeps a fractional band inside the file extent", () => {
+  it("keeps a stable fractional render window bounded by the file extent", () => {
     const current = fixture();
     current.state.headerHeight = 34.65625;
     current.state.containerOffset = 240.90625;
@@ -401,18 +566,19 @@ describe("review viewport geometry ownership", () => {
     current.viewport.layout();
     current.scrollTo(0);
     expect(current.mount.style.transform).toBe("translateY(0px)");
-    expect(current.editor.getLayoutInfo().height).toBe(512);
+    expect(current.editor.getLayoutInfo().height).toBe(559);
     current.scrollTo(700.375);
-    expect(current.mount.style.transform).toBe("translateY(501px)");
-    expect(current.editor.getLayoutInfo().height).toBe(499);
+    expect(current.mount.style.transform).toBe("translateY(441px)");
+    expect(current.editor.getLayoutInfo().height).toBe(559);
     current.scrollTo(1_200.5);
-    expect(current.mount.style.transform).toBe("translateY(1000px)");
-    expect(current.editor.getLayoutInfo().height).toBe(0);
+    expect(current.mount.style.transform).toBe("translateY(441px)");
+    expect(current.editor.getLayoutInfo().height).toBe(559);
   });
 
-  it("does not repeat an offscreen layout that Monaco internally clamps", () => {
+  it("does not repeat a zero-height layout that Monaco internally clamps", () => {
     const current = fixture();
     current.state.containerOffset = 20_000;
+    current.state.containerHeight = () => 0;
     current.scrollTo(0);
     current.viewport.layout();
     current.editor.getLayoutInfo().height = 5;
@@ -421,7 +587,7 @@ describe("review viewport geometry ownership", () => {
     current.viewport.layout();
     expect(current.editor.layout).not.toHaveBeenCalled();
 
-    current.scrollTo(20_000);
+    current.viewport.setContentHeight(1_000);
     expect(current.editor.layout).toHaveBeenCalledExactlyOnceWith(
       { width: 716, height: 562 },
       true,
@@ -447,6 +613,20 @@ describe("review viewport geometry ownership", () => {
     expect(current.rootTop()).toBe(10_022.25);
     current.view.getScrollable().setScrollPositionNow({ scrollTop: 10_000 });
     expect(current.rootTop()).toBe(10_000.25);
+  });
+
+  it("keeps background editor scroll restoration subordinate to the review owner", () => {
+    const current = fixture();
+    current.state.widgetFocus = false;
+    current.scrollTo(10_000);
+    current.writes.length = 0;
+    current.measure.mockClear();
+    current.view.getScrollable().setScrollPositionNow({ scrollTop: 10_587 });
+    expect(current.rootTop()).toBe(10_000);
+    expect(current.editor.getScrollTop()).toBe(10_000);
+    expect(current.mount.style.transform).toBe("translateY(10000px)");
+    expect(current.writes).toEqual([]);
+    expect(current.measure).not.toHaveBeenCalled();
   });
 
   it("recomputes the bounded window after a resize", () => {

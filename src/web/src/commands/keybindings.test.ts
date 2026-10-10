@@ -15,7 +15,9 @@ vi.mock("./registry", () => ({
   runForKeybindingFromCatalog: commandState.run,
 }));
 
+vi.stubGlobal("navigator", { platform: "Linux x86_64", userAgent: "Linux" });
 const { formatKey, installKeybindings } = await import("./keybindings");
+vi.unstubAllGlobals();
 
 beforeEach(() => {
   commandState.entries = [];
@@ -26,7 +28,6 @@ beforeEach(() => {
   setContext("newSessionPromptFocused", false);
 });
 
-// In the node test env navigator is non-mac, so $mod renders as "Ctrl".
 describe("formatKey (non-mac)", () => {
   it("renders $mod as Ctrl and uppercases a single-letter key", () => {
     expect(formatKey("$mod+Shift+p")).toBe("Ctrl+Shift+P");
@@ -50,6 +51,22 @@ describe("formatKey (non-mac)", () => {
     expect(formatKey("MouseBack")).toBe("MouseBack");
     expect(formatKey("mouseforward")).toBe("MouseForward");
   });
+});
+
+it("formats macOS modifiers independently of the test host platform", async () => {
+  vi.resetModules();
+  vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Macintosh" });
+  try {
+    const { formatKey: macFormatKey } = await import("./keybindings");
+    expect(macFormatKey("$mod+Shift+p")).toBe("⌘+Shift+P");
+    expect(macFormatKey("control+k")).toBe("⌃+K");
+    expect(macFormatKey("mod+a")).toBe("⌘+A");
+    expect(macFormatKey("$mod+up")).toBe("⌘+Up");
+    expect(macFormatKey("alt+enter")).toBe("Alt+Enter");
+    expect(macFormatKey("ctrl+$mod+Right")).toBe("⌃+⌘+Right");
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 describe("keyboard resolver", () => {

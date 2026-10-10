@@ -52,7 +52,7 @@ export interface EditorHandle {
 export interface MonacoHandle {
   editor: {
     /** Every live code editor — the main pane plus any unified-review section editors. */
-    getEditors(): unknown[];
+    getEditors(): readonly unknown[];
   };
   languages: {
     registerCompletionItemProvider(

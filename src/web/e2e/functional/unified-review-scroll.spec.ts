@@ -285,6 +285,7 @@ test.describe("Review Changes tab — large separated changes", () => {
     weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
+    await page.locator(".unified-review-tree-row.file", { hasText: "separated.txt" }).click();
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
     const toolbar = page.locator(".weavie-inline-toolbar");

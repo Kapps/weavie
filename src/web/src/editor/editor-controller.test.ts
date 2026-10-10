@@ -43,6 +43,7 @@ vi.mock("./inline-diff", () => ({
   inlineReviewLine: stub,
 }));
 vi.mock("./comment-prose", () => ({ createCommentProse: stub }));
+vi.mock("../commands/key-hint", () => ({ keyHint: () => "" }));
 vi.mock("./revise-marks", () => ({ sharedReviseMarks: stub() }));
 vi.mock("../splash", () => ({ dismissSplash: () => {} }));
 

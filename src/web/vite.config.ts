@@ -111,6 +111,7 @@ export default defineConfig(({ command }) => ({
     format: "es",
   },
   build: {
+    sourcemap: true,
     target: "esnext",
     outDir: "dist",
     emptyOutDir: true,

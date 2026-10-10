@@ -54,9 +54,12 @@ test("every collapsed stretch shows a band, and a real click on one reveals its 
 
 test("Alt+] shows the whole file and collapses it back", async ({ page }) => {
   const section = await openSection(page);
-  await section.locator(".view-line", { hasText: "line38 = 0" }).click();
+  const anchor = section.locator(".view-line", { hasText: "line38 = 0" });
+  await anchor.click();
+  const before = (await anchor.boundingBox())!.y;
   await page.keyboard.press("Alt+BracketRight");
   await expect(section.locator(".unified-review-gap")).toHaveCount(0);
+  await expect.poll(async () => Math.abs((await anchor.boundingBox())!.y - before)).toBeLessThan(2);
   await expect(section.locator(".unified-review-file-context")).toHaveAttribute(
     "aria-pressed",
     "true",

@@ -211,6 +211,7 @@ export async function createEditorHost(
         if (location.viewState != null) editor.restoreViewState(location.viewState);
         else editor.setPosition({ lineNumber: location.line, column: 1 });
       },
+      reveal: (range) => editor.revealRangeInCenterIfOutsideViewport(range, REVEAL_SCROLL),
     });
   };
 

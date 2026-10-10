@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { openFile } from "../harness/actions";
+import type { FakeStep } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, navChord } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -10,15 +11,48 @@ const changed = baseline.map((line, index) =>
   index === 1 || index === 39 ? `${line} changed` : line,
 );
 const content = `${changed.join("\n")}\n`;
+const steps: FakeStep[] = [
+  { op: "edit", path: "{{WORKSPACE}}/review.txt", content: `${baseline.join("\n")}\n` },
+  ...appliedEdit("review.txt", content),
+  ...appliedEdit("notes.txt", "a changed note\n"),
+];
 
-test.use({
-  fakeScript: {
-    steps: [
-      { op: "edit", path: "{{WORKSPACE}}/review.txt", content: `${baseline.join("\n")}\n` },
-      ...appliedEdit("review.txt", content),
-      ...appliedEdit("notes.txt", "a changed note\n"),
-    ],
-  },
+test.use({ fakeScript: { steps } });
+
+test.describe("parked overview", () => {
+  const extraPaths = Array.from({ length: 24 }, (_, index) => `parked-${index}.txt`);
+  test.use({
+    fakeScript: {
+      steps: [...steps, ...extraPaths.flatMap((path) => appliedEdit(path, "new file\n"))],
+    },
+  });
+  for (const [key, index] of [
+    ["ArrowDown", 0],
+    ["ArrowRight", 0],
+    ["ArrowLeft", -1],
+  ] as const) {
+    test(`parked ${key} enters the boundary file and Home preserves its selection`, async ({
+      page,
+    }) => {
+      await awaitReviewSet(page, ["notes.txt", "review.txt", ...extraPaths]);
+      await page.locator(".editor-empty-review").click();
+      const overview = page.locator(".unified-review");
+      const counter = overview.locator(".weavie-inline-stack-sub");
+      const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
+      const files = await page.evaluate(() => window.__WEAVIE_REVIEW__!.files);
+      const file = basename(files.at(index)!);
+      await expect(counter).toContainText(`${files.length} files · press ↓ to start`);
+      await overview.locator(".unified-review-diffs").focus();
+      await page.keyboard.press(navChord(key));
+      await expect(overview.locator(".weavie-inline-stack-name")).toHaveText(file);
+      await expect(counter).toContainText("change 1/");
+      await expect(overview.locator(".monaco-editor.focused")).toHaveCount(1);
+      await scrollbar.press("Home");
+      await expect(
+        overview.locator('.unified-review-tree-row.file[aria-selected="true"]'),
+      ).toContainText(file);
+    });
+  }
 });
 
 test("the existing toolbar and keyboard review the active unified section without opening a file", async ({

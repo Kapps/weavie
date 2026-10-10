@@ -130,7 +130,7 @@
 }
 
 .unified-review-diffs {
-  --review-scroll-padding: 1em;
+  --review-scroll-padding: 0.4em;
   position: relative;
   height: 100%;
   min-width: 0;

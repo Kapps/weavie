@@ -74,6 +74,17 @@ resulting pending hunk to the thread, and keeping it posts a "Fixed in `<sha>`" 
 - A persistent file tree alongside the unified review.
 - Start from side-by-side screenshots of the same PR in Weavie and GitHub (`weavie-tester`).
 
+## 6. Hint to PR comment
+
+On a PR, a hint's popover offers **Comment**: the PR comment composer opens on the hint's line, prefilled with
+the hint's text, for the user to edit and post as themselves. Nothing posts without the user submitting it, so
+the review stays in their voice.
+
+## Under consideration
+
+- **Second opinion.** A command asks another configured agent ([agent-consultation.md](agent-consultation.md))
+  to review the same diff; its hints render beside the first agent's, and a line both flagged reads as agreed.
+
 ## Out of scope
 
 CI failure annotations on lines; feeding review comments into Learn From Corrections; moved-code detection

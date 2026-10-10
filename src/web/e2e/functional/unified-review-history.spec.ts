@@ -10,7 +10,7 @@ import {
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 import { reviewScroll } from "../harness/review-scroll";
 import type { EditorHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -50,7 +50,7 @@ async function prepareDeparture(page: Page): Promise<void> {
   await awaitReviewSet(page, ["a-review.ts", sourceName]);
   await openFile(page, "notes.txt");
   await page.locator(".editor-review-open").click();
-  await page.locator(".unified-review-tree-row.file", { hasText: sourceName }).click();
+  await reviewFileSegment(page, sourceName).click();
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: sourceName }),
   });

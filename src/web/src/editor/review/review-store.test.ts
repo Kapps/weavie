@@ -14,6 +14,7 @@ const firstFile: ReviewFile = {
   name: "first.ts",
   added: 3,
   removed: 1,
+  pendingLines: 4,
   line: 4,
   currentExists: true,
 };
@@ -23,6 +24,7 @@ const secondFile: ReviewFile = {
   name: "second.ts",
   added: 1,
   removed: 0,
+  pendingLines: 1,
   line: 8,
   currentExists: true,
 };

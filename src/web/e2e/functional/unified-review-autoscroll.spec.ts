@@ -31,7 +31,7 @@ test.use({
 async function openReview(page: Page): Promise<void> {
   await awaitReviewSet(page, paths);
   await page.locator(".editor-empty-review").click();
-  await page.locator(".unified-review-tree-row.file").first().click();
+  await page.locator(".unified-review-map-file").first().click();
   await expect(page.locator(".unified-review-file .view-line").first()).toBeVisible();
 }
 

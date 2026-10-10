@@ -14,6 +14,7 @@ function fixture() {
       line: 10,
       added: 1,
       removed: 0,
+      pendingLines: 1,
       currentExists: true,
     }),
     pending: () => state.pending[index]!,

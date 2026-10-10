@@ -27,6 +27,7 @@ public sealed class ChangeMessagesTests {
 		Assert.Equal("/w/a.txt", file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 		Assert.Equal(0, file.GetProperty("removed").GetInt32());
+		Assert.Equal(1, file.GetProperty("pendingLines").GetInt32());
 		Assert.Equal(2, file.GetProperty("line").GetInt32()); // the appended line is the navigator's jump target
 		Assert.True(file.GetProperty("currentExists").GetBoolean());
 	}

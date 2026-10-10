@@ -93,12 +93,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
 
+		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
+		_prompts = registryMode ? McpPromptCatalog.All : [];
+
 		// Registry mode advertises ONLY the capability tools (the model-facing .mcp.json server), kept separate
 		// from the IDE server whose openDiff-style tools Claude Code filters before they reach the model. IDE
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			var parts = new List<string> { SettingsToolEntries, AgentToolEntries };
+			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, BuildWorkflowToolEntry() };
 			if (exposeIdeTools) {
 				parts.Add(IdeToolEntries);
 			}
@@ -125,8 +128,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
-		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
-		_prompts = registryMode ? McpPromptCatalog.All : [];
 		IdeName = ideName;
 	}
 
@@ -476,6 +477,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "consultAgent":
 				await HandleConsultAgentAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "runWorkflow":
+				await HandleRunWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listThemes":
 				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);

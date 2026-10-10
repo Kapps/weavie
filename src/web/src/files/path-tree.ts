@@ -118,3 +118,17 @@ export function pathTreeDirectoryKeys<T>(nodes: readonly PathTreeNode<T>[]): str
   walk(nodes);
   return keys;
 }
+
+/** Merges each folder holding only one folder into a single `a/b` row, keyed by the deepest folder. */
+export function compactPathTree<T>(nodes: readonly PathTreeNode<T>[]): PathTreeNode<T>[] {
+  return nodes.map((node) => {
+    if (node.kind === "file") return node;
+    let merged = node;
+    let only = merged.children.length === 1 ? merged.children[0] : undefined;
+    while (only?.kind === "directory") {
+      merged = { ...only, name: `${merged.name}/${only.name}` };
+      only = merged.children.length === 1 ? merged.children[0] : undefined;
+    }
+    return { ...merged, children: compactPathTree(merged.children) };
+  });
+}

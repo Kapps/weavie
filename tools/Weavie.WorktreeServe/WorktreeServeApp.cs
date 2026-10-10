@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Remote;
@@ -114,7 +115,8 @@ internal sealed class WorktreeServeApp(ITailscaleCli tailscale) {
 		await TransientCommand.RunAsync(
 			"dotnet",
 			[
-				"publish", headlessProject, "-c", "Release", "--no-self-contained", "-o", publishRoot, "--nologo", "--tl:off",
+				"publish", headlessProject, "-c", "Release", "-r", RuntimeInformation.RuntimeIdentifier, "-o", publishRoot,
+				"--nologo", "--tl:off",
 			],
 			sourceRoot,
 			environment,
@@ -126,14 +128,15 @@ internal sealed class WorktreeServeApp(ITailscaleCli tailscale) {
 		string workspace,
 		string stateRoot,
 		HeadlessReadiness readiness) {
-		string assembly = Path.Combine(runRoot, "publish", "Weavie.Headless.dll");
-		var info = new ProcessStartInfo("dotnet") {
+		// The headless host ships Native AOT, so the preview runs the same native executable.
+		string executable = Path.Combine(runRoot, "publish", OperatingSystem.IsWindows() ? "Weavie.Headless.exe" : "Weavie.Headless");
+		var info = new ProcessStartInfo(executable) {
 			WorkingDirectory = workspace,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
 			UseShellExecute = false,
 		};
-		foreach (string arg in new[] { assembly, "--port", "0", "--workspace", workspace }) {
+		foreach (string arg in new[] { "--port", "0", "--workspace", workspace }) {
 			info.ArgumentList.Add(arg);
 		}
 		info.Environment["WEAVIE_ROOT"] = stateRoot;

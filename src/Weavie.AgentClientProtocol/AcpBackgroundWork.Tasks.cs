@@ -6,12 +6,19 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpBackgroundWork {
 	private readonly Dictionary<string, BackgroundTask> _tasks = new(StringComparer.Ordinal);
+	// Tasks announced while the root loads history are replays: their later updates are acknowledged, never rendered.
+	private readonly HashSet<string> _replayedTasks = new(StringComparer.Ordinal);
 
-	public void SpawnTask(AcpConversation announcer, JsonElement update) {
+	public void ReplayedTask(string asyncTaskId) {
+		lock (_gate) _replayedTasks.Add(asyncTaskId);
+	}
+
+	public void SpawnTask(JsonElement update) {
 		string id = RequiredString(update, "asyncTaskId", "async_task_spawned update");
 		string type = RequiredString(update, "taskType", "async_task_spawned update");
 		string itemId = "task:" + id;
-		var task = new BackgroundTask(announcer, announcer.TurnId(), new AgentBackgroundItem {
+		// The card lives in the root's transcript, which outlives a subagent that started the task.
+		var task = new BackgroundTask(root, root.TurnId(), new AgentBackgroundItem {
 			Id = itemId,
 			Kind = AgentBackgroundKind.Task,
 			Name = RequiredString(update, "name", "async_task_spawned update"),
@@ -35,7 +42,7 @@ internal sealed partial class AcpBackgroundWork {
 
 	public void ProgressTask(JsonElement update) {
 		lock (_gate) {
-			var task = TaskLocked(update);
+			if (TaskLocked(update) is not { } task) return;
 			task.Item = task.Item with {
 				LastActivity = OptionalString(update, "description") ?? OptionalString(update, "summary")
 					?? OptionalString(update, "lastToolName") ?? task.Item.LastActivity,
@@ -54,10 +61,11 @@ internal sealed partial class AcpBackgroundWork {
 			"stopped" => AgentBackgroundState.Stopped,
 			var value => throw new AcpProtocolException($"Unsupported ACP async task state '{value}'."),
 		};
-		BackgroundTask task;
+		BackgroundTask? task;
 		bool changed;
 		lock (_gate) {
 			task = TaskLocked(update);
+			if (task is null) return;
 			var previous = task.Item;
 			bool terminal = state is not (AgentBackgroundState.Running or AgentBackgroundState.Paused);
 			// A finished task stays finished; only a later terminal state corrects which one.
@@ -98,9 +106,12 @@ internal sealed partial class AcpBackgroundWork {
 		return finished.Length;
 	}
 
-	private BackgroundTask TaskLocked(JsonElement update) {
+	// Null for a replayed task; an id never announced is a protocol failure.
+	private BackgroundTask? TaskLocked(JsonElement update) {
 		string id = RequiredString(update, "asyncTaskId", "async task update");
-		return _tasks.TryGetValue(id, out var task) ? task : throw new AcpProtocolException($"ACP updated unknown async task '{id}'.");
+		return _tasks.TryGetValue(id, out var task) ? task
+			: _replayedTasks.Contains(id) ? null
+			: throw new AcpProtocolException($"ACP updated unknown async task '{id}'.");
 	}
 
 	private static AgentBackgroundUsage? ReadUsage(JsonElement update) =>
@@ -111,12 +122,11 @@ internal sealed partial class AcpBackgroundWork {
 	private static long? Count(JsonElement usage, string property) =>
 		usage.TryGetProperty(property, out _) ? ReadRequiredNonNegativeInt64(usage, property, "async task usage") : null;
 
-	// A task's transcript card lives in the conversation that announced it, at the turn it started in.
-	private sealed class BackgroundTask(AcpConversation announcer, string turnId, AgentBackgroundItem item) {
+	private sealed class BackgroundTask(AcpConversation owner, string turnId, AgentBackgroundItem item) {
 		public AgentBackgroundItem Item { get; set; } = item;
 
 		public void PublishCard() {
-			if (Item.TranscriptItemId is not null) announcer.PublishTaskCard(turnId, Item);
+			if (Item.TranscriptItemId is not null) owner.PublishTaskCard(turnId, Item);
 		}
 	}
 }

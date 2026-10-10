@@ -19,6 +19,7 @@ describe("background tray", () => {
       "running · 4m 12s · 9 tools · 182k tokens",
     );
     expect(backgroundStatus("completed", 0, 5_000, 999_000, null)).toBe("completed · 5s");
+    expect(backgroundStatus("cancelled", 0, null, 999_000, null)).toBe("cancelled");
   });
 
   it("projects a workflow card that its completion replaces in place", () => {

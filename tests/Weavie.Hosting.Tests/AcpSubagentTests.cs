@@ -109,6 +109,40 @@ public sealed class AcpSubagentTests {
 	}
 
 	[Fact]
+	public async Task LaterUpdatesForAReplayedTaskAreIgnored() {
+		await using var fixture = await StartedAsync(allowAllPermissions: true);
+		fixture.Submit("hello");
+		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: hello");
+		Signal(fixture, "replay-subagents");
+		fixture.AskAside("side question");
+		var answer = await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: side question");
+
+		fixture.ReplyAside(answer.ConversationId!, "finish-replayed-task");
+
+		await fixture.WaitForMessageAsync(message => message.ConversationId == answer.ConversationId && message.Type == "turn-completed" && message.TurnId == "2");
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.Empty(fixture.Session.BackgroundWork);
+	}
+
+	[Fact]
+	public async Task RewindDropsSubagentCardsOfASideItDrops() {
+		await using var fixture = await StartedAsync(allowAllPermissions: true);
+		foreach (string prompt in new[] { "alpha", "beta" }) {
+			fixture.Submit(prompt);
+			await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: " + prompt);
+		}
+		fixture.AskAside("subagent");
+		var marker = await fixture.WaitForMessageAsync(message => message.Type == "subagent-started");
+		Assert.Equal("2", marker.AnchorTurnId);
+		await fixture.WaitForMessageAsync(message => message.ConversationId == marker.ConversationId && message.Type == "turn-completed");
+
+		await fixture.Session.RewindBeforeAsync("2");
+
+		var snapshot = await fixture.WaitForSnapshotAsync();
+		Assert.DoesNotContain(snapshot, message => message.ConversationId is not null);
+	}
+
+	[Fact]
 	public async Task ForkLoadAnnouncingALiveSubagentLeavesItsCardAlone() {
 		await using var fixture = await StartedAsync(allowAllPermissions: true);
 		var marker = await StartHeldSubagentAsync(fixture, "1");

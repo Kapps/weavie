@@ -35,7 +35,7 @@ internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 		var continuation = new AcpConversationState {
 			ConversationId = Guid.NewGuid().ToString("N"),
 			SessionId = sessionId,
-			AnchorTurnNumber = root.TurnNumber,
+			AnchorTurnNumber = root.NestedAnchorTurn,
 			InitialPrompt = task,
 			TurnNumber = 0,
 			GuidanceSent = true,

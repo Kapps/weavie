@@ -36,12 +36,12 @@ public sealed partial class HostCore {
 					WireJson.Default.BackgroundWorkRefusalData));
 	}
 
-	private static bool StopsBackgroundWork(string? argsJson) =>
-		JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.BackgroundWorkConsent)?.StopBackgroundWork == true;
+	private static bool StopsBackgroundWork(string? argsJson) {
+		using var args = JsonDocument.Parse(argsJson ?? "{}");
+		return ReadBool(args.RootElement, "stopBackgroundWork");
+	}
 
 	internal sealed record StopBackgroundTaskCommand(string? Id);
-
-	internal sealed record BackgroundWorkConsent(bool? StopBackgroundWork);
 
 	internal sealed record BackgroundWorkRefusalData(IReadOnlyList<BackgroundWorkSummary> BackgroundWork);
 

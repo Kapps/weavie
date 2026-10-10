@@ -13,8 +13,8 @@ export function BackgroundStopPrompt(): JSX.Element {
           body={
             <>
               <div>
-                This session still has background work running. Closing it stops that work, and its
-                results won't come back.
+                Background work is still running. Stopping it ends that work, and its results won't
+                come back.
               </div>
               <ul class="confirm-file-list">
                 <For each={request().work}>

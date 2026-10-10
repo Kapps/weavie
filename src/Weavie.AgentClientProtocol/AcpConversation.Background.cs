@@ -10,6 +10,9 @@ internal sealed partial class AcpConversation {
 
 	internal string ConversationId => _spec.Seed.Continuation.ConversationId;
 
+	/// <summary>The primary turn after which this root's nested cards render: a side's own anchor, else the current turn.</summary>
+	internal long NestedAnchorTurn => _spec.Side ? _spec.Seed.Continuation.AnchorTurnNumber : TurnNumber;
+
 	private bool OwnsWork => _spec.Role != AcpConversationRole.Subagent;
 
 	internal AcpConversation CreateSubagent(AcpConversationSpec spec) => _port.CreateSubagent(spec);
@@ -76,7 +79,7 @@ internal sealed partial class AcpConversation {
 		switch (kind) {
 			case "subagent_spawned": Background.Spawn(this, update); break;
 			case "subagent_state_update": Background.Finish(update); break;
-			case "async_task_spawned": Background.SpawnTask(this, update); break;
+			case "async_task_spawned": Background.SpawnTask(update); break;
 			case "async_task_progress": Background.ProgressTask(update); break;
 			default: Background.UpdateTaskState(update); break;
 		}
@@ -113,6 +116,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void ObserveReplayedBackground(string kind, JsonElement update) {
+		if (kind == "async_task_spawned") Background.ReplayedTask(RequiredString(update, "asyncTaskId", "async_task_spawned update"));
 		if (kind != "subagent_spawned") return;
 		string subagent = RequiredString(update, "subagentSessionId", "subagent_spawned update");
 		_endpoint.Value.Sink(subagent);

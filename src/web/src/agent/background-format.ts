@@ -9,9 +9,13 @@ export function backgroundStatus(
   now: number,
   usage: AgentBackgroundItem["usage"],
 ): string {
+  // A card the host settled after a restart has no end time, so its duration is unknown.
+  const live = state === "running" || state === "paused";
   return [
     state,
-    startedAtMs === null ? null : formatElapsed((endedAtMs ?? now) - startedAtMs),
+    startedAtMs === null || (!live && endedAtMs === null)
+      ? null
+      : formatElapsed((endedAtMs ?? now) - startedAtMs),
     usage?.toolUses ? `${usage.toolUses} tool${usage.toolUses === 1 ? "" : "s"}` : null,
     usage?.totalTokens ? `${compactCount(usage.totalTokens)} tokens` : null,
   ]

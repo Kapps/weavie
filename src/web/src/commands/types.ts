@@ -37,6 +37,8 @@ export interface CommandResult {
   message?: string;
   error?: string;
   data?: unknown;
+  /** The user declined a confirmation the command needed; nothing failed. */
+  cancelled?: boolean;
 }
 
 /** One effective key binding after merging defaults with the user file. */

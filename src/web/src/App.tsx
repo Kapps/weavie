@@ -14,7 +14,7 @@ import {
 import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
-import { runningBackgroundEverywhere } from "./agent/agent-background-store";
+import { runningLocalBackground } from "./agent/agent-background-store";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
@@ -1126,7 +1126,7 @@ export default function App(): JSX.Element {
       backendId: req.backendId,
       force: req.state !== "clean" || req.branchless,
     });
-    if (!result.ok) {
+    if (!result.ok && result.cancelled !== true) {
       addToast("warn", result.error ?? "Couldn't delete the session.");
     }
   };
@@ -1625,7 +1625,7 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.exit, () => {
         if (!NATIVE_SHELL) return false;
-        const running = runningBackgroundEverywhere();
+        const running = runningLocalBackground();
         if (running.length === 0) return publishMenuAction("exit");
         return confirmStopBackgroundWork(running).then((stop) => {
           if (stop) publishMenuAction("exit");

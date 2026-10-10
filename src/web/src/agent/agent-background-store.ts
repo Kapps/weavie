@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature } from "../bridge";
+import { type ClientSession, LOCAL_BACKEND_ID, registerSessionFeature } from "../bridge";
 
 /** One subagent or background task a structured agent runs beside its turns. */
 export interface AgentBackgroundItem {
@@ -38,9 +38,11 @@ export function agentBackground(session: ClientSession | null): AgentBackgroundI
   return (session === null ? undefined : bySession().get(session)) ?? [];
 }
 
-/** Every live session's running background work, for actions that stop them all. */
-export function runningBackgroundEverywhere(): AgentBackgroundItem[] {
-  return [...bySession().values()].flat().filter(backgroundRunning);
+/** Running background work on this machine's sessions, which quitting Weavie stops; remote work keeps running. */
+export function runningLocalBackground(): AgentBackgroundItem[] {
+  return [...bySession()]
+    .filter(([session]) => session.connection.id === LOCAL_BACKEND_ID)
+    .flatMap(([, items]) => items.filter(backgroundRunning));
 }
 
 export function backgroundRunning(item: AgentBackgroundItem): boolean {

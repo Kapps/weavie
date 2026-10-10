@@ -37,7 +37,7 @@ export function AgentWorkflowEntry(props: {
     >
       <div class="agent-entry-head">
         <span class="agent-entry-label">Workflow</span>
-        <Show when={state() === "running"}>
+        <Show when={state() === "running" || state() === "paused"}>
           <span class="agent-working-spinner" aria-hidden="true" />
         </Show>
         <small class="agent-entry-status">{status()}</small>

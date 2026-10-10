@@ -48,6 +48,6 @@ export async function guardBackgroundWork(
   const first = await result;
   const work = backgroundWorkOf(first);
   if (work === null) return first;
-  if (!(await confirmStopBackgroundWork(work))) return { ok: false };
+  if (!(await confirmStopBackgroundWork(work))) return { ok: false, cancelled: true };
   return run({ ...(args as object | undefined), stopBackgroundWork: true });
 }

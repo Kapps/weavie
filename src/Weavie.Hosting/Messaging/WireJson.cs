@@ -49,7 +49,6 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.AgentAsideCommand))]
 [JsonSerializable(typeof(HostCore.AgentRewindCommand))]
 [JsonSerializable(typeof(HostCore.StopBackgroundTaskCommand))]
-[JsonSerializable(typeof(HostCore.BackgroundWorkConsent))]
 [JsonSerializable(typeof(HostCore.BackgroundWorkRefusalData))]
 [JsonSerializable(typeof(NewSessionRequest))]
 [JsonSerializable(typeof(HandoffRequest))]

@@ -72,6 +72,14 @@ internal sealed partial class FakeAcpAgent {
 			UpdateOn(nested, MessageUpdate("replayed nested output"));
 			FinishSubagent(replayed, nested, "disconnected");
 			FinishSubagent(sessionId, replayed, "disconnected");
+			UpdateOn(sessionId, new JsonObject {
+				["sessionUpdate"] = "async_task_spawned",
+				["asyncTaskId"] = "replayed-task",
+				["name"] = "replayed",
+				["taskType"] = "shell",
+				["showInTranscript"] = false,
+				["canStop"] = true,
+			});
 		}
 		// Codex's fork load announces the live child under its live id, then disconnects it on the fork.
 		string live = Path.Combine(Environment.CurrentDirectory, "live-subagent");

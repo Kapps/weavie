@@ -22,7 +22,7 @@ describe("background work guard", () => {
     const keeping = guardBackgroundWork(Promise.resolve(refusal), undefined, run);
     await vi.waitFor(() => expect(backgroundStopRequest()).not.toBeNull());
     backgroundStopRequest()!.settle(false);
-    expect(await keeping).toEqual({ ok: false });
+    expect(await keeping).toEqual({ ok: false, cancelled: true });
     expect(run).toHaveBeenCalledTimes(1);
   });
 

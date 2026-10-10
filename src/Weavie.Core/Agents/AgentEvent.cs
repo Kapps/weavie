@@ -1,4 +1,5 @@
 using Weavie.Core.Processes;
+using Weavie.Core.Review.Hints;
 
 namespace Weavie.Core.Agents;
 
@@ -66,6 +67,12 @@ public sealed record AgentToolStarting(AgentMutation Mutation) : AgentEvent;
 
 /// <summary>A tool finished running.</summary>
 public sealed record AgentToolCompleted(AgentMutation Mutation) : AgentEvent;
+
+/// <summary>The agent reported line-anchored review findings; relative paths resolve against <paramref name="Cwd"/>.</summary>
+public sealed record AgentReviewFindingsReported(IReadOnlyList<ReviewFinding> Findings, string? Cwd) : AgentEvent;
+
+/// <summary>The agent reported review findings Weavie could not read.</summary>
+public sealed record AgentReviewFindingsUnreadable(string Error) : AgentEvent;
 
 /// <summary>An event with no shared Weavie behavior.</summary>
 public sealed record AgentOtherEvent : AgentEvent;

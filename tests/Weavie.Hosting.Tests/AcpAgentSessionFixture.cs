@@ -4,12 +4,14 @@ using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using Weavie.AgentClientProtocol;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
@@ -37,8 +39,10 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		AcpSessionStore sessions,
 		AcpAgentSession session,
 		RecordingAgentEventSink events,
-		IAgentAuthenticationTerminal authenticationTerminal) {
+		IAgentAuthenticationTerminal authenticationTerminal,
+		ReviewHintStore reviewHints) {
 		_directory = directory;
+		ReviewHints = reviewHints;
 		_settings = settings;
 		_keybindings = keybindings;
 		Editor = editor;
@@ -57,6 +61,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
+	public ReviewHintStore ReviewHints { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace => _directory.Path;
@@ -380,6 +385,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			directory.Combine("keybindings.json"),
 			enableWatcher: false);
 		var editor = new EditorStore();
+		var reviewHints = new ReviewHintStore(fileSystem, directory.Path, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			FakeDiffPresenter.AlwaysKeep(),
@@ -393,7 +399,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			keybindings,
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
 			static () => "test-session",
-			AgentConsultation.None);
+			AgentConsultation.None,
+			reviewHints);
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
@@ -441,7 +448,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			store,
 			session,
 			events,
-			authenticationTerminal);
+			authenticationTerminal,
+			reviewHints);
 	}
 
 	internal static void SeedSession(AcpSessionStore store, string provider, string workspace, string sessionId, long turnNumber) =>

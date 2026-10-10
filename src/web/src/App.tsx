@@ -124,6 +124,7 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
+import { FixPrompt } from "./editor/FixPrompt";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
@@ -135,6 +136,7 @@ import {
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
 import { reviewCommandBindings } from "./editor/review/review-commands";
+import { registerReviewHintCommands } from "./editor/review-hints/review-hint-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -1601,6 +1603,7 @@ export default function App(): JSX.Element {
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
       registerPrCommentCommands(),
+      registerReviewHintCommands(editor.revealFile),
       ...tabCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);
@@ -2122,6 +2125,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
+      <FixPrompt />
       <RecreateSessionPrompt />
       <Show when={deleteReq()}>
         {(req) => (

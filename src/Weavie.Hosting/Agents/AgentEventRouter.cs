@@ -1,6 +1,7 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Hooks;
+using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting.Agents;
@@ -10,18 +11,22 @@ public sealed class AgentEventRouter : IAgentEventSink {
 	private readonly SessionChangeTracker _changes;
 	private readonly ObservedPermissionMode _mode;
 	private readonly SessionStatusMachine _status;
+	private readonly ReviewHintStore _hints;
 
 	/// <summary>Creates the event router for one loaded session.</summary>
 	public AgentEventRouter(
 		SessionChangeTracker changes,
 		ObservedPermissionMode mode,
-		SessionStatusMachine status) {
+		SessionStatusMachine status,
+		ReviewHintStore hints) {
 		ArgumentNullException.ThrowIfNull(changes);
 		ArgumentNullException.ThrowIfNull(mode);
 		ArgumentNullException.ThrowIfNull(status);
+		ArgumentNullException.ThrowIfNull(hints);
 		_changes = changes;
 		_mode = mode;
 		_status = status;
+		_hints = hints;
 	}
 
 	/// <inheritdoc/>
@@ -31,6 +36,7 @@ public sealed class AgentEventRouter : IAgentEventSink {
 		_changes.Observe(value);
 		if (value is not AgentConversationEvent) _mode.Observe(value);
 		_status.Observe(value);
+		_hints.Observe(value);
 		var locations = _changes.EditLocationsFor(shared);
 		return locations.Count == 0
 			? AgentEventFeedback.None

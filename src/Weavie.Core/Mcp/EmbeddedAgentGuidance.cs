@@ -53,6 +53,11 @@ public static class EmbeddedAgentGuidance {
 		model id, then call `mcp__weavie__consultAgent`. The consulted agent can't see this conversation, so give
 		it everything it needs in the prompt.
 
+		When you review code - a branch, a PR, a diff, or files - report each concrete finding with
+		`mcp__weavie__addReviewHint` (path, line, severity bug|warn|nit, text) so Weavie shows it inline at its
+		line, then keep your chat reply to a brief overall summary. If you also have a built-in findings tool
+		(e.g. ReportFindings), report each finding once, through either one.
+
 		Before a task that creates GitHub issues, PRs, or comments (e.g. filing a Weavie issue), first run
 		`gh auth status` or confirm an authenticated GitHub tool. If neither is available, tell the user up front
 		what setup is missing (install gh, or run `gh auth login`) instead of discovering it at the final step.

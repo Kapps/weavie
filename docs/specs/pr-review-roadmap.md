@@ -12,6 +12,7 @@ their voice.
 ```mermaid
 flowchart LR
   H[Inline review hints] --> V[Visual pass]
+  H --> F
   G[Review guide] --> V
   S[Changed since you looked] --> V
   F[Fix this thread] --> V
@@ -32,9 +33,8 @@ subtler than a PR thread, but not invisible.
   relay with no agent cooperation — **unverified**; prove the relay sees those calls first.
 - **PR auto-review.** The existing seed prompt (`pr.autoReviewPrompt`) reports findings through the tool and
   keeps the summary in chat.
-- **Presentation.** Anchored like PR threads (follow local edits; fade when their line changes). Next/previous
-  and a show/hide toggle, as commands. Dismissible. Prominence is decided by **mockups** first: margin mark
-  only, mark + inline one-line summary, expanded card — each beside a real PR thread card, light and dark.
+- **Presentation and Fix.** Decided by mockup: margin badge + line wash + end-of-line pill, expanding to a
+  popover with Fix / Fix with… (shared with PR threads). See [inline-review-hints.md](inline-review-hints.md).
 - **Done when** an unmodified review skill run against a real agent produces inline hints.
 
 ## 2. Review guide
@@ -64,8 +64,8 @@ After a PR updates (new commits or force-push), show only the author's new work.
 
 ## 4. Fix this thread
 
-On your own PR, one command sends a review thread to the session's agent. The fix lands as a pending hunk linked
-to the thread; keeping it posts a "Fixed in `<sha>`" reply.
+Feature 1 ships Fix / Fix with… for PR threads (send the thread to the session's agent). This feature links the
+resulting pending hunk to the thread, and keeping it posts a "Fixed in `<sha>`" reply.
 
 ## 5. Visual pass (coordinating session, last)
 
@@ -73,6 +73,17 @@ to the thread; keeping it posts a "Fixed in `<sha>`" reply.
 - Quieter file headers: actions on hover/focus, keybinding tooltips from the command catalog.
 - A persistent file tree alongside the unified review.
 - Start from side-by-side screenshots of the same PR in Weavie and GitHub (`weavie-tester`).
+
+## 6. Hint to PR comment
+
+On a PR, a hint's popover offers **Comment**: the PR comment composer opens on the hint's line, prefilled with
+the hint's text, for the user to edit and post as themselves. Nothing posts without the user submitting it, so
+the review stays in their voice.
+
+## Under consideration
+
+- **Second opinion.** A command asks another configured agent ([agent-consultation.md](agent-consultation.md))
+  to review the same diff; its hints render beside the first agent's, and a line both flagged reads as agreed.
 
 ## Out of scope
 

@@ -15,12 +15,13 @@ import { setContext } from "../../commands/context";
 import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { editorContexts } from "../editor-context";
+import type { FixItem } from "../FixPrompt";
 import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
-import { type AnchorMap, createAnchorMap, type ThreadPlacement } from "./anchor-map";
+import { type AnchorMap, createAnchorMap, type ThreadPlacement, threadFixItem } from "./anchor-map";
 import { PrDraftCard, PrThreadCard } from "./PrThreadCard";
 import {
   type PrSources,
@@ -38,6 +39,8 @@ export interface PrCommentController {
   comment(): boolean;
   /** Moves the cursor to the next (1) or previous (-1) thread in this file; false when there's none that way. */
   navigate(direction: 1 | -1): boolean;
+  /** The thread anchored on a buffer line, as a Fix item. */
+  fixItemAt(line: number): FixItem | null;
   dispose(): void;
 }
 
@@ -47,6 +50,7 @@ const inert: PrCommentController = {
   commentable: () => false,
   comment: () => false,
   navigate: () => false,
+  fixItemAt: () => null,
   dispose: () => {},
 };
 
@@ -231,6 +235,7 @@ export function createPrComments(
                 onCollapsed={(value) => collapse(rootId, value)}
                 replying={replying().has(rootId)}
                 onReplying={(open) => reply(rootId, open)}
+                fix={() => fixItem(placement())}
               />
             )}
           </Show>
@@ -238,6 +243,9 @@ export function createPrComments(
       },
       reviewToolbarInset,
     );
+
+    const fixItem = (placement: ThreadPlacement): FixItem | null =>
+      threadFixItem(placement, path, (line) => model.getLineContent(line));
 
     const comment = (): boolean => {
       const current = set();
@@ -287,6 +295,11 @@ export function createPrComments(
       commentable,
       comment,
       navigate,
+      fixItemAt: (line) =>
+        cards()
+          .filter((card) => Math.max(1, card.afterLine) === line)
+          .map((card) => (card.data.kind === "thread" ? fixItem(card.data.placement) : null))
+          .find((item) => item !== null) ?? null,
       dispose: () => {
         clearTimeout(recompute);
         onContent.dispose();

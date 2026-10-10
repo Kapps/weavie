@@ -53,16 +53,12 @@ describe("formatKey (non-mac)", () => {
 });
 
 describe("keyboard resolver", () => {
-  it("dismisses in bubble only, and yields to a control that canceled the event", () => {
+  it.each([
+    CommandIds.closeFloatingPanel,
+    CommandIds.reviewHintsClose,
+  ])("runs %s in bubble only, and yields to a control that canceled the event", (command) => {
     commandState.entries = [
-      {
-        catalogBackendId: "local",
-        binding: {
-          key: "Escape",
-          command: CommandIds.closeFloatingPanel,
-          when: "floatingPanelOpen",
-        },
-      },
+      { catalogBackendId: "local", binding: { key: "Escape", command, when: "floatingPanelOpen" } },
     ];
     commandState.run.mockReturnValue(true);
     setContext("floatingPanelOpen", true);
@@ -96,11 +92,7 @@ describe("keyboard resolver", () => {
     expect(commandState.run).not.toHaveBeenCalled();
     event.defaultPrevented = false;
     listeners.get(false)?.(event as unknown as KeyboardEvent);
-    expect(commandState.run).toHaveBeenCalledWith(
-      "local",
-      CommandIds.closeFloatingPanel,
-      undefined,
-    );
+    expect(commandState.run).toHaveBeenCalledWith("local", command, undefined);
     expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
     dispose();
     vi.unstubAllGlobals();

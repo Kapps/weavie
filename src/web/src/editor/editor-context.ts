@@ -4,6 +4,7 @@ import type { SymbolQuerySource } from "../symbols/symbol-match";
 import type { GitBlameController } from "./git-blame";
 import type { TextLocation } from "./nav-history";
 import type { PrCommentController } from "./pr-comments/pr-comment-controller";
+import type { ReviewHintController } from "./review-hints/review-hint-controller";
 import type { SpellCheck } from "./spell-check";
 import type { TabOwner } from "./tab-owner";
 
@@ -17,6 +18,7 @@ export interface TextEditorConnection {
   readonly blame: GitBlameController;
   readonly spelling: SpellCheck;
   readonly prComments: PrCommentController;
+  readonly reviewHints: ReviewHintController;
   capture(): TextLocation | undefined;
   restore(location: TextLocation): void;
 }

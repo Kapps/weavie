@@ -8,7 +8,7 @@ namespace Weavie.Core.Commands;
 /// The web binds handlers to the <see cref="CommandLocation.Web"/> ids, the host the <see cref="CommandLocation.Core"/>
 /// ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
-public static class CoreCommands {
+public static partial class CoreCommands {
 	/// <summary>Downloads and selects the backend spelling dictionary.</summary>
 	public const string SpellSetLocale = "weavie.spell.setLocale";
 	/// <summary>Opens spelling suggestions or applies a chosen correction.</summary>
@@ -2202,6 +2202,7 @@ public static class CoreCommands {
 			Aliases = ["view logs", "show logs", "open logs", "diagnostics", "stdout", "console output", "log viewer"],
 		});
 
+		RegisterReviewHints(registry);
 		InferenceCommands.Register(registry);
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

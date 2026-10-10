@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAnchorMap } from "./anchor-map";
+import { createAnchorMap, threadFixItem } from "./anchor-map";
 import type { PrThread } from "./pr-comments-store";
 
 const thread = (line: number, side: "right" | "left" = "right", outdated = false): PrThread => ({
@@ -50,5 +50,15 @@ describe("createAnchorMap", () => {
   it("puts outdated threads at the top of the file", () => {
     const map = createAnchorMap({ head, base: head }, head);
     expect(map.place(thread(0, "right", true))).toMatchObject({ afterLine: 0, note: "outdated" });
+  });
+
+  it("offers no Fix item for a thread with no live line", () => {
+    const map = createAnchorMap({ head, base: head }, head);
+    const lineText = (line: number) => `line ${line}`;
+    expect(threadFixItem(map.place(thread(0, "right", true)), "/w/a.ts", lineText)).toBeNull();
+    expect(threadFixItem(map.place(thread(3)), "/w/a.ts", lineText)).toMatchObject({
+      line: 3,
+      quote: "line 3",
+    });
   });
 });

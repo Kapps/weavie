@@ -7,6 +7,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents;
@@ -517,7 +518,8 @@ public sealed partial class AgentSessionHostTests {
 			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			slot,
-			AgentConsultation.None);
+			AgentConsultation.None,
+			ReviewHintSink.None);
 		var session = new FakeStructuredSession { Saved = saved };
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(

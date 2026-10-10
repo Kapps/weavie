@@ -26,7 +26,6 @@
   transform: rotate(45deg);
 }
 
-.weavie-pr-collapse,
 .weavie-pr-icon-button {
   display: grid;
   place-items: center;
@@ -38,19 +37,21 @@
   cursor: pointer;
 }
 
-.weavie-pr-collapse {
+/* Thread actions: Fix, Fix with… and collapse, shown while the card is hovered or holds focus. */
+.weavie-pr-thread-actions {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 2px;
   opacity: 0;
 }
 
-.weavie-pr-card:hover .weavie-pr-collapse,
-.weavie-pr-collapse:focus-visible {
+.weavie-pr-card:hover .weavie-pr-thread-actions,
+.weavie-pr-thread-actions:focus-within {
   opacity: 1;
 }
 
-.weavie-pr-collapse:hover,
 .weavie-pr-icon-button:hover {
   color: var(--fg, #cdd5dc);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
@@ -61,7 +62,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 10px 40px 0 14px;
+  padding: 10px 84px 0 14px;
 }
 
 .weavie-pr-badge {

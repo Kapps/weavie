@@ -234,6 +234,22 @@ export async function createPrWorkspace(): Promise<{
         outdated: false,
         inReplyTo: 0,
       },
+      // An outdated thread on #102's new file: the PR's code moved on since it was made.
+      {
+        id: 2,
+        number: 102,
+        path: "widget.ts",
+        line: 1,
+        side: "right",
+        author: "dave",
+        avatarUrl: "",
+        url: "https://github.com/acme/demo/pull/102#discussion_r2",
+        body: "Is 42 the agreed widget size?",
+        createdAt: "2026-01-02T00:00:00Z",
+        updatedAt: "2026-01-02T00:00:00Z",
+        outdated: true,
+        inReplyTo: 0,
+      },
     ],
     viewer: "you",
     // Only bob has a photo, so both the image and the monogram paths render.

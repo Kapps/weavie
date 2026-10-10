@@ -102,6 +102,7 @@ public sealed partial class HostCore {
 		RegisterTestRunHandlers(session);
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
+		WireReviewHints(session);
 		WireSpelling(session);
 
 		WireFileActivity(session);

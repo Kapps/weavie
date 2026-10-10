@@ -1,18 +1,30 @@
 using System.Text.Json;
 using Weavie.Core.Hooks;
+using Weavie.Core.Review.Hints;
 
 namespace Weavie.Core.Agents.Claude;
 
 /// <summary>Translates Claude hook payloads into the provider-neutral facts Weavie consumes.</summary>
 public static class ClaudeHookEventAdapter {
-	/// <summary>Maps one parsed Claude hook request to its primary event and optional edit-disposition event.</summary>
+	/// <summary>Maps one parsed Claude hook request to its primary event, then any edit-disposition and review-findings events.</summary>
 	public static IReadOnlyList<AgentEvent> Adapt(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
 		var events = new List<AgentEvent> { Primary(request) };
 		if (!string.IsNullOrEmpty(request.PermissionMode)) {
 			events.Add(new AgentEditDispositionObserved(request.PermissionMode));
 		}
+		if (request.Event == HookEventKind.PostToolUse && request.ToolName == ClaudeReportFindings.ToolName) {
+			events.Add(ReviewFindings(request));
+		}
 		return events;
+	}
+
+	private static AgentEvent ReviewFindings(HookRequest request) {
+		try {
+			return new AgentReviewFindingsReported(ClaudeReportFindings.Parse(request.ToolInputJson), request.Cwd);
+		} catch (FormatException ex) {
+			return new AgentReviewFindingsUnreadable($"Claude reported review findings Weavie couldn't read: {ex.Message}");
+		}
 	}
 
 	private static AgentEvent Primary(HookRequest request) => request.Event switch {

@@ -627,7 +627,6 @@ internal sealed class TestHost : IAsyncDisposable {
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
 			AgentModels = agentModels,
-			InferenceControls = new InferenceControlCatalog(settings, agentProviders),
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),

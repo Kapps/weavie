@@ -2,10 +2,18 @@ import { createEffect, createSignal, For, type JSX, on, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { controlMenuOpen } from "../chrome/ControlMenu";
 import { ModalShell } from "../chrome/ModalShell";
-import { writeSetting } from "../host-settings";
+import { registerCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { AgentStep } from "./AgentStep";
-import { COMPLETED_SETTING, gettingStartedOpen, setGettingStartedOpen } from "./state";
+import {
+  COMPLETED_SETTING,
+  gettingStartedOpen,
+  gettingStartedStep,
+  openGettingStarted,
+  setGettingStartedOpen,
+  writeSetting,
+} from "./state";
 import { FinishStep, InferenceStep, Keycaps, type SetupRun, ThemeStep } from "./steps";
 import "./getting-started.css";
 
@@ -32,11 +40,15 @@ const STEPS: { title: string; hint: string; body: (props: { run: SetupRun }) => 
   },
 ];
 
+registerCommand(CommandIds.configureSuggestions, () =>
+  openGettingStarted(STEPS.findIndex((step) => step.body === InferenceStep)),
+);
+
 const INTERACTIVE = "button, select, input, textarea, a";
 
 /** The setup steps; every choice saves immediately, and finishing (or skipping) marks setup done. */
 export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean }): JSX.Element {
-  const [index, setIndex] = createSignal(0);
+  const [index, setIndex] = createSignal(gettingStartedStep());
   const [error, setError] = createSignal<string | null>(null);
   let section: HTMLElement | undefined;
   const attempt: SetupRun["attempt"] = (action) => {

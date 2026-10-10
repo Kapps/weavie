@@ -327,6 +327,65 @@ fieldset.gs-choices {
   border-radius: 6px;
 }
 
+/* Smart suggestions: setting rows with switches. */
+
+.gs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 14px;
+  background: var(--gs-surface);
+  border-radius: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.gs-row .gs-text {
+  cursor: pointer;
+}
+
+.gs-row.gs-disabled {
+  opacity: 0.55;
+}
+
+.gs-switch {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--gs-line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.gs-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s ease;
+}
+
+.gs-switch:checked {
+  background: var(--accent);
+}
+
+.gs-switch:checked::before {
+  background: var(--button-fg);
+  transform: translateX(14px);
+}
+
+.gs-switch:disabled {
+  cursor: default;
+}
+
 /* Keyboard: command, what it's for, and its keys. */
 
 .gs-keys {
@@ -490,4 +549,108 @@ fieldset.gs-choices {
   align-items: center;
   gap: 6px;
   color: var(--dim);
+}
+
+/* Smart suggestions: what they run on, one bar of pickers echoing the agent status line. */
+
+.gs-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--gs-surface);
+  border-radius: 10px;
+}
+
+.gs-profile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.gs-profile-head small,
+.gs-segment small {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.gs-bar {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--gs-line);
+  border-radius: 8px;
+}
+
+.getting-started .gs-segment {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-left: 1px solid var(--gs-line);
+  background: none;
+  text-align: left;
+}
+
+.gs-segment:first-child {
+  border-left: 0;
+}
+
+.gs-segment small {
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.gs-segment span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.getting-started .gs-segment:not(:disabled):hover,
+.gs-segment[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.gs-busy span {
+  opacity: 0.5;
+}
+
+.gs-placeholder i {
+  width: 6em;
+  height: 0.9em;
+  margin: 3px 0;
+  border-radius: 4px;
+  background: var(--gs-line);
+  animation: gs-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes gs-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
+.gs-profile-problem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--font-metadata-size);
+}
+
+.control-menu.gs-menu {
+  z-index: 80;
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Messaging;
 
@@ -103,20 +104,12 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		}));
 	}
 
-	private void WireInferenceControls() {
-		var feature = _host.Feature("inferenceControls");
-		var state = WireJson.Default.InferenceControlsState;
-		_handlers.Add(feature.Handle("open", "Loading the suggestion settings", WireJson.Default.EmptyPayload, state, (_, _) =>
-			Task.FromResult(_services.InferenceControls.Open())));
-		_handlers.Add(feature.Handle("refresh", "Rechecking the suggestion options", WireJson.Default.EmptyPayload, (_, _) => {
-			_services.InferenceControls.Refresh();
-			return Task.CompletedTask;
-		}));
-		_services.InferenceControls.Changed += PushInferenceControls;
-	}
-
-	private void PushInferenceControls() => _host.Feature("inferenceControls")
-		.Publish("state", WireJson.Default.InferenceControlsState, _services.InferenceControls.State);
+	private void WireInferenceControls() => _handlers.Add(_host.Feature("inferenceControls").HandleConcurrent(
+		"get",
+		"Asking the agent for its suggestion options",
+		WireJson.Default.EmptyPayload,
+		WireJson.Default.InferenceChoices,
+		(_, ct) => InferenceControlAxes.AskAsync(_services.Settings, _services.AgentProviders, ct)));
 
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");
@@ -198,7 +191,6 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		_services.ThemeOverrides.Changed -= OnThemeOverridesChanged;
 		_services.Keybindings.KeybindingsChanged -= PushCommandCatalog;
 		_services.AgentProviders.Changed -= PushAgentDefaults;
-		_services.InferenceControls.Changed -= PushInferenceControls;
 		foreach (var handler in _handlers) {
 			handler.Dispose();
 		}

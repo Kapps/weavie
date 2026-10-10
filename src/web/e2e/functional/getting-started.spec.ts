@@ -145,8 +145,8 @@ test("first run opens Getting Started, saves each choice live, and stays closed 
     "Change it anytime with Configure Suggestions",
   );
   // The pickers follow the agent chosen on the previous step, with options asked of that agent itself.
-  const segment = (caption: string) => setup.locator(".sg-segment", { hasText: caption });
-  const menu = page.locator(".sg-menu");
+  const segment = (caption: string) => setup.locator(".gs-segment", { hasText: caption });
+  const menu = page.locator(".gs-menu");
   await expect(segment("Agent")).toContainText("Fake ACP");
   await expect(segment("Model")).toContainText("Alpha");
   await expect(segment("Fast")).toContainText("Off");
@@ -280,34 +280,10 @@ test.describe("with suggestions forced on by the environment", () => {
 test.describe("after setup", () => {
   test.use({ setupCompleted: true });
 
-  test("Configure Suggestions shows the same pickers and keeps the dialog open while one is", async ({
-    page,
-  }) => {
+  test("Configure Suggestions reopens setup on the suggestions step", async ({ page }) => {
     await runCommand(page, "Configure Suggestions…");
-    const dialog = page.locator(".suggestions-dialog");
-    await expect(dialog.getByRole("heading", { name: "Suggestions" })).toBeVisible();
-    await expect(dialog.locator(".sg-dialog-header span")).toHaveText(/Ctrl\+Alt\+Shift\+S|⌘⌥⇧S/);
-    // Focus moves into the dialog, so the keyboard reaches its first control; the pickers wait on it.
-    const allow = dialog.getByRole("switch", { name: /Allow suggestions/ });
-    await expect(allow).toBeVisible();
-    await page.keyboard.press("Tab");
-    await expect(allow).toBeFocused();
-    await page.keyboard.press("Space");
-    await expect(allow).toBeChecked();
-    const model = dialog.locator(".sg-segment", { hasText: "Model" });
-    await expect(model).toContainText("Fake Haiku");
-    await model.click();
-    await page
-      .locator(".sg-menu")
-      .getByRole("option", { name: /Fake Opus/ })
-      .click();
-    await expect(model).toContainText("Fake Opus");
-    await expect(dialog.locator(".sg-segment", { hasText: "Fast" })).toContainText("Off");
-    await dialog.locator(".sg-segment", { hasText: "Effort" }).click();
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".sg-menu")).toBeHidden();
-    await expect(dialog).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
+    const setup = page.locator(".getting-started-dialog");
+    await expect(setup.getByRole("heading", { level: 2 })).toHaveText("Smart suggestions");
+    await expect(setup.locator(".gs-segment", { hasText: "Model" })).toContainText("Fake Haiku");
   });
 });

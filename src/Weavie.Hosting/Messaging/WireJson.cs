@@ -58,7 +58,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(AgentPaneHistoryBatch))]
 [JsonSerializable(typeof(AgentQueueMessage))]
 [JsonSerializable(typeof(AgentControlsMessage))]
-[JsonSerializable(typeof(Weavie.Core.Inference.InferenceControlsState))]
+[JsonSerializable(typeof(Weavie.Core.Inference.InferenceChoices))]
 [JsonSerializable(typeof(AgentUsageMessage))]
 [JsonSerializable(typeof(OmnibarFocus))]
 [JsonSerializable(typeof(ToastMessage))]

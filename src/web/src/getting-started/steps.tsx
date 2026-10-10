@@ -1,17 +1,23 @@
 import { ChevronRight, MessageCircle } from "lucide-solid";
-import { createResource, createSignal, For, type JSX, onMount, Show } from "solid-js";
+import {
+  createResource,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onMount,
+  Show,
+} from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
 import { defaultAgentProvider } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { readSetting, writeSetting } from "../host-settings";
-import { inferenceControls, openInferenceControls } from "../inference/inference-controls";
-import { SuggestionSettings } from "../inference/SuggestionSettings";
 import { chromeVars } from "../theme/chrome-vars";
 import { savedAppearance, savedPalette } from "../theme/controller";
 import { type ThemeChoice, themeRequest } from "../theme/picker-state";
-import { browseThemes } from "./state";
+import { SuggestionProfile } from "./SuggestionProfile";
+import { browseThemes, readSetting, writeSetting } from "./state";
 
 /** What the steps of one setup run share: its error line, and choices that must outlive a step's view. */
 export interface SetupRun {
@@ -97,40 +103,120 @@ export function ThemeStep(props: { run: SetupRun }): JSX.Element {
   );
 }
 
+// One labelled setting; the row's title and detail name its control.
+function SettingRow(props: {
+  title: string;
+  detail: string;
+  disabled: boolean;
+  control: (id: string) => JSX.Element;
+}): JSX.Element {
+  const id = createUniqueId();
+  return (
+    <div class="gs-row" classList={{ "gs-disabled": props.disabled }}>
+      <label class="gs-text" for={id}>
+        <strong>{props.title}</strong>
+        <small>{props.detail}</small>
+      </label>
+      {props.control(id)}
+    </div>
+  );
+}
+
+function Switch(props: {
+  id: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}): JSX.Element {
+  return (
+    <input
+      id={props.id}
+      type="checkbox"
+      role="switch"
+      class="gs-switch"
+      aria-checked={props.checked}
+      checked={props.checked}
+      disabled={props.disabled}
+      onChange={(event) => props.onChange(event.currentTarget.checked)}
+    />
+  );
+}
+
 export function InferenceStep(props: { run: SetupRun }): JSX.Element {
-  const [ready, setReady] = createSignal(false);
-  // Suggestions start on for a new user, and follow the agent picked on the previous step once per agent, so a
-  // later agent choice here survives going back and forth.
-  const initial = async (key: string) => {
-    const setting = await readSetting<boolean>(key);
-    if (setting.isDefault && !setting.value) await writeSetting(key, true);
+  const [enabled, setEnabled] = createSignal<boolean>();
+  const [automatic, setAutomatic] = createSignal<boolean>();
+  const [provider, setProvider] = createSignal<string>();
+  // Shows the new value at once; if the host refuses it (e.g. an env override), shows what the host actually has.
+  const write = <T,>(key: string, value: T, set: (value: T) => void) =>
+    props.run.attempt(async () => {
+      set(value);
+      try {
+        await writeSetting(key, value);
+      } catch (error) {
+        set((await readSetting<T>(key)).value);
+        throw error;
+      }
+    });
+  // Switches never set start on. Suggestions follow the agent picked on the previous step, once per agent, so a
+  // "Which agent" change survives going back and forth.
+  const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
+    const setting = await readSetting<T>(key);
+    const value = setting.isDefault ? onByDefault : setting.value;
+    if (value !== setting.value) await writeSetting(key, value);
+    set(value);
   };
   onMount(() =>
     props.run.attempt(async () => {
-      await initial("inference.enabled");
-      await initial("inference.allowAutomatic");
+      await initial("inference.enabled", true, setEnabled);
+      await initial("inference.allowAutomatic", true, setAutomatic);
       const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
       const current = (await readSetting<string>("inference.defaultProvider")).value;
-      if (props.run.suggestionsAgent !== agent && current !== agent) {
+      if (props.run.suggestionsAgent === agent || current === agent) {
+        setProvider(current);
+      } else {
         await writeSetting("inference.defaultProvider", agent);
+        setProvider(agent);
       }
       props.run.suggestionsAgent = agent;
-      await openInferenceControls();
-      setReady(true);
     }),
   );
+  const off = () => enabled() !== true;
   return (
-    <Show when={ready() && inferenceControls()}>
-      {(state) => (
-        <>
-          <SuggestionSettings state={state()} attempt={props.run.attempt} />
-          <p class="gs-later">
-            Change it anytime with <CommandName id={CommandIds.configureSuggestions} />
-            <Keycaps label={liveKeyLabel(CommandIds.configureSuggestions)} />
-          </p>
-        </>
-      )}
-    </Show>
+    <>
+      <SettingRow
+        title="Allow suggestions"
+        detail="Your agent helps with small things, like naming a branch. Never shown in your chat."
+        disabled={enabled() === undefined}
+        control={(id) => (
+          <Switch
+            id={id}
+            checked={enabled() === true}
+            disabled={enabled() === undefined}
+            onChange={(checked) => write("inference.enabled", checked, setEnabled)}
+          />
+        )}
+      />
+      <SettingRow
+        title="Suggest automatically"
+        detail="Suggest without being asked. This uses a little of your agent usage now and then."
+        disabled={off()}
+        control={(id) => (
+          <Switch
+            id={id}
+            checked={automatic() === true}
+            disabled={off() || automatic() === undefined}
+            onChange={(checked) => write("inference.allowAutomatic", checked, setAutomatic)}
+          />
+        )}
+      />
+      <Show when={provider()}>
+        <SuggestionProfile disabled={off()} attempt={props.run.attempt} />
+      </Show>
+      <p class="gs-later">
+        Change it anytime with <CommandName id={CommandIds.configureSuggestions} />
+        <Keycaps label={liveKeyLabel(CommandIds.configureSuggestions)} />
+      </p>
+    </>
   );
 }
 

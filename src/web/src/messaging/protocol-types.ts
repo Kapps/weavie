@@ -164,13 +164,10 @@ export interface AgentControlAxis {
 }
 
 /** The suggestion profile pickers; each axis id is a setting key and each option id a value for it. */
-export interface InferenceControlsState {
-  enabled: boolean;
-  automatic: boolean;
-  status: "probing" | "ready" | "failed";
-  error: string | null;
-  warning: string | null;
+export interface InferenceChoices {
   axes: AgentControlAxis[];
+  warning: string | null;
+  error: string | null;
 }
 
 interface AgentSlashEntryBase {

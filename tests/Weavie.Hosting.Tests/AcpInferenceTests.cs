@@ -73,17 +73,6 @@ public sealed class AcpInferenceTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task ControlProbeKeepsTheDefaultsWhenTheAgentRefusesTheModel() {
-		var provider = Provider(
-			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
-			["inference", "ok"]);
-
-		var controls = await provider.ProbeInferenceControlsAsync("gpt-9", CancellationToken.None);
-
-		Assert.Equal("fake-model", controls.Selected.Single(axis => axis.Category == "model").Value);
-	}
-
-	[Fact]
 	public async Task AppliesSelectFastModeFromTheAlternateShippedControlId() {
 		var provider = Provider(
 			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),

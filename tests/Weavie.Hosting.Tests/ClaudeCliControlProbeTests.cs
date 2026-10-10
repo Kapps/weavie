@@ -37,24 +37,6 @@ public sealed class ClaudeCliControlProbeTests {
 		Assert.Equal("true", controls.Selected.Single(axis => axis.Id == "fast").Value);
 	}
 
-	[Fact]
-	public void AModelWithoutEffortLevelsOffersNoEffort() {
-		var controls = ClaudeCliControlProbe.Parse(Catalog, "haiku", "low", "claude-haiku-4-5");
-
-		Assert.DoesNotContain(controls.Selected, axis => axis.Category == "thought_level");
-	}
-
-	[Fact]
-	public async Task AFailedHandshakeSaysSo() {
-		var runner = new Runner(new AgentCliProcessResult(1, ""));
-
-		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			ClaudeCliControlProbe.ProbeAsync(runner, "claude", "haiku", "low", "", CancellationToken.None));
-
-		Assert.Contains("code 1", error.Message, StringComparison.Ordinal);
-		Assert.Throws<InvalidOperationException>(() => ClaudeCliControlProbe.Parse("{\"type\":\"system\"}", "haiku", "low", ""));
-	}
-
 	private sealed class Runner(AgentCliProcessResult result) : IAgentCliProcessRunner {
 		public List<AgentCliProcessRequest> Requests { get; } = [];
 

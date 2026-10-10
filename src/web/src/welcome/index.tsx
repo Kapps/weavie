@@ -1,6 +1,5 @@
 import { render } from "solid-js/web";
 import { log } from "../bridge";
-import { SuggestionsDialog } from "../inference/SuggestionsDialog";
 import { dismissSplash } from "../splash";
 import { applyChromeTheme } from "../theme/controller";
 import { ThemePicker } from "../theme/ThemePicker";
@@ -29,7 +28,6 @@ render(
     <>
       <Welcome />
       <ThemePicker />
-      <SuggestionsDialog />
     </>
   ),
   root,

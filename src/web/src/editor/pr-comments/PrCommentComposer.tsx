@@ -53,6 +53,8 @@ export function PrCommentComposer(props: {
         const draft = drafts.get(props.draftKey);
         if (draft === undefined || draft === text()) return;
         setText(draft);
+        // The bound value lands after this effect, so set it now for grow() to measure.
+        input.value = draft;
         grow();
         input.focus({ preventScroll: true });
         input.setSelectionRange(draft.length, draft.length);

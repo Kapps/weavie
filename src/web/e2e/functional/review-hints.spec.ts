@@ -334,6 +334,10 @@ test.describe("PR review", () => {
       await review.locator(".weavie-hint-pill").click();
       await popover(page).getByRole("button", { name: "Comment on PR" }).click();
       await expect(input).toHaveValue("Read it from config?\n\nThe PR greeting is hardcoded");
+      // The box grew to show what was added, rather than hiding it below a two-row box.
+      expect(await input.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(
+        2,
+      );
       await input.fill("The PR greeting is hardcoded — read it from config?");
       await input.press("ControlOrMeta+Enter");
       await expect(

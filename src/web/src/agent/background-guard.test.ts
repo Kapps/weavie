@@ -5,9 +5,8 @@ import type { AgentBackgroundItem } from "./agent-background-store";
 
 const [running, setRunning] = createSignal<AgentBackgroundItem[]>([]);
 vi.mock("./agent-background-store", () => ({ runningBackgroundOf: () => running() }));
-const { backgroundRefusal, backgroundStopRequest, guardBackgroundWork } = await import(
-  "./background-guard"
-);
+const { backgroundRefusal, backgroundStopRequest, guardBackgroundWork, stopQuestionMoot } =
+  await import("./background-guard");
 
 const session = { slot: "s1", incarnation: "i1" };
 const item = { id: "t1", name: "sleep 30", type: "shell", state: "running" } as AgentBackgroundItem;
@@ -59,6 +58,14 @@ describe("background work guard", () => {
     backgroundStopRequest()!.settle("finished");
     expect(await closing).toEqual({ ok: true });
     expect(run).toHaveBeenLastCalledWith({ id: "s1" });
+  });
+
+  it("is moot once its session is gone, even before the live list caught up", () => {
+    expect(stopQuestionMoot(null, false)).toBe(true);
+    expect(stopQuestionMoot(null, true)).toBe(true);
+    expect(stopQuestionMoot([], false)).toBe(false);
+    expect(stopQuestionMoot([], true)).toBe(true);
+    expect(stopQuestionMoot([item], true)).toBe(false);
   });
 
   it("passes every other result through untouched", async () => {

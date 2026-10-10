@@ -1,16 +1,8 @@
 import { Bot, ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { subagentForTab } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
+import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
 import { formatKey } from "../commands/keybindings";
 import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -126,35 +118,21 @@ export function TabStrip(props: {
   // The scrollable tab track: chevron buttons drive it (the native scrollbar is hidden). `overflow` gates the
   // buttons' visibility and dims the one with nothing further to reveal.
   let track!: HTMLDivElement;
-  const [overflow, setOverflow] = createSignal({ left: false, right: false });
-  const updateOverflow = (): void => {
-    const max = track.scrollWidth - track.clientWidth;
-    setOverflow({ left: track.scrollLeft > 1, right: track.scrollLeft < max - 1 });
-  };
+  const { overflow, track: trackOverflow } = createHorizontalOverflow();
   const nudge = (dir: -1 | 1): void => {
     track.scrollBy({ left: dir * track.clientWidth * 0.8, behavior: "smooth" });
   };
-  onMount(() => {
-    track.addEventListener("scroll", updateOverflow, { passive: true });
-    const ro = new ResizeObserver(updateOverflow);
-    ro.observe(track);
-    onCleanup(() => {
-      track.removeEventListener("scroll", updateOverflow);
-      ro.disconnect();
-    });
-  });
-  // A changed tab set or active tab can shift overflow and push the active tab off-screen (e.g. Ctrl+Tab
-  // stepping to a hidden tab); re-measure and reveal it after the DOM settles.
+  // A changed tab set or active tab can push the active tab off-screen (e.g. Ctrl+Tab stepping to a hidden
+  // tab); reveal it after the DOM settles.
   createEffect(() => {
     void views();
     void active();
-    queueMicrotask(() => {
-      updateOverflow();
+    queueMicrotask(() =>
       track.querySelector<HTMLElement>(".editor-tab.active")?.scrollIntoView({
         block: "nearest",
         inline: "nearest",
-      });
-    });
+      }),
+    );
   });
 
   // Right-click menu targets the clicked tab via each command's `path` arg; keyboard/palette omit it to act
@@ -223,7 +201,13 @@ export function TabStrip(props: {
             <ChevronLeft size={15} />
           </button>
         </Show>
-        <div class="editor-tabs-track pane-tabs-track" ref={track}>
+        <div
+          class="editor-tabs-track pane-tabs-track"
+          ref={(element) => {
+            track = element;
+            trackOverflow(element);
+          }}
+        >
           <For each={views()}>
             {(view) => (
               <div

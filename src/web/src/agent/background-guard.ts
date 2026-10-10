@@ -61,6 +61,14 @@ export function confirmStopBackgroundWork(
   );
 }
 
+/** Whether the confirm has nothing left to ask: its session is gone, or the live list caught up and emptied. */
+export function stopQuestionMoot(
+  running: AgentBackgroundItem[] | null,
+  caughtUp: boolean,
+): boolean {
+  return running === null || (caughtUp && running.length === 0);
+}
+
 interface BackgroundRefusal {
   session: SessionAddress;
   backgroundWork: BackgroundWorkSummary[];

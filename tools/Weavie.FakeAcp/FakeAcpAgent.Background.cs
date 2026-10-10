@@ -39,14 +39,18 @@ internal sealed partial class FakeAcpAgent {
 				FinishSubagent(_sessionId!, child, "completed");
 				break;
 			case "subagent-permission":
+			case "subagent-permission-outside":
 				SpawnSubagent(_sessionId!, child, "Editor", "Edit with approval");
+				string edited = text == "subagent-permission"
+					? Path.Combine(Environment.CurrentDirectory, "README.md")
+					: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "fake-agent", "profiles", "default", "settings.json");
 				var result = await Connection().RequestAsync("session/request_permission", new JsonObject {
 					["sessionId"] = child,
 					["toolCall"] = new JsonObject {
 						["toolCallId"] = child + ":edit",
 						["title"] = "Edit README",
 						["kind"] = "edit",
-						["rawInput"] = new JsonObject { ["file_path"] = Path.Combine(Environment.CurrentDirectory, "README.md"), ["old_string"] = "# soak", ["new_string"] = "# Soak" },
+						["rawInput"] = new JsonObject { ["file_path"] = edited, ["old_string"] = "# soak", ["new_string"] = "# Soak" },
 					},
 					["options"] = new JsonArray(
 						new JsonObject { ["optionId"] = "allow", ["name"] = "Allow", ["kind"] = "allow_once" },

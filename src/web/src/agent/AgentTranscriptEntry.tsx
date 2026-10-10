@@ -4,7 +4,7 @@ import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { repoRelativePath } from "../editor/fs-path";
+import { displayPath } from "../editor/fs-path";
 import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
@@ -13,12 +13,12 @@ import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
-import { AgentLinkedText } from "./AgentPaneLinks";
+import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentSubagentEntry } from "./AgentSubagentEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
-import { conciseToolInput, formattedToolInput } from "./approval-input";
+import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -91,8 +91,15 @@ export function TranscriptEntry(props: {
             <Show
               when={props.entry.kind === "message" && props.entry.tone === "assistant"}
               fallback={
-                <pre class="agent-entry-text">
-                  <AgentLinkedText session={props.session} text={text()} />
+                <pre class="agent-entry-text" title={text().path ?? undefined}>
+                  <Show
+                    when={text().path}
+                    fallback={<AgentLinkedText session={props.session} text={text().text} />}
+                  >
+                    {(path) => (
+                      <AgentPathLink session={props.session} path={path()} text={text().text} />
+                    )}
+                  </Show>
                 </pre>
               }
             >
@@ -147,12 +154,16 @@ export function TranscriptEntry(props: {
   );
 }
 
-// An approval shows the telling part of its tool input, naming workspace files relative to the checkout.
-function entryText(props: { entry: AgentTranscriptEntry; session: ClientSession }): string | null {
-  if (props.entry.actionMessage?.type !== "approval-requested") return props.entry.text;
-  const root = fileIndexFor(props.session).root;
+// An approval shows the telling part of its tool input, naming files the way the user reads them.
+function entryText(props: {
+  entry: AgentTranscriptEntry;
+  session: ClientSession;
+}): ConciseToolInput | null {
+  if (props.entry.actionMessage?.type !== "approval-requested")
+    return props.entry.text ? { text: props.entry.text, path: null } : null;
+  const { root, home } = fileIndexFor(props.session);
   return conciseToolInput(props.entry.text, props.entry.summary, (path) =>
-    root === null ? path : repoRelativePath(root, path),
+    displayPath(path, root, home),
   );
 }
 

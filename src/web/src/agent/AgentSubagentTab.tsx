@@ -1,28 +1,9 @@
 import { createMemo, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { NestedTranscript } from "./AgentNestedCard";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { subagentStatus } from "./background-format";
 import { liveNow } from "./live-clock";
-import { agentPaneModel } from "./pane-store";
-
-const prefix = "subagent:";
-
-/** The editor tab path of one subagent's transcript. */
-export function subagentTabPath(conversationId: string): string {
-  return prefix + conversationId;
-}
-
-/** The live subagent entry a subagent tab shows, from its session's own transcript. */
-export function subagentEntry(
-  session: ClientSession | null,
-  path: string,
-): AgentTranscriptEntry | undefined {
-  const conversationId = path.slice(prefix.length);
-  return agentPaneModel(session)?.entries.find(
-    (entry) => entry.kind === "subagent" && entry.conversationId === conversationId,
-  );
-}
+import { subagentEntry } from "./subagent-tab";
 
 /** A subagent's whole read-only transcript as an editor tab, rendered exactly like the agent pane. */
 export default function AgentSubagentTab(props: {

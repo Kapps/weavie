@@ -3,7 +3,6 @@
 
 import type * as monaco from "monaco-editor";
 import { createSignal, untrack } from "solid-js";
-import { subagentTabPath } from "../agent/AgentSubagentTab";
 import {
   type ClientSession,
   isBrowserHostedShell,
@@ -37,7 +36,7 @@ import type {
 import type { NavLocation, TextLocation } from "./nav-history";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
-import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
+import { isFileTab, REVIEW_TAB_KEY, subagentTabPath, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
 
 export type { TabActions } from "./tab-actions";

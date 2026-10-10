@@ -9,7 +9,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { subagentEntry } from "../agent/AgentSubagentTab";
+import { subagentEntry } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
 import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";

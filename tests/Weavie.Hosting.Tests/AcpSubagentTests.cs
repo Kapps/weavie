@@ -148,9 +148,9 @@ public sealed class AcpSubagentTests {
 
 		fixture.Session.StartNewConversation();
 
-		await fixture.WaitForControlsAsync(state => state.Ready);
+		await fixture.WaitForMessageAsync(message => message.ConversationId == marker.ConversationId && message.Status == "cancelled");
+		await AssertSuccessorAnswersAsync(fixture, "fake-session-2");
 		Assert.Equal(2, ProcessStarts(fixture));
-		Assert.Contains(fixture.Messages, message => message.ConversationId == marker.ConversationId && message.Status == "cancelled");
 		Assert.Empty(fixture.Session.BackgroundWork);
 	}
 

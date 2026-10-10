@@ -14,12 +14,18 @@ import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { scrollVirtualElement } from "../virtual-scroll";
+import { AgentBackgroundTray } from "./AgentBackgroundTray";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
+import {
+  type AgentBackgroundItem,
+  agentBackground,
+  backgroundRunning,
+} from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
@@ -156,6 +162,21 @@ export function AgentPaneBody(props: {
     setContext("agentRewindable", agentControlState(props.model.session).rewindable),
   );
   onCleanup(() => setContext("agentRewindable", false));
+  createEffect(() =>
+    setContext(
+      "agentBackgroundActive",
+      agentBackground(props.model.session).some(backgroundRunning),
+    ),
+  );
+  onCleanup(() => setContext("agentBackgroundActive", false));
+  const jumpToBackground = (item: AgentBackgroundItem): void => {
+    const index = props.model.entries.findIndex(
+      (entry) =>
+        entry.conversationId === item.transcriptItemId ||
+        entry.actionMessage?.itemId === item.transcriptItemId,
+    );
+    if (item.transcriptItemId !== null && index >= 0) scroll.jumpToIndex(index);
+  };
   onMount(() => {
     const element = body;
     if (element === undefined) {
@@ -255,6 +276,7 @@ export function AgentPaneBody(props: {
           </Show>
         </div>
       </div>
+      <AgentBackgroundTray session={props.model.session} onJump={jumpToBackground} />
       <AgentComposer
         active={props.active}
         compact={props.compact}

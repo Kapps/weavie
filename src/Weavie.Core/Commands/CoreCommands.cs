@@ -148,6 +148,15 @@ public static class CoreCommands {
 	/// <summary>Toggles the focused or newest side conversation.</summary>
 	public const string ToggleAgentAside = "weavie.agent.toggleAside";
 
+	/// <summary>Stops one background task of the focused agent, or its most recently started stoppable one.</summary>
+	public const string StopBackgroundTask = "weavie.agent.stopBackgroundTask";
+
+	/// <summary>Opens one subagent's read-only transcript as an editor tab.</summary>
+	public const string OpenSubagent = "weavie.agent.openSubagent";
+
+	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
+	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
+
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
 
@@ -852,6 +861,7 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -862,6 +872,7 @@ public static class CoreCommands {
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
 			When = "agentFocused",
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -894,7 +905,8 @@ public static class CoreCommands {
 				+ "Files are not changed.",
 			Aliases = ["rewind", "undo prompt", "edit last prompt"],
 			When = "agentFocused && agentRewindable",
-			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"}}",
+			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"},"
+				+ SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1067,6 +1079,38 @@ public static class CoreCommands {
 			Aliases = ["collapse btw", "expand btw", "toggle side conversation"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
 			When = "agentFocused",
+		});
+
+		// Neither has a default keybinding: background work is occasional, and the tray already offers both.
+		registry.Register(new CommandDefinition {
+			Id = StopBackgroundTask,
+			Title = "Stop Background Task",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Stop one of the agent's background tasks, or the most recently started one that can be stopped.",
+			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
+			When = "agentBackgroundActive",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started stoppable task\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenSubagent,
+			Title = "Open Subagent Transcript",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Open one subagent's whole read-only transcript as an editor tab that follows it live.",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"conversationId\":{\"type\":\"string\",\"description\":\"The subagent's conversation id\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ShowBackgroundWork,
+			Title = "Show Background Work",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Focus the tray of subagents and background tasks above the agent composer.",
+			Aliases = ["background tasks", "subagents", "running work"],
+			When = "agentBackgroundActive",
 		});
 
 		registry.Register(new CommandDefinition {

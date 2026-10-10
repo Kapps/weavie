@@ -26,6 +26,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	internal void Submit(AgentTurnSubmission submission) {
+		if (!OwnsWork) throw new InvalidOperationException("A subagent takes no prompts.");
 		if (Normalize(submission) is not { } normalized) return;
 		Enqueue(normalized);
 		DispatchPendingSubmission();
@@ -230,13 +231,13 @@ internal sealed partial class AcpConversation {
 			string? sessionId;
 			TerminalizedTool[] cancelled = [];
 			lock (_gate) {
-				if (_spec.SideScoped && !_ready) _pendingSubmissions.Clear();
+				if (_spec.Side && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
 				// ACP: the client marks the cancelled turn's unfinished tool calls cancelled; agents may never report them.
 				if (sessionId is not null && _promptActive) {
 					string turnId = TurnId();
-					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId);
+					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId && !tool.Backgrounded);
 				}
 			}
 			if (sessionId is not null) CancelPrompt();
@@ -244,7 +245,7 @@ internal sealed partial class AcpConversation {
 			PublishTerminalizedToolMessages(cancelled);
 			PublishQueue();
 			bool interactionCancelled = CancelPendingInteractions();
-			if (interactionCancelled && sessionId is null && _spec.SideScoped) {
+			if (interactionCancelled && sessionId is null && _spec.Side) {
 				lock (_gate) if (_sessionOpening) return;
 				Terminate(new InvalidOperationException("Side conversation interrupted."));
 				return;
@@ -255,7 +256,7 @@ internal sealed partial class AcpConversation {
 			if (interactionCancelled) {
 				bool settled;
 				lock (_gate) {
-					settled = _spec.SideScoped
+					settled = _spec.Side
 						&& _ready
 						&& !_promptActive
 						&& !HasBackgroundWorkLocked()

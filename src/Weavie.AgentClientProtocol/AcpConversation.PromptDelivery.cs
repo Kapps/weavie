@@ -26,7 +26,7 @@ internal sealed partial class AcpConversation {
 					ProviderId = Definition.Id,
 					ThreadId = threadId,
 					TurnId = TurnId(),
-					IsPrimaryThread = !_spec.SideScoped,
+					IsPrimaryThread = !_spec.Side,
 					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
 				});
 				EmitSubmitted(
@@ -34,6 +34,7 @@ internal sealed partial class AcpConversation {
 					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message",
 					prompt.Images);
 				Observe(new AgentPromptSubmitted(threadId, submission.Text));
+				Background.ClearFinished();
 				request = _endpoint.Value.RequestAsync(
 					"session/prompt",
 					new JsonObject { ["prompt"] = prompt.Blocks },

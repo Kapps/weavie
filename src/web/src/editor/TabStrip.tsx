@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
+import { Bot, ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -9,6 +9,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { subagentForTab } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
 import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";
@@ -52,6 +53,10 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
   }
   if (view.kind === "plan") {
     return agentPlan(session, view.path)?.title || "Plan";
+  }
+  if (view.kind === "subagent") {
+    const name = subagentForTab(session, view.path)?.subagent?.name;
+    return name === undefined ? "Subagent" : `Subagent · ${name}`;
   }
   return basename(view.path);
 }
@@ -228,7 +233,11 @@ export function TabStrip(props: {
                   preview: view.preview,
                   pinned: view.pinned,
                 }}
-                title={view.kind === "plan" ? tabLabel(view, props.session()) : view.path}
+                title={
+                  view.kind === "plan" || view.kind === "subagent"
+                    ? tabLabel(view, props.session())
+                    : view.path
+                }
               >
                 {/* data-middle-click claims the middle button (close) from the app's autoscroll. */}
                 <button
@@ -250,6 +259,9 @@ export function TabStrip(props: {
                   </Show>
                   <Show when={view.kind === "source"}>
                     {sourceTabIcon(props.session(), view.path)}
+                  </Show>
+                  <Show when={view.kind === "subagent"}>
+                    <Bot size={13} class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "plan"}>
                     <FileText size={13} class="editor-tab-icon" />

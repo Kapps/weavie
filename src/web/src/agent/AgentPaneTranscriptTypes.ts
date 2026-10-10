@@ -24,7 +24,7 @@ export interface AgentTranscriptEntry {
   detailCount: number;
   details: AgentActivityStep[];
   id: string;
-  kind: "activity" | "aside" | "message" | "notice" | "plan" | "request";
+  kind: "activity" | "aside" | "message" | "notice" | "plan" | "request" | "subagent" | "workflow";
   label: string;
   status: string | null;
   streaming: boolean;
@@ -37,4 +37,15 @@ export interface AgentTranscriptEntry {
   asideEntries?: AgentTranscriptEntry[];
   asideReplyable?: boolean;
   conversationId?: string;
+  subagent?: AgentSubagentInfo;
+}
+
+/** What a subagent card shows beyond its nested transcript. */
+export interface AgentSubagentInfo {
+  completedAtMs: number | null;
+  name: string;
+  startedAtMs: number | null;
+  state: string;
+  task: string | null;
+  via: string | null;
 }

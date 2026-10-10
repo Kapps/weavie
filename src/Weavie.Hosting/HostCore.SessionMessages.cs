@@ -240,24 +240,27 @@ public sealed partial class HostCore {
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);
 
-		public Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct) =>
-			_core.RecreateSessionAsync(_source, sessionId, agentProviderId, context, ct);
+		public Task<CommandResult> RecreateSessionAsync(
+			string? sessionId, string? agentProviderId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct) =>
+			_core.RecreateSessionAsync(_source, sessionId, agentProviderId, stopBackgroundWork, context, ct);
 
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
 			_core.LoadSessionAsync(sessionId, ct);
 
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
+			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct) =>
-			_core.UnloadSessionAsync(_source, TargetOrSource(sessionId), context, ct);
+			_core.UnloadSessionAsync(_source, TargetOrSource(sessionId), stopBackgroundWork, context, ct);
 
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
 			bool force,
+			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct) =>
-			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), force, context, ct);
+			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), force, stopBackgroundWork, context, ct);
 
 		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
 			_core.ClassifyDeleteAsync(TargetOrSource(sessionId), ct);

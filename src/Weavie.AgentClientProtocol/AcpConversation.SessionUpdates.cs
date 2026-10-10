@@ -121,6 +121,23 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
+	private void EmitNotice(JsonElement update) {
+		string severity = RequiredString(update, "severity", "notice update");
+		Emit(new AgentPaneMessage {
+			Type = severity switch {
+				"info" => "notice",
+				"warning" or "error" => severity,
+				_ => throw new AcpProtocolException($"Unsupported ACP notice severity '{severity}'."),
+			},
+			ProviderId = Definition.Id,
+			ThreadId = SessionId(),
+			TurnId = TurnId(),
+			Summary = RequiredString(update, "title", "notice update"),
+			Text = OptionalString(update, "description"),
+			Status = severity,
+		});
+	}
+
 	private void EmitUsage(JsonElement update) {
 		long used = ReadRequiredNonNegativeInt64(update, "used", "usage update");
 		long size = ReadRequiredNonNegativeInt64(update, "size", "usage update");

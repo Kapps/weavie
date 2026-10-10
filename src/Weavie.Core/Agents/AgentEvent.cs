@@ -26,6 +26,9 @@ public sealed record AgentPromptSubmitted(string? SessionId, string? Prompt) : A
 /// <summary>The agent turn stopped, optionally with a pending self-resumption.</summary>
 public sealed record AgentTurnStopped(bool WillResume) : AgentEvent;
 
+/// <summary>Whether the session still runs subagents or background tasks beside its turns.</summary>
+public sealed record AgentBackgroundChanged(bool Running) : AgentEvent;
+
 /// <summary>The agent emitted a user-facing notification.</summary>
 public sealed record AgentNotification(string? Message) : AgentEvent;
 

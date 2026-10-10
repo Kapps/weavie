@@ -40,6 +40,24 @@ internal static class AcpJson {
 		return number;
 	}
 
+	/// <summary>The AIR extension value <c>_meta.jetbrains.air.&lt;key&gt;</c>, or an undefined element when absent.</summary>
+	public static JsonElement Air(JsonElement value, string key) =>
+		value.TryGetProperty("_meta", out var meta) && meta.ValueKind == JsonValueKind.Object
+			&& meta.TryGetProperty("jetbrains", out var jetbrains) && jetbrains.ValueKind == JsonValueKind.Object
+			&& jetbrains.TryGetProperty("air", out var air) && air.ValueKind == JsonValueKind.Object
+			&& air.TryGetProperty(key, out var result)
+				? result
+				: default;
+
+	/// <summary>The subagent a <c>subagent_spawned</c> update announces, or null for any other notification.</summary>
+	public static string? SpawnedSubagent(JsonElement notification) =>
+		OptionalString(notification, "method") == "session/update"
+			&& notification.TryGetProperty("params", out var parameters)
+			&& parameters.TryGetProperty("update", out var update) && update.ValueKind == JsonValueKind.Object
+			&& OptionalString(update, "sessionUpdate") == "subagent_spawned"
+				? RequiredString(update, "subagentSessionId", "subagent_spawned update")
+				: null;
+
 	public static long ReadRequiredNonNegativeInt64(JsonElement value, string property, string source) =>
 		value.TryGetProperty(property, out var result) && result.TryGetInt64(out long number) && number >= 0
 			? number

@@ -26,6 +26,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The provider-recorded turn start as Unix milliseconds, when available.</summary>
 	public long? StartedAtMs { get; init; }
 
+	/// <summary>When a nested conversation's work ended, as Unix milliseconds.</summary>
+	public long? CompletedAtMs { get; init; }
+
 	/// <summary>The item id associated with this update, when any.</summary>
 	public string? ItemId { get; init; }
 
@@ -74,7 +77,7 @@ public sealed record AgentPaneMessage {
 	/// <summary>The parent tool call for a nested subagent update, when advertised.</summary>
 	public string? ParentItemId { get; init; }
 
-	/// <summary>Whether the item represents background or subagent work.</summary>
+	/// <summary>Whether a tool handed its work to a background task, so its liveness never holds the turn.</summary>
 	public bool? Background { get; init; }
 
 	/// <summary>The terminal referenced by a tool update, when any.</summary>

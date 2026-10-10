@@ -249,6 +249,13 @@
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
+.editor-subagent {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  padding: 5px 0;
+}
+
 .agent-aside-head small {
   font-size: var(--font-metadata-size);
 }
@@ -314,7 +321,8 @@
   text-transform: lowercase;
 }
 
-.agent-entry-rewind {
+.agent-entry-rewind,
+.agent-entry-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -323,9 +331,20 @@
   border: 0;
   background: none;
   color: var(--dim);
+  font-family: inherit;
   font-size: var(--font-metadata-size);
   cursor: pointer;
   opacity: 0;
+}
+
+.agent-entry-toggle {
+  margin-left: 0;
+  padding: 0;
+  opacity: 1;
+}
+
+.agent-entry .agent-entry-open {
+  opacity: 1;
 }
 
 .agent-entry:hover .agent-entry-rewind,
@@ -656,11 +675,18 @@ a.agent-entry-media {
 
 .agent-entry-activity,
 .agent-entry-notice,
-.agent-entry-request {
+.agent-entry-request,
+.agent-entry-subagent,
+.agent-entry-workflow {
   padding: 5px 8px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-left-width: 3px;
   background: color-mix(in srgb, var(--bar) 58%, transparent);
+}
+
+.agent-entry-subagent,
+.agent-entry-workflow {
+  border-left-color: var(--accent);
 }
 
 .agent-entry-activity {
@@ -1154,6 +1180,11 @@ label.agent-input-choice:hover {
   cursor: pointer;
 }
 
+.agent-approval-actions button {
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+  text-align: left;
+}
+
 .agent-compose button:hover,
 .agent-approval-actions button:hover {
   border-color: var(--accent);
@@ -1166,6 +1197,7 @@ label.agent-input-choice:hover {
 
 .agent-key-chip {
   margin-left: 7px;
+  white-space: nowrap;
   padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
   border-radius: 3px;
@@ -1186,6 +1218,20 @@ label.agent-input-choice:hover {
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
   line-height: 1.4;
+}
+
+.agent-background-tray {
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+}
+
+.agent-background-label {
+  color: var(--dim);
+}
+
+.agent-background-item {
+  display: inline-flex;
+  align-items: baseline;
 }
 
 .agent-status-scroll {

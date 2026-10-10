@@ -81,6 +81,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			"session/set_mode" => SetMode(parameters),
 			"session/set_config_option" => await SetConfigAsync(parameters, ct).ConfigureAwait(false),
 			"_session/steering" => await SteerAsync(parameters, ct).ConfigureAwait(false),
+			"_session/async_task/stop" => StopTask(parameters),
 			_ => throw new AcpAdapterException(-32601, $"Unknown fake ACP method '{method}'.", null),
 		};
 
@@ -105,6 +106,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (!parameters.TryGetProperty("protocolVersion", out var version) || version.GetInt32() != 1) {
 			throw new AcpAdapterException(-32600, "Fake ACP requires protocol version 1.", null);
 		}
+		File.WriteAllText(StatePath("initialize.json"), parameters.GetRawText());
 		_supportsPlanUpdates = parameters.TryGetProperty("clientCapabilities", out var capabilities)
 			&& capabilities.TryGetProperty("plan", out var plan)
 			&& plan.ValueKind == JsonValueKind.Object;
@@ -285,6 +287,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (replay && sessionId != "replay-session") {
 			ReplayTranscript(sessionId);
 		}
+		if (replay) ReplaySubagents(sessionId);
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = _fakeMode == "side-no-commands" && sessionId.StartsWith("fake-fork-", StringComparison.Ordinal)
@@ -410,6 +413,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(StatePath("closes.log"), _sessionId + Environment.NewLine);
 		// A test opts into an update racing the close by creating late-after-close.
 		if (File.Exists(Path.Combine(Environment.CurrentDirectory, "late-after-close"))) Message("late after close");
+		SpawnAfterClose();
 		return [];
 	}
 
@@ -447,6 +451,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			return await HoldAsync(text, ct).ConfigureAwait(false);
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
+		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
+		if (text.StartsWith("task", StringComparison.Ordinal) || text == "workflow-held") return TaskPrompt(text, ct);
+		if (text.StartsWith("input-custom-answer", StringComparison.Ordinal)) {
+			await CustomAnswerAsync(text == "input-custom-answer-multiple", ct).ConfigureAwait(false);
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
 		else if (text == "held-background") {
@@ -510,7 +520,12 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
 		else if (text == "identify-session") Message($"session: {_sessionId}");
-		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
+		else if (text == "finish-replayed-task") TaskState(_sessionId!, "replayed-task", "completed");
+		else if (text == "notices") {
+			foreach (string severity in new[] { "info", "warning", "error" }) {
+				Update(new JsonObject { ["sessionUpdate"] = "notice", ["severity"] = severity, ["title"] = severity + " title", ["description"] = severity + " detail" });
+			}
+		} else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
 		else if (text == "remove-commands") Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = new JsonArray(),

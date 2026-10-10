@@ -57,6 +57,8 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			var predecessor = _primary;
 			sides = Sides();
+			// Decided before settling: settling ends the background work only a restart actually stops.
+			var process = ReplaceableProcess(predecessor);
 			try {
 				TerminalizeConversations("Conversation interrupted by /clear.", sides);
 				predecessor.SettleInteractions();
@@ -65,7 +67,6 @@ public sealed partial class AcpAgentSession {
 				StopForStorageFailure(error, sides);
 				throw;
 			}
-			var process = ReplaceableProcess(predecessor);
 			var successor = Succeed(predecessor, process, handoff => CreatePrimary(handoff with {
 				Continuation = NewContinuation(string.Empty, 0, string.Empty, guidanceSent: false),
 			}));
@@ -129,9 +130,18 @@ public sealed partial class AcpAgentSession {
 					["auth"] = new JsonObject { ["terminal"] = true },
 					["fs"] = new JsonObject { ["readTextFile"] = true, ["writeTextFile"] = true },
 					["plan"] = new JsonObject(),
+					["subagents"] = new JsonObject(),
 					["terminal"] = true,
-					["session"] = AcpInferenceClient.SessionCapabilities(),
+					["session"] = PaneSessionCapabilities(),
 					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
+					["_meta"] = new JsonObject {
+						["jetbrains"] = new JsonObject {
+							["air"] = new JsonObject {
+								["version"] = 1,
+								["capabilities"] = new JsonArray("nativeSubagentSessions", "asyncTasks"),
+							},
+						},
+					},
 				},
 				["clientInfo"] = AcpInferenceClient.ClientInfo(
 					_context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -143,6 +153,13 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) (_features, _process) = (features, new AcpProcess(_connection, generation));
 		}
 		await conversation.OpenAsync(features).ConfigureAwait(false);
+	}
+
+	// The pane presents notices itself, so agents need not fold them into replies.
+	private static JsonObject PaneSessionCapabilities() {
+		var session = AcpInferenceClient.SessionCapabilities();
+		session["notices"] = new JsonObject();
+		return session;
 	}
 
 	private void OnProtocolFault(long generation, Exception error) {

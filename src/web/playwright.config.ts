@@ -51,6 +51,7 @@ export default defineConfig({
     {
       name: "chromium",
       testMatch: [
+        "agent-code-copy.spec.ts",
         "agent-markdown-links.spec.ts",
         "agent-scroll-smoothness.spec.ts",
         "bridge.spec.ts",

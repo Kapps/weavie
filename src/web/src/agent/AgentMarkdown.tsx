@@ -6,6 +6,7 @@ import { hydrateMermaid } from "../editor/preview/diagrams";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { onPreviewThemeChanged } from "../theme/controller";
+import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { installAgentMermaid } from "./agent-mermaid";
 
 const renderMarkdown = createMarkdownRenderer({
@@ -63,7 +64,7 @@ export function AgentMarkdown(props: {
   });
 
   onMount(() => {
-    if (host !== undefined)
+    if (host !== undefined) {
       onCleanup(
         installContentNavigation(
           host,
@@ -71,6 +72,8 @@ export function AgentMarkdown(props: {
           () => null,
         ),
       );
+      onCleanup(installAgentCodeCopy(host));
+    }
   });
 
   return <div class="agent-markdown" ref={host} />;
@@ -81,6 +84,7 @@ function renderCached(cacheKey: object, content: string, includeRefs: boolean): 
   if (cached === undefined || cached.content !== content || cached.includeRefs !== includeRefs) {
     const template = renderMarkdown(content);
     linkifyText(template, includeRefs);
+    decorateAgentCodeBlocks(template);
     cached = { content, includeRefs, template };
     renderedMarkdown.set(cacheKey, cached);
   }

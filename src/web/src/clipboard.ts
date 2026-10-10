@@ -7,10 +7,14 @@ import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID } from "./bridge
 
 /** Writes text to the OS clipboard via the browser (browser-hosted shell) or the host (native WebView). */
 export function writeClipboard(text: string): void {
+  writeClipboardExact(text.trim());
+}
+
+/** Writes text to the OS clipboard verbatim, for content whose leading whitespace is meaningful. */
+export function writeClipboardExact(text: string): void {
   if (text.length === 0) {
     return;
   }
-  text = text.trim();
   if (isBrowserHostedShell()) {
     // Best-effort: a copy keypress / menu click is a user gesture (allowed), while an OSC 52 write isn't, so
     // the browser may reject that one — fine, the gesture path is what matters.

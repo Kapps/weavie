@@ -14,6 +14,7 @@ import {
 import { toggleAgentAside } from "./agent/AgentAsideEntry";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
+import { copyActiveAgentCodeBlock } from "./agent/agent-code-copy";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import {
   type AgentPaneModel,
@@ -1515,6 +1516,7 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleAgentAside, toggleAgentAside),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
+      registerCommand(CommandIds.copyAgentCodeBlock, () => copyActiveAgentCodeBlock()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       registerCommand(CommandIds.filterFileBrowser, async () => {
         const session = selectedSession();

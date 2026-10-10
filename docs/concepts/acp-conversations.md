@@ -30,11 +30,13 @@ stateDiagram-v2
     Retired --> [*]
 ```
 
-The primary and sides are one type. `AcpConversationSpec` gives the seed, the opening (`Continue`: load or
-resume the seed's session, or create one; `ForkFromOpening`: fork a live parent, at a message for a rewind), and
-whether the conversation is side-scoped. The side-only behaviour left inside the conversation is the scope instruction
-in its prompts, settling an interrupted opening, and its opening strategy; everything else that differs
-lives in its port.
+The primary, sides, and subagents are one type. `AcpConversationSpec` gives the seed, the opening (`Continue`: load
+or resume the seed's session, or create one; `ForkFromOpening`: fork a live parent, at a message for a rewind;
+`AdoptedOpening`: take over a subagent session its parent announced), and the role (`Primary`, `Side`,
+`Subagent`). The side-only behaviour left inside the conversation is the scope instruction in its prompts,
+settling an interrupted opening, and its opening strategy; a subagent never opens, prompts, or closes, and shares
+its root's background work. Everything else that differs lives in its port. See
+[background work](../specs/background-work.md).
 
 ## Four owned channels
 
@@ -46,8 +48,9 @@ lives in its port.
    its conversation was replaced is still closed.
 2. **Port** — `AcpConversationPort`, handed in at construction, is the conversation's only event sink and its
    only way to persist, publish, report controls, usage and queue changes, fail the process, or restart it.
-   `PrimaryPort` raises the facade events; `SidePort` namespaces side messages and events and completes the
-   side; `RewindPort` stages a rewind's fork (below). Every port call takes the transition gate and is inert
+   `PrimaryPort` raises the facade events; `SidePort` and `SubagentPort` share `NestedPort`, which namespaces
+   nested messages, request ids, and events; `SidePort` completes the side, `SubagentPort` journals display
+   events without a continuation; `RewindPort` stages a rewind's fork (below). Every port call takes the transition gate and is inert
    once the port is detached.
 3. **Lifetime** — a cancellation source cancelled when the incarnation fails, is terminalized, retires, or is
    disposed. Agent-request tokens are linked to it, so a dead conversation's in-flight requests cancel. A
@@ -55,6 +58,9 @@ lives in its port.
    still completes, and a terminal login then restarts the agent.
 4. **Terminals** — one `AcpTerminalManager` per conversation, closed when the incarnation ends; a terminal
    create racing the close fails.
+
+A conversation's root background work ends with it: failure ends subagents and tasks as failed, terminalizing
+for a restart ends them as stopped, and retiring or disposing retires them.
 
 The owner keeps only process-level state: the connection, `initialize` and the advertised
 `AcpAgentFeatures`, the attached process generation (to terminate it, attach sides, and route unscoped
@@ -82,8 +88,8 @@ prompt, an approval, an input request, a login, a control change, a terminal req
 3. retire the primary and install the successor from its handoff;
 4. start the successor.
 
-When the agent advertises `sessionCapabilities.close` and the predecessor's session has opened, `/clear` and Rewind
-keep the running process: the predecessor retires *closing* its provider session, and the successor attaches a new
+When the agent advertises `sessionCapabilities.close`, the predecessor's session has opened, and no background
+work runs, `/clear` and Rewind keep the running process: the predecessor retires *closing* its provider session, and the successor attaches a new
 endpoint to the same initialized process and opens there. An agent that refuses the close has the process stopped,
 since nothing else would stop that session. Without close, or while the predecessor is still opening (a request
 that may never return), only stopping the process stops the predecessor's work, so

@@ -70,6 +70,10 @@ load it only when you need it.
   conversation code takes a generation or session id. `/clear` and Rewind replace it on the running process
   when the agent can close sessions. See
   [docs/concepts/acp-conversations.md](docs/concepts/acp-conversations.md).
+- **Background work** — native ACP subagents run as owned read-only `AcpConversation`s adopted from their
+  parent's announcement, and AIR async tasks join the root conversation's background work; the pane renders
+  subagent and workflow cards plus a tray with Stop, and actions that would end running work confirm first. See
+  [docs/specs/background-work.md](docs/specs/background-work.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote

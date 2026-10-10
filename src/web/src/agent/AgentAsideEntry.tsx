@@ -1,25 +1,11 @@
-import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { type JSX, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentAsideReply } from "./AgentAsideReply";
+import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { TranscriptEntry } from "./AgentTranscriptEntry";
-import { newestVisibleAgentElement } from "./AgentViewport";
 import { replyComposer } from "./composer-store";
-
-const toggles = new Map<HTMLElement, () => void>();
-
-export function toggleAgentAside(): boolean {
-  const active = document.querySelector(".agent-surface.active");
-  const focused = document.activeElement?.closest<HTMLElement>(".agent-aside");
-  const target =
-    focused && active?.contains(focused) ? focused : newestVisibleAgentElement(".agent-aside");
-  const toggle = target === undefined ? undefined : toggles.get(target);
-  if (toggle === undefined) return false;
-  toggle();
-  return true;
-}
 
 export function AsideEntry(props: {
   entry: AgentTranscriptEntry;
@@ -42,10 +28,7 @@ export function AsideEntry(props: {
     const key = liveKeyLabel(CommandIds.toggleAgentAside);
     return key === "" ? toggleLabel() : `${toggleLabel()} (${key})`;
   };
-  onMount(() => {
-    toggles.set(card!, toggle);
-    onCleanup(() => toggles.delete(card!));
-  });
+  onMount(() => registerNestedToggle(card!, toggle));
 
   return (
     <article ref={card} class="agent-aside" data-agent-aside={props.entry.conversationId}>
@@ -63,21 +46,13 @@ export function AsideEntry(props: {
         </Show>
       </button>
       <div hidden={collapsed()}>
-        <div class="agent-aside-transcript">
-          <For each={props.entry.asideEntries ?? []}>
-            {(entry) => (
-              <TranscriptEntry
-                expandedDetails={props.expandedDetails}
-                entry={entry}
-                keyboardRequestKey={props.keyboardRequestKey}
-                latestPromptTurn={null}
-                onDetailsToggle={props.onDetailsToggle}
-                sectionLabel={null}
-                session={props.session}
-              />
-            )}
-          </For>
-        </div>
+        <NestedTranscript
+          entries={props.entry.asideEntries ?? []}
+          expandedDetails={props.expandedDetails}
+          keyboardRequestKey={props.keyboardRequestKey}
+          onDetailsToggle={props.onDetailsToggle}
+          session={props.session}
+        />
         <Show when={props.entry.asideReplyable !== false}>
           <Show
             when={replying()}

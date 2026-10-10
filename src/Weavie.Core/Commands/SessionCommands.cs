@@ -49,6 +49,11 @@ public static class SessionCommands {
 	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>ctrl+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
 	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
+	/// <summary>The argument that lets a command stop the session's running background work; it refuses otherwise.</summary>
+	public const string StopBackgroundWorkArg =
+		"\"stopBackgroundWork\":{\"type\":\"boolean\",\"description\":\"Stop running subagents and background tasks; "
+		+ "without it the command refuses and lists them\"}";
+
 	/// <summary>Recreates a named session with a fresh agent conversation.</summary>
 	public const string RecreateSession = "weavie.session.recreate";
 
@@ -280,7 +285,8 @@ public static class SessionCommands {
 				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To remove the worktree "
 				+ "entirely, use Delete Session.",
 			Aliases = ["unload session", "park session", "make session dormant", "suspend session"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the invoking session\"}}",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the invoking session\"},"
+				+ StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -304,7 +310,8 @@ public static class SessionCommands {
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the invoking session\"},"
 				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
-				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"}}",
+				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"},"
+				+ StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -317,7 +324,7 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Recreate the session named by required 'id' with required 'agentProviderId'. Starts a fresh conversation, stops agent and shell work, and keeps the checkout, edits, and editor state.",
 			ShowInPalette = false,
-			ArgsSchemaJson = """{"id":{"type":"string"},"agentProviderId":{"type":"string"}}""",
+			ArgsSchemaJson = """{"id":{"type":"string"},"agentProviderId":{"type":"string"},""" + StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -391,16 +398,18 @@ public static class SessionCommands {
 				},
 				ct)),
 			dispatcher.RegisterContextualHandler(RecreateSession, (argsJson, context, ct) => host.RecreateSessionAsync(
-				GetString(argsJson, "id"), GetString(argsJson, "agentProviderId"), context, ct)),
+				GetString(argsJson, "id"), GetString(argsJson, "agentProviderId"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,
-				(argsJson, context, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), context, ct)),
+				(argsJson, context, ct) => host.UnloadSessionAsync(
+					GetString(argsJson, "id"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
 			dispatcher.RegisterContextualHandler(DeleteSession, (argsJson, context, ct) => GetBool(argsJson, "classify")
 				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
 				: host.DeleteSessionAsync(
 					GetString(argsJson, "id"),
 					GetBool(argsJson, "force"),
+					GetBool(argsJson, "stopBackgroundWork"),
 					context,
 					ct)),
 		};

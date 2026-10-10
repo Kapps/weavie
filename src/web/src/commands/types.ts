@@ -37,6 +37,8 @@ export interface CommandResult {
   message?: string;
   error?: string;
   data?: unknown;
+  /** The user declined a confirmation the command needed; nothing failed. */
+  cancelled?: boolean;
 }
 
 /** One effective key binding after merging defaults with the user file. */
@@ -98,6 +100,9 @@ export const CommandIds = {
   agentJumpToTurn: "weavie.agent.jumpToTurn",
   agentJumpToLatest: "weavie.agent.jumpToLatest",
   toggleAgentAside: "weavie.agent.toggleAside",
+  stopBackgroundTask: "weavie.agent.stopBackgroundTask",
+  showBackgroundWork: "weavie.agent.showBackgroundWork",
+  openSubagent: "weavie.agent.openSubagent",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
   copyAgentCodeBlock: "weavie.agent.copyCodeBlock",

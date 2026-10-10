@@ -6,7 +6,12 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	private void PublishTool(AcpToolState tool) => Emit(ToolMessage(tool));
+	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row.
+	private void PublishTool(AcpToolState tool) {
+		if (!tool.Subagent) Emit(ToolMessage(tool));
+		else if (tool.Shown) Emit(ToolMessage(tool) with { Type = "item-retracted", Status = "retracted" });
+		tool.Shown = !tool.Subagent;
+	}
 
 	private AgentPaneMessage ToolMessage(AcpToolState tool) => new() {
 		Type = tool.Status is "completed" or "failed" or "cancelled" or "settled"
@@ -26,6 +31,7 @@ internal sealed partial class AcpConversation {
 		Content = tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
+		Background = tool.Backgrounded ? true : null,
 	};
 
 	private void ReadToolContent(JsonElement content, AcpToolState tool) {

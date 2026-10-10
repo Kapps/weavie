@@ -48,6 +48,8 @@ function RecreateSessionDialog(props: { session: RailSession; onClose: () => voi
         id: props.session.id,
         backendId: props.session.backendId,
         agentProviderId: providerId(),
+        // This dialog already confirms that running agent work stops.
+        stopBackgroundWork: true,
       });
       if (!result.ok) throw new Error(result.error ?? "Couldn't recreate the session.");
       props.onClose();

@@ -100,7 +100,7 @@ class OwnedEditorSession {
       focus?: boolean;
       preview?: boolean;
       scratch?: boolean;
-      kind?: "file" | "web" | "source" | "plan" | "review";
+      kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
     },
   ): ActivateResult {
     const current = this.readState() ?? { active: null, open: [] };
@@ -562,7 +562,7 @@ export function openTab(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review";
+    kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
   } = {},
 ): ActivateResult {
   return (
@@ -582,7 +582,7 @@ export function openTabFor(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review";
+    kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
   } = {},
 ): ActivateResult {
   return (

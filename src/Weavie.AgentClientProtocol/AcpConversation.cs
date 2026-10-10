@@ -67,6 +67,7 @@ internal sealed partial class AcpConversation {
 		_port = port;
 		_spec = spec;
 		_terminals = new AcpTerminalManager(_context.Workspace, _log);
+		Background = spec.Opening is AdoptedOpening adopted ? adopted.Work : new AcpBackgroundWork(this);
 		RestoreContinuation(spec.Seed.Continuation);
 		Inherit(spec.Seed);
 		_publishedQueueVersion = _pendingSubmissions.Version;
@@ -119,7 +120,7 @@ internal sealed partial class AcpConversation {
 				TurnNumber = _turnNumber,
 				GuidanceSent = _guidanceSent,
 				PlanTurns = new Dictionary<string, string>(_planTurns),
-				Failed = _spec.SideScoped && _runtimeFailed,
+				Failed = _spec.Side && _runtimeFailed,
 			};
 		}
 	}

@@ -115,6 +115,8 @@ vi.mock("../bridge", () => ({
     return Promise.resolve(env.selected as ClientSession);
   },
 }));
+// The background-work guard follows live work from its own store, which these tests never feed.
+vi.mock("../agent/agent-background-store", () => ({ runningBackgroundOf: () => null }));
 // trackSessionCommand only wraps session-lifecycle ops; pass straight through for the tests.
 vi.mock("../chrome/session-store", () => ({
   trackSessionCommand: <T>(_b: string, _i: string, run: () => Promise<T>) => run(),

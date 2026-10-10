@@ -9,7 +9,13 @@ import {
   type RequestResolution,
   requestLifecycles,
 } from "./AgentPaneMessageFormat";
-import { collectSideConversations, sideConversationEntry } from "./AgentPaneSideConversations";
+import {
+  collectSideConversations,
+  isSubagentConversation,
+  sideConversationEntry,
+  subagentEntry,
+  subagentNames,
+} from "./AgentPaneSideConversations";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -47,6 +53,7 @@ export function projectAgentTranscript(
   }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
   const sideConversations = collectSideConversations(updates);
+  const names = subagentNames(sideConversations);
   const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
   const sideActivities = new Map<string, ProjectedAgentActivity>();
@@ -68,15 +75,16 @@ export function projectAgentTranscript(
     if (message.conversationId) {
       if (!emittedSideConversations.has(message.conversationId)) {
         emittedSideConversations.add(message.conversationId);
+        const conversation = sideConversations.get(message.conversationId) ?? [message];
+        const project = (childMessages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] => {
+          const child = projectAgentTranscript(childMessages);
+          for (const [id, activity] of child.activities) sideActivities.set(id, activity);
+          return child.entries;
+        };
         entries.push(
-          sideConversationEntry(
-            sideConversations.get(message.conversationId) ?? [message],
-            (childMessages) => {
-              const child = projectAgentTranscript(childMessages);
-              for (const [id, activity] of child.activities) sideActivities.set(id, activity);
-              return child.entries;
-            },
-          ),
+          isSubagentConversation(conversation)
+            ? subagentEntry(conversation, names, project)
+            : sideConversationEntry(conversation, project),
         );
         sequence += 1;
       }
@@ -219,6 +227,12 @@ function durableEntry(
   sequence: number,
 ): AgentTranscriptEntry | null {
   const status = displayStatus(message, resolved);
+  if (message.itemType === "backgroundTask") {
+    return {
+      ...entry(message, sequence, "workflow", "assistant", "Workflow", message.status ?? null),
+      actionMessage: message,
+    };
+  }
   switch (message.type) {
     case "approval-requested":
       return entry(message, sequence, "request", "pending", "Permission", status);
@@ -377,6 +391,7 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     ...(entry.asideEntries === undefined ? {} : { asideEntries: entry.asideEntries }),
     ...(entry.asideReplyable === undefined ? {} : { asideReplyable: entry.asideReplyable }),
     ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
+    ...(entry.subagent === undefined ? {} : { subagent: entry.subagent }),
   };
 }
 

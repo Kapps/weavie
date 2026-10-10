@@ -8,7 +8,8 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentSession,
 	IStructuredAgentControls,
 	IStructuredAgentUsage,
-	IStructuredAgentSideConversations {
+	IStructuredAgentSideConversations,
+	IStructuredAgentBackgroundWork {
 	private readonly AgentSessionContext _context;
 	private readonly Func<AcpAgentDefinition> _definitionSource;
 	private AcpAgentDefinition _definition;
@@ -133,7 +134,7 @@ public sealed partial class AcpAgentSession :
 
 	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => new(
 		_host,
-		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, SideScoped: false),
+		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, AcpConversationRole.Primary),
 		new PrimaryPort(this));
 
 	// A primary with no turns has no conversation to resume; a side can inherit history before its first turn.
@@ -141,9 +142,11 @@ public sealed partial class AcpAgentSession :
 		continuation.TurnNumber == 0 ? continuation with { SessionId = null } : continuation;
 
 	// A successor shares the running, initialized process only when the agent can close the predecessor's settled
-	// session; otherwise only stopping the process stops its work or an opening that may never return.
+	// session and nothing runs in the background; otherwise only stopping the process stops that work, or an opening
+	// that may never return.
 	private AcpProcess? ReplaceableProcess(AcpConversation predecessor) {
-		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening ? _process : null;
+		bool background = BackgroundWork.Any(item => item.Running);
+		lock (_gate) return _features.Close && !predecessor.Failed && !predecessor.Opening && !background ? _process : null;
 	}
 
 	/// <summary>Retires the predecessor and installs its successor; without a process it waits for <see cref="Launch"/> to restart.</summary>
@@ -153,6 +156,7 @@ public sealed partial class AcpAgentSession :
 			_primary = next;
 			if (process is null) (_processGeneration, _process) = (0, null);
 		}
+		PublishBackground();
 		return next;
 	}
 

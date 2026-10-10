@@ -21,6 +21,14 @@ internal sealed class AcpSessionEndpoint(
 	}
 	internal void Bind(string sessionId) => connection.BindEndpoint(this, generation, sessionId);
 
+	/// <summary>Opens a subagent's endpoint on this process, bound inside its announcement so none of its traffic precedes it.</summary>
+	internal AcpSessionEndpoint OpenChild(
+		string sessionId, Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) =>
+		connection.OpenChildEndpoint(generation, sessionId, notification, request, fault);
+
+	/// <summary>Gives a subagent nobody renders a retired owner, so its traffic drops; an owned id keeps its owner.</summary>
+	internal void Sink(string sessionId) => connection.SinkEndpoint(generation, sessionId);
+
 	internal void SetIdentity(string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
 		if (SessionId is not null && SessionId != sessionId) {
@@ -101,6 +109,12 @@ internal sealed class AcpSessionEndpoint(
 
 	internal void Notify(JsonElement value) {
 		if (!_retired) notification(value);
+		else Drop(value);
+	}
+
+	/// <summary>Discards a dead conversation's notification; a subagent it announces is sunk with it.</summary>
+	internal void Drop(JsonElement value) {
+		if (AcpJson.SpawnedSubagent(value) is { } child) Sink(child);
 	}
 	internal void Request(AcpClientRequest value) {
 		if (_retired) Reject(value);

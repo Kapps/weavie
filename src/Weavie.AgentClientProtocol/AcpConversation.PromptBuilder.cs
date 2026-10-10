@@ -57,7 +57,7 @@ internal sealed partial class AcpConversation {
 			lock (_gate) _guidanceSent = true;
 		}
 
-		if (_spec.SideScoped) {
+		if (_spec.Side) {
 			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
 		}
 

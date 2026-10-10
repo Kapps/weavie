@@ -50,7 +50,11 @@ test("File → Open Pull Request checks out its branch and pops up the diff navi
   await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0, {
     timeout: 20_000,
   });
-  await overview.locator(".unified-review-file-name", { hasText: "feature.ts" }).click();
+  await overview
+    .locator(".unified-review-file", { hasText: "feature.ts" })
+    .locator(".line-numbers")
+    .first()
+    .click();
   await expect(overview).toHaveCount(0);
   await expect(page.locator(".editor-tab", { hasText: "Review Changes" })).toBeVisible();
   await expect(toolbar).toBeVisible();

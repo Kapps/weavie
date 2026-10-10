@@ -3,6 +3,7 @@ import type { JSX } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { DiffStats } from "./DiffStats";
 import type { ReviewOverview } from "./review-store";
 
 /** Review-wide actions and heading. */
@@ -11,7 +12,11 @@ export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): 
     <header class="unified-review-header">
       <div class="unified-review-heading">
         <span class="unified-review-kicker">{props.overview().label || "Review"}</span>
-        <strong>Unified review</strong>
+        <strong>
+          {props.overview().files.length} changed file
+          {props.overview().files.length === 1 ? "" : "s"}
+        </strong>
+        <DiffStats added={props.overview().added} removed={props.overview().removed} />
       </div>
       <div class="unified-review-header-actions">
         <button

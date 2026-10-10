@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import type { FakeStep } from "./fake-claude";
 
 // Drives a real APPLIED change (the post-turn review surface), unlike the openDiff proposal seam diff.spec.ts
@@ -16,4 +17,9 @@ export function appliedEdit(relPath: string, content: string): FakeStep[] {
     },
   });
   return [hook("PreToolUse"), { op: "edit", path: file, content }, hook("PostToolUse")];
+}
+
+/** The review strip's segment for a repo-relative path; clicking it jumps the review to that file. */
+export function reviewFileSegment(scope: Page | Locator, path: string): Locator {
+  return scope.locator(`.unified-review-map-file[title^="${path} +"]`);
 }

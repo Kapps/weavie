@@ -41,7 +41,8 @@ public sealed record RejectedChange(string Text, bool Stale);
 /// <param name="Added">Lines added between the accepted anchor and current.</param>
 /// <param name="Removed">Lines removed between the accepted anchor and current.</param>
 /// <param name="Line">The 1-based line the review walk lands on: the first pending hunk, else the first faded one.</param>
-public sealed record TurnChangeSummary(FileChange Change, int Added, int Removed, int Line) {
+/// <param name="PendingLines">Changed lines not yet kept: added + removed between the review baseline and current.</param>
+public sealed record TurnChangeSummary(FileChange Change, int Added, int Removed, int Line, int PendingLines) {
 	internal static TurnChangeSummary For(FileChange change) {
 		// Count over the full span (accepted anchor → current) so a fully-kept (faded-only) file still reads as
 		// changed; land the walk on the first PENDING hunk, falling back to the first faded one.
@@ -52,7 +53,16 @@ public sealed record TurnChangeSummary(FileChange Change, int Added, int Removed
 			removed,
 			LineDiff.FirstChangedLine(change.BaselineText, change.CurrentText)
 				?? LineDiff.FirstChangedLine(change.AcceptedBaselineText, change.CurrentText)
-				?? 1);
+				?? 1,
+			CountPending(change, added + removed));
+	}
+
+	// Nothing kept yet or everything kept are the common cases; only a partial keep pays for a second diff.
+	private static int CountPending(FileChange change, int total) {
+		if (change.BaselineText == change.CurrentText) return 0;
+		if (change.BaselineText == change.AcceptedBaselineText) return total;
+		var (added, removed) = LineDiff.Count(change.BaselineText, change.CurrentText);
+		return added + removed;
 	}
 
 	// The texts are the tracker's own instances, so reference equality means "not rediffed since".

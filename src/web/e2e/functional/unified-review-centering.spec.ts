@@ -1,7 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 
 const baseline = Array.from({ length: 170 }, (_, index) => `// comment ${index}`);
 const changed = baseline.map((line, index) => (index % 20 === 10 ? `${line} updated` : line));
@@ -44,7 +44,7 @@ for (const keepFile of ["toolbar", "file header"]) {
   }) => {
     await awaitReviewSet(page, files);
     await page.locator(".editor-empty-review").click();
-    await page.locator(".unified-review-tree-row.file", { hasText: files[0] }).click();
+    await reviewFileSegment(page, files[0]).click();
     const toolbar = page.locator(".weavie-inline-toolbar");
     const counter = toolbar.locator(".weavie-inline-stack-sub");
     const first = page.locator(".unified-review-file", {

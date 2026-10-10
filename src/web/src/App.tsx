@@ -15,6 +15,7 @@ import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { runningLocalBackground } from "./agent/agent-background-store";
+import { copyActiveAgentCodeBlock } from "./agent/agent-code-copy";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
@@ -1523,6 +1524,7 @@ export default function App(): JSX.Element {
       }),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
+      registerCommand(CommandIds.copyAgentCodeBlock, () => copyActiveAgentCodeBlock()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       registerCommand(CommandIds.filterFileBrowser, async () => {
         const session = selectedSession();

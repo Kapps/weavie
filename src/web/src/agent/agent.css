@@ -525,17 +525,26 @@ a.agent-entry-media {
   color: var(--dim);
 }
 
-.agent-mermaid-block {
+.agent-mermaid-block,
+.agent-code-block {
   position: relative;
   margin: 0.8em 0;
 }
 
-.agent-mermaid-block > pre {
+.agent-mermaid-block > pre,
+.agent-code-block > pre {
   margin: 0;
   padding-right: 40px;
 }
 
-.agent-mermaid-toggle {
+.agent-mermaid-toggle[aria-disabled="true"] {
+  color: var(--dim);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.agent-mermaid-toggle,
+.agent-code-copy {
   position: absolute;
   z-index: 1;
   top: 5px;
@@ -551,19 +560,32 @@ a.agent-entry-media {
   cursor: pointer;
 }
 
-.agent-mermaid-toggle:hover {
+.agent-mermaid-toggle:hover,
+.agent-code-copy:hover {
   color: var(--fg);
 }
 
-.agent-mermaid-toggle:focus-visible {
+.agent-mermaid-toggle:focus-visible,
+.agent-code-copy:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-.agent-mermaid-toggle[aria-disabled="true"] {
-  color: var(--dim);
-  cursor: not-allowed;
-  opacity: 0.45;
+/* Revealed on hover or keyboard focus; always visible where there is no hover. */
+@media (hover: hover) {
+  .agent-code-copy {
+    opacity: 0;
+  }
+
+  .agent-code-block:hover > .agent-code-copy,
+  .agent-code-copy:focus-visible,
+  .agent-code-copy.copied {
+    opacity: 1;
+  }
+}
+
+.agent-code-copy.copied {
+  color: var(--accent);
 }
 
 .agent-markdown .mermaid-rendered {

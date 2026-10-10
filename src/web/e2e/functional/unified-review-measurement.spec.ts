@@ -43,8 +43,8 @@ test("remounted sections reuse their measured height until the resize observer r
 }) => {
   await expect(page.locator(".editor-empty-review")).toContainText("3");
   await page.locator(".editor-empty-review").click();
-  const first = page.locator('.unified-review-file[data-index="1"] .monaco-editor');
-  const last = page.locator('.unified-review-file[data-index="3"] .monaco-editor');
+  const first = page.locator('.unified-review-file[data-index="0"] .monaco-editor');
+  const last = page.locator('.unified-review-file[data-index="2"] .monaco-editor');
   await expect(first).toBeVisible();
   await scrollReview(page, "end");
   await expect(last).toBeVisible();
@@ -123,7 +123,7 @@ test.describe("wrapped review construction", () => {
       };
     });
     await page.locator(".editor-empty-review").click();
-    const first = page.locator('.unified-review-file[data-index="1"]');
+    const first = page.locator('.unified-review-file[data-index="0"]');
     const lines = first.locator(".view-line");
     await expect(lines.first()).toBeVisible();
     await expect(first.locator(".unified-review-notice")).toHaveCount(0);
@@ -132,9 +132,9 @@ test.describe("wrapped review construction", () => {
     const width = await first.locator(".monaco-editor").evaluate((element) => element.clientWidth);
     expect(width).toBeGreaterThan(100);
     await expect(lines.nth(1)).toContainText("wrapped");
-    await page.locator(".unified-review-tree-row.file").last().click();
+    await page.locator(".unified-review-map-file").last().click();
     await expect(
-      page.locator('.unified-review-file[data-index="3"] .view-line').first(),
+      page.locator('.unified-review-file[data-index="2"] .view-line').first(),
     ).toBeInViewport();
     // Centered navigation can leave the previous file visible and the first file in overscan.
     await scrollReview(page, "end");

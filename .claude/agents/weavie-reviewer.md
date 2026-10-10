@@ -67,8 +67,9 @@ Then Weavie's hard rules (these override generic "best practice"):
 - **No suppression.** Analyzers and warnings are never silenced to make a problem disappear.
 - **Core, not per-OS.** Host-facing behavior belongs in `HostCore`/Core with the platform shells as
   thin adapters — flag logic added to one host that should be shared across all four.
-- **Capabilities are commands.** New user-facing actions get a command + default keybinding and
-  surface over IDE-MCP as commands, not bespoke tools (queries / complex-arg editors stay tools).
+- **Capabilities are commands.** New user-facing actions get a command and surface over IDE-MCP
+  as commands, not bespoke tools (queries / complex-arg editors stay tools). Default keybindings are only
+  for frequent, core actions — flag a default shortcut on a niche or occasional action.
   Flag a click target whose keybinding isn't advertised, or a hardcoded shortcut label (read from
   `CommandInfo.keys` + `formatKey`).
 - **Long-lived child processes go through `ProcessSupervisor`** with an explicit `RestartPolicy` —

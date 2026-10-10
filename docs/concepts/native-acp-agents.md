@@ -93,7 +93,8 @@ before the first turn. The host resolves the selected catalog identity and sends
 ordinary ACP prompting, followed by any user-supplied details. The composer and transcript retain the short
 invocation. These workflows wait for their own turn; they are never steered into ongoing work. Discovery does
 not depend on the provider advertising MCP prompts or scanning skill directories. This covers Weavie's bundled
-text prompts, not arbitrary external MCP prompt servers.
+text prompts, not arbitrary external MCP prompt servers. Agents reach the same catalog entries through the
+registry's `runWorkflow` tool when the user asks for one in plain language.
 
 `/btw /` completes provider commands and MCP prompts for a side conversation. The same typed submission
 executes through the fork's normal prompt path, validated against its own command catalog. Main-conversation

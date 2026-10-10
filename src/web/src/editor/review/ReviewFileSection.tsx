@@ -1,4 +1,10 @@
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-solid";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+} from "lucide-solid";
 import {
   type Accessor,
   createEffect,
@@ -19,6 +25,7 @@ import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
+import { DiffStats } from "./DiffStats";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
 import type { ReviewScroll } from "./review-scroll";
@@ -40,6 +47,9 @@ export function ReviewFileSection(props: {
   editorHeight: () => number;
   onEditorHeight: (height: number) => boolean;
   index: number;
+  fileCount: number;
+  onStep: (delta: 1 | -1) => void;
+  onPickFile: (anchor: HTMLElement) => void;
   measure: (element: HTMLElement) => void;
   observe: (element: HTMLElement) => void;
   onFocus: (line: number) => void;
@@ -56,6 +66,11 @@ export function ReviewFileSection(props: {
   const pending = () => props.file().pending();
   const fullContext = () => isFullContext(props.file().context());
   const bodyId = (): string => `unified-review-file-body-${props.index}`;
+  const directory = (): string => {
+    const path = props.displayPath(summary().path);
+    return path.slice(0, path.length - summary().name.length);
+  };
+  const leaf = (): string => summary().name;
 
   let article: HTMLElement | undefined;
   let header!: HTMLElement;
@@ -137,28 +152,17 @@ export function ReviewFileSection(props: {
             <ChevronRight />
           </Show>
         </button>
-        <Show
-          when={summary().currentExists}
-          fallback={
-            <span class="unified-review-file-name" title="Deleted file — review snapshot">
-              {props.displayPath(summary().path)}
-            </span>
-          }
+        <button
+          type="button"
+          class="unified-review-file-name"
+          title={`Go to file${keyHint(CommandIds.reviewGoToFile)}`}
+          aria-haspopup="listbox"
+          onClick={(event) => props.onPickFile(event.currentTarget)}
         >
-          <button
-            type="button"
-            class="unified-review-file-name"
-            title={`Open this change in file review${keyHint(CommandIds.reviewOpen)}`}
-            onClick={() =>
-              void runCommandWithFeedback(CommandIds.reviewOpen, {
-                path: summary().path,
-                line: summary().line,
-              })
-            }
-          >
-            {props.displayPath(summary().path)}
-          </button>
-        </Show>
+          <span class="unified-review-file-dir">{directory()}</span>
+          <span class="unified-review-file-leaf">{leaf()}</span>
+          <ChevronDown class="unified-review-file-caret" />
+        </button>
         <button
           type="button"
           class="unified-review-file-context"
@@ -172,9 +176,23 @@ export function ReviewFileSection(props: {
             <ChevronsDownUp />
           </Show>
         </button>
-        <span class="unified-review-file-stats">
-          <span class="unified-review-added">+{summary().added}</span>
-          <span class="unified-review-removed">−{summary().removed}</span>
+        <DiffStats added={summary().added} removed={summary().removed} />
+        <span class="unified-review-file-step">
+          <button
+            type="button"
+            title={`Previous file${keyHint(CommandIds.reviewPrevFile)}`}
+            onClick={() => props.onStep(-1)}
+          >
+            <ChevronLeft />
+          </button>
+          {props.index + 1} / {props.fileCount}
+          <button
+            type="button"
+            title={`Next file${keyHint(CommandIds.reviewNextFile)}`}
+            onClick={() => props.onStep(1)}
+          >
+            <ChevronRight />
+          </button>
         </span>
         <Show when={pending()} fallback={<ReviewStatus file={props.file} />}>
           <button

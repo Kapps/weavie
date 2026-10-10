@@ -157,8 +157,8 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
         throw error;
       }
     });
-  // Switches never set start on. Suggestions follow the agent picked on the previous step, once per agent, so a
-  // "Which agent" change survives going back and forth.
+  // Switches never set start on. Suggestions follow an agent picked on the previous step in this run, once per agent,
+  // so a choice made here survives going back and forth, and reopening the step never undoes it.
   const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
     const setting = await readSetting<T>(key);
     const value = setting.isDefault ? onByDefault : setting.value;
@@ -171,7 +171,11 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       await initial("inference.allowAutomatic", true, setAutomatic);
       const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
       const current = (await readSetting<string>("inference.defaultProvider")).value;
-      if (props.run.suggestionsAgent === agent || current === agent) {
+      if (
+        props.run.agentChoice === 0 ||
+        props.run.suggestionsAgent === agent ||
+        current === agent
+      ) {
         setProvider(current);
       } else {
         await writeSetting("inference.defaultProvider", agent);

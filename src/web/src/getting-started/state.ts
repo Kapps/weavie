@@ -24,7 +24,7 @@ registerCommand(CommandIds.gettingStarted, () => openGettingStarted(0));
 registerHostFeature((connection) =>
   connection.isLocal
     ? connection.host.feature("gettingStarted").on("show", () => {
-        setGettingStartedOpen(true);
+        openGettingStarted(0);
       })
     : undefined,
 );
@@ -46,7 +46,7 @@ createRoot(() =>
       (open) => {
         if (!open && resumeAfterThemes) {
           resumeAfterThemes = false;
-          setGettingStartedOpen(true);
+          openGettingStarted(0);
         }
       },
       { defer: true },

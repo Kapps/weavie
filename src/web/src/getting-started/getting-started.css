@@ -571,7 +571,7 @@ fieldset.gs-choices {
 }
 
 .gs-profile-head small,
-.gs-segment small {
+.gs-pick small {
   color: var(--dim);
   font-size: var(--font-metadata-size);
 }
@@ -586,7 +586,7 @@ fieldset.gs-choices {
   border-radius: 8px;
 }
 
-.getting-started .gs-segment {
+.getting-started .gs-pick {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
@@ -599,18 +599,18 @@ fieldset.gs-choices {
   text-align: left;
 }
 
-.gs-segment:first-child {
+.gs-pick:first-child {
   border-left: 0;
 }
 
-.gs-segment small {
+.gs-pick small {
   font-size: var(--font-hint-size);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.gs-segment span {
+.gs-pick span {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -618,12 +618,12 @@ fieldset.gs-choices {
   white-space: nowrap;
 }
 
-.getting-started .gs-segment:not(:disabled):hover,
-.gs-segment[aria-expanded="true"] {
+.getting-started .gs-pick:not(:disabled):hover,
+.gs-pick[aria-expanded="true"] {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.gs-busy span {
+.gs-pick:disabled span {
   opacity: 0.5;
 }
 

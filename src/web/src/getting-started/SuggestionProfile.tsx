@@ -6,39 +6,33 @@ import { ControlMenu } from "../chrome/ControlMenu";
 import { localFeature, writeSetting } from "./state";
 import type { SetupRun } from "./steps";
 
-const AGENT = "inference.defaultProvider";
-
 /** What suggestions run on: agent, model, effort, and Fast Mode pickers whose options the agent itself reports. */
 export function SuggestionProfile(props: {
   disabled: boolean;
   attempt: SetupRun["attempt"];
 }): JSX.Element {
   const [choices, setChoices] = createSignal<InferenceChoices>();
-  // The setting just changed, while the agent is asked again; a new agent's old options aren't shown meanwhile.
-  const [asking, setAsking] = createSignal<string | null>(AGENT);
+  const [loading, setLoading] = createSignal(true);
   const [open, setOpen] = createSignal<{ axis: AgentControlAxis; anchor: DOMRect } | null>(null);
   let asked = 0;
-  const ask = async (changed: string) => {
+  const ask = async () => {
     const turn = ++asked;
-    setAsking(changed);
-    const next = await localFeature("inferenceControls").request<InferenceChoices>("get", {});
-    if (turn === asked) {
-      setChoices(next);
-      setAsking(null);
+    setLoading(true);
+    try {
+      const next = await localFeature("inferenceControls").request<InferenceChoices>("get", {});
+      if (turn === asked) setChoices(next);
+    } finally {
+      if (turn === asked) setLoading(false);
     }
   };
-  onMount(() => props.attempt(() => ask(AGENT)));
+  onMount(() => props.attempt(ask));
   const pick = (key: string, value: string) => {
     setOpen(null);
     props.attempt(async () => {
       await writeSetting(key, value);
-      await ask(key);
+      await ask();
     });
   };
-  const axes = () =>
-    asking() === AGENT
-      ? (choices()?.axes.filter((axis) => axis.id === AGENT) ?? [])
-      : (choices()?.axes ?? []);
   return (
     <section class="gs-profile" classList={{ "gs-disabled": props.disabled }}>
       <p class="gs-profile-head">
@@ -46,12 +40,12 @@ export function SuggestionProfile(props: {
         <small>Separate from your chat, so it never changes the model you chat with.</small>
       </p>
       <fieldset class="gs-bar" aria-label="Suggestion agent and model" disabled={props.disabled}>
-        <For each={axes()}>
+        <For each={choices()?.axes}>
           {(axis) => (
             <button
               type="button"
-              class="gs-segment"
-              classList={{ "gs-busy": asking() !== null && axis.id !== AGENT }}
+              class="gs-pick"
+              disabled={loading()}
               aria-haspopup="listbox"
               aria-expanded={open()?.axis.id === axis.id}
               title={`${axis.label}: ${axis.valueLabel}`}
@@ -71,11 +65,11 @@ export function SuggestionProfile(props: {
             </button>
           )}
         </For>
-        <Show when={asking() === AGENT}>
-          <For each={choices() === undefined ? ["Agent", "Model", "Effort"] : ["Model", "Effort"]}>
+        <Show when={choices() === undefined}>
+          <For each={["Agent", "Model", "Effort"]}>
             {(label) => (
               <span
-                class="gs-segment gs-placeholder"
+                class="gs-pick gs-placeholder"
                 aria-busy="true"
                 title={`${label}: asking the agent…`}
               >
@@ -92,7 +86,7 @@ export function SuggestionProfile(props: {
             <AlertTriangle size="1em" aria-hidden="true" />
             <span>{choices()?.error ? `Couldn't get the options: ${problem()}` : problem()}</span>
             <Show when={choices()?.error}>
-              <button type="button" class="gs-link" onClick={() => props.attempt(() => ask(AGENT))}>
+              <button type="button" class="gs-link" onClick={() => props.attempt(ask)}>
                 Try again
               </button>
             </Show>
@@ -106,7 +100,7 @@ export function SuggestionProfile(props: {
               axis={menu.axis}
               class="gs-menu"
               style={placement(menu.anchor)}
-              inside=".gs-menu, .gs-segment"
+              inside=".gs-menu, .gs-pick"
               onPick={(value) => pick(menu.axis.id, value)}
               onClose={() => setOpen(null)}
             />

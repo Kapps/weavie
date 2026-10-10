@@ -40,16 +40,19 @@ public static class InferenceControlAxes {
 	/// <summary>Asks the selected provider for its controls and builds the pickers; a failed ask keeps the agent picker.</summary>
 	public static async Task<InferenceChoices> AskAsync(SettingsStore settings, AgentProviderRegistry providers, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(settings);
-		string providerId = settings.RequireString(InferenceSettings.DefaultProvider);
-		if (InferenceService.Resolve(providers, providerId, out string unavailable) is not { } provider) {
-			return Build(settings, providers, new InferenceControls { Defaults = [], Selected = [] }) with { Error = unavailable };
-		}
+		var controls = new InferenceControls { Defaults = [], Selected = [] };
+		string? error = null;
 		try {
-			return Build(settings, providers, await provider.ProbeInferenceControlsAsync(
-				settings.RequireString(InferenceSettings.Model), ct).ConfigureAwait(false));
+			string providerId = settings.RequireString(InferenceSettings.DefaultProvider);
+			var provider = InferenceService.Resolve(providers, providerId, out string unavailable)
+				?? throw new InvalidOperationException(unavailable);
+			controls = await provider.ProbeInferenceControlsAsync(
+				settings.RequireString(InferenceSettings.Model), ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
-			return Build(settings, providers, new InferenceControls { Defaults = [], Selected = [] }) with { Error = ex.Message };
+			error = ex.Message;
 		}
+		var choices = Build(settings, providers, controls);
+		return error is null ? choices : choices with { Axes = [choices.Axes[0]], Warning = null, Error = error };
 	}
 
 	/// <summary>Builds the pickers from live settings and the selected provider's <paramref name="controls"/>.</summary>

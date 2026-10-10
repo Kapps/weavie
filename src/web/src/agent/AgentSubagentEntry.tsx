@@ -5,8 +5,8 @@ import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import { subagentCardEntries } from "./AgentPaneSideConversations";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { subagentStatus } from "./background-format";
+import type { AgentSubagentInfo, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 
 /** A read-only subagent row: expanded while it runs, collapsed once it finishes, with Open for its full transcript. */
@@ -50,7 +50,7 @@ export function AgentSubagentEntry(props: {
         <Show when={running()}>
           <span class="agent-working-spinner" aria-hidden="true" />
         </Show>
-        <small class="agent-entry-status">{subagentStatus(info(), now())}</small>
+        <SubagentStatus info={info()} now={now()} />
         <button
           type="button"
           class="agent-entry-rewind agent-entry-open"
@@ -79,5 +79,23 @@ export function AgentSubagentEntry(props: {
         </Show>
       </div>
     </article>
+  );
+}
+
+/** A subagent's state and elapsed time, and the parent a nested spawn came from. */
+export function SubagentStatus(props: { info: AgentSubagentInfo; now: number }): JSX.Element {
+  return (
+    <small class="agent-entry-status">
+      {backgroundStatus(
+        props.info.state,
+        props.info.startedAtMs,
+        props.info.completedAtMs,
+        props.now,
+        null,
+      )}
+      <Show when={props.info.via}>
+        {(via) => <span class="agent-entry-via"> · via {via()}</span>}
+      </Show>
+    </small>
   );
 }

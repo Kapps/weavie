@@ -18,7 +18,10 @@ public sealed class HostCoreAgentBackgroundTests {
 		var refused = await host.InvokeCommandAsync(session.SlotId, command, new { id = session.SlotId }, CancellationToken.None);
 
 		Assert.False(refused.Ok);
-		var work = Assert.Single(JsonDocument.Parse(refused.DataJson!).RootElement.GetProperty("backgroundWork").EnumerateArray());
+		var data = JsonDocument.Parse(refused.DataJson!).RootElement;
+		Assert.Equal((session.SlotId, session.Incarnation),
+			(data.GetProperty("session").GetProperty("slot").GetString(), data.GetProperty("session").GetProperty("incarnation").GetString()));
+		var work = Assert.Single(data.GetProperty("backgroundWork").EnumerateArray());
 		Assert.Equal(("sleep 30", "shell", "running", 1L), (work.GetProperty("name").GetString(), work.GetProperty("type").GetString(),
 			work.GetProperty("state").GetString(), work.GetProperty("startedAtMs").GetInt64()));
 		Assert.True((await host.InvokeCommandAsync(session.SlotId, command,

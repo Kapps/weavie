@@ -91,8 +91,11 @@ Running work keeps the session status on Waiting unless it works or needs input,
 ## Stopping actions
 
 Unload, delete, Recreate, Restart Agent, `/clear`, and Rewind refuse while background work runs, with
-`{"backgroundWork":[{name,type,state,startedAtMs}]}` as the result data, unless called with
-`stopBackgroundWork: true` (MCP callers see the same refusal). The web turns the refusal into a "Stop background
-work?" confirm and re-runs the command with consent on Close anyway; Exit Weavie asks about every loaded session.
+`{"session":{slot,incarnation},"backgroundWork":[{name,type,state,startedAtMs}]}` as the result data, unless called with
+`stopBackgroundWork: true` (MCP callers see the same refusal). The web
+turns it into a "Stop background work?" confirm whose list follows that session's work live. Its confirm names the
+action ("Stop and restart", "Stop and unload", …) and re-runs with consent; Keep running is the Enter/Esc default. Work
+that finishes while it is open re-runs the action without consent, so anything started since is asked about again.
+Exit Weavie asks about every loaded session on this machine.
 A page reload or Reload Agent History does not ask: the work keeps running on the host. With running work,
 `/clear` and Rewind restart the process instead of replacing the conversation on it, since only that stops it.

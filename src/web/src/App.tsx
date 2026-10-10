@@ -1634,9 +1634,11 @@ export default function App(): JSX.Element {
         if (!NATIVE_SHELL) return false;
         const running = runningLocalBackground();
         if (running.length === 0) return publishMenuAction("exit");
-        return confirmStopBackgroundWork(running).then((stop) => {
-          if (stop) publishMenuAction("exit");
-        });
+        return confirmStopBackgroundWork(CommandIds.exit, running, runningLocalBackground).then(
+          (choice) => {
+            if (choice !== "keep") publishMenuAction("exit");
+          },
+        );
       }),
       // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
       // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.

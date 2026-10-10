@@ -321,6 +321,19 @@
   text-transform: lowercase;
 }
 
+/* A subagent's name keeps its own casing inside the lowercase status. */
+.agent-entry-via {
+  text-transform: none;
+}
+
+/* A card's latest activity, beneath what the card is. */
+.agent-entry-detail {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-entry-rewind,
 .agent-entry-toggle {
   display: inline-flex;
@@ -717,7 +730,9 @@ a.agent-entry-media {
   border-left-color: var(--accent);
 }
 
-.agent-entry-notice.agent-tone-error {
+.agent-entry-notice.agent-tone-error,
+.agent-entry-subagent.agent-tone-error,
+.agent-entry-workflow.agent-tone-error {
   border-left-color: var(--bad);
   background: color-mix(in srgb, var(--bad) 11%, var(--bar));
 }
@@ -1220,18 +1235,16 @@ label.agent-input-choice:hover {
   line-height: 1.4;
 }
 
-.agent-background-tray {
-  flex-wrap: wrap;
-  border-top: 1px solid var(--border);
+/* A card the tray jumped to flashes once so the eye lands on it. */
+.agent-entry-jumped {
+  animation: agent-entry-jumped 1.2s ease-out;
 }
 
-.agent-background-label {
-  color: var(--dim);
-}
-
-.agent-background-item {
-  display: inline-flex;
-  align-items: baseline;
+@keyframes agent-entry-jumped {
+  from {
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background-color: color-mix(in srgb, var(--accent) 16%, var(--bar));
+  }
 }
 
 .agent-status-scroll {
@@ -1269,6 +1282,50 @@ label.agent-input-choice:hover {
 
 .agent-status-segment:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.agent-background-tray {
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+
+.agent-background-label {
+  flex: 0 0 auto;
+  color: var(--dim);
+}
+
+.agent-background-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-end: 8px;
+}
+
+.agent-background-item .agent-working-spinner {
+  align-self: center;
+}
+
+.agent-background-name {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-background-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-background-item[data-state="failed"] .agent-background-dot {
+  color: var(--bad);
+}
+
+.agent-background-item .agent-status-segment[aria-disabled="true"] {
+  cursor: default;
+}
+
+.agent-background-stop {
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
+  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
 .agent-status-pr {

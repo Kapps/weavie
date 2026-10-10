@@ -501,6 +501,8 @@ function dispatchFromCatalog(
   }
   if (command.runsIn === "core") {
     return guardBackgroundWork(
+      id,
+      backendId,
       routeCoreCommand(command, args, backendId, scope.session),
       args,
       (consented) => routeCoreCommand(command, consented, backendId, scope.session),

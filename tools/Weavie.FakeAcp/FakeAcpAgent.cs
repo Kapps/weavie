@@ -855,7 +855,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 				["toolCallId"] = "permission-tool",
 				["title"] = "Run protected action",
 				["kind"] = "execute",
-				["rawInput"] = "protected",
+				["rawInput"] = new JsonObject { ["command"] = "npm test -- --run", ["cwd"] = Environment.CurrentDirectory },
 			},
 			["options"] = new JsonArray(
 				new JsonObject { ["optionId"] = "allow-once", ["name"] = "Allow", ["kind"] = "allow_once" },

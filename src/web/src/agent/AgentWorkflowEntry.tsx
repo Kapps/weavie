@@ -57,7 +57,7 @@ export function AgentWorkflowEntry(props: {
       <div class="agent-entry-main">
         <div class="agent-entry-summary">{props.entry.summary}</div>
         <Show when={item()?.lastActivity ?? props.entry.text}>
-          {(detail) => <div class="agent-entry-text">{detail()}</div>}
+          {(detail) => <div class="agent-entry-detail">{detail()}</div>}
         </Show>
       </div>
     </article>

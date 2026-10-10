@@ -1,7 +1,7 @@
 import { createMemo, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { NestedTranscript } from "./AgentNestedCard";
-import { subagentStatus } from "./background-format";
+import { SubagentStatus } from "./AgentSubagentEntry";
 import { liveNow } from "./live-clock";
 import { agentPaneModel } from "./pane-store";
 import { subagentForTab } from "./subagent-tab";
@@ -33,14 +33,12 @@ export default function AgentSubagentTab(props: {
             <article class={`agent-entry agent-entry-subagent agent-tone-${subagent().tone}`}>
               <div class="agent-entry-head">
                 <span class="agent-entry-label">Subagent</span>
-                <small class="agent-entry-status">
-                  {subagentStatus(subagent().subagent!, now())}
-                </small>
+                <SubagentStatus info={subagent().subagent!} now={now()} />
               </div>
               <div class="agent-entry-main">
                 <div class="agent-entry-summary">{subagent().subagent!.name}</div>
                 <Show when={subagent().subagent!.task}>
-                  {(task) => <div class="agent-entry-summary">{task()}</div>}
+                  {(task) => <div class="agent-entry-detail">{task()}</div>}
                 </Show>
               </div>
             </article>

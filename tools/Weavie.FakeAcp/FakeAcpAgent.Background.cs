@@ -42,13 +42,23 @@ internal sealed partial class FakeAcpAgent {
 				SpawnSubagent(_sessionId!, child, "Editor", "Edit with approval");
 				var result = await Connection().RequestAsync("session/request_permission", new JsonObject {
 					["sessionId"] = child,
-					["toolCall"] = new JsonObject { ["toolCallId"] = child + ":edit", ["title"] = "Edit README", ["kind"] = "edit" },
+					["toolCall"] = new JsonObject {
+						["toolCallId"] = child + ":edit",
+						["title"] = "Edit README",
+						["kind"] = "edit",
+						["rawInput"] = new JsonObject { ["file_path"] = Path.Combine(Environment.CurrentDirectory, "README.md"), ["old_string"] = "# soak", ["new_string"] = "# Soak" },
+					},
 					["options"] = new JsonArray(
 						new JsonObject { ["optionId"] = "allow", ["name"] = "Allow", ["kind"] = "allow_once" },
 						new JsonObject { ["optionId"] = "reject", ["name"] = "Reject", ["kind"] = "reject_once" }),
 				}, ct).ConfigureAwait(false);
 				UpdateOn(child, MessageUpdate("child permission: " + result.GetProperty("outcome").GetProperty("optionId").GetString()));
 				FinishSubagent(_sessionId!, child, "completed");
+				break;
+			case "subagent-failed":
+				SpawnSubagent(_sessionId!, child, "Reviewer", "Review the diff");
+				SubagentWork(child, "review failed");
+				FinishSubagent(_sessionId!, child, "failed");
 				break;
 			case "subagent-duplicate":
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");

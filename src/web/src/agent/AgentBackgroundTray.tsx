@@ -57,45 +57,54 @@ export function AgentBackgroundTray(props: {
         onKeyDown={onKeyDown}
       >
         <span class="agent-background-label">Background</span>
-        <For each={items()}>
-          {(item, index) => (
-            <span
-              class="agent-background-item"
-              data-background-item={item.id}
-              data-state={item.state}
-            >
-              <button
-                type="button"
-                class="agent-status-segment"
-                tabIndex={index() === 0 ? 0 : -1}
-                title={`${item.detail ?? item.name} — ${backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), item.usage)}`}
-                aria-disabled={item.transcriptItemId === null}
-                onClick={() => props.onJump(item)}
+        <div class="agent-status-scroll">
+          <For each={items()}>
+            {(item, index) => (
+              <span
+                class="agent-background-item"
+                data-background-item={item.id}
+                data-state={item.state}
               >
-                <Show when={backgroundRunning(item)} fallback={<span aria-hidden="true">•</span>}>
-                  <span class="agent-working-spinner" aria-hidden="true" />
-                </Show>
-                <span class="agent-status-value">{item.name}</span>
-                <span>
-                  {backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), null)}
-                </span>
-              </button>
-              <Show when={item.canStop}>
                 <button
                   type="button"
-                  class="agent-status-segment agent-background-stop"
-                  tabIndex={-1}
-                  title={`Stop ${item.name}${liveKeyHint(CommandIds.stopBackgroundTask)}`}
-                  onClick={() =>
-                    void runCommandWithFeedback(CommandIds.stopBackgroundTask, { id: item.id })
-                  }
+                  class="agent-status-segment"
+                  tabIndex={index() === 0 ? 0 : -1}
+                  title={`${item.detail ?? item.name} — ${backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), item.usage)}`}
+                  aria-disabled={item.transcriptItemId === null}
+                  onClick={() => props.onJump(item)}
                 >
-                  Stop
+                  <Show
+                    when={backgroundRunning(item)}
+                    fallback={
+                      <span class="agent-background-dot" aria-hidden="true">
+                        •
+                      </span>
+                    }
+                  >
+                    <span class="agent-working-spinner" aria-hidden="true" />
+                  </Show>
+                  <span class="agent-status-value agent-background-name">{item.name}</span>
+                  <span class="agent-background-time">
+                    {backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), null)}
+                  </span>
                 </button>
-              </Show>
-            </span>
-          )}
-        </For>
+                <Show when={item.canStop}>
+                  <button
+                    type="button"
+                    class="agent-status-segment agent-background-stop"
+                    tabIndex={-1}
+                    title={`Stop ${item.name}${liveKeyHint(CommandIds.stopBackgroundTask)}`}
+                    onClick={() =>
+                      void runCommandWithFeedback(CommandIds.stopBackgroundTask, { id: item.id })
+                    }
+                  >
+                    Stop
+                  </button>
+                </Show>
+              </span>
+            )}
+          </For>
+        </div>
       </div>
     </Show>
   );

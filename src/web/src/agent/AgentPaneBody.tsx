@@ -175,7 +175,21 @@ export function AgentPaneBody(props: {
         entry.conversationId === item.transcriptItemId ||
         entry.actionMessage?.itemId === item.transcriptItemId,
     );
-    if (item.transcriptItemId !== null && index >= 0) scroll.jumpToIndex(index);
+    const id = item.transcriptItemId;
+    if (id === null || index < 0) return;
+    scroll.jumpToIndex(index);
+    requestAnimationFrame(() => {
+      const card = body?.querySelector<HTMLElement>(
+        `[data-agent-subagent="${CSS.escape(id)}"], [data-agent-workflow="${CSS.escape(id)}"]`,
+      );
+      if (card === null || card === undefined) return;
+      card.classList.remove("agent-entry-jumped");
+      void card.offsetWidth;
+      card.classList.add("agent-entry-jumped");
+      card.addEventListener("animationend", () => card.classList.remove("agent-entry-jumped"), {
+        once: true,
+      });
+    });
   };
   onMount(() => {
     const element = body;

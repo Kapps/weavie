@@ -45,6 +45,8 @@ export interface NotificationPrefs {
 
 export interface AgentDefaults {
   defaultProvider: string;
+  /** Which model automatic suggestions run on, worded for the user. */
+  inferenceModel: string;
   providers: AgentProviderInfo[];
 }
 

@@ -26,8 +26,12 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		_imageRoot = imageRoot;
 	}
 
+	private static readonly ClaudeProfile UtilityProfile = new("haiku", "low");
+
 	public InferenceProviderInfo InferenceInfo { get; } = new() {
 		Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
+		UtilityModel = $"Claude's '{UtilityProfile.Model}' model",
+		UtilityEffort = UtilityProfile.Effort,
 	};
 
 	public async Task<InferenceProviderResult> QueryInferenceAsync(
@@ -157,7 +161,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		InferenceModelCategory category,
 		InferenceProviderProfile configured) {
 		var categoryProfile = category switch {
-			InferenceModelCategory.Utility => new ClaudeProfile("haiku", "low"),
+			InferenceModelCategory.Utility => UtilityProfile,
 			InferenceModelCategory.Reasoning => new ClaudeProfile("sonnet", "medium"),
 			_ => throw new ArgumentOutOfRangeException(nameof(category), category, "Unknown inference model category."),
 		};

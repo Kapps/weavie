@@ -45,9 +45,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		+ $"window.__WEAVIE_COMMANDS__ = {_services.Keybindings.BuildCommandsJson()};"
 		+ $"window.__WEAVIE_KEYBINDINGS__ = {_services.Keybindings.BuildKeybindingsJson()};";
 
-	public string AgentDefaultsJson() => AgentSettings.BuildJson(
-		_services.Settings,
-		[.. _services.AgentProviders.Providers.Select(provider => provider.Info)]);
+	public string AgentDefaultsJson() => AgentSettings.BuildJson(_services.Settings, _services.AgentProviders);
 
 	/// <summary>Makes <paramref name="providerId"/> the default for new sessions when it names an installed provider.</summary>
 	public void RememberDefaultProvider(string? providerId) {

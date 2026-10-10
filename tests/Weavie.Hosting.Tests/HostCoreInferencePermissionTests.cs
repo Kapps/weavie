@@ -14,7 +14,9 @@ public sealed class HostCoreInferencePermissionTests {
 
 		var offer = Assert.Single(Offers(host));
 		Assert.Equal("info", offer.GetProperty("level").GetString());
-		Assert.Contains("may use tokens", offer.GetProperty("message").GetString(), StringComparison.Ordinal);
+		string? message = offer.GetProperty("message").GetString();
+		Assert.Contains("Claude's 'haiku' model at low effort, independent of your chat's model", message, StringComparison.Ordinal);
+		Assert.Contains("may use tokens", message, StringComparison.Ordinal);
 		var action = offer.GetProperty("action");
 		Assert.Equal("Allow", action.GetProperty("label").GetString());
 		Assert.Equal(CoreCommands.EnableAutomaticInference, action.GetProperty("commandId").GetString());

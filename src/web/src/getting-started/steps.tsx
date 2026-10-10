@@ -9,7 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
-import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
+import { agentProviders, defaultAgentProvider, inferenceModel } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -197,7 +197,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       />
       <SettingRow
         title="Suggest automatically"
-        detail="Suggest without being asked. This uses a little of your agent usage now and then."
+        detail={`Suggest without being asked. This uses a little of your agent usage now and then. ${inferenceModel(LOCAL_BACKEND_ID)}`}
         disabled={off()}
         control={(id) => (
           <Switch

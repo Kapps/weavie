@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Inference;
 using Weavie.Core.Json;
 
 namespace Weavie.Core.Configuration;
@@ -15,16 +16,23 @@ public static class AgentSettings {
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath];
+	public static readonly IReadOnlyList<string> Keys = [
+		DefaultProvider,
+		CoreSettings.ClaudePath,
+		InferenceSettings.DefaultProvider,
+		InferenceSettings.Model,
+		InferenceSettings.Effort,
+	];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
-	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
+	public static string BuildJson(SettingsStore store, AgentProviderRegistry providers) {
 		ArgumentNullException.ThrowIfNull(store);
 		ArgumentNullException.ThrowIfNull(providers);
 		return JsonWrite.Object(writer => {
 			writer.WriteString("defaultProvider", store.RequireString(DefaultProvider));
+			writer.WriteString("inferenceModel", InferenceModelDescription.Describe(store, providers));
 			writer.WriteStartArray("providers");
-			foreach (var provider in providers) {
+			foreach (var provider in providers.Providers.Select(provider => provider.Info)) {
 				writer.WriteStartObject();
 				writer.WriteString("id", provider.Id);
 				writer.WriteString("name", provider.Name);

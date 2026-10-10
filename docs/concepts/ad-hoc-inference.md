@@ -74,6 +74,9 @@ propagates, because canceled work must not continue into a side effect.
 `inference.effort` default empty; `inference.fastMode` defaults to `inherit`. All are live on the next query and are
 available through the normal settings file and settings MCP tools. When either policy gate is off, the first page
 connection in an app run offers a persistent notification whose **Allow** command enables and verifies both gates.
+That offer and the getting-started suggestions step both state which model and effort suggestions will run on
+(Claude's utility default is Haiku at low effort; an ACP agent's is its own default model), independent of the
+chat's model, so the token cost of opting in is visible up front.
 
 The complete contract and first proving flow are in
 [the ad-hoc inference specification](../specs/ad-hoc-inference.md).

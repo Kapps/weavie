@@ -59,7 +59,7 @@ public static class InferenceSettings {
 			Key = Model,
 			Kind = SettingKind.String,
 			Description = "Provider-native model id for ad-hoc inference, such as 'opus'. Empty uses the provider's "
-				+ "category default. Takes effect on the next query.",
+				+ "category default, independent of the chat's model. Takes effect on the next query.",
 			Aliases = ["inference model", "suggestion model", "ad hoc model"],
 			Apply = ApplyMode.Live,
 			Default = "",

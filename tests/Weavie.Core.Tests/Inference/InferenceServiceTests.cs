@@ -403,7 +403,7 @@ public sealed class InferenceServiceTests : IDisposable {
 		public required int Count { get; init; }
 	}
 
-	private sealed class FakeProvider : IAgentInferenceProvider {
+	internal sealed class FakeProvider : IAgentInferenceProvider {
 		private readonly Func<InferenceProviderRequest, CancellationToken, Task<InferenceProviderResult>> _query;
 
 		public FakeProvider(InferenceProviderResult result)
@@ -436,6 +436,8 @@ public sealed class InferenceServiceTests : IDisposable {
 
 		public InferenceProviderInfo InferenceInfo { get; } = new() {
 			Categories = [InferenceModelCategory.Utility],
+			UtilityModel = "Fake",
+			UtilityEffort = "",
 		};
 
 		public int Calls { get; private set; }
@@ -449,6 +451,9 @@ public sealed class InferenceServiceTests : IDisposable {
 			LastRequest = request;
 			return _query(request, ct);
 		}
+
+		public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+			throw new NotSupportedException();
 
 		public void ClearConversation(string workspace) { }
 

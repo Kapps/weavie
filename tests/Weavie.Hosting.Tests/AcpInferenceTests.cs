@@ -57,6 +57,22 @@ public sealed class AcpInferenceTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ControlProbeReportsTheDefaultsAndTheConfiguredModelsDependentOptions() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "ok"]);
+
+		var controls = await provider.ProbeInferenceControlsAsync("opus", CancellationToken.None);
+
+		Assert.Equal("fake-model", controls.Defaults.Single(axis => axis.Category == "model").Value);
+		Assert.Equal("opus", controls.Selected.Single(axis => axis.Category == "model").Value);
+		Assert.Equal(
+			["medium", "low"],
+			controls.Selected.Single(axis => axis.Category == "thought_level").Options.Select(option => option.Id));
+		Assert.Contains(controls.Selected, InferenceControlAxes.IsFastMode);
+	}
+
+	[Fact]
 	public async Task AppliesSelectFastModeFromTheAlternateShippedControlId() {
 		var provider = Provider(
 			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),

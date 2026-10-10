@@ -49,6 +49,7 @@ public static class InferenceSettings {
 			Description = "Agent provider used for every ad-hoc inference query. Use 'claude' for Claude Code or an "
 				+ "installed ACP provider id. Takes effect on the next query.",
 			Aliases = ["inference provider", "default inference provider", "ai suggestion provider"],
+			Resets = [Model, Effort, FastMode],
 			Apply = ApplyMode.Live,
 			Default = "claude",
 			Validate = static value => value is string provider && !string.IsNullOrWhiteSpace(provider)
@@ -59,8 +60,9 @@ public static class InferenceSettings {
 			Key = Model,
 			Kind = SettingKind.String,
 			Description = "Provider-native model id for ad-hoc inference, such as 'opus'. Empty uses the provider's "
-				+ "category default. Takes effect on the next query.",
+				+ "category default, independent of the chat's model. Takes effect on the next query.",
 			Aliases = ["inference model", "suggestion model", "ad hoc model"],
+			Resets = [Effort, FastMode],
 			Apply = ApplyMode.Live,
 			Default = "",
 		});

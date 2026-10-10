@@ -74,6 +74,10 @@ propagates, because canceled work must not continue into a side effect.
 `inference.effort` default empty; `inference.fastMode` defaults to `inherit`. All are live on the next query and are
 available through the normal settings file and settings MCP tools. When either policy gate is off, the first page
 connection in an app run offers a persistent notification whose **Allow** command enables and verifies both gates.
+That offer names the model and effort suggestions will run on, independent of the chat's model. Setup's
+suggestions step, reopened by **Configure Suggestions…**, shows agent, model, effort, and Fast Mode pickers whose options the
+agent itself reports, each defaulting to what the agent resolves it to, so the token cost of opting in is visible
+and changeable up front. Changing the agent clears the profile it scoped.
 
 The complete contract and first proving flow are in
 [the ad-hoc inference specification](../specs/ad-hoc-inference.md).

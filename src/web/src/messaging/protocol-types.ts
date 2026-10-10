@@ -163,6 +163,13 @@ export interface AgentControlAxis {
   options: AgentControlOption[];
 }
 
+/** The suggestion profile pickers; each axis id is a setting key and each option id a value for it. */
+export interface InferenceChoices {
+  axes: AgentControlAxis[];
+  warning: string | null;
+  error: string | null;
+}
+
 interface AgentSlashEntryBase {
   id: string;
   name: string;

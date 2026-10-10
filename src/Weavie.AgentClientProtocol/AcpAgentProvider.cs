@@ -45,6 +45,11 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, 
 			Available = true,
 			UnavailableReason = null,
 		};
+		InferenceInfo = new() {
+			Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
+			UtilityModel = $"{definition.Name}'s default model",
+			UtilityEffort = "",
+		};
 	}
 
 	/// <inheritdoc/>
@@ -62,9 +67,11 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, 
 	/// Explicit inference profile values select exact provider-advertised controls. Blank values retain the agent's
 	/// defaults because ACP does not assign portable cost or capability semantics to provider-native values.
 	/// </remarks>
-	public InferenceProviderInfo InferenceInfo { get; } = new() {
-		Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
-	};
+	public InferenceProviderInfo InferenceInfo { get; }
+
+	/// <inheritdoc/>
+	public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+		AcpConsultClient.ProbeInferenceAsync(_currentDefinition(), model, ct);
 
 	/// <inheritdoc/>
 	public Task<InferenceProviderResult> QueryInferenceAsync(

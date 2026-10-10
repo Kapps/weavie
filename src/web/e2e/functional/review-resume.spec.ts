@@ -10,7 +10,7 @@ import {
 } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
@@ -31,6 +31,15 @@ const section = (page: Page, name: string): Locator =>
   page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: name }),
   });
+
+// A line number opens its file review; a reviewed file starts collapsed, so expand it first.
+async function openInFileReview(page: Page, name: string, line: RegExp): Promise<void> {
+  const file = section(page, name);
+  const toggle = file.locator(".unified-review-file-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await reviewFileSegment(page, name).click();
+  await file.locator(".line-numbers", { hasText: line }).first().click();
+}
 
 async function openPr(page: Page): Promise<void> {
   await runCommand(page, "Open Pull Request…");
@@ -131,7 +140,7 @@ test.describe("durable applied review", () => {
     );
     await expect(section(page, "README.md").locator(".weavie-inline-added").first()).toBeVisible();
 
-    await notes.locator(".unified-review-file-name").click();
+    await openInFileReview(page, "notes.txt", /^2$/);
     await expect(page.locator(".editor-tab.active", { hasText: "notes.txt" })).toBeVisible();
     await expect
       .poll(() =>
@@ -140,7 +149,7 @@ test.describe("durable applied review", () => {
       .toBe(2);
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
 
-    await section(page, "hello.ts").locator(".unified-review-file-name").click();
+    await openInFileReview(page, "hello.ts", /^\d+$/);
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await runCommand(page, "Undo Revert (Review)");
     await expect.poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8")).toBe(HELLO);
@@ -206,7 +215,7 @@ test.describe("durable pull-request review", () => {
       "aria-expanded",
       "false",
     );
-    await hello.locator(".unified-review-file-name").click();
+    await openInFileReview(page, "hello.ts", /^\d+$/);
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(2);
     await expect(
       page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 import { reviewScroll, scrollReview } from "../harness/review-scroll";
 import type { WeavieWindow } from "../harness/weavie-window";
 
@@ -59,12 +59,12 @@ test.describe("Review Changes tab", () => {
 
     const overview = page.locator(".unified-review");
     await expect(overview).toBeVisible();
-    await expect(overview.locator(".unified-review-files-header")).toContainText("2 changed files");
-    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(0);
-    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
-    await expect(
-      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
-    ).toContainText(/\+\d+.*−\d+/);
+    await expect(overview.locator(".unified-review-header")).toContainText("2 changed files");
+    await expect(overview.locator(".unified-review-map-file")).toHaveCount(2);
+    await expect(reviewFileSegment(overview, "notes.txt")).toHaveAttribute(
+      "title",
+      /\+\d+ −\d+ · 0% reviewed/,
+    );
     await expect(overview.locator(".unified-review-file")).toHaveCount(2);
 
     // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
@@ -92,7 +92,7 @@ test.describe("Review Changes tab", () => {
     await disclosure.click();
     await expect(hello.locator(".monaco-editor")).toBeVisible();
 
-    await hello.locator(".unified-review-file-name").click();
+    await hello.locator(".line-numbers").first().click();
     await expect(overview).toHaveCount(0);
     await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
@@ -130,7 +130,7 @@ test.describe("Review Changes tab", () => {
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
 
     await scrollReview(page, "start");
-    await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
+    await reviewFileSegment(overview, "notes.txt").click();
     await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -181,7 +181,7 @@ test.describe("Review Changes tab", () => {
   });
 });
 
-test.describe("Review Changes tab — file tree", () => {
+test.describe("Review Changes tab — file switcher", () => {
   test.use({
     fakeScript: {
       steps: [
@@ -192,43 +192,46 @@ test.describe("Review Changes tab — file tree", () => {
     },
   });
 
-  test("groups nested files with diff sizes and collapsible folders", async ({ page, weavie }) => {
+  test("the file switcher filters nested files and jumps to the chosen one", async ({
+    page,
+    weavie,
+  }) => {
     await mkdir(join(weavie.workspace, "src"));
     await mkdir(join(weavie.workspace, "docs"));
     await writeFile(join(weavie.workspace, ".nested-ready"), "ready\n");
     await page.locator(".editor-empty-review").click();
 
     const overview = page.locator(".unified-review");
-    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(2);
-    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
-    await expect(
-      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
-    ).toContainText(/\+\d+.*−\d+/);
+    const notes = overview.locator(".unified-review-file", { hasText: "docs/notes.txt" });
+    await expect(notes.locator(".unified-review-file-name")).toHaveAttribute(
+      "title",
+      /Go to file \(.+\)/,
+    );
+    await expect(overview.locator(".unified-review-file-step button").first()).toHaveAttribute(
+      "title",
+      /Previous file \(.+\)/,
+    );
+    await overview.locator(".unified-review-diffs").focus();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+P" : "Control+Alt+P");
+    const switcher = overview.locator(".unified-review-switcher");
+    await expect(switcher.locator("input")).toBeFocused();
+    await expect(switcher.locator(".unified-review-switcher-row")).toHaveCount(2);
+    await expect(switcher).toContainText("0 of 2 reviewed");
+    await page.keyboard.type("notes");
+    await expect(switcher.locator(".unified-review-switcher-row")).toHaveCount(1);
+    await expect(switcher.locator(".unified-review-switcher-row")).toContainText("docs");
+    await page.keyboard.press("Enter");
+    await expect(switcher).toHaveCount(0);
+    await expect(overview.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(
+      "title",
+      /^docs\/notes\.txt /,
+    );
+    await expect(notes.locator(".monaco-editor.focused")).toHaveCount(1);
 
-    const docsFolder = overview.locator(".unified-review-tree-row.directory", {
-      hasText: "docs",
-    });
-    const docsFile = overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" });
-    const srcFolder = overview.locator(".unified-review-tree-row.directory", { hasText: "src" });
-    const srcFile = overview.locator(".unified-review-tree-row.file", { hasText: "hello.ts" });
-    await docsFolder.focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(docsFile).toBeFocused();
-    await page.keyboard.press("ArrowLeft");
-    await expect(docsFolder).toBeFocused();
-    await page.keyboard.press("ArrowLeft");
-    await expect(docsFolder).toHaveAttribute("aria-expanded", "false");
-    await expect(docsFile).toHaveCount(0);
-    await page.keyboard.press("ArrowDown");
-    await expect(srcFolder).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(srcFile).toBeFocused();
-    await page.keyboard.press("Home");
-    await expect(docsFolder).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(docsFolder).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("End");
-    await expect(srcFile).toBeFocused();
+    await notes.locator(".unified-review-file-name").click();
+    await expect(switcher).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(switcher).toHaveCount(0);
   });
 });
 
@@ -284,7 +287,7 @@ test.describe("Review Changes tab — the walk stays on the page", () => {
     const overview = page.locator(".unified-review");
     const section = sectionFor(page, "walk.txt");
     await expect(section.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 15_000 });
-    await overview.locator(".unified-review-tree-row.file", { hasText: "walk.txt" }).click();
+    await reviewFileSegment(overview, "walk.txt").click();
     const counter = overview.locator(".weavie-inline-stack-sub");
     await expect(counter).toContainText("change 1/30");
 
@@ -354,12 +357,7 @@ test("a deleted file starts collapsed and expands its review snapshot", async ({
   await expect(notes.locator(".unified-review-notice", { hasText: "Couldn't open" })).toHaveCount(
     0,
   );
-  await expect(notes.locator(".unified-review-file-name")).toHaveAttribute(
-    "title",
-    "Deleted file — review snapshot",
-  );
   await expect(page.locator(".editor-tab.active", { hasText: "Review Changes" })).toBeVisible();
-  await expect(notes.locator("button.unified-review-file-name")).toHaveCount(0);
 });
 
 test.describe("Review Changes tab — large file set", () => {
@@ -389,13 +387,10 @@ test.describe("Review Changes tab — large file set", () => {
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
     const targetName = "review-099.txt";
-    const targetLink = overview.locator(".unified-review-tree-row.file", { hasText: targetName });
-    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(fileCount);
-
-    await overview.locator(".unified-review-tree-row.file").first().focus();
-    await page.keyboard.press("End");
-    await expect(targetLink).toBeInViewport();
-    await targetLink.click();
+    await expect(overview.locator(".unified-review-map-file")).toHaveCount(fileCount);
+    await runCommand(page, "Go to File (Review)");
+    await page.keyboard.type(targetName);
+    await page.keyboard.press("Enter");
     const targetSection = sectionFor(page, targetName);
     await expect(targetSection).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => overview.locator(".unified-review-file").count()).toBeLessThan(20);
@@ -406,7 +401,7 @@ test.describe("Review Changes tab — large file set", () => {
       )
       .toBeLessThan(20);
 
-    await targetSection.locator(".unified-review-file-name").click();
+    await targetSection.locator(".line-numbers").first().click();
     await expect(page.locator(".editor-tab.active", { hasText: targetName })).toBeVisible();
 
     await page.locator(".editor-tab", { hasText: "Review Changes" }).click();

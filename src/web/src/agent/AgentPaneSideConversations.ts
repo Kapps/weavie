@@ -131,3 +131,71 @@ export function sideConversationEntry(
     tone: state.failed ? "error" : "assistant",
   };
 }
+
+/** Whether a nested conversation is a subagent rather than a BTW. */
+export function isSubagentConversation(messages: readonly AgentPaneUpdate[]): boolean {
+  return messages.some((message) => message.type === "subagent-started");
+}
+
+/** The subagent name each nested conversation announced, for naming a nested spawn's parent. */
+export function subagentNames(
+  conversations: ReadonlyMap<string, readonly AgentPaneUpdate[]>,
+): ReadonlyMap<string, string> {
+  const names = new Map<string, string>();
+  for (const [id, messages] of conversations) {
+    const marker = messages.find((message) => message.type === "subagent-started");
+    if (marker?.summary) names.set(id, marker.summary);
+  }
+  return names;
+}
+
+export function subagentEntry(
+  messages: readonly AgentPaneUpdate[],
+  names: ReadonlyMap<string, string>,
+  project: (messages: readonly AgentPaneUpdate[]) => AgentTranscriptEntry[],
+): AgentTranscriptEntry {
+  const marker = messages.find((message) => message.type === "subagent-started")!;
+  const completion = [...messages].reverse().find((message) => message.type === "turn-completed");
+  const state = completion?.status ?? "running";
+  const running = completion === undefined;
+  const name = marker.summary ?? "Subagent";
+  return {
+    actionMessage: null,
+    asideActive: running,
+    asideEntries: project(
+      messages
+        .filter((message) => message !== marker)
+        .map((message) => ({ ...message, conversationId: null, anchorTurnId: null })),
+    ),
+    conversationId: marker.conversationId!,
+    detailCount: 0,
+    details: [],
+    id: `subagent-${marker.conversationId}`,
+    kind: "subagent",
+    label: "Subagent",
+    status: state,
+    streaming: running,
+    subagent: {
+      completedAtMs: completion?.completedAtMs ?? null,
+      name,
+      startedAtMs: marker.startedAtMs ?? null,
+      state,
+      task: marker.text || null,
+      via: marker.parentItemId ? (names.get(marker.parentItemId) ?? null) : null,
+    },
+    summary: name,
+    text: marker.text || null,
+    tone: state === "failed" ? "error" : "assistant",
+  };
+}
+
+const subagentCardTail = 4;
+
+/** A subagent card shows its latest entries and every request; Open shows the whole transcript. */
+export function subagentCardEntries(
+  entries: readonly AgentTranscriptEntry[],
+): AgentTranscriptEntry[] {
+  return entries.filter(
+    (entry, index) => index >= entries.length - subagentCardTail || entry.kind === "request",
+  );
+}

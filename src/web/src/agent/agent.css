@@ -235,18 +235,69 @@
   overflow: hidden;
 }
 
+.agent-aside-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 .agent-aside-head {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   background: transparent;
   border: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 7px;
   padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
   color: var(--dim);
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
+  text-align: left;
+}
+
+.agent-aside-head small {
+  margin-left: auto;
+}
+
+.agent-nested-badge {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--fg);
+  font-size: var(--font-hint-size);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-nested-name {
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-nested-action {
+  flex: 0 0 auto;
+  font-size: var(--font-metadata-size);
+}
+
+.agent-nested-task {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.agent-subagent-reader {
+  width: min(880px, 92vw);
+}
+
+.agent-subagent-reader-body {
+  max-height: 70vh;
+  overflow: auto;
+  margin: 8px 0 12px;
 }
 
 .agent-aside-head small {

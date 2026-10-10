@@ -11,7 +11,7 @@ import {
   Show,
   Suspense,
 } from "solid-js";
-import { toggleAgentAside } from "./agent/AgentAsideEntry";
+import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";

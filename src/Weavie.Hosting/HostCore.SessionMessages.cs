@@ -11,14 +11,14 @@ public sealed partial class HostCore {
 	private void WireCoreSessionMessages(HostSession session) {
 		var lifecycle = session.Bus.Feature("lifecycle");
 		lifecycle.HandleOwned(
-			"sync", WireJson.Default.EmptyPayload, WireJson.Default.SessionSyncResult,
+			"sync", "Syncing the session", WireJson.Default.EmptyPayload, WireJson.Default.SessionSyncResult,
 			(_, peer, _) => {
 				SyncSession(session, peer.Target);
 				return Task.FromResult(new SessionSyncResult(true));
 			});
 
 		session.Bus.Feature("commands").HandleKeyedAfterResponse(
-			"invoke", WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
+			"invoke", CommandActivity, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
 			CommandExecutionLane,
 			async (message, ct) => {
 				var execution = await PrepareCommandAsync(
@@ -33,133 +33,133 @@ public sealed partial class HostCore {
 
 		var editor = session.Bus.Feature("editor");
 		editor.HandleOwned(
-			"sessionChanged",
+			"sessionChanged", "Updating the editor session",
 			WireJson.Default.EditorSessionMessage,
 			session.View.IsBound,
 			(message, _, _) => {
 				HandleEditorSessionChanged(session, message.Session, message.Basis);
 				return Task.CompletedTask;
 			});
-		editor.Handle("newScratch", WireJson.Default.EmptyPayload, (_, _) => {
+		editor.Handle("newScratch", "Creating a scratch file", WireJson.Default.EmptyPayload, (_, _) => {
 			session.OpenNewScratch();
 			return Task.CompletedTask;
 		});
 		editor.Handle(
-			"saveScratchAs", WireJson.Default.JsonElement, WireJson.Default.ScratchSaveResult,
+			"saveScratchAs", "Saving a scratch file", WireJson.Default.JsonElement, WireJson.Default.ScratchSaveResult,
 			(message, ct) => SaveScratchAsAsync(session, message, ct));
 		editor.Handle(
-			"saveScratchNamed", WireJson.Default.JsonElement, WireJson.Default.ScratchSaveResult,
+			"saveScratchNamed", "Saving a scratch file", WireJson.Default.JsonElement, WireJson.Default.ScratchSaveResult,
 			(message, _) => Task.FromResult(SaveScratchNamed(session, message)));
-		editor.Handle("discardScratch", WireJson.Default.FilePathMessage, (message, _) => {
+		editor.Handle("discardScratch", "Discarding a scratch file", WireJson.Default.FilePathMessage, (message, _) => {
 			session.Scratch.Delete(message.Path);
 			return Task.CompletedTask;
 		});
 
 		var review = session.Bus.Feature("review");
-		review.Handle("close", WireJson.Default.EmptyPayload, (_, _) => {
+		review.Handle("close", "Closing the review", WireJson.Default.EmptyPayload, (_, _) => {
 			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
-		review.Handle("accept", WireJson.Default.EmptyPayload, (_, _) => {
+		review.Handle("accept", "Accepting changes", WireJson.Default.EmptyPayload, (_, _) => {
 			RunReviewAction(session, () => CloseReview(session));
 			return Task.CompletedTask;
 		});
-		review.Handle("revertAll", WireJson.Default.EmptyPayload, (_, _) => {
+		review.Handle("revertAll", "Reverting all changes", WireJson.Default.EmptyPayload, (_, _) => {
 			UndoTurn(session);
 			return Task.CompletedTask;
 		});
-		review.Handle("revertHunk", WireJson.Default.JsonElement, (message, _) => {
+		review.Handle("revertHunk", "Reverting a change", WireJson.Default.JsonElement, (message, _) => {
 			RejectHunk(session, message);
 			return Task.CompletedTask;
 		});
-		review.Handle("keepHunk", WireJson.Default.JsonElement, (message, _) => {
+		review.Handle("keepHunk", "Keeping a change", WireJson.Default.JsonElement, (message, _) => {
 			RunReviewAction(session, () => KeepHunk(session, message));
 			return Task.CompletedTask;
 		});
-		review.Handle("unkeepHunk", WireJson.Default.JsonElement, (message, _) => {
+		review.Handle("unkeepHunk", "Un-keeping a change", WireJson.Default.JsonElement, (message, _) => {
 			RunReviewAction(session, () => UnkeepHunk(session, message));
 			return Task.CompletedTask;
 		});
-		review.Handle("revertFile", WireJson.Default.JsonElement, (message, _) => {
+		review.Handle("revertFile", "Reverting a file", WireJson.Default.JsonElement, (message, _) => {
 			RevertFile(session, message);
 			return Task.CompletedTask;
 		});
-		review.Handle("keepFile", WireJson.Default.JsonElement, (message, _) => {
+		review.Handle("keepFile", "Keeping a file", WireJson.Default.JsonElement, (message, _) => {
 			RunReviewAction(session, () => KeepFile(session, message));
 			return Task.CompletedTask;
 		});
-		review.Handle("undo", WireJson.Default.JsonElement, WireJson.Default.ReviewHistoryLocation, (message, _) =>
+		review.Handle("undo", "Undoing a review action", WireJson.Default.JsonElement, WireJson.Default.ReviewHistoryLocation, (message, _) =>
 			Task.FromResult(ReviewUndo(session, message)));
-		review.Handle("redo", WireJson.Default.EmptyPayload, WireJson.Default.ReviewHistoryLocation, (_, _) =>
+		review.Handle("redo", "Redoing a review action", WireJson.Default.EmptyPayload, WireJson.Default.ReviewHistoryLocation, (_, _) =>
 			Task.FromResult(ReviewRedo(session)));
-		review.Handle("showFile", WireJson.Default.FilePathMessage, (message, _) => {
+		review.Handle("showFile", "Showing a reviewed file", WireJson.Default.FilePathMessage, (message, _) => {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
-		review.Handle("diffAgainst", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewReveal, (message, ct) =>
+		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewReveal, (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, ct));
 
-		session.Bus.Feature("revise").Handle("start", WireJson.Default.ReviseStartMessage, (message, _) => {
+		session.Bus.Feature("revise").Handle("start", "Starting a revision", WireJson.Default.ReviseStartMessage, (message, _) => {
 			StartRevise(session, message);
 			return Task.CompletedTask;
 		});
 
 		var files = session.Bus.Feature("files");
 		files.Handle(
-			"refs", WireJson.Default.EmptyPayload, WireJson.Default.DiffRefsResult,
+			"refs", "Listing git refs", WireJson.Default.EmptyPayload, WireJson.Default.DiffRefsResult,
 			(_, ct) => ListRefsAsync(session, ct));
-		files.Handle("refreshIndex", WireJson.Default.EmptyPayload, (_, _) => {
+		files.Handle("refreshIndex", "Refreshing the file index", WireJson.Default.EmptyPayload, (_, _) => {
 			PushFileIndexToWeb(session, false);
 			return Task.CompletedTask;
 		});
 
 		session.Bus.Feature("search").Handle(
-			"query", WireJson.Default.JsonElement, WireJson.Default.JsonElement,
+			"query", "Searching files", WireJson.Default.JsonElement, WireJson.Default.JsonElement,
 			(message, ct) => SearchInFilesAsync(session, message, ct));
 
 		var git = session.Bus.Feature("git");
 		git.HandleConcurrent(
-			"blame", WireJson.Default.FilePathRequest, WireJson.Default.BlameResult,
+			"blame", "Loading blame", WireJson.Default.FilePathRequest, WireJson.Default.BlameResult,
 			(message, ct) => BlameFileAsync(session, message, ct));
 		git.HandleConcurrent(
-			"commitHunk", WireJson.Default.CommitHunkRequest, WireJson.Default.CommitHunkResult,
+			"commitHunk", "Loading a commit hunk", WireJson.Default.CommitHunkRequest, WireJson.Default.CommitHunkResult,
 			(message, ct) => CommitHunkAsync(session, message, ct));
 		git.HandleConcurrent(
-			"history", WireJson.Default.HistoryRequest, WireJson.Default.HistoryResult,
+			"history", "Loading file history", WireJson.Default.HistoryRequest, WireJson.Default.HistoryResult,
 			(message, ct) => BlameHistoryAsync(session, message, ct));
 		git.HandleConcurrent(
-			"commitRef", WireJson.Default.CommitRefRequest, WireJson.Default.CommitRefResult,
+			"commitRef", "Loading a commit", WireJson.Default.CommitRefRequest, WireJson.Default.CommitRefResult,
 			(message, ct) => CommitRefAsync(message, ct));
 
 		var pullRequests = session.Bus.Feature("pullRequests");
 		pullRequests.Handle(
-			"list", WireJson.Default.PullRequestQuery, WireJson.Default.PullRequestWireArray,
+			"list", "Listing pull requests", WireJson.Default.PullRequestQuery, WireJson.Default.PullRequestWireArray,
 			(message, ct) => ListPullRequestsAsync(message.Query, ct));
 		pullRequests.Handle(
-			"resolve", WireJson.Default.PullRequestReference, WireJson.Default.PullRequestWire,
+			"resolve", "Looking up a pull request", WireJson.Default.PullRequestReference, WireJson.Default.PullRequestWire,
 			(message, ct) => GetPullRequestAsync(message, ct));
 		pullRequests.Handle(
-			"open", WireJson.Default.PullRequestReference, WireJson.Default.CommandWireResult,
+			"open", "Opening a pull request", WireJson.Default.PullRequestReference, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
 		HandlePullRequestComments(session, pullRequests);
 
 		var sources = session.Bus.Feature("sources");
-		sources.Handle("open", WireJson.Default.OpenTargetMessage, (message, _) => {
+		sources.Handle("open", "Opening a source", WireJson.Default.OpenTargetMessage, (message, _) => {
 			OpenTargetForWeb(session, message.Url);
 			return Task.CompletedTask;
 		});
 		sources.Handle(
-			"saveToken", WireJson.Default.SaveSourceTokenMessage, WireJson.Default.SourceTokenResult,
+			"saveToken", "Saving a source token", WireJson.Default.SaveSourceTokenMessage, WireJson.Default.SourceTokenResult,
 			(message, ct) => SaveSourceTokenAsync(session, message.SourceId, message.Token, ct));
-		sources.Handle("dismissToken", WireJson.Default.EmptyPayload, (_, _) => {
+		sources.Handle("dismissToken", "Dismissing a source token prompt", WireJson.Default.EmptyPayload, (_, _) => {
 			DismissSourceTokenPrompt(session);
 			return Task.CompletedTask;
 		});
 		sources.HandleConcurrent(
-			"refresh", WireJson.Default.OpenTargetMessage, WireJson.Default.SourceDoc,
+			"refresh", "Refreshing sources", WireJson.Default.OpenTargetMessage, WireJson.Default.SourceDoc,
 			(message, ct) => _sources.FetchAsync(message.Url, ct));
-		sources.Handle("saveEdit", WireJson.Default.SourceEditMessage, (message, ct) =>
+		sources.Handle("saveEdit", "Saving a source edit", WireJson.Default.SourceEditMessage, (message, ct) =>
 			SaveSourceEditAsync(session, message.Target, message.OldText, message.NewText, message.EditId, ct));
 	}
 

@@ -77,16 +77,19 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable Handle<TRequest, TResponse>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler,
-		SessionExecution execution) {
+		SessionExecution execution,
+		PendingPresenter presenter) {
 		ArgumentException.ThrowIfNullOrEmpty(feature);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ArgumentNullException.ThrowIfNull(handler);
 		return RegisterHandler(
 			feature,
 			name,
+			_ => activity,
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -96,12 +99,14 @@ internal partial class MessageBus : IAsyncDisposable {
 			},
 			execution,
 			null,
-			AdmitEveryPeer);
+			AdmitEveryPeer,
+			presenter);
 	}
 
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string feature,
 		string name,
+		Func<TRequest, string> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -111,6 +116,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
+			payload => activity(DeserializePayload(payload, requestType, feature, name)),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -118,12 +124,14 @@ internal partial class MessageBus : IAsyncDisposable {
 			},
 			SessionExecution.Keyed,
 			payload => lane(DeserializePayload(payload, requestType, feature, name)),
-			AdmitEveryPeer);
+			AdmitEveryPeer,
+			PendingPresenter.Bus);
 	}
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler,
@@ -134,6 +142,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
+			_ => activity,
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -143,12 +152,14 @@ internal partial class MessageBus : IAsyncDisposable {
 			},
 			execution,
 			null,
-			AdmitEveryPeer);
+			AdmitEveryPeer,
+			PendingPresenter.Bus);
 	}
 
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
+		Func<TRequest, string> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -158,6 +169,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
+			payload => activity(DeserializePayload(payload, requestType, feature, name)),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -167,18 +179,21 @@ internal partial class MessageBus : IAsyncDisposable {
 			},
 			SessionExecution.Keyed,
 			payload => lane(DeserializePayload(payload, requestType, feature, name)),
-			AdmitEveryPeer);
+			AdmitEveryPeer,
+			PendingPresenter.Bus);
 	}
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler,
 		SessionExecution execution) =>
 		HandleAfterResponse(
 			feature,
 			name,
+			activity,
 			eventType,
 			WireJson.Default.EmptyPayload,
 			async (message, ct) => new ResponseWithCompletion<EmptyPayload>(
@@ -189,6 +204,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler,
@@ -199,6 +215,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return HandleOwnedWhen(
 			feature,
 			name,
+			activity,
 			requestType,
 			responseType,
 			AdmitEveryPeer,
@@ -209,6 +226,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TRequest, TResponse>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<MessagePeer, bool> admit,
@@ -221,6 +239,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
+			_ => activity,
 			async (peer, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, peer, ct).ConfigureAwait(false);
@@ -230,16 +249,19 @@ internal partial class MessageBus : IAsyncDisposable {
 			},
 			execution,
 			null,
-			admit);
+			admit,
+			PendingPresenter.Bus);
 	}
 
 	private IDisposable RegisterHandler(
 		string feature,
 		string name,
+		Func<JsonElement, string> activity,
 		Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
 		SessionExecution execution,
 		Func<JsonElement, string>? lane,
-		Func<MessagePeer, bool> admit) {
+		Func<MessagePeer, bool> admit,
+		PendingPresenter presenter) {
 		var key = (feature, name);
 		lock (_lifecycle) {
 			if (!Accepting || Closed) {
@@ -248,12 +270,14 @@ internal partial class MessageBus : IAsyncDisposable {
 
 			var registration = new HandlerRegistration(
 				handler,
+				activity,
 				payload => execution switch {
 					SessionExecution.Serialized => GetFeatureLane(feature, string.Empty),
 					SessionExecution.Keyed => GetFeatureLane(feature, lane!(payload)),
 					_ => null,
 				},
-				admit);
+				admit,
+				presenter);
 			lock (_handlers) {
 				if (!_handlers.TryAdd(key, registration)) {
 					throw new InvalidOperationException($"A handler for {feature}.{name} is already registered.");
@@ -276,6 +300,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable Handle<TEvent>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler,
 		SessionExecution execution) {
@@ -285,18 +310,21 @@ internal partial class MessageBus : IAsyncDisposable {
 		return Handle(
 			feature,
 			name,
+			activity,
 			eventType,
 			WireJson.Default.EmptyPayload,
 			async (message, ct) => {
 				await handler(message, ct).ConfigureAwait(false);
 				return EmptyPayload.Value;
 			},
-			execution);
+			execution,
+			PendingPresenter.Bus);
 	}
 
 	internal IDisposable HandleOwned<TEvent>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
 		SessionExecution execution) {
@@ -306,6 +334,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return HandleOwned(
 			feature,
 			name,
+			activity,
 			eventType,
 			WireJson.Default.EmptyPayload,
 			async (message, peer, ct) => {
@@ -318,6 +347,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TEvent>(
 		string feature,
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
@@ -329,6 +359,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return HandleOwnedWhen(
 			feature,
 			name,
+			activity,
 			eventType,
 			WireJson.Default.EmptyPayload,
 			admit,
@@ -437,7 +468,7 @@ internal partial class MessageBus : IAsyncDisposable {
 						rejected = !registration.Admits(owner);
 						if (!rejected) {
 							admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-							var operation = _operations.Start(peer, envelope, OnOperationTimedOut);
+							var operation = _operations.Start(peer, envelope, registration.Presenter, registration.Activity, OnOperationTimedOut);
 							lifetime = new DispatchLifetime(operation);
 							dispatch = RunHandlerAsync(
 								owner,

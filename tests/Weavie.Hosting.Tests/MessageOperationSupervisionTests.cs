@@ -20,12 +20,12 @@ public sealed partial class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var fast = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var blocked = router.Host.Feature("blocked").Handle("run", OperationSupervisionJson.Default.Empty, (_, _) => {
+		using var blocked = router.Host.Feature("blocked").Handle("run", "Running a test operation", OperationSupervisionJson.Default.Empty, (_, _) => {
 			entered.TrySetResult();
 			release.Task.GetAwaiter().GetResult();
 			return Task.CompletedTask;
 		});
-		using var responsive = router.Host.Feature("responsive").Handle("run", OperationSupervisionJson.Default.Empty, (_, _) => {
+		using var responsive = router.Host.Feature("responsive").Handle("run", "Running a test operation", OperationSupervisionJson.Default.Empty, (_, _) => {
 			fast.TrySetResult();
 			return Task.CompletedTask;
 		});
@@ -117,7 +117,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
-			"sync", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"sync", "Syncing the session", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				entered.TrySetResult();
 				await release.Task;
@@ -140,18 +140,18 @@ public sealed partial class MessageOperationSupervisionTests {
 			// RouteAsync returning. Wait for it instead of racing the scheduler -- still exactly one response.
 			await Wait.UntilAsync(() => transport.Envelopes(MessageKind.Response).Any());
 			var response = Assert.Single(transport.Envelopes(MessageKind.Response));
-			Assert.Contains("msg-", response.Error, StringComparison.Ordinal);
-			Assert.Contains("lifecycle.sync", response.Error, StringComparison.Ordinal);
-			Assert.Contains("stage handler", response.Error, StringComparison.Ordinal);
+			const string timedOut = "Syncing the session didn't finish within 0.15 seconds, so this session stopped responding.";
+			Assert.Equal(timedOut, response.Error);
 			await Wait.UntilAsync(() => transport.Events("notifications", "show")
 				.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
-			Assert.Contains(
+			var busy = Assert.Single(
 				transport.Events("notifications", "show"),
 				eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
+			Assert.Equal("Syncing the session is taking longer than usual…", busy.GetProperty("message").GetString());
 			Assert.Contains(
 				transport.Events("notifications", "show"),
 				eventPayload => eventPayload.GetProperty("level").GetString() == "error"
-					&& eventPayload.GetProperty("message").GetString()!.Contains("lifecycle.sync", StringComparison.Ordinal));
+					&& eventPayload.GetProperty("message").GetString() == timedOut);
 			await Wait.UntilAsync(() => logs.Any(line => line.Contains("stage=handler", StringComparison.Ordinal)));
 			Assert.True(endpoint.Bus.Closed);
 			var health = router.Health(ingressResponsive: true);
@@ -161,6 +161,99 @@ public sealed partial class MessageOperationSupervisionTests {
 		} finally {
 			release.TrySetResult();
 		}
+	}
+
+	[Fact]
+	public async Task CallerPresentedRequestRaisesNoBusyNotificationButStillTimesOut() {
+		var transport = new RecordingTransport();
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(150));
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { }, policy, time);
+		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i3"));
+		endpoint.Activate();
+		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var handler = endpoint.Bus.Feature("naming").HandleWithCallerProgress(
+			"preview", "Suggesting a branch name", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			async (_, _) => {
+				entered.TrySetResult();
+				await release.Task;
+				return new Result(true);
+			});
+		var request = MessageEnvelope.SessionRequest(
+			endpoint.Address,
+			"request-9",
+			"naming",
+			"preview",
+			JsonSerializer.SerializeToElement(new Empty()));
+
+		var dispatch = router.RouteAsync(new WebPeer("page"), request.ToJson());
+		try {
+			await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			time.Advance(policy.SlowAfter);
+			Assert.Empty(transport.Events("notifications", "show"));
+			time.Advance(policy.Deadline - policy.SlowAfter);
+			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
+			await Wait.UntilAsync(() => transport.Events("notifications", "show").Any());
+			Assert.Equal(
+				"error",
+				Assert.Single(transport.Events("notifications", "show")).GetProperty("level").GetString());
+			Assert.StartsWith(
+				"Suggesting a branch name didn't finish",
+				Assert.Single(transport.Envelopes(MessageKind.Response)).Error,
+				StringComparison.Ordinal);
+		} finally {
+			release.TrySetResult();
+		}
+	}
+
+	[Fact]
+	public async Task QueuedOperationNamesWhatItWaitsForUntilItRuns() {
+		var transport = new RecordingTransport();
+		var time = new ManualTimeProvider();
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromSeconds(10));
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { }, policy, time);
+		await using var endpoint = router.OpenSession(new SessionAddress("mobile", "i4"));
+		endpoint.Activate();
+		var feature = endpoint.Bus.Feature("files");
+		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var read = feature.Handle(
+			"read", "Reading a file", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			async (_, _) => {
+				firstEntered.TrySetResult();
+				await releaseFirst.Task;
+				return new Result(true);
+			});
+		using var save = feature.Handle(
+			"save", "Saving a file", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			async (_, _) => {
+				secondEntered.TrySetResult();
+				await releaseSecond.Task;
+				return new Result(true);
+			});
+		string Request(string id, string name) => MessageEnvelope.SessionRequest(
+			endpoint.Address, id, "files", name, JsonSerializer.SerializeToElement(new Empty())).ToJson();
+		string?[] Busy() => [.. transport.Events("notifications", "show")
+			.Where(payload => payload.GetProperty("level").GetString() == "busy")
+			.Select(payload => payload.GetProperty("message").GetString())];
+
+		var first = router.RouteAsync(new WebPeer("page"), Request("request-a", "read"));
+		await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+		var second = router.RouteAsync(new WebPeer("page"), Request("request-b", "save"));
+		try {
+			time.Advance(policy.SlowAfter);
+			await Wait.UntilAsync(() => Busy().Contains("Saving a file is waiting for another task to finish: Reading a file…"));
+			releaseFirst.TrySetResult();
+			await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await Wait.UntilAsync(() => Busy().Contains("Saving a file is taking longer than usual…"));
+		} finally {
+			releaseFirst.TrySetResult();
+			releaseSecond.TrySetResult();
+		}
+		await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(2));
 	}
 
 	[Fact]
@@ -186,7 +279,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
 		endpoint.Activate();
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
-			"sync", OperationSupervisionJson.Default.Empty,
+			"sync", "Running a test operation", OperationSupervisionJson.Default.Empty,
 			async (_, _) => {
 				handlerEntered.TrySetResult();
 				await releaseHandler.Task;
@@ -229,7 +322,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		endpoint.Activate();
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").HandleAfterResponse(
-			"finish", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"finish", "Running a test operation", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<Result>(
 				new Result(true),
 				async _ => await release.Task)));
@@ -271,6 +364,8 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"blockedDiagnostics",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
+			_ => "Running a test operation",
 			policy,
 			time,
 			_ => {
@@ -311,6 +406,8 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"complete",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
+			_ => "Running a test operation",
 			policy,
 			time,
 			_ => {
@@ -347,6 +444,8 @@ public sealed partial class MessageOperationSupervisionTests {
 				"test",
 				"responseRace",
 				JsonSerializer.SerializeToElement(new Empty())),
+			PendingPresenter.Bus,
+			_ => "Running a test operation",
 			policy,
 			time,
 			_ => { },

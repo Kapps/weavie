@@ -16,15 +16,15 @@ public sealed partial class HostCore {
 	private void WireSystemNotificationMessages() {
 		_notificationFeature = _messages.Host.Feature("notifications");
 		_notificationFeature.Handle(
-			"permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
+			"permission", "Checking notification permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.GetPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.Handle(
-			"requestPermission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
+			"requestPermission", "Requesting notification permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.RequestPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.HandleOwned(
-			"show", WireJson.Default.NotificationShowMessage, WireJson.Default.NotificationShownMessage,
+			"show", "Showing a system notification", WireJson.Default.NotificationShowMessage, WireJson.Default.NotificationShownMessage,
 			ShowSystemNotificationAsync);
 		_platform.Notifications.Activated += OnSystemNotificationActivated;
 		_messages.Host.PeerDisconnected += OnNotificationPeerDisconnected;

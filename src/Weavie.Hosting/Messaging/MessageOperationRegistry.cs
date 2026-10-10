@@ -37,6 +37,8 @@ internal sealed class MessageOperationRegistry {
 	public MessageOperation Start(
 		WebPeer peer,
 		MessageEnvelope envelope,
+		PendingPresenter presenter,
+		Func<JsonElement, string> activity,
 		Action<MessageOperation, string> timedOut) {
 		ArgumentNullException.ThrowIfNull(envelope);
 		ArgumentNullException.ThrowIfNull(timedOut);
@@ -45,6 +47,8 @@ internal sealed class MessageOperationRegistry {
 			$"msg-{sequence}",
 			peer,
 			envelope,
+			presenter,
+			activity,
 			_policy,
 			_time,
 			OnSlow,
@@ -70,11 +74,7 @@ internal sealed class MessageOperationRegistry {
 		var snapshot = operation.Snapshot();
 		_diagnostics.Report($"[message] slow {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.TryRunSlowDiagnostic(() =>
-			SendNotification(
-				operation,
-				"busy",
-				SlowMessage(snapshot),
-				operation.NotificationKey)));
+			SendNotification(operation, "busy", BusyMessage(operation), operation.NotificationKey)));
 	}
 
 	private void OnTimedOut(
@@ -87,7 +87,7 @@ internal sealed class MessageOperationRegistry {
 		timedOut(operation, detail);
 		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.RunTimeoutDiagnostic(
-			() => SendNotification(operation, "busy", SlowMessage(snapshot), operation.NotificationKey),
+			() => SendNotification(operation, "busy", BusyMessage(operation), operation.NotificationKey),
 			() => SendNotification(operation, "error", detail, operation.NotificationKey)));
 	}
 
@@ -125,9 +125,14 @@ internal sealed class MessageOperationRegistry {
 		+ $"kind={snapshot.Kind} request={snapshot.RequestId ?? "-"} "
 		+ $"handler={snapshot.Feature}.{snapshot.Name} stage={snapshot.Stage} elapsedMs={snapshot.ElapsedMs}";
 
-	private static string SlowMessage(MessageOperationSnapshot snapshot) =>
-		$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
-		+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).";
+	// Built at delivery, so a restated notice always describes the operation's current stage.
+	private static string BusyMessage(MessageOperation operation) => operation.Stage switch {
+		MessageStage.FeatureQueue when operation.Blocker is { } blocker =>
+			$"{operation.Activity} is waiting for another task to finish: {blocker}…",
+		MessageStage.FeatureQueue or MessageStage.HandlerDispatch =>
+			$"{operation.Activity} is waiting for Weavie to finish other work…",
+		_ => $"{operation.Activity} is taking longer than usual…",
+	};
 }
 
 internal sealed record MessageOperationSnapshot(

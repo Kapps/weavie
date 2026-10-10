@@ -100,6 +100,7 @@ export const CommandIds = {
   toggleAgentAside: "weavie.agent.toggleAside",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
+  copyAgentCodeBlock: "weavie.agent.copyCodeBlock",
   openAgentPlan: "weavie.agent.openPlan",
   togglePlanMode: "weavie.agent.togglePlanMode",
   selectModel: "weavie.agent.selectModel",

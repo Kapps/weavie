@@ -95,7 +95,8 @@ Unload, delete, Recreate, Restart Agent, `/clear`, and Rewind refuse while backg
 `stopBackgroundWork: true` (MCP callers see the same refusal). The web
 turns it into a "Stop background work?" confirm whose list follows that session's work live. Its confirm names the
 action ("Stop and restart", "Stop and unload", …) and re-runs with consent; Keep running is the Enter/Esc default. Work
-that finishes while it is open re-runs the action without consent, so anything started since is asked about again.
+that finishes while it is open, or whose session goes away, re-runs the action without consent, so anything started
+since is asked about again.
 Exit Weavie asks about every loaded session on this machine.
 A page reload or Reload Agent History does not ask: the work keeps running on the host. With running work,
 `/clear` and Rewind restart the process instead of replacing the conversation on it, since only that stops it.

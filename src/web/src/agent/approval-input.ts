@@ -14,6 +14,12 @@ const conciseKeys = [
 
 const pathKeys = new Set(["file_path", "notebook_path", "path"]);
 
+/** The line an approval shows for its input; `path` is the full path when that line names one. */
+export interface ConciseToolInput {
+  text: string;
+  path: string | null;
+}
+
 /**
  * A tool request's raw input as one readable line: the first telling field (a path shown through `display`) that
  * its title doesn't already say.
@@ -21,17 +27,18 @@ const pathKeys = new Set(["file_path", "notebook_path", "path"]);
 export function conciseToolInput(
   input: string | null,
   title: string | null,
-  display: (text: string) => string,
-): string | null {
+  display: (path: string) => string,
+): ConciseToolInput | null {
   const fields = toolInputFields(input);
-  if (fields === null) return input;
+  if (fields === null) return input ? { text: input, path: null } : null;
   return (
     conciseKeys
       .map((key) => {
         const text = fieldText(fields[key]);
-        return text !== null && pathKeys.has(key) ? display(text) : text;
+        if (text === null) return null;
+        return pathKeys.has(key) ? { text: display(text), path: text } : { text, path: null };
       })
-      .find((text) => text !== null && !(title ?? "").includes(text)) ?? null
+      .find((line) => line !== null && !(title ?? "").includes(line.text)) ?? null
   );
 }
 

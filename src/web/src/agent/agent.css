@@ -426,6 +426,24 @@ a.agent-entry-media {
   overflow-wrap: break-word;
 }
 
+/* A shortened path ellipsizes its directory before its file name. */
+a:has(> .agent-path-dir) {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.agent-path-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-path-leaf {
+  flex: none;
+}
+
 /* Assistant prose uses the rendered-document role; code follows the editor content role. */
 .agent-markdown {
   max-width: 96ch;
@@ -1287,6 +1305,28 @@ label.agent-input-choice:hover {
 .agent-background-tray {
   align-items: center;
   border-top: 1px solid var(--border);
+}
+
+/* Fade whichever edge has pills scrolled out of view. */
+.agent-background-tray .agent-status-scroll {
+  --fade-left: 0px;
+  --fade-right: 0px;
+  scroll-padding-inline: 1.5em;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-left),
+    #000 calc(100% - var(--fade-right)),
+    transparent
+  );
+}
+
+.agent-background-tray .agent-status-scroll.overflow-left {
+  --fade-left: 1.5em;
+}
+
+.agent-background-tray .agent-status-scroll.overflow-right {
+  --fade-right: 1.5em;
 }
 
 .agent-background-label {

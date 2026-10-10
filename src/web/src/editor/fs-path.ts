@@ -82,15 +82,25 @@ export function extensionOf(path: string): string {
 /// untouched `path` when it lies outside the root — a file with no place under the repo has no repo-relative
 /// form, so its own path is the honest answer.
 export function repoRelativePath(root: string, path: string): string {
+  const rest = pathBelow(root, path);
+  return rest === null ? path : rest === "" ? basename(path) : rest.slice(1);
+}
+
+/** How a path reads to the user: relative inside the checkout, `~`-relative under home, and whole elsewhere. */
+export function displayPath(path: string, root: string | null, home: string | null): string {
+  if (root !== null && pathBelow(root, path) !== null) return repoRelativePath(root, path);
+  const rest = home === null ? null : pathBelow(home, path);
+  return rest === null ? path : `~${rest}`;
+}
+
+// What follows `root` in `path` from its separator on ("" for `root` itself), or null when it lies outside.
+function pathBelow(root: string, path: string): string | null {
   const normalize = (value: string): string =>
     value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   const normalizedRoot = normalize(root);
   const normalizedPath = normalize(path);
-  if (normalizedPath === normalizedRoot) {
-    return basename(path);
-  }
-  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    return path.slice(root.replace(/[\\/]+$/, "").length + 1);
-  }
-  return path;
+  if (normalizedPath === normalizedRoot) return "";
+  return normalizedPath.startsWith(`${normalizedRoot}/`)
+    ? path.slice(root.replace(/[\\/]+$/, "").length)
+    : null;
 }

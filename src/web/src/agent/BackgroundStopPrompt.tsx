@@ -1,7 +1,11 @@
 import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
 import { ModalShell, modalSubmitKeys } from "../chrome/ModalShell";
 import { backgroundStatus } from "./background-format";
-import { type BackgroundWorkSummary, backgroundStopRequest } from "./background-guard";
+import {
+  type BackgroundWorkSummary,
+  backgroundStopRequest,
+  stopQuestionMoot,
+} from "./background-guard";
 import { liveNow } from "./live-clock";
 
 /** Confirms an action that would stop running work, listing it live; Enter and Esc keep the work running. */
@@ -11,13 +15,13 @@ export function BackgroundStopPrompt(): JSX.Element {
       {(request) => {
         const keep = () => request.settle("keep");
         const now = liveNow(() => true);
-        // The live list replaces the refusal's once it has caught up; when that work is all gone, nothing is
-        // left to warn about and the action goes ahead as the user asked.
+        // The live list replaces the refusal's once it has caught up; once the question is moot, the action goes
+        // ahead as the user asked.
         const [caughtUp, setCaughtUp] = createSignal(false);
         createEffect(() => {
-          const running = request.running() ?? [];
-          if (running.length > 0) setCaughtUp(true);
-          else if (caughtUp()) request.settle("finished");
+          const running = request.running();
+          if (stopQuestionMoot(running, caughtUp())) request.settle("finished");
+          else if (running !== null && running.length > 0) setCaughtUp(true);
         });
         const listed = (): (BackgroundWorkSummary & { endedAtMs?: number | null })[] =>
           caughtUp() ? (request.running() ?? []) : request.refused;

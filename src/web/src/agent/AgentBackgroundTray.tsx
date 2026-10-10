@@ -1,5 +1,6 @@
 import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
 import { liveKeyHint } from "../commands/keys-live";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -24,8 +25,11 @@ export function AgentBackgroundTray(props: {
     const all = buttons();
     const target = all[index];
     for (const button of all) button.tabIndex = button === target ? 0 : -1;
-    target?.focus();
+    target?.focus({ preventScroll: true });
+    // Unlike focus's own scroll, this honors the scroll padding that keeps the pill clear of the edge fades.
+    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
+  const { overflow, track } = createHorizontalOverflow();
   const onKeyDown = (event: KeyboardEvent): void => {
     const all = buttons();
     const next = rovingTarget(
@@ -57,7 +61,11 @@ export function AgentBackgroundTray(props: {
         onKeyDown={onKeyDown}
       >
         <span class="agent-background-label">Background</span>
-        <div class="agent-status-scroll">
+        <div
+          ref={track}
+          class="agent-status-scroll"
+          classList={{ "overflow-left": overflow().left, "overflow-right": overflow().right }}
+        >
           <For each={items()}>
             {(item, index) => (
               <span

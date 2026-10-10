@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   canonicalFsPath,
+  displayPath,
   isOutsideWorkspace,
   normalizePath,
   repoRelativePath,
@@ -144,5 +145,25 @@ describe("isOutsideWorkspace", () => {
 
   it("reports unknown as inside, so nothing is flagged before the index arrives", () => {
     expect(isOutsideWorkspace("/elsewhere/a.ts", null)).toBe(false);
+  });
+});
+
+describe("displayPath", () => {
+  it("reads relative inside the checkout, even when the checkout lies under home", () => {
+    expect(displayPath("/home/user/proj/src/App.ts", "/home/user/proj", "/home/user")).toBe(
+      "src/App.ts",
+    );
+  });
+
+  it("reads home-relative outside the checkout, keeping the path's own separators", () => {
+    expect(displayPath("/home/user/.config/app.json", "/home/user/proj", "/home/user")).toBe(
+      "~/.config/app.json",
+    );
+    expect(displayPath("C:\\Users\\Me\\notes.md", null, "c:/users/me")).toBe("~\\notes.md");
+  });
+
+  it("keeps a path outside both whole", () => {
+    expect(displayPath("/tmp/scratch.ts", "/home/user/proj", "/home/user")).toBe("/tmp/scratch.ts");
+    expect(displayPath("/home/user/a.ts", null, null)).toBe("/home/user/a.ts");
   });
 });

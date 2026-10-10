@@ -20,7 +20,9 @@ export interface AgentBackgroundItem {
 
 const [bySession, setBySession] = createSignal(new Map<ClientSession, AgentBackgroundItem[]>());
 
+// A loaded session has an entry from the start, so a missing one always means the session is gone.
 registerSessionFeature((session) => {
+  setBySession(new Map(bySession()).set(session, []));
   const stop = session
     .feature("agent")
     .on<{ items: AgentBackgroundItem[] }>("background", ({ items }) => {

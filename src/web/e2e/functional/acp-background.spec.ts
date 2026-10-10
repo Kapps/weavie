@@ -87,6 +87,35 @@ test("a workflow renders a card, and Show Background Work focuses the tray", asy
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 });
 
+test("an overflowing tray fades the edge hiding pills, and roving focus scrolls them into view", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 720 });
+  const surface = await createAcpSession(page, "acp-background-overflow");
+  const pills = surface.locator(".agent-background-tray [data-background-item]");
+  for (let count = 1; count <= 6; count++) {
+    await submitAcpDraft(surface, "task-held");
+    await expect(pills).toHaveCount(count);
+  }
+  const scroller = surface.locator(".agent-background-tray .agent-status-scroll");
+  await expect(scroller).toHaveClass(/overflow-right/);
+  await expect(scroller).not.toHaveClass(/overflow-left/);
+
+  await runPalette(page, "Show Background Work");
+  await expect(surface.locator(".agent-background-tray button").first()).toBeFocused();
+  await page.keyboard.press("End");
+  const last = pills.last().getByRole("button", { name: "Stop", exact: true });
+  await expect(last).toBeFocused();
+  await expect(scroller).toHaveClass(/overflow-left/);
+  await expect(scroller).not.toHaveClass(/overflow-right/);
+  const inside = await last.evaluate((button) => {
+    const pill = button.getBoundingClientRect();
+    const view = button.closest(".agent-status-scroll")!.getBoundingClientRect();
+    return pill.left >= view.left && pill.right <= view.right;
+  });
+  expect(inside).toBe(true);
+});
+
 async function runPalette(page: import("@playwright/test").Page, title: string): Promise<void> {
   await page.keyboard.press("ControlOrMeta+Shift+p");
   await page.locator(".tb-omnibar-input").fill(`>${title}`);
@@ -176,6 +205,13 @@ test.describe("with approvals", () => {
       "data-state",
       "completed",
     );
+
+    await submitAcpDraft(surface, "subagent-permission-outside");
+    const outside = surface.locator("[data-agent-subagent] .agent-entry-request").last();
+    const path = outside.locator(".agent-entry-main > .agent-entry-text");
+    await expect(path).toHaveText(/^~[\\/].*settings\.json$/);
+    await expect(path).toHaveAttribute("title", /^[^~].*fake-agent.*settings\.json$/);
+    await outside.getByRole("button", { name: "Allow" }).click();
 
     await submitAcpDraft(surface, "permission");
     const primary = surface.locator(".agent-entry-request").last();

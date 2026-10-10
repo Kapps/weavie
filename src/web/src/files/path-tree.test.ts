@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPathTree,
+  compactPathTree,
   pathAncestorKeys,
   pathTreeDirectoryKeys,
   visiblePathTreeRows,
@@ -54,5 +55,26 @@ describe("path tree", () => {
       ["src/deep/a.ts", 2],
     ]);
     expect(visiblePathTreeRows(tree, new Set(), Number.POSITIVE_INFINITY)).toHaveLength(1);
+  });
+
+  it("merges single-folder chains into one row keyed by the deepest folder", () => {
+    const tree = compactPathTree(
+      buildPathTree([
+        { path: "src/components/forms/a.tsx", value: "a" },
+        { path: "src/app/b.ts", value: "b" },
+      ]),
+    );
+
+    expect(
+      visiblePathTreeRows(tree, new Set(pathTreeDirectoryKeys(tree)), Number.POSITIVE_INFINITY).map(
+        (row) => [row.node.name, row.node.key, row.depth],
+      ),
+    ).toEqual([
+      ["src", "src", 0],
+      ["app", "src/app", 1],
+      ["b.ts", "src/app/b.ts", 2],
+      ["components/forms", "src/components/forms", 1],
+      ["a.tsx", "src/components/forms/a.tsx", 2],
+    ]);
   });
 });

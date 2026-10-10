@@ -12,19 +12,14 @@ import {
 import type { ClientSession } from "../../bridge";
 import { selectedSession } from "../../bridge";
 import { setContext } from "../../commands/context";
-import {
-  buildPathTree,
-  type PathTreeNode,
-  pathTreeDirectoryKeys,
-  visiblePathTreeRows,
-} from "../../files/path-tree";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { activeTabFor } from "../session-store";
 import type { TabOwner } from "../tab-owner";
+import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
-import { ReviewFileTree } from "./ReviewFileTree";
+import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
@@ -40,8 +35,6 @@ import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from 
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
-const TREE_HEADER_HEIGHT = 42;
-const TREE_ROW_HEIGHT = 28;
 
 export function UnifiedReview(props: {
   scope: ReviewScopeState;
@@ -73,9 +66,8 @@ export function UnifiedReview(props: {
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [viewTop, setViewTop] = createSignal(0);
   const [anchorPath, setAnchorPath] = createSignal<string>();
-  // The selected file, else the first file on screen; none while only the file tree is in view. Memoised because
-  // several consumers ask per frame, and it takes the viewport height from the scroll owner rather than the DOM: a
-  // read there lands mid-gesture and forces a synchronous layout.
+  // The selected file, else the first file on screen. Memoised because several consumers ask per frame, and it
+  // takes the viewport height from the scroll owner rather than the DOM: a read there forces a synchronous layout.
   const visibleFile = createMemo((): number | undefined => {
     const path = selectedPath();
     if (path !== null) {
@@ -86,8 +78,7 @@ export function UnifiedReview(props: {
     if (owner === undefined) return undefined;
     const top = viewTop();
     const bottom = top + owner.getViewportHeight();
-    const row = rows().find((item) => item.index > 0 && item.start < bottom && item.end > top);
-    return row === undefined ? undefined : row.index - 1;
+    return rows().find((item) => item.start < bottom && item.end > top)?.index;
   });
   const setVisibleFile = (index: number): void => {
     setSelectedPath(props.overview().files[index]?.summary().path ?? null);
@@ -103,27 +94,6 @@ export function UnifiedReview(props: {
   const files = (): ReviewFileView[] => props.overview().files;
   const sessionKey = (): string =>
     `${props.session.address.slot}\0${props.session.address.incarnation}`;
-  const treeNodes = createMemo<PathTreeNode<ReviewFileView>[]>(() =>
-    buildPathTree(files().map((file) => ({ path: displayPath(file.summary().path), value: file }))),
-  );
-
-  const collapsedDirectories = new Set<string>();
-  const [treeRevision, setTreeRevision] = createSignal(0);
-  const expandedDirectories = createMemo<ReadonlySet<string>>(() => {
-    treeRevision();
-    const collapsed = collapsedDirectories;
-    return new Set(pathTreeDirectoryKeys(treeNodes()).filter((key) => !collapsed.has(key)));
-  });
-  const toggleDirectory = (key: string): void => {
-    const collapsed = collapsedDirectories;
-    if (collapsed.has(key)) {
-      collapsed.delete(key);
-    } else {
-      collapsed.add(key);
-    }
-    setTreeRevision((revision) => revision + 1);
-  };
-
   const editorHeights = new WeakMap<ReviewFileView, number>();
   const editorHeight = (file: ReviewFileView): number =>
     editorHeights.get(file) ?? estimatedEditorHeight(file.summary().added, file.summary().removed);
@@ -137,25 +107,14 @@ export function UnifiedReview(props: {
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
     get count() {
-      return files().length + 1;
+      return files().length;
     },
     estimateSize: (index) => {
-      if (index === 0) {
-        const count = visiblePathTreeRows(
-          treeNodes(),
-          expandedDirectories(),
-          Number.POSITIVE_INFINITY,
-        ).length;
-        return TREE_HEADER_HEIGHT + count * TREE_ROW_HEIGHT;
-      }
-      const file = files()[index - 1];
+      const file = files()[index];
       return file === undefined ? 120 : estimatedFileSize(file);
     },
     getItemKey: (index) => {
-      if (index === 0) {
-        return `${sessionKey()}\0tree`;
-      }
-      const path = files()[index - 1]?.summary().path;
+      const path = files()[index]?.summary().path;
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
     getScrollElement: () => scroll()?.viewport ?? null,
@@ -231,7 +190,7 @@ export function UnifiedReview(props: {
       next.set(key, collapsed);
       const previous = collapseSnapshot.get(key);
       if (previous !== undefined && previous !== collapsed) {
-        virtualizer.resizeItem(index + 1, estimatedFileSize(file));
+        virtualizer.resizeItem(index, estimatedFileSize(file));
       }
     });
     collapseSnapshot = next;
@@ -272,20 +231,42 @@ export function UnifiedReview(props: {
     files();
     surface.refresh();
   });
+  const revealFile = (index: number): void => {
+    const file = files()[index]?.summary();
+    if (file !== undefined) surface.revealFile(file.path, file.line);
+  };
+  // The file list opens under a file name: the clicked one, else the current file's pinned header.
+  const [pickerAnchor, setPickerAnchor] = createSignal<HTMLElement>();
+  const pickFile = (anchor: HTMLElement | undefined): void => {
+    setPickerAnchor(
+      anchor ??
+        scroller?.querySelector<HTMLElement>(
+          `.unified-review-file[data-index="${visibleFile() ?? 0}"] .unified-review-file-name`,
+        ) ??
+        undefined,
+    );
+  };
+  const goToFile = (path: string | undefined): boolean => {
+    if (path === undefined) {
+      pickFile(undefined);
+      return true;
+    }
+    const index = files().findIndex(
+      (file) => samePath(file.summary().path, path) || displayPath(file.summary().path) === path,
+    );
+    if (index < 0) throw new Error(`${displayPath(path)} is not in this review.`);
+    revealFile(index);
+    return true;
+  };
   const summary = () => {
-    const overview = props.overview();
     const index = visibleFile();
-    const count = overview.files.length;
-    const reveal = (index: number): void => {
-      const file = overview.files[index]?.summary();
-      if (file !== undefined) surface.reveal(file.path, file.line);
-    };
+    const count = files().length;
     return {
-      fileCount: overview.files.length,
-      label: overview.label,
-      stepIn: () => reveal(index ?? 0),
-      nextFile: () => reveal(index === undefined ? 0 : (index + 1) % count),
-      prevFile: () => reveal(((index ?? 0) - 1 + count) % count),
+      fileCount: count,
+      label: props.overview().label,
+      stepIn: () => revealFile(index ?? 0),
+      nextFile: () => revealFile(index === undefined ? 0 : (index + 1) % count),
+      prevFile: () => revealFile(((index ?? 0) - 1 + count) % count),
     };
   };
   const history = reviewHistoryHandlers(props.session, () => {
@@ -321,7 +302,10 @@ export function UnifiedReview(props: {
     onCleanup(
       props.bindSurface({
         ...surface,
-        actions: () => surface.actions() ?? parkedActions(),
+        actions: () => {
+          const actions = surface.actions() ?? parkedActions();
+          return actions && { ...actions, goToFile };
+        },
       }),
     ),
   );
@@ -350,7 +334,7 @@ export function UnifiedReview(props: {
     const index =
       path === undefined ? -1 : files().findIndex((file) => samePath(file.summary().path, path));
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-      index < 0 ? undefined : (item) => item.index <= index;
+      index < 0 ? undefined : (item) => item.index < index;
   });
   const followViewport = (): void => {
     setAnchorPath(undefined);
@@ -366,7 +350,7 @@ export function UnifiedReview(props: {
       if (userInitiated) {
         setAnchorPath(undefined);
         const row = virtualizer.getVirtualItemForOffset(owner.getScrollTop());
-        if (row !== undefined && row.index > 0) setVisibleFile(row.index - 1);
+        if (row !== undefined) setVisibleFile(row.index);
       }
       surface.refresh();
       props.changed();
@@ -398,6 +382,31 @@ export function UnifiedReview(props: {
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
+      <Show when={pickerAnchor()}>
+        {(anchor) => (
+          <ReviewFileSwitcher
+            anchor={anchor()}
+            files={files}
+            current={visibleFile}
+            displayPath={displayPath}
+            onChoose={(index) => {
+              setPickerAnchor();
+              revealFile(index);
+            }}
+            onClose={() => setPickerAnchor()}
+            onCancel={() => {
+              setPickerAnchor();
+              surface.focus();
+            }}
+          />
+        )}
+      </Show>
+      <ReviewFileMap
+        overview={props.overview}
+        current={visibleFile}
+        displayPath={displayPath}
+        onReveal={revealFile}
+      />
 
       <main class="unified-review-diffs" ref={scroller} tabIndex={-1}>
         <div
@@ -412,76 +421,59 @@ export function UnifiedReview(props: {
               const row = () => rows().find((candidate) => String(candidate.key) === key);
               const file = () => {
                 const index = row()?.index;
-                return index === undefined || index === 0 ? undefined : files()[index - 1];
+                return index === undefined ? undefined : files()[index];
               };
               onCleanup(() => virtualizer.measureElement(null));
               return (
                 <Show when={row()}>
                   {(item) => (
-                    <Show
-                      when={item().index === 0}
-                      fallback={
-                        <Show when={file()}>
-                          {(view) => (
-                            <ReviewFileSection
-                              session={props.session}
-                              tab={props.tab}
-                              scroller={() => scroll()!}
-                              editorHeight={() => editorHeight(view())}
-                              onEditorHeight={(height) => {
-                                const file = view();
-                                if (editorHeights.get(file) === height) return false;
-                                editorHeights.set(file, height);
-                                return true;
-                              }}
-                              scope={props.scope}
-                              displayPath={displayPath}
-                              file={view}
-                              index={item().index}
-                              register={surface.sections}
-                              active={() => visibleFile() === item().index - 1}
-                              toolbarHost={() => toolbarHost ?? null}
-                              configureDiff={(inline, uri, diff) =>
-                                props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
-                                  surface.reveal(file.path, line),
-                                )
-                              }
-                              openCopy={(diff) =>
-                                copies.open(diff.path, diff.current, diff.currentExists)
-                              }
-                              revealContext={(span) =>
-                                props.onRevealContext(props.session, view().summary().path, span)
-                              }
-                              measure={measure}
-                              observe={observe}
-                              onFocus={() => {
-                                setVisibleFile(item().index - 1);
-                                props.changed();
-                              }}
-                              top={item().start}
-                            />
-                          )}
-                        </Show>
-                      }
-                    >
-                      <ReviewFileTree
-                        expanded={expandedDirectories}
-                        index={0}
-                        measure={observe}
-                        nodes={treeNodes}
-                        onSelect={(file) =>
-                          surface.reveal(file.summary().path, file.summary().line)
-                        }
-                        onToggleDirectory={toggleDirectory}
-                        overview={props.overview}
-                        selectedPath={() => {
-                          const index = visibleFile();
-                          return index === undefined
-                            ? null
-                            : (files()[index]?.summary().path ?? null);
-                        }}
-                        style={`top:${item().start}px`}
-                      />
+                    <Show when={file()}>
+                      {(view) => (
+                        <ReviewFileSection
+                          session={props.session}
+                          tab={props.tab}
+                          scroller={() => scroll()!}
+                          editorHeight={() => editorHeight(view())}
+                          onEditorHeight={(height) => {
+                            const file = view();
+                            if (editorHeights.get(file) === height) return false;
+                            editorHeights.set(file, height);
+                            return true;
+                          }}
+                          scope={props.scope}
+                          displayPath={displayPath}
+                          file={view}
+                          index={item().index}
+                          fileCount={files().length}
+                          onStep={(delta) =>
+                            revealFile((item().index + delta + files().length) % files().length)
+                          }
+                          onPickFile={(anchor) =>
+                            pickerAnchor() === undefined ? pickFile(anchor) : setPickerAnchor()
+                          }
+                          register={surface.sections}
+                          active={() => visibleFile() === item().index}
+                          toolbarHost={() => toolbarHost ?? null}
+                          configureDiff={(inline, uri, diff) =>
+                            props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
+                              surface.reveal(file.path, line),
+                            )
+                          }
+                          openCopy={(diff) =>
+                            copies.open(diff.path, diff.current, diff.currentExists)
+                          }
+                          revealContext={(span) =>
+                            props.onRevealContext(props.session, view().summary().path, span)
+                          }
+                          measure={measure}
+                          observe={observe}
+                          onFocus={() => {
+                            setVisibleFile(item().index);
+                            props.changed();
+                          }}
+                          top={item().start}
+                        />
+                      )}
                     </Show>
                   )}
                 </Show>

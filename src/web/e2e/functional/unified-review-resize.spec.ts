@@ -18,7 +18,7 @@ test.use({
 test("review viewport follows resizing and a preceding file's collapse", async ({ page }) => {
   await expect(page.locator(".editor-empty-review")).toContainText("3");
   await page.locator(".editor-empty-review").click();
-  await page.locator(".unified-review-tree-row.file").first().click();
+  await page.locator(".unified-review-map-file").first().click();
   const scroller = page.locator(".unified-review-diffs");
   const viewport = scroller.locator(":scope > .monaco-scrollable-element");
   const first = page.locator(".unified-review-file", {

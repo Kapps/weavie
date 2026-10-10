@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 
 const source = Array.from({ length: 100 }, (_, index) => `public class Value${index} {}`).join(
   "\n",
@@ -56,7 +56,7 @@ test.describe("review semantic-token requests", () => {
       "each unchanged model is requested only once across consumers and remounts",
     ).toBe(new Set(requests).size);
 
-    await page.locator(".unified-review-tree-row.file", { hasText: paths[0]! }).click();
+    await reviewFileSegment(page, paths[0]!).click();
     await expect(page.locator(".unified-review-file .monaco-editor.focused")).toHaveCount(1);
     await page.keyboard.press("Home");
     await page.keyboard.insertText("/* Updated */ ");

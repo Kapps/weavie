@@ -89,4 +89,44 @@ public sealed class TurnChangeSummaryTests {
 		Assert.NotSame(rejected, summary);
 		Assert.Equal(2, summary.Added);
 	}
+
+	[Fact]
+	public void PendingCountsOnlyTheLinesNotYetKept() {
+		Change("open.ts", "x\n", "y\n"); // keeps the review open once a.ts is fully kept
+		string path = Change("a.ts", "a\nb\nc\nd\n", "a\nB\nc\nD\n");
+		Assert.Equal(4, SummaryFor(path).PendingLines);
+
+		Assert.True(_tracker.KeepHunk(path, new LineRange(2, 3), new LineRange(2, 3), "B"));
+		var partial = SummaryFor(path);
+		Assert.Equal(4, partial.Added + partial.Removed);
+		Assert.Equal(2, partial.PendingLines);
+
+		_tracker.KeepFile(path);
+		Assert.Equal(0, SummaryFor(path).PendingLines);
+	}
+
+	[Fact]
+	public void AReEditAfterAKeepIsPendingAgain() {
+		Change("open.ts", "x\n", "y\n");
+		string path = Change("a.ts", "a\n", "A\n");
+		_tracker.KeepFile(path);
+
+		_tracker.CaptureBaseline(path);
+		_fileSystem.WriteAllText(path, "A\nb\n");
+		_tracker.RecordChange(path);
+
+		var summary = SummaryFor(path);
+		Assert.Equal(3, summary.Added + summary.Removed);
+		Assert.Equal(1, summary.PendingLines);
+	}
+
+	[Fact]
+	public void AFullyRevertedFileStaysListedWithNothingPending() {
+		Change("open.ts", "x\n", "y\n");
+		string path = Change("a.ts", "a\n", "a\nb\n");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, _tracker.RevertFile(path));
+
+		Assert.Equal(0, SummaryFor(path).PendingLines);
+	}
 }

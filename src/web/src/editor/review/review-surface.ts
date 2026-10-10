@@ -17,6 +17,8 @@ export interface UnifiedReviewSurface extends Omit<TabPresenter, "signal"> {
   refresh(): void;
   takeControl(): void;
   reveal(path: string, line: number): void;
+  /** Opens a file at its top, with the cursor on its first change. */
+  revealFile(path: string, line: number): void;
 }
 
 export interface ReviewSectionRegistry {
@@ -131,7 +133,7 @@ export function createReviewSurface(surface: {
       surface.select(index, location.path, location.line);
       queueMicrotask(() => {
         if (pending !== operation) return;
-        surface.scrollToIndex(index + 1);
+        surface.scrollToIndex(index);
         requestAnimationFrame(() => {
           if (pending !== operation) return;
           operation.ready = true;
@@ -214,6 +216,7 @@ export function createReviewSurface(surface: {
     },
     actions: () => activeSection()?.inline.captureActions(),
     reveal: (path, line) => reveal({ path, line }, "location"),
+    revealFile: (path, line) => reveal({ path, line }, "file-start"),
     sections: {
       empty: () => settle(),
       failed: (path, error) => {

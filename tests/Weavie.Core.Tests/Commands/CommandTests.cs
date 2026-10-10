@@ -344,15 +344,6 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public void CopyAgentCodeBlock_UsesTheFocusedAgentBinding() {
-		var command = CoreCommands.CreateRegistry().Require(CoreCommands.CopyAgentCodeBlock);
-
-		Assert.Equal(CommandLocation.Web, command.RunsIn);
-		Assert.Equal("alt+c", Assert.Single(command.DefaultKeybindings).Key);
-		Assert.Equal("agentFocused", command.When);
-	}
-
-	[Fact]
 	public void OpenAgentPlan_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.OpenAgentPlan);
 

@@ -154,7 +154,7 @@ public static class CoreCommands {
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
 
-	/// <summary>Copies the focused or newest fenced code block in structured-agent output; bound to <c>Alt+C</c>.</summary>
+	/// <summary>Copies the focused or newest fenced code block in structured-agent output.</summary>
 	public const string CopyAgentCodeBlock = "weavie.agent.copyCodeBlock";
 
 	/// <summary>Toggles the active structured agent between its Plan and default collaboration modes.</summary>
@@ -1099,7 +1099,6 @@ public static class CoreCommands {
 			Description = "Copy the focused code block in agent output to the clipboard, or the newest code block when "
 				+ "none is focused.",
 			Aliases = ["copy code", "copy command", "copy snippet", "copy code block"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+c" }],
 			When = "agentFocused",
 		});
 

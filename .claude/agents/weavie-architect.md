@@ -17,8 +17,8 @@ produce a blueprint; you do not write the implementation.
     lives in the shared `HostCore`; the per-OS shells (Win/Mac/Linux/Headless) are thin adapters over
     `HostBridge` supplying only native bits. A feature should land once in the core, not four times
     per host.
-  - **Capabilities are commands.** A new user-facing action is registered as a command with a default
-    keybinding and surfaced over IDE-MCP as a command — not a bespoke MCP tool. Queries and
+  - **Capabilities are commands.** A new user-facing action is registered as a command (a default
+    keybinding only for frequent, core actions) and surfaced over IDE-MCP as a command — not a bespoke MCP tool. Queries and
     complex-arg editors stay tools. Every action advertises its shortcut (read from the command
     catalog, never hardcoded).
   - **Long-lived child processes** go through `ProcessSupervisor` with an explicit `RestartPolicy`.

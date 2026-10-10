@@ -8,7 +8,8 @@ import { MockHost, mockSession } from "./mock-host";
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
 // Each fenced block in an agent reply carries a copy button that copies the block's exact contents, and the
-// Copy Code Block command copies the focused block or, with none focused, the newest one.
+// Copy Code Block command (unbound by default; bound here as a user would) copies the focused block or, with
+// none focused, the newest one.
 
 const acpSession = mockSession("cx", "acp", "acp");
 const COPY_COMMAND = "weavie.agent.copyCodeBlock";

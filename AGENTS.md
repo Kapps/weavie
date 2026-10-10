@@ -91,9 +91,10 @@ the keyboard path for an action just by using the mouse.
 - **Read the effective binding from the command catalog** (`CommandInfo.keys`, formatted with
   `formatKey`); never hardcode the keys. They're user-overridable in `~/.weavie/keybindings.json`, so
   a hardcoded label goes stale. Unbound commands show just the label.
-- **New user-facing actions get a command + default keybinding** (see
-  [docs/specs/commands.md](docs/specs/commands.md)), not just an isolated handler — so they're
-  reachable from the keyboard, the palette, and Claude alike.
+- **New user-facing actions get a command** (see [docs/specs/commands.md](docs/specs/commands.md)),
+  not just an isolated handler — so they're reachable from the palette, user keybindings, and Claude alike.
+- **Default keybindings are scarce; reserve them for frequent, core actions.** A niche or occasional
+  action ships unbound (palette + user-bindable) — never invent a default shortcut just because it can have one.
 
 ## Process supervision
 

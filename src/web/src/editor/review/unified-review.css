@@ -347,13 +347,14 @@
 
 .unified-review-switcher-state {
   flex: none;
-  width: 0.5em;
-  height: 0.5em;
+  width: 0.55em;
+  height: 0.55em;
+  border: 1.5px solid var(--dim);
   border-radius: 50%;
-  background: var(--accent);
 }
 
 .unified-review-switcher-state.reviewed {
+  border-color: var(--diff-added, #5a9a6a);
   background: var(--diff-added, #5a9a6a);
 }
 

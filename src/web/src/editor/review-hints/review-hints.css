@@ -91,9 +91,9 @@
   opacity: 0.5;
 }
 
-/* Pill widgets are re-added as hints re-anchor; the open popover stays above them. */
+/* The open popover stays above the re-added pill widgets and the zone-card layer's PR threads (zone-cards.css). */
 .weavie-hint-popover-anchor {
-  z-index: 1;
+  z-index: 4;
 }
 
 /* Sized to its header (the title and body don't widen it), so the header never wraps. */

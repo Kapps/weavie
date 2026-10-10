@@ -329,6 +329,11 @@ test.describe("PR review", () => {
       await expect(popover(page)).toHaveCount(0);
       const input = page.locator(".weavie-pr-card-draft .weavie-pr-composer-input");
       await expect(input).toHaveValue("The PR greeting is hardcoded");
+      await input.fill("Read it from config?");
+      // Again while the box is open: the hint's text joins what was typed, rather than replacing or vanishing.
+      await review.locator(".weavie-hint-pill").click();
+      await popover(page).getByRole("button", { name: "Comment on PR" }).click();
+      await expect(input).toHaveValue("Read it from config?\n\nThe PR greeting is hardcoded");
       await input.fill("The PR greeting is hardcoded — read it from config?");
       await input.press("ControlOrMeta+Enter");
       await expect(

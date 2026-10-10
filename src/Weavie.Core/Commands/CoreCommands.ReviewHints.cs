@@ -86,7 +86,6 @@ public static partial class CoreCommands {
 			Category = "Review",
 			Description = "Open a pull request comment on the open review hint's line, or the cursor line's hint, prefilled with the hint's text for you to edit and post as yourself.",
 			Aliases = ["comment from hint", "post hint", "hint to pr comment", "promote hint"],
-			When = "prCommentable",
 		});
 
 		registry.Register(new CommandDefinition {

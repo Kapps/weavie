@@ -15,6 +15,10 @@ const NOTES = {
   changed: ["Changed locally", "Your copy no longer has the line this comment is on."],
 } as const;
 
+/** The reply box's draft identity, shared with whatever prefills it. */
+export const replyDraftKey = (number: number, rootId: number): string =>
+  `reply:${number}:${rootId}`;
+
 // A thread longer than this shows its opening comment and latest replies, folding the middle.
 const FOLD_AFTER = 4;
 const FOLD_KEEP_LATEST = 2;
@@ -27,8 +31,7 @@ export function PrThreadCard(props: {
   viewer: PrUser;
   collapsed: boolean;
   onCollapsed: (collapsed: boolean) => void;
-  /** The open reply box's starting text, or null when it's closed. */
-  replying: string | null;
+  replying: boolean;
   onReplying: (open: boolean) => void;
   fix: () => FixItem | null;
 }): JSX.Element {
@@ -140,7 +143,7 @@ export function PrThreadCard(props: {
         <div class="weavie-pr-card-foot">
           <Avatar user={props.viewer} />
           <Show
-            when={props.replying !== null}
+            when={props.replying}
             fallback={
               <button
                 type="button"
@@ -153,8 +156,8 @@ export function PrThreadCard(props: {
             }
           >
             <PrCommentComposer
-              draftKey={`reply:${props.number}:${thread().rootId}`}
-              initial={props.replying ?? ""}
+              draftKey={replyDraftKey(props.number, thread().rootId)}
+              initial=""
               placeholder="Reply…"
               submitLabel="Reply"
               onSubmit={async (body) => {
@@ -179,7 +182,6 @@ export function PrThreadCard(props: {
 export function PrDraftCard(props: {
   draftKey: string;
   line: number;
-  initial: string;
   viewer: PrUser;
   onSubmit: (body: string) => Promise<string | null>;
   onCancel: () => void;
@@ -190,7 +192,7 @@ export function PrDraftCard(props: {
         <Avatar user={props.viewer} />
         <PrCommentComposer
           draftKey={props.draftKey}
-          initial={props.initial}
+          initial=""
           placeholder={`Comment on line ${props.line}…`}
           submitLabel="Comment"
           onSubmit={props.onSubmit}

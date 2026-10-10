@@ -28,16 +28,13 @@ function targetEntry(
   session: ClientSession,
 ): { connection: TextEditorConnection; placed: PlacedHint } | undefined {
   const open = openedHint(session);
+  const owner = open?.owner ?? null;
   const connection =
-    open !== null && open.owner !== null
-      ? editorContexts.fromEditor(open.owner)
-      : editorContexts.get(session);
+    owner !== null ? editorContexts.fromEditor(owner) : editorContexts.get(session);
   const line = cursorLine(session);
   const placed = connection?.reviewHints
     .placed()
-    .find((entry) =>
-      open !== null && open.owner !== null ? entry.hint.id === open.id : entry.line === line,
-    );
+    .find((entry) => (owner !== null ? entry.hint.id === open?.id : entry.line === line));
   return connection === undefined || placed === undefined ? undefined : { connection, placed };
 }
 

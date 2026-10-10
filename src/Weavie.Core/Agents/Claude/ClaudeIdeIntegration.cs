@@ -3,6 +3,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Mcp;
+using Weavie.Core.Review.Hints;
 
 namespace Weavie.Core.Agents.Claude;
 
@@ -37,7 +38,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		Server = new McpServer(
 			registry.Credential.Token, presenter, workspaceFolders, ideName, settings: null, registryMode: false,
 			exposeIdeTools: true, layout: null, editor, commands: null, keybindings: null,
-			themeOverrides: null, currentSessionId: null, AgentConsultation.None);
+			themeOverrides: null, currentSessionId: null, AgentConsultation.None, ReviewHintSink.None);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, registry.Credential.Token);
 		HookBridge = new HookBridgeServer(

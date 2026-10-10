@@ -875,10 +875,7 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	// A relative tool-input path resolves against the tool's cwd (where Claude ran it), falling back to the
-	// workspace root when the event carries none — so a model-supplied partial path still lands on a real file.
-	private string Resolve(string path, string? cwd) =>
-		NormalizePath(Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd));
+	private string Resolve(string path, string? cwd) => AgentPath.Resolve(path, cwd, _workspaceRoot);
 
 	// Every path-taking review action enters here. The guard text of a hunk revert is checked against disk, not
 	// against the review baseline, so an out-of-scope path with a matching guard would splice a file review never

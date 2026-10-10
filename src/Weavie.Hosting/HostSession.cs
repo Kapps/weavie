@@ -14,6 +14,7 @@ using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Review;
+using Weavie.Core.Review.Hints;
 using Weavie.Core.Revise;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
@@ -126,6 +127,13 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
 				reviewPersistence);
+			ReviewHints = new ReviewHintStore(
+				fileSystem,
+				workspaceRoot,
+				new ReviewPersistence(Path.Combine(reviewDirectory, "hints.db")),
+				agentProvider.Info.Name,
+				PublishReviewHints,
+				error => Notify("error", $"Couldn't show a review finding: {error}"));
 		} catch {
 			FileActivity.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			throw;
@@ -190,7 +198,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		};
 		// Isolated in-place revision of a bounded region, published as in-flight on this session's bus.
 		Revise = new ReviseService(inference, Changes, new SessionReviseSurface(this));
-		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);
+		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, ReviewHints);
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
 		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
@@ -216,7 +224,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			keybindings,
 			themeOverrides,
 			() => SlotId,
-			agentConsultation);
+			agentConsultation,
+			ReviewHints);
 
 		Agent = new AgentSessionHost(
 			agentProvider,
@@ -564,7 +573,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			return;
 		}
 
-		Agent.Structured?.Submit(input);
+		(Agent.Structured ?? throw new InvalidOperationException("This session has no agent to send input to.")).Submit(input);
 	}
 
 	/// <summary>Prefills a prompt in the active agent without submitting it, when the provider supports draft input.</summary>

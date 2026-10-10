@@ -258,6 +258,11 @@ export function UnifiedReview(props: {
     revealFile(index);
     return true;
   };
+  const revealLine = (path: string, line: number): boolean => {
+    if (!files().some((file) => samePath(file.summary().path, path))) return false;
+    surface.reveal(path, line);
+    return true;
+  };
   const summary = () => {
     const index = visibleFile();
     const count = files().length;
@@ -304,7 +309,7 @@ export function UnifiedReview(props: {
         ...surface,
         actions: () => {
           const actions = surface.actions() ?? parkedActions();
-          return actions && { ...actions, goToFile };
+          return actions && { ...actions, goToFile, revealLine };
         },
       }),
     ),

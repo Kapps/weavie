@@ -201,7 +201,9 @@ public sealed partial class HostCore {
 		return $"You're checked out on the branch for {header}.{link}\n\n"
 			+ "This is a REVIEW-ONLY session. Look over the changes on this branch and give me your review — "
 			+ "what's good, what's risky, what could be improved. Do NOT edit, create, or delete any files, and do "
-			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.";
+			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.\n\n"
+			+ "Report each finding with the addReviewHint tool so it appears inline at its line; keep your chat "
+			+ "reply to an overall summary.";
 	}
 
 	internal sealed record PullRequestReference(int Number, string Owner, string Repo);

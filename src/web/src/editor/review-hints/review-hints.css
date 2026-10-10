@@ -1,0 +1,144 @@
+/* Inline review hints (review-hint-controller.tsx): a severity badge in the glyph margin, a wash across the line,
+   a pill after its end, and the popover below it. A hint whose line was edited since capture fades. */
+.weavie-hint-bug {
+  --sev: var(--bad);
+}
+
+.weavie-hint-warn {
+  --sev: var(--warn);
+}
+
+.weavie-hint-nit {
+  --sev: var(--busy);
+}
+
+.weavie-hint-line {
+  background: color-mix(in srgb, var(--sev) 14%, transparent);
+}
+
+.weavie-hint-line.weavie-hint-changed {
+  background: color-mix(in srgb, var(--sev) 6%, transparent);
+}
+
+.weavie-hint-mark {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.weavie-hint-mark::before {
+  content: "i";
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--sev);
+  color: var(--bg);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-hint-size);
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.weavie-hint-mark.weavie-hint-bug::before {
+  content: "!";
+}
+
+.weavie-hint-inline {
+  margin-left: 24px;
+  padding: 1px 9px 1px 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sev) 20%, transparent);
+  color: color-mix(in srgb, var(--sev) 55%, var(--fg));
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-metadata-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.weavie-hint-mark.weavie-hint-changed,
+.weavie-hint-inline.weavie-hint-changed {
+  opacity: 0.5;
+}
+
+.weavie-hint-hover {
+  width: 460px;
+  max-width: 80vw;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 9px 12px;
+  background: var(--bar);
+  border: 1px solid color-mix(in srgb, var(--sev) 50%, transparent);
+  border-left: 3px solid var(--sev);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 22%, transparent);
+  color: var(--fg);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+  white-space: normal;
+}
+
+.weavie-hint-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.weavie-hint-meta b {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sev) 20%, transparent);
+  color: var(--sev);
+  font-size: var(--font-hint-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.weavie-hint-who {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.weavie-hint-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.weavie-hint-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.weavie-hint-actions button:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.weavie-hint-title {
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.weavie-hint-text {
+  margin-top: 4px;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  line-height: 1.5;
+}
+
+.weavie-hint-text code {
+  font-family: var(--font-content-family);
+  font-size: var(--font-metadata-size);
+}

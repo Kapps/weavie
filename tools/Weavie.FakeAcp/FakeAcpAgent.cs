@@ -524,7 +524,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Message("echo: " + text);
 		} else if (text == "image") Message("image=" + prompt.EnumerateArray().Any(
 			  block => AcpJson.OptionalString(block, "type") == "image"));
-		else if (text == "crash") Environment.Exit(19);
+		else if (text.StartsWith(ReviewHintPrefix, StringComparison.Ordinal)) {
+			await AddReviewHintAsync(text[ReviewHintPrefix.Length..], ct).ConfigureAwait(false);
+		} else if (text == "crash") Environment.Exit(19);
 		else {
 			File.AppendAllText(TranscriptPath(_sessionId!), JsonSerializer.Serialize(prompt) + Environment.NewLine);
 			Update(new JsonObject {
@@ -1343,13 +1345,19 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private void RequireMcp(JsonElement parameters) {
 		var servers = AcpJson.RequiredArray(parameters, "mcpServers", "session open");
-		if (!servers.EnumerateArray().Any(server => AcpJson.OptionalString(server, "name") == "weavie"
-			&& AcpJson.OptionalString(server, "type") == "http"
-			&& server.TryGetProperty("headers", out var headers)
-			&& headers.EnumerateArray().Any(header => AcpJson.OptionalString(header, "name") == "Authorization"
-				&& AcpJson.OptionalString(header, "value")?.StartsWith("Bearer ", StringComparison.Ordinal) == true))) {
-			throw AcpAdapterException.InvalidParams("Weavie HTTP MCP credentials are missing.");
+		foreach (var server in servers.EnumerateArray()) {
+			if (AcpJson.OptionalString(server, "name") != "weavie" || AcpJson.OptionalString(server, "type") != "http"
+				|| !server.TryGetProperty("headers", out var headers)) continue;
+			foreach (var header in headers.EnumerateArray()) {
+				if (AcpJson.OptionalString(header, "name") == "Authorization"
+					&& AcpJson.OptionalString(header, "value") is { } authorization
+					&& authorization.StartsWith("Bearer ", StringComparison.Ordinal)) {
+					_weavieMcp = (AcpJson.RequiredString(server, "url", "weavie MCP server"), authorization);
+					return;
+				}
+			}
 		}
+		throw AcpAdapterException.InvalidParams("Weavie HTTP MCP credentials are missing.");
 	}
 
 	private static void RequireStdioMcp(JsonElement parameters) {

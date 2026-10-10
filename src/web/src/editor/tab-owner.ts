@@ -7,6 +7,8 @@ import type { EditorSessionEntry } from "./session-types";
 /** A tab's review actions; the unified review adds file picking to the inline-diff set. */
 export type TabActions = Partial<InlineDiffActions> & {
   goToFile?(path: string | undefined): boolean;
+  /** Reveals a line of a file in this review; false when the file isn't part of it. */
+  revealLine?(path: string, line: number): boolean;
 };
 
 export interface TabPresenter {

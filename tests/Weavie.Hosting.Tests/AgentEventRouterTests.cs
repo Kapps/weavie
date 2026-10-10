@@ -3,6 +3,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
+using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Hosting.Agents;
 using Xunit;
@@ -16,7 +17,7 @@ public sealed class AgentEventRouterTests {
 		string root = Path.Combine(Path.GetTempPath(), "weavie-router-test");
 		fs.WriteAllText(Path.Combine(root, "app.cs"), "one\ntwo\n");
 		var changes = new SessionChangeTracker(fs, NoopFileActivitySink.Instance, root, _ => true);
-		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine(), Hints(fs, root));
 
 		router.Observe(new AgentToolStarting(new AgentMutation.File("app.cs", Cwd: null, ProvidesEditLocation: true)));
 		fs.WriteAllText(Path.Combine(root, "app.cs"), "one\nTWO\n");
@@ -32,7 +33,7 @@ public sealed class AgentEventRouterTests {
 		fs.WriteAllText(Path.Combine(root, "a.cs"), "one\ntwo\n");
 		fs.WriteAllText(Path.Combine(root, "b.cs"), "red\nblue\n");
 		var changes = new SessionChangeTracker(fs, NoopFileActivitySink.Instance, root, _ => true);
-		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine(), Hints(fs, root));
 		var mutation = new AgentMutation.Files([
 			new AgentMutation.File("a.cs", Cwd: null, ProvidesEditLocation: true),
 			new AgentMutation.File("b.cs", Cwd: null, ProvidesEditLocation: true),
@@ -45,4 +46,7 @@ public sealed class AgentEventRouterTests {
 
 		Assert.Equal(["a.cs:2", "b.cs:2"], feedback.Messages);
 	}
+
+	private static ReviewHintStore Hints(IFileSystem fs, string root) =>
+		new(fs, root, new MemoryReviewPersistence(), "Test", _ => { }, _ => { });
 }

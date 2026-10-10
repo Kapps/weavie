@@ -1,7 +1,9 @@
-import { type JSX, Show } from "solid-js";
+import { type JSX, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { AgentAsideReply } from "./AgentAsideReply";
-import { AgentNestedCard } from "./AgentNestedCard";
+import { NestedTranscript, registerNestedToggle } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { replyComposer } from "./composer-store";
 
@@ -18,49 +20,61 @@ export function AsideEntry(props: {
   }
   const composer = replyComposer(props.session, conversationId);
   const replying = () => composer.state().replyOpen;
+  let card: HTMLElement | undefined;
   const collapsed = () => props.expandedDetails.has(props.entry.id);
+  const toggle = () => props.onDetailsToggle(props.entry.id, !collapsed());
+  const toggleLabel = () => (collapsed() ? "Expand BTW" : "Collapse BTW");
+  const toggleTitle = () => {
+    const key = liveKeyLabel(CommandIds.toggleAgentAside);
+    return key === "" ? toggleLabel() : `${toggleLabel()} (${key})`;
+  };
+  onMount(() => registerNestedToggle(card!, toggle));
 
   return (
-    <AgentNestedCard
-      attributes={{ "data-agent-aside": conversationId }}
-      collapsed={collapsed()}
-      entries={props.entry.asideEntries ?? []}
-      expandedDetails={props.expandedDetails}
-      head={
-        <>
-          <span>BTW</span>
-          <Show when={props.entry.status !== null}>
-            <small>{props.entry.status}</small>
-          </Show>
-        </>
-      }
-      keyboardRequestKey={props.keyboardRequestKey}
-      label="BTW"
-      onDetailsToggle={props.onDetailsToggle}
-      onToggle={() => props.onDetailsToggle(props.entry.id, !collapsed())}
-      session={props.session}
-    >
-      <Show when={props.entry.asideReplyable !== false}>
-        <Show
-          when={replying()}
-          fallback={
-            <button
-              type="button"
-              class="agent-aside-reply-button"
-              disabled={props.entry.asideActive === true}
-              onClick={() => composer.setOpen(true)}
-            >
-              Reply
-            </button>
-          }
-        >
-          <AgentAsideReply
-            session={props.session}
-            conversationId={conversationId}
-            onClose={() => composer.setOpen(false)}
-          />
+    <article ref={card} class="agent-aside" data-agent-aside={props.entry.conversationId}>
+      <button
+        type="button"
+        class="agent-aside-head"
+        aria-label={toggleLabel()}
+        aria-expanded={!collapsed()}
+        title={toggleTitle()}
+        onClick={toggle}
+      >
+        <span>{collapsed() ? "▸" : "▾"} BTW</span>
+        <Show when={props.entry.status !== null}>
+          <small>{props.entry.status}</small>
         </Show>
-      </Show>
-    </AgentNestedCard>
+      </button>
+      <div hidden={collapsed()}>
+        <NestedTranscript
+          entries={props.entry.asideEntries ?? []}
+          expandedDetails={props.expandedDetails}
+          keyboardRequestKey={props.keyboardRequestKey}
+          onDetailsToggle={props.onDetailsToggle}
+          session={props.session}
+        />
+        <Show when={props.entry.asideReplyable !== false}>
+          <Show
+            when={replying()}
+            fallback={
+              <button
+                type="button"
+                class="agent-aside-reply-button"
+                disabled={props.entry.asideActive === true}
+                onClick={() => composer.setOpen(true)}
+              >
+                Reply
+              </button>
+            }
+          >
+            <AgentAsideReply
+              session={props.session}
+              conversationId={conversationId}
+              onClose={() => composer.setOpen(false)}
+            />
+          </Show>
+        </Show>
+      </div>
+    </article>
   );
 }

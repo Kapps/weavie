@@ -1,8 +1,8 @@
-import { For, type JSX, Show } from "solid-js";
+import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ModalShell } from "../chrome/ModalShell";
+import { NestedTranscript } from "./AgentNestedCard";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { TranscriptEntry } from "./AgentTranscriptEntry";
 
 /** A subagent's whole read-only transcript. Esc closes it. */
 export function AgentSubagentReader(props: {
@@ -30,22 +30,16 @@ export function AgentSubagentReader(props: {
         {props.entry.subagent!.name}
       </div>
       <Show when={props.entry.subagent!.task}>
-        {(task) => <div class="agent-nested-task">{task()}</div>}
+        {(task) => <div class="confirm-body">{task()}</div>}
       </Show>
       <div class="agent-subagent-reader-body">
-        <For each={props.entry.asideEntries ?? []}>
-          {(entry) => (
-            <TranscriptEntry
-              expandedDetails={props.expandedDetails}
-              entry={entry}
-              keyboardRequestKey={props.keyboardRequestKey}
-              latestPromptTurn={null}
-              onDetailsToggle={props.onDetailsToggle}
-              sectionLabel={null}
-              session={props.session}
-            />
-          )}
-        </For>
+        <NestedTranscript
+          entries={props.entry.asideEntries ?? []}
+          expandedDetails={props.expandedDetails}
+          keyboardRequestKey={props.keyboardRequestKey}
+          onDetailsToggle={props.onDetailsToggle}
+          session={props.session}
+        />
       </div>
       <div class="session-prompt-actions">
         <button type="button" class="session-prompt-btn" onClick={() => props.onClose()}>

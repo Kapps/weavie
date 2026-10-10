@@ -25,7 +25,9 @@ internal sealed partial class FakeAcpAgent {
 				string workflow = "wf-" + Guid.NewGuid().ToString("N")[..8];
 				SpawnTask(_sessionId!, workflow, "code-review", "workflow", null);
 				UpdateOn(_sessionId!, new JsonObject {
-					["sessionUpdate"] = "async_task_progress", ["asyncTaskId"] = workflow, ["description"] = "Review: correctness",
+					["sessionUpdate"] = "async_task_progress",
+					["asyncTaskId"] = workflow,
+					["description"] = "Review: correctness",
 					["usage"] = new JsonObject { ["totalTokens"] = 1200, ["toolUses"] = 3, ["durationMs"] = 900 },
 				});
 				_ = ReleaseTaskAsync(_sessionId!, workflow, "release-workflow", null, ct);
@@ -45,8 +47,13 @@ internal sealed partial class FakeAcpAgent {
 	private void SpawnTask(string sessionId, string id, string name, string type, string? toolCallId) {
 		_tasks[id] = sessionId;
 		var update = new JsonObject {
-			["sessionUpdate"] = "async_task_spawned", ["asyncTaskId"] = id, ["name"] = name, ["taskType"] = type,
-			["description"] = name + " description", ["showInTranscript"] = false, ["canStop"] = true,
+			["sessionUpdate"] = "async_task_spawned",
+			["asyncTaskId"] = id,
+			["name"] = name,
+			["taskType"] = type,
+			["description"] = name + " description",
+			["showInTranscript"] = false,
+			["canStop"] = true,
 		};
 		if (toolCallId is not null) update["toolCallId"] = toolCallId;
 		UpdateOn(sessionId, update);
@@ -73,7 +80,9 @@ internal sealed partial class FakeAcpAgent {
 	}
 
 	private void TaskState(string sessionId, string id, string state) => UpdateOn(sessionId, new JsonObject {
-		["sessionUpdate"] = "async_task_state_update", ["asyncTaskId"] = id, ["state"] = state,
+		["sessionUpdate"] = "async_task_state_update",
+		["asyncTaskId"] = id,
+		["state"] = state,
 	});
 
 	// Codex marks a choice question's note companion; Claude names the multi-select its custom field completes.
@@ -93,7 +102,10 @@ internal sealed partial class FakeAcpAgent {
 		var schema = new JsonObject { ["type"] = "object", ["properties"] = properties };
 		if (!multiple) schema["required"] = new JsonArray("choice");
 		var result = await Connection().RequestAsync("elicitation/create", new JsonObject {
-			["sessionId"] = _sessionId, ["mode"] = "form", ["message"] = "Pick one", ["requestedSchema"] = schema,
+			["sessionId"] = _sessionId,
+			["mode"] = "form",
+			["message"] = "Pick one",
+			["requestedSchema"] = schema,
 		}, ct).ConfigureAwait(false);
 		Message("custom answer: " + JsonSerializer.Serialize(result.GetProperty("content")));
 	}

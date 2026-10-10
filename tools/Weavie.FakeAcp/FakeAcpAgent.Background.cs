@@ -125,11 +125,17 @@ internal sealed partial class FakeAcpAgent {
 	});
 
 	private static JsonObject Tool(string id, string title, string status) => new() {
-		["sessionUpdate"] = "tool_call", ["toolCallId"] = id, ["title"] = title, ["kind"] = "search", ["status"] = status,
+		["sessionUpdate"] = "tool_call",
+		["toolCallId"] = id,
+		["title"] = title,
+		["kind"] = "search",
+		["status"] = status,
 	};
 
 	private static JsonObject MessageUpdate(string text) => new() {
-		["sessionUpdate"] = "agent_message_chunk", ["messageId"] = Guid.NewGuid().ToString("N"), ["content"] = Text(text),
+		["sessionUpdate"] = "agent_message_chunk",
+		["messageId"] = Guid.NewGuid().ToString("N"),
+		["content"] = Text(text),
 	};
 
 	private void UpdateOn(string sessionId, JsonObject update) =>

@@ -507,8 +507,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			foreach (string severity in new[] { "info", "warning", "error" }) {
 				Update(new JsonObject { ["sessionUpdate"] = "notice", ["severity"] = severity, ["title"] = severity + " title", ["description"] = severity + " detail" });
 			}
-		}
-		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
+		} else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
 		else if (text == "remove-commands") Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = new JsonArray(),

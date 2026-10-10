@@ -70,7 +70,10 @@ public sealed class AcpSessionEndpointTests {
 		["params"] = new JsonObject {
 			["sessionId"] = parent,
 			["update"] = new JsonObject {
-				["sessionUpdate"] = "subagent_spawned", ["subagentSessionId"] = child, ["name"] = "n", ["task"] = "t",
+				["sessionUpdate"] = "subagent_spawned",
+				["subagentSessionId"] = child,
+				["name"] = "n",
+				["task"] = "t",
 			},
 		},
 	});

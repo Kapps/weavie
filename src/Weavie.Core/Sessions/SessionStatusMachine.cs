@@ -14,6 +14,7 @@ public sealed class SessionStatusMachine {
 	private SessionStatus _status = SessionStatus.Starting;
 	private SessionStatus _primaryStatus = SessionStatus.Starting;
 	private readonly Dictionary<string, SessionStatus> _conversationStatuses = new(StringComparer.Ordinal);
+	private bool _backgroundRunning;
 	private long _version;
 	private long _deliveredVersion;
 
@@ -38,6 +39,8 @@ public sealed class SessionStatusMachine {
 				_conversationStatuses[conversation.ConversationId] = NextStatus(current, conversation.Value) ?? current;
 			} else if (value is AgentConversationRemoved removed) {
 				_conversationStatuses.Remove(removed.ConversationId);
+			} else if (value is AgentBackgroundChanged background) {
+				_backgroundRunning = background.Running;
 			} else _primaryStatus = NextStatus(_primaryStatus, value) ?? _primaryStatus;
 		});
 	}
@@ -132,6 +135,8 @@ public sealed class SessionStatusMachine {
 		if (_primaryStatus == SessionStatus.Error) return SessionStatus.Error;
 		foreach (var candidate in new[] { SessionStatus.NeedsInput, SessionStatus.Working, SessionStatus.Waiting, SessionStatus.Starting }) {
 			if (_primaryStatus == candidate || _conversationStatuses.ContainsValue(candidate)) return candidate;
+			// Running background work will report back, so the session rests on Waiting, which holds the update drain.
+			if (candidate == SessionStatus.Working && _backgroundRunning) return SessionStatus.Waiting;
 		}
 		return _primaryStatus;
 	}

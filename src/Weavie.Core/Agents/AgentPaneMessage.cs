@@ -26,6 +26,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The provider-recorded turn start as Unix milliseconds, when available.</summary>
 	public long? StartedAtMs { get; init; }
 
+	/// <summary>When a nested conversation's work ended, as Unix milliseconds.</summary>
+	public long? CompletedAtMs { get; init; }
+
 	/// <summary>The item id associated with this update, when any.</summary>
 	public string? ItemId { get; init; }
 

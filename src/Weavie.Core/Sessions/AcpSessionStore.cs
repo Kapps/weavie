@@ -54,6 +54,20 @@ public sealed partial class AcpSessionStore(string path) {
 		});
 	}
 
+	/// <summary>Commits display events owned by no persisted continuation, such as a subagent's.</summary>
+	public void Append(string providerId, string workspace, IReadOnlyList<AgentPaneMessage> messages) {
+		ArgumentNullException.ThrowIfNull(messages);
+		Execute(connection => {
+			using var transaction = connection.BeginTransaction();
+			using var command = connection.CreateCommand();
+			command.Transaction = transaction;
+			command.Parameters.AddWithValue("$owner", Owner(providerId, workspace));
+			InsertMessages(command, messages);
+			transaction.Commit();
+			return true;
+		});
+	}
+
 	/// <summary>Atomically replaces every continuation identity and the whole display history for this owner.</summary>
 	public void Replace(string providerId, string workspace, IReadOnlyList<AcpConversationState> states, IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(states);

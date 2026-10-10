@@ -395,4 +395,22 @@ public sealed class SessionStatusMachineTests {
 
 		Assert.Equal(1, count);
 	}
+
+	[Fact]
+	public void RunningBackgroundWork_RestsOnWaiting_UnlessTheSessionWorksOrNeedsInput() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(Stop(sessionWillResume: false));
+		machine.Observe(new AgentBackgroundChanged(Running: true));
+		Assert.Equal(SessionStatus.Waiting, machine.Status);
+
+		machine.Observe(new AgentPromptSubmitted(null, "next"));
+		Assert.Equal(SessionStatus.Working, machine.Status);
+		machine.Observe(new AgentPermissionResolved(RequiresUserInput: true));
+		Assert.Equal(SessionStatus.NeedsInput, machine.Status);
+		machine.Observe(new AgentTurnStopped(WillResume: false));
+		Assert.Equal(SessionStatus.Waiting, machine.Status);
+
+		machine.Observe(new AgentBackgroundChanged(Running: false));
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
 }

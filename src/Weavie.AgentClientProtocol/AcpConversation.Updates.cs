@@ -7,8 +7,8 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	internal void HandleNotification(JsonElement root) {
 		lock (_turnTransitionGate) {
-			if (!Live) return;
-			HandleNotificationSerialized(root);
+			if (Live) HandleNotificationSerialized(root);
+			else if (_endpoint.IsSet) _endpoint.Value.Drop(root);
 		}
 	}
 

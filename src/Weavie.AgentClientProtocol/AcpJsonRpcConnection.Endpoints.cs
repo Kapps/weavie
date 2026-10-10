@@ -31,6 +31,27 @@ public sealed partial class AcpJsonRpcConnection {
 		return endpoint;
 	}
 
+	internal AcpSessionEndpoint OpenChildEndpoint(long generation, string sessionId,
+		Action<JsonElement> notification, Action<AcpClientRequest> request, Action<Exception> fault) {
+		var endpoint = new AcpSessionEndpoint(this, generation, notification, request, fault);
+		lock (_endpointGate) {
+			BindLocked(endpoint, generation, sessionId);
+			endpoint.Open();
+			_endpoints.Add((generation, endpoint));
+		}
+		return endpoint;
+	}
+
+	internal void SinkEndpoint(long generation, string sessionId) {
+		lock (_endpointGate) {
+			if (_endpoints.Any(owner => owner.Generation == generation && owner.Endpoint.SessionId == sessionId)) return;
+			var sink = new AcpSessionEndpoint(this, generation, static _ => { }, static _ => { }, static _ => { });
+			sink.SetIdentity(sessionId);
+			sink.Retire();
+			_endpoints.Add((generation, sink));
+		}
+	}
+
 	private void FaultEndpoints(long generation, Exception error) {
 		AcpSessionEndpoint[] endpoints;
 		lock (_endpointGate) endpoints = [.. _endpoints.Where(entry => entry.Generation == generation).Select(entry => entry.Endpoint)];
@@ -68,12 +89,14 @@ public sealed partial class AcpJsonRpcConnection {
 	}
 
 	internal void BindEndpoint(AcpSessionEndpoint endpoint, long generation, string sessionId) {
-		lock (_endpointGate) {
-			if (_endpoints.Any(owner => owner.Endpoint != endpoint && owner.Generation == generation && owner.Endpoint.SessionId == sessionId)) {
-				throw new AcpProtocolException($"ACP conversation '{sessionId}' already has an owner.");
-			}
-			endpoint.SetIdentity(sessionId);
+		lock (_endpointGate) BindLocked(endpoint, generation, sessionId);
+	}
+
+	private void BindLocked(AcpSessionEndpoint endpoint, long generation, string sessionId) {
+		if (_endpoints.Any(owner => owner.Endpoint != endpoint && owner.Generation == generation && owner.Endpoint.SessionId == sessionId)) {
+			throw new AcpProtocolException($"ACP conversation '{sessionId}' already has an owner.");
 		}
+		endpoint.SetIdentity(sessionId);
 	}
 
 	private AcpSessionEndpoint Endpoint(long generation, string sessionId) {

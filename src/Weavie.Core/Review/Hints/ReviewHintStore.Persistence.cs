@@ -8,16 +8,15 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Review.Hints;
 
 // Records: `hint:<id>` per hint, `source:<sha256>` per captured file text (shared, dropped once unreferenced), and
-// `metadata` (next id, current batch).
+// `metadata` (next id).
 public sealed partial class ReviewHintStore {
 	private const string MetadataKey = "metadata";
 	private readonly IReviewPersistence _persistence;
 	private IReadOnlyDictionary<string, string> _sources = new Dictionary<string, string>(StringComparer.Ordinal);
-	private long _batch;
 	private long _nextId = 1;
 
 	// Saves first, so a failed write leaves memory matching the last committed state.
-	private void Commit(IReadOnlyList<ReviewHint> hints, IReadOnlyDictionary<string, string> captured, long batch, long nextId) {
+	private void Commit(IReadOnlyList<ReviewHint> hints, IReadOnlyDictionary<string, string> captured, long nextId) {
 		var changes = new Dictionary<string, string?>(StringComparer.Ordinal);
 		var kept = hints.Select(hint => hint.Id).ToHashSet();
 		foreach (var hint in _hints.Where(hint => !kept.Contains(hint.Id))) changes[HintKey(hint.Id)] = null;
@@ -31,11 +30,10 @@ public sealed partial class ReviewHintStore {
 			.ToDictionary(StringComparer.Ordinal);
 		foreach (string hash in _sources.Keys.Where(hash => !sources.ContainsKey(hash))) changes[SourceKey(hash)] = null;
 		foreach (var (hash, text) in sources.Where(source => !_sources.ContainsKey(source.Key))) changes[SourceKey(hash)] = text;
-		changes[MetadataKey] = JsonSerializer.Serialize(new HintMetadata(nextId, batch), ReviewHintJson.Default.HintMetadata);
+		changes[MetadataKey] = JsonSerializer.Serialize(new HintMetadata(nextId), ReviewHintJson.Default.HintMetadata);
 		_persistence.Save(changes);
 		_hints = hints;
 		_sources = sources;
-		_batch = batch;
 		_nextId = nextId;
 		_published(hints);
 	}
@@ -83,7 +81,6 @@ public sealed partial class ReviewHintStore {
 		}
 		_hints = [.. hints.OrderBy(hint => hint.Id)];
 		_sources = sources;
-		_batch = metadata.Batch;
 		_nextId = metadata.NextId;
 	}
 
@@ -101,7 +98,7 @@ public sealed partial class ReviewHintStore {
 	private static T Deserialize<T>(string value, JsonTypeInfo<T> type) =>
 		JsonSerializer.Deserialize(value, type) ?? throw new JsonException("Empty review hint record.");
 
-	internal sealed record HintMetadata(long NextId, long Batch);
+	internal sealed record HintMetadata(long NextId);
 }
 
 [JsonSourceGenerationOptions(UseStringEnumConverter = true)]

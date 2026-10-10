@@ -32,13 +32,15 @@ flowchart LR
 - Paths resolve against the session worktree exactly as change tracking resolves them. A path outside the
   worktree or a line past EOF is rejected loudly (tool error / toast); a malformed `ReportFindings` payload is
   surfaced, never dropped.
-- Agents are told to report each finding once, through either tool. Weavie does not dedupe by text.
+- Agents are told to report each finding once, through either tool. Weavie skips only exact duplicates (see
+  below); it never dedupes by similar text.
 
 ## Ownership and lifetime
 
-One `ReviewHintStore` per session. Hints from a turn form a batch; the **first hint of a new turn replaces every
-older hint**. A turn that reports none keeps them, so "fix #2" doesn't wipe the list. Dismiss removes one hint;
-Clear Review Hints removes all.
+One `ReviewHintStore` per session. **Every reported hint accumulates**, so a follow-up review that reports only new
+findings keeps the earlier ones. A hint whose worktree-relative path, line, and title equal an existing hint's,
+captured against identical file text, is not added again — the existing one stays. Hints leave only through
+Dismiss (one hint) or Clear Review Hints (all).
 
 Hints persist in `review/hints.db` (the existing keyed-record store; separate from `state.db`, whose validator
 owns its own record types). Each hint keeps the file text it was captured against, deduplicated by hash, so it

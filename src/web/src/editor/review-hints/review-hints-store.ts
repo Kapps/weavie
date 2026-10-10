@@ -50,7 +50,7 @@ export interface OpenHint {
   pinned: boolean;
 }
 
-// One popover per session, closed with its hint: dismissed, replaced by a new review, or hidden.
+// One popover per session, closed with its hint: dismissed, cleared, or hidden.
 const opened = createSessionOwnedResource(
   (session) =>
     createRoot((dispose) => {

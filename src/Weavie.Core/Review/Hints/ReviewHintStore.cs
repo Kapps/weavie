@@ -7,8 +7,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Review.Hints;
 
 /// <summary>
-/// One session's agent review findings. The first hint of a new primary-conversation turn replaces every older
-/// hint; a turn that reports none keeps them. Reads only the reported file, never the tree.
+/// One session's agent review findings. Every reported hint accumulates until dismissed or cleared; one matching an
+/// existing hint's path, line, title and captured text exactly is skipped. Reads only the reported file, never the tree.
 /// </summary>
 public sealed partial class ReviewHintStore : IReviewHintSink {
 	private readonly Lock _gate = new();
@@ -18,7 +18,6 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 	private readonly Action<IReadOnlyList<ReviewHint>> _published;
 	private readonly Action<string> _rejected;
 	private IReadOnlyList<ReviewHint> _hints = [];
-	private long _turn;
 
 	/// <summary>
 	/// Restores the worktree's saved hints and publishes them. <paramref name="published"/> receives every snapshot in
@@ -45,20 +44,16 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 		_published = published;
 		_rejected = rejected;
 		Restore();
-		_turn = _batch;
 		_published(_hints);
 	}
 
 	/// <summary>The current hints, in report order.</summary>
 	public IReadOnlyList<ReviewHint> Hints { get { lock (_gate) return _hints; } }
 
-	/// <summary>Counts primary-conversation turns and captures reported findings; refusals go to the rejection callback.</summary>
+	/// <summary>Captures reported findings; refusals go to the rejection callback.</summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 		switch (value) {
-			case AgentPromptSubmitted:
-				lock (_gate) _turn++;
-				break;
 			case AgentReviewFindingsReported reported:
 				try {
 					foreach (string error in Add(reported.Findings, reported.Cwd)) RejectFinding(error);
@@ -86,17 +81,20 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 		if (captured.Count == 0) return errors;
 
 		lock (_gate) {
-			long batch = _turn;
-			var hints = new List<ReviewHint>(_batch == batch ? _hints : []);
+			var hints = new List<ReviewHint>(_hints);
 			var sources = new Dictionary<string, string>(StringComparer.Ordinal);
 			long nextId = _nextId;
 			foreach (var (finding, path, text) in captured) {
 				string hash = Hash(text);
+				if (hints.Any(hint => hint.Path == path && hint.Line == finding.Line && hint.Title == finding.Title
+					&& hint.SourceHash == hash)) {
+					continue;
+				}
 				sources[hash] = text;
-				hints.Add(new ReviewHint(nextId++, batch, path, finding.Line, finding.Severity, finding.Title,
+				hints.Add(new ReviewHint(nextId++, path, finding.Line, finding.Severity, finding.Title,
 					finding.Body, finding.Category, _agent, hash, LineDiff.SplitLines(text)[finding.Line - 1]));
 			}
-			Commit(hints, sources, batch, nextId);
+			if (nextId != _nextId) Commit(hints, sources, nextId);
 		}
 		return errors;
 	}
@@ -105,7 +103,7 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 	public void Dismiss(long id) {
 		lock (_gate) {
 			if (_hints.All(hint => hint.Id != id)) return;
-			Commit([.. _hints.Where(hint => hint.Id != id)], new Dictionary<string, string>(), _batch, _nextId);
+			Commit([.. _hints.Where(hint => hint.Id != id)], new Dictionary<string, string>(), _nextId);
 		}
 	}
 
@@ -113,7 +111,7 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 	public void Clear() {
 		lock (_gate) {
 			if (_hints.Count == 0) return;
-			Commit([], new Dictionary<string, string>(), _batch, _nextId);
+			Commit([], new Dictionary<string, string>(), _nextId);
 		}
 	}
 

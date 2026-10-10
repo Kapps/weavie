@@ -5,8 +5,8 @@ namespace Weavie.Core.Review.Hints;
 /// <summary>Where agent-reported review findings land.</summary>
 public interface IReviewHintSink {
 	/// <summary>
-	/// Adds each valid finding to the current turn's batch, resolving relative paths against <paramref name="cwd"/>
-	/// (or the worktree when null), and returns why each rejected finding was refused.
+	/// Adds each valid finding not already shown, resolving relative paths against <paramref name="cwd"/> (or the
+	/// worktree when null), and returns why each rejected finding was refused.
 	/// </summary>
 	IReadOnlyList<string> Add(IReadOnlyList<ReviewFinding> findings, string? cwd);
 }

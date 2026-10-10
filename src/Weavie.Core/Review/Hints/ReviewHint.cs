@@ -53,7 +53,6 @@ public sealed record ReviewFinding(
 /// </summary>
 public sealed record ReviewHint(
 	long Id,
-	long Batch,
 	string Path,
 	int Line,
 	ReviewHintSeverity Severity,

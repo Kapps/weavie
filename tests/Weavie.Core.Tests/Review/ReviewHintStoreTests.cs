@@ -19,31 +19,29 @@ public sealed class ReviewHintStoreTests {
 	}
 
 	[Fact]
-	public void FirstHintOfANewTurnReplacesOlderHints() {
+	public void HintsAccumulateAcrossReviews() {
 		var store = Store();
-		Assert.Empty(store.Add([Finding("src/a.cs", 2)], null));
-		Assert.Empty(store.Add([Finding("b.cs", 1)], null));
-		Assert.Equal(["src/a.cs", "b.cs"], store.Hints.Select(hint => hint.Path));
-
-		store.Observe(new AgentPromptSubmitted(null, "fix #2"));
-		store.Observe(new AgentTurnStopped(false));
-		Assert.Equal(2, store.Hints.Count);
-
+		store.Add([Finding("src/a.cs", 2)], null);
 		store.Observe(new AgentPromptSubmitted(null, "review again"));
-		store.Add([Finding("b.cs", 2)], null);
-		var hint = Assert.Single(store.Hints);
-		Assert.Equal(("b.cs", 2, "blue"), (hint.Path, hint.Line, hint.Quote));
+		store.Observe(new AgentReviewFindingsReported([Finding("b.cs", 1)], null));
+
+		Assert.Equal(["src/a.cs", "b.cs"], store.Hints.Select(hint => hint.Path));
 	}
 
 	[Fact]
-	public void SideConversationPromptsDoNotStartATurn() {
+	public void AnExactDuplicateOfAnExistingHintIsSkipped() {
 		var store = Store();
+		store.Add([Finding("b.cs", 1), Finding("b.cs", 1)], null);
+		Assert.Single(store.Hints);
+		int published = _published.Count;
+
+		Assert.Empty(store.Add([Finding("b.cs", 1)], null));
+		Assert.Equal(published, _published.Count);
+
+		store.Add([ReviewFinding.FromText("b.cs", 1, ReviewHintSeverity.Bug, "Other summary")], null);
+		_fs.WriteAllText(Path.Combine(_root, "b.cs"), "red\nblue\ngreen\n");
 		store.Add([Finding("b.cs", 1)], null);
-
-		store.Observe(new AgentConversationEvent("side", new AgentPromptSubmitted(null, "aside")));
-		store.Add([Finding("b.cs", 2)], null);
-
-		Assert.Equal(2, store.Hints.Count);
+		Assert.Equal([1L, 2L, 3L], store.Hints.Select(hint => hint.Id));
 	}
 
 	[Fact]
@@ -121,7 +119,7 @@ public sealed class ReviewHintStoreTests {
 
 	[Fact]
 	public void UnreadableSavedHintsAreDiscardedLoudly() {
-		_persistence.Save(new Dictionary<string, string?> { ["metadata"] = """{"NextId":1,"Batch":0}""", ["stray"] = "x" });
+		_persistence.Save(new Dictionary<string, string?> { ["metadata"] = """{"NextId":1}""", ["stray"] = "x" });
 
 		var store = Store();
 

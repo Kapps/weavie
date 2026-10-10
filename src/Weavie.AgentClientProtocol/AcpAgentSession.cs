@@ -133,7 +133,7 @@ public sealed partial class AcpAgentSession :
 
 	private AcpConversation CreatePrimary(AcpConversationHandoff handoff) => new(
 		_host,
-		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, SideScoped: false),
+		new AcpConversationSpec(handoff with { Continuation = Untouched(handoff.Continuation) }, AcpConversationOpening.Continue, AcpConversationRole.Primary),
 		new PrimaryPort(this));
 
 	// A primary with no turns has no conversation to resume; a side can inherit history before its first turn.

@@ -119,7 +119,7 @@ internal sealed partial class AcpConversation {
 				TurnNumber = _turnNumber,
 				GuidanceSent = _guidanceSent,
 				PlanTurns = new Dictionary<string, string>(_planTurns),
-				Failed = _spec.SideScoped && _runtimeFailed,
+				Failed = _spec.Side && _runtimeFailed,
 			};
 		}
 	}

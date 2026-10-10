@@ -157,7 +157,7 @@ internal sealed partial class AcpConversation {
 		AcpSessionEndpoint? endpoint;
 		lock (_gate) {
 			endpoint = _endpoint.IsSet ? _endpoint.Value : null;
-			close = (_ready || _spec.SideScoped) && _features.Close;
+			close = (_ready || _spec.Side) && _features.Close;
 		}
 		SettleInteractions();
 		var closing = close ? endpoint!.CloseAsync() : Task.CompletedTask;

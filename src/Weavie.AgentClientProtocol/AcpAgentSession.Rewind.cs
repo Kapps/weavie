@@ -99,7 +99,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentRewind {
 			Fork = new AcpConversation(owner._host, new AcpConversationSpec(
 				AcpConversationHandoff.Fresh(RewindContinuation(predecessor, plan)),
 				new ForkFromOpening(predecessor, messageId),
-				SideScoped: false), this);
+				AcpConversationRole.Primary), this);
 		}
 
 		public AcpConversation Fork { get; }

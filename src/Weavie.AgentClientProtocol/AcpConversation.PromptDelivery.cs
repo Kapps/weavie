@@ -26,7 +26,7 @@ internal sealed partial class AcpConversation {
 					ProviderId = Definition.Id,
 					ThreadId = threadId,
 					TurnId = TurnId(),
-					IsPrimaryThread = !_spec.SideScoped,
+					IsPrimaryThread = !_spec.Side,
 					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
 				});
 				EmitSubmitted(

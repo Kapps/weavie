@@ -35,7 +35,7 @@ internal sealed partial class AcpConversation {
 				_sessionOpening = true;
 				_endpoint.Value.Open();
 				if (sessionId is not null) _endpoint.Value.Bind(sessionId);
-				if (sessionId is null && !_spec.SideScoped && _spec.Opening is not ForkFromOpening) _guidanceSent = false;
+				if (sessionId is null && !_spec.Side && _spec.Opening is not ForkFromOpening) _guidanceSent = false;
 			}
 		}
 
@@ -155,7 +155,7 @@ internal sealed partial class AcpConversation {
 	}
 
 	private bool SettleInterruptedSideOpening() {
-		lock (_gate) if (!_spec.SideScoped || _pendingSubmissions.Count > 0) return false;
+		lock (_gate) if (!_spec.Side || _pendingSubmissions.Count > 0) return false;
 		Terminate(new InvalidOperationException("Side conversation interrupted."));
 		return true;
 	}

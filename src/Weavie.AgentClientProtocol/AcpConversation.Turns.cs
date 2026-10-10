@@ -230,7 +230,7 @@ internal sealed partial class AcpConversation {
 			string? sessionId;
 			TerminalizedTool[] cancelled = [];
 			lock (_gate) {
-				if (_spec.SideScoped && !_ready) _pendingSubmissions.Clear();
+				if (_spec.Side && !_ready) _pendingSubmissions.Clear();
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
 				sessionId = _ready ? SessionId() : null;
 				// ACP: the client marks the cancelled turn's unfinished tool calls cancelled; agents may never report them.
@@ -244,7 +244,7 @@ internal sealed partial class AcpConversation {
 			PublishTerminalizedToolMessages(cancelled);
 			PublishQueue();
 			bool interactionCancelled = CancelPendingInteractions();
-			if (interactionCancelled && sessionId is null && _spec.SideScoped) {
+			if (interactionCancelled && sessionId is null && _spec.Side) {
 				lock (_gate) if (_sessionOpening) return;
 				Terminate(new InvalidOperationException("Side conversation interrupted."));
 				return;
@@ -255,7 +255,7 @@ internal sealed partial class AcpConversation {
 			if (interactionCancelled) {
 				bool settled;
 				lock (_gate) {
-					settled = _spec.SideScoped
+					settled = _spec.Side
 						&& _ready
 						&& !_promptActive
 						&& !HasBackgroundWorkLocked()

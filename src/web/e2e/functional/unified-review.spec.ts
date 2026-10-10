@@ -216,10 +216,11 @@ test.describe("Review Changes tab — file switcher", () => {
     const switcher = overview.locator(".unified-review-switcher");
     await expect(switcher.locator("input")).toBeFocused();
     await expect(switcher.locator(".unified-review-switcher-row")).toHaveCount(2);
+    await expect(switcher.locator(".unified-review-switcher-dir")).toHaveText(["src", "docs"]);
     await expect(switcher).toContainText("0 of 2 reviewed");
     await page.keyboard.type("notes");
     await expect(switcher.locator(".unified-review-switcher-row")).toHaveCount(1);
-    await expect(switcher.locator(".unified-review-switcher-row")).toContainText("docs");
+    await expect(switcher.locator(".unified-review-switcher-dir")).toHaveText(["docs"]);
     await page.keyboard.press("Enter");
     await expect(switcher).toHaveCount(0);
     await expect(overview.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(

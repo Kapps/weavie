@@ -294,7 +294,7 @@
   grid-column: 1;
   top: 0.5em;
   left: 1em;
-  z-index: 20;
+  z-index: 61; /* above the floating review toolbar */
   display: flex;
   flex-direction: column;
   width: min(30em, calc(100% - 2em));
@@ -327,7 +327,7 @@
   align-items: center;
   gap: 0.5em;
   width: 100%;
-  padding: 0.3em 0.8em;
+  padding: 0.3em 0.8em 0.3em 1.8em;
   border: 0;
   background: transparent;
   color: var(--fg);
@@ -359,11 +359,12 @@
 }
 
 .unified-review-switcher-dir {
-  min-width: 0;
   overflow: hidden;
+  padding: 0.45em 0.8em 0.15em;
   color: var(--dim);
   font-size: var(--font-hint-size);
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .unified-review-switcher-row .unified-review-file-stats {

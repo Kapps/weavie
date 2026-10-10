@@ -28,7 +28,7 @@ export function ReviewFileSwitcher(props: {
     })),
   );
   const finder = createMemo(() => createFileFinder(rows().map((entry) => entry.row)));
-  const results = createMemo(() => {
+  const ranked = createMemo(() => {
     const q = query().trim();
     if (q.length === 0) return rows().map((entry) => ({ ...entry, positions: undefined }));
     const byPath = new Map(rows().map((entry) => [entry.row.abs, entry]));
@@ -37,13 +37,28 @@ export function ReviewFileSwitcher(props: {
       positions: match.positions,
     }));
   });
+  // Files grouped under their folder, folders in order of their first (best-ranked) file.
+  const groups = createMemo(() => {
+    const byDir = new Map<string, ReturnType<typeof ranked>>();
+    for (const entry of ranked()) {
+      const group = byDir.get(entry.row.dir);
+      if (group === undefined) byDir.set(entry.row.dir, [entry]);
+      else group.push(entry);
+    }
+    return [...byDir].map(([dir, entries]) => ({ dir, entries }));
+  });
+  const results = createMemo(() => groups().flatMap((group) => group.entries));
+  const order = createMemo(() => new Map(results().map((entry, index) => [entry, index])));
   const reviewed = (): number =>
     props.files().filter((file) => reviewProgress(file).fraction === 1).length;
 
   const nav = createListNavigation({
     count: () => results().length,
     edges: "wrap",
-    initialIndex: props.current() ?? 0,
+    initialIndex: Math.max(
+      0,
+      results().findIndex((entry) => entry.index === props.current()),
+    ),
     acceptKeys: ["Enter"],
     onAccept: (index) => {
       const entry = results()[index];
@@ -83,36 +98,43 @@ export function ReviewFileSwitcher(props: {
           when={results().length > 0}
           fallback={<div class="unified-review-switcher-empty">No matching files.</div>}
         >
-          <For each={results()}>
-            {(entry, index) => (
-              <button
-                {...nav.row(index())}
-                type="button"
-                role="option"
-                class="unified-review-switcher-row"
-                classList={{
-                  selected: index() === nav.index(),
-                  current: entry.index === props.current(),
-                }}
-                aria-selected={index() === nav.index()}
-                title={entry.row.rel}
-                onClick={() => props.onChoose(entry.index)}
-              >
-                <span
-                  class="unified-review-switcher-state"
-                  classList={{ reviewed: reviewProgress(entry.file).fraction === 1 }}
-                />
-                <span class="unified-review-switcher-leaf">
-                  {highlightSlice(entry.row.leaf, entry.positions, entry.row.leafStart)}
-                </span>
-                <span class="unified-review-switcher-dir">
-                  {highlightSlice(entry.row.dir, entry.positions, 0)}
-                </span>
-                <DiffStats
-                  added={entry.file.summary().added}
-                  removed={entry.file.summary().removed}
-                />
-              </button>
+          <For each={groups()}>
+            {(group) => (
+              <>
+                <div class="unified-review-switcher-dir">{group.dir || "./"}</div>
+                <For each={group.entries}>
+                  {(entry) => {
+                    const index = () => order().get(entry)!;
+                    return (
+                      <button
+                        {...nav.row(index())}
+                        type="button"
+                        role="option"
+                        class="unified-review-switcher-row"
+                        classList={{
+                          selected: index() === nav.index(),
+                          current: entry.index === props.current(),
+                        }}
+                        aria-selected={index() === nav.index()}
+                        title={entry.row.rel}
+                        onClick={() => props.onChoose(entry.index)}
+                      >
+                        <span
+                          class="unified-review-switcher-state"
+                          classList={{ reviewed: reviewProgress(entry.file).fraction === 1 }}
+                        />
+                        <span class="unified-review-switcher-leaf">
+                          {highlightSlice(entry.row.leaf, entry.positions, entry.row.leafStart)}
+                        </span>
+                        <DiffStats
+                          added={entry.file.summary().added}
+                          removed={entry.file.summary().removed}
+                        />
+                      </button>
+                    );
+                  }}
+                </For>
+              </>
             )}
           </For>
         </Show>

@@ -1,7 +1,10 @@
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Review.Hints;
+using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -54,6 +57,20 @@ public sealed class HostCoreReviewHintsTests {
 	}
 
 	[Fact]
+	public async Task UnreadableSavedHintsAreDiscardedAndToastedWhenThePageSyncs() {
+		await using var host = await TestHost.StartAsync(repo => {
+			string review = Path.Combine(WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(repo)), "review");
+			new ReviewPersistence(Path.Combine(review, "hints.db")).Save(new Dictionary<string, string?> { ["stray"] = "x" });
+		});
+
+		Assert.Equal(0, (await HintsAsync(host, 0)).GetArrayLength());
+		await Wait.ForAsync(() => host.Bridge.PostedEvents("notifications", "show")
+			.Any(toast => toast.GetProperty("message").GetString() == "Saved review hints couldn't be read and were discarded: Review hint metadata is missing.")
+				? true
+				: (bool?)null);
+	}
+
+	[Fact]
 	public async Task FixLineSubmitsAPromptToTheAgent() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.WorkspaceSession;
@@ -73,6 +90,13 @@ public sealed class HostCoreReviewHintsTests {
 			"\x1b[200~Fix this review finding at `src/a.cs:3`:\n\n```\nreturn x;\n```\n\nx can be null\n\nAdditional instruction: use a guard\x1b[201~\r",
 			terminal.WrittenText);
 	}
+
+	[Theory]
+	[InlineData("return x;", "```")]
+	[InlineData("var s = \"```\";", "````")]
+	[InlineData("a ````` b ` c", "``````")]
+	public void FixLineFencesTheQuoteBeyondItsLongestBacktickRun(string quote, string fence) =>
+		Assert.Equal(fence, HostCore.CodeFence(quote));
 
 	[Fact]
 	public async Task FixLineRefusesPathsOutsideTheWorktree() {

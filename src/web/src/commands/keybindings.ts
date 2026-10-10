@@ -153,6 +153,9 @@ let compiled: {
   binding: ResolvedKeybinding;
 }[] = [];
 
+// Escape-style closers run after the target (including Monaco's own widgets) has had its chance to cancel.
+const DISMISSALS = new Set<string>([CommandIds.closeFloatingPanel, CommandIds.reviewHintsClose]);
+
 const isGuarded = (binding: ResolvedKeybinding): boolean => (binding.when ?? "").trim() !== "";
 
 function rebuild(): void {
@@ -191,7 +194,7 @@ export function installKeybindings(): () => void {
         continue;
       }
       const { catalogBackendId, chord, binding } = entry;
-      if ((binding.command === CommandIds.closeFloatingPanel) !== dismissal) continue;
+      if (DISMISSALS.has(binding.command) !== dismissal) continue;
       if (!matches(chord, event) || !bindingEnabled(binding)) {
         continue;
       }

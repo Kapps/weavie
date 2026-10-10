@@ -133,7 +133,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				new ReviewPersistence(Path.Combine(reviewDirectory, "hints.db")),
 				agentProvider.Info.Name,
 				PublishReviewHints,
-				error => Notify("error", $"Couldn't show a review finding: {error}"));
+				ReportReviewHintError);
 		} catch {
 			FileActivity.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			throw;

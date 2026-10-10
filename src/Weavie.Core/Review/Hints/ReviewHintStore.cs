@@ -22,7 +22,8 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 
 	/// <summary>
 	/// Restores the worktree's saved hints and publishes them. <paramref name="published"/> receives every snapshot in
-	/// order; <paramref name="rejected"/> hears each finding refused while observing agent events.
+	/// order; <paramref name="rejected"/> hears each finding refused while observing agent events, and saved hints
+	/// discarded because they couldn't be read.
 	/// </summary>
 	public ReviewHintStore(
 		IFileSystem fileSystem,
@@ -60,16 +61,18 @@ public sealed partial class ReviewHintStore : IReviewHintSink {
 				break;
 			case AgentReviewFindingsReported reported:
 				try {
-					foreach (string error in Add(reported.Findings, reported.Cwd)) _rejected(error);
+					foreach (string error in Add(reported.Findings, reported.Cwd)) RejectFinding(error);
 				} catch (IOException ex) {
-					_rejected(ex.Message);
+					RejectFinding(ex.Message);
 				}
 				break;
 			case AgentReviewFindingsUnreadable unreadable:
-				_rejected(unreadable.Error);
+				RejectFinding(unreadable.Error);
 				break;
 		}
 	}
+
+	private void RejectFinding(string error) => _rejected($"Couldn't show a review finding: {error}");
 
 	/// <inheritdoc/>
 	public IReadOnlyList<string> Add(IReadOnlyList<ReviewFinding> findings, string? cwd) {

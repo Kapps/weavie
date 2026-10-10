@@ -74,7 +74,7 @@ public sealed class ReviewHintStoreTests {
 	public void UnreadableFindingsAreSurfaced() {
 		Store().Observe(new AgentReviewFindingsUnreadable("bad payload"));
 
-		Assert.Equal(["bad payload"], _rejected);
+		Assert.Equal(["Couldn't show a review finding: bad payload"], _rejected);
 	}
 
 	[Fact]
@@ -120,10 +120,17 @@ public sealed class ReviewHintStoreTests {
 	}
 
 	[Fact]
-	public void CorruptRecordsFailTheRestore() {
+	public void UnreadableSavedHintsAreDiscardedLoudly() {
 		_persistence.Save(new Dictionary<string, string?> { ["metadata"] = """{"NextId":1,"Batch":0}""", ["stray"] = "x" });
 
-		Assert.Throws<IOException>(() => Store());
+		var store = Store();
+
+		Assert.Empty(store.Hints);
+		Assert.Empty(_published[^1]);
+		Assert.Empty(_persistence.Read());
+		Assert.Equal(["Saved review hints couldn't be read and were discarded: Unknown review hint record."], _rejected);
+		Assert.Empty(store.Add([Finding("b.cs", 1)], null));
+		Assert.Equal(1L, Assert.Single(store.Hints).Id);
 	}
 
 	private ReviewHintStore Store() => Store(_persistence);

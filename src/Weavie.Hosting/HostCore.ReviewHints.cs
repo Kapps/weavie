@@ -41,13 +41,24 @@ public sealed partial class HostCore {
 		if (_drainInputFrozen) return CommandResult.Failure("Agent input is paused while Weavie restarts.");
 
 		string instruction = args.Instruction.Trim().Length == 0 ? string.Empty : $"\n\nAdditional instruction: {args.Instruction.Trim()}";
+		string fence = CodeFence(args.Quote);
 		try {
 			session.SendAgentPrompt(
-				$"Fix this review finding at `{relative}:{args.Line}`:\n\n```\n{args.Quote}\n```\n\n{args.Text.Trim()}{instruction}");
+				$"Fix this review finding at `{relative}:{args.Line}`:\n\n{fence}\n{args.Quote}\n{fence}\n\n{args.Text.Trim()}{instruction}");
 		} catch (InvalidOperationException ex) {
 			return CommandResult.Failure(ex.Message);
 		}
 		return CommandResult.Success($"Asked the agent to fix {relative}:{args.Line}.");
+	}
+
+	// A Markdown fence longer than any backtick run in the text, so the text can never close it.
+	internal static string CodeFence(string text) {
+		int longest = 0;
+		for (int run = 0, i = 0; i < text.Length; i++) {
+			run = text[i] == '`' ? run + 1 : 0;
+			longest = Math.Max(longest, run);
+		}
+		return new string('`', Math.Max(3, longest + 1));
 	}
 
 	internal sealed record ReviewHintDismissRequest(long Id);

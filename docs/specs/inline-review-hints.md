@@ -68,7 +68,7 @@ A line-anchored item — a review hint or a PR thread — can be sent to the ses
 
 ## Commands
 
-All unbound except Escape (scoped to an open popover).
+All unbound except Escape, which closes the session's open popover after the editor's own widgets decline it.
 
 | Id | Runs in | Does |
 |---|---|---|

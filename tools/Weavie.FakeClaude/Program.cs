@@ -100,6 +100,10 @@ static string Draft(string stdin) {
 static void Emit(string line) {
 	Console.Out.Write($"weavie-fake-claude {line}\r\n");
 	Console.Out.Flush();
+	Log(line);
+}
+
+static void Log(string line) {
 	string? log = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_LOG");
 	if (!string.IsNullOrEmpty(log)) {
 		// Every session in a test spawns its own fake-claude process against the same shared log path, so
@@ -333,12 +337,22 @@ static async Task SendHookAsync(string requestJson) {
 }
 
 // Reads stdin until the PTY closes, so the process lives like an interactive TUI (the supervisor expects a
-// long-lived child) and exits cleanly only when Weavie tears the pane down.
+// long-lived child) and exits cleanly only when Weavie tears the pane down. Each typed line goes to the log only,
+// so a test can see what reached the agent without the pane echoing it.
 static async Task BlockOnStdinAsync() {
-	await using var stdin = Console.OpenStandardInput();
-	byte[] buffer = new byte[1024];
-	while (await stdin.ReadAsync(buffer).ConfigureAwait(false) > 0) {
-		// Discard keystrokes; a real TUI would render them.
+	using var stdin = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
+	var line = new StringBuilder();
+	char[] buffer = new char[1024];
+	int read;
+	while ((read = await stdin.ReadAsync(buffer).ConfigureAwait(false)) > 0) {
+		foreach (char c in buffer.AsSpan(0, read)) {
+			if (c is not ('\r' or '\n')) {
+				line.Append(c);
+			} else if (line.Length > 0) {
+				Log($"input {line}");
+				line.Clear();
+			}
+		}
 	}
 }
 

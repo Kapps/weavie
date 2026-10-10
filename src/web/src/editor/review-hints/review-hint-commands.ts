@@ -1,4 +1,3 @@
-import { createEffect, createRoot } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -26,8 +25,8 @@ const cursorLine = (session: ClientSession): number | undefined =>
 
 // The open hint, else the one on the cursor's line.
 function targetHint(session: ClientSession): PlacedHint | undefined {
-  const open = openedHint();
-  if (open?.session === session && open.owner !== null) {
+  const open = openedHint(session);
+  if (open !== null && open.owner !== null) {
     const owner = editorContexts.fromEditor(open.owner);
     return owner?.reviewHints.placed().find((entry) => entry.hint.id === open.id);
   }
@@ -53,8 +52,8 @@ function fixTarget(session: ClientSession): FixItem | null {
 
 function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile): void {
   showReviewHints();
-  const open = openedHint();
-  const owner = open?.session === session && open.owner !== null ? open.owner : undefined;
+  const open = openedHint(session);
+  const owner = open !== null && open.owner !== null ? open.owner : undefined;
   const connection =
     owner === undefined ? editorContexts.get(session) : editorContexts.fromEditor(owner);
   const local = connection?.reviewHints.placed() ?? [];
@@ -65,7 +64,7 @@ function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile)
   }));
   const cursor = connection?.editor.getPosition()?.lineNumber;
   const from =
-    open?.session === session
+    open !== null
       ? positions.find((position) => position.id === open.id)
       : connection?.model.uri.scheme === SESSION_FILE_SCHEME && cursor !== undefined
         ? { path: sessionUriHostPath(connection.model.uri), line: cursor, id: direction * Infinity }
@@ -75,7 +74,7 @@ function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile)
     notify("info", "There are no review hints.", "review-hints");
     return;
   }
-  openHint({ session, id: target.id, owner: null, pinned: true });
+  openHint(session, { id: target.id, owner: null, pinned: true });
   if (local.some((entry) => entry.hint.id === target.id)) return;
   if (activeTabFor(session)?.presentation?.actions()?.revealLine?.(target.path, target.line))
     return;
@@ -93,19 +92,10 @@ export function registerReviewHintCommands(revealFile: RevealFile): () => void {
       notify("info", "There's no review hint or PR thread on this line.", "review-hints");
       return;
     }
-    openHint(null);
+    openHint(session, null);
     send(session, item);
   };
   const cleanups = [
-    // A popover closes with its hint: dismissed, replaced by a new review, or hidden.
-    createRoot((dispose) => {
-      createEffect(() => {
-        const open = openedHint();
-        if (open !== null && !reviewHintsFor(open.session)?.some((hint) => hint.id === open.id))
-          openHint(null);
-      });
-      return dispose;
-    }),
     ...([1, -1] as const).map((direction) =>
       registerCommand(
         direction === 1 ? CommandIds.reviewHintsNext : CommandIds.reviewHintsPrevious,
@@ -127,9 +117,9 @@ export function registerReviewHintCommands(revealFile: RevealFile): () => void {
       fix(session, (owner, item) => fixLine(owner, item, "")),
     ),
     registerCommand(CommandIds.reviewHintsFixWith, (_args, { session }) => fix(session, fixWith)),
-    registerCommand(CommandIds.reviewHintsClose, () => {
-      if (openedHint() === null) return false;
-      openHint(null);
+    registerCommand(CommandIds.reviewHintsClose, (_args, { session }) => {
+      if (session === null || openedHint(session) === null) return false;
+      openHint(session, null);
     }),
   ];
   return () => {

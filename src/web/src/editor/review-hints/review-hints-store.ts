@@ -1,8 +1,8 @@
 import type * as monaco from "monaco-editor";
-import { createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import type { ClientSession } from "../../bridge";
-import { setContext } from "../../commands/context";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
+import { createSessionOwnedResource } from "../../messaging/session-owned-state";
 
 export type HintSeverity = "bug" | "warn" | "nit";
 
@@ -34,7 +34,6 @@ export const reviewHintsVisible = visible;
 
 export function toggleReviewHints(): void {
   setVisible((shown) => !shown);
-  if (!visible()) openHint(null);
 }
 
 export function showReviewHints(): void {
@@ -42,23 +41,36 @@ export function showReviewHints(): void {
 }
 
 /**
- * The hint whose popover is open. `owner` is the editor showing it; null until a displayed binding of its file
- * claims it (navigation). A pinned popover stays open when the pointer leaves.
+ * The session's hint whose popover is open. `owner` is the editor showing it; null until a displayed binding of
+ * its file claims it (navigation). A pinned popover stays open when the pointer leaves.
  */
 export interface OpenHint {
-  session: ClientSession;
   id: number;
   owner: monaco.editor.ICodeEditor | null;
   pinned: boolean;
 }
 
-const [opened, setOpened] = createSignal<OpenHint | null>(null);
+// One popover per session, closed with its hint: dismissed, replaced by a new review, or hidden.
+const opened = createSessionOwnedResource(
+  (session) =>
+    createRoot((dispose) => {
+      const [read, write] = createSignal<OpenHint | null>(null);
+      createEffect(() => {
+        const open = read();
+        if (open === null) return;
+        if (!visible() || !reviewHintsFor(session)?.some((hint) => hint.id === open.id))
+          write(null);
+      });
+      return { read, write, dispose };
+    }),
+  (_session, state) => state.dispose(),
+);
 
-export const openedHint = opened;
+export const openedHint = (session: ClientSession): OpenHint | null =>
+  opened.get(session)?.read() ?? null;
 
-export function openHint(value: OpenHint | null): void {
-  setOpened(value);
-  setContext("reviewHintOpen", value !== null);
+export function openHint(session: ClientSession, value: OpenHint | null): void {
+  opened.get(session)?.write(value);
 }
 
 export function dismissHint(session: ClientSession, id: number): Promise<void> {

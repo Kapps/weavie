@@ -51,7 +51,8 @@ export function createReviewHints(
         ? (reviewHintsFor(session) ?? []).filter((hint) => samePath(hint.path, path))
         : [],
     );
-    // Captured sources are immutable per hash, so each is fetched once for the binding's lifetime.
+    // Captured sources are immutable per hash, so each is fetched once; a failed fetch retries on the next push,
+    // and only reports while a hint still needs that source.
     const [sources, setSources] = createSignal<ReadonlyMap<string, string>>(new Map());
     const requested = new Set<string>();
     createEffect(() => {
@@ -60,12 +61,15 @@ export function createReviewHints(
         requested.add(sourceHash);
         fetchHintSource(session, path, sourceHash).then(
           (text) => setSources((current) => new Map(current).set(sourceHash, text)),
-          (error: unknown) =>
+          (error: unknown) => {
+            requested.delete(sourceHash);
+            if (!hints().some((hint) => hint.sourceHash === sourceHash)) return;
             notify(
               "warn",
               `Couldn't load review hint lines: ${describeError(error)}`,
               "review-hints",
-            ),
+            );
+          },
         );
       }
     });
@@ -97,12 +101,16 @@ export function createReviewHints(
             range: new monaco.Range(entry.line, end, entry.line, end),
             options: {
               isWholeLine: true,
+              // Monaco drops injected text on an empty range unless told to show it.
+              showIfCollapsed: true,
               className: `weavie-hint-line ${kind}`,
               glyphMarginClassName: `weavie-hint-mark ${kind}`,
               after: {
                 content: pill(entry),
                 inlineClassName: `weavie-hint-inline ${kind}`,
                 cursorStops: monaco.editor.InjectedTextCursorStops.None,
+                // The pill renders smaller than code, so Monaco can't assume the uniform advance.
+                inlineClassNameAffectsLetterSpacing: true,
               },
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
             },
@@ -112,8 +120,8 @@ export function createReviewHints(
     );
 
     const owned = () => {
-      const open = openedHint();
-      return open?.session === session && open.owner === editor ? open : null;
+      const open = openedHint(session);
+      return open?.owner === editor ? open : null;
     };
     let closing: ReturnType<typeof setTimeout> | undefined;
     const pointer = (inside: boolean): void => {
@@ -126,7 +134,7 @@ export function createReviewHints(
       if (closing !== undefined || open === null || open.pinned) return;
       closing = setTimeout(() => {
         closing = undefined;
-        if (owned() === open) openHint(null);
+        if (owned() === open) openHint(session, null);
       }, HOVER_CLOSE_MS);
     };
     const hintAt = (event: monaco.editor.IEditorMouseEvent): PlacedHint | undefined => {
@@ -138,10 +146,14 @@ export function createReviewHints(
     const show = (entry: PlacedHint, pinned: boolean): void => {
       const open = owned();
       if (open?.id === entry.hint.id && (open.pinned || !pinned)) return;
-      openHint({ session, id: entry.hint.id, owner: editor, pinned });
+      openHint(session, { id: entry.hint.id, owner: editor, pinned });
     };
+    // The popover is a content widget, so Monaco reports pointer events on it too; those belong to the popover.
+    const onPopover = (event: monaco.editor.IEditorMouseEvent): boolean =>
+      event.target.element?.closest(".weavie-hint-hover") != null;
     const mouse = [
       editor.onMouseMove((event) => {
+        if (onPopover(event)) return pointer(true);
         const entry = hintAt(event);
         if (entry === undefined) return pointer(false);
         pointer(true);
@@ -149,19 +161,20 @@ export function createReviewHints(
       }),
       editor.onMouseLeave(() => pointer(false)),
       editor.onMouseDown((event) => {
+        if (onPopover(event)) return;
         const entry = hintAt(event);
         if (entry !== undefined) show(entry, true);
-        else if (owned() !== null) openHint(null);
+        else if (owned() !== null) openHint(session, null);
       }),
     ];
 
     // Navigation opens a hint with no owner; the first displayed binding of its file claims and reveals it.
     createEffect(() => {
-      const open = openedHint();
-      if (open?.session !== session || open.owner !== null) return;
+      const open = openedHint(session);
+      if (open === null || open.owner !== null) return;
       const entry = placed().find((candidate) => candidate.hint.id === open.id);
       if (entry === undefined || editor.getContainerDomNode().getClientRects().length === 0) return;
-      openHint({ ...open, owner: editor });
+      openHint(session, { ...open, owner: editor });
       editor.setPosition({ lineNumber: entry.line, column: 1 });
       editor.revealLineInCenterIfOutsideViewport(entry.line);
       editor.focus();
@@ -220,7 +233,7 @@ export function createReviewHints(
         clearTimeout(closing);
         onContent.dispose();
         for (const subscription of mouse) subscription.dispose();
-        if (owned() !== null) openHint(null);
+        if (owned() !== null) openHint(session, null);
         decorations.clear();
         dispose();
       },

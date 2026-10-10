@@ -40,38 +40,51 @@ public sealed partial class ReviewHintStore {
 		_published(hints);
 	}
 
+	// Hints are advisory: unreadable saved hints are discarded and reported rather than failing the session.
 	private void Restore() {
-		var records = _persistence.Read();
-		if (records.Count == 0) return;
+		IReadOnlyDictionary<string, string> records = new Dictionary<string, string>();
 		try {
-			var metadata = Deserialize(records[MetadataKey], ReviewHintJson.Default.HintMetadata);
-			var hints = new List<ReviewHint>();
-			var sources = new Dictionary<string, string>(StringComparer.Ordinal);
-			foreach (var (key, value) in records) {
-				if (key == MetadataKey) continue;
-				if (key.StartsWith("hint:", StringComparison.Ordinal)) {
-					var hint = Deserialize(value, ReviewHintJson.Default.ReviewHint);
-					if (key != HintKey(hint.Id) || hint.Id >= metadata.NextId || !ValidHint(hint)) {
-						throw new JsonException("Invalid review hint.");
-					}
-					hints.Add(hint);
-				} else if (key.StartsWith("source:", StringComparison.Ordinal) && key == SourceKey(Hash(value))) {
-					sources.Add(Hash(value), value);
-				} else {
-					throw new JsonException("Unknown review hint record.");
-				}
+			records = _persistence.Read();
+			if (records.Count > 0) Load(records);
+		} catch (Exception error) when (error is IOException or JsonException or ArgumentException) {
+			string reason = error.Message;
+			try {
+				_persistence.Save(records.Keys.ToDictionary(key => key, string? (_) => null, StringComparer.Ordinal));
+			} catch (IOException clear) {
+				reason += $" Clearing them failed too: {clear.Message}";
 			}
-			if (hints.Any(hint => !sources.ContainsKey(hint.SourceHash))
-				|| sources.Keys.Any(hash => hints.All(hint => hint.SourceHash != hash))) {
-				throw new JsonException("Review hint sources do not match their hints.");
-			}
-			_hints = [.. hints.OrderBy(hint => hint.Id)];
-			_sources = sources;
-			_batch = metadata.Batch;
-			_nextId = metadata.NextId;
-		} catch (Exception error) when (error is JsonException or KeyNotFoundException or ArgumentException) {
-			throw new IOException("The saved review hints could not be restored.", error);
+			_rejected($"Saved review hints couldn't be read and were discarded: {reason}");
 		}
+	}
+
+	private void Load(IReadOnlyDictionary<string, string> records) {
+		var metadata = records.TryGetValue(MetadataKey, out string? saved)
+			? Deserialize(saved, ReviewHintJson.Default.HintMetadata)
+			: throw new JsonException("Review hint metadata is missing.");
+		var hints = new List<ReviewHint>();
+		var sources = new Dictionary<string, string>(StringComparer.Ordinal);
+		foreach (var (key, value) in records) {
+			if (key == MetadataKey) continue;
+			if (key.StartsWith("hint:", StringComparison.Ordinal)) {
+				var hint = Deserialize(value, ReviewHintJson.Default.ReviewHint);
+				if (key != HintKey(hint.Id) || hint.Id >= metadata.NextId || !ValidHint(hint)) {
+					throw new JsonException("Invalid review hint.");
+				}
+				hints.Add(hint);
+			} else if (key.StartsWith("source:", StringComparison.Ordinal) && key == SourceKey(Hash(value))) {
+				sources.Add(Hash(value), value);
+			} else {
+				throw new JsonException("Unknown review hint record.");
+			}
+		}
+		if (hints.Any(hint => !sources.ContainsKey(hint.SourceHash))
+			|| sources.Keys.Any(hash => hints.All(hint => hint.SourceHash != hash))) {
+			throw new JsonException("Review hint sources do not match their hints.");
+		}
+		_hints = [.. hints.OrderBy(hint => hint.Id)];
+		_sources = sources;
+		_batch = metadata.Batch;
+		_nextId = metadata.NextId;
 	}
 
 	private bool ValidHint(ReviewHint hint) =>

@@ -167,6 +167,7 @@ public sealed partial class HostCore {
 		session.Agent.ReplayState(target.Feature("agent"));
 		session.ReplayEditor(target.Feature("editor"), line => Log(line));
 		session.ReplayWorkspaceFailures(target);
+		session.ReplayUnsyncedReviewHintErrors(target);
 		session.State.Replay(target);
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);

@@ -61,12 +61,14 @@ export function createAnchorMap(sources: PrSources, buffer: string): AnchorMap {
   };
 }
 
-/** A thread as a Fix item: its buffer line and every comment, attributed. */
+/** A thread as a Fix item: its buffer line and every comment, attributed; null for an outdated thread, which has
+ * no live line to fix. */
 export function threadFixItem(
   placement: ThreadPlacement,
   path: string,
   lineText: (line: number) => string,
-): FixItem {
+): FixItem | null {
+  if (placement.note === "outdated") return null;
   const line = Math.max(1, placement.afterLine);
   return {
     path,

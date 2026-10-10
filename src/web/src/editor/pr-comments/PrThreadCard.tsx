@@ -29,7 +29,7 @@ export function PrThreadCard(props: {
   onCollapsed: (collapsed: boolean) => void;
   replying: boolean;
   onReplying: (open: boolean) => void;
-  fix: () => FixItem;
+  fix: () => FixItem | null;
 }): JSX.Element {
   const [unfolded, setUnfolded] = createSignal(false);
   const thread = () => props.placement.thread;
@@ -82,24 +82,30 @@ export function PrThreadCard(props: {
         }
       >
         <span class="weavie-pr-thread-actions">
-          <button
-            type="button"
-            class="weavie-pr-icon-button"
-            title={`Fix${keyHint(CommandIds.reviewHintsFix)}`}
-            aria-label="Fix"
-            onClick={() => fixLine(props.session, props.fix(), "")}
-          >
-            <Wrench size={13} />
-          </button>
-          <button
-            type="button"
-            class="weavie-pr-icon-button"
-            title={`Fix with…${keyHint(CommandIds.reviewHintsFixWith)}`}
-            aria-label="Fix with…"
-            onClick={() => fixWith(props.session, props.fix())}
-          >
-            <WandSparkles size={13} />
-          </button>
+          <Show when={props.fix()}>
+            {(item) => (
+              <>
+                <button
+                  type="button"
+                  class="weavie-pr-icon-button"
+                  title={`Fix${keyHint(CommandIds.reviewHintsFix)}`}
+                  aria-label="Fix"
+                  onClick={() => fixLine(props.session, item(), "")}
+                >
+                  <Wrench size={13} />
+                </button>
+                <button
+                  type="button"
+                  class="weavie-pr-icon-button"
+                  title={`Fix with…${keyHint(CommandIds.reviewHintsFixWith)}`}
+                  aria-label="Fix with…"
+                  onClick={() => fixWith(props.session, item())}
+                >
+                  <WandSparkles size={13} />
+                </button>
+              </>
+            )}
+          </Show>
           <button
             type="button"
             class="weavie-pr-icon-button"

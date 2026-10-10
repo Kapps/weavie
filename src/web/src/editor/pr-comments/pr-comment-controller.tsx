@@ -244,7 +244,7 @@ export function createPrComments(
       reviewToolbarInset,
     );
 
-    const fixItem = (placement: ThreadPlacement): FixItem =>
+    const fixItem = (placement: ThreadPlacement): FixItem | null =>
       threadFixItem(placement, path, (line) => model.getLineContent(line));
 
     const comment = (): boolean => {
@@ -295,12 +295,11 @@ export function createPrComments(
       commentable,
       comment,
       navigate,
-      fixItemAt: (line) => {
-        const card = cards().find(
-          (card) => card.data.kind === "thread" && Math.max(1, card.afterLine) === line,
-        );
-        return card?.data.kind === "thread" ? fixItem(card.data.placement) : null;
-      },
+      fixItemAt: (line) =>
+        cards()
+          .filter((card) => Math.max(1, card.afterLine) === line)
+          .map((card) => (card.data.kind === "thread" ? fixItem(card.data.placement) : null))
+          .find((item) => item !== null) ?? null,
       dispose: () => {
         clearTimeout(recompute);
         onContent.dispose();

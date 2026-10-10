@@ -20,7 +20,7 @@ public static partial class CoreCommands {
 	/// <summary>As <see cref="ReviewHintsFix"/>, with the user's own instruction (web-handled).</summary>
 	public const string ReviewHintsFixWith = "weavie.reviewHints.fixWith";
 
-	/// <summary>Closes the open review hint popover; bound to <c>Escape</c> while it is open (web-handled).</summary>
+	/// <summary>Closes the open review hint popover; bound to <c>Escape</c> after the editor's own widgets decline it (web-handled).</summary>
 	public const string ReviewHintsClose = "weavie.reviewHints.close";
 
 	/// <summary>Removes every review hint in the session.</summary>
@@ -82,7 +82,7 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
 			Description = "Close the open review hint popover.",
-			DefaultKeybindings = [new CommandKeybinding { Key = "Escape", When = "reviewHintOpen && editorFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape", When = "editorFocused" }],
 			ShowInPalette = false,
 		});
 

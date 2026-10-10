@@ -11,11 +11,21 @@ internal sealed partial class AcpConversation {
 		lock (_turnTransitionGate) UpdateToolSerialized(update, initial);
 	}
 
+	// A tool that hands its work to a subagent session is announced only there; adapters still leak its metadata.
+	private bool UnknownMetadataOnly(JsonElement update) {
+		lock (_gate) {
+			return !_tools.ContainsKey(RequiredString(update, "toolCallId", "tool call update"))
+				&& update.EnumerateObject().All(property => property.Name is "sessionUpdate" or "toolCallId" or "_meta");
+		}
+	}
+
 	private void UpdateToolSerialized(JsonElement update, bool initial) {
+		if (!initial && UnknownMetadataOnly(update)) return;
 		var tool = MergeTool(update, initial ? ToolUpdateSource.Initial : ToolUpdateSource.Update);
 		if (tool.LocallyTerminalized) return;
 		lock (_gate) {
-			if (tool.Status is "completed" or "failed") _activeTools.Remove(tool.Id);
+			// A backgrounded tool's liveness is its async task's, so it never holds the turn.
+			if (tool.Status is "completed" or "failed" || tool.Backgrounded) _activeTools.Remove(tool.Id);
 			else _activeTools.Add(tool.Id);
 		}
 
@@ -99,6 +109,10 @@ internal sealed partial class AcpConversation {
 					: rawOutput.GetRawText();
 			}
 			tool.Input = ToolRequestText(update) ?? tool.Input;
+			// AIR markers are sticky: adapters send them once and drop repeats.
+			tool.Backgrounded |= Air(update, "asyncTasks") is { ValueKind: JsonValueKind.Object } tasks
+				&& tasks.TryGetProperty("backgrounded", out var backgrounded) && backgrounded.ValueKind == JsonValueKind.True;
+			tool.Subagent |= Air(update, "subagent").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null);
 		}
 		return tool;
 	}
@@ -169,6 +183,9 @@ internal sealed partial class AcpConversation {
 		public bool InitialReported { get; set; }
 		public bool NotificationReported { get; set; }
 		public bool LocallyTerminalized { get; set; }
+		public bool Backgrounded { get; set; }
+		public bool Subagent { get; set; }
+		public bool Shown { get; set; }
 		public IReadOnlyList<AgentPaneLocation>? Locations { get; set; }
 		public IReadOnlyList<AgentPaneDiff>? Diffs { get; set; }
 		public IReadOnlyList<AgentPaneContent>? Content { get; set; }

@@ -14,6 +14,9 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public Task<bool> StopBackgroundTaskAsync(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
+		foreach (var root in Roots()) {
+			if (root.Background.StoppableTask(id) is { } task) return root.StopTaskAsync(task);
+		}
 		throw new InvalidOperationException("That background work cannot be stopped.");
 	}
 

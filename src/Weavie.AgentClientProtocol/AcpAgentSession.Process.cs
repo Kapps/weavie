@@ -133,6 +133,14 @@ public sealed partial class AcpAgentSession {
 					["terminal"] = true,
 					["session"] = PaneSessionCapabilities(),
 					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
+					["_meta"] = new JsonObject {
+						["jetbrains"] = new JsonObject {
+							["air"] = new JsonObject {
+								["version"] = 1,
+								["capabilities"] = new JsonArray("nativeSubagentSessions", "asyncTasks"),
+							},
+						},
+					},
 				},
 				["clientInfo"] = AcpInferenceClient.ClientInfo(
 					_context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture)),

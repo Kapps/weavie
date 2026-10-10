@@ -19,6 +19,8 @@ public sealed class AcpSubagentTests {
 		Assert.NotNull(completed.CompletedAtMs);
 		Assert.Contains(fixture.Messages, message => message.ConversationId == marker.ConversationId && message.ItemType == "tool");
 		Assert.Contains(fixture.Messages, message => message.ConversationId == marker.ConversationId && message.Text == "Counted 3 files");
+		await fixture.WaitForMessageAsync(message => message.Text == "subagent turn done" && message.Type == "item-completed");
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemId is "tool:spawn-agent" or "tool:toolu_hidden_agent" || message.Type == "error");
 		await fixture.Events.WaitForAsync(value => value is AgentConversationRemoved removed && removed.ConversationId == marker.ConversationId);
 		Assert.Contains(fixture.Sessions.ReadMessages("fake", fixture.Workspace), message => message.Type == "subagent-started");
 		Assert.Equal("", Assert.Single(fixture.Sessions.ReadConversations("fake", fixture.Workspace)).ConversationId);

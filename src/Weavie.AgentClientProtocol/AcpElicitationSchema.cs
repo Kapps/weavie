@@ -19,8 +19,10 @@ internal static class AcpElicitationSchema {
 			throw new AcpProtocolException(
 				"ACP elicitation required contains unknown properties: " + string.Join(", ", unknownRequired));
 		}
+		var companions = CustomAnswerCompanions(properties);
 		var result = new List<AgentInputQuestion>();
 		foreach (var property in properties) {
+			if (companions.ContainsValue(property.Name)) continue;
 			var value = property.Value;
 			string kind = RequiredString(value, "type", $"elicitation property '{property.Name}'");
 			if (kind is not ("string" or "number" or "integer" or "boolean" or "array")) {
@@ -40,7 +42,7 @@ internal static class AcpElicitationSchema {
 				Id = property.Name,
 				Header = title,
 				Question = OptionalString(value, "description") ?? message ?? title,
-				AllowsOther = false,
+				AllowsOther = companions.ContainsKey(property.Name),
 				Kind = kind,
 				Required = required.Contains(property.Name),
 				Format = format,
@@ -58,6 +60,22 @@ internal static class AcpElicitationSchema {
 			});
 		}
 		return result;
+	}
+
+	// An AIR custom-answer property is the free-text companion of a choice question: the question offers Other,
+	// and the companion carries what Other cannot. It names its question, or follows it.
+	private static Dictionary<string, string> CustomAnswerCompanions(JsonProperty[] properties) {
+		var companions = new Dictionary<string, string>(StringComparer.Ordinal);
+		for (int index = 0; index < properties.Length; index++) {
+			var marker = Air(properties[index].Value, "customAnswer");
+			if (marker.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null or JsonValueKind.False) continue;
+			string question = (marker.ValueKind == JsonValueKind.Object ? OptionalString(marker, "questionId") : null)
+				?? (index > 0 ? properties[index - 1].Name : throw new AcpProtocolException("An ACP custom answer names no question."));
+			if (!properties.Any(property => property.Name == question) || !companions.TryAdd(question, properties[index].Name)) {
+				throw new AcpProtocolException($"The ACP custom answer for '{question}' has no single question.");
+			}
+		}
+		return companions;
 	}
 
 	public static string RequireHttpUrl(string value) {
@@ -160,9 +178,18 @@ internal static class AcpElicitationSchema {
 			throw new AcpProtocolException("ACP elicitation answers contain unknown properties: "
 				+ string.Join(", ", unknown));
 		}
+		var companions = CustomAnswerCompanions(properties);
+		answers = FoldCustomAnswers(properties, companions, answers);
 		var content = new JsonObject();
 		foreach (var property in properties) {
 			string kind = RequiredString(property.Value, "type", $"elicitation property '{property.Name}'");
+			if (kind != "array" && answers.TryGetValue(property.Name, out var single) && single.Count == 1
+				&& companions.ContainsKey(property.Name)
+				&& ReadOptions(property.Value, kind).All(option => option.Value != single[0])) {
+				// A typed single choice is the answer itself.
+				content.Add(property.Name, single[0]);
+				continue;
+			}
 			if (!answers.TryGetValue(property.Name, out var values)
 				|| values.Count == 0 && kind != "array") {
 				if (required.Contains(property.Name)) {
@@ -173,6 +200,22 @@ internal static class AcpElicitationSchema {
 			content.Add(property.Name, ConvertElicitationValue(property.Name, property.Value, kind, values));
 		}
 		return content;
+	}
+
+	// Typed text beside a multiple choice's picks belongs in its custom-answer companion.
+	private static IReadOnlyDictionary<string, IReadOnlyList<string>> FoldCustomAnswers(
+		JsonProperty[] properties, Dictionary<string, string> companions, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
+		var folded = new Dictionary<string, IReadOnlyList<string>>(answers, StringComparer.Ordinal);
+		foreach (var (question, companion) in companions) {
+			var schema = properties.First(property => property.Name == question).Value;
+			if (RequiredString(schema, "type", $"elicitation property '{question}'") != "array" || !answers.TryGetValue(question, out var values)) continue;
+			var options = ReadOptions(schema, "array");
+			string[] typed = [.. values.Where(value => options.All(option => option.Value != value))];
+			if (typed.Length == 0) continue;
+			folded[question] = [.. values.Except(typed, StringComparer.Ordinal)];
+			folded[companion] = [string.Join(", ", typed)];
+		}
+		return folded;
 	}
 
 	private static JsonProperty[] ReadObjectSchemaProperties(JsonElement schema) {

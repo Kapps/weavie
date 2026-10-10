@@ -77,6 +77,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			"session/set_mode" => SetMode(parameters),
 			"session/set_config_option" => await SetConfigAsync(parameters, ct).ConfigureAwait(false),
 			"_session/steering" => await SteerAsync(parameters, ct).ConfigureAwait(false),
+			"_session/async_task/stop" => StopTask(parameters),
 			_ => throw new AcpAdapterException(-32601, $"Unknown fake ACP method '{method}'.", null),
 		};
 
@@ -101,6 +102,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (!parameters.TryGetProperty("protocolVersion", out var version) || version.GetInt32() != 1) {
 			throw new AcpAdapterException(-32600, "Fake ACP requires protocol version 1.", null);
 		}
+		File.WriteAllText(StatePath("initialize.json"), parameters.GetRawText());
 		_supportsPlanUpdates = parameters.TryGetProperty("clientCapabilities", out var capabilities)
 			&& capabilities.TryGetProperty("plan", out var plan)
 			&& plan.ValueKind == JsonValueKind.Object;
@@ -433,6 +435,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text.StartsWith("subagent", StringComparison.Ordinal)) return await SubagentAsync(text, ct).ConfigureAwait(false);
+		if (text.StartsWith("task", StringComparison.Ordinal) || text == "workflow-held") return TaskPrompt(text, ct);
+		if (text.StartsWith("input-custom-answer", StringComparison.Ordinal)) {
+			await CustomAnswerAsync(text == "input-custom-answer-multiple", ct).ConfigureAwait(false);
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
 		else if (text == "held-background") {

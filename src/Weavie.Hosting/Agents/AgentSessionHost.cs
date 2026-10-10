@@ -77,6 +77,10 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			Usage = usage;
 			usage.UsageChanged += PublishUsage;
 		}
+		if (Session is IStructuredAgentBackgroundWork background) {
+			Background = background;
+			background.BackgroundWorkChanged += PublishBackground;
+		}
 		SideConversations = Session as IStructuredAgentSideConversations;
 		Rewind = Session as IStructuredAgentRewind;
 	}
@@ -101,6 +105,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The provider's live context-window and usage-limit reporting, when it exposes it.</summary>
 	public IStructuredAgentUsage? Usage { get; }
+
+	/// <summary>The subagents and background tasks the structured agent runs, when it reports them.</summary>
+	public IStructuredAgentBackgroundWork? Background { get; }
 
 	/// <summary>The context-preserving side-conversation surface, when the structured agent supports it.</summary>
 	public IStructuredAgentSideConversations? SideConversations { get; }
@@ -129,6 +136,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		if (Usage is { } usage) {
 			usage.UsageChanged -= PublishUsage;
 		}
+		if (Background is { } background) {
+			background.BackgroundWorkChanged -= PublishBackground;
+		}
 		await _paneOutput.DisposeAsync().ConfigureAwait(false);
 	}
 
@@ -150,6 +160,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 		ReplayControls(messages);
 		ReplayUsage(messages);
+		if (Background is not null) messages.Publish("background", WireJson.Default.AgentBackgroundMessage, AgentBackgroundProtocol.Message(Background.BackgroundWork));
 		messages.Publish("queue", WireJson.Default.AgentQueueMessage, AgentQueueProtocol.Message(Structured.QueuedSubmissions));
 	}
 
@@ -179,6 +190,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void PublishUsage(AgentUsageSnapshot usage) =>
 		_messages.Publish("usage", WireJson.Default.AgentUsageMessage, AgentUsageProtocol.Message(usage));
+
+	private void PublishBackground(IReadOnlyList<AgentBackgroundItem> items) =>
+		_messages.Publish("background", WireJson.Default.AgentBackgroundMessage, AgentBackgroundProtocol.Message(items));
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();

@@ -89,7 +89,7 @@ internal sealed partial class AcpConversation {
 		RaiseControls();
 		foreach (var message in DrainContentStreams()) _pendingTerminalMessages.Enqueue(message);
 		foreach (var tool in tools) {
-			if (tool.Tool.NotificationReported) _pendingTerminalMessages.Enqueue(ToolMessage(tool.Tool));
+			if (tool.Tool is { NotificationReported: true, Subagent: false }) _pendingTerminalMessages.Enqueue(ToolMessage(tool.Tool));
 		}
 		if (promptActive) {
 			_pendingTerminalMessages.Enqueue(new AgentPaneMessage {

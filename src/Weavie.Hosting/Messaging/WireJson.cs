@@ -59,6 +59,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(AgentQueueMessage))]
 [JsonSerializable(typeof(AgentControlsMessage))]
 [JsonSerializable(typeof(AgentUsageMessage))]
+[JsonSerializable(typeof(AgentBackgroundMessage))]
 [JsonSerializable(typeof(OmnibarFocus))]
 [JsonSerializable(typeof(ToastMessage))]
 [JsonSerializable(typeof(ToastKey))]

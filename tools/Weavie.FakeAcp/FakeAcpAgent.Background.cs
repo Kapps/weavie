@@ -10,9 +10,18 @@ internal sealed partial class FakeAcpAgent {
 		string child = NextSubagent();
 		switch (text) {
 			case "subagent":
+				var spawn = Tool("spawn-agent", "Spawn Explore", "in_progress");
+				spawn["_meta"] = new JsonObject { ["jetbrains"] = new JsonObject { ["air"] = new JsonObject { ["version"] = 1, ["subagent"] = new JsonObject() } } };
+				Update(spawn);
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");
 				SubagentWork(child, "Counted 3 files");
 				FinishSubagent(_sessionId!, child, "completed");
+				Update(new JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "spawn-agent", ["status"] = "completed" });
+				// Claude announces its Agent tool only on the child, yet sends the parent its metadata.
+				Update(new JsonObject {
+					["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "toolu_hidden_agent",
+					["_meta"] = new JsonObject { ["claudeCode"] = new JsonObject { ["toolName"] = "Agent" } },
+				});
 				break;
 			case "subagent-held":
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");

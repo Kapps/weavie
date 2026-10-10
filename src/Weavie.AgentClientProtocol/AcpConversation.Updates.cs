@@ -57,7 +57,9 @@ internal sealed partial class AcpConversation {
 			case "session_info_update": EmitSessionInfo(update); break;
 			case "usage_update": EmitUsage(update); break;
 			case "notice": EmitNotice(update); break;
-			case "subagent_spawned" or "subagent_state_update": HandleBackgroundUpdate(kind, update); break;
+			case "subagent_spawned" or "subagent_state_update" or "async_task_spawned" or "async_task_progress" or "async_task_state_update":
+				HandleBackgroundUpdate(kind, update);
+				break;
 			default: throw new AcpProtocolException($"Unsupported ACP session update '{kind}'.");
 		}
 	}

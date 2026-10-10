@@ -73,8 +73,43 @@ internal sealed partial class AcpConversation {
 	}
 
 	private void HandleBackgroundUpdate(string kind, JsonElement update) {
-		if (kind == "subagent_spawned") Background.Spawn(this, update);
-		else Background.Finish(update);
+		switch (kind) {
+			case "subagent_spawned": Background.Spawn(this, update); break;
+			case "subagent_state_update": Background.Finish(update); break;
+			case "async_task_spawned": Background.SpawnTask(this, update); break;
+			case "async_task_progress": Background.ProgressTask(update); break;
+			default: Background.UpdateTaskState(update); break;
+		}
+	}
+
+	/// <summary>Journals a background task's transcript card at the turn it started in.</summary>
+	internal void PublishTaskCard(string turnId, AgentBackgroundItem item) => Emit(new AgentPaneMessage {
+		Type = item.Running ? "item-started" : "item-completed",
+		ProviderId = Definition.Id,
+		ThreadId = SessionId(),
+		TurnId = turnId,
+		ItemId = item.TranscriptItemId,
+		ItemType = "backgroundTask",
+		Category = item.Type,
+		Summary = item.Name,
+		Text = item.Detail,
+		Status = item.State.ToString().ToLowerInvariant(),
+		StartedAtMs = item.StartedAtMs,
+		CompletedAtMs = item.EndedAtMs,
+	});
+
+	/// <summary>Asks the agent to stop one of this root's tasks; the stop always addresses the root session.</summary>
+	internal async Task<bool> StopTaskAsync(string asyncTaskId) {
+		Task<JsonElement> request;
+		lock (_turnTransitionGate) {
+			if (!Live) throw new InvalidOperationException("The conversation that owns this task has ended.");
+			request = _endpoint.Value.RequestAsync(
+				"_session/async_task/stop", new System.Text.Json.Nodes.JsonObject { ["asyncTaskId"] = asyncTaskId }, CancellationToken.None);
+		}
+		var result = await request.ConfigureAwait(false);
+		return result.TryGetProperty("stopped", out var stopped) && stopped.ValueKind is JsonValueKind.True or JsonValueKind.False
+			? stopped.GetBoolean()
+			: throw new AcpProtocolException("The async task stop response is missing 'stopped'.");
 	}
 
 	private void ObserveReplayedBackground(string kind, JsonElement update) {

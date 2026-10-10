@@ -5,15 +5,15 @@ using static Weavie.AgentClientProtocol.AcpJson;
 
 namespace Weavie.AgentClientProtocol;
 
-/// <summary>The subagents one root conversation owns, nested spawns included, keyed by provider session.</summary>
-internal sealed class AcpBackgroundWork(AcpConversation root) {
+/// <summary>The subagents and tasks one root conversation owns, nested spawns and their tasks included.</summary>
+internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, Subagent> _subagents = new(StringComparer.Ordinal);
 	// Replayed subagents and forgotten finished ones: their states are acknowledged, never rendered.
 	private readonly HashSet<string> _settled = new(StringComparer.Ordinal);
 
 	public IReadOnlyList<AgentBackgroundItem> Items {
-		get { lock (_gate) return [.. _subagents.Values.Select(subagent => subagent.Item)]; }
+		get { lock (_gate) return [.. _subagents.Values.Select(subagent => subagent.Item), .. _tasks.Values.Select(task => task.Item)]; }
 	}
 
 	/// <summary>The live subagent conversation with the Weavie identity <paramref name="conversationId"/>.</summary>
@@ -83,7 +83,8 @@ internal sealed class AcpBackgroundWork(AcpConversation root) {
 
 	/// <summary>Ends every running subagent with the root's own fate.</summary>
 	public void End(string state) {
-		if (End(static _ => true, state)) root.RaiseBackground();
+		bool subagents = End(static _ => true, state);
+		if (EndTasks(state == "failed" ? AgentBackgroundState.Failed : AgentBackgroundState.Stopped) || subagents) root.RaiseBackground();
 	}
 
 	/// <summary>Retires every subagent without publishing; the saved display's recovery settles their cards.</summary>
@@ -103,7 +104,7 @@ internal sealed class AcpBackgroundWork(AcpConversation root) {
 			string[] finished = [.. _subagents.Where(entry => entry.Value.Retired).Select(entry => entry.Key)];
 			foreach (string id in finished) _subagents.Remove(id);
 			_settled.UnionWith(finished);
-			removed = finished.Length;
+			removed = finished.Length + ClearFinishedTasksLocked();
 		}
 		if (removed > 0) root.RaiseBackground();
 	}

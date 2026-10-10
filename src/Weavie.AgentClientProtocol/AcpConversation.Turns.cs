@@ -237,7 +237,7 @@ internal sealed partial class AcpConversation {
 				// ACP: the client marks the cancelled turn's unfinished tool calls cancelled; agents may never report them.
 				if (sessionId is not null && _promptActive) {
 					string turnId = TurnId();
-					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId);
+					cancelled = TerminalizeToolsLocked("cancelled", tool => tool.TurnId == turnId && !tool.Backgrounded);
 				}
 			}
 			if (sessionId is not null) CancelPrompt();

@@ -160,8 +160,9 @@ test("review autoscroll releases ownership on cancellation, tab teardown, and a 
 
   await scrollReview(page, "start");
   const gap = await header.boundingBox();
+  const viewport = await page.locator(".unified-review-diffs").boundingBox();
   expect(gap).not.toBeNull();
-  await page.mouse.click(gap!.x + 100, gap!.y - 10, { button: "middle" });
+  await page.mouse.click(gap!.x + 100, (viewport!.y + gap!.y) / 2, { button: "middle" });
   await expect(marker).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(marker).toHaveCount(0);

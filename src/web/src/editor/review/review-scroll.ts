@@ -28,6 +28,9 @@ export interface ReviewScroll {
   dispose(): void;
 }
 
+// Monaco's editor width keeps the thumb grabbable beside the Windows 6px edge resize strip.
+const SCROLLBAR_SIZE = 14;
+
 export function createReviewScroll(element: HTMLElement, content: HTMLElement): ReviewScroll {
   const state = new Scrollable({
     forceIntegerValues: false,
@@ -48,12 +51,14 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     {
       vertical: ScrollbarVisibility.Auto,
       horizontal: ScrollbarVisibility.Hidden,
+      verticalScrollbarSize: SCROLLBAR_SIZE,
       useShadows: false,
       alwaysConsumeMouseWheel: true,
       mouseWheelSmoothScroll: true,
     },
     state,
   );
+  element.style.setProperty("--review-scrollbar-size", `${SCROLLBAR_SIZE}px`);
   const node = scrollable.getDomNode();
   node.style.overflow = "clip";
   extent.style.overflow = "visible";

@@ -40,8 +40,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1em;
-  min-height: 3.5em;
-  padding: 0.65em 1em;
+  padding: 0.3em 0.75em;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bar) 94%, transparent);
   backdrop-filter: blur(10px);
@@ -86,7 +85,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
-  padding: 0.35em 0.65em;
+  padding: 0.2em 0.5em;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--bg);
@@ -131,15 +130,13 @@
 }
 
 .unified-review-diffs {
-  --review-scroll-padding: 1em;
+  --review-scroll-padding: 0.4em;
   position: relative;
   height: 100%;
   min-width: 0;
   overflow: clip;
   width: 100%;
-  max-width: 100rem;
-  margin: 0 auto;
-  padding: var(--review-scroll-padding);
+  padding: var(--review-scroll-padding) 0;
 }
 
 .unified-review-diffs > .monaco-scrollable-element {
@@ -161,18 +158,17 @@
   position: absolute;
   left: 0;
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  border-block: 1px solid var(--border);
   background: var(--bg);
 }
 
 .unified-review-file-header {
   position: relative;
   top: 0;
-  border-radius: 6px 6px 0 0;
   z-index: 2;
   min-height: 2.6em;
   padding: 0.45em 0.65em;
+  padding-inline-end: calc(var(--review-scrollbar-size) + 0.65em);
   border-bottom: 1px solid var(--border);
   background: var(--bar);
 }
@@ -316,11 +312,9 @@
 
 .unified-review-file.collapsed .unified-review-file-header {
   border-bottom: 0;
-  border-radius: 6px;
 }
 
 .unified-review-file-action {
-  padding: 0.2em 0.5em;
   background: transparent;
   font-size: var(--font-hint-size);
 }
@@ -350,10 +344,6 @@
   > .monaco-scrollable-element
   > .scrollbar.vertical {
   display: none;
-}
-
-.unified-review-editor .overflow-guard {
-  border-radius: 0 0 6px 6px;
 }
 
 /* A collapsed unchanged stretch: a dashed band that reveals its lines when clicked. */

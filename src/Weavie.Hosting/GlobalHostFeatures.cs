@@ -40,9 +40,10 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		_services.AgentProviders.Changed += PushAgentDefaults;
 	}
 
-	/// <summary>The page globals every Weavie page reads: agent defaults, resolved theme, commands, and keybindings.</summary>
+	/// <summary>The page globals every Weavie page reads: agent defaults, fonts, resolved theme, commands, and keybindings.</summary>
 	public string BootstrapScript() =>
 		$"window.__WEAVIE_AGENT__ = {AgentDefaultsJson()};"
+		+ $"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_services.Settings)};"
 		+ $"window.__WEAVIE_THEME__ = {ThemeJson()};"
 		+ $"window.__WEAVIE_COMMANDS__ = {_services.Keybindings.BuildCommandsJson()};"
 		+ $"window.__WEAVIE_KEYBINDINGS__ = {_services.Keybindings.BuildKeybindingsJson()};";
@@ -160,6 +161,10 @@ internal sealed class GlobalHostFeatures : IDisposable {
 
 		if (ThemeSettings.Keys.Contains(change.Key)) {
 			PushTheme();
+		}
+
+		if (FontSettings.Keys.Contains(change.Key)) {
+			_host.Feature("settings").PublishJson("fonts", FontSettings.BuildJson(_services.Settings));
 		}
 	}
 

@@ -427,6 +427,8 @@ test.describe("session-addressed WebSocket transport", () => {
     host.publishHost("settings", "fonts", {
       editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
       terminal: { family: "monospace", size: 13, weight: "normal" },
+      interface: "Verdana, sans-serif",
+      prose: "Georgia, serif",
     });
 
     await expect
@@ -454,7 +456,7 @@ test.describe("session-addressed WebSocket transport", () => {
         contentWeight: "700",
         promptFamily: '"Courier New", monospace',
         promptWeight: "700",
-        proseFamily: "Chivo, system-ui, sans-serif",
+        proseFamily: "Georgia, serif",
         proseSize: "21px",
         proseWeight: "400",
       });

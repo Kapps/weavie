@@ -449,6 +449,8 @@ test.describe("ACP composer", () => {
     host.publishHost("settings", "fonts", {
       editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
       terminal: { family: "monospace", size: 13, weight: "normal" },
+      interface: "Verdana, sans-serif",
+      prose: "Georgia, serif",
     });
 
     const styles = async (selector: string): Promise<Record<string, string>> =>
@@ -468,10 +470,10 @@ test.describe("ACP composer", () => {
         chromeFamily: (await styles(".agent-status-line")).family,
       }))
       .toEqual({
-        prose: { family: "Chivo, system-ui, sans-serif", size: "21px", weight: "400" },
+        prose: { family: "Georgia, serif", size: "21px", weight: "400" },
         code: { family: '"Courier New", monospace', size: "21px", weight: "700" },
         composer: { family: '"Courier New", monospace', size: "21px", weight: "700" },
-        chromeFamily: "Chivo, system-ui, sans-serif",
+        chromeFamily: "Verdana, sans-serif",
       });
   });
 

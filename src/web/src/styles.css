@@ -24,10 +24,8 @@
      kept light/rosy so error text reads on black — too pale for a solid button. This is a deeper, saturated
      red that carries white text and reads as a real danger affordance. */
   --danger: #c0302a;
-  /* The chrome/UI typeface (tabs, title bar, menus, panels) — bundled Chivo, a sturdy grotesque chosen
-     to read distinctly from the soft system-UI / VS Code look and to stay crisp at small text sizes.
-     @font-face is in fonts.css; code surfaces (Monaco/xterm) keep their own monospace via settings. */
-  --ui-font: "Chivo", system-ui, sans-serif;
+  /* The chrome typeface from `interface.font.family` (published by fonts.ts; default bundled Chivo). */
+  --ui-font: var(--interface-font-family);
   /* Semantic typography roles. Code companions track the live editor settings published by fonts.ts; feature
      chrome stays compact and secondary text uses shared roles instead of inventing local scales. */
   --font-chrome-family: var(--ui-font);
@@ -35,7 +33,7 @@
   --font-content-family: var(--editor-font-family, ui-monospace, monospace);
   --font-content-size: var(--editor-font-size, 14px);
   --font-content-weight: var(--editor-font-weight, 400);
-  --font-prose-family: var(--font-chrome-family);
+  --font-prose-family: var(--prose-font-family);
   --font-prose-size: var(--font-content-size);
   --font-prose-weight: 400;
   --font-metadata-size: calc(var(--font-content-size) * 0.8125);

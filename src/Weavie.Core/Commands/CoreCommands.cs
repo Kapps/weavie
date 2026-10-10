@@ -387,6 +387,9 @@ public static partial class CoreCommands {
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
 
+	/// <summary>Rotates the active image/video tab a quarter turn, refitting it to the pane; unbound.</summary>
+	public const string RotateMedia = "weavie.editor.rotateMedia";
+
 	/// <summary>Increases the editor and terminal font sizes (global plus any set per-surface override); bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
 
@@ -2034,6 +2037,17 @@ public static partial class CoreCommands {
 			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
 			When = "editorFocused",
 			KeybindingsActiveInModal = true,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RotateMedia,
+			Title = "Rotate Media",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Rotate the open image or video a quarter turn (again to rotate back), refitting it to the "
+				+ "pane — e.g. to watch a landscape video full-size on a portrait phone. Does nothing when no image "
+				+ "or video tab is showing.",
+			Aliases = ["rotate image", "rotate video", "landscape", "portrait", "orientation"],
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): step every size setting in effect — global font.size

@@ -128,6 +128,7 @@ import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
 import { FixPrompt } from "./editor/FixPrompt";
+import { rotateMedia } from "./editor/media/media-rotate";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
@@ -1617,6 +1618,7 @@ export default function App(): JSX.Element {
         if (session !== null) editor.newFile(session);
       }),
       registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
+      registerCommand(CommandIds.rotateMedia, (_args, { session }) => rotateMedia(session)),
       // Workspace/window menu commands always target the page-serving host, even while a remote session is active.
       registerCommand(CommandIds.openFolder, () =>
         NATIVE_SHELL ? publishMenuAction("open-folder") : false,

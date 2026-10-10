@@ -13,7 +13,7 @@ public static class WorkspaceSetupPrompt {
 		Description = "Configure this workspace's Weavie settings (worktree setup command + test runner).",
 		Text = """
 			Set up this workspace's Weavie settings by inspecting the repository. Configure two settings, then
-			propose both values together and ask me to confirm them before you persist (call the `setSetting`
+			propose both values together and ask the user to confirm them before you persist (call the `setSetting`
 			tool with the key and value). Inspect the repo freely to derive the values, but change nothing
 			except these two settings.
 
@@ -59,7 +59,7 @@ public static class WorkspaceSetupPrompt {
 
 			When you finish, report exactly which settings you wrote and their values, note that they are stored
 			per-workspace in Weavie's own config outside the repo (so nothing is committed to source control), and
-			tell me I can re-run this setup by selecting the `setup-workspace` MCP prompt again.
+			tell the user they can re-run this setup by asking for it again or selecting the `setup-workspace` prompt.
 			""",
 	};
 }

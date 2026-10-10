@@ -496,6 +496,11 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
 		else if (text == "identify-session") Message($"session: {_sessionId}");
+		else if (text == "notices") {
+			foreach (string severity in new[] { "info", "warning", "error" }) {
+				Update(new JsonObject { ["sessionUpdate"] = "notice", ["severity"] = severity, ["title"] = severity + " title", ["description"] = severity + " detail" });
+			}
+		}
 		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
 		else if (text == "remove-commands") Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",

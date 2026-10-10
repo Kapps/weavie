@@ -131,7 +131,7 @@ public sealed partial class AcpAgentSession {
 					["plan"] = new JsonObject(),
 					["subagents"] = new JsonObject(),
 					["terminal"] = true,
-					["session"] = AcpInferenceClient.SessionCapabilities(),
+					["session"] = PaneSessionCapabilities(),
 					["elicitation"] = new JsonObject { ["form"] = new JsonObject(), ["url"] = new JsonObject() },
 				},
 				["clientInfo"] = AcpInferenceClient.ClientInfo(
@@ -144,6 +144,13 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) (_features, _process) = (features, new AcpProcess(_connection, generation));
 		}
 		await conversation.OpenAsync(features).ConfigureAwait(false);
+	}
+
+	// The pane presents notices itself, so agents need not fold them into replies.
+	private static JsonObject PaneSessionCapabilities() {
+		var session = AcpInferenceClient.SessionCapabilities();
+		session["notices"] = new JsonObject();
+		return session;
 	}
 
 	private void OnProtocolFault(long generation, Exception error) {

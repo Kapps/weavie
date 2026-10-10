@@ -6,7 +6,7 @@
 .weavie-blame {
   font-size: var(--font-metadata-size);
   font-style: italic;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   opacity: 0.62;
   cursor: pointer;
 }
@@ -36,7 +36,7 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   font-family: var(--font-chrome-family);
   font-size: var(--font-chrome-size);
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
 }
 
 .weavie-blame-popover:focus-visible {
@@ -53,7 +53,6 @@
 
 .weavie-blame-subject {
   font-size: calc(var(--font-chrome-size) + 1px);
-  font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -63,7 +62,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   font-size: var(--font-hint-size);
 }
 
@@ -84,7 +83,7 @@
   border: 1px solid var(--border, #191c21);
   border-radius: 999px;
   background: transparent;
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   font: inherit;
   font-size: var(--font-hint-size);
   cursor: pointer;
@@ -128,7 +127,7 @@
 }
 
 .weavie-blame-context {
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
 }
 
 /* The line the popover was opened from, marked so the change reads against the code it explains. */
@@ -138,7 +137,7 @@
 
 .weavie-blame-note {
   padding: 12px;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
 }
 
 /* History: the other commits that touched this line or this file. Picking one re-points the panel above at it,
@@ -164,17 +163,17 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   font: inherit;
   cursor: pointer;
 }
 
 .weavie-blame-tab:hover {
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
 }
 
 .weavie-blame-tab[aria-selected="true"] {
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   border-bottom-color: var(--accent, #54c6a4);
 }
 
@@ -191,7 +190,7 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -209,7 +208,7 @@
 .weavie-blame-entry-when {
   flex: 0 0 auto;
   width: 90px;
-  color: var(--dim, #6f7884);
+  color: var(--dim, #8a929c);
   font-size: var(--font-hint-size);
 }
 

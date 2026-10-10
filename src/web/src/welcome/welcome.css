@@ -187,7 +187,6 @@
 .welcome-row-name {
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
-  font-weight: 600;
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;

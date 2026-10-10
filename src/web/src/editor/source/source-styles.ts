@@ -6,7 +6,7 @@
 export const SOURCE_STYLES = `
 .wv-source {
   background: var(--bg, #000000);
-  color: var(--fg, #cdd5dc);
+  color: var(--fg, #e2e7ec);
   font-family: var(--font-prose-family);
   /* Crisp grayscale AA, matching the editor/terminal — without it the WebView's default subpixel
      smoothing renders this prose noticeably heavier/fuzzier than the rest of the app. */
@@ -22,11 +22,11 @@ export const SOURCE_STYLES = `
 .wv-source > :first-child { margin-top: 0; }
 .wv-source .wv-header { margin-bottom: 1.6rem; }
 .wv-source .wv-title { font-size: 2.4em; font-weight: 800; line-height: 1.15; margin: 0 0 0.15em; }
-.wv-source .wv-meta { color: var(--dim, #6f7884); font-size: 0.85em; }
+.wv-source .wv-meta { color: var(--dim, #8a929c); font-size: 0.85em; }
 .wv-source .wv-incomplete {
-  color: var(--dim, #6f7884); font-size: 0.9em; margin: 0 0 1.2em;
+  color: var(--dim, #8a929c); font-size: 0.9em; margin: 0 0 1.2em;
   border: 1px solid var(--border, #191c21); border-radius: 8px; padding: 0.5em 0.8em;
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 6%, transparent);
 }
 /* Click-to-edit affordances (source-edit.ts): a subtle hover/focus tint on editable blocks, and the inline
    block editor that swaps in — same type metrics as the prose so the swap doesn't jump the layout. */
@@ -40,12 +40,12 @@ export const SOURCE_STYLES = `
 .wv-source .wv-block-editor {
   display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
   font: inherit; line-height: inherit; color: inherit;
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 6%, transparent);
   border: 1px solid var(--accent, #54c6a4); border-radius: 4px; padding: 0.25em 0.4em;
 }
 .wv-source .wv-block-editor:focus { outline: none; }
 .wv-source .wv-saving .wv-block-editor { opacity: 0.6; }
-.wv-source .wv-edit-hint { color: var(--dim, #6f7884); font-size: 0.78em; margin-top: 0.25em; }
+.wv-source .wv-edit-hint { color: var(--dim, #8a929c); font-size: 0.78em; margin-top: 0.25em; }
 .wv-source .wv-edit-error { color: var(--bad, #e07a7a); font-size: 0.85em; margin-top: 0.35em; }
 .wv-source .wv-edit-refetch {
   display: block; margin-top: 0.3em; font: inherit; font-size: 0.95em; cursor: pointer;
@@ -67,10 +67,10 @@ export const SOURCE_STYLES = `
 .wv-source strong { font-weight: 700; }
 .wv-source code {
   font-family: var(--font-content-family); font-size: 0.88em; font-weight: var(--font-content-weight);
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 12%, transparent); padding: 0.1em 0.35em; border-radius: 4px;
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 12%, transparent); padding: 0.1em 0.35em; border-radius: 4px;
 }
 .wv-source pre {
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 8%, transparent); border: 1px solid var(--border, #191c21);
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 8%, transparent); border: 1px solid var(--border, #191c21);
   border-radius: 8px; padding: 0.9em 1em; overflow: auto; margin: 0.8em 0;
 }
 .wv-source pre code { background: none; padding: 0; font-size: 0.86em; }
@@ -85,22 +85,22 @@ export const SOURCE_STYLES = `
 .wv-source .wv-equation {
   margin: 0.9em 0; padding: 0.7em 1em; text-align: center; border-radius: 6px;
   font-family: var(--font-content-family); font-size: 0.92em; font-weight: var(--font-content-weight);
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 6%, transparent);
 }
 .wv-source .wv-math { background: none; color: var(--accent, #54c6a4); }
 .wv-source .wv-toc { margin: 0.8em 0; }
 .wv-source .wv-toc ul { list-style: none; padding-left: 0; margin: 0; }
-.wv-source .wv-toc a { color: var(--dim, #6f7884); text-decoration: underline; text-underline-offset: 3px; }
+.wv-source .wv-toc a { color: var(--dim, #8a929c); text-decoration: underline; text-underline-offset: 3px; }
 .wv-source .wv-toc a:hover { color: var(--accent, #54c6a4); }
 .wv-source .wv-toc-l2 { padding-left: 1.2em; }
 .wv-source .wv-toc-l3, .wv-source .wv-toc-l4, .wv-source .wv-toc-l5, .wv-source .wv-toc-l6 { padding-left: 2.4em; }
 .wv-source blockquote {
-  margin: 0.8em 0; padding: 0.1em 0 0.1em 1em; border-left: 3px solid var(--dim, #6f7884); color: var(--fg, #cdd5dc);
+  margin: 0.8em 0; padding: 0.1em 0 0.1em 1em; border-left: 3px solid var(--dim, #8a929c); color: var(--fg, #e2e7ec);
 }
 .wv-source hr { border: none; border-top: 1px solid var(--border, #191c21); margin: 1.4em 0; }
 .wv-source .wv-callout {
   display: flex; gap: 0.7em; margin: 0.8em 0; padding: 0.9em 1em; border-radius: 8px;
-  background: color-mix(in srgb, var(--fg, #cdd5dc) 10%, transparent);
+  background: color-mix(in srgb, var(--fg, #e2e7ec) 10%, transparent);
 }
 .wv-source .wv-callout .wv-icon { flex: none; font-size: 1.1em; line-height: 1.4; }
 .wv-source .wv-callout-body > :first-child { margin-top: 0; }
@@ -117,14 +117,14 @@ export const SOURCE_STYLES = `
 .wv-source .wv-underline { text-decoration: underline; }
 .wv-source table { border-collapse: collapse; margin: 0.9em 0; width: 100%; font-size: 0.92em; }
 .wv-source th, .wv-source td { border: 1px solid var(--border, #191c21); padding: 0.4em 0.7em; text-align: left; }
-.wv-source th { background: color-mix(in srgb, var(--fg, #cdd5dc) 8%, transparent); font-weight: 600; }
+.wv-source th { background: color-mix(in srgb, var(--fg, #e2e7ec) 8%, transparent); font-weight: 600; }
 .wv-source .wv-columns { display: flex; gap: 1.5em; margin: 0.8em 0; }
 .wv-source .wv-column { flex: 1 1 0; min-width: 0; }
 .wv-source .wv-card {
   display: inline-block; margin: 0.6em 0; padding: 0.6em 0.9em; border: 1px solid var(--border, #191c21);
-  border-radius: 8px; color: var(--fg, #cdd5dc);
+  border-radius: 8px; color: var(--fg, #e2e7ec);
 }
-.wv-source pre.mermaid-pending { color: var(--dim, #6f7884); }
+.wv-source pre.mermaid-pending { color: var(--dim, #8a929c); }
 .wv-source pre.mermaid-source[data-mermaid-error]::before {
   content: attr(data-mermaid-error); display: block; margin-bottom: 0.7em; color: var(--bad, #e07a7a);
   font: var(--font-metadata-size) / 1.4 var(--font-chrome-family); white-space: normal;
@@ -142,15 +142,15 @@ export const SOURCE_STYLES = `
 .wv-source .wv-bg-purple { background: rgba(154,109,215,0.24); } .wv-source .wv-bg-pink { background: rgba(226,85,161,0.24); }
 .wv-source .wv-bg-red { background: rgba(224,88,75,0.24); }
 /* The log viewer's dropped-lines marker (host-rendered html; see HostCore.Logs.cs). */
-.wv-source .wv-logs-note { color: var(--dim, #6f7884); margin: 0.4em 0; }
+.wv-source .wv-logs-note { color: var(--dim, #8a929c); margin: 0.4em 0; }
 .wv-status {
   display: flex; align-items: center; justify-content: center; gap: 0.6em;
-  min-height: 60vh; color: var(--dim, #6f7884);
+  min-height: 60vh; color: var(--dim, #8a929c);
 }
 .wv-status.wv-error { color: var(--bad, #e07a7a); white-space: pre-wrap; text-align: center; }
 .wv-spinner {
   width: 1.1em; height: 1.1em; border-radius: 50%; flex: none;
-  border: 2px solid color-mix(in srgb, var(--fg, #cdd5dc) 22%, transparent);
+  border: 2px solid color-mix(in srgb, var(--fg, #e2e7ec) 22%, transparent);
   border-top-color: var(--accent, #54c6a4); animation: wv-spin 0.7s linear infinite;
 }
 @keyframes wv-spin { to { transform: rotate(360deg); } }

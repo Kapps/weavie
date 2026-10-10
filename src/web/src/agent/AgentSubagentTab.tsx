@@ -3,7 +3,8 @@ import type { ClientSession } from "../bridge";
 import { NestedTranscript } from "./AgentNestedCard";
 import { subagentStatus } from "./background-format";
 import { liveNow } from "./live-clock";
-import { subagentEntry } from "./subagent-tab";
+import { agentPaneModel } from "./pane-store";
+import { subagentForTab } from "./subagent-tab";
 
 /** A subagent's whole read-only transcript as an editor tab, rendered exactly like the agent pane. */
 export default function AgentSubagentTab(props: {
@@ -12,7 +13,7 @@ export default function AgentSubagentTab(props: {
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
-  const entry = createMemo(() => subagentEntry(props.session, props.path));
+  const entry = createMemo(() => subagentForTab(props.session, props.path));
   const now = liveNow(() => entry()?.subagent?.state === "running");
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
   onMount(() => onCleanup(props.bind(host)));
@@ -22,7 +23,9 @@ export default function AgentSubagentTab(props: {
       <Show
         when={entry()}
         fallback={
-          <div class="editor-plan-notice">This subagent is no longer in the transcript.</div>
+          <Show when={agentPaneModel(props.session)?.historyComplete()}>
+            <div class="editor-plan-notice">This subagent is no longer in the transcript.</div>
+          </Show>
         }
       >
         {(subagent) => (

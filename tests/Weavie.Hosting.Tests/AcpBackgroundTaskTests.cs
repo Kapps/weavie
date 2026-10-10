@@ -53,6 +53,8 @@ public sealed class AcpBackgroundTaskTests {
 		await Wait.UntilAsync(() => fixture.Session.BackgroundWork.Single().State == final);
 		Assert.False(fixture.Session.BackgroundWork.Single().CanStop);
 		Assert.Equal("fake-session:" + item.Id["task:".Length..], Assert.Single(Stops(fixture)));
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:" + item.Id["task:".Length..] && message.Type == "item-completed");
+		Assert.Equal("cancelled", tool.Status);
 	}
 
 	[Fact]

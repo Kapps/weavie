@@ -134,6 +134,8 @@ public sealed class AcpSubagentTests {
 		fixture.AskAside("subagent");
 		var marker = await fixture.WaitForMessageAsync(message => message.Type == "subagent-started");
 		Assert.Equal("2", marker.AnchorTurnId);
+		var side = await fixture.WaitForMessageAsync(message => message.Text == "subagent turn done" && message.Type == "item-completed");
+		await fixture.WaitForMessageAsync(message => message.ConversationId == side.ConversationId && message.Type == "turn-completed");
 		await fixture.WaitForMessageAsync(message => message.ConversationId == marker.ConversationId && message.Type == "turn-completed");
 
 		await fixture.Session.RewindBeforeAsync("2");

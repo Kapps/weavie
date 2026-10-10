@@ -74,6 +74,8 @@ internal sealed partial class FakeAcpAgent {
 		File.AppendAllText(StatePath("stops.log"), $"{session}:{id}{Environment.NewLine}");
 		if (!_tasks.TryRemove(id, out string? owner)) return new JsonObject { ["stopped"] = false };
 		TaskState(owner, id, "stopped");
+		// Codex reports the killed backgrounded command as a failed tool call.
+		if (id.StartsWith("exec-", StringComparison.Ordinal)) UpdateOn(owner, new JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = id, ["status"] = "failed" });
 		UpdateOn(session, new JsonObject { ["sessionUpdate"] = "notice", ["severity"] = "info", ["title"] = "Task stopped by user", ["description"] = id + "." });
 		if (File.Exists(Path.Combine(Environment.CurrentDirectory, "correct-stop"))) TaskState(owner, id, "completed");
 		return new JsonObject { ["stopped"] = true };

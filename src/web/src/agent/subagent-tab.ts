@@ -4,7 +4,7 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { agentPaneModel } from "./pane-store";
 
 /** The live subagent entry a subagent tab shows, from its session's own transcript. */
-export function subagentEntry(
+export function subagentForTab(
   session: ClientSession | null,
   path: string,
 ): AgentTranscriptEntry | undefined {

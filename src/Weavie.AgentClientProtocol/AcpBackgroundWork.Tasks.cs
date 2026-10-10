@@ -18,7 +18,7 @@ internal sealed partial class AcpBackgroundWork {
 		string type = RequiredString(update, "taskType", "async_task_spawned update");
 		string itemId = "task:" + id;
 		// The card lives in the root's transcript, which outlives a subagent that started the task.
-		var task = new BackgroundTask(root, root.TurnId(), new AgentBackgroundItem {
+		var task = new BackgroundTask(root, root.TurnId(), OptionalString(update, "toolCallId"), new AgentBackgroundItem {
 			Id = itemId,
 			Kind = AgentBackgroundKind.Task,
 			Name = RequiredString(update, "name", "async_task_spawned update"),
@@ -82,6 +82,11 @@ internal sealed partial class AcpBackgroundWork {
 		root.RaiseBackground();
 	}
 
+	/// <summary>Whether the task a backgrounded tool call handed its work to was stopped, so its failure is the stop.</summary>
+	public bool Stopped(string toolCallId) {
+		lock (_gate) return _tasks.Values.Any(task => task.ToolCallId == toolCallId && task.Item.State == AgentBackgroundState.Stopped);
+	}
+
 	/// <summary>The provider id of the task <paramref name="itemId"/> when the user can stop it now.</summary>
 	public string? StoppableTask(string itemId) {
 		lock (_gate) {
@@ -122,8 +127,9 @@ internal sealed partial class AcpBackgroundWork {
 	private static long? Count(JsonElement usage, string property) =>
 		usage.TryGetProperty(property, out _) ? ReadRequiredNonNegativeInt64(usage, property, "async task usage") : null;
 
-	private sealed class BackgroundTask(AcpConversation owner, string turnId, AgentBackgroundItem item) {
+	private sealed class BackgroundTask(AcpConversation owner, string turnId, string? toolCallId, AgentBackgroundItem item) {
 		public AgentBackgroundItem Item { get; set; } = item;
+		public string? ToolCallId { get; } = toolCallId;
 
 		public void PublishCard() {
 			if (Item.TranscriptItemId is not null) owner.PublishTaskCard(turnId, Item);

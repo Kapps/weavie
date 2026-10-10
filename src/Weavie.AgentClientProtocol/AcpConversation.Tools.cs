@@ -23,6 +23,8 @@ internal sealed partial class AcpConversation {
 		if (!initial && UnknownMetadataOnly(update)) return;
 		var tool = MergeTool(update, initial ? ToolUpdateSource.Initial : ToolUpdateSource.Update);
 		if (tool.LocallyTerminalized) return;
+		// Stopping a backgrounded command kills it, which its agent reports as a failure.
+		if (tool is { Backgrounded: true, Status: "failed" } && Background.Stopped(tool.Id)) tool.Status = "cancelled";
 		lock (_gate) {
 			// A backgrounded tool's liveness is its async task's, so it never holds the turn.
 			if (tool.Status is "completed" or "failed" || tool.Backgrounded) _activeTools.Remove(tool.Id);

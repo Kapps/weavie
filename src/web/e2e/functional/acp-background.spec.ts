@@ -22,9 +22,6 @@ test("a subagent renders as a live card that collapses when it finishes", async 
   await expect(card.locator(".agent-entry-toggle")).toHaveAttribute("aria-expanded", "true");
   await submitAcpDraft(surface, "/btw side question");
   await expect(surface.locator(".agent-aside")).toContainText("echo: side question");
-  await page.setViewportSize({ width: 1280, height: 1600 });
-  await card.scrollIntoViewIfNeeded();
-  await surface.screenshot({ path: "../../temp/bg984/subagent-running.png" });
 
   await signal(weavie.workspace, "release-subagent");
   await expect(card).toHaveAttribute("data-state", "completed");
@@ -36,8 +33,6 @@ test("a subagent renders as a live card that collapses when it finishes", async 
   const transcript = page.locator(".editor-subagent");
   await expect(transcript).toContainText("held subagent finished");
   await expect(transcript.locator(".agent-entry-status").first()).toContainText("completed");
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.screenshot({ path: "../../temp/bg984/subagent-tab.png" });
   await tab.hover();
   await tab.locator(".editor-tab-close").click();
   await expect(tab).toHaveCount(0);
@@ -52,8 +47,6 @@ test("a background task waits in the tray until Stop ends it with a notice", asy
   await expect(pill).toContainText("sleep 30");
   await expect(surface.locator(".agent-background-tray")).toHaveAttribute("role", "toolbar");
   await expect(page.locator(".session-chip.active")).toHaveClass(/status-waiting/);
-  await page.setViewportSize({ width: 1280, height: 1600 });
-  await surface.screenshot({ path: "../../temp/bg984/task-tray.png" });
 
   await pill.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(pill).toHaveAttribute("data-state", "stopped");
@@ -73,8 +66,6 @@ test("a workflow renders a card, and Show Background Work focuses the tray", asy
   await expect(card).toContainText("code-review");
   await expect(card).toContainText("3 tools");
   await expect(card.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 1280, height: 1600 });
-  await surface.screenshot({ path: "../../temp/bg984/workflow-card.png" });
 
   await page.keyboard.press("ControlOrMeta+Shift+p");
   await page.locator(".tb-omnibar-input").fill(">Show Background Work");

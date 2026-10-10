@@ -9,7 +9,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { subagentEntry } from "../agent/subagent-tab";
+import { subagentForTab } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
 import { captureCommandRunnerFor, dispatchCommand, findCommand } from "../commands/registry";
@@ -55,7 +55,7 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
     return agentPlan(session, view.path)?.title || "Plan";
   }
   if (view.kind === "subagent") {
-    const name = subagentEntry(session, view.path)?.subagent?.name;
+    const name = subagentForTab(session, view.path)?.subagent?.name;
     return name === undefined ? "Subagent" : `Subagent · ${name}`;
   }
   return basename(view.path);

@@ -27,6 +27,23 @@ maintain competing validators. The content-type gate is the security-relevant on
 (HTML, SVG) being served same-origin regardless of where the file lives. Missing, unloaded, malformed, and
 non-media requests all return 404.
 
+## HTML preview assets
+
+An `.html` preview renders the live working copy in `<iframe sandbox="allow-scripts" srcdoc>` — no
+`allow-same-origin`, so the page runs with an opaque origin and cannot touch Weavie's document, storage, cookies,
+or bridge. Its relative URLs resolve through an injected `<base>` pointing at `/weavie-preview/{grant}/<folder>/`.
+
+- The pane requests a grant over the session bus (`files.previewGrant`) and revokes it on unmount
+  (`files.previewRelease`); unloading the session revokes all of its grants.
+- A grant is 128 random bits bound to one loaded session and reads only that session's workspace. The file
+  being previewed must be inside it, or the pane shows the refusal instead of rendering.
+- The route is exempt from the token/cookie gate because an opaque-origin frame can send neither; the grant is
+  the only credential, and the page can read it, so no workspace token ever appears in the frame.
+- Dot-prefixed segments (`.git`, `.env`) and any symlinked segment return 404.
+- Responses carry `Content-Security-Policy: sandbox allow-scripts` (a directly opened asset still gets no
+  origin) and `Access-Control-Allow-Origin: *` (the null-origin frame loads modules, `fetch`, and fonts in CORS
+  mode without credentials).
+
 ## HTTP behavior
 
 The endpoint opens a `FileStream` with asynchronous sequential access and returns ASP.NET Core's range-enabled

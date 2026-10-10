@@ -1,21 +1,32 @@
-import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
+import { createEffect, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { installContentNavigation } from "../../content-navigation";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { basename } from "../fs-path";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
+import HtmlPreview from "./HtmlPreview";
 import { renderMarkdown } from "./preview-markdown";
 import { previewKindOf } from "./preview-registry";
 
 // Rendered-file overlay shown over the (still-mounted) Monaco host when the active file is in Preview mode.
 // Reads the live working-copy text through `content`, so the render tracks edits and reloads without a
 // re-toggle. SVG uses an <img>-hosted Blob URL so workspace scripts and styles never enter the app document.
-export default function PreviewPane(props: {
+export default function PreviewPane(props: PreviewProps): JSX.Element {
+  return (
+    <Show when={previewKindOf(props.path()) === "html"} fallback={<DocumentPreview {...props} />}>
+      <HtmlPreview {...props} />
+    </Show>
+  );
+}
+
+export interface PreviewProps {
   session: () => ClientSession;
   path: () => string;
   content: () => string;
   bind(element: HTMLElement): () => void;
-}): JSX.Element {
+}
+
+function DocumentPreview(props: PreviewProps): JSX.Element {
   let host!: HTMLDivElement;
   let body!: HTMLDivElement;
   let svgUrl: string | undefined;

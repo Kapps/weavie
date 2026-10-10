@@ -17,14 +17,11 @@ internal sealed partial class FakeAcpAgent {
 				SubagentWork(child, "Counted 3 files");
 				FinishSubagent(_sessionId!, child, "completed");
 				Update(new JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "spawn-agent", ["status"] = "completed" });
-				// Claude announces its Agent tool only on the child, yet sends the parent its metadata.
-				Update(new JsonObject {
-					["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "toolu_hidden_agent",
-					["_meta"] = new JsonObject { ["claudeCode"] = new JsonObject { ["toolName"] = "Agent" } },
-				});
+				LeakAgentToolResult("toolu_hidden_agent", "completed");
 				break;
 			case "subagent-held":
 				SpawnSubagent(_sessionId!, child, "Explore", "Count files");
+				LeakAgentToolResult("toolu_held_agent", "async_launched");
 				UpdateOn(child, MessageUpdate("counting"));
 				File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "live-subagent"), child);
 				_ = Task.Run(async () => {
@@ -94,6 +91,16 @@ internal sealed partial class FakeAcpAgent {
 		SubagentWork(child, "late child output");
 		FinishSubagent(_sessionId!, child, "completed");
 	}
+
+	// claude-agent-acp hides the spawning Agent tool call from the parent, yet its PostToolUse hook still sends the
+	// parent that call's result metadata: right after the spawn for a background agent, after its end otherwise.
+	private void LeakAgentToolResult(string toolCallId, string status) => Update(new JsonObject {
+		["sessionUpdate"] = "tool_call_update",
+		["toolCallId"] = toolCallId,
+		["_meta"] = new JsonObject {
+			["claudeCode"] = new JsonObject { ["toolResponse"] = new JsonObject { ["status"] = status }, ["toolName"] = "Agent" },
+		},
+	});
 
 	private string NextSubagent() => $"{_sessionId}/subagent-{++_subagentSequence}";
 

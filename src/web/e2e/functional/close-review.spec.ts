@@ -6,7 +6,7 @@ import { openFile, runCommand } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 
 const ORIGINAL = "just plain text\n";
@@ -213,8 +213,8 @@ test.describe("three-file completion", () => {
     const reviewTab = page.locator(".editor-tab", { hasText: "Review Changes" });
     const overview = page.locator(".unified-review");
     await expect(reviewTab).toHaveClass(/\bactive\b/);
-    await expect(overview.locator(".unified-review-files-header")).toContainText("3 changed files");
-    await overview.locator(".unified-review-tree-row.file", { hasText: changes[0][0] }).click();
+    await expect(overview.locator(".unified-review-header")).toContainText("3 changed files");
+    await reviewFileSegment(overview, changes[0][0]).click();
     const toolbar = overview.locator(".weavie-inline-toolbar");
 
     for (const [index, [path]] of changes.entries()) {

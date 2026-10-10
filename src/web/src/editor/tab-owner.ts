@@ -4,13 +4,18 @@ import type { TabViewState } from "./nav-history";
 import type { Placement } from "./session-store";
 import type { EditorSessionEntry } from "./session-types";
 
+/** A tab's review actions; the unified review adds file picking to the inline-diff set. */
+export type TabActions = Partial<InlineDiffActions> & {
+  goToFile?(path: string | undefined): boolean;
+};
+
 export interface TabPresenter {
   readonly signal: AbortSignal;
   readonly text: boolean;
   capture(): TabViewState;
   restore(placement: Placement, signal: AbortSignal): Promise<void>;
   focus(): void;
-  actions(): Partial<InlineDiffActions> | undefined;
+  actions(): TabActions | undefined;
 }
 
 /** An open tab owns its mounted view; reopening a resource creates a new owner. */

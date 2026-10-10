@@ -21,13 +21,13 @@ public sealed partial class HostMessageBusTests {
 		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var feature = router.Host.Feature("native");
 		using var first = feature.Handle(
-			"first", HostMessageBusJson.Default.Increment,
+			"first", "Running a test operation", HostMessageBusJson.Default.Increment,
 			async (_, _) => {
 				threads.Enqueue(Environment.CurrentManagedThreadId);
 				firstEntered.SetResult();
 				await releaseFirst.Task;
 			});
-		using var second = feature.Handle("second", HostMessageBusJson.Default.Increment, (_, _) => {
+		using var second = feature.Handle("second", "Running a test operation", HostMessageBusJson.Default.Increment, (_, _) => {
 			threads.Enqueue(Environment.CurrentManagedThreadId);
 			return Task.CompletedTask;
 		});
@@ -55,7 +55,7 @@ public sealed partial class HostMessageBusTests {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, dispatcher, _ => { });
 		using var handler = router.Host.Feature("native").Handle(
-			"fail", HostMessageBusJson.Default.Increment, HostMessageBusJson.Default.Counter,
+			"fail", "Running a test operation", HostMessageBusJson.Default.Increment, HostMessageBusJson.Default.Counter,
 			(_, _) => throw new InvalidOperationException("native failure"));
 
 		await router.RouteAsync(

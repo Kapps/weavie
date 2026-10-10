@@ -1,20 +1,10 @@
-import {
-  Box,
-  Braces,
-  ChevronDown,
-  ChevronRight,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
-  Hash,
-  Type,
-  Variable,
-} from "lucide-solid";
+import { Box, Braces, File as FileIcon, Folder, Hash, Type, Variable } from "lucide-solid";
 import { For, type JSX, Match, Show, Switch } from "solid-js";
 import { formatKey } from "../commands/keybindings";
 import type { CommandInfo } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
+import { PathTreeRowLabel } from "../files/PathTreeRowLabel";
 import type { PathTreeRow } from "../files/path-tree";
 import type { ListRowProps } from "../list-navigation";
 import type { FlatSymbol, ScoredSymbol } from "../symbols/symbol-match";
@@ -185,21 +175,9 @@ export function OmnibarResults(props: {
                       : props.onOpenFile(row.node.value),
                   )}
                 >
-                  <span class="tb-tree-twisty" aria-hidden="true">
-                    <Show when={row.node.kind === "directory"}>
-                      <Show when={props.expanded().has(row.node.key)} fallback={<ChevronRight />}>
-                        <ChevronDown />
-                      </Show>
-                    </Show>
-                  </span>
-                  <span class="tb-tree-icon file-tree-icon" aria-hidden="true">
-                    <Show when={row.node.kind === "directory"} fallback={<FileIcon />}>
-                      <Show when={props.expanded().has(row.node.key)} fallback={<Folder />}>
-                        <FolderOpen />
-                      </Show>
-                    </Show>
-                  </span>
-                  <span class="tb-row-leaf file-tree-name">{row.node.name}</span>
+                  <PathTreeRowLabel node={row.node} expanded={props.expanded().has(row.node.key)}>
+                    {row.node.name}
+                  </PathTreeRowLabel>
                 </button>
               )}
             </For>

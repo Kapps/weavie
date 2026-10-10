@@ -144,6 +144,7 @@ export const CommandIds = {
   reviewOpenLine: "weavie.review.openLine",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",
+  reviewGoToFile: "weavie.review.goToFile",
   keepFile: "weavie.review.keepFile",
   revertFile: "weavie.review.revertFile",
   keepAll: "weavie.review.keepAll",

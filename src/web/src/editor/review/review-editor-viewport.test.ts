@@ -319,8 +319,8 @@ describe("review viewport geometry ownership", () => {
       current.scrollTo(top);
       bands.add(current.editor.getLayoutInfo().height);
     }
-    // Whole steps while it grows in, then the exact viewport extent — not a height per scroll position.
-    expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562, 768]);
+    // Whole steps while it grows in, capped at the viewport extent — not a height per scroll position.
+    expect([...bands].sort((a, b) => a - b)).toEqual([0, 256, 512, 562]);
     expect(current.editor.layout.mock.calls.length).toBeLessThanOrEqual(6);
   });
 

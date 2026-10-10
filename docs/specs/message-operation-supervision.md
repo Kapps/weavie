@@ -19,10 +19,18 @@ handler or wait for one.
    after-response work. Slow and failed logs include that identity, endpoint, peer, request id, feature, name,
    stage, and elapsed time. Diagnostics use bounded, ordered workers; a blocked sink consumes one worker and a
    later coalescing summary makes any suppressed volume explicit.
-4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Slow
-   reporting and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout.
-   Completion clears it. At the global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default),
-   the same key becomes a persistent error and a request receives the same detailed failure.
+4. Every handler registration names its activity in user terms ("Saving a file"; a command invocation uses
+   "Running “<command title>”"). At two seconds, an unfinished operation logs its identity, stage, and elapsed
+   time and raises a keyed busy notification for its originating page that says what is slow and why: queued
+   behind another activity in its feature lane ("Saving a file is waiting for another task to finish: Reading a file…"),
+   waiting for Weavie's other work, or itself running long ("… is taking longer than usual…"). A stage change
+   restates the notification. A handler registered with `HandleWithCallerProgress` declares that its caller
+   already shows the wait in place (e.g. the branch field's "Suggesting…"), so its operation has no slow watch.
+   Slow reporting and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout.
+   Completion clears the busy notification. At the global `messaging.operationDeadlineSeconds` deadline (sixty
+   seconds by default), every operation raises a persistent error under the same key ("Saving a file didn't
+   finish within 60 seconds, so this session stopped responding.") and a request receives the same failure;
+   operation identities appear only in logs and health snapshots.
 5. The deadline covers time waiting in a serialized feature lane, handler execution, and after-response work. A
    queued operation that expires never enters its handler. UI-dispatch admission is instead covered by the ingress
    health probe because no application operation exists before an envelope is admitted. A running operation is

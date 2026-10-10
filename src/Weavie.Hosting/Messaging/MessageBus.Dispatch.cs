@@ -156,14 +156,22 @@ internal partial class MessageBus {
 
 		public HandlerRegistration(
 			Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
+			Func<JsonElement, string> activity,
 			Func<JsonElement, FeatureLane?> lane,
-			Func<MessagePeer, bool> admit) {
+			Func<MessagePeer, bool> admit,
+			PendingPresenter presenter) {
 			_handler = handler;
+			Activity = activity;
 			_lane = lane;
 			_admit = admit;
+			Presenter = presenter;
 		}
 
 		private readonly Func<MessagePeer, bool> _admit;
+
+		public Func<JsonElement, string> Activity { get; }
+
+		public PendingPresenter Presenter { get; }
 
 		public bool Admits(MessagePeer peer) => _admit(peer);
 
@@ -176,10 +184,10 @@ internal partial class MessageBus {
 			MessageOperation operation) {
 			async Task<HandlerResponse> InvokeAdmittedAsync() {
 				await admitted.ConfigureAwait(false);
-				operation.MarkStage("handler-dispatch");
+				operation.MarkStage(MessageStage.HandlerDispatch);
 				return await operation.SuperviseAsync(() => handlerExecutor
 					.InvokeAsync(() => {
-						operation.MarkStage("handler");
+						operation.MarkStage(MessageStage.Handler);
 						return _handler(peer, payload, ct);
 					}, ct)).ConfigureAwait(false);
 			}
@@ -189,19 +197,30 @@ internal partial class MessageBus {
 				return InvokeAdmittedAsync();
 			}
 
-			return lane.Enqueue(InvokeAdmittedAsync);
+			return lane.Enqueue(operation, InvokeAdmittedAsync);
 		}
 	}
 
 	private sealed class FeatureLane : IDisposable {
 		private readonly object _gate = new();
+		private readonly Func<MessageOperation?> _runningOperation;
 		private Task _tail = Task.CompletedTask;
+		private MessageOperation? _running;
 		private bool _disposed;
 
-		public Task<HandlerResponse> Enqueue(Func<Task<HandlerResponse>> work) {
+		public FeatureLane() {
+			_runningOperation = () => {
+				lock (_gate) {
+					return _running;
+				}
+			};
+		}
+
+		public Task<HandlerResponse> Enqueue(MessageOperation operation, Func<Task<HandlerResponse>> work) {
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
-				var queued = RunAfterAsync(_tail, work);
+				operation.QueueBehind(_runningOperation);
+				var queued = RunAfterAsync(_tail, operation, work);
 				_tail = queued;
 				return queued;
 			}
@@ -213,8 +232,9 @@ internal partial class MessageBus {
 			}
 		}
 
-		private static async Task<HandlerResponse> RunAfterAsync(
+		private async Task<HandlerResponse> RunAfterAsync(
 			Task predecessor,
+			MessageOperation operation,
 			Func<Task<HandlerResponse>> work) {
 			try {
 				await predecessor.ConfigureAwait(false);
@@ -222,7 +242,18 @@ internal partial class MessageBus {
 				// Each dispatch reports its own failure; the lane only preserves admission order.
 			}
 
-			return await work().ConfigureAwait(false);
+			lock (_gate) {
+				_running = operation;
+			}
+			try {
+				return await work().ConfigureAwait(false);
+			} finally {
+				lock (_gate) {
+					if (_running == operation) {
+						_running = null;
+					}
+				}
+			}
 		}
 	}
 

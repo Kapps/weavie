@@ -10,22 +10,22 @@ public sealed partial class HostCore {
 	private void HandlePullRequestComments(HostSession session, MessageFeatureChannel pullRequests) {
 		var comments = session.PullRequestComments;
 		pullRequests.Handle(
-			"comment", WireJson.Default.PullRequestCommentRequest, WireJson.Default.CommandWireResult,
+			"comment", "Posting a pull request comment", WireJson.Default.PullRequestCommentRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(WorktreeRelativePath(session, message.Path) is { } path
 				? await comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, ct).ConfigureAwait(false)
 				: CommandResult.Failure(NotInWorktree(session, message.Path))));
 		pullRequests.Handle(
-			"reply", WireJson.Default.PullRequestReplyRequest, WireJson.Default.CommandWireResult,
+			"reply", "Posting a pull request reply", WireJson.Default.PullRequestReplyRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
 				await comments.ReplyAsync(message.Number, message.InReplyTo, message.Body, ct).ConfigureAwait(false)));
 		pullRequests.Handle(
-			"editComment", WireJson.Default.PullRequestEditRequest, WireJson.Default.CommandWireResult,
+			"editComment", "Editing a pull request comment", WireJson.Default.PullRequestEditRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
 				await comments.EditAsync(message.Number, message.Id, message.Body, ct).ConfigureAwait(false)));
 		// The web asks while the user can see the comments; a PR's comments aren't tied to the agent's activity.
-		pullRequests.Handle("refresh", WireJson.Default.EmptyPayload, (_, ct) => comments.RefreshAsync(ct));
+		pullRequests.Handle("refresh", "Refreshing pull request comments", WireJson.Default.EmptyPayload, (_, ct) => comments.RefreshAsync(ct));
 		pullRequests.HandleConcurrent(
-			"sources", WireJson.Default.PullRequestSourcesRequest, WireJson.Default.PullRequestSources,
+			"sources", "Loading pull request sources", WireJson.Default.PullRequestSourcesRequest, WireJson.Default.PullRequestSources,
 			(message, ct) => comments.SourcesAsync(
 				WorktreeRelativePath(session, message.Path) ?? throw new InvalidOperationException(NotInWorktree(session, message.Path)),
 				message.HeadSha,

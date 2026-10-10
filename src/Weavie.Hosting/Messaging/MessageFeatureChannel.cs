@@ -5,7 +5,8 @@ namespace Weavie.Hosting.Messaging;
 
 /// <summary>
 /// One feature's endpoint on an owning host or session bus. It contains no transport, peer, request, or session
-/// identity, so publishers and handlers cannot accidentally address another owner.
+/// identity, so publishers and handlers cannot accidentally address another owner. Every handler names its
+/// activity (e.g. "Saving a file"): what a user is told while that operation is slow or after it times out.
 /// </summary>
 public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	private readonly MessageBus _bus;
@@ -21,58 +22,78 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a serialized request handler and returns its lifetime.</summary>
 	public IDisposable Handle<TRequest, TResponse>(
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
+		_bus.Handle(_feature, name, activity, requestType, responseType, handler, SessionExecution.Serialized, PendingPresenter.Bus);
+
+	/// <summary>
+	/// Registers a serialized request whose caller shows its own in-place progress, so a long wait raises no busy
+	/// notification; the operation deadline still applies.
+	/// </summary>
+	internal IDisposable HandleWithCallerProgress<TRequest, TResponse>(
+		string name,
+		string activity,
+		JsonTypeInfo<TRequest> requestType,
+		JsonTypeInfo<TResponse> responseType,
+		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
+		_bus.Handle(_feature, name, activity, requestType, responseType, handler, SessionExecution.Serialized, PendingPresenter.Caller);
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
-		_bus.HandleAfterResponse(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
+		_bus.HandleAfterResponse(_feature, name, activity, requestType, responseType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string name,
+		Func<TRequest, string> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
-		_bus.HandleKeyedAfterResponse(_feature, name, requestType, responseType, lane, handler);
+		_bus.HandleKeyedAfterResponse(_feature, name, activity, requestType, responseType, lane, handler);
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler) =>
-		_bus.HandleAfterEvent(_feature, name, eventType, handler, SessionExecution.Serialized);
+		_bus.HandleAfterEvent(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) =>
-		_bus.HandleOwned(_feature, name, requestType, responseType, handler, SessionExecution.Serialized);
+		_bus.HandleOwned(_feature, name, activity, requestType, responseType, handler, SessionExecution.Serialized);
 
 	/// <summary>Registers a serialized event handler and returns its lifetime.</summary>
 	public IDisposable Handle<TEvent>(
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
-		_bus.Handle(_feature, name, eventType, handler, SessionExecution.Serialized);
+		_bus.Handle(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
-		_bus.HandleOwned(_feature, name, eventType, handler, SessionExecution.Serialized);
+		_bus.HandleOwned(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
-		_bus.HandleOwnedWhen(_feature, name, eventType, admit, handler, SessionExecution.Serialized);
+		_bus.HandleOwnedWhen(_feature, name, activity, eventType, admit, handler, SessionExecution.Serialized);
 
 	internal MessageTargetFeature Target(MessagePeer peer) {
 		ArgumentNullException.ThrowIfNull(peer);
@@ -82,25 +103,28 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a request handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TRequest, TResponse>(
 		string name,
+		string activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.Handle(_feature, name, requestType, responseType, handler, SessionExecution.Concurrent);
+		_bus.Handle(_feature, name, activity, requestType, responseType, handler, SessionExecution.Concurrent, PendingPresenter.Bus);
 
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string name,
+		Func<TRequest, string> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
-		_bus.HandleKeyed(_feature, name, requestType, responseType, lane, handler);
+		_bus.HandleKeyed(_feature, name, activity, requestType, responseType, lane, handler);
 
 	/// <summary>Registers an event handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TEvent>(
 		string name,
+		string activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
-		_bus.Handle(_feature, name, eventType, handler, SessionExecution.Concurrent);
+		_bus.Handle(_feature, name, activity, eventType, handler, SessionExecution.Concurrent);
 
 	/// <summary>Publishes an event to every page attached to this feature's owner.</summary>
 	public void Publish<T>(string name, JsonTypeInfo<T> type, T payload) => _bus.Publish(_feature, name, type, payload);

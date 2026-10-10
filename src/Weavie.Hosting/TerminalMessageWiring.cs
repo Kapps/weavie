@@ -13,21 +13,21 @@ internal static class TerminalMessageWiring {
 		ArgumentNullException.ThrowIfNull(acceptInput);
 		ArgumentNullException.ThrowIfNull(resized);
 		return new TerminalMessageHandlers([
-			messages.Handle("input", WireJson.Default.TerminalInputMessage, (message, _) => {
+			messages.Handle("input", "Sending input to the terminal", WireJson.Default.TerminalInputMessage, (message, _) => {
 				byte[] data = Convert.FromBase64String(message.DataB64);
 				acceptInput(message.UserInitiated, () => terminal.Write(data));
 				return Task.CompletedTask;
 			}),
-			messages.Handle("resize", WireJson.Default.TerminalSizeMessage, (message, _) => {
+			messages.Handle("resize", "Resizing the terminal", WireJson.Default.TerminalSizeMessage, (message, _) => {
 				terminal.Resize(message.Columns, message.Rows);
 				resized(message.Columns, message.Rows);
 				return Task.CompletedTask;
 			}),
-			messages.HandleOwned("ready", WireJson.Default.TerminalSizeMessage, (message, peer, _) => {
+			messages.HandleOwned("ready", "Starting the terminal", WireJson.Default.TerminalSizeMessage, (message, peer, _) => {
 				terminal.OnReady(messages.Target(peer), message.Columns, message.Rows);
 				return Task.CompletedTask;
 			}),
-			messages.Handle("cwd", WireJson.Default.TerminalCwdMessage, (message, _) => {
+			messages.Handle("cwd", "Updating the terminal folder", WireJson.Default.TerminalCwdMessage, (message, _) => {
 				terminal.OnCwdReported(message.Cwd);
 				return Task.CompletedTask;
 			}),

@@ -4,37 +4,42 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;
 
-/// <summary>The only way one ACP conversation reaches its owner; every call is inert once detached.</summary>
+/// <summary>
+/// The only way one ACP conversation reaches its owner. Every call is inert once detached; a staged port publishes
+/// nothing until its owner adopts the conversation, but still reports failure and the opened session.
+/// </summary>
 internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSink {
 	private bool _detached;
 
+	private bool Publishing => !_detached && !Staged;
+
 	public AgentEventFeedback Observe(AgentEvent value) {
-		lock (transitionGate) return _detached ? AgentEventFeedback.None : OnObserve(value);
+		lock (transitionGate) return Publishing ? OnObserve(value) : AgentEventFeedback.None;
 	}
 
 	public void Emit(AcpConversationState state, AgentPaneMessage message) {
-		lock (transitionGate) if (!_detached) OnEmit(state, message);
+		lock (transitionGate) if (Publishing) OnEmit(state, message);
 	}
 
 	public void Save(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) {
-		lock (transitionGate) if (!_detached) OnSave(state, messages);
+		lock (transitionGate) if (Publishing) OnSave(state, messages);
 	}
 
 	public void ControlsChanged() {
-		lock (transitionGate) if (!_detached) OnControlsChanged();
+		lock (transitionGate) if (Publishing) OnControlsChanged();
 	}
 
 	public void UsageChanged(AgentUsageSnapshot snapshot) {
-		lock (transitionGate) if (!_detached) OnUsageChanged(snapshot);
+		lock (transitionGate) if (Publishing) OnUsageChanged(snapshot);
 	}
 
 	public void QueueChanged(IReadOnlyList<AgentTurnSubmission> queue) {
-		lock (transitionGate) if (!_detached) OnQueueChanged(queue);
+		lock (transitionGate) if (Publishing) OnQueueChanged(queue);
 	}
 
 	/// <summary>Reports that the conversation has no work left; <paramref name="terminal"/> when it cannot continue.</summary>
 	public void Settled(bool terminal) {
-		lock (transitionGate) if (!_detached) OnSettled(terminal);
+		lock (transitionGate) if (Publishing) OnSettled(terminal);
 	}
 
 	/// <summary>Returns whether the process owner took <paramref name="error"/>; otherwise the conversation fails alone.</summary>
@@ -42,25 +47,34 @@ internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSi
 		lock (transitionGate) return !_detached && OnFail(error);
 	}
 
+	/// <summary>Reports that the provider session opened, before the conversation restores controls and turns ready.</summary>
+	public void Opened() {
+		lock (transitionGate) if (!_detached) OnOpened();
+	}
+
 	public void RestartProcess() {
-		lock (transitionGate) if (!_detached) OnRestartProcess();
+		lock (transitionGate) if (Publishing) OnRestartProcess();
 	}
 
 	public IReadOnlyDictionary<string, string> ControlDefaults() {
-		lock (transitionGate) return _detached ? new Dictionary<string, string>(StringComparer.Ordinal) : OnControlDefaults();
+		lock (transitionGate) return Publishing ? OnControlDefaults() : new Dictionary<string, string>(StringComparer.Ordinal);
 	}
 
 	public void RememberControl(string axis, string value) {
-		lock (transitionGate) if (!_detached) OnRememberControl(axis, value);
+		lock (transitionGate) if (Publishing) OnRememberControl(axis, value);
 	}
 
 	public void ForgetControl(string axis, string value) {
-		lock (transitionGate) if (!_detached) OnForgetControl(axis, value);
+		lock (transitionGate) if (Publishing) OnForgetControl(axis, value);
 	}
 
 	public void Detach() {
 		lock (transitionGate) _detached = true;
 	}
+
+	protected virtual bool Staged => false;
+
+	protected virtual void OnOpened() { }
 
 	protected abstract AgentEventFeedback OnObserve(AgentEvent value);
 	protected abstract void OnEmit(AcpConversationState state, AgentPaneMessage message);
@@ -113,7 +127,7 @@ public sealed partial class AcpAgentSession {
 		protected override void OnForgetControl(string axis, string value) => owner._controlDefaults.Clear(owner._definition.Id, axis, value);
 	}
 
-	private sealed class PrimaryPort(AcpAgentSession owner) : OwnedPort(owner) {
+	private class PrimaryPort(AcpAgentSession owner) : OwnedPort(owner) {
 		protected override AgentEventFeedback OnObserve(AgentEvent value) => Owner._context.Events.Observe(value);
 
 		protected override AgentPaneMessage? Prepare(AgentPaneMessage message) => message;

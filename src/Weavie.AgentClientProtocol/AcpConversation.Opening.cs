@@ -35,14 +35,14 @@ internal sealed partial class AcpConversation {
 				_sessionOpening = true;
 				_endpoint.Value.Open();
 				if (sessionId is not null) _endpoint.Value.Bind(sessionId);
-				if (sessionId is null && !_spec.SideScoped) _guidanceSent = false;
+				if (sessionId is null && !_spec.SideScoped && _spec.Opening is not ForkFromOpening) _guidanceSent = false;
 			}
 		}
 
 		JsonElement setup;
 		try {
 			if (_spec.Opening is ForkFromOpening fork && sessionId is null) {
-				await _endpoint.Value.ForkFromAsync(fork.Parent._endpoint.Value, SessionParameters()).ConfigureAwait(false);
+				await _endpoint.Value.ForkFromAsync(fork.Parent._endpoint.Value, ForkParameters(fork.MessageId)).ConfigureAwait(false);
 				lock (_turnTransitionGate) {
 					if (!Live) return;
 					sessionId = _endpoint.Value.SessionId;
@@ -61,23 +61,17 @@ internal sealed partial class AcpConversation {
 					lock (_gate) _loadingTranscript = true;
 				}
 				try {
-					setup = await _endpoint.Value.RequestAsync(
-						"session/load",
-						SessionParameters(),
-						CancellationToken.None).ConfigureAwait(false);
+					setup = await _endpoint.Value.RestoreAsync("session/load", SessionParameters()).ConfigureAwait(false);
 				} finally {
 					lock (_turnTransitionGate) {
 						if (Live) lock (_gate) _loadingTranscript = false;
 					}
 				}
 			} else {
-				setup = await _endpoint.Value.RequestAsync(
-					"session/resume",
-					SessionParameters(),
-					CancellationToken.None).ConfigureAwait(false);
+				setup = await _endpoint.Value.RestoreAsync("session/resume", SessionParameters()).ConfigureAwait(false);
 				if (!Live) return;
 			}
-		} catch (AcpRequestException ex) when (ex.Code == -32000) {
+		} catch (AcpRequestException ex) when (ex.Code == -32000 && !ProvesForkPoint) {
 			lock (_turnTransitionGate) {
 				if (!Live) return;
 				lock (_gate) _sessionOpening = false;
@@ -95,6 +89,9 @@ internal sealed partial class AcpConversation {
 			}
 			throw;
 		}
+		if (_spec.Opening is ForkFromOpening { MessageId: { } messageId } && !_replay.EndsAt(messageId)) {
+			throw new InvalidOperationException($"{Definition.Name} did not rewind to the requested message.");
+		}
 
 		lock (_turnTransitionGate) {
 			if (!Live) return;
@@ -103,6 +100,8 @@ internal sealed partial class AcpConversation {
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
 			}
+			_port.Opened();
+			if (!Live) return; // An owner that cannot adopt this conversation restarts onto its continuation.
 			SaveContinuation();
 		}
 		await RestoreControlDefaultsAsync().ConfigureAwait(false);
@@ -120,36 +119,28 @@ internal sealed partial class AcpConversation {
 		}
 	}
 
-	// ACP has no capability flag for the fork point, so the branch's replay proves the agent honoured it.
-	internal async Task<string> ForkAtAsync(string messageId) {
-		var replay = new RewindReplay();
-		var branch = _endpoint.Value.OpenBranch(replay.Observe);
-		try {
-			var fork = SessionParameters();
-			fork["_meta"] = new JsonObject {
+	// A rewind forks an authenticated process to prove a point there, so a sign-in request fails it instead.
+	private bool ProvesForkPoint => _spec.Opening is ForkFromOpening { MessageId: not null };
+
+	// ACP has no capability flag for the fork point, so the fork's replay proves the agent honoured it.
+	private JsonObject ForkParameters(string? messageId) {
+		var parameters = SessionParameters();
+		if (messageId is not null) {
+			parameters["_meta"] = new JsonObject {
 				["jetbrains"] = new JsonObject {
 					["air"] = new JsonObject { ["fork"] = new JsonObject { ["version"] = 1, ["messageId"] = messageId } },
 				},
 			};
-			await branch.ForkFromAsync(_endpoint.Value, fork).ConfigureAwait(false);
-			await branch.RequestAsync("session/load", SessionParameters(), CancellationToken.None).ConfigureAwait(false);
-			if (!replay.EndsAt(messageId)) throw new InvalidOperationException($"{Definition.Name} did not rewind to the requested message.");
-			branch.Retire(); // The commit restarts onto the fork; this endpoint only had to prove it.
-			return branch.SessionId!;
-		} catch {
-			if (_features.Close && branch.SessionId is not null) await branch.CloseAsync().ConfigureAwait(false);
-			else branch.Retire();
-			throw;
 		}
+		return parameters;
 	}
 
 	private sealed class RewindReplay {
 		private string? _lastAgentMessage;
 		private bool _userAfterAgent;
 
-		public void Observe(JsonElement root) {
-			if (!root.TryGetProperty("params", out var parameters) || !parameters.TryGetProperty("update", out var update)) return;
-			switch (OptionalString(update, "sessionUpdate")) {
+		public void Observe(string kind, JsonElement update) {
+			switch (kind) {
 				case "agent_message_chunk":
 					_lastAgentMessage = OptionalString(update, "messageId");
 					_userAfterAgent = false;

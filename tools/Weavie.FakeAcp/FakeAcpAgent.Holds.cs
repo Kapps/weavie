@@ -26,10 +26,16 @@ internal sealed partial class FakeAcpAgent {
 			["command"] = Environment.ProcessPath,
 			["args"] = new JsonArray("terminal-hold"),
 		}, ct).ConfigureAwait(false);
+		string terminalId = AcpJson.RequiredString(created, "terminalId", "terminal/create response");
 		var waiting = Connection().RequestAsync("terminal/wait_for_exit", new JsonObject {
 			["sessionId"] = _sessionId,
-			["terminalId"] = AcpJson.RequiredString(created, "terminalId", "terminal/create response"),
+			["terminalId"] = terminalId,
 		}, ct);
+		// The client dispatches requests in order, so answering a later one proves it already holds the wait.
+		await Connection().RequestAsync("terminal/output", new JsonObject {
+			["sessionId"] = _sessionId,
+			["terminalId"] = terminalId,
+		}, ct).ConfigureAwait(false);
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "terminal-wait-started"), string.Empty);
 		string outcome;
 		try {

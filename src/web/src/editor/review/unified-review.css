@@ -461,25 +461,142 @@
   flex: 1 1 auto;
 }
 
-.unified-review-switcher-meta {
+/* The switcher reads as a code tree: no icons, and folders end in a slash. */
+.unified-review-switcher,
+.unified-review-switcher .tb-omnibar-row {
+  border-radius: 2px;
+}
+
+.unified-review-switcher .file-tree-icon {
+  display: none;
+}
+
+:is(.unified-review-tree, .unified-review-switcher) .file-tree-row.dir .file-tree-name {
+  font-size: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.unified-review-switcher .file-tree-row.dir .file-tree-name {
+  color: var(--dim);
+}
+
+.unified-review-switcher .file-tree-row.dir .file-tree-name::after {
+  content: "/";
+  opacity: 0.6;
+}
+
+.unified-review-switcher .tb-omnibar-row.selected {
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Shared by the tree above the diffs and the switcher. */
+:is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row) .unified-review-file-stats {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6em;
+  min-width: 6.5em;
+  margin-left: auto;
+  font-family: var(--font-content-family);
+  font-variant-numeric: tabular-nums;
+}
+
+:is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row) .unified-review-added {
+  color: color-mix(in srgb, var(--diff-added, #5a9a6a) 80%, var(--fg));
+}
+
+:is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row) .unified-review-removed {
+  color: color-mix(in srgb, var(--diff-removed, #c47a7a) 80%, var(--fg));
+}
+
+:is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row).reviewed:not(.current)
+  .file-tree-name {
+  color: var(--dim);
+}
+
+.unified-review-reviewed {
+  flex: none;
+  width: 1em;
+  color: var(--accent);
+  font-size: var(--font-hint-size);
+  text-align: center;
+}
+
+/* The changed-file tree above the diffs: hairline nesting guides and quieter folder totals. */
+.unified-review-tree {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35em 0;
+  border-block: 1px solid var(--border);
+}
+
+.unified-review-tree-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.6em;
-  margin-left: auto;
+  gap: 0.3em;
+  min-height: 2em;
+  padding: 0 calc(var(--review-scrollbar-size) + 0.65em) 0 calc(0.65em + var(--depth) * 1.05em);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unified-review-tree-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 calc(0.65em + 0.5em);
+  width: calc(var(--depth) * 1.05em);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--dim) 25%, transparent) 1px, transparent 1px) 0 0
+    / 1.05em 100% repeat-x;
+}
+
+.unified-review-tree-row:hover {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.unified-review-tree-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.unified-review-tree-row.current {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.unified-review-tree .unified-review-tree-row.current .file-tree-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.unified-review-tree .file-tree-icon {
+  display: inline-flex;
+  opacity: 0.7;
+}
+
+.unified-review-tree .tb-tree-twisty {
+  display: inline-flex;
+  width: 1em;
   color: var(--dim);
-  font-size: var(--font-hint-size);
 }
 
-.unified-review-switcher-state {
-  width: 0.55em;
-  height: 0.55em;
-  border: 1.5px solid var(--dim);
-  border-radius: 50%;
+.unified-review-tree :is(.file-tree-icon, .tb-tree-twisty) svg {
+  width: 1em;
+  height: 1em;
 }
 
-.unified-review-switcher-state.reviewed {
-  border-color: var(--diff-added, #5a9a6a);
-  background: var(--diff-added, #5a9a6a);
+.unified-review-tree .file-tree-row.dir .file-tree-name {
+  font-weight: 600;
+}
+
+.unified-review-tree-row.dir .unified-review-file-stats {
+  opacity: 0.5;
 }
 
 .unified-review-switcher-empty {
@@ -488,8 +605,6 @@
 }
 
 .unified-review-switcher footer {
-  display: flex;
-  justify-content: space-between;
   padding: 0.4em 0.8em;
   border-top: 1px solid var(--border);
   color: var(--dim);

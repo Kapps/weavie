@@ -5,16 +5,12 @@ import { registerFloatingPanel } from "../../chrome/floating-panels";
 import { highlightSlice } from "../../chrome/highlight";
 import { dismissOnOutsideInteraction } from "../../chrome/popover-dismiss";
 import { PathTreeRowLabel } from "../../files/PathTreeRowLabel";
-import {
-  buildPathTree,
-  compactPathTree,
-  type PathTreeNode,
-  pathTreeDirectoryKeys,
-  visiblePathTreeRows,
-} from "../../files/path-tree";
+import { buildPathTree, compactPathTree } from "../../files/path-tree";
 import { createListNavigation } from "../../list-navigation";
 import { DiffStats } from "./DiffStats";
-import { type ReviewFileView, reviewProgress } from "./review-store";
+import { ReviewedMark } from "./ReviewedMark";
+import type { ReviewFileView } from "./review-store";
+import { createFoldableTree, isReviewed } from "./review-tree";
 
 interface Entry {
   index: number;
@@ -61,23 +57,10 @@ export function ReviewFileSwitcher(props: {
       buildPathTree(matches().map((entry) => ({ path: entry.row.rel, value: entry }))),
     ),
   );
-  // Every folder starts open; a filter reopens them all so no match hides in a collapsed folder.
-  const [collapsed, setCollapsed] = createSignal(new Set<string>());
-  const expanded = createMemo(
-    () => new Set(pathTreeDirectoryKeys(tree()).filter((key) => !collapsed().has(key))),
+  // A filter reopens every folder so no match hides in a collapsed one.
+  const { expanded, rows, activate, fold, expandAll } = createFoldableTree(tree, (entry) =>
+    props.onChoose(entry.index),
   );
-  const rows = createMemo(() => visiblePathTreeRows(tree(), expanded(), Number.POSITIVE_INFINITY));
-  const toggle = (key: string): void => {
-    setCollapsed((keys) => {
-      const next = new Set(keys);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-  };
-
-  const isReviewed = (entry: Entry): boolean => reviewProgress(entry.file).fraction === 1;
-  const filesUnder = (node: PathTreeNode<Entry>): Entry[] =>
-    node.kind === "file" ? [node.value] : node.children.flatMap(filesUnder);
   const firstFileRow = (): number => rows().findIndex((row) => row.node.kind === "file");
 
   const nav = createListNavigation({
@@ -92,20 +75,14 @@ export function ReviewFileSwitcher(props: {
     acceptKeys: ["Enter"],
     onAccept: (index) => {
       const node = rows()[index]?.node;
-      if (node?.kind === "directory") toggle(node.key);
-      else if (node !== undefined) props.onChoose(node.value.index);
+      if (node !== undefined) activate(node);
     },
     onDismiss: () => props.onCancel(),
   });
   const onKeyDown = (event: KeyboardEvent): void => {
     if (nav.onKeyDown(event)) return;
     const node = rows()[nav.index()]?.node;
-    if (node?.kind !== "directory") return;
-    const open = expanded().has(node.key);
-    if ((event.key === "ArrowLeft" && open) || (event.key === "ArrowRight" && !open)) {
-      event.preventDefault();
-      toggle(node.key);
-    }
+    if (node !== undefined && fold(node, event.key)) event.preventDefault();
   };
 
   // Opens right under the file name it was invoked from, kept inside the window.
@@ -139,7 +116,7 @@ export function ReviewFileSwitcher(props: {
           autocomplete="off"
           onInput={(event) => {
             setQuery(event.currentTarget.value);
-            setCollapsed(new Set<string>());
+            expandAll();
             nav.setIndex(Math.max(0, firstFileRow()));
           }}
           onKeyDown={onKeyDown}
@@ -151,7 +128,7 @@ export function ReviewFileSwitcher(props: {
           >
             <For each={rows()}>
               {(row, index) => {
-                const files = () => filesUnder(row.node);
+                const entry = () => (row.node.kind === "file" ? row.node.value : undefined);
                 return (
                   <button
                     {...nav.row(index())}
@@ -161,7 +138,8 @@ export function ReviewFileSwitcher(props: {
                     classList={{
                       dir: row.node.kind === "directory",
                       selected: index() === nav.index(),
-                      current: row.node.kind === "file" && row.node.value.index === props.current(),
+                      current: entry() !== undefined && entry()!.index === props.current(),
+                      reviewed: entry() !== undefined && isReviewed(entry()!.file),
                     }}
                     style={`padding-left:${10 + row.depth * 14}px`}
                     aria-selected={index() === nav.index()}
@@ -169,44 +147,27 @@ export function ReviewFileSwitcher(props: {
                     // mousedown keeps the focus (and the keyboard) in the filter box.
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      const node = row.node;
-                      if (node.kind === "directory") toggle(node.key);
-                      else props.onChoose(node.value.index);
+                      activate(row.node);
                     }}
                   >
                     <PathTreeRowLabel node={row.node} expanded={expanded().has(row.node.key)}>
                       {highlightSlice(
                         row.node.name,
-                        files()[0]?.positions,
+                        entry()?.positions,
                         row.node.key.length - row.node.name.length,
                       )}
                     </PathTreeRowLabel>
-                    <span class="unified-review-switcher-meta">
-                      <Show
-                        when={row.node.kind === "file" ? files()[0] : undefined}
-                        fallback={
-                          <>
-                            {files().length}
-                            {files().some(isReviewed)
-                              ? ` · ✓ ${files().filter(isReviewed).length}`
-                              : ""}
-                          </>
-                        }
-                      >
-                        {(entry) => (
-                          <>
-                            <DiffStats
-                              added={entry().file.summary().added}
-                              removed={entry().file.summary().removed}
-                            />
-                            <span
-                              class="unified-review-switcher-state"
-                              classList={{ reviewed: isReviewed(entry()) }}
-                            />
-                          </>
-                        )}
-                      </Show>
-                    </span>
+                    <Show when={entry()}>
+                      {(file) => (
+                        <>
+                          <DiffStats
+                            added={file().file.summary().added}
+                            removed={file().file.summary().removed}
+                          />
+                          <ReviewedMark reviewed={isReviewed(file().file)} />
+                        </>
+                      )}
+                    </Show>
                   </button>
                 );
               }}
@@ -214,10 +175,8 @@ export function ReviewFileSwitcher(props: {
           </Show>
         </div>
         <footer>
-          <span>↑↓ move · ←→ fold · ↵ jump · Esc close</span>
-          <span>
-            {all().filter(isReviewed).length} of {props.files().length} reviewed
-          </span>
+          {all().filter((entry) => isReviewed(entry.file)).length} of {props.files().length}{" "}
+          reviewed
         </footer>
       </div>
     </Portal>

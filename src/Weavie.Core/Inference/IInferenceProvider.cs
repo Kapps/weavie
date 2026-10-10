@@ -94,4 +94,7 @@ public interface IInferenceProvider {
 
 	/// <summary>Runs exactly one attempt. Implementations never retry or escalate categories.</summary>
 	Task<InferenceProviderResult> QueryInferenceAsync(InferenceProviderRequest request, CancellationToken ct);
+
+	/// <summary>Asks the provider what a query can be set to with <paramref name="model"/> applied; throws why it couldn't.</summary>
+	Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct);
 }

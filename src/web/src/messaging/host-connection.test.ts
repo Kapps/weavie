@@ -43,7 +43,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   },
   testProfile: "",
   sourceLinkHosts: [],
-  agentDefaults: { defaultProvider: "acp", inferenceModel: "", providers: [] },
+  agentDefaults: { defaultProvider: "acp", providers: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
 

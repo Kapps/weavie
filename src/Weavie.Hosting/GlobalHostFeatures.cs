@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Messaging;
 
@@ -28,6 +29,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		WireThemes();
 		WireSettings();
 		WireAgents();
+		WireInferenceControls();
 		_handlers.Add(_host.Feature("diagnostics").Handle("log", "Recording a page log entry", WireJson.Default.WebLogMessage, (message, _) => {
 			_log($"[web:{message.Level}] {message.Message}");
 			return Task.CompletedTask;
@@ -45,7 +47,9 @@ internal sealed class GlobalHostFeatures : IDisposable {
 		+ $"window.__WEAVIE_COMMANDS__ = {_services.Keybindings.BuildCommandsJson()};"
 		+ $"window.__WEAVIE_KEYBINDINGS__ = {_services.Keybindings.BuildKeybindingsJson()};";
 
-	public string AgentDefaultsJson() => AgentSettings.BuildJson(_services.Settings, _services.AgentProviders);
+	public string AgentDefaultsJson() => AgentSettings.BuildJson(
+		_services.Settings,
+		[.. _services.AgentProviders.Providers.Select(provider => provider.Info)]);
 
 	/// <summary>Makes <paramref name="providerId"/> the default for new sessions when it names an installed provider.</summary>
 	public void RememberDefaultProvider(string? providerId) {
@@ -99,6 +103,13 @@ internal sealed class GlobalHostFeatures : IDisposable {
 				: Task.CompletedTask;
 		}));
 	}
+
+	private void WireInferenceControls() => _handlers.Add(_host.Feature("inferenceControls").HandleConcurrent(
+		"get",
+		"Asking the agent for its suggestion options",
+		WireJson.Default.EmptyPayload,
+		WireJson.Default.InferenceChoices,
+		(_, ct) => InferenceControlAxes.AskAsync(_services.Settings, _services.AgentProviders, ct)));
 
 	private void WireAgents() {
 		var agentDefaults = _host.Feature("agentDefaults");

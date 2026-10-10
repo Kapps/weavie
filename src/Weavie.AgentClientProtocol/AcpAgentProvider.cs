@@ -70,6 +70,10 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, 
 	public InferenceProviderInfo InferenceInfo { get; }
 
 	/// <inheritdoc/>
+	public Task<InferenceControls> ProbeInferenceControlsAsync(string model, CancellationToken ct) =>
+		AcpConsultClient.ProbeInferenceAsync(_currentDefinition(), model, ct);
+
+	/// <inheritdoc/>
 	public Task<InferenceProviderResult> QueryInferenceAsync(
 		InferenceProviderRequest request,
 		CancellationToken ct) {

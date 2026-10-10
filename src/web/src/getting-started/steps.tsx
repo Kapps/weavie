@@ -9,13 +9,14 @@ import {
   Show,
 } from "solid-js";
 import { LOCAL_BACKEND_ID, type ThemeMode } from "../bridge";
-import { agentProviders, defaultAgentProvider, inferenceModel } from "../chrome/agent-default";
+import { defaultAgentProvider } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { chromeVars } from "../theme/chrome-vars";
 import { savedAppearance, savedPalette } from "../theme/controller";
 import { type ThemeChoice, themeRequest } from "../theme/picker-state";
+import { SuggestionProfile } from "./SuggestionProfile";
 import { browseThemes, readSetting, writeSetting } from "./state";
 
 /** What the steps of one setup run share: its error line, and choices that must outlive a step's view. */
@@ -156,8 +157,8 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
         throw error;
       }
     });
-  // Switches never set start on. Suggestions follow the agent picked on the previous step, once per agent, so a
-  // "Which agent" change survives going back and forth.
+  // Switches never set start on. Suggestions follow an agent picked on the previous step in this run, once per agent,
+  // so a choice made here survives going back and forth, and reopening the step never undoes it.
   const initial = async <T,>(key: string, onByDefault: T, set: (value: T) => void) => {
     const setting = await readSetting<T>(key);
     const value = setting.isDefault ? onByDefault : setting.value;
@@ -170,7 +171,11 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       await initial("inference.allowAutomatic", true, setAutomatic);
       const agent = defaultAgentProvider(LOCAL_BACKEND_ID);
       const current = (await readSetting<string>("inference.defaultProvider")).value;
-      if (props.run.suggestionsAgent === agent || current === agent) {
+      if (
+        props.run.agentChoice === 0 ||
+        props.run.suggestionsAgent === agent ||
+        current === agent
+      ) {
         setProvider(current);
       } else {
         await writeSetting("inference.defaultProvider", agent);
@@ -184,7 +189,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
     <>
       <SettingRow
         title="Allow suggestions"
-        detail="Weavie asks your agent for small things, like a name for a new branch. These requests don't appear in your chat."
+        detail="Your agent helps with small things, like naming a branch. Never shown in your chat."
         disabled={enabled() === undefined}
         control={(id) => (
           <Switch
@@ -197,7 +202,7 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
       />
       <SettingRow
         title="Suggest automatically"
-        detail={`Suggest without being asked. This uses a little of your agent usage now and then. ${inferenceModel(LOCAL_BACKEND_ID)}`}
+        detail="Suggest without being asked. This uses a little of your agent usage now and then."
         disabled={off()}
         control={(id) => (
           <Switch
@@ -208,28 +213,15 @@ export function InferenceStep(props: { run: SetupRun }): JSX.Element {
           />
         )}
       />
-      <SettingRow
-        title="Which agent"
-        detail="The agent that makes these suggestions."
-        disabled={off()}
-        control={(id) => (
-          <select
-            id={id}
-            disabled={off()}
-            onChange={(event) =>
-              write("inference.defaultProvider", event.currentTarget.value, setProvider)
-            }
-          >
-            <For each={agentProviders(LOCAL_BACKEND_ID).filter((agent) => agent.available)}>
-              {(agent) => (
-                <option value={agent.id} selected={agent.id === provider()}>
-                  {agent.name}
-                </option>
-              )}
-            </For>
-          </select>
-        )}
-      />
+      <Show when={provider()}>
+        <SuggestionProfile disabled={off()} attempt={props.run.attempt} />
+      </Show>
+      <p class="gs-later">
+        Change it anytime with <CommandName id={CommandIds.configureSuggestions} />
+        <Show when={liveKeyLabel(CommandIds.configureSuggestions)}>
+          {(keys) => <Keycaps label={keys()} />}
+        </Show>
+      </p>
     </>
   );
 }

@@ -19,7 +19,6 @@ declare global {
 
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
-  inferenceModel: "",
   providers: [
     {
       id: "claude",
@@ -41,7 +40,6 @@ function defaultsFor(backendId: string): AgentDefaults {
   return (
     byBackend().get(backendId) ?? {
       defaultProvider: "",
-      inferenceModel: "",
       providers: [],
     }
   );
@@ -55,11 +53,6 @@ export function defaultAgentProvider(backendId: string): string {
 /** Provider profiles advertised by one exact host. */
 export function agentProviders(backendId: string): AgentDefaults["providers"] {
   return defaultsFor(backendId).providers;
-}
-
-/** Which model one host's automatic suggestions run on, worded for the user. */
-export function inferenceModel(backendId: string): string {
-  return defaultsFor(backendId).inferenceModel;
 }
 
 /** Remember the provider just chosen as that host's default. */

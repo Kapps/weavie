@@ -94,6 +94,14 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       atUnifiedFile((session, path) => editor.review.toggleFileContext(session, path)),
     ],
     [
+      CommandIds.reviewGoToFile,
+      whileDisplayed(({ session }, args) => {
+        const goToFile =
+          session === null ? undefined : activeTabFor(session)?.presentation?.actions()?.goToFile;
+        return () => goToFile?.(commandPath(args)) ?? false;
+      }),
+    ],
+    [
       CommandIds.reviewOpenLine,
       whileDisplayed(({ session }) => {
         const text =

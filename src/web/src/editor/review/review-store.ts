@@ -10,6 +10,8 @@ export interface ReviewFile {
   name: string;
   added: number;
   removed: number;
+  /** Changed lines not yet kept; reverted changes leave the diff, so they shrink `added + removed` instead. */
+  pendingLines: number;
   line: number;
   currentExists: boolean;
 }
@@ -403,4 +405,12 @@ export function hasReviewChanges(diff: ReviewFileDiff): boolean {
     diff.acceptedBaseline !== diff.baseline ||
     diff.acceptedBaselineExists !== diff.baselineExists
   );
+}
+
+/** How much of a file's diff has been kept, as the review strip and file picker show it. */
+export function reviewProgress(file: ReviewFileView): { total: number; fraction: number } {
+  const { added, removed, pendingLines } = file.summary();
+  const total = added + removed;
+  if (file.loaded() && !file.pending()) return { total, fraction: 1 };
+  return { total, fraction: total === 0 ? 0 : Math.max(0, total - pendingLines) / total };
 }

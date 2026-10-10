@@ -83,7 +83,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const setScrollTop = (scrollTop: number): void => {
     update(() => scrollable.setScrollPosition({ scrollTop }));
   };
-  const offMiddleClick = registerMiddleClickScroll(node, () => true, {
+  const offMiddleClick = registerMiddleClickScroll(element, () => true, {
     x: null,
     y: (delta) => scrollable.setScrollPosition({ scrollTop: getScrollTop() + delta }),
   });

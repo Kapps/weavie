@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { IPosition, editor as MonacoEditor } from "monaco-editor";
 import { awaitEditorReady } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, reviewFileSegment } from "../harness/review";
 import { scrollReview } from "../harness/review-scroll";
 
 const paths = ["a-widgets.ts", "b-widgets.ts"];
@@ -42,7 +42,7 @@ test("scrolled review completions stay at the caret and belong to their editor",
   await page.locator(".editor-empty-review").click();
   for (const path of paths) {
     await scrollReview(page, "start");
-    await page.locator(".unified-review-tree-row.file", { hasText: path }).click();
+    await reviewFileSegment(page, path).click();
     const section = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: path }),
     });
@@ -134,7 +134,7 @@ test("scrolled review rename accepts and cancels while a definition peek is open
     });
   });
   await page.locator(".editor-empty-review").click();
-  await page.locator(".unified-review-tree-row.file", { hasText: paths[1] }).click();
+  await reviewFileSegment(page, paths[1]).click();
   const section = page.locator(".unified-review-file", {
     has: page.locator(".unified-review-file-name", { hasText: paths[1] }),
   });

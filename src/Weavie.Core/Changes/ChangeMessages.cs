@@ -9,7 +9,7 @@ namespace Weavie.Core.Changes;
 /// </summary>
 public static class ChangeMessages {
 	/// <summary>
-	/// The per-turn change list: each changed file with its added/removed counts and the 1-based line of its
+	/// The per-turn change list: each changed file with its added/removed/pending counts and the 1-based line of its
 	/// first change, so the review walk + parked navigator can open the file on that diff. <paramref name="label"/>
 	/// names a PR/ref review ("PR #12", "vs main") in the subtitle, or is empty for a plain post-turn review.
 	/// </summary>
@@ -24,6 +24,7 @@ public static class ChangeMessages {
 			summary.Added,
 			summary.Removed,
 			summary.Line,
+			summary.PendingLines,
 			summary.Change.CurrentExists));
 		return JsonSerializer.Serialize(new TurnChangesWire(label, [.. files]), PageJson.Default.TurnChangesWire);
 	}
@@ -68,7 +69,7 @@ public static class ChangeMessages {
 
 internal sealed record TurnChangesWire(string Label, IReadOnlyList<TurnChangeWire> Files);
 
-internal sealed record TurnChangeWire(string Path, string Name, int Added, int Removed, int Line, bool CurrentExists);
+internal sealed record TurnChangeWire(string Path, string Name, int Added, int Removed, int Line, int PendingLines, bool CurrentExists);
 
 internal sealed record TurnDiffWire(
 	string Path,

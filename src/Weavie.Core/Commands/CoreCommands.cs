@@ -279,6 +279,9 @@ public static class CoreCommands {
 	/// <summary>Walks to the previous changed file in the review set; bound to <c>ctrl+$mod+Left</c>.</summary>
 	public const string ReviewPrevFile = "weavie.review.prevFile";
 
+	/// <summary>Jumps the unified review to a changed file, or opens its file picker; bound to <c>$mod+alt+p</c>.</summary>
+	public const string ReviewGoToFile = "weavie.review.goToFile";
+
 	/// <summary>Keeps every hunk in the active review file (mark reviewed + advance); palette/Claude only, scope also reachable via the toolbar picker.</summary>
 	public const string KeepFile = "weavie.review.keepFile";
 
@@ -1586,6 +1589,18 @@ public static class CoreCommands {
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused && !prCommentFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewGoToFile,
+			Title = "Go to File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "unifiedReviewActive",
+			Description = "Jump the unified review to a changed file. Without a path, open a filterable list of the review's files.",
+			Aliases = ["switch review file", "pick review file", "review file list", "changed files list"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+p", When = "!terminalFocused && !prCommentFocused" }],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to jump to; omit to open the file list\"}}",
 		});
 
 		// File-scoped review actions. Scope now rides the toolbar's sticky picker (Keep/Revert at file scope =

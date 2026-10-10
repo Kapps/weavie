@@ -29,7 +29,7 @@ internal partial class MessageBus {
 			_dispatchCancellation.Token,
 			lifetime.Operation.TimeoutToken);
 		try {
-			lifetime.Operation.MarkStage("after-response");
+			lifetime.Operation.MarkStage(MessageStage.AfterResponse);
 			await lifetime.Operation.SuperviseAsync(async () => {
 				await afterResponse(cancellation.Token).ConfigureAwait(false);
 				return true;

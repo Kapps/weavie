@@ -91,7 +91,7 @@
 }
 
 .session-inbox-header span,
-.session-inbox-details span,
+.session-inbox-meta,
 .session-inbox-state,
 .session-inbox-empty {
   color: var(--dim);
@@ -393,8 +393,7 @@
   min-width: 0;
 }
 
-.session-inbox-details strong,
-.session-inbox-details span {
+.session-inbox-details > * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

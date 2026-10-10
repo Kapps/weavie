@@ -250,7 +250,6 @@
 
 .pane-label {
   color: var(--dim);
-  font-weight: 600;
 }
 
 .left-pane.active .pane-label {

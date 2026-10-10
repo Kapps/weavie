@@ -53,8 +53,9 @@ anchors after reloads.
   visible edge; several hints on a line sit side by side. Adds no height.
 - **Expanded:** a Monaco content-widget popover just below the line — overlays code, never shifts it. Opens on
   hover/click of the badge or pill, or Next/Previous Hint. Shows severity, `✦ <agent>`, full text, and
-  Fix, Fix with…, Previous, Next, Dismiss with keybinding tooltips from the command catalog. The popover holds
-  only buttons; every keyboard action is a command.
+  Fix, Fix with…, Comment on PR (when the file is in the session's pull request: opens the PR comment box on
+  that line prefilled with the hint, which the user edits and posts), Previous, Next, Dismiss with keybinding
+  tooltips from the command catalog. The popover holds only buttons; every keyboard action is a command.
 - Colours: bug `--bad`, warn `--warn`, nit `--busy`.
 - **Anchoring** shares PR threads' line mapping (captured text → live buffer); a hint whose line changed fades.
 
@@ -79,6 +80,7 @@ All unbound except Escape, which closes the session's open popover after the edi
 | `weavie.reviewHints.toggle` | web | Show/hide all hints |
 | `weavie.reviewHints.dismiss` | web | Dismiss the open hint, else the one on the cursor line |
 | `weavie.reviewHints.fix` / `.fixWith` | web | Fix the open hint (or cursor-line hint/thread) |
+| `weavie.reviewHints.comment` | web | Open a PR comment on the hint's line, prefilled with its text |
 | `weavie.reviewHints.close` | web | Escape: close the popover |
 | `weavie.reviewHints.clear` | core | Remove all hints |
 

@@ -20,6 +20,9 @@ public static partial class CoreCommands {
 	/// <summary>As <see cref="ReviewHintsFix"/>, with the user's own instruction (web-handled).</summary>
 	public const string ReviewHintsFixWith = "weavie.reviewHints.fixWith";
 
+	/// <summary>Opens a pull request comment on the open hint's line, prefilled with its text, for the user to edit and post (web-handled).</summary>
+	public const string ReviewHintsComment = "weavie.reviewHints.comment";
+
 	/// <summary>Closes the open review hint popover; bound to <c>Escape</c> after the editor's own widgets decline it (web-handled).</summary>
 	public const string ReviewHintsClose = "weavie.reviewHints.close";
 
@@ -75,6 +78,16 @@ public static partial class CoreCommands {
 				Aliases = ["fix hint", "fix finding", "fix this", "fix comment", "fix pr comment"],
 			});
 		}
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewHintsComment,
+			Title = "Comment on PR From Review Hint",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Open a pull request comment on the open review hint's line, or the cursor line's hint, prefilled with the hint's text for you to edit and post as yourself.",
+			Aliases = ["comment from hint", "post hint", "hint to pr comment", "promote hint"],
+			When = "prCommentable",
+		});
 
 		registry.Register(new CommandDefinition {
 			Id = ReviewHintsClose,

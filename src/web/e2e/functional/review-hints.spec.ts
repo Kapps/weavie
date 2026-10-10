@@ -105,6 +105,8 @@ test.describe("ReportFindings", () => {
       );
       await expect(popover(page).locator(".weavie-hint-meta")).toContainText("✦ Claude Code");
       await expect(popover(page).locator(".weavie-hint-meta")).toContainText("correctness");
+      // No pull request in this session, so the hint can't become a PR comment.
+      await expect(popover(page).getByRole("button", { name: "Comment on PR" })).toHaveCount(0);
       await expect(popover(page).getByRole("button", { name: "Fix", exact: true })).toHaveAttribute(
         "title",
         "Fix (Ctrl+Alt+Shift+F)",
@@ -301,7 +303,7 @@ test.describe("PR review", () => {
     },
   });
 
-  test("renders a hint beside PR threads, and a thread's Fix asks the agent", async ({
+  test("renders a hint beside PR threads; it becomes a PR comment, and a thread's Fix asks the agent", async ({
     page,
     weavie,
   }) => {
@@ -320,6 +322,19 @@ test.describe("PR review", () => {
     await expect
       .poll(() => hintRowOffset(review, 'const message = greet("pull request");'))
       .toBe(0);
+
+    await test.step("Comment on PR opens a prefilled draft the user posts", async () => {
+      await review.locator(".weavie-hint-pill").click();
+      await popover(page).getByRole("button", { name: "Comment on PR" }).click();
+      await expect(popover(page)).toHaveCount(0);
+      const input = page.locator(".weavie-pr-card-draft .weavie-pr-composer-input");
+      await expect(input).toHaveValue("The PR greeting is hardcoded");
+      await input.fill("The PR greeting is hardcoded — read it from config?");
+      await input.press("ControlOrMeta+Enter");
+      await expect(
+        page.locator(".weavie-pr-card").filter({ hasText: "read it from config?" }),
+      ).toBeVisible({ timeout: 10_000 });
+    });
 
     await test.step("a live thread's Fix sends it to the agent", async () => {
       await thread.getByRole("button", { name: "Fix", exact: true }).click();

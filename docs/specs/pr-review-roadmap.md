@@ -76,6 +76,8 @@ resulting pending hunk to the thread, and keeping it posts a "Fixed in `<sha>`" 
 
 ## 6. Hint to PR comment
 
+> Built; see [inline-review-hints.md](inline-review-hints.md).
+
 On a PR, a hint's popover offers **Comment**: the PR comment composer opens on the hint's line, prefilled with
 the hint's text, for the user to edit and post as themselves. Nothing posts without the user submitting it, so
 the review stays in their voice.

@@ -164,6 +164,7 @@ export const CommandIds = {
   reviewHintsDismiss: "weavie.reviewHints.dismiss",
   reviewHintsFix: "weavie.reviewHints.fix",
   reviewHintsFixWith: "weavie.reviewHints.fixWith",
+  reviewHintsComment: "weavie.reviewHints.comment",
   reviewHintsClose: "weavie.reviewHints.close",
   reviewHintsClear: "weavie.reviewHints.clear",
   agentFixLine: "weavie.agent.fixLine",

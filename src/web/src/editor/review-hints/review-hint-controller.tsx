@@ -8,6 +8,7 @@ import { describeError } from "../../lsp/lsp-errors";
 import { notify } from "../../notify/notify";
 import { samePath } from "../fs-path";
 import { monaco } from "../monaco-setup";
+import type { PrCommentController } from "../pr-comments/pr-comment-controller";
 import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { HintPill, HintPopover } from "./HintPopover";
@@ -35,6 +36,7 @@ export function createReviewHints(
   session: ClientSession,
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
+  prComments: PrCommentController,
 ): ReviewHintController {
   if (model.uri.scheme !== SESSION_FILE_SCHEME) return inert;
   const path = sessionUriHostPath(model.uri);
@@ -234,7 +236,14 @@ export function createReviewHints(
       const unmount = render(
         () => (
           <Show when={current()}>
-            {(entry) => <HintPopover placed={entry()} session={session} onPointer={pointer} />}
+            {(entry) => (
+              <HintPopover
+                placed={entry()}
+                session={session}
+                commentable={prComments.commentable()}
+                onPointer={pointer}
+              />
+            )}
           </Show>
         ),
         dom,

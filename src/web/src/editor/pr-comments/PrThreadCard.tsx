@@ -27,7 +27,8 @@ export function PrThreadCard(props: {
   viewer: PrUser;
   collapsed: boolean;
   onCollapsed: (collapsed: boolean) => void;
-  replying: boolean;
+  /** The open reply box's starting text, or null when it's closed. */
+  replying: string | null;
   onReplying: (open: boolean) => void;
   fix: () => FixItem | null;
 }): JSX.Element {
@@ -139,7 +140,7 @@ export function PrThreadCard(props: {
         <div class="weavie-pr-card-foot">
           <Avatar user={props.viewer} />
           <Show
-            when={props.replying}
+            when={props.replying !== null}
             fallback={
               <button
                 type="button"
@@ -153,7 +154,7 @@ export function PrThreadCard(props: {
           >
             <PrCommentComposer
               draftKey={`reply:${props.number}:${thread().rootId}`}
-              initial=""
+              initial={props.replying ?? ""}
               placeholder="Reply…"
               submitLabel="Reply"
               onSubmit={async (body) => {
@@ -178,6 +179,7 @@ export function PrThreadCard(props: {
 export function PrDraftCard(props: {
   draftKey: string;
   line: number;
+  initial: string;
   viewer: PrUser;
   onSubmit: (body: string) => Promise<string | null>;
   onCancel: () => void;
@@ -188,7 +190,7 @@ export function PrDraftCard(props: {
         <Avatar user={props.viewer} />
         <PrCommentComposer
           draftKey={props.draftKey}
-          initial=""
+          initial={props.initial}
           placeholder={`Comment on line ${props.line}…`}
           submitLabel="Comment"
           onSubmit={props.onSubmit}

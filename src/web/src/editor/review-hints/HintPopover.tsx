@@ -1,4 +1,11 @@
-import { ChevronLeft, ChevronRight, WandSparkles, Wrench, X } from "lucide-solid";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MessageSquarePlus,
+  WandSparkles,
+  Wrench,
+  X,
+} from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
@@ -17,6 +24,7 @@ export const SEVERITY_LABELS: Record<HintSeverity, string> = {
 const ACTIONS = [
   [CommandIds.reviewHintsFix, "Fix", Wrench],
   [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles],
+  [CommandIds.reviewHintsComment, "Comment on PR", MessageSquarePlus],
   [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft],
   [CommandIds.reviewHintsNext, "Next hint", ChevronRight],
   [CommandIds.reviewHintsDismiss, "Dismiss hint", X],
@@ -51,6 +59,8 @@ export function HintPill(props: { placed: PlacedHint }): JSX.Element {
 export function HintPopover(props: {
   placed: PlacedHint;
   session: ClientSession;
+  /** Whether the file is in the session's pull request, so the hint can become a PR comment. */
+  commentable: boolean;
   onPointer: (inside: boolean) => void;
 }): JSX.Element {
   const hint = () => props.placed.hint;
@@ -71,7 +81,11 @@ export function HintPopover(props: {
           <span title="This line was edited since the hint was made.">Changed</span>
         </Show>
         <span class="weavie-hint-actions">
-          <For each={ACTIONS}>
+          <For
+            each={ACTIONS.filter(
+              ([id]) => id !== CommandIds.reviewHintsComment || props.commentable,
+            )}
+          >
             {([id, label, Icon]) => (
               <button
                 type="button"

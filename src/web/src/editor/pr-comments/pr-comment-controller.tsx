@@ -35,8 +35,8 @@ import "./pr-comments.css";
 export interface PrCommentController {
   /** Whether this file is part of the branch's pull request, so a new comment can be left on it. */
   commentable(): boolean;
-  /** Opens a comment box on the cursor's line: the reply of the thread anchored there, else a new comment. */
-  comment(): boolean;
+  /** Opens a comment box on a line, holding `initial`: the reply of the thread anchored there, else a new comment. */
+  comment(line: number, initial: string): boolean;
   /** Moves the cursor to the next (1) or previous (-1) thread in this file; false when there's none that way. */
   navigate(direction: 1 | -1): boolean;
   /** The thread anchored on a buffer line, as a Fix item. */
@@ -116,6 +116,7 @@ export function createPrComments(
     // The draft's line is a tracked decoration, so edits above it while typing move it with its code.
     const draftMark = editor.createDecorationsCollection();
     const [drafting, setDrafting] = createSignal(false);
+    const [draftInitial, setDraftInitial] = createSignal("");
     const draft = (): number | null => {
       version();
       return drafting() ? (draftMark.getRange(0)?.startLineNumber ?? null) : null;
@@ -133,7 +134,8 @@ export function createPrComments(
         ]);
       setDrafting(line !== null);
     };
-    const [replying, setReplying] = createSignal<ReadonlySet<number>>(new Set());
+    // Each open reply box, by thread, with the text it opened holding.
+    const [replying, setReplying] = createSignal<ReadonlyMap<number, string>>(new Map());
     // Outdated threads start collapsed; the user's own collapse/expand wins from then on.
     const [collapsedByUser, setCollapsedByUser] = createSignal<ReadonlyMap<number, boolean>>(
       new Map(),
@@ -143,11 +145,11 @@ export function createPrComments(
     const collapse = (rootId: number, value: boolean): void => {
       setCollapsedByUser((current) => new Map(current).set(rootId, value));
     };
-    const reply = (rootId: number, open: boolean): void => {
+    const reply = (rootId: number, open: boolean, initial: string): void => {
       if (open) collapse(rootId, false);
       setReplying((current) => {
-        const next = new Set(current);
-        if (open) next.add(rootId);
+        const next = new Map(current);
+        if (open) next.set(rootId, initial);
         else next.delete(rootId);
         return next;
       });
@@ -215,6 +217,7 @@ export function createPrComments(
             <PrDraftCard
               draftKey={`new:${set()?.number}:${path}:${current.line}`}
               line={(card() as Extract<Card, { kind: "draft" }>).line}
+              initial={draftInitial()}
               viewer={set()?.viewer ?? { login: "", avatarUrl: "" }}
               onSubmit={submitDraft}
               onCancel={() => setDraft(null)}
@@ -233,8 +236,8 @@ export function createPrComments(
                 viewer={active().viewer}
                 collapsed={collapsed(placement())}
                 onCollapsed={(value) => collapse(rootId, value)}
-                replying={replying().has(rootId)}
-                onReplying={(open) => reply(rootId, open)}
+                replying={replying().get(rootId) ?? null}
+                onReplying={(open) => reply(rootId, open, "")}
                 fix={() => fixItem(placement())}
               />
             )}
@@ -247,15 +250,14 @@ export function createPrComments(
     const fixItem = (placement: ThreadPlacement): FixItem | null =>
       threadFixItem(placement, path, (line) => model.getLineContent(line));
 
-    const comment = (): boolean => {
+    const comment = (line: number, initial: string): boolean => {
       const current = set();
-      const line = editor.getPosition()?.lineNumber;
-      if (current === null || line === undefined || !commentable()) return false;
+      if (current === null || !commentable()) return false;
       // Commenting while threads are hidden would post into nothing visible.
       showPrComments();
       const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
       if (thread?.data.kind === "thread") {
-        reply(thread.data.placement.thread.rootId, true);
+        reply(thread.data.placement.thread.rootId, true, initial);
         return true;
       }
       const map = anchors()?.map;
@@ -268,6 +270,7 @@ export function createPrComments(
           "pr-comments",
         );
       } else {
+        setDraftInitial(initial);
         setDraft(line);
       }
       return true;

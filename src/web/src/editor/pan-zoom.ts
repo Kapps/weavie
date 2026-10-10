@@ -9,36 +9,8 @@ const KEY_STEP = 1.25;
 // A press must travel this far before it pans, so clicks and taps still reach the content (video controls).
 const DRAG_SLOP = 4;
 
-/** A live pan/zoom over the element `frame()` returns; bind `handlers` to it and `transform()` to its content. */
-export interface PanZoom {
-  scale(): number;
-  panning(): boolean;
-  /** CSS transform for the content layer. */
-  transform(): string;
-  /** Zoom level + pan/reset help while zoomed; empty at the fitted view. */
-  hint(): string;
-  /** Back to the fitted view, abandoning any in-flight gesture. */
-  reset(): void;
-  /** Zooms toward the frame center by `factor`. */
-  zoomBy(factor: number): void;
-  /** Applies the shared +/-/0 zoom keys; returns whether `key` was one of them. */
-  zoomKey(key: string): boolean;
-  /** Pointer + double-click handlers for the frame; the wheel is bound separately (it must be non-passive). */
-  handlers: {
-    onPointerDown(event: PointerEvent & { currentTarget: HTMLElement }): void;
-    onPointerMove(event: PointerEvent & { currentTarget: HTMLElement }): void;
-    onPointerUp(event: PointerEvent): void;
-    onPointerCancel(event: PointerEvent): void;
-    onPointerLeave(event: PointerEvent): void;
-    onDblClick(event: MouseEvent): void;
-    onDragStart(event: DragEvent): void;
-  };
-  /** Non-passive wheel listener: zooms toward the cursor and keeps the gesture from reaching the page. */
-  onWheel(event: WheelEvent): void;
-}
-
-/** Creates the pan/zoom state for `frame`, whose content is centered at 1×. */
-export function createPanZoom(frame: () => HTMLElement): PanZoom {
+/** Pan/zoom over `frame`, whose content is centered at 1×: bind `handlers` to it and `transform()` to its content. */
+export function createPanZoom(frame: () => HTMLElement) {
   const [scale, setScale] = createSignal(1);
   const [offset, setOffset] = createSignal({ x: 0, y: 0 });
   const [panning, setPanning] = createSignal(false);
@@ -110,7 +82,8 @@ export function createPanZoom(frame: () => HTMLElement): PanZoom {
     hint: () => (scale() > 1 ? `${scale().toFixed(1)}× — drag to pan, 0 resets` : ""),
     reset,
     zoomBy,
-    zoomKey(key) {
+    /** Applies the shared +/-/0 zoom keys; returns whether `key` was one of them. */
+    zoomKey(key: string): boolean {
       const actions: Record<string, () => void> = {
         "+": () => zoomBy(KEY_STEP),
         "=": () => zoomBy(KEY_STEP),
@@ -121,7 +94,7 @@ export function createPanZoom(frame: () => HTMLElement): PanZoom {
       return key in actions;
     },
     handlers: {
-      onPointerDown(event) {
+      onPointerDown(event: PointerEvent & { currentTarget: HTMLElement }): void {
         if (pointers.size >= 2 || (event.pointerType === "mouse" && scale() === 1)) {
           return;
         }
@@ -133,7 +106,7 @@ export function createPanZoom(frame: () => HTMLElement): PanZoom {
         }
         begin();
       },
-      onPointerMove(event) {
+      onPointerMove(event: PointerEvent & { currentTarget: HTMLElement }): void {
         if (start === null || !pointers.has(event.pointerId)) {
           return;
         }
@@ -156,8 +129,8 @@ export function createPanZoom(frame: () => HTMLElement): PanZoom {
       onPointerCancel: release,
       onPointerLeave: release,
       // An <img>'s native drag-and-drop would cancel the pointer mid-pan.
-      onDragStart: (event) => event.preventDefault(),
-      onDblClick(event) {
+      onDragStart: (event: DragEvent) => event.preventDefault(),
+      onDblClick(event: MouseEvent): void {
         if (scale() > 1) {
           reset();
         } else {
@@ -165,7 +138,8 @@ export function createPanZoom(frame: () => HTMLElement): PanZoom {
         }
       },
     },
-    onWheel(event) {
+    /** Non-passive wheel listener: zooms toward the cursor and keeps the gesture from reaching the page. */
+    onWheel(event: WheelEvent): void {
       event.preventDefault();
       event.stopPropagation();
       const delta =

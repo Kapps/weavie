@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { crc32, deflateSync } from "node:zlib";
 import type { Locator } from "@playwright/test";
 import type { WorkspaceSeed } from "./weavie-host";
 
@@ -10,38 +9,17 @@ const LANDSCAPE_WEBM = Buffer.from(
   "base64",
 );
 
-// A 1600×800 RGB PNG, red left quarter on blue: larger than any pane, so it renders fitted, and the band
-// shows which way it's turned.
-function landscapePng(width: number, height: number): Buffer {
-  const chunk = (type: string, data: Buffer): Buffer => {
-    const body = Buffer.concat([Buffer.from(type), data]);
-    const out = Buffer.alloc(body.length + 8);
-    out.writeUInt32BE(data.length, 0);
-    body.copy(out, 4);
-    out.writeUInt32BE(crc32(body), body.length + 4);
-    return out;
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header.set([8, 2, 0, 0, 0], 8);
-  const row = Buffer.alloc(1 + width * 3);
-  for (let x = 0; x < width; x += 1) {
-    row.set(x < width / 4 ? [224, 64, 48] : [32, 96, 192], 1 + x * 3);
-  }
-  const pixels = deflateSync(Buffer.concat(Array.from({ length: height }, () => row)));
-  return Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk("IHDR", header),
-    chunk("IDAT", pixels),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
+// A 1600×800 two-colour PNG, red left quarter on blue: larger than any pane, so it renders fitted, and the
+// band shows which way it's turned.
+const LANDSCAPE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAABkAAAAMgAQMAAABBDjwZAAAABlBMVEXgQDAgYMDdL+1SAAACi0lEQVR42u3PMQEAAAgDoPUvrRl26QENSGrzUkRERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERETuLERsBp4QIMA2AAAAAElFTkSuQmCC",
+  "base64",
+);
 
 /** Seeds landscape.png (1600×800) and landscape.webm (640×360) into the workspace. */
 export const landscapeMedia: WorkspaceSeed = {
   run: async (workspace) => {
-    await writeFile(join(workspace, "landscape.png"), landscapePng(1600, 800));
+    await writeFile(join(workspace, "landscape.png"), LANDSCAPE_PNG);
     await writeFile(join(workspace, "landscape.webm"), LANDSCAPE_WEBM);
   },
 };

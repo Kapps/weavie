@@ -1,4 +1,11 @@
-import { ChevronLeft, ChevronRight, WandSparkles, Wrench, X } from "lucide-solid";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MessageSquarePlus,
+  WandSparkles,
+  Wrench,
+  X,
+} from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
@@ -14,12 +21,14 @@ export const SEVERITY_LABELS: Record<HintSeverity, string> = {
   nit: "Nit",
 };
 
+// Command, accessible label, icon, and visible text (null for icon-only buttons).
 const ACTIONS = [
-  [CommandIds.reviewHintsFix, "Fix", Wrench],
-  [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles],
-  [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft],
-  [CommandIds.reviewHintsNext, "Next hint", ChevronRight],
-  [CommandIds.reviewHintsDismiss, "Dismiss hint", X],
+  [CommandIds.reviewHintsFix, "Fix", Wrench, "Fix"],
+  [CommandIds.reviewHintsFixWith, "Fix with…", WandSparkles, "Fix with…"],
+  [CommandIds.reviewHintsComment, "Comment on PR", MessageSquarePlus, "Comment"],
+  [CommandIds.reviewHintsPrevious, "Previous hint", ChevronLeft, null],
+  [CommandIds.reviewHintsNext, "Next hint", ChevronRight, null],
+  [CommandIds.reviewHintsDismiss, "Dismiss hint", X, null],
 ] as const;
 
 /** A hint title with its `code` spans rendered as code, matching the markdown body; unpaired backticks stay text. */
@@ -51,6 +60,8 @@ export function HintPill(props: { placed: PlacedHint }): JSX.Element {
 export function HintPopover(props: {
   placed: PlacedHint;
   session: ClientSession;
+  /** Whether the file is in the session's pull request, so the hint can become a PR comment. */
+  commentable: boolean;
   onPointer: (inside: boolean) => void;
 }): JSX.Element {
   const hint = () => props.placed.hint;
@@ -71,8 +82,12 @@ export function HintPopover(props: {
           <span title="This line was edited since the hint was made.">Changed</span>
         </Show>
         <span class="weavie-hint-actions">
-          <For each={ACTIONS}>
-            {([id, label, Icon]) => (
+          <For
+            each={ACTIONS.filter(
+              ([id]) => id !== CommandIds.reviewHintsComment || props.commentable,
+            )}
+          >
+            {([id, label, Icon, text]) => (
               <button
                 type="button"
                 title={`${label}${keyHint(id)}`}
@@ -80,11 +95,7 @@ export function HintPopover(props: {
                 onClick={() => void run(id, undefined)}
               >
                 <Icon size={13} />
-                <Show
-                  when={id === CommandIds.reviewHintsFix || id === CommandIds.reviewHintsFixWith}
-                >
-                  {label}
-                </Show>
+                {text}
               </button>
             )}
           </For>

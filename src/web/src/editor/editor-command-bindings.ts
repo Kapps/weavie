@@ -99,7 +99,11 @@ export function createEditorCommands(
     [
       CommandIds.prComment,
       (run) => {
-        return () => run(({ prComments }) => prComments.comment());
+        return () =>
+          run(({ editor, prComments }) => {
+            const line = editor.getPosition()?.lineNumber;
+            return line !== undefined && prComments.comment(line, "");
+          });
       },
     ],
     ...([1, -1] as const).map((direction): [string, Factory] => [

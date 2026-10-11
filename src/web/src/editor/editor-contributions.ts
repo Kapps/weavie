@@ -25,14 +25,15 @@ export function connectTextEditor(options: {
 }): { connection: TextEditorConnection; dispose(): void } {
   const { editor, model, session } = options;
   const lifetime = new AbortController();
+  const prComments = createPrComments(session, editor, model);
   const connection: TextEditorConnection = {
     ...options,
     signal: lifetime.signal,
     symbols: createSymbolSource(session, model, lifetime.signal),
     blame: createGitBlame(editor),
     spelling: createSpellCheck(editor),
-    prComments: createPrComments(session, editor, model),
-    reviewHints: createReviewHints(session, editor, model),
+    prComments,
+    reviewHints: createReviewHints(session, editor, model, prComments),
   };
   const unregister = editorContexts.register(connection);
   const offRevise = sharedReviseMarks.attach(connection);

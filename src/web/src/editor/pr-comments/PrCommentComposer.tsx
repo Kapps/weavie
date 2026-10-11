@@ -1,4 +1,4 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, type JSX, on, onCleanup, onMount, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 
@@ -36,6 +36,16 @@ export interface ComposerAlternate {
 
 // Unsent text per comment box, so cancelling (or a stray Escape) never throws away what was typed.
 const drafts = new Map<string, string>();
+// Bumped by a prefill, so a box that's already open shows what was added to its draft.
+const [prefilled, setPrefilled] = createSignal(0);
+
+/** Adds `text` to a comment box's draft (after any unsent text), shown whether or not the box is open. */
+export function prefillComposer(draftKey: string, text: string): void {
+  if (text === "") return;
+  const unsent = drafts.get(draftKey);
+  drafts.set(draftKey, unsent === undefined ? text : `${unsent}\n\n${text}`);
+  setPrefilled((count) => count + 1);
+}
 
 /** Runs the focused composer's submit (or cancel); false when no comment box has focus. */
 export function actOnFocusedComposer(action: keyof ComposerHandle): boolean {
@@ -64,6 +74,22 @@ export function PrCommentComposer(props: {
   const [busy, setBusy] = createSignal(false);
   const [text, setText] = createSignal(drafts.get(props.draftKey) ?? props.initial);
   let input!: HTMLTextAreaElement;
+  createEffect(
+    on(
+      prefilled,
+      () => {
+        const draft = drafts.get(props.draftKey);
+        if (draft === undefined || draft === text()) return;
+        setText(draft);
+        // The bound value lands after this effect, so set it now for grow() to measure.
+        input.value = draft;
+        grow();
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(draft.length, draft.length);
+      },
+      { defer: true },
+    ),
+  );
   const grow = (): void => {
     input.style.height = "auto";
     input.style.height = `${input.scrollHeight}px`;

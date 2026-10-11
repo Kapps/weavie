@@ -44,15 +44,14 @@
   content: "!";
 }
 
-/* A line's pills, after its end; --pill-room is the space from the line end to the viewport's right edge. */
+/* A line's pills in the shared line-end row; they shrink and ellipsize, never pushing other items away. */
 .weavie-hint-pills {
   display: flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  height: 100%;
-  max-width: max(0px, calc(var(--pill-room) - 8px));
-  padding-left: 24px;
+  min-width: 0;
+  margin-left: 24px;
   overflow: hidden;
 }
 
@@ -63,10 +62,9 @@
   overflow: hidden;
   border-radius: 10px;
   background: color-mix(in srgb, var(--sev) 20%, transparent);
-  color: color-mix(in srgb, var(--sev) 55%, var(--fg));
+  color: color-mix(in srgb, var(--sev) 40%, var(--fg));
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
-  font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -74,6 +72,8 @@
 
 .weavie-hint-pill b {
   margin-right: 4px;
+  color: var(--sev);
+  font-weight: 600;
 }
 
 .weavie-hint-pill code,
@@ -91,9 +91,9 @@
   opacity: 0.5;
 }
 
-/* Pill widgets are re-added as hints re-anchor; the open popover stays above them. */
+/* The open popover stays above the re-added pill widgets and the zone-card layer's PR threads (zone-cards.css). */
 .weavie-hint-popover-anchor {
-  z-index: 1;
+  z-index: 4;
 }
 
 /* Sized to its header (the title and body don't widen it), so the header never wraps. */

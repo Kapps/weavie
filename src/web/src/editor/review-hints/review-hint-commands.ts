@@ -2,7 +2,7 @@ import type { ClientSession } from "../../bridge";
 import { registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { notify } from "../../notify/notify";
-import { editorContexts } from "../editor-context";
+import { editorContexts, type TextEditorConnection } from "../editor-context";
 import { type FixItem, fixLine, fixWith } from "../FixPrompt";
 import { activeTabFor } from "../session-store";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri-owner";
@@ -23,19 +23,22 @@ type RevealFile = (session: ClientSession, path: string, line: number) => void;
 const cursorLine = (session: ClientSession): number | undefined =>
   editorContexts.get(session)?.editor.getPosition()?.lineNumber;
 
-// The open hint, else the one on the cursor's line.
-function targetHint(session: ClientSession): PlacedHint | undefined {
+// The open hint, else the one on the cursor's line, with the editor binding showing it.
+function targetEntry(
+  session: ClientSession,
+): { connection: TextEditorConnection; placed: PlacedHint } | undefined {
   const open = openedHint(session);
-  if (open !== null && open.owner !== null) {
-    const owner = editorContexts.fromEditor(open.owner);
-    return owner?.reviewHints.placed().find((entry) => entry.hint.id === open.id);
-  }
+  const owner = open?.owner ?? null;
+  const connection =
+    owner !== null ? editorContexts.fromEditor(owner) : editorContexts.get(session);
   const line = cursorLine(session);
-  return editorContexts
-    .get(session)
-    ?.reviewHints.placed()
-    .find((entry) => entry.line === line);
+  const placed = connection?.reviewHints
+    .placed()
+    .find((entry) => (owner !== null ? entry.hint.id === open?.id : entry.line === line));
+  return connection === undefined || placed === undefined ? undefined : { connection, placed };
 }
+
+const targetHint = (session: ClientSession): PlacedHint | undefined => targetEntry(session)?.placed;
 
 // The open or cursor-line hint, else the PR thread on the cursor's line.
 function fixTarget(session: ClientSession): FixItem | null {
@@ -117,6 +120,19 @@ export function registerReviewHintCommands(revealFile: RevealFile): () => void {
       fix(session, (owner, item) => fixLine(owner, item, "")),
     ),
     registerCommand(CommandIds.reviewHintsFixWith, (_args, { session }) => fix(session, fixWith)),
+    registerCommand(CommandIds.reviewHintsComment, (_args, { session }) => {
+      const target = session === null ? undefined : targetEntry(session);
+      if (session === null || target === undefined) {
+        notify("info", "There's no review hint on this line.", "review-hints");
+        return;
+      }
+      const { connection, placed } = target;
+      if (!connection.prComments.comment(placed.line, hintText(placed.hint))) {
+        notify("info", "This file isn't part of the session's pull request.", "review-hints");
+        return;
+      }
+      openHint(session, null);
+    }),
     registerCommand(CommandIds.reviewHintsClose, (_args, { session }) => {
       if (session === null || openedHint(session) === null) return false;
       openHint(session, null);

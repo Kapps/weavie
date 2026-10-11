@@ -22,7 +22,8 @@ import { DIFF_RECOMPUTE_DEBOUNCE_MS } from "../review/diff-zones";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri";
 import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { type AnchorMap, createAnchorMap, type ThreadPlacement, threadFixItem } from "./anchor-map";
-import { PrDraftCard, PrThreadCard } from "./PrThreadCard";
+import { prefillComposer } from "./PrCommentComposer";
+import { PrDraftCard, PrThreadCard, replyDraftKey } from "./PrThreadCard";
 import {
   type PrCommentMode,
   type PrSources,
@@ -36,8 +37,8 @@ import "./pr-comments.css";
 export interface PrCommentController {
   /** Whether this file is part of the branch's pull request, so a new comment can be left on it. */
   commentable(): boolean;
-  /** Opens a comment box on the cursor's line: the reply of the thread anchored there, else a new comment. */
-  comment(): boolean;
+  /** Opens a comment box on a line, holding `initial`: the reply of the thread anchored there, else a new comment. */
+  comment(line: number, initial: string): boolean;
   /** Moves the cursor to the next (1) or previous (-1) thread in this file; false when there's none that way. */
   navigate(direction: 1 | -1): boolean;
   /** The thread anchored on a buffer line, as a Fix item. */
@@ -45,7 +46,9 @@ export interface PrCommentController {
   dispose(): void;
 }
 
-type Card = { kind: "thread"; placement: ThreadPlacement } | { kind: "draft"; line: number };
+type Card =
+  | { kind: "thread"; placement: ThreadPlacement }
+  | { kind: "draft"; line: number; key: string };
 
 const inert: PrCommentController = {
   commentable: () => false,
@@ -116,12 +119,13 @@ export function createPrComments(
     });
     // The draft's line is a tracked decoration, so edits above it while typing move it with its code.
     const draftMark = editor.createDecorationsCollection();
-    const [drafting, setDrafting] = createSignal(false);
+    // The open draft's identity is fixed by the line it opened on, so reopening elsewhere starts a new box.
+    const [draftKey, setDraftKey] = createSignal<string | null>(null);
     const draft = (): number | null => {
       version();
-      return drafting() ? (draftMark.getRange(0)?.startLineNumber ?? null) : null;
+      return draftKey() !== null ? (draftMark.getRange(0)?.startLineNumber ?? null) : null;
     };
-    const setDraft = (line: number | null): void => {
+    const setDraft = (line: number | null, key: string | null): void => {
       if (line === null) draftMark.clear();
       else
         draftMark.set([
@@ -132,7 +136,7 @@ export function createPrComments(
             },
           },
         ]);
-      setDrafting(line !== null);
+      setDraftKey(key);
     };
     const [replying, setReplying] = createSignal<ReadonlySet<string>>(new Set());
     // Outdated threads start collapsed; the user's own collapse/expand wins from then on.
@@ -162,8 +166,9 @@ export function createPrComments(
         data: { kind: "thread", placement },
       }));
       const line = draft();
-      if (line !== null)
-        result.push({ key: "draft", afterLine: line, data: { kind: "draft", line } });
+      const key = draftKey();
+      if (line !== null && key !== null)
+        result.push({ key, afterLine: line, data: { kind: "draft", line, key } });
       return result;
     });
     createEffect(() => {
@@ -190,7 +195,7 @@ export function createPrComments(
         body,
         mode,
       });
-      if (error === null) setDraft(null);
+      if (error === null) setDraft(null, null);
       return error;
     };
 
@@ -217,11 +222,11 @@ export function createPrComments(
             <Show when={set()}>
               {(active) => (
                 <PrDraftCard
-                  draftKey={`new:${active().number}:${path}:${current.line}`}
+                  draftKey={current.key}
                   line={(card() as Extract<Card, { kind: "draft" }>).line}
                   set={active()}
                   onSubmit={submitDraft}
-                  onCancel={() => setDraft(null)}
+                  onCancel={() => setDraft(null, null)}
                 />
               )}
             </Show>
@@ -252,15 +257,16 @@ export function createPrComments(
     const fixItem = (placement: ThreadPlacement): FixItem | null =>
       threadFixItem(placement, path, (line) => model.getLineContent(line));
 
-    const comment = (): boolean => {
+    const comment = (line: number, initial: string): boolean => {
       const current = set();
-      const line = editor.getPosition()?.lineNumber;
-      if (current === null || line === undefined || !commentable()) return false;
+      if (current === null || !commentable()) return false;
       // Commenting while threads are hidden would post into nothing visible.
       showPrComments();
       const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
       if (thread?.data.kind === "thread") {
-        reply(thread.data.placement.thread.id, true);
+        const id = thread.data.placement.thread.id;
+        prefillComposer(replyDraftKey(current.number, id), initial);
+        reply(id, true);
         return true;
       }
       const map = anchors()?.map;
@@ -273,7 +279,9 @@ export function createPrComments(
           "pr-comments",
         );
       } else {
-        setDraft(line);
+        const key = `new:${current.number}:${path}:${line}`;
+        prefillComposer(key, initial);
+        setDraft(line, key);
       }
       return true;
     };

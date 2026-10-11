@@ -21,6 +21,10 @@ const NOTES = {
   changed: ["Changed locally", "Your copy no longer has the line this comment is on."],
 } as const;
 
+/** The reply box's draft identity, shared with whatever prefills it. */
+export const replyDraftKey = (number: number, threadId: string): string =>
+  `reply:${number}:${threadId}`;
+
 // A thread longer than this shows its opening comment and latest replies, folding the middle.
 const FOLD_AFTER = 4;
 const FOLD_KEEP_LATEST = 2;
@@ -178,7 +182,7 @@ export function PrThreadCard(props: {
             }
           >
             <PrCommentComposer
-              draftKey={`reply:${props.set.number}:${thread().id}`}
+              draftKey={replyDraftKey(props.set.number, thread().id)}
               initial=""
               placeholder="Reply…"
               submitLabel={actions().submitLabel}

@@ -5,7 +5,7 @@ follow local edits) but looks and feels worse. This roadmap splits the fix into 
 own session, branch, and PR. Reviews stay **for humans**: agent output informs the reviewer and never speaks in
 their voice.
 
-> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024). Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
+> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024). Next: 7 then 8. Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
 > [incremental-review-persistence.md](incremental-review-persistence.md), [open-pr.md](open-pr.md), and
 > [pr-comments.md](pr-comments.md).
 
@@ -112,6 +112,22 @@ The file tree above the review shipped in #1023.
 On a PR, a hint's popover offers **Comment**: the PR comment composer opens on the hint's line, prefilled with
 the hint's text, for the user to edit and post as themselves. Nothing posts without the user submitting it, so
 the review stays in their voice.
+
+## 7. Front door
+
+Reviewing starts with context, not a wall of diffs. Each session gets an overview: branch, base, commits, and the
+change summary, enriched — when the branch has a PR — with title, description, author, CI checks, reviewers, and
+PR-level conversation. Per *Sessions, not PRs*, it works for any session; PR data only adds sections. It leads into
+the diffs (and later the review guide's reading order) in one step. [open-pr.md](open-pr.md) deferred a PR
+overview tab until source tabs land; the review tab already proves non-file tabs, so that wait no longer applies.
+Mockups first.
+
+## 8. Finish a review
+
+Comments queue into a pending review instead of posting one by one; the user submits once as **Comment**,
+**Approve**, or **Request changes**, with an optional summary. Pending comments render as drafts in place, survive
+restarts, and can be edited or discarded before submitting. Posting a single comment immediately stays available.
+The submit control lives in the front door (7) and the review header, so the two sessions agree on placement.
 
 ## Under consideration
 

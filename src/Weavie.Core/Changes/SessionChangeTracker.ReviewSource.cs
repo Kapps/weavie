@@ -5,6 +5,9 @@ namespace Weavie.Core.Changes;
 public sealed partial class SessionChangeTracker {
 	private object? _reviewRequest;
 
+	/// <summary>Raised under the tracker's lock when the review's source changes; handlers may only signal.</summary>
+	public event Action? ReviewChanged;
+
 	/// <summary>Reserves a source-opening request, replacing any earlier request still reading its files.</summary>
 	public object BeginReviewRequest() {
 		lock (_gate) return _reviewRequest = new object();
@@ -38,7 +41,7 @@ public sealed partial class SessionChangeTracker {
 		}
 		_undoStack.Clear();
 		_redoStack.Clear();
-		_review = null;
+		SetReview(null);
 		_reviewRequest = null;
 	}
 
@@ -56,11 +59,17 @@ public sealed partial class SessionChangeTracker {
 			var prepared = seeds.Where(seed => _review is null || !_baseline.ContainsKey(seed.Path)).Select(PrepareSeed).ToArray();
 			foreach (var state in prepared) RestoreState(state);
 			SynchronizeHistory(external: false, except: null);
-			_review = review;
+			SetReview(review);
 			ReconcileReviewDisk();
 			Checkpoint();
 			return true;
 		}
+	}
+
+	private void SetReview(ReviewContext? review) {
+		if (_review == review) return;
+		_review = review;
+		ReviewChanged?.Invoke();
 	}
 
 	private PathState PrepareSeed(ReviewSeed seed) {

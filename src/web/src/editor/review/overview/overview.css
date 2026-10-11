@@ -54,7 +54,7 @@
 .session-overview-byline .weavie-pr-avatar {
   width: 16px;
   height: 16px;
-  font-size: 9px;
+  font-size: calc(var(--font-hint-size) * 0.8);
 }
 
 .session-overview-author {
@@ -228,7 +228,7 @@ button.session-overview-row:not(:disabled) {
 .session-overview-row .weavie-pr-avatar {
   width: 18px;
   height: 18px;
-  font-size: 9px;
+  font-size: calc(var(--font-hint-size) * 0.8);
 }
 
 .session-overview-row-text {

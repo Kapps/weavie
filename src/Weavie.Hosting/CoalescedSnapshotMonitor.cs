@@ -17,6 +17,7 @@ internal sealed class CoalescedSnapshotMonitor<T>
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 	private readonly TimeSpan _minimumRefreshInterval;
 	private readonly TaskCompletionSource _waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private TaskCompletionSource _skipCooldown = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 	public CoalescedSnapshotMonitor(
 		SessionTaskScope background,
@@ -57,13 +58,20 @@ internal sealed class CoalescedSnapshotMonitor<T>
 
 	public void RequestRefresh() => _signals.Writer.TryWrite(true);
 
+	/// <summary>Refreshes without waiting out the cooldown, for a change the user just made rather than a burst of events.</summary>
+	public void RefreshNow() {
+		Volatile.Read(ref _skipCooldown).TrySetResult();
+		RequestRefresh();
+	}
+
 	internal Task Waiting => _waiting.Task;
 
 	private async Task RunAsync(CancellationToken ct) {
 		_waiting.TrySetResult();
 		var cooldown = Task.CompletedTask;
 		while (await _signals.Reader.WaitToReadAsync(ct).ConfigureAwait(false)) {
-			await cooldown.ConfigureAwait(false);
+			await Task.WhenAny(cooldown, Volatile.Read(ref _skipCooldown).Task).ConfigureAwait(false);
+			Volatile.Write(ref _skipCooldown, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 			while (_signals.Reader.TryRead(out _)) {
 			}
 

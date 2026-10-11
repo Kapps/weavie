@@ -109,13 +109,13 @@ export function UnifiedReview(props: {
   };
   // The session overview sits above the diffs; the list starts below it, so row indices stay file indices.
   let overviewElement: HTMLElement | undefined;
+  let titleElement: HTMLElement | undefined;
   const [overviewHeight, setOverviewHeight] = createSignal(0);
   // Once the overview's title scrolls away, the review header takes over naming the session.
   const [titleBottom, setTitleBottom] = createSignal(0);
   const measureTitle = (): void => {
-    const title = overviewElement!.querySelector(".session-overview-top")!;
     setTitleBottom(
-      title.getBoundingClientRect().bottom - overviewElement!.getBoundingClientRect().top,
+      titleElement!.getBoundingClientRect().bottom - overviewElement!.getBoundingClientRect().top,
     );
   };
   const pastTitle = (): boolean => viewTop() >= titleBottom();
@@ -493,6 +493,9 @@ export function UnifiedReview(props: {
             submit={() => !pastTitle()}
             ref={(element) => {
               overviewElement = element;
+            }}
+            titleRef={(element) => {
+              titleElement = element;
             }}
           />
           <For each={rowKeys()}>

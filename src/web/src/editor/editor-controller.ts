@@ -1106,8 +1106,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     commentProse?.refresh();
   };
 
-  // The tab outlives its review: it opens on the session overview, which stands without changes.
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
+    if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
+      void tabs.capture(session, REVIEW_TAB_KEY).close();
     reviews.setFiles(session, files, label);
     renderReviewState(session);
   };

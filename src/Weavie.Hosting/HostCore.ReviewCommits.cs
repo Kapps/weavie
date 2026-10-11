@@ -5,7 +5,7 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 // The commits a branch review covers (its merge-base to HEAD), for the session overview. Refreshed when HEAD moves
-// and when the session's review changes source; a review that isn't against a branch has none.
+// and, without the burst cooldown, when the session's review changes source; a review not against a branch has none.
 public sealed partial class HostCore {
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot> AttachReviewCommits(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewCommitsSnapshot>(
@@ -13,6 +13,7 @@ public sealed partial class HostCore {
 			ct => ResolveReviewCommitsAsync(ActiveReview(session), ct),
 			commits => session.Bus.BroadcastTarget.Feature("review").Publish("commits", WireJson.Default.ReviewCommitsSnapshot, commits));
 		session.AttachReviewCommits(monitor);
+		session.Changes.ReviewChanged += monitor.RefreshNow;
 		monitor.RequestRefresh();
 		return monitor;
 	}

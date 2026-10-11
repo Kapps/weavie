@@ -233,10 +233,8 @@ public sealed partial class HostCore {
 	/// review surface in default mode too. The page surfaces the review itself (parked, editor untouched) — the
 	/// host no longer decides an auto-open.
 	/// </summary>
-	private void PushTurnChangesToWeb(HostSession session) {
+	private void PushTurnChangesToWeb(HostSession session) =>
 		PushTurnChangesToWeb(session, session.Bus.BroadcastTarget);
-		session.FollowReview(ActiveReview(session));
-	}
 
 	private void PushTurnChangesToWeb(HostSession session, MessageTarget target) =>
 		target.Feature("review").PublishJson(

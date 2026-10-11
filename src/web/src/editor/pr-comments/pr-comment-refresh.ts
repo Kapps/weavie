@@ -3,7 +3,8 @@ import { selectedSession } from "../../bridge";
 import { prOverviewFor } from "../review/overview/overview-data";
 import { prCommentsFor } from "./pr-comments-store";
 
-// Each poll is one point of the viewer's GitHub GraphQL budget (5,000/hour), so only the visible session polls.
+// Each poll costs the viewer's GitHub GraphQL budget (5,000 points/hour) a query for the comments and one for the
+// overview, plus any paging, so only the visible session polls.
 const REFRESH_MS = 60_000;
 
 /**

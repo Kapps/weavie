@@ -115,13 +115,11 @@ public sealed partial class GitHubReviewProvider {
 	}
 
 	private static ReviewComment ParseComment(JsonElement c) {
-		var author = c.GetProperty("author");
-		// A deleted account's comments have no author; GitHub's own site shows them as "ghost".
-		bool ghost = author.ValueKind != JsonValueKind.Object;
+		var author = Author(c);
 		return new ReviewComment {
 			Id = String(c, "id"),
-			Author = ghost ? "ghost" : String(author, "login"),
-			AuthorAvatarUrl = ghost ? string.Empty : String(author, "avatarUrl"),
+			Author = author.Login,
+			AuthorAvatarUrl = author.AvatarUrl,
 			Url = String(c, "url"),
 			Body = String(c, "body"),
 			CreatedAt = String(c, "createdAt"),

@@ -18,15 +18,15 @@ reaches the diffs; there is no separate "start" step.
 | Changes | always | the review's file tree, headed by what it compares (`PR #12`, `vs main`, or agent edits) |
 
 Commits appear only for a branch comparison so the overview never pairs "4 commits" with a file list that isn't
-those commits. Once the user scrolls past the overview, the sticky review header carries the session's identity
-(state, title, reviewed count, failing checks) and an **Overview** button back to the top.
+those commits. Once the overview's title scrolls away, the sticky review header carries the session's identity
+(state, title, failing checks) and the Finish review control, with an **Overview** button back to the top.
 
-The tab stays open when its review empties, and **Show Session Overview** (`weavie.review.overview`, unbound)
-opens it for any session, changes or not.
+**Show Session Overview** (`weavie.review.overview`, unbound) opens it for any session, changes or not, and is how
+Finish review reaches its control. Finishing a review still closes the tab and returns to the file underneath.
 
 ## Collapsing
 
-Every section collapses. `review.overviewCollapse` decides what remembers it: `global` (default; one set for all
+Every section collapses. `editor.reviewOverviewCollapse` decides what remembers it: `global` (default; one set for all
 sessions, host-owned in `~/.weavie/review-overview-state.json` like the search and rail state) or `session` (saved
 with the session's review). The setting has no UI beyond the settings registry.
 

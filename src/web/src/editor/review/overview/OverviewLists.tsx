@@ -41,7 +41,7 @@ export function OverviewChecks(props: { detail: PrDetail }): JSX.Element {
             <button
               type="button"
               class={`session-overview-row session-overview-check-${check.state}`}
-              disabled={check.url === ""}
+              disabled={!/^https?:\/\//.test(check.url)}
               title={check.url}
               onClick={() => openUrlExternal(check.url)}
             >

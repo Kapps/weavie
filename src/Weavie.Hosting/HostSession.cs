@@ -42,7 +42,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private PullRequestOverview? _pullRequestOverview;
 	private CoalescedSnapshotMonitor<GitStatusSnapshot>? _gitStatus;
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot>? _reviewCommits;
-	private ReviewContext? _followedReview;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
@@ -387,13 +386,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(monitor);
 		if (Interlocked.CompareExchange(ref _reviewCommits, monitor, null) is not null) {
 			throw new InvalidOperationException("Review commits are already attached.");
-		}
-	}
-
-	/// <summary>Re-reads the review's commits when its source changed since the last call.</summary>
-	internal void FollowReview(ReviewContext? review) {
-		if (Interlocked.Exchange(ref _followedReview, review) != review) {
-			ReviewCommits.RequestRefresh();
 		}
 	}
 

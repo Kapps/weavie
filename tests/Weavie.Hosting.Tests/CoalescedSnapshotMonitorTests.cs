@@ -106,6 +106,26 @@ public sealed class CoalescedSnapshotMonitorTests {
 		Assert.Equal(snapshot, monitor.Latest);
 	}
 
+	[Fact]
+	public async Task RefreshNow_SkipsTheCooldown() {
+		await using var background = new SessionTaskScope(_ => { });
+		int calls = 0;
+		var delay = new ManualDelay();
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
+			background,
+			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
+			_ => { },
+			delay.WaitAsync,
+			TimeSpan.FromSeconds(10));
+
+		monitor.RequestRefresh();
+		await Wait.UntilAsync(() => calls == 1);
+		monitor.RefreshNow();
+
+		await Wait.UntilAsync(() => calls == 2);
+		Assert.Equal(Snapshot(2), monitor.Latest);
+	}
+
 	private static GitStatusSnapshot Snapshot(int added) =>
 		new("feature", true, added, 1, null);
 

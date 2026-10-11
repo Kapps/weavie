@@ -21,13 +21,14 @@ export function OverviewTitle(props: {
   detail: PrDetail | null;
   /** Whether the review-submit control is here; the review header hosts it once the overview scrolls away. */
   submit: boolean;
+  ref: (element: HTMLElement) => void;
 }): JSX.Element {
   const branch = (): string => {
     const status = pullRequestStatus(props.session);
     return status === null ? "" : (status.branch ?? "detached HEAD");
   };
   return (
-    <header class="session-overview-top">
+    <header class="session-overview-top" ref={props.ref}>
       <Show
         when={props.detail}
         fallback={

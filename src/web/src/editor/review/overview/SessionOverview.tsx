@@ -28,6 +28,7 @@ export function SessionOverview(props: {
   /** Whether the review-submit control is in the overview (else the review header has it). */
   submit: () => boolean;
   ref: (element: HTMLElement) => void;
+  titleRef: (element: HTMLElement) => void;
 }): JSX.Element {
   const pr = () => prOverviewFor(props.session);
   const detail = () => pr()?.detail ?? null;
@@ -66,7 +67,12 @@ export function SessionOverview(props: {
   const reviewed = () => props.files().filter(isReviewed).length;
   return (
     <div class="session-overview" ref={props.ref}>
-      <OverviewTitle session={props.session} detail={detail()} submit={props.submit()} />
+      <OverviewTitle
+        session={props.session}
+        detail={detail()}
+        submit={props.submit()}
+        ref={props.titleRef}
+      />
       <Show when={pr()?.error}>{(error) => <p class="session-overview-error">{error()}</p>}</Show>
       <Show when={detail() !== null || commits() !== null}>
         <div class="session-overview-columns" classList={{ single: detail() === null }}>

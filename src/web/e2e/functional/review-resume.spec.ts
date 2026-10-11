@@ -203,6 +203,8 @@ test.describe("durable pull-request review", () => {
     await expect(page.locator(".session-chip")).toHaveCount(2);
     await expect(page.locator(".editor-review-open")).toBeVisible();
     await page.locator(".editor-review-open").click();
+    // The session overview sits above the diffs; jump to the file as a reviewer would.
+    await page.locator(".unified-review-tree-row", { hasText: "hello.ts" }).click();
     const hello = section(page, "hello.ts");
     await hello.locator(".unified-review-file-action.keep").click();
     await expect(hello.locator(".unified-review-status")).toHaveText("Reviewed");

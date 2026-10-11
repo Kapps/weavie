@@ -32,12 +32,17 @@ type Request = "open" | "discard";
 
 const [request, setRequest] = createSignal<{ session: ClientSession; kind: Request } | null>(null);
 
-// Unsent summaries per PR (by URL), so closing the panel never throws away what was typed.
+// Unsent summaries and picked verdicts per PR (by URL), so closing the panel never throws away what was chosen.
 const summaries = new Map<string, string>();
+const verdicts = new Map<string, PrVerdict>();
+
+// The session whose panel is open. Module state, so the panel survives its control moving between the overview and
+// the review header as the user scrolls.
+const [openFor, setOpenFor] = createSignal<ClientSession | null>(null);
 
 /** Shows the review that hosts `session`'s Finish review control, then opens its panel (or its discard confirm). */
 export async function requestFinishReview(session: ClientSession, kind: Request): Promise<void> {
-  if ((await runCommandWithFeedback(CommandIds.reviewOpen)).ok) setRequest({ session, kind });
+  if ((await runCommandWithFeedback(CommandIds.reviewOverview)).ok) setRequest({ session, kind });
 }
 
 /**
@@ -45,7 +50,11 @@ export async function requestFinishReview(session: ClientSession, kind: Request)
  * summary, pick a verdict, and submit or discard the pending review. Self-contained, so any surface can host it.
  */
 export function FinishReview(props: { session: ClientSession }): JSX.Element {
-  const [open, setOpen] = createSignal(false);
+  const open = (): boolean => openFor() === props.session;
+  const setOpen = (shown: boolean): void => {
+    if (shown) setOpenFor(props.session);
+    else if (open()) setOpenFor(null);
+  };
   const [confirming, setConfirming] = createSignal(false);
   const set = () => prCommentsFor(props.session)?.set ?? null;
   createEffect(() => {
@@ -73,7 +82,7 @@ export function FinishReview(props: { session: ClientSession }): JSX.Element {
               classList={{ "finish-review-has": count() > 0, "finish-review-open": open() }}
               aria-expanded={open()}
               title={`Finish your review of PR #${active().number}${keyHint(CommandIds.prFinishReview)}`}
-              onClick={() => setOpen((shown) => !shown)}
+              onClick={() => setOpen(!open())}
             >
               {count() > 0 ? "Finish review" : "Review"}
               <Show when={count() > 0}>
@@ -123,7 +132,7 @@ function ReviewPanel(props: {
   const number = props.set.number;
   const key = props.set.url;
   const [summary, setSummary] = createSignal(summaries.get(key) ?? props.set.pending?.body ?? "");
-  const [verdict, setVerdict] = createSignal<PrVerdict>("comment");
+  const [verdict, setVerdict] = createSignal<PrVerdict>(verdicts.get(key) ?? "comment");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const submit = async (): Promise<void> => {
@@ -142,6 +151,7 @@ function ReviewPanel(props: {
       return;
     }
     summaries.delete(key);
+    verdicts.delete(key);
     props.onClose();
   };
   const focus = composerFocus({
@@ -190,7 +200,10 @@ function ReviewPanel(props: {
                   type="radio"
                   name={`verdict-${number}`}
                   checked={verdict() === option.verdict}
-                  onChange={() => setVerdict(option.verdict)}
+                  onChange={() => {
+                    verdicts.set(key, option.verdict);
+                    setVerdict(option.verdict);
+                  }}
                 />
                 <span>
                   <b>{option.label}</b>

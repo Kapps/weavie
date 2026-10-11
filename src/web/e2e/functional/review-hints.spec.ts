@@ -331,6 +331,17 @@ test.describe("PR review", () => {
       .locator(".weavie-hint-pill")
       .evaluate((el) => el.getBoundingClientRect().left);
     expect(pillLeft).toBeGreaterThanOrEqual(keepRight);
+    // With the cursor on the line, its blame annotation can't push the row off screen.
+    await page
+      .locator(".view-line", { hasText: 'greet("pull request")' })
+      .click({ position: { x: 4, y: 4 } });
+    await expect(review.locator(".weavie-blame")).toBeVisible();
+    const editorRight = await review.evaluate((el) => el.getBoundingClientRect().right);
+    await expect
+      .poll(() =>
+        row.locator(".weavie-hint-pill").evaluate((el) => el.getBoundingClientRect().left),
+      )
+      .toBeLessThan(editorRight - 40);
 
     await test.step("Comment on PR opens a prefilled draft the user posts", async () => {
       await review.locator(".weavie-hint-pill").click();

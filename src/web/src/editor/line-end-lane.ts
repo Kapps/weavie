@@ -25,10 +25,14 @@ interface Lane {
   readonly schedule: () => void;
 }
 
+// Space kept between the row and the editor's visible right edge.
+const EDGE_GAP = 8;
+
 const lanes = new WeakMap<monaco.editor.ICodeEditor, Lane>();
 
 function createRow(editor: monaco.editor.ICodeEditor, line: number): Row {
   const node = document.createElement("div");
+  node.className = "weavie-line-end-widget";
   const dom = node.appendChild(document.createElement("div"));
   dom.className = "weavie-line-end";
   const widget: monaco.editor.IContentWidget = {
@@ -45,11 +49,28 @@ function createRow(editor: monaco.editor.ICodeEditor, line: number): Row {
             positionAffinity: monaco.editor.PositionAffinity.Right,
           };
     },
+    // Without room before the visible edge, the row slides left over text injected after the code (the blame
+    // annotation) — never over the code itself — so its items stay on screen.
     afterRender: (_position, coordinate) => {
-      if (coordinate === null) return;
-      const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth;
+      const model = editor.getModel();
+      if (coordinate === null || model === null || line > model.getLineCount()) return;
+      const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth - EDGE_GAP;
+      const codeEnd = editor.getOffsetForColumn(line, model.getLineMaxColumn(line));
       dom.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
-      dom.style.maxWidth = `${Math.max(0, visibleRight - coordinate.left - 8)}px`;
+      // The row's natural width, before any item shrinks to fit.
+      dom.style.maxWidth = "none";
+      dom.style.width = "max-content";
+      const natural = dom.offsetWidth;
+      dom.style.width = "";
+      const shift = Math.max(
+        0,
+        Math.min(natural - (visibleRight - coordinate.left), coordinate.left - codeEnd),
+      );
+      dom.style.transform = shift > 0 ? `translateX(${-shift}px)` : "";
+      dom.classList.toggle("weavie-line-end-over", shift > 0);
+      // Slid over, the backing runs to the very edge so no annotation text peeks past it.
+      const width = visibleRight - coordinate.left + shift + (shift > 0 ? EDGE_GAP : 0);
+      dom.style.maxWidth = `${Math.max(0, width)}px`;
     },
   };
   editor.addContentWidget(widget);

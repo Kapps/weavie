@@ -1,5 +1,11 @@
 /* The shared row after a line's end (line-end-lane.ts): fixed controls keep their size; flexible items such as
    hint pills shrink and ellipsize at the visible edge. */
+/* Only the items take clicks: the row spans their margins, which sit over the code's end. */
+.weavie-line-end-widget,
+.weavie-line-end {
+  pointer-events: none;
+}
+
 .weavie-line-end {
   display: flex;
   align-items: center;
@@ -10,9 +16,16 @@
 
 .weavie-line-end > * {
   flex: none;
+  pointer-events: auto;
 }
 
 .weavie-line-end > .weavie-line-end-flexible {
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* Slid over the annotation after the code: an opaque backing (to the edge, past EDGE_GAP) so the two never mix. */
+.weavie-line-end.weavie-line-end-over {
+  padding-right: 8px;
+  background: var(--bg);
 }

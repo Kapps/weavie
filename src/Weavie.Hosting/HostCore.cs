@@ -362,7 +362,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// both iterate this table.
 	private static readonly (IReadOnlyList<string> Keys, string EventName, string Global,
 		Func<SettingsStore, string> Build)[] LiveSettingGroups = [
-		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
 		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
 	];

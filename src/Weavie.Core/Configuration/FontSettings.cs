@@ -4,7 +4,8 @@ using Weavie.Core.Json;
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Typography settings — family, size, weight — for the Monaco editor and xterm terminal. A global
+/// Typography settings: the interface and prose (agent replies, rendered markdown) families, and family/size/weight
+/// for the Monaco editor and xterm terminal. A global
 /// <c>font.*</c> default is inherited by both; each surface may override any axis via <c>editor.font.*</c> /
 /// <c>terminal.font.*</c>, with an "inherit" sentinel (empty family/weight, <c>0</c> size) falling through.
 /// All are <see cref="ApplyMode.Live"/>: a change re-pushes the resolved fonts to the web.
@@ -37,6 +38,12 @@ public static class FontSettings {
 	/// <summary>Terminal font weight override; <c>inherit</c> uses <see cref="GlobalWeight"/>.</summary>
 	public const string TerminalWeight = "terminal.font.weight";
 
+	/// <summary>Interface (chrome) font family: menus, tabs, panels, labels.</summary>
+	public const string InterfaceFamily = "interface.font.family";
+
+	/// <summary>Prose font family (agent replies, rendered markdown); empty inherits <see cref="InterfaceFamily"/>.</summary>
+	public const string ProseFamily = "prose.font.family";
+
 	/// <summary>The "inherit the global value" sentinel for the weight overrides.</summary>
 	public const string InheritWeight = "inherit";
 
@@ -45,6 +52,7 @@ public static class FontSettings {
 		GlobalFamily, GlobalSize, GlobalWeight,
 		EditorFamily, EditorSize, EditorWeight,
 		TerminalFamily, TerminalSize, TerminalWeight,
+		InterfaceFamily, ProseFamily,
 	];
 
 	// Cross-platform monospace stack, ending in generic monospace so it never silently fails.
@@ -58,6 +66,9 @@ public static class FontSettings {
 	// Leads with the bundled Go Mono (see web/src/fonts.css) so it renders even where it isn't installed.
 	private const string DefaultEditorFamily =
 		"\"Go Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
+
+	// Leads with the bundled Chivo (see web/src/fonts.css) so it renders even where it isn't installed.
+	private const string DefaultInterfaceFamily = "\"Chivo\", system-ui, sans-serif";
 
 	/// <summary>The default global font size (px), and the value the "reset font size" command restores.</summary>
 	public const long DefaultSize = 16;
@@ -75,7 +86,7 @@ public static class FontSettings {
 	/// <summary>The resolved typography for one surface, after global/override inheritance.</summary>
 	public readonly record struct ResolvedFont(string Family, long Size, string Weight);
 
-	/// <summary>Registers the nine font settings (global + per-surface overrides) into <paramref name="registry"/>.</summary>
+	/// <summary>Registers the font settings (interface, prose, global, and per-surface overrides) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
@@ -112,6 +123,25 @@ public static class FontSettings {
 		RegisterOverride(registry, EditorFamily, EditorSize, EditorWeight, "editor", ["editor font"], DefaultEditorFamily);
 		RegisterOverride(
 			registry, TerminalFamily, TerminalSize, TerminalWeight, "terminal", ["terminal font"], DefaultTerminalFamily);
+
+		registry.Register(new SettingDefinition {
+			Key = InterfaceFamily,
+			Kind = SettingKind.String,
+			Description = "Font family for the interface: menus, tabs, panels, and labels (a CSS font-family stack).",
+			Aliases = ["interface font", "ui font", "chrome font"],
+			Apply = ApplyMode.Live,
+			Default = DefaultInterfaceFamily,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = ProseFamily,
+			Kind = SettingKind.String,
+			Description = "Font family for agent replies and rendered markdown (a CSS font-family stack); "
+				+ "empty uses the interface font.",
+			Aliases = ["agent font", "agent text font", "prose font", "reading font", "markdown font"],
+			Apply = ApplyMode.Live,
+			Default = "",
+		});
 	}
 
 	/// <summary>The editor's effective font after applying its overrides over the global default.</summary>
@@ -122,8 +152,16 @@ public static class FontSettings {
 	public static ResolvedFont ResolveTerminal(SettingsStore store) =>
 		Resolve(store, TerminalFamily, TerminalSize, TerminalWeight);
 
+	/// <summary>The interface font family; empty falls back to the bundled default.</summary>
+	public static string ResolveInterfaceFamily(SettingsStore store) =>
+		FirstNonEmpty(store.RequireString(InterfaceFamily)) ?? DefaultInterfaceFamily;
+
+	/// <summary>The prose font family; empty inherits the interface font.</summary>
+	public static string ResolveProseFamily(SettingsStore store) =>
+		FirstNonEmpty(store.RequireString(ProseFamily)) ?? ResolveInterfaceFamily(store);
+
 	/// <summary>
-	/// Serializes the resolved editor + terminal fonts for bootstrap injection or a settings feature event.
+	/// Serializes the resolved editor + terminal fonts and the interface + prose families for bootstrap injection or a settings feature event.
 	/// </summary>
 	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
@@ -132,6 +170,8 @@ public static class FontSettings {
 		return JsonWrite.Object(writer => {
 			WriteFont(writer, "editor", editor);
 			WriteFont(writer, "terminal", terminal);
+			writer.WriteString("interface", ResolveInterfaceFamily(store));
+			writer.WriteString("prose", ResolveProseFamily(store));
 		});
 	}
 

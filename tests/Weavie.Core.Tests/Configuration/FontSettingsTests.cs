@@ -141,6 +141,25 @@ public sealed class FontSettingsTests : IDisposable {
 	}
 
 	[Fact]
+	public void Prose_InheritsInterface_UntilSetItself() {
+		using var store = NewStore();
+		string bundled = FontSettings.ResolveInterfaceFamily(store);
+		Assert.Contains("Chivo", bundled, StringComparison.Ordinal);
+		Assert.Equal(bundled, FontSettings.ResolveProseFamily(store));
+
+		store.Set(FontSettings.InterfaceFamily, Json("\"\\\"Archivo\\\", sans-serif\""));
+		Assert.Equal("\"Archivo\", sans-serif", FontSettings.ResolveProseFamily(store));
+
+		store.Set(FontSettings.ProseFamily, Json("\"Fraunces, serif\""));
+		Assert.Equal("Fraunces, serif", FontSettings.ResolveProseFamily(store));
+		Assert.Equal("\"Archivo\", sans-serif", FontSettings.ResolveInterfaceFamily(store));
+
+		using var json = JsonDocument.Parse(FontSettings.BuildJson(store));
+		Assert.Equal("\"Archivo\", sans-serif", json.RootElement.GetProperty("interface").GetString());
+		Assert.Equal("Fraunces, serif", json.RootElement.GetProperty("prose").GetString());
+	}
+
+	[Fact]
 	public void RegisteredInCoreCatalog_WithFontKeys() {
 		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
@@ -151,5 +170,7 @@ public sealed class FontSettingsTests : IDisposable {
 		Assert.Contains(FontSettings.GlobalFamily, keys);
 		Assert.Contains(FontSettings.EditorSize, keys);
 		Assert.Contains(FontSettings.TerminalWeight, keys);
+		Assert.Contains(FontSettings.InterfaceFamily, keys);
+		Assert.Contains(FontSettings.ProseFamily, keys);
 	}
 }

@@ -609,6 +609,31 @@ export function mediaResourceUrl(
   return url.toString();
 }
 
+export interface PreviewGrant {
+  grant: string;
+  /// Absolute URL of the previewed file's folder, served without the workspace token.
+  base: string;
+}
+
+export async function grantHtmlPreview(
+  session: ClientSession,
+  path: string,
+): Promise<PreviewGrant> {
+  const resourceBase = resourceBases()[session.connection.id];
+  if (resourceBase === undefined) {
+    throw new Error("The session resource origin is unavailable.");
+  }
+  const granted: PreviewGrant = await session.feature("files").request("previewGrant", { path });
+  return {
+    ...granted,
+    base: new URL(granted.base, new URL(resourceBase, window.location.href)).href,
+  };
+}
+
+export function releaseHtmlPreview(session: ClientSession, grant: string): void {
+  session.feature("files").publish("previewRelease", { grant });
+}
+
 export function backendName(backendId: string): string {
   return backends.get(backendId)?.info.name ?? backendId;
 }

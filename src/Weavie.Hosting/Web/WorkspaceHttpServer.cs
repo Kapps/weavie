@@ -8,7 +8,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Net.Http.Headers;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Web;
@@ -18,7 +17,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	private readonly HostCore _core;
 	private readonly WorkspaceHttpServerOptions _options;
 	private readonly IWorkspaceWebSocketBridge _bridge;
-	private readonly WorkspaceMediaRoutes _media;
+	private readonly WorkspaceFileRoutes _files;
 	private readonly WorkspaceRequestAuthentication _authentication;
 	private WebApplication? _app;
 	private PhysicalFileProvider? _assets;
@@ -30,15 +29,15 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		HostCore core,
 		WorkspaceHttpServerOptions options,
 		IWorkspaceWebSocketBridge bridge,
-		WorkspaceMediaRoutes media) {
+		WorkspaceFileRoutes files) {
 		ArgumentNullException.ThrowIfNull(core);
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(bridge);
-		ArgumentNullException.ThrowIfNull(media);
+		ArgumentNullException.ThrowIfNull(files);
 		_core = core;
 		_options = options;
 		_bridge = bridge;
-		_media = media;
+		_files = files;
 		_authentication = new WorkspaceRequestAuthentication(options.Token);
 	}
 
@@ -94,7 +93,9 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			bool publicAsset = assets is not null
 				&& !index
 				&& assets.GetFileInfo(path).Exists;
-			if (publicAsset || index || _authentication.Authenticates(context)) {
+			// A sandboxed preview frame has no origin or cookie; its unguessable grant is the credential.
+			bool preview = path.StartsWith(WorkspaceFileRoutes.PreviewPrefix, StringComparison.Ordinal);
+			if (publicAsset || index || preview || _authentication.Authenticates(context)) {
 				await next().ConfigureAwait(false);
 				return;
 			}
@@ -115,6 +116,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			await context.Response.WriteAsync("weavie is starting").ConfigureAwait(false);
 		});
 		app.MapMethods("/weavie-media/{fileName}", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
+		app.MapMethods(WorkspaceFileRoutes.PreviewPrefix + "{grant}/{**path}", [HttpMethods.Get, HttpMethods.Head], ServePreviewAssetAsync);
 		app.MapGet("/weavie-agent-history", ServeAgentHistoryAsync);
 		if (_bridge.Available) {
 			app.Map("/weavie-bridge", ServeBridgeAsync);
@@ -194,34 +196,6 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	public Task WaitForShutdownAsync() => _app is null
 		? throw new InvalidOperationException("The workspace server has not started.")
 		: _app.WaitForShutdownAsync();
-
-	private async Task ServeMediaAsync(HttpContext context) {
-		string fileName = context.Request.RouteValues["fileName"]?.ToString() ?? string.Empty;
-		string session = context.Request.Query["session"].ToString();
-		string path = context.Request.Query["path"].ToString();
-		if (!string.Equals(fileName, Path.GetFileName(path), StringComparison.Ordinal)) {
-			context.Response.StatusCode = StatusCodes.Status404NotFound;
-			return;
-		}
-		var resource = _media.Open(session, path);
-		if (resource is null) {
-			context.Response.StatusCode = StatusCodes.Status404NotFound;
-			return;
-		}
-
-		context.Response.Headers.CacheControl = "private, no-cache";
-		context.Response.Headers[HeaderNames.XContentTypeOptions] = "nosniff";
-		context.Response.Headers["Referrer-Policy"] = "no-referrer";
-		string tag = $"\"{resource.LastModified.ToUnixTimeMilliseconds():x}-{resource.Length:x}\"";
-		var result = Results.File(
-			resource.Stream,
-			resource.ContentType,
-			fileDownloadName: null,
-			resource.LastModified,
-			new EntityTagHeaderValue(tag, isWeak: true),
-			enableRangeProcessing: true);
-		await result.ExecuteAsync(context).ConfigureAwait(false);
-	}
 
 	private async Task ServeBridgeAsync(HttpContext context) {
 		if (!context.WebSockets.IsWebSocketRequest) {

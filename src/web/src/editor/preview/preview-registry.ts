@@ -3,12 +3,14 @@
 // "is this previewable?" without pulling the preview chunk onto the first-paint path.
 import { extensionOf } from "../fs-path";
 
-export type PreviewKind = "markdown" | "svg";
+export type PreviewKind = "markdown" | "svg" | "html";
 
 const PREVIEWABLE = new Map<string, PreviewKind>([
   ["md", "markdown"],
   ["markdown", "markdown"],
   ["svg", "svg"],
+  ["html", "html"],
+  ["htm", "html"],
 ]);
 
 /// The renderer for `path`, or null when the file has no Preview mode.

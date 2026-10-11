@@ -1,6 +1,6 @@
 import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
+import { createHorizontalOverflow, scrollWheelHorizontally } from "../chrome/horizontal-overflow";
 import { liveKeyHint } from "../commands/keys-live";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -64,6 +64,7 @@ export function AgentBackgroundTray(props: {
         <div
           ref={track}
           class="agent-status-scroll"
+          onWheel={scrollWheelHorizontally}
           classList={{ "overflow-left": overflow().left, "overflow-right": overflow().right }}
         >
           <For each={items()}>

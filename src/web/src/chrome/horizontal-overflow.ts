@@ -36,3 +36,17 @@ export function createHorizontalOverflow(): {
   };
   return { overflow, track };
 }
+
+/** Turns a vertical wheel over a horizontally overflowing strip into horizontal scrolling. */
+export function scrollWheelHorizontally(event: WheelEvent & { currentTarget: HTMLElement }): void {
+  const bar = event.currentTarget;
+  if (event.ctrlKey || event.deltaX !== 0 || bar.scrollWidth <= bar.clientWidth) return;
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? bar.clientHeight
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? bar.clientWidth
+        : 1;
+  bar.scrollLeft += event.deltaY * unit;
+  event.preventDefault();
+}

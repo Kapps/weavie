@@ -1269,7 +1269,8 @@ label.agent-input-choice:hover {
   flex: 1;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
+  /* An overlay scrollbar would sit on top of the pills and swallow their clicks; wheel and keys still scroll. */
+  scrollbar-width: none;
   display: flex;
   align-items: baseline;
   gap: 2px;

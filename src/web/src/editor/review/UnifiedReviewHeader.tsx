@@ -49,11 +49,14 @@ export function UnifiedReviewHeader(props: {
             )}
           </Show>
         </Show>
-        <strong>
-          {props.overview().files.length} changed file
-          {props.overview().files.length === 1 ? "" : "s"}
-        </strong>
-        <DiffStats added={props.overview().added} removed={props.overview().removed} />
+        {/* The PR's name takes the counts' room; the overview and each file header still carry them. */}
+        <Show when={!props.showIdentity() || detail() === null}>
+          <strong>
+            {props.overview().files.length} changed file
+            {props.overview().files.length === 1 ? "" : "s"}
+          </strong>
+          <DiffStats added={props.overview().added} removed={props.overview().removed} />
+        </Show>
       </div>
       <div class="unified-review-header-actions">
         <button
@@ -61,9 +64,11 @@ export function UnifiedReviewHeader(props: {
           class="unified-review-action"
           disabled={!props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0)}
           title={`Undo rejection${keyHint(CommandIds.undoRevert)}`}
+          aria-label="Undo rejection"
           onClick={() => void runCommandWithFeedback(CommandIds.undoRevert)}
         >
-          <RotateCcw size="1em" /> Undo rejection
+          <RotateCcw size="1em" />
+          <Show when={!props.showIdentity()}> Undo rejection</Show>
         </button>
         <button
           type="button"
@@ -79,9 +84,11 @@ export function UnifiedReviewHeader(props: {
           class="unified-review-action revert"
           disabled={!props.overview().fullyLoaded() || !props.overview().hasPending()}
           title={`Revert every pending change${keyHint(CommandIds.undoChange)}`}
+          aria-label="Revert pending"
           onClick={() => void runCommandWithFeedback(CommandIds.undoChange)}
         >
-          <RotateCcw size="1em" /> Revert pending
+          <RotateCcw size="1em" />
+          <Show when={!props.showIdentity()}> Revert pending</Show>
         </button>
         <Show when={props.showIdentity()}>
           <FinishReview session={props.session} />

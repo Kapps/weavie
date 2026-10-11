@@ -627,8 +627,11 @@
   align-items: center;
   gap: 0.5em;
   min-width: 0;
-  padding-right: 0.7em;
-  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.unified-review-identity > :not(.unified-review-identity-title) {
+  flex: none;
 }
 
 .unified-review-identity-title {

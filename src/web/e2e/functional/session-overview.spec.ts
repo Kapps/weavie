@@ -74,6 +74,12 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
     "Add a feature and tweak the greeting",
   );
   await expect(header.locator(".unified-review-failing")).toHaveText("1 check failing");
+  await expect(header.locator(".unified-review-identity-title")).toBeInViewport({ ratio: 1 });
+  // Truncated if it must be, never squeezed away.
+  expect(
+    (await header.locator(".unified-review-identity-title").boundingBox())!.width,
+  ).toBeGreaterThan(120);
+  await expect(header.locator(".unified-review-failing")).toBeInViewport({ ratio: 1 });
   // The heading gives way so the header's actions stay on screen at the default window width.
   await expect(header.locator(".finish-review-button")).toBeInViewport({ ratio: 1 });
   await expect(page.locator(".finish-review-button")).toHaveCount(1);

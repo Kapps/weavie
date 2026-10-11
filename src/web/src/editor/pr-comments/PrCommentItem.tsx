@@ -1,7 +1,8 @@
-import { ExternalLink, Pencil } from "lucide-solid";
+import { ExternalLink, Pencil, Trash2 } from "lucide-solid";
 import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
+import { notify } from "../../notify/notify";
 import { openUrlExternal } from "../../terminal/terminal-links";
 import { relativeTime } from "../blame-model";
 import { PrCommentComposer } from "./PrCommentComposer";
@@ -79,18 +80,43 @@ export function CommentItem(props: {
 }): JSX.Element {
   const [editing, setEditing] = createSignal(false);
   const time = () => seconds(props.comment.createdAt);
+  const discard = async (): Promise<void> => {
+    const error = await sendPrComment(props.session, "discardComment", {
+      number: props.number,
+      id: props.comment.id,
+    });
+    if (error !== null) notify("error", `Couldn't discard the comment: ${error}`, "pr-comments");
+  };
   return (
-    <div class="weavie-pr-comment" classList={{ "weavie-pr-comment-mine": props.comment.mine }}>
-      <Avatar user={{ login: props.comment.author, avatarUrl: props.comment.avatarUrl }} />
+    <div
+      class="weavie-pr-comment"
+      classList={{
+        "weavie-pr-comment-mine": props.comment.mine,
+        "weavie-pr-comment-draft": props.comment.pending,
+      }}
+    >
+      <Avatar user={{ login: props.comment.author, avatarUrl: props.comment.authorAvatarUrl }} />
       <div class="weavie-pr-comment-main">
         <div class="weavie-pr-comment-meta">
           <span class="weavie-pr-author" title={props.comment.author}>
             {props.comment.author}
           </span>
-          <span class="weavie-pr-time" title={new Date(time() * 1000).toLocaleString()}>
-            {relativeTime(time(), Date.now() / 1000)}
-            {seconds(props.comment.updatedAt) > time() ? " · edited" : ""}
-          </span>
+          <Show
+            when={props.comment.pending}
+            fallback={
+              <span class="weavie-pr-time" title={new Date(time() * 1000).toLocaleString()}>
+                {relativeTime(time(), Date.now() / 1000)}
+                {seconds(props.comment.updatedAt) > time() ? " · edited" : ""}
+              </span>
+            }
+          >
+            <span
+              class="weavie-pr-badge weavie-pr-badge-pending"
+              title="Only you can see this until you submit your review."
+            >
+              Pending
+            </span>
+          </Show>
           <span class="weavie-pr-comment-actions">
             <Show when={props.comment.mine && !editing()}>
               <button
@@ -101,6 +127,17 @@ export function CommentItem(props: {
                 onClick={() => setEditing(true)}
               >
                 <Pencil size={12} />
+              </button>
+            </Show>
+            <Show when={props.comment.pending && props.comment.mine && !editing()}>
+              <button
+                type="button"
+                class="weavie-pr-icon-button"
+                title="Discard pending comment"
+                aria-label="Discard pending comment"
+                onClick={() => void discard()}
+              >
+                <Trash2 size={12} />
               </button>
             </Show>
             <Show when={props.comment.url !== ""}>
@@ -125,6 +162,8 @@ export function CommentItem(props: {
             initial={props.comment.body}
             placeholder="Edit comment…"
             submitLabel="Save"
+            alternate={null}
+            note=""
             onSubmit={async (body) => {
               const error = await sendPrComment(props.session, "editComment", {
                 number: props.number,

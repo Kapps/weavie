@@ -24,6 +24,8 @@
   height: 88vh;
   /* A wheel-zoomed embed scales past the frame; clip it so the hint row below stays readable. */
   overflow: hidden;
+  /* Pinch and drag drive the pan/zoom (pan-zoom.ts), not page scrolling or browser zoom. */
+  touch-action: none;
 }
 
 /* The transformed layer: wheel zoom + drag pan apply here as translate/scale (EmbedLightbox.tsx). */

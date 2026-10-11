@@ -1,4 +1,3 @@
-using System.Globalization;
 using Weavie.Core.Agents;
 using Weavie.Core.Sessions;
 
@@ -68,6 +67,13 @@ internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSi
 		lock (transitionGate) if (Publishing) OnForgetControl(axis, value);
 	}
 
+	public void BackgroundChanged() {
+		lock (transitionGate) if (Publishing) OnBackgroundChanged();
+	}
+
+	/// <summary>Creates the conversation of a subagent announced to this conversation; it publishes through its own port.</summary>
+	public AcpConversation CreateSubagent(AcpConversationSpec spec) => OnCreateSubagent(spec);
+
 	public void Detach() {
 		lock (transitionGate) _detached = true;
 	}
@@ -88,6 +94,8 @@ internal abstract class AcpConversationPort(Lock transitionGate) : IAgentEventSi
 	protected abstract IReadOnlyDictionary<string, string> OnControlDefaults();
 	protected abstract void OnRememberControl(string axis, string value);
 	protected abstract void OnForgetControl(string axis, string value);
+	protected abstract void OnBackgroundChanged();
+	protected abstract AcpConversation OnCreateSubagent(AcpConversationSpec spec);
 }
 
 public sealed partial class AcpAgentSession {
@@ -125,6 +133,10 @@ public sealed partial class AcpAgentSession {
 		protected override void OnRememberControl(string axis, string value) => owner._controlDefaults.Set(owner._definition.Id, axis, value);
 
 		protected override void OnForgetControl(string axis, string value) => owner._controlDefaults.Clear(owner._definition.Id, axis, value);
+
+		protected override void OnBackgroundChanged() => owner.PublishBackground();
+
+		protected override AcpConversation OnCreateSubagent(AcpConversationSpec spec) => new(owner._host, spec, new SubagentPort(owner, spec));
 	}
 
 	private class PrimaryPort(AcpAgentSession owner) : OwnedPort(owner) {
@@ -144,46 +156,5 @@ public sealed partial class AcpAgentSession {
 		protected override void OnSettled(bool terminal) { }
 
 		protected override bool OnFail(Exception error) => Owner.FailProcess(error);
-	}
-
-	private sealed class SidePort(AcpAgentSession owner, SideConversation conversation) : OwnedPort(owner) {
-		protected override AgentEventFeedback OnObserve(AgentEvent value) =>
-			value is AgentProcessChanged or AgentSessionStarted or AgentRuntimeFailed
-				? AgentEventFeedback.None
-				: Owner._context.Events.Observe(new AgentConversationEvent(conversation.ConversationId, value));
-
-		protected override AgentPaneMessage? Prepare(AgentPaneMessage message) {
-			if (message.Type is "transcript-reset" or "draft") return null;
-			string? original = message.RequestId;
-			string? requestId = original is { Length: > 0 } ? conversation.ConversationId + ":" + original : null;
-			string? itemId = message.ItemId;
-			if (requestId is not null) {
-				itemId = itemId == original ? requestId : itemId == "request:" + original ? "request:" + requestId : itemId;
-			}
-			return message with {
-				ConversationId = conversation.ConversationId,
-				AnchorTurnId = conversation.AnchorTurnNumber.ToString(CultureInfo.InvariantCulture),
-				IsPrimaryThread = false,
-				RequestId = requestId,
-				ItemId = itemId,
-			};
-		}
-
-		protected override void Store(AcpConversationState state, IReadOnlyList<AgentPaneMessage> messages) {
-			Owner._sessions.Save(Owner._definition.Id, Owner._context.Workspace, state, messages);
-			Owner._sideConversations[state.ConversationId] = state;
-		}
-
-		protected override void OnControlsChanged() { }
-
-		protected override void OnUsageChanged(AgentUsageSnapshot snapshot) { }
-
-		protected override void OnQueueChanged(IReadOnlyList<AgentTurnSubmission> queue) { }
-
-		protected override void OnSettled(bool terminal) {
-			if (terminal) Owner.CompleteSideTurn(conversation.ConversationId);
-		}
-
-		protected override bool OnFail(Exception error) => error is not AcpRequestException && Owner.FailProcess(error);
 	}
 }

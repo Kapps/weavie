@@ -14,10 +14,10 @@ public sealed class HostCorePullRequestCommentsTests {
 		var pullRequests = new List<PullRequestSummary>();
 		var provider = new StaticPullRequestProvider(
 			pullRequests,
-			[(42, new ReviewComment {
-				Id = 1, Path = "feature.txt", Line = 1, Outdated = false, Side = "right", Author = "ann", AuthorAvatarUrl = "https://a/ann", Url = string.Empty, Body = "why?",
-				CreatedAt = "2026-01-01T00:00:00Z", UpdatedAt = "2026-01-01T00:00:00Z", InReplyTo = 0,
-			})],
+			[(42, new ReviewThread("t1", "feature.txt", 1, "right", false, [new ReviewComment {
+				Id = "c1", Author = "ann", AuthorAvatarUrl = "https://a/ann", Url = string.Empty, Body = "why?",
+				CreatedAt = "2026-01-01T00:00:00Z", UpdatedAt = "2026-01-01T00:00:00Z", Pending = false, Mine = false,
+			}]))],
 			new ForgeUser("kapps", "https://a/kapps"));
 		await using var host = await TestHost.StartAsync(
 			repo => {
@@ -55,20 +55,31 @@ public sealed class HostCorePullRequestCommentsTests {
 		var thread = loaded.GetProperty("threads")[0];
 		Assert.Equal(feature, thread.GetProperty("path").GetString());
 		Assert.False(thread.GetProperty("comments")[0].GetProperty("mine").GetBoolean());
-		Assert.Equal("https://a/ann", thread.GetProperty("comments")[0].GetProperty("avatarUrl").GetString());
+		Assert.Equal("https://a/ann", thread.GetProperty("comments")[0].GetProperty("authorAvatarUrl").GetString());
+		Assert.False(loaded.GetProperty("viewerIsAuthor").GetBoolean());
+		Assert.Equal(JsonValueKind.Null, loaded.GetProperty("pending").ValueKind);
 
-		var posted = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession,
-			"pullRequests",
-			"comment",
-			new { number = 42, headSha = loaded.GetProperty("headSha").GetString(), path = feature, line = 1, body = "because" });
+		string headSha = loaded.GetProperty("headSha").GetString()!;
+		var queued = await RequestAsync(host, "comment", new { number = 42, headSha, path = feature, line = 1, body = "because", mode = "review" });
 
-		Assert.True(posted.GetProperty("ok").GetBoolean(), posted.ToString());
-		var updated = await CommentsAsync(host, set => set.GetProperty("threads").GetArrayLength() == 2);
-		var mine = updated.GetProperty("threads")[1].GetProperty("comments")[0];
-		Assert.Equal("because", mine.GetProperty("body").GetString());
-		Assert.True(mine.GetProperty("mine").GetBoolean());
+		Assert.True(queued.GetProperty("ok").GetBoolean(), queued.ToString());
+		var drafted = await CommentsAsync(host, set => set.GetProperty("threads").GetArrayLength() == 2);
+		var draft = drafted.GetProperty("threads")[1].GetProperty("comments")[0];
+		Assert.Equal("because", draft.GetProperty("body").GetString());
+		Assert.True(draft.GetProperty("mine").GetBoolean());
+		Assert.True(draft.GetProperty("pending").GetBoolean());
+		Assert.Equal(JsonValueKind.Object, drafted.GetProperty("pending").ValueKind);
+
+		var submitted = await RequestAsync(host, "submitReview", new { number = 42, headSha, verdict = "requestChanges", body = "fix it" });
+
+		Assert.True(submitted.GetProperty("ok").GetBoolean(), submitted.ToString());
+		await CommentsAsync(host, set => set.GetProperty("pending").ValueKind == JsonValueKind.Null
+			&& !set.GetProperty("threads")[1].GetProperty("comments")[0].GetProperty("pending").GetBoolean());
+		Assert.Equal([(42, ReviewVerdict.RequestChanges, "fix it")], provider.SubmittedReviews);
 	}
+
+	private static Task<JsonElement> RequestAsync(TestHost host, string type, object payload) =>
+		host.SessionRequestAsync<JsonElement>(host.WorkspaceSession, "pullRequests", type, payload);
 
 	private static Task<JsonElement> CommentsAsync(TestHost host, Func<JsonElement, bool> ready) =>
 		Wait.ForAsync(() => host.Bridge.LastEvent(host.WorkspaceSession.Address, "pullRequests", "comments") is { } message

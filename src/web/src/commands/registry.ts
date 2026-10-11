@@ -2,6 +2,7 @@
 // dispatches from keybindings, the palette, or a bound-view request. Core commands use the owning session's
 // commands.invoke request. See docs/specs/commands.md.
 
+import { guardBackgroundWork } from "../agent/background-guard";
 import {
   beginClientSelectionCandidate,
   type ClientSession,
@@ -499,7 +500,13 @@ function dispatchFromCatalog(
     return Promise.resolve({ ok: false, error: `Unknown command '${id}'.` });
   }
   if (command.runsIn === "core") {
-    return routeCoreCommand(command, args, backendId, scope.session);
+    return guardBackgroundWork(
+      id,
+      backendId,
+      routeCoreCommand(command, args, backendId, scope.session),
+      args,
+      (consented) => routeCoreCommand(command, consented, backendId, scope.session),
+    );
   }
   const handler = scope.handlers.get(id);
   if (handler === undefined) {

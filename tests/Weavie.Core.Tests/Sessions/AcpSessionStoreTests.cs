@@ -65,6 +65,19 @@ public sealed class AcpSessionStoreTests : IDisposable {
 		Assert.Single(reloaded.ReadMessages("other-provider", "/workspace"));
 	}
 
+	[Fact]
+	public void AppendJournalsDisplayEventsWithoutAConversationRow() {
+		var store = new AcpSessionStore(Database);
+		store.Save("provider", "/workspace", State("", "primary-id", 1), [Message("user-message", "first")]);
+		var nested = Message("agent-message-delta", "subagent") with { ConversationId = "sub-1", CompletedAtMs = 7 };
+
+		store.Append("provider", "/workspace", [nested]);
+
+		var reloaded = new AcpSessionStore(Database);
+		Assert.Equal("primary-id", Assert.Single(reloaded.ReadConversations("provider", "/workspace")).SessionId);
+		Assert.Equal(nested, reloaded.ReadMessages("provider", "/workspace")[^1]);
+	}
+
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]

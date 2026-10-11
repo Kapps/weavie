@@ -244,6 +244,75 @@ test.describe("Review Changes tab — file switcher", () => {
   });
 });
 
+test.describe("Review Changes tab — file tree", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "waitFile", path: "{{WORKSPACE}}/.nested-ready" },
+        ...appliedEdit(
+          "src/long.txt",
+          Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n"),
+        ),
+        ...appliedEdit("docs/notes.txt", "nested note\n"),
+      ],
+    },
+  });
+
+  test("the file tree above the diffs folds folders and jumps to a file", async ({
+    page,
+    weavie,
+  }) => {
+    await mkdir(join(weavie.workspace, "src"));
+    await mkdir(join(weavie.workspace, "docs"));
+    await writeFile(join(weavie.workspace, ".nested-ready"), "ready\n");
+    await page.locator(".editor-empty-review").click();
+
+    const tree = page.getByRole("tree", { name: "Changed files" });
+    const rows = tree.getByRole("treeitem");
+    await expect(rows).toHaveText([/^docs/, /^notes\.txt/, /^src/, /^long\.txt/]);
+    // Remounting after a tab round trip restores a position inside the tree exactly.
+    const box = (await tree.boundingBox())!;
+    await page.mouse.move(box.x + 100, box.y + 20);
+    await page.mouse.wheel(0, 40);
+    let inside = 0;
+    // Smooth scrolling animates; read the position once it settles.
+    await expect
+      .poll(async () => {
+        const before = inside;
+        inside = (await reviewScroll(page)).top;
+        return inside > 0 && inside === before;
+      })
+      .toBe(true);
+    expect(inside).toBeLessThan(box.height);
+    await openFile(page, "long.txt");
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
+    await expect(tree).toBeVisible();
+    expect((await reviewScroll(page)).top).toBe(inside);
+    await scrollReview(page, "start");
+
+    const docs = rows.filter({ hasText: /^docs/ });
+    await docs.click();
+    await expect(docs).toHaveAttribute("aria-expanded", "false");
+    await expect(rows).toHaveCount(3);
+    await page.keyboard.press("ArrowRight");
+    await expect(rows).toHaveCount(4);
+    await page.keyboard.press("ArrowDown");
+    await expect(rows.nth(1)).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(
+      "title",
+      /^docs\/notes\.txt /,
+    );
+    await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+
+    const hello = page.locator(".unified-review-file", { hasText: "src/long.txt" });
+    await hello.locator(".unified-review-file-action.keep").click();
+    await expect(rows.filter({ hasText: /^long\.txt/ }).getByRole("img")).toHaveAccessibleName(
+      "Reviewed",
+    );
+  });
+});
+
 test.describe("Review Changes tab — collapsed context", () => {
   const untouched = Array.from({ length: 200 }, (_, index) => `line ${index}`).join("\n");
   const changed = untouched.replace("line 100", "line 100 — changed by the agent");

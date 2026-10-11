@@ -52,15 +52,15 @@ describe("hasActiveTurn", () => {
     ).toBe(true);
   });
 
-  it("stays active while background work outlives the primary turn", () => {
-    const tool = { ...message("item-started", "background"), itemType: "tool", background: true };
+  it("stays active while a live tool outlives the primary turn", () => {
+    const tool = { ...message("item-started", "background"), itemType: "tool" };
     expect(hasActiveTurn([started(1000), tool, message("turn-completed")])).toBe(true);
     expect(
       hasActiveTurn([
         started(1000),
         tool,
         message("turn-completed"),
-        { ...message("item-completed", "background"), itemType: "tool", background: true },
+        { ...message("item-completed", "background"), itemType: "tool" },
       ]),
     ).toBe(false);
   });
@@ -262,14 +262,13 @@ describe("activeTurnStartedAt", () => {
     ).toBe(2000);
   });
 
-  it("uses the oldest live background start after the primary turn settles", () => {
+  it("uses the oldest live tool start after the primary turn settles", () => {
     expect(
       activeTurnStartedAt([
         started(1000),
         {
           ...message("item-started", "background"),
           itemType: "tool",
-          background: true,
           startedAtMs: 1500,
         },
         message("turn-completed"),
@@ -288,5 +287,24 @@ describe("formatElapsed", () => {
 
   it("clamps negative input to zero", () => {
     expect(formatElapsed(-5_000)).toBe("0s");
+  });
+});
+
+describe("backgrounded tools", () => {
+  it("never hold the turn once the agent marks them backgrounded", () => {
+    const tool = {
+      providerId: "acp",
+      threadId: "t",
+      turnId: "1",
+      itemId: "tool:bg",
+      itemType: "tool",
+    } as const;
+    expect(hasActiveTurn([{ ...tool, type: "item-started" }])).toBe(true);
+    expect(
+      hasActiveTurn([
+        { ...tool, type: "item-started" },
+        { ...tool, type: "item-started", background: true },
+      ]),
+    ).toBe(false);
   });
 });

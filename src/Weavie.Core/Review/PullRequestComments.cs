@@ -1,11 +1,12 @@
+using System.Text.Json.Serialization;
 using Weavie.Core.Commands;
 using Weavie.Core.Git;
 
 namespace Weavie.Core.Review;
 
 /// <summary>
-/// Owns one session's live PR review comments: loads them for the branch's current PR, validates and posts
-/// comments/replies/edits against the exact head the user saw, and publishes each snapshot. Every load and post
+/// Owns one session's live PR review comments: loads them for the branch's current PR, validates and writes
+/// comments, drafts, and reviews against the exact head the user saw, and publishes each snapshot. Every load and post
 /// runs behind one gate and publishes inside it, so the last published snapshot is always the newest.
 /// </summary>
 public sealed class PullRequestComments {
@@ -16,7 +17,6 @@ public sealed class PullRequestComments {
 	private readonly Action<PullRequestCommentsSnapshot> _publish;
 	private volatile PullRequestTarget? _target;
 	private volatile bool _tracking;
-	private IReadOnlyList<ReviewComment> _comments = [];
 	private volatile PullRequestDiff? _diff;
 	private volatile PullRequestCommentsSnapshot _latest = new(null, null);
 
@@ -57,36 +57,81 @@ public sealed class PullRequestComments {
 		}
 	}
 
-	/// <summary>Posts a new comment on PR-head <paramref name="line"/> of the repository-relative <paramref name="path"/>.</summary>
-	public Task<CommandResult> CommentAsync(int number, string headSha, string path, int line, string body, CancellationToken ct) =>
-		MutateAsync(
+	/// <summary>
+	/// Comments on PR-head <paramref name="line"/> of the repository-relative <paramref name="path"/>: posted now, or
+	/// queued into the viewer's pending review (starting one when there's none).
+	/// </summary>
+	public Task<CommandResult> CommentAsync(int number, string headSha, string path, int line, string body, CommentMode mode, CancellationToken ct) {
+		var draft = new NewReviewComment { Path = path, Line = line, Body = body };
+		return MutateAsync(
 			number,
-			body,
-			set => set.HeadSha != headSha ? Stale(number)
+			set => RequireBody(body) ?? (set.HeadSha != headSha ? Stale(number)
 				: !set.ChangedPaths.Contains(path, StringComparer.Ordinal) ? $"{path} isn't changed in PR #{number}."
-				: line < 1 ? "Comments anchor to a line of the file." : null,
-			target => _store.AddAsync(
-				target.Repo, number, headSha, new NewReviewComment { Path = path, Line = line, Body = body }, ct),
+				: line < 1 ? "Comments anchor to a line of the file." : RequireMode(set, mode)),
+			(target, review) => mode == CommentMode.Now
+				? _store.CreateReviewAsync(target.Repo, review.PullRequestId, headSha, ReviewVerdict.Comment, string.Empty, [draft], ct)
+				: review.Pending is { } pending ? _store.AddThreadAsync(target.Repo, pending.Id, draft, ct)
+				: _store.CreateReviewAsync(target.Repo, review.PullRequestId, headSha, null, string.Empty, [draft], ct),
 			ct);
+	}
 
-	/// <summary>Replies to the thread rooted at <paramref name="inReplyTo"/>.</summary>
-	public Task<CommandResult> ReplyAsync(int number, long inReplyTo, string body, CancellationToken ct) =>
+	/// <summary>Replies to thread <paramref name="threadId"/>: posted now, or queued into the viewer's pending review.</summary>
+	public Task<CommandResult> ReplyAsync(int number, string threadId, string body, CommentMode mode, CancellationToken ct) =>
 		MutateAsync(
 			number,
-			body,
-			set => set.Threads.Any(t => t.RootId == inReplyTo) ? null : $"That thread is no longer on PR #{number}.",
-			target => _store.ReplyAsync(target.Repo, number, inReplyTo, body, ct),
+			set => RequireBody(body) ?? (set.Review.Threads.Any(t => t.Id == threadId)
+				? RequireMode(set, mode)
+				: $"That thread is no longer on PR #{number}."),
+			async (target, review) => await _store.ReplyAsync(
+				target.Repo,
+				threadId,
+				mode == CommentMode.Now ? null
+					: review.Pending?.Id ?? await _store.CreateReviewAsync(
+						target.Repo, review.PullRequestId, target.HeadSha, null, string.Empty, [], ct).ConfigureAwait(false),
+				body,
+				ct).ConfigureAwait(false),
 			ct);
 
-	/// <summary>Replaces the body of the viewer's own comment <paramref name="id"/>.</summary>
-	public Task<CommandResult> EditAsync(int number, long id, string body, CancellationToken ct) =>
+	/// <summary>Replaces the body of the viewer's own comment <paramref name="id"/>, a draft or a posted one.</summary>
+	public Task<CommandResult> EditAsync(int number, string id, string body, CancellationToken ct) =>
 		MutateAsync(
 			number,
-			body,
-			set => set.Threads.SelectMany(t => t.Comments).FirstOrDefault(c => c.Id == id) is not { } comment
-				? $"That comment is no longer on PR #{number}."
-				: set.IsMine(comment) ? null : "You can only edit your own comments.",
-			target => _store.EditAsync(target.Repo, id, body, ct),
+			set => RequireBody(body) ?? (Find(set, id) is not { } comment ? Gone(number)
+				: comment.Mine ? null : "You can only edit your own comments."),
+			(target, _) => _store.EditAsync(target.Repo, id, body, ct),
+			ct);
+
+	/// <summary>Deletes draft <paramref name="id"/> from the viewer's pending review.</summary>
+	public Task<CommandResult> DiscardCommentAsync(int number, string id, CancellationToken ct) =>
+		MutateAsync(
+			number,
+			set => Find(set, id) is not { } comment ? Gone(number)
+				: comment is { Mine: true, Pending: true } ? null : "Only your pending comments can be discarded.",
+			(target, _) => _store.DeleteCommentAsync(target.Repo, id, ct),
+			ct);
+
+	/// <summary>
+	/// Submits the viewer's review of the head they saw, <paramref name="headSha"/>: their pending drafts with
+	/// <paramref name="verdict"/> and summary <paramref name="body"/>, or just the verdict when nothing is pending.
+	/// </summary>
+	public Task<CommandResult> SubmitReviewAsync(int number, string headSha, ReviewVerdict verdict, string body, CancellationToken ct) =>
+		MutateAsync(
+			number,
+			set => set.HeadSha != headSha ? Stale(number)
+				: set.Review.ViewerIsAuthor && verdict != ReviewVerdict.Comment ? "You can only comment on your own pull request."
+				: set.Review.Pending is null && verdict == ReviewVerdict.Comment && string.IsNullOrWhiteSpace(body)
+					? "Write a summary or add a comment to submit a review." : null,
+			(target, review) => review.Pending is { } pending
+				? _store.SubmitReviewAsync(target.Repo, pending.Id, verdict, body, ct)
+				: _store.CreateReviewAsync(target.Repo, review.PullRequestId, headSha, verdict, body, [], ct),
+			ct);
+
+	/// <summary>Deletes the viewer's pending review and every draft in it.</summary>
+	public Task<CommandResult> DiscardReviewAsync(int number, CancellationToken ct) =>
+		MutateAsync(
+			number,
+			set => set.Review.Pending is null ? $"You have no pending review on PR #{number}." : null,
+			(target, review) => _store.DiscardReviewAsync(target.Repo, review.Pending!.Id, ct),
 			ct);
 
 	/// <summary>The repository-relative <paramref name="path"/> at <paramref name="headSha"/> and at its merge-base.</summary>
@@ -102,14 +147,9 @@ public sealed class PullRequestComments {
 
 	private async Task<CommandResult> MutateAsync(
 		int number,
-		string body,
 		Func<PullRequestCommentSet, string?> validate,
-		Func<PullRequestTarget, Task<ReviewComment>> post,
+		Func<PullRequestTarget, PullRequestReview, Task> post,
 		CancellationToken ct) {
-		if (string.IsNullOrWhiteSpace(body)) {
-			return CommandResult.Failure("A comment can't be empty.");
-		}
-
 		await _gate.WaitAsync(ct).ConfigureAwait(false);
 		try {
 			if (_latest.Set is not { } set || _target is not { } target || set.Number != number || target.Number != number) {
@@ -121,12 +161,14 @@ public sealed class PullRequestComments {
 			}
 
 			try {
-				await post(target).ConfigureAwait(false);
+				await post(target, set.Review).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
 				return CommandResult.Failure(ex.Message);
+			} finally {
+				// A failed write may still have changed the forge (a review created before its reply failed).
+				await RefreshLockedAsync(ct).ConfigureAwait(false);
 			}
 
-			await RefreshLockedAsync(ct).ConfigureAwait(false);
 			return CommandResult.Success();
 		} finally {
 			_gate.Release();
@@ -141,18 +183,11 @@ public sealed class PullRequestComments {
 
 		try {
 			var diff = await DiffAsync(target, ct).ConfigureAwait(false);
-			var comments = await _store.ListAsync(target.Repo, target.Number, ct).ConfigureAwait(false);
-			var viewer = await _store.ViewerAsync(target.Repo, ct).ConfigureAwait(false);
-			if (_latest is { Error: null, Set: { } current } && current.Number == target.Number
-				&& current.HeadSha == target.HeadSha && current.Viewer == viewer
-				&& ReferenceEquals(current.ChangedPaths, diff.Paths) && _comments.SequenceEqual(comments)) {
-				return;
+			var review = await _store.LoadAsync(target.Repo, target.Number, ct).ConfigureAwait(false);
+			var set = new PullRequestCommentSet(target.Number, target.Url, target.HeadSha, diff.Paths, review);
+			if (_latest is not { Error: null, Set: { } current } || current != set) {
+				Publish(new PullRequestCommentsSnapshot(set, null));
 			}
-
-			_comments = comments;
-			Publish(new PullRequestCommentsSnapshot(
-				new PullRequestCommentSet(target.Number, target.Url, target.HeadSha, viewer, diff.Paths, ReviewThread.Group(comments)),
-				null));
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {
@@ -182,5 +217,28 @@ public sealed class PullRequestComments {
 
 	private static string Stale(int number) => $"PR #{number} has new commits — comments reloaded; try again.";
 
+	private static string Gone(int number) => $"That comment is no longer on PR #{number}.";
+
+	private static string? RequireBody(string body) => string.IsNullOrWhiteSpace(body) ? "A comment can't be empty." : null;
+
+	// The forge files every comment into a pending review while one exists, so nothing can post alongside it.
+	private static string? RequireMode(PullRequestCommentSet set, CommentMode mode) =>
+		mode == CommentMode.Now && set.Review.Pending is not null ? "You have a pending review — new comments join it." : null;
+
+	private static ReviewComment? Find(PullRequestCommentSet set, string id) =>
+		set.Review.Threads.SelectMany(t => t.Comments).FirstOrDefault(c => c.Id == id);
+
 	private sealed record PullRequestDiff(int Number, string HeadSha, string BaseSha, string MergeBase, IReadOnlyList<string> Paths);
+}
+
+/// <summary>Whether a new comment posts immediately or joins the viewer's pending review.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<CommentMode>))]
+public enum CommentMode {
+	/// <summary>Post it now, as a single comment.</summary>
+	[JsonStringEnumMemberName("now")]
+	Now,
+
+	/// <summary>Queue it into the viewer's pending review, starting one when there's none.</summary>
+	[JsonStringEnumMemberName("review")]
+	Review,
 }

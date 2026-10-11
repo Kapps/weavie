@@ -24,6 +24,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 	public const string PlanMarkdown = "# Plan\n\n- Inspect the code\n- Implement the fix";
 
+	/// <summary>A prompt that leaves one stoppable background task running.</summary>
+	public const string BackgroundPrompt = "start-background";
+
 	public AgentProviderInfo Info { get; } = new() {
 		Id = "structured",
 		Name = "Fake structured agent",
@@ -56,9 +59,19 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
 	private sealed class FakeStructuredAgentSession(IAgentEventSink events, List<AgentPaneMessage> transcript)
-		: IStructuredAgentSession, IStructuredAgentControls {
+		: IStructuredAgentSession, IStructuredAgentControls, IStructuredAgentBackgroundWork {
 		private bool _started;
 		private int _turns;
+
+		public IReadOnlyList<AgentBackgroundItem> BackgroundWork { get; private set; } = [];
+
+		public event Action<IReadOnlyList<AgentBackgroundItem>>? BackgroundWorkChanged;
+
+		public Task<bool> StopBackgroundTaskAsync(string id) {
+			BackgroundWork = [.. BackgroundWork.Select(item => item.Id == id ? item with { State = AgentBackgroundState.Stopped, CanStop = false } : item)];
+			BackgroundWorkChanged?.Invoke(BackgroundWork);
+			return Task.FromResult(true);
+		}
 
 		public event Action<AgentPaneMessage>? PaneMessage;
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
@@ -110,6 +123,15 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				return;
 			}
 
+			if (submission.Text == BackgroundPrompt) {
+				BackgroundWork = [new AgentBackgroundItem {
+					Id = "task:sleep", Kind = AgentBackgroundKind.Task, Name = "sleep 30", Type = "shell", Detail = null,
+					LastActivity = null, Usage = null, State = AgentBackgroundState.Running, CanStop = true,
+					StartedAtMs = 1, EndedAtMs = null, TranscriptItemId = null,
+				}];
+				BackgroundWorkChanged?.Invoke(BackgroundWork);
+				return;
+			}
 			if (submission.Text == ResetPrompt) {
 				transcript.Clear();
 				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });

@@ -148,6 +148,15 @@ public static partial class CoreCommands {
 	/// <summary>Toggles the focused or newest side conversation.</summary>
 	public const string ToggleAgentAside = "weavie.agent.toggleAside";
 
+	/// <summary>Stops one background task of the focused agent, or its most recently started stoppable one.</summary>
+	public const string StopBackgroundTask = "weavie.agent.stopBackgroundTask";
+
+	/// <summary>Opens one subagent's read-only transcript as an editor tab.</summary>
+	public const string OpenSubagent = "weavie.agent.openSubagent";
+
+	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
+	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
+
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
 
@@ -306,8 +315,17 @@ public static partial class CoreCommands {
 	/// <summary>Opens a comment box on the cursor's line of a file the session's PR changes; bound to <c>$mod+alt+c</c>.</summary>
 	public const string PullRequestComment = "weavie.pullRequest.comment";
 
-	/// <summary>Posts the focused PR comment box; bound to <c>$mod+Enter</c> while it has focus.</summary>
+	/// <summary>Adds the focused PR comment box to the pending review (or saves an edit); bound to <c>$mod+Enter</c> while it has focus.</summary>
 	public const string PullRequestSubmitComment = "weavie.pullRequest.submitComment";
+
+	/// <summary>Posts the focused PR comment box immediately, outside any review; unbound by default.</summary>
+	public const string PullRequestPostCommentNow = "weavie.pullRequest.postCommentNow";
+
+	/// <summary>Opens the panel that submits the session's PR review as Comment, Approve, or Request changes.</summary>
+	public const string PullRequestFinishReview = "weavie.pullRequest.finishReview";
+
+	/// <summary>Deletes the viewer's pending PR review and its drafts, after confirming.</summary>
+	public const string PullRequestDiscardReview = "weavie.pullRequest.discardReview";
 
 	/// <summary>Closes the focused PR comment box, keeping its draft; bound to <c>Escape</c> while it has focus.</summary>
 	public const string PullRequestCancelComment = "weavie.pullRequest.cancelComment";
@@ -377,6 +395,9 @@ public static partial class CoreCommands {
 
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
+
+	/// <summary>Rotates the active image/video tab a quarter turn, refitting it to the pane; unbound.</summary>
+	public const string RotateMedia = "weavie.editor.rotateMedia";
 
 	/// <summary>Increases the editor and terminal font sizes (global plus any set per-surface override); bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
@@ -852,6 +873,7 @@ public static partial class CoreCommands {
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -862,6 +884,7 @@ public static partial class CoreCommands {
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
 			When = "agentFocused",
+			ArgsSchemaJson = "{" + SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -894,7 +917,8 @@ public static partial class CoreCommands {
 				+ "Files are not changed.",
 			Aliases = ["rewind", "undo prompt", "edit last prompt"],
 			When = "agentFocused && agentRewindable",
-			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"}}",
+			ArgsSchemaJson = "{\"turnId\":{\"type\":\"string\",\"description\":\"Prompt turn to rewind before; omit for the latest prompt\"},"
+				+ SessionCommands.StopBackgroundWorkArg + "}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1067,6 +1091,38 @@ public static partial class CoreCommands {
 			Aliases = ["collapse btw", "expand btw", "toggle side conversation"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
 			When = "agentFocused",
+		});
+
+		// Neither has a default keybinding: background work is occasional, and the tray already offers both.
+		registry.Register(new CommandDefinition {
+			Id = StopBackgroundTask,
+			Title = "Stop Background Task",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Stop one of the agent's background tasks, or the most recently started one that can be stopped.",
+			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
+			When = "agentBackgroundActive",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started stoppable task\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenSubagent,
+			Title = "Open Subagent Transcript",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Open one subagent's whole read-only transcript as an editor tab that follows it live.",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"conversationId\":{\"type\":\"string\",\"description\":\"The subagent's conversation id\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ShowBackgroundWork,
+			Title = "Show Background Work",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Focus the tray of subagents and background tasks above the agent composer.",
+			Aliases = ["background tasks", "subagents", "running work"],
+			When = "agentBackgroundActive",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1701,10 +1757,41 @@ public static partial class CoreCommands {
 			Title = "Submit Comment",
 			RunsIn = CommandLocation.Web,
 			Category = "Pull Request",
-			Description = "Post the focused pull request comment, reply, or edit.",
-			Aliases = ["submit comment", "post comment", "send comment", "save comment"],
+			Description = "Add the focused pull request comment or reply to your pending review, save an edit, or submit the review summary.",
+			Aliases = ["submit comment", "add to review", "start review", "save comment"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "prCommentFocused" }],
 			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestPostCommentNow,
+			Title = "Comment Now",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Post the focused pull request comment or reply immediately instead of adding it to a review.",
+			Aliases = ["comment now", "post comment", "single comment", "send comment"],
+			When = "prCommentFocused && !prReviewPending",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestFinishReview,
+			Title = "Finish Review…",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Submit your pull request review with a summary, as Comment, Approve, or Request changes.",
+			Aliases = ["submit review", "approve", "request changes", "finish review", "pending review"],
+			When = "prReviewable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestDiscardReview,
+			Title = "Discard Pending Review",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Delete your pending pull request review and every comment in it, after confirming.",
+			Aliases = ["discard review", "delete pending review", "cancel review"],
+			When = "prReviewPending",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1990,6 +2077,17 @@ public static partial class CoreCommands {
 			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
 			When = "editorFocused",
 			KeybindingsActiveInModal = true,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RotateMedia,
+			Title = "Rotate Media",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Rotate the open image or video a quarter turn (again to rotate back), refitting it to the "
+				+ "pane — e.g. to watch a landscape video full-size on a portrait phone. Does nothing when no image "
+				+ "or video tab is showing.",
+			Aliases = ["rotate image", "rotate video", "landscape", "portrait", "orientation"],
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): step every size setting in effect — global font.size

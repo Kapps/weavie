@@ -12,16 +12,28 @@ public sealed partial class HostCore {
 		pullRequests.Handle(
 			"comment", "Posting a pull request comment", WireJson.Default.PullRequestCommentRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(WorktreeRelativePath(session, message.Path) is { } path
-				? await comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, ct).ConfigureAwait(false)
+				? await comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, message.Mode, ct).ConfigureAwait(false)
 				: CommandResult.Failure(NotInWorktree(session, message.Path))));
 		pullRequests.Handle(
 			"reply", "Posting a pull request reply", WireJson.Default.PullRequestReplyRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
-				await comments.ReplyAsync(message.Number, message.InReplyTo, message.Body, ct).ConfigureAwait(false)));
+				await comments.ReplyAsync(message.Number, message.ThreadId, message.Body, message.Mode, ct).ConfigureAwait(false)));
 		pullRequests.Handle(
 			"editComment", "Editing a pull request comment", WireJson.Default.PullRequestEditRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
 				await comments.EditAsync(message.Number, message.Id, message.Body, ct).ConfigureAwait(false)));
+		pullRequests.Handle(
+			"discardComment", "Discarding a pending comment", WireJson.Default.PullRequestCommentIdRequest, WireJson.Default.CommandWireResult,
+			async (message, ct) => CommandWireResult.From(
+				await comments.DiscardCommentAsync(message.Number, message.Id, ct).ConfigureAwait(false)));
+		pullRequests.Handle(
+			"submitReview", "Submitting a pull request review", WireJson.Default.PullRequestSubmitRequest, WireJson.Default.CommandWireResult,
+			async (message, ct) => CommandWireResult.From(
+				await comments.SubmitReviewAsync(message.Number, message.HeadSha, message.Verdict, message.Body, ct).ConfigureAwait(false)));
+		pullRequests.Handle(
+			"discardReview", "Discarding a pending review", WireJson.Default.PullRequestNumberRequest, WireJson.Default.CommandWireResult,
+			async (message, ct) => CommandWireResult.From(
+				await comments.DiscardReviewAsync(message.Number, ct).ConfigureAwait(false)));
 		// The web asks while the user can see the comments; a PR's comments aren't tied to the agent's activity.
 		pullRequests.Handle("refresh", "Refreshing pull request comments", WireJson.Default.EmptyPayload, (_, ct) => comments.RefreshAsync(ct));
 		pullRequests.HandleConcurrent(
@@ -38,33 +50,27 @@ public sealed partial class HostCore {
 				set.Number,
 				set.Url,
 				set.HeadSha,
-				set.Viewer,
+				set.Review.Viewer,
+				set.Review.ViewerIsAuthor,
+				set.Review.Pending,
 				[.. set.ChangedPaths.Select(path => AbsolutePath(session, path))],
-				[.. set.Threads.Select(thread => new PullRequestThreadWire(
-					thread.RootId,
-					AbsolutePath(session, thread.Path),
-					thread.Line,
-					thread.Side,
-					thread.Outdated,
-					[.. thread.Comments.Select(comment => new PullRequestCommentWire(
-						comment.Id,
-						comment.Author,
-						comment.AuthorAvatarUrl,
-						comment.Url,
-						comment.Body,
-						comment.CreatedAt,
-						comment.UpdatedAt,
-						set.IsMine(comment)))]))]),
+				[.. set.Review.Threads.Select(thread => thread with { Path = AbsolutePath(session, thread.Path) })]),
 			snapshot.Error));
 
 	private static string AbsolutePath(HostSession session, string relative) =>
 		Path.GetFullPath(Path.Combine(session.WorkspaceRoot, relative));
 
-	internal sealed record PullRequestCommentRequest(int Number, string HeadSha, string Path, int Line, string Body);
+	internal sealed record PullRequestCommentRequest(int Number, string HeadSha, string Path, int Line, string Body, CommentMode Mode);
 
-	internal sealed record PullRequestReplyRequest(int Number, long InReplyTo, string Body);
+	internal sealed record PullRequestReplyRequest(int Number, string ThreadId, string Body, CommentMode Mode);
 
-	internal sealed record PullRequestEditRequest(int Number, long Id, string Body);
+	internal sealed record PullRequestEditRequest(int Number, string Id, string Body);
+
+	internal sealed record PullRequestCommentIdRequest(int Number, string Id);
+
+	internal sealed record PullRequestSubmitRequest(int Number, string HeadSha, ReviewVerdict Verdict, string Body);
+
+	internal sealed record PullRequestNumberRequest(int Number);
 
 	internal sealed record PullRequestSourcesRequest(string Path, string HeadSha);
 }
@@ -76,23 +82,7 @@ internal sealed record PullRequestCommentSetWire(
 	string Url,
 	string HeadSha,
 	ForgeUser Viewer,
+	bool ViewerIsAuthor,
+	PendingReview? Pending,
 	IReadOnlyList<string> ChangedPaths,
-	IReadOnlyList<PullRequestThreadWire> Threads);
-
-internal sealed record PullRequestThreadWire(
-	long RootId,
-	string Path,
-	int Line,
-	string Side,
-	bool Outdated,
-	IReadOnlyList<PullRequestCommentWire> Comments);
-
-internal sealed record PullRequestCommentWire(
-	long Id,
-	string Author,
-	string AvatarUrl,
-	string Url,
-	string Body,
-	string CreatedAt,
-	string UpdatedAt,
-	bool Mine);
+	IReadOnlyList<ReviewThread> Threads);

@@ -20,6 +20,7 @@ import type { TabOwner } from "../tab-owner";
 import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
+import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
@@ -35,6 +36,7 @@ import { createParkedNavigation, createParkedToolbar, mountReviewToolbar } from 
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
+const FILE_GAP = 20;
 
 export function UnifiedReview(props: {
   scope: ReviewScopeState;
@@ -103,6 +105,20 @@ export function UnifiedReview(props: {
     }
     return SECTION_HEADER_HEIGHT + editorHeight(file);
   };
+  // The file tree sits above the diffs; the list starts below it, so row indices stay file indices.
+  let tree: HTMLElement | undefined;
+  const [treeHeight, setTreeHeight] = createSignal(0);
+  // Content below the tree keeps its place on screen when the tree grows or shrinks above it.
+  const resizeTree = (height: number): void => {
+    // A hidden tab reports no height; only a laid-out tree moves the list.
+    if (!tree!.checkVisibility()) return;
+    const previous = treeHeight();
+    setTreeHeight(height);
+    sizeVirtualList(virtualizer.getTotalSize());
+    const owner = scroll()!;
+    if (owner.getScrollTop() > previous)
+      owner.setScrollTop(owner.getScrollTop() + height - previous);
+  };
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
@@ -161,7 +177,10 @@ export function UnifiedReview(props: {
         unsubscribe();
       };
     },
-    gap: 20,
+    gap: FILE_GAP,
+    get paddingStart() {
+      return treeHeight() + FILE_GAP;
+    },
     scrollToFn: (offset, options, instance) => {
       const owner = scroll()!;
       const top =
@@ -346,6 +365,13 @@ export function UnifiedReview(props: {
     surface.takeControl();
   };
   onMount(() => {
+    // Measured before any saved position is restored against the list below it.
+    setTreeHeight(tree!.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) =>
+      resizeTree(entry!.borderBoxSize[0]!.blockSize),
+    );
+    observer.observe(tree!);
+    onCleanup(() => observer.disconnect());
     const element = scroller!;
     const owner = createReviewScroll(element, virtualList!);
     setScroll(owner);
@@ -354,8 +380,11 @@ export function UnifiedReview(props: {
       setViewTop(owner.getScrollTop());
       if (userInitiated) {
         setAnchorPath(undefined);
-        const row = virtualizer.getVirtualItemForOffset(owner.getScrollTop());
-        if (row !== undefined) setVisibleFile(row.index);
+        // Within the tree no file is selected; the first one on screen stands in.
+        const top = owner.getScrollTop();
+        const row = virtualizer.getVirtualItemForOffset(top);
+        if (top < treeHeight() + FILE_GAP) setSelectedPath(null);
+        else if (row !== undefined) setVisibleFile(row.index);
       }
       surface.refresh();
       props.changed();
@@ -386,7 +415,7 @@ export function UnifiedReview(props: {
 
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
-      <UnifiedReviewHeader overview={props.overview} />
+      <UnifiedReviewHeader overview={props.overview} session={props.session} />
       <Show when={pickerAnchor()}>
         {(anchor) => (
           <ReviewFileSwitcher
@@ -421,6 +450,15 @@ export function UnifiedReview(props: {
             sizeVirtualList(virtualizer.getTotalSize());
           }}
         >
+          <ReviewFileTree
+            files={files}
+            current={visibleFile}
+            displayPath={displayPath}
+            onChoose={revealFile}
+            ref={(element) => {
+              tree = element;
+            }}
+          />
           <For each={rowKeys()}>
             {(key) => {
               const row = () => rows().find((candidate) => String(candidate.key) === key);

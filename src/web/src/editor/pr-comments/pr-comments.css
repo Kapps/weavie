@@ -354,3 +354,27 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.weavie-pr-composer-note {
+  margin-right: auto;
+  align-self: center;
+  color: var(--dim, #6f7884);
+  font-size: var(--font-hint-size);
+}
+
+/* Drafts in the viewer's pending review: same card, dashed amber outline, only they can see it yet. */
+.weavie-pr-card-pending,
+.weavie-pr-card-pending::before {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.weavie-pr-comment-draft .weavie-pr-comment-body {
+  background: none;
+  outline: 1px dashed color-mix(in srgb, var(--warn) 50%, transparent);
+  outline-offset: -1px;
+}
+
+.weavie-pr-badge-pending {
+  align-self: center;
+}

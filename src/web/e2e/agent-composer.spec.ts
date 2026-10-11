@@ -1477,15 +1477,17 @@ test.describe("ACP composer", () => {
     await expect(link).toHaveAttribute("title", /last refresh failed: temporary network failure/);
     await expect(page.locator(".agent-status-unavailable")).toHaveCount(0);
 
-    const thread = { rootId: 1, path: "/w/a.ts", line: 1, side: "right", outdated: false };
+    const thread = { id: "t1", path: "/w/a.ts", line: 1, side: "right", outdated: false };
     host.publishSession(agentSession.address, "pullRequests", "comments", {
       set: {
         number: 123,
         url,
         headSha: "abc",
         viewer: { login: "me", avatarUrl: "" },
+        viewerIsAuthor: false,
+        pending: null,
         changedPaths: [],
-        threads: [thread, { ...thread, rootId: 2 }].map((t) => ({ ...t, comments: [] })),
+        threads: [thread, { ...thread, id: "t2" }].map((t) => ({ ...t, comments: [] })),
       },
       error: "rate limited",
     });

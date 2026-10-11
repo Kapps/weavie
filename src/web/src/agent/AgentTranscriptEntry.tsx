@@ -4,15 +4,21 @@ import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { displayPath } from "../editor/fs-path";
+import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
+import { Disclosure } from "./AgentDisclosure";
 import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
-import { AgentLinkedText } from "./AgentPaneLinks";
+import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { AgentSubagentEntry } from "./AgentSubagentEntry";
+import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
+import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -24,6 +30,20 @@ export function TranscriptEntry(props: {
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
+  if (props.entry.kind === "workflow") {
+    return <AgentWorkflowEntry entry={props.entry} session={props.session} />;
+  }
+  if (props.entry.kind === "subagent") {
+    return (
+      <AgentSubagentEntry
+        entry={props.entry}
+        expandedDetails={props.expandedDetails}
+        onDetailsToggle={props.onDetailsToggle}
+        keyboardRequestKey={props.keyboardRequestKey}
+        session={props.session}
+      />
+    );
+  }
   if (props.entry.kind === "aside") {
     return (
       <AsideEntry
@@ -66,22 +86,50 @@ export function TranscriptEntry(props: {
             <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
           </div>
         </Show>
-        <Show when={props.entry.text !== null}>
-          <Show
-            when={props.entry.kind === "message" && props.entry.tone === "assistant"}
-            fallback={
-              <pre class="agent-entry-text">
-                <AgentLinkedText session={props.session} text={props.entry.text ?? ""} />
-              </pre>
-            }
-          >
-            <AgentMarkdown
-              cacheKey={props.entry}
-              content={props.entry.text ?? ""}
-              renderMermaid={!props.entry.streaming}
-              session={props.session}
-            />
-          </Show>
+        <Show when={entryText(props)}>
+          {(text) => (
+            <Show
+              when={props.entry.kind === "message" && props.entry.tone === "assistant"}
+              fallback={
+                <pre class="agent-entry-text" title={text().path ?? undefined}>
+                  <Show
+                    when={text().path}
+                    fallback={<AgentLinkedText session={props.session} text={text().text} />}
+                  >
+                    {(path) => (
+                      <AgentPathLink session={props.session} path={path()} text={text().text} />
+                    )}
+                  </Show>
+                </pre>
+              }
+            >
+              <AgentMarkdown
+                cacheKey={props.entry}
+                content={props.entry.text ?? ""}
+                renderMermaid={!props.entry.streaming}
+                session={props.session}
+              />
+            </Show>
+          )}
+        </Show>
+        <Show
+          when={
+            props.entry.actionMessage?.type === "approval-requested" &&
+            formattedToolInput(props.entry.actionMessage.text ?? null)
+          }
+        >
+          {(input) => (
+            <Disclosure
+              class="agent-request-details"
+              label={
+                props.expandedDetails.has(`${props.entry.id}:input`) ? "hide input" : "show input"
+              }
+              open={props.expandedDetails.has(`${props.entry.id}:input`)}
+              onToggle={(open) => props.onDetailsToggle(`${props.entry.id}:input`, open)}
+            >
+              <pre class="agent-entry-text">{input()}</pre>
+            </Disclosure>
+          )}
         </Show>
         <AgentMedia message={props.entry.actionMessage} session={props.session} />
         <AgentRichContent message={props.entry.actionMessage} session={props.session} />
@@ -103,6 +151,19 @@ export function TranscriptEntry(props: {
         />
       </div>
     </article>
+  );
+}
+
+// An approval shows the telling part of its tool input, naming files the way the user reads them.
+function entryText(props: {
+  entry: AgentTranscriptEntry;
+  session: ClientSession;
+}): ConciseToolInput | null {
+  if (props.entry.actionMessage?.type !== "approval-requested")
+    return props.entry.text ? { text: props.entry.text, path: null } : null;
+  const { root, home } = fileIndexFor(props.session);
+  return conciseToolInput(props.entry.text, props.entry.summary, (path) =>
+    displayPath(path, root, home),
   );
 }
 

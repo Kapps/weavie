@@ -153,6 +153,23 @@
   color: var(--fg);
 }
 
+/* Running background work (BackgroundStopPrompt.tsx): one line per item, the name truncating before its status. */
+.confirm-background-list li {
+  display: flex;
+  gap: 1em;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+
+.confirm-background-list li > :last-child {
+  color: var(--dim);
+}
+
+.confirm-background-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .confirm-file-more {
   color: var(--dim);
 }

@@ -7,7 +7,13 @@ import { type FixItem, fixLine, fixWith } from "../FixPrompt";
 import type { ThreadPlacement } from "./anchor-map";
 import { PrCommentComposer } from "./PrCommentComposer";
 import { Avatar, CommentItem } from "./PrCommentItem";
-import { type PrComment, type PrUser, sendPrComment } from "./pr-comments-store";
+import {
+  type PrComment,
+  type PrCommentMode,
+  type PrCommentSet,
+  queueActions,
+  sendPrComment,
+} from "./pr-comments-store";
 
 const NOTES = {
   outdated: ["Outdated", "The PR's code has changed since this comment was made."],
@@ -16,8 +22,8 @@ const NOTES = {
 } as const;
 
 /** The reply box's draft identity, shared with whatever prefills it. */
-export const replyDraftKey = (number: number, rootId: number): string =>
-  `reply:${number}:${rootId}`;
+export const replyDraftKey = (number: number, threadId: string): string =>
+  `reply:${number}:${threadId}`;
 
 // A thread longer than this shows its opening comment and latest replies, folding the middle.
 const FOLD_AFTER = 4;
@@ -27,8 +33,7 @@ const FOLD_KEEP_LATEST = 2;
 export function PrThreadCard(props: {
   placement: ThreadPlacement;
   session: ClientSession;
-  number: number;
-  viewer: PrUser;
+  set: PrCommentSet;
   collapsed: boolean;
   onCollapsed: (collapsed: boolean) => void;
   replying: boolean;
@@ -40,26 +45,44 @@ export function PrThreadCard(props: {
   const note = () => (props.placement.note === null ? null : NOTES[props.placement.note]);
   const participants = () => [
     ...new Map(
-      thread().comments.map((c) => [c.author, { login: c.author, avatarUrl: c.avatarUrl }]),
+      thread().comments.map((c) => [c.author, { login: c.author, avatarUrl: c.authorAvatarUrl }]),
     ).values(),
   ];
   const folded = () =>
     unfolded() || thread().comments.length <= FOLD_AFTER
       ? 0
       : thread().comments.length - 1 - FOLD_KEEP_LATEST;
+  const pending = () => thread().comments.filter((comment) => comment.pending).length;
   const ids = (comments: PrComment[]) => comments.map((comment) => comment.id);
+  const actions = () =>
+    queueActions(props.set, async (mode, body) => {
+      const error = await sendPrComment(props.session, "reply", {
+        number: props.set.number,
+        threadId: thread().id,
+        body,
+        mode,
+      });
+      if (error === null) props.onReplying(false);
+      return error;
+    });
   const latest = () => ids(thread().comments.slice(folded() === 0 ? 1 : -FOLD_KEEP_LATEST));
   // Rows are keyed by comment id: each push rebuilds the comment objects, and that must never remount an
   // open edit box or hand it a different comment.
-  const item = (id: number) => (
+  const item = (id: string) => (
     <Show when={thread().comments.find((comment) => comment.id === id)}>
       {(comment) => (
-        <CommentItem comment={comment()} session={props.session} number={props.number} />
+        <CommentItem comment={comment()} session={props.session} number={props.set.number} />
       )}
     </Show>
   );
   return (
-    <div class="weavie-pr-card" classList={{ "weavie-pr-card-collapsed": props.collapsed }}>
+    <div
+      class="weavie-pr-card"
+      classList={{
+        "weavie-pr-card-collapsed": props.collapsed,
+        "weavie-pr-card-pending": pending() === thread().comments.length,
+      }}
+    >
       <Show
         when={!props.collapsed}
         fallback={
@@ -78,6 +101,9 @@ export function PrThreadCard(props: {
             </span>
             <Show when={note()}>
               {(labels) => <span class="weavie-pr-badge">{labels()[0]}</span>}
+            </Show>
+            <Show when={pending() > 0}>
+              <span class="weavie-pr-badge weavie-pr-badge-pending">{pending()} pending</span>
             </Show>
             <span class="weavie-pr-summary-count">
               <MessageSquare size={12} /> {thread().comments.length}
@@ -141,7 +167,7 @@ export function PrThreadCard(props: {
         </Show>
         <For each={latest()}>{item}</For>
         <div class="weavie-pr-card-foot">
-          <Avatar user={props.viewer} />
+          <Avatar user={props.set.viewer} />
           <Show
             when={props.replying}
             fallback={
@@ -156,19 +182,13 @@ export function PrThreadCard(props: {
             }
           >
             <PrCommentComposer
-              draftKey={replyDraftKey(props.number, thread().rootId)}
+              draftKey={replyDraftKey(props.set.number, thread().id)}
               initial=""
               placeholder="Reply…"
-              submitLabel="Reply"
-              onSubmit={async (body) => {
-                const error = await sendPrComment(props.session, "reply", {
-                  number: props.number,
-                  inReplyTo: thread().rootId,
-                  body,
-                });
-                if (error === null) props.onReplying(false);
-                return error;
-              }}
+              submitLabel={actions().submitLabel}
+              onSubmit={actions().onSubmit}
+              alternate={actions().alternate}
+              note={actions().note}
               onCancel={() => props.onReplying(false)}
             />
           </Show>
@@ -182,20 +202,23 @@ export function PrThreadCard(props: {
 export function PrDraftCard(props: {
   draftKey: string;
   line: number;
-  viewer: PrUser;
-  onSubmit: (body: string) => Promise<string | null>;
+  set: PrCommentSet;
+  onSubmit: (mode: PrCommentMode, body: string) => Promise<string | null>;
   onCancel: () => void;
 }): JSX.Element {
+  const actions = () => queueActions(props.set, props.onSubmit);
   return (
     <div class="weavie-pr-card weavie-pr-card-draft">
       <div class="weavie-pr-card-foot">
-        <Avatar user={props.viewer} />
+        <Avatar user={props.set.viewer} />
         <PrCommentComposer
           draftKey={props.draftKey}
           initial=""
           placeholder={`Comment on line ${props.line}…`}
-          submitLabel="Comment"
-          onSubmit={props.onSubmit}
+          submitLabel={actions().submitLabel}
+          onSubmit={actions().onSubmit}
+          alternate={actions().alternate}
+          note={actions().note}
           onCancel={props.onCancel}
         />
       </div>

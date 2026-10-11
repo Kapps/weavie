@@ -1,3 +1,4 @@
+import { subagentCardEntries } from "./AgentPaneSideConversations";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 // Rendered-line metrics behind the size estimate. Prose wraps at the markdown measure
@@ -23,9 +24,12 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return cached;
   }
   const prose = entry.kind === "message" && entry.tone === "assistant";
-  if (entry.kind === "aside") {
-    const size =
-      76 + (entry.asideEntries ?? []).reduce((sum, child) => sum + estimateEntrySize(child), 0);
+  if (entry.kind === "aside" || entry.kind === "subagent") {
+    const children =
+      entry.kind === "subagent"
+        ? subagentCardEntries(entry.asideEntries ?? [])
+        : (entry.asideEntries ?? []);
+    const size = 76 + children.reduce((sum, child) => sum + estimateEntrySize(child), 0);
     estimates.set(entry, size);
     return size;
   }

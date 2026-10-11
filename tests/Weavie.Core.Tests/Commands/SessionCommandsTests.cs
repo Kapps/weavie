@@ -261,7 +261,8 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("forked"));
 		}
 
-		public Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct) =>
+		public Task<CommandResult> RecreateSessionAsync(
+			string? sessionId, string? agentProviderId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct) =>
 			Task.FromResult(CommandResult.Success());
 
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default) {
@@ -272,6 +273,7 @@ public sealed class SessionCommandsTests {
 
 		public Task<CommandResult> UnloadSessionAsync(
 			string? sessionId,
+			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct = default) {
 			UnloadCalled = true;
@@ -286,6 +288,7 @@ public sealed class SessionCommandsTests {
 		public Task<CommandResult> DeleteSessionAsync(
 			string? sessionId,
 			bool force,
+			bool stopBackgroundWork,
 			CommandInvocationContext context,
 			CancellationToken ct = default) {
 			DeleteCalled = true;

@@ -103,21 +103,24 @@ export interface PrSeed {
 // stays offline), a base branch (main) and a head branch with a real multi-file diff. The head branch is
 // pushed then deleted locally, so opening the PR exercises the real fetch-into-a-local-branch path. Returns the
 // working tree plus the canned PR that points at the head branch.
-// One canned review comment for the Open-PR harness, anchored to a line of the head-branch diff.
-export interface CommentSeed {
-  id: number;
+// One canned review thread for the Open-PR harness, anchored to a line of the head-branch diff.
+export interface ThreadSeed {
+  id: string;
   number: number;
   path: string;
   line: number;
   side: "left" | "right";
-  author: string;
-  avatarUrl: string;
-  url: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
   outdated: boolean;
-  inReplyTo: number;
+  comments: {
+    id: string;
+    author: string;
+    avatarUrl: string;
+    url: string;
+    body: string;
+    createdAt: string;
+    updatedAt: string;
+    pending: boolean;
+  }[];
 }
 
 // An offline stand-in for a forge profile photo.
@@ -127,7 +130,7 @@ const avatar = (color: string): string =>
 export async function createPrWorkspace(): Promise<{
   dir: string;
   prs: PrSeed[];
-  comments: CommentSeed[];
+  threads: ThreadSeed[];
   viewer: string;
   viewerAvatarUrl: string;
 }> {
@@ -217,38 +220,48 @@ export async function createPrWorkspace(): Promise<{
         headSha: headSha2,
       },
     ],
-    // A review comment on the changed greeting line of hello.ts (right/head side).
-    comments: [
+    // A review thread on the changed greeting line of hello.ts (right/head side).
+    threads: [
       {
-        id: 1,
+        id: "t1",
         number: 101,
         path: "hello.ts",
         line: 2,
         side: "right",
-        author: "bob",
-        avatarUrl: avatar("#8e44ad"),
-        url: "https://github.com/acme/demo/pull/101#discussion_r1",
-        body: "Why change this greeting?",
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
         outdated: false,
-        inReplyTo: 0,
+        comments: [
+          {
+            id: "c1",
+            author: "bob",
+            avatarUrl: avatar("#8e44ad"),
+            url: "https://github.com/acme/demo/pull/101#discussion_r1",
+            body: "Why change this greeting?",
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+            pending: false,
+          },
+        ],
       },
       // An outdated thread on #102's new file: the PR's code moved on since it was made.
       {
-        id: 2,
+        id: "t2",
         number: 102,
         path: "widget.ts",
         line: 1,
         side: "right",
-        author: "dave",
-        avatarUrl: "",
-        url: "https://github.com/acme/demo/pull/102#discussion_r2",
-        body: "Is 42 the agreed widget size?",
-        createdAt: "2026-01-02T00:00:00Z",
-        updatedAt: "2026-01-02T00:00:00Z",
         outdated: true,
-        inReplyTo: 0,
+        comments: [
+          {
+            id: "c2",
+            author: "dave",
+            avatarUrl: "",
+            url: "https://github.com/acme/demo/pull/102#discussion_r2",
+            body: "Is 42 the agreed widget size?",
+            createdAt: "2026-01-02T00:00:00Z",
+            updatedAt: "2026-01-02T00:00:00Z",
+            pending: false,
+          },
+        ],
       },
     ],
     viewer: "you",

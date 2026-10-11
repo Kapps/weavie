@@ -58,15 +58,23 @@ public interface ISessionHost {
 	/// <summary>Forks the invoking session into a new worktree off its HEAD, carrying a handoff brief.</summary>
 	Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct = default);
 
-	/// <summary>Recreates an explicitly named session with a fresh conversation using the selected provider.</summary>
-	Task<CommandResult> RecreateSessionAsync(string? sessionId, string? agentProviderId, CommandInvocationContext context, CancellationToken ct = default);
+	/// <summary>
+	/// Recreates an explicitly named session with a fresh conversation using the selected provider. Running
+	/// background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
+	/// </summary>
+	Task<CommandResult> RecreateSessionAsync(
+		string? sessionId, string? agentProviderId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct = default);
 
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
 	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
 
-	/// <summary>Unloads the invoking session, or the given <paramref name="sessionId"/>, into a dormant chip while keeping its worktree.</summary>
+	/// <summary>
+	/// Unloads the invoking session, or the given <paramref name="sessionId"/>, into a dormant chip while keeping its
+	/// worktree. Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
+	/// </summary>
 	Task<CommandResult> UnloadSessionAsync(
 		string? sessionId,
+		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct = default);
 
@@ -75,10 +83,12 @@ public interface ISessionHost {
 	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>, and always
 	/// refuses the workspace's own checkout — that session is a catalog invariant. A blank id is
 	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
+	/// Running background work refuses it, listing that work, unless <paramref name="stopBackgroundWork"/>.
 	/// </summary>
 	Task<CommandResult> DeleteSessionAsync(
 		string? sessionId,
 		bool force,
+		bool stopBackgroundWork,
 		CommandInvocationContext context,
 		CancellationToken ct = default);
 

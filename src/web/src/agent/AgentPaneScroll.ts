@@ -149,6 +149,9 @@ export function createAgentPaneScroll(
     return Math.abs(element.scrollTop - previous) >= 1;
   };
 
+  const jumpToIndex = (index: number): void =>
+    assign(() => virtualizer.scrollToIndex(index, { align: "center", behavior: "auto" }), null);
+
   const jumpToLatest = (): boolean => {
     if (followingLatest() && isNearBottom()) {
       return false;
@@ -265,6 +268,7 @@ export function createAgentPaneScroll(
   return {
     agentTurnStartAbove,
     followingLatest,
+    jumpToIndex,
     jumpToLatest,
     jumpToTurn,
     noteControllerScroll,

@@ -192,11 +192,13 @@ public sealed partial class HostCore {
 		string? id = ReadString(args, "id");
 		return message.Id switch {
 			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
-			SessionCommands.RecreateSession => await RecreateSessionAsync(null, id, ReadString(args, "agentProviderId"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+			SessionCommands.RecreateSession => await RecreateSessionAsync(
+				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
 				id,
+				ReadBool(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			SessionCommands.DeleteSession when args is { } deleteArgs
@@ -206,6 +208,7 @@ public sealed partial class HostCore {
 				null,
 				id,
 				ReadBool(args, "force"),
+				ReadBool(args, "stopBackgroundWork"),
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			_ => CommandResult.Failure($"'{message.Id}' is not a host-scoped session command."),

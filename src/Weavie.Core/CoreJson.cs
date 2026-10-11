@@ -27,9 +27,7 @@ internal sealed partial class CoreJson : JsonSerializerContext;
 [JsonSerializable(typeof(SpellLocales))]
 internal sealed partial class PageJson : JsonSerializerContext;
 
-/// <summary>Source-generated contracts for snake_case third-party API request bodies (GitHub, Notion).</summary>
+/// <summary>Source-generated contracts for snake_case third-party API request bodies (Notion).</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(GitHubCommentDraft))]
-[JsonSerializable(typeof(GitHubCommentBody))]
 [JsonSerializable(typeof(NotionContentUpdate))]
 internal sealed partial class ApiJson : JsonSerializerContext;

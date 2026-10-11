@@ -36,7 +36,7 @@ import type {
 import type { NavLocation, TextLocation } from "./nav-history";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
-import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
+import { isFileTab, REVIEW_TAB_KEY, subagentTabPath, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
 
 export type { TabActions } from "./tab-actions";
@@ -152,6 +152,8 @@ export interface EditorController {
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
   openSourceTab(target: string): void;
+  /** Opens one of `session`'s subagents as a read-only, live transcript tab. */
+  openSubagentTab(session: ClientSession, conversationId: string): void;
   /** Focuses the editor (for focus-pane). */
   focusEditor(): void;
   /**
@@ -554,6 +556,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       activateDestinationFor(session, "navigation");
       presentTab(session, openTabFor(session, target, { kind: "source" }));
     }
+  };
+
+  // A subagent tab renders its owner's live transcript over the editor host; it holds no content of its own.
+  const openSubagentTab = (session: ClientSession, conversationId: string): void => {
+    activateDestinationFor(session, "navigation");
+    presentTab(session, openTabFor(session, subagentTabPath(conversationId), { kind: "subagent" }));
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
@@ -1379,6 +1387,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openFileFor(session, path, line, true, false, "reveal"),
     openWebTab,
     openSourceTab,
+    openSubagentTab,
     focusEditor: focusEditorSurface,
     reviseSelection: ({ session, model }, selection) => {
       if (

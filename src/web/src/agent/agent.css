@@ -249,6 +249,13 @@
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
+.editor-subagent {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  padding: 5px 0;
+}
+
 .agent-aside-head small {
   font-size: var(--font-metadata-size);
 }
@@ -314,7 +321,21 @@
   text-transform: lowercase;
 }
 
-.agent-entry-rewind {
+/* A subagent's name keeps its own casing inside the lowercase status. */
+.agent-entry-via {
+  text-transform: none;
+}
+
+/* A card's latest activity, beneath what the card is. */
+.agent-entry-detail {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-entry-rewind,
+.agent-entry-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -323,9 +344,20 @@
   border: 0;
   background: none;
   color: var(--dim);
+  font-family: inherit;
   font-size: var(--font-metadata-size);
   cursor: pointer;
   opacity: 0;
+}
+
+.agent-entry-toggle {
+  margin-left: 0;
+  padding: 0;
+  opacity: 1;
+}
+
+.agent-entry .agent-entry-open {
+  opacity: 1;
 }
 
 .agent-entry:hover .agent-entry-rewind,
@@ -392,6 +424,24 @@ a.agent-entry-media {
   color: var(--fg);
   font: inherit;
   overflow-wrap: break-word;
+}
+
+/* A shortened path ellipsizes its directory before its file name. */
+a:has(> .agent-path-dir) {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.agent-path-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-path-leaf {
+  flex: none;
 }
 
 /* Assistant prose uses the rendered-document role; code follows the editor content role. */
@@ -656,11 +706,18 @@ a.agent-entry-media {
 
 .agent-entry-activity,
 .agent-entry-notice,
-.agent-entry-request {
+.agent-entry-request,
+.agent-entry-subagent,
+.agent-entry-workflow {
   padding: 5px 8px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-left-width: 3px;
   background: color-mix(in srgb, var(--bar) 58%, transparent);
+}
+
+.agent-entry-subagent,
+.agent-entry-workflow {
+  border-left-color: var(--accent);
 }
 
 .agent-entry-activity {
@@ -691,7 +748,9 @@ a.agent-entry-media {
   border-left-color: var(--accent);
 }
 
-.agent-entry-notice.agent-tone-error {
+.agent-entry-notice.agent-tone-error,
+.agent-entry-subagent.agent-tone-error,
+.agent-entry-workflow.agent-tone-error {
   border-left-color: var(--bad);
   background: color-mix(in srgb, var(--bad) 11%, var(--bar));
 }
@@ -1154,6 +1213,11 @@ label.agent-input-choice:hover {
   cursor: pointer;
 }
 
+.agent-approval-actions button {
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+  text-align: left;
+}
+
 .agent-compose button:hover,
 .agent-approval-actions button:hover {
   border-color: var(--accent);
@@ -1166,6 +1230,7 @@ label.agent-input-choice:hover {
 
 .agent-key-chip {
   margin-left: 7px;
+  white-space: nowrap;
   padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
   border-radius: 3px;
@@ -1186,6 +1251,18 @@ label.agent-input-choice:hover {
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
   line-height: 1.4;
+}
+
+/* A card the tray jumped to flashes once so the eye lands on it. */
+.agent-entry-jumped {
+  animation: agent-entry-jumped 1.2s ease-out;
+}
+
+@keyframes agent-entry-jumped {
+  from {
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background-color: color-mix(in srgb, var(--accent) 16%, var(--bar));
+  }
 }
 
 .agent-status-scroll {
@@ -1223,6 +1300,72 @@ label.agent-input-choice:hover {
 
 .agent-status-segment:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.agent-background-tray {
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+
+/* Fade whichever edge has pills scrolled out of view. */
+.agent-background-tray .agent-status-scroll {
+  --fade-left: 0px;
+  --fade-right: 0px;
+  scroll-padding-inline: 1.5em;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-left),
+    #000 calc(100% - var(--fade-right)),
+    transparent
+  );
+}
+
+.agent-background-tray .agent-status-scroll.overflow-left {
+  --fade-left: 1.5em;
+}
+
+.agent-background-tray .agent-status-scroll.overflow-right {
+  --fade-right: 1.5em;
+}
+
+.agent-background-label {
+  flex: 0 0 auto;
+  color: var(--dim);
+}
+
+.agent-background-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-end: 8px;
+}
+
+.agent-background-item .agent-working-spinner {
+  align-self: center;
+}
+
+.agent-background-name {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-background-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-background-item[data-state="failed"] .agent-background-dot {
+  color: var(--bad);
+}
+
+.agent-background-item .agent-status-segment[aria-disabled="true"] {
+  cursor: default;
+}
+
+.agent-background-stop {
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
+  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
 .agent-status-pr {

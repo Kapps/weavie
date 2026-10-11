@@ -58,14 +58,43 @@ function AgentTextPartView(props: {
     );
   }
   return (
+    <FileLink session={props.session} path={part.path} line={part.line}>
+      {part.text}
+    </FileLink>
+  );
+}
+
+/** A shortened path linking to its full one: the directory ellipsizes first, so the file name stays readable. */
+export function AgentPathLink(props: {
+  session: ClientSession | null;
+  path: string;
+  text: string;
+}): JSX.Element {
+  const split = (): number =>
+    Math.max(props.text.lastIndexOf("/"), props.text.lastIndexOf("\\"), 0);
+  return (
+    <FileLink session={props.session} path={props.path} line={undefined}>
+      <span class="agent-path-dir">{props.text.slice(0, split())}</span>
+      <span class="agent-path-leaf">{props.text.slice(split())}</span>
+    </FileLink>
+  );
+}
+
+function FileLink(props: {
+  session: ClientSession | null;
+  path: string;
+  line: number | undefined;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
     <a
-      href={`file://${part.path}`}
+      href={`file://${props.path}`}
       onClick={(event) => {
         event.preventDefault();
-        revealFileIn(props.session, part.path, part.line, false);
+        revealFileIn(props.session, props.path, props.line, false);
       }}
     >
-      {part.text}
+      {props.children}
     </a>
   );
 }

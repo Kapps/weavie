@@ -66,6 +66,7 @@ export interface AgentPaneUpdate {
   anchorTurnId?: string | null;
   turnId?: string | null;
   startedAtMs?: number | null;
+  completedAtMs?: number | null;
   itemId?: string | null;
   requestId?: string | null;
   itemType?: string | null;

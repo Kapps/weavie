@@ -10,3 +10,8 @@ export const matchesTab = (entry: EditorSessionEntry, path: string): boolean =>
   isFileTab(entry) ? samePath(entry.path, path) : entry.path === path;
 export const tabResourceKey = (entry: EditorSessionEntry): string =>
   `${tabKind(entry)}\0${isFileTab(entry) ? normalizePath(entry.path) : entry.path}`;
+
+const subagentPrefix = "subagent:";
+/** The editor tab path of one subagent's transcript. */
+export const subagentTabPath = (conversationId: string): string => subagentPrefix + conversationId;
+export const subagentConversationId = (path: string): string => path.slice(subagentPrefix.length);

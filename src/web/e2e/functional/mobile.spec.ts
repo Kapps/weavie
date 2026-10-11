@@ -1,5 +1,6 @@
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
+import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
 
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
@@ -704,6 +705,50 @@ test("WebM video opens inline in the compact editor", async ({ page }) => {
     .poll(() => video.evaluate((element) => element.readyState))
     .toBeGreaterThanOrEqual(1);
   await expect(page.locator(".editor-media-notice")).toHaveCount(0);
+});
+
+// A pinch zooms the media pane, and a quarter turn enlarges a landscape video to fill the portrait screen.
+test.describe("landscape media", () => {
+  test.use({ workspaceSeed: landscapeMedia });
+
+  test("pinch zooms a video and rotating fills the portrait pane", async ({ page }) => {
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    await page.getByRole("button", { name: "Files" }).click();
+    await page.locator(".browser-row", { hasText: "landscape.webm" }).click();
+    await page
+      .locator('.tool-panel[data-tool="files"]')
+      .getByRole("button", { name: /^Close/ })
+      .click();
+    const pane = page.locator(".editor-media");
+    const video = pane.locator("video");
+    await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
+    const unrotated = (await video.boundingBox())!;
+
+    const box = (await pane.boundingBox())!;
+    const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+    const touch = touchSession(page);
+    const fingers = (spread: number) => [
+      { x: cx - spread, y: cy, id: 1 },
+      { x: cx + spread, y: cy, id: 2 },
+    ];
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(30) });
+    for (const spread of [50, 70, 90]) {
+      await touch.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: fingers(spread),
+      });
+    }
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(async () => (await zoomMatrix(pane)).a).toBeCloseTo(3, 1);
+    await expect(pane.locator(".editor-media-hint")).toContainText("× — drag to pan, 0 resets");
+
+    await pane.getByRole("button", { name: "Rotate 90°" }).click();
+    await expect.poll(async () => (await zoomMatrix(pane)).a).toBeCloseTo(0, 5);
+    const fit = await renderedFit(pane);
+    expect(fit).toMatchObject({ portrait: true, fitsInside: true, fillsAnAxis: true });
+    const rotated = (await video.boundingBox())!;
+    expect(rotated.height).toBeGreaterThan(unrotated.width * 1.2);
+  });
 });
 
 test("compact session inbox creates, resumes, and switches existing surfaces", async ({ page }) => {

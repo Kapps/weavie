@@ -143,6 +143,7 @@ internal interface IMessageFeatureTarget {
 
 internal sealed class MessagePeer {
 	private readonly WebPeer _peer;
+	private bool _connected = true;
 
 	public MessagePeer(MessageBus bus, WebPeer peer) {
 		_peer = peer;
@@ -151,7 +152,12 @@ internal sealed class MessagePeer {
 
 	public MessageTarget Target { get; }
 
+	/// <summary>False from the moment the page disconnects, before any disconnect handler runs.</summary>
+	internal bool IsConnected => Volatile.Read(ref _connected);
+
 	internal bool Is(WebPeer peer) => _peer == peer;
+
+	internal void MarkDisconnected() => Volatile.Write(ref _connected, false);
 }
 
 internal sealed class MessageTarget {

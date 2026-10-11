@@ -97,6 +97,7 @@ public sealed class WorkspaceFileRoutes {
 	/// </summary>
 	public MediaResource? OpenPreviewAsset(string grant, string relativePath) {
 		if (!_previewGrants.TryGetValue(grant, out var owner)
+			|| !owner.Owner.IsConnected
 			|| !_sessions.TryGetValue(owner.Session, out string? root)) {
 			return null;
 		}

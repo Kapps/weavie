@@ -10,6 +10,7 @@ internal partial class MessageBus {
 
 		SettleOutbound(peer, "The bound view disconnected before the request completed.", notifyPeer: false);
 		if (_peers.TryRemove(peer, out var owner)) {
+			owner.MarkDisconnected();
 			RaisePeerDisconnected(owner);
 		}
 	}

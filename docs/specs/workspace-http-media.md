@@ -39,8 +39,8 @@ or bridge. Its relative URLs resolve through an injected `<base>` pointing at `/
   A file outside it, or in a hidden folder, is refused in the pane instead of rendering with broken assets.
 - The route is exempt from the token/cookie gate because an opaque-origin frame can send neither; the grant is
   the only credential, and the page can read it, so no workspace token ever appears in the frame.
-- Each segment is matched against its real on-disk entry: hidden entries (`.git`, `.env`, including via a
-  Windows 8.3 short name), drive/stream syntax, and symlinks return 404.
+- Each segment is matched against its real on-disk entry: hidden entries (dot names like `.git` and `.env`, even via a
+  Windows 8.3 short name, and Windows hidden-attribute files), drive/stream syntax, and symlinks return 404.
 - Responses carry `Content-Security-Policy: sandbox allow-scripts` (a directly opened asset still gets no
   origin) and `Access-Control-Allow-Origin: *` (the null-origin frame loads modules, `fetch`, and fonts in CORS
   mode without credentials).

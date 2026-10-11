@@ -59,7 +59,9 @@ public sealed class WorkspaceFileRoutes {
 
 		string relative = Path.GetRelativePath(root, Path.GetDirectoryName(Path.GetFullPath(htmlPath))!);
 		string[] folders = relative == "." ? [] : relative.Split(Path.DirectorySeparatorChar);
-		if (Path.IsPathRooted(relative) || folders.Any(folder => folder.StartsWith('.'))) {
+		if (Path.IsPathRooted(relative)
+			|| folders.Any(folder => folder.StartsWith('.'))
+			|| folders.Select((_, depth) => new DirectoryInfo(Path.Combine([root, .. folders[..(depth + 1)]]))).Any(IsHidden)) {
 			throw new InvalidOperationException(
 				$"{Path.GetFileName(htmlPath)} is outside this session's workspace or in a hidden folder, so its preview can't load assets.");
 		}
@@ -107,7 +109,7 @@ public sealed class WorkspaceFileRoutes {
 				}
 
 				var entries = new DirectoryInfo(path).EnumerateFileSystemInfos(segment).Take(2).ToArray();
-				if (entries is not [{ LinkTarget: null } entry] || entry.Name.StartsWith('.')) {
+				if (entries is not [{ LinkTarget: null } entry] || IsHidden(entry)) {
 					return null;
 				}
 
@@ -139,6 +141,10 @@ public sealed class WorkspaceFileRoutes {
 	}
 
 	private sealed record PreviewOwner(string Session, MessagePeer Owner);
+
+	// Dot names are hidden on Unix; Windows hides by attribute, so a dot-free file can still be hidden there.
+	private static bool IsHidden(FileSystemInfo entry) =>
+		entry.Name.StartsWith('.') || entry.Exists && entry.Attributes.HasFlag(FileAttributes.Hidden);
 
 	private static bool IsFileFailure(Exception ex) =>
 		ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException;

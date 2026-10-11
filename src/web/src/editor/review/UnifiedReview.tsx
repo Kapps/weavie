@@ -415,7 +415,7 @@ export function UnifiedReview(props: {
 
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
-      <UnifiedReviewHeader overview={props.overview} />
+      <UnifiedReviewHeader overview={props.overview} session={props.session} />
       <Show when={pickerAnchor()}>
         {(anchor) => (
           <ReviewFileSwitcher

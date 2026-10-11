@@ -1,25 +1,9 @@
 namespace Weavie.Core.Review;
 
-/// <summary>
-/// One review comment anchored to a line of a PR's diff. Forge-neutral. <see cref="Side"/> is <c>"right"</c>
-/// (the head/added side — the common case) or <c>"left"</c> (the base side); <see cref="InReplyTo"/> is the id
-/// of the comment this replies to, or 0 for a top-level thread.
-/// </summary>
+/// <summary>One comment in a PR review thread. Forge-neutral; the thread owns where it anchors.</summary>
 public sealed record ReviewComment {
-	/// <summary>The comment's id (unique within the repo); the reply target.</summary>
-	public required long Id { get; init; }
-
-	/// <summary>The repository-relative file path the comment is on.</summary>
-	public required string Path { get; init; }
-
-	/// <summary>The 1-based line in the file the comment anchors to (on <see cref="Side"/>); 0 when <see cref="Outdated"/>.</summary>
-	public required int Line { get; init; }
-
-	/// <summary>True when the forge says the anchor no longer exists in the PR's current diff.</summary>
-	public required bool Outdated { get; init; }
-
-	/// <summary>Which side of the diff the line is on: <c>"right"</c> (head) or <c>"left"</c> (base).</summary>
-	public required string Side { get; init; }
+	/// <summary>The forge's opaque id for the comment: the edit and discard target.</summary>
+	public required string Id { get; init; }
 
 	/// <summary>The comment author's login.</summary>
 	public required string Author { get; init; }
@@ -39,11 +23,14 @@ public sealed record ReviewComment {
 	/// <summary>ISO-8601 last-edit timestamp, as the forge returns it.</summary>
 	public required string UpdatedAt { get; init; }
 
-	/// <summary>The id of the comment this replies to, or 0 for a top-level comment.</summary>
-	public required long InReplyTo { get; init; }
+	/// <summary>True for a draft in the viewer's pending review, visible only to them until it's submitted.</summary>
+	public required bool Pending { get; init; }
+
+	/// <summary>True when the authenticated viewer wrote the comment.</summary>
+	public required bool Mine { get; init; }
 }
 
-/// <summary>A new top-level review comment on a PR-head line (the host supplies the commit id).</summary>
+/// <summary>A new top-level review comment on a PR-head line.</summary>
 public sealed record NewReviewComment {
 	/// <summary>The repository-relative file path to comment on.</summary>
 	public required string Path { get; init; }

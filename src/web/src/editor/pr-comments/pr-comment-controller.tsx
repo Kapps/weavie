@@ -24,6 +24,7 @@ import { createZoneCards, type ZoneCard } from "../zone-cards";
 import { type AnchorMap, createAnchorMap, type ThreadPlacement, threadFixItem } from "./anchor-map";
 import { PrDraftCard, PrThreadCard } from "./PrThreadCard";
 import {
+  type PrCommentMode,
   type PrSources,
   prCommentsFor,
   prCommentsVisible,
@@ -133,22 +134,22 @@ export function createPrComments(
         ]);
       setDrafting(line !== null);
     };
-    const [replying, setReplying] = createSignal<ReadonlySet<number>>(new Set());
+    const [replying, setReplying] = createSignal<ReadonlySet<string>>(new Set());
     // Outdated threads start collapsed; the user's own collapse/expand wins from then on.
-    const [collapsedByUser, setCollapsedByUser] = createSignal<ReadonlyMap<number, boolean>>(
+    const [collapsedByUser, setCollapsedByUser] = createSignal<ReadonlyMap<string, boolean>>(
       new Map(),
     );
     const collapsed = (placement: ThreadPlacement): boolean =>
-      collapsedByUser().get(placement.thread.rootId) ?? placement.note === "outdated";
-    const collapse = (rootId: number, value: boolean): void => {
-      setCollapsedByUser((current) => new Map(current).set(rootId, value));
+      collapsedByUser().get(placement.thread.id) ?? placement.note === "outdated";
+    const collapse = (id: string, value: boolean): void => {
+      setCollapsedByUser((current) => new Map(current).set(id, value));
     };
-    const reply = (rootId: number, open: boolean): void => {
-      if (open) collapse(rootId, false);
+    const reply = (id: string, open: boolean): void => {
+      if (open) collapse(id, false);
       setReplying((current) => {
         const next = new Set(current);
-        if (open) next.add(rootId);
-        else next.delete(rootId);
+        if (open) next.add(id);
+        else next.delete(id);
         return next;
       });
     };
@@ -156,7 +157,7 @@ export function createPrComments(
       const map = anchors()?.map;
       const placed = map === undefined ? [] : threads().map((thread) => map.place(thread));
       const result: ZoneCard<Card>[] = placed.map((placement) => ({
-        key: `thread:${placement.thread.rootId}`,
+        key: `thread:${placement.thread.id}`,
         afterLine: placement.afterLine,
         data: { kind: "thread", placement },
       }));
@@ -173,7 +174,7 @@ export function createPrComments(
       }
     });
 
-    const submitDraft = async (body: string): Promise<string | null> => {
+    const submitDraft = async (mode: PrCommentMode, body: string): Promise<string | null> => {
       const current = set();
       const line = draft();
       const mapped = anchors();
@@ -187,6 +188,7 @@ export function createPrComments(
         path,
         line: headLine,
         body,
+        mode,
       });
       if (error === null) setDraft(null);
       return error;
@@ -212,29 +214,32 @@ export function createPrComments(
         const current = card();
         if (current.kind === "draft") {
           return (
-            <PrDraftCard
-              draftKey={`new:${set()?.number}:${path}:${current.line}`}
-              line={(card() as Extract<Card, { kind: "draft" }>).line}
-              viewer={set()?.viewer ?? { login: "", avatarUrl: "" }}
-              onSubmit={submitDraft}
-              onCancel={() => setDraft(null)}
-            />
+            <Show when={set()}>
+              {(active) => (
+                <PrDraftCard
+                  draftKey={`new:${active().number}:${path}:${current.line}`}
+                  line={(card() as Extract<Card, { kind: "draft" }>).line}
+                  set={active()}
+                  onSubmit={submitDraft}
+                  onCancel={() => setDraft(null)}
+                />
+              )}
+            </Show>
           );
         }
         const placement = () => (card() as Extract<Card, { kind: "thread" }>).placement;
-        const rootId = placement().thread.rootId;
+        const id = placement().thread.id;
         return (
           <Show when={set()}>
             {(active) => (
               <PrThreadCard
                 placement={placement()}
                 session={session}
-                number={active().number}
-                viewer={active().viewer}
+                set={active()}
                 collapsed={collapsed(placement())}
-                onCollapsed={(value) => collapse(rootId, value)}
-                replying={replying().has(rootId)}
-                onReplying={(open) => reply(rootId, open)}
+                onCollapsed={(value) => collapse(id, value)}
+                replying={replying().has(id)}
+                onReplying={(open) => reply(id, open)}
                 fix={() => fixItem(placement())}
               />
             )}
@@ -255,7 +260,7 @@ export function createPrComments(
       showPrComments();
       const thread = cards().find((card) => card.data.kind === "thread" && card.afterLine === line);
       if (thread?.data.kind === "thread") {
-        reply(thread.data.placement.thread.rootId, true);
+        reply(thread.data.placement.thread.id, true);
         return true;
       }
       const map = anchors()?.map;

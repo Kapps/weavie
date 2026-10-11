@@ -243,7 +243,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
       prsPath,
       JSON.stringify({
         prs: pr.prs,
-        comments: pr.comments,
+        threads: pr.threads,
         viewer: pr.viewer,
         viewerAvatarUrl: pr.viewerAvatarUrl,
       }),

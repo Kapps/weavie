@@ -2,21 +2,46 @@ import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 
-interface ComposerHandle {
-  submit(): void;
-  cancel(): void;
+/** What the comment-box commands do to the focused box. */
+export interface ComposerHandle {
+  submit: () => void;
+  /** The box's second way to send; null when it has none, so the command passes the key on. */
+  alternate: (() => void) | null;
+  cancel: () => void;
 }
 
 // The composer holding focus, so the submit/cancel commands act on exactly the box being typed in.
 let focused: ComposerHandle | null = null;
+
+/** Focus handlers that make `handle` the target of the comment-box commands while its input holds focus. */
+export function composerFocus(handle: ComposerHandle): { onFocus: () => void; onBlur: () => void } {
+  onCleanup(() => {
+    if (focused === handle) focused = null;
+  });
+  return {
+    onFocus: () => {
+      focused = handle;
+    },
+    onBlur: () => {
+      if (focused === handle) focused = null;
+    },
+  };
+}
+
+/** A composer's second way to send, beside its primary one (e.g. post now instead of queueing). */
+export interface ComposerAlternate {
+  label: string;
+  onSubmit: (body: string) => Promise<string | null>;
+}
 
 // Unsent text per comment box, so cancelling (or a stray Escape) never throws away what was typed.
 const drafts = new Map<string, string>();
 
 /** Runs the focused composer's submit (or cancel); false when no comment box has focus. */
 export function actOnFocusedComposer(action: keyof ComposerHandle): boolean {
-  if (focused === null) return false;
-  focused[action]();
+  const run = focused?.[action] ?? null;
+  if (run === null) return false;
+  run();
   return true;
 }
 
@@ -30,6 +55,9 @@ export function PrCommentComposer(props: {
   placeholder: string;
   submitLabel: string;
   onSubmit: (body: string) => Promise<string | null>;
+  alternate: ComposerAlternate | null;
+  /** Context beside the actions, e.g. how many comments the pending review holds. */
+  note: string;
   onCancel: () => void;
 }): JSX.Element {
   const [error, setError] = createSignal<string | null>(null);
@@ -40,18 +68,26 @@ export function PrCommentComposer(props: {
     input.style.height = "auto";
     input.style.height = `${input.scrollHeight}px`;
   };
-  const submit = async (): Promise<void> => {
+  const send = async (action: (body: string) => Promise<string | null>): Promise<void> => {
     const body = text().trim();
     if (body === "" || busy()) return;
     setBusy(true);
     setError(null);
-    const failure = await props.onSubmit(body);
+    const failure = await action(body);
     setBusy(false);
     setError(failure === null ? null : sentence(failure));
     if (failure === null) drafts.delete(props.draftKey);
     else input.focus({ preventScroll: true });
   };
-  const handle: ComposerHandle = { submit: () => void submit(), cancel: () => props.onCancel() };
+  const handle: ComposerHandle = {
+    submit: () => void send(props.onSubmit),
+    get alternate() {
+      const alternate = props.alternate;
+      return alternate === null ? null : () => void send(alternate.onSubmit);
+    },
+    cancel: () => props.onCancel(),
+  };
+  const focus = composerFocus(handle);
   onMount(() => {
     grow();
     // A frame later, after a launching palette restores its prior focus; never over a caret the user already
@@ -61,9 +97,6 @@ export function PrCommentComposer(props: {
       input.focus({ preventScroll: true });
       input.setSelectionRange(input.value.length, input.value.length);
     });
-  });
-  onCleanup(() => {
-    if (focused === handle) focused = null;
   });
   return (
     <div class="weavie-pr-composer">
@@ -81,17 +114,16 @@ export function PrCommentComposer(props: {
           else drafts.set(props.draftKey, input.value);
           grow();
         }}
-        onFocus={() => {
-          focused = handle;
-        }}
-        onBlur={() => {
-          if (focused === handle) focused = null;
-        }}
+        onFocus={focus.onFocus}
+        onBlur={focus.onBlur}
       />
       <Show when={error()}>
         {(message) => <div class="weavie-pr-composer-error">{message()}</div>}
       </Show>
       <div class="weavie-pr-composer-actions">
+        <Show when={props.note !== ""}>
+          <span class="weavie-pr-composer-note">{props.note}</span>
+        </Show>
         <button
           type="button"
           class="weavie-pr-button"
@@ -100,12 +132,25 @@ export function PrCommentComposer(props: {
         >
           Cancel
         </button>
+        <Show when={props.alternate}>
+          {(alternate) => (
+            <button
+              type="button"
+              class="weavie-pr-button"
+              disabled={busy() || text().trim() === ""}
+              title={`${alternate().label}${keyHint(CommandIds.prPostCommentNow)}`}
+              onClick={() => void send(alternate().onSubmit)}
+            >
+              {alternate().label}
+            </button>
+          )}
+        </Show>
         <button
           type="button"
           class="weavie-pr-button weavie-pr-button-primary"
           disabled={busy() || text().trim() === ""}
           title={`${props.submitLabel}${keyHint(CommandIds.prSubmitComment)}`}
-          onClick={() => void submit()}
+          onClick={() => handle.submit()}
         >
           {busy() ? "Saving…" : props.submitLabel}
         </button>

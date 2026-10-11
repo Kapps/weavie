@@ -2,7 +2,7 @@ import { createEffect, createMemo, createRoot, createSignal, onCleanup } from "s
 import { selectedSession } from "../../bridge";
 import { prCommentsFor } from "./pr-comments-store";
 
-// Unchanged polls are conditional requests the forge answers 304, so they cost no rate limit.
+// Each poll is one point of the viewer's GitHub GraphQL budget (5,000/hour), so only the visible session polls.
 const REFRESH_MS = 60_000;
 
 /**

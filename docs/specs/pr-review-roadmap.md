@@ -5,7 +5,8 @@ follow local edits) but looks and feels worse. This roadmap splits the fix into 
 own session, branch, and PR. Reviews stay **for humans**: agent output informs the reviewer and never speaks in
 their voice.
 
-> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024). Next: 7 then 8. Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
+> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024); 8 in review
+> ([pr-review-finish.md](pr-review-finish.md)). Next: 7. Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
 > [incremental-review-persistence.md](incremental-review-persistence.md), [open-pr.md](open-pr.md), and
 > [pr-comments.md](pr-comments.md).
 

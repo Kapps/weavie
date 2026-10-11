@@ -3,7 +3,7 @@ import { createAnchorMap, threadFixItem } from "./anchor-map";
 import type { PrThread } from "./pr-comments-store";
 
 const thread = (line: number, side: "right" | "left" = "right", outdated = false): PrThread => ({
-  rootId: 1,
+  id: "t1",
   path: "/w/a.ts",
   line,
   side,

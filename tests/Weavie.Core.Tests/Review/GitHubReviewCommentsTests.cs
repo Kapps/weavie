@@ -5,41 +5,116 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The comment half of <see cref="GitHubReviewProvider"/>: parsing, pagination, edit, and the viewer.</summary>
+/// <summary>The review half of <see cref="GitHubReviewProvider"/>: the GraphQL read, its paging, and the writes.</summary>
 public sealed class GitHubReviewCommentsTests {
 	private static readonly RepoRef Repo = new("github.com", "Kapps", "weavie");
 
 	[Fact]
-	public void ParseComments_MapsFieldsAndFlagsNullLinesOutdated() {
-		var comments = GitHubReviewProvider.ParseComments("""
-		[
-		  { "id": 5, "path": "src/a.ts", "line": 12, "original_line": 9, "side": "RIGHT", "user": { "login": "bob", "avatar_url": "https://avatars.githubusercontent.com/u/1" },
-		    "html_url": "https://github.com/Kapps/weavie/pull/7#discussion_r5", "body": "why?", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-03T00:00:00Z", "in_reply_to_id": null },
-		  { "id": 6, "path": "src/a.ts", "line": null, "original_line": 4, "side": "LEFT", "user": { "login": "ann" },
-		    "body": "reply", "created_at": "2026-01-02T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z", "in_reply_to_id": 5 }
-		]
-		""");
+	public async Task LoadAsync_ReadsThreadsDraftsAndTheViewersPendingReview() {
+		var handler = new ScriptedHandler(Ok(Page(
+			"""
+			{ "id": "PRRT_1", "path": "src/a.ts", "line": 12, "diffSide": "RIGHT", "isOutdated": false,
+			  "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
+			    { "id": "PRRC_1", "body": "why?", "state": "SUBMITTED", "viewerDidAuthor": false, "createdAt": "2026-01-01T00:00:00Z",
+			      "updatedAt": "2026-01-03T00:00:00Z", "url": "https://github.com/Kapps/weavie/pull/7#discussion_r1",
+			      "author": { "login": "bob", "avatarUrl": "https://a/bob" } },
+			    { "id": "PRRC_2", "body": "because", "state": "PENDING", "viewerDidAuthor": true, "createdAt": "2026-01-02T00:00:00Z",
+			      "updatedAt": "2026-01-02T00:00:00Z", "url": "", "author": null } ] } },
+			{ "id": "PRRT_2", "path": "src/b.ts", "line": null, "diffSide": "LEFT", "isOutdated": true,
+			  "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] } }
+			""",
+			hasNextPage: false)));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
 
+		var review = await provider.LoadAsync(Repo, 7);
+
+		Assert.Equal("https://api.github.com/graphql", Assert.Single(handler.Requests).Uri);
+		using var request = JsonDocument.Parse(handler.Requests[0].Body!);
+		Assert.Equal(7, request.RootElement.GetProperty("variables").GetProperty("number").GetInt32());
+		Assert.Equal("PR_7", review.PullRequestId);
+		Assert.Equal(new ForgeUser("Kapps", "https://a/k"), review.Viewer);
+		Assert.True(review.ViewerIsAuthor);
+		Assert.Equal(new PendingReview("PRR_mine", "draft summary"), review.Pending);
+		var thread = review.Threads[0];
+		Assert.Equal(("PRRT_1", "src/a.ts", 12, "right", false), (thread.Id, thread.Path, thread.Line, thread.Side, thread.Outdated));
 		Assert.Equal(
 			new ReviewComment {
-				Id = 5,
-				Path = "src/a.ts",
-				Line = 12,
-				Outdated = false,
-				Side = "right",
+				Id = "PRRC_1",
 				Author = "bob",
-				AuthorAvatarUrl = "https://avatars.githubusercontent.com/u/1",
-				Url = "https://github.com/Kapps/weavie/pull/7#discussion_r5",
+				AuthorAvatarUrl = "https://a/bob",
+				Url = "https://github.com/Kapps/weavie/pull/7#discussion_r1",
 				Body = "why?",
 				CreatedAt = "2026-01-01T00:00:00Z",
 				UpdatedAt = "2026-01-03T00:00:00Z",
-				InReplyTo = 0,
+				Pending = false,
+				Mine = false,
 			},
-			comments[0]);
-		Assert.True(comments[1].Outdated);
-		Assert.Equal(0, comments[1].Line);
-		Assert.Equal("left", comments[1].Side);
-		Assert.Equal(5, comments[1].InReplyTo);
+			thread.Comments[0]);
+		Assert.Equal(("ghost", true, true), (thread.Comments[1].Author, thread.Comments[1].Pending, thread.Comments[1].Mine));
+		Assert.Equal((0, "left", true), (review.Threads[1].Line, review.Threads[1].Side, review.Threads[1].Outdated));
+	}
+
+	[Fact]
+	public async Task LoadAsync_FollowsTheThreadCursorAndPagesALongThreadsComments() {
+		var handler = new ScriptedHandler(
+			Ok(Page(Thread("PRRT_1", hasMoreComments: true), hasNextPage: true)),
+			Ok("""{ "data": { "node": { "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [""" + Comment("late") + "] } } } }"),
+			Ok(Page(Thread("PRRT_2", hasMoreComments: false), hasNextPage: false)));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		var review = await provider.LoadAsync(Repo, 7);
+
+		Assert.Equal(["PRRT_1", "PRRT_2"], review.Threads.Select(t => t.Id));
+		Assert.Equal(["PRRT_1-c", "late"], review.Threads[0].Comments.Select(c => c.Id));
+		Assert.Equal("cursor-PRRT_1", Variables(handler, 1).GetProperty("after").GetString());
+		Assert.Equal("cursor-page", Variables(handler, 2).GetProperty("after").GetString());
+	}
+
+	[Fact]
+	public async Task GraphQlErrors_SurfaceGitHubsMessageEvenOnA200() {
+		var handler = new ScriptedHandler(
+			Ok("""{ "data": { "submitPullRequestReview": null }, "errors": [{ "type": "UNPROCESSABLE", "message": "Can not approve your own pull request" }] }"""),
+			Ok("""{ "data": { "addPullRequestReview": null }, "errors": [{ "type": "UNPROCESSABLE", "message": "" }] }"""));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		var own = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.SubmitReviewAsync(Repo, "PRR_1", ReviewVerdict.Approve, ""));
+		var silent = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			provider.CreateReviewAsync(Repo, "PR_7", "abc", ReviewVerdict.Comment, "", []));
+
+		Assert.Equal("GitHub refused the request: Can not approve your own pull request", own.Message);
+		Assert.Equal("GitHub refused the request (UNPROCESSABLE) without saying why.", silent.Message);
+	}
+
+	[Fact]
+	public async Task CreateReviewAsync_LeavesAReviewWithoutAVerdictPending() {
+		var handler = new ScriptedHandler(
+			Ok("""{ "data": { "addPullRequestReview": { "pullRequestReview": { "id": "PRR_new" } } } }"""),
+			Ok("""{ "data": { "addPullRequestReview": { "pullRequestReview": { "id": "PRR_done" } } } }"""));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+		var draft = new NewReviewComment { Path = "a.ts", Line = 3, Body = "hi" };
+
+		Assert.Equal("PRR_new", await provider.CreateReviewAsync(Repo, "PR_7", "abc", null, "", [draft]));
+		Assert.Equal("PRR_done", await provider.CreateReviewAsync(Repo, "PR_7", "abc", ReviewVerdict.RequestChanges, "fix it", []));
+
+		var pending = Variables(handler, 0).GetProperty("input");
+		Assert.False(pending.TryGetProperty("event", out _));
+		Assert.Equal("abc", pending.GetProperty("commitOID").GetString());
+		Assert.Equal("""{"path":"a.ts","line":3,"side":"RIGHT","body":"hi"}""", pending.GetProperty("threads")[0].GetRawText());
+		Assert.Equal("REQUEST_CHANGES", Variables(handler, 1).GetProperty("input").GetProperty("event").GetString());
+	}
+
+	[Fact]
+	public async Task ReplyAsync_NamesThePendingReviewOnlyWhenQueued() {
+		var handler = new ScriptedHandler(
+			Ok("""{ "data": { "addPullRequestReviewThreadReply": { "comment": { "id": "c" } } } }"""),
+			Ok("""{ "data": { "addPullRequestReviewThreadReply": { "comment": { "id": "c" } } } }"""));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		await provider.ReplyAsync(Repo, "PRRT_1", "PRR_1", "queued");
+		await provider.ReplyAsync(Repo, "PRRT_1", null, "now");
+
+		Assert.Equal("PRR_1", Variables(handler, 0).GetProperty("input").GetProperty("pullRequestReviewId").GetString());
+		Assert.Equal(JsonValueKind.Null, Variables(handler, 1).GetProperty("input").GetProperty("pullRequestReviewId").ValueKind);
 	}
 
 	[Fact]
@@ -50,96 +125,38 @@ public sealed class GitHubReviewCommentsTests {
 	}
 
 	[Fact]
-	public async Task ListAsync_FollowsEveryNextPage() {
-		const string next = "https://api.github.com/repositories/1/pulls/7/comments?per_page=100&page=2";
-		var handler = new ScriptedHandler(
-			new Reply(HttpStatusCode.OK, Comment(1), $"<{next}>; rel=\"next\", <{next}>; rel=\"last\""),
-			new Reply(HttpStatusCode.OK, Comment(2), null));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+	public void GraphQlUrl_UsesEnterprisesApiPath() =>
+		Assert.Equal("https://git.corp.example/api/graphql", GitHubReviewProvider.GraphQlUrl("git.corp.example"));
 
-		var comments = await provider.ListAsync(Repo, 7);
+	private static Reply Ok(string body) => new(HttpStatusCode.OK, body);
 
-		Assert.Equal([1L, 2L], comments.Select(c => c.Id));
-		Assert.Equal(
-			["https://api.github.com/repos/Kapps/weavie/pulls/7/comments?per_page=100", next],
-			handler.Requests.Select(r => r.Uri));
-	}
+	private static JsonElement Variables(ScriptedHandler handler, int request) =>
+		JsonDocument.Parse(handler.Requests[request].Body!).RootElement.GetProperty("variables").Clone();
 
-	[Fact]
-	public async Task ListAsync_RefusesANextPageOffTheApiHost() {
-		var handler = new ScriptedHandler(
-			new Reply(HttpStatusCode.OK, Comment(1), "<https://evil.example/steal>; rel=\"next\""));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+	private static string Page(string threads, bool hasNextPage) => $$"""
+		{ "data": { "viewer": { "login": "Kapps", "avatarUrl": "https://a/k" }, "repository": { "pullRequest": {
+		  "id": "PR_7", "viewerDidAuthor": true,
+		  "reviews": { "nodes": [
+		    { "id": "PRR_other", "body": "", "viewerDidAuthor": false },
+		    { "id": "PRR_mine", "body": "draft summary", "viewerDidAuthor": true } ] },
+		  "reviewThreads": { "pageInfo": { "hasNextPage": {{(hasNextPage ? "true" : "false")}}, "endCursor": "cursor-page" },
+		    "nodes": [{{threads}}] } } } } }
+		""";
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() => provider.ListAsync(Repo, 7));
-		Assert.Single(handler.Requests);
-	}
+	private static string Thread(string id, bool hasMoreComments) => $$"""
+		{ "id": "{{id}}", "path": "a.ts", "line": 1, "diffSide": "RIGHT", "isOutdated": false,
+		  "comments": { "pageInfo": { "hasNextPage": {{(hasMoreComments ? "true" : "false")}}, "endCursor": "cursor-{{id}}" },
+		    "nodes": [{{Comment(id + "-c")}}] } }
+		""";
 
-	[Fact]
-	public async Task EditAsync_PatchesTheCommentBody() {
-		var handler = new ScriptedHandler(new Reply(HttpStatusCode.OK, Comment(9)[1..^1], null));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+	private static string Comment(string id) => $$"""
+		{ "id": "{{id}}", "body": "b", "state": "SUBMITTED", "viewerDidAuthor": false, "createdAt": "", "updatedAt": "", "url": "",
+		  "author": { "login": "bob", "avatarUrl": "" } }
+		""";
 
-		var edited = await provider.EditAsync(Repo, 9, "better");
+	private sealed record Reply(HttpStatusCode Status, string Body);
 
-		var request = Assert.Single(handler.Requests);
-		Assert.Equal("PATCH", request.Method);
-		Assert.Equal("https://api.github.com/repos/Kapps/weavie/pulls/comments/9", request.Uri);
-		Assert.Equal("""{"body":"better"}""", request.Body);
-		Assert.Equal(9, edited.Id);
-	}
-
-	[Fact]
-	public async Task ViewerAsync_AsksOnceAndCaches() {
-		var handler = new ScriptedHandler(new Reply(HttpStatusCode.OK, """{ "login": "Kapps", "avatar_url": "https://a/k" }""", null));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
-
-		Assert.Equal(new ForgeUser("Kapps", "https://a/k"), await provider.ViewerAsync(Repo));
-		Assert.Equal(new ForgeUser("Kapps", "https://a/k"), await provider.ViewerAsync(Repo));
-		Assert.Equal("https://api.github.com/user", Assert.Single(handler.Requests).Uri);
-	}
-
-	[Fact]
-	public async Task AddAsync_SurfacesTheForgeValidationMessage() {
-		var handler = new ScriptedHandler(new Reply(
-			HttpStatusCode.UnprocessableEntity,
-			"""{ "message": "Validation Failed", "errors": ["line must be part of the diff"] }""",
-			null));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
-
-		var error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.AddAsync(
-			Repo, 7, new string('a', 40), new NewReviewComment { Path = "a.ts", Line = 3, Body = "hi" }));
-
-		Assert.Contains("422", error.Message, StringComparison.Ordinal);
-		Assert.Contains("Validation Failed — line must be part of the diff", error.Message, StringComparison.Ordinal);
-		Assert.Contains("\"side\":\"RIGHT\"", handler.Requests[0].Body, StringComparison.Ordinal);
-	}
-
-	[Fact]
-	public async Task ListAsync_ReasksEachPageConditionallyAndReusesItOn304() {
-		var handler = new ScriptedHandler(
-			new Reply(HttpStatusCode.OK, Comment(1), null) { ETag = "\"v1\"" },
-			new Reply(HttpStatusCode.NotModified, string.Empty, null));
-		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
-
-		var first = await provider.ListAsync(Repo, 7);
-		var second = await provider.ListAsync(Repo, 7);
-
-		Assert.Equal(first, second);
-		Assert.Null(handler.Requests[0].IfNoneMatch);
-		Assert.Equal("\"v1\"", handler.Requests[1].IfNoneMatch);
-	}
-
-	private static string Comment(long id) =>
-		$$"""[{ "id": {{id}}, "path": "a.ts", "line": 1, "side": "RIGHT", "user": { "login": "bob" }, "body": "b" }]""";
-
-	private sealed record Reply(HttpStatusCode Status, string Body, string? Link) {
-		public string? ETag { get; init; }
-	}
-
-	private sealed record Recorded(string Method, string Uri, string? Body) {
-		public string? IfNoneMatch { get; init; }
-	}
+	private sealed record Recorded(string Method, string Uri, string? Body);
 
 	private sealed class TokenSource : IGitHubTokenSource {
 		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>("token");
@@ -152,19 +169,9 @@ public sealed class GitHubReviewCommentsTests {
 
 		protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
 			string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
-			Requests.Add(new Recorded(request.Method.Method, request.RequestUri?.AbsoluteUri ?? string.Empty, body) {
-				IfNoneMatch = request.Headers.IfNoneMatch.FirstOrDefault()?.ToString(),
-			});
+			Requests.Add(new Recorded(request.Method.Method, request.RequestUri?.AbsoluteUri ?? string.Empty, body));
 			var reply = _replies.Dequeue();
 			var response = new HttpResponseMessage(reply.Status) { Content = new StringContent(reply.Body) };
-			if (reply.Link is not null) {
-				response.Headers.Add("Link", reply.Link);
-			}
-
-			if (reply.ETag is not null) {
-				response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(reply.ETag);
-			}
-
 			return response;
 		}
 	}

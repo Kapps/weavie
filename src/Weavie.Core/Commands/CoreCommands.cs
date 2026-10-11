@@ -315,8 +315,17 @@ public static partial class CoreCommands {
 	/// <summary>Opens a comment box on the cursor's line of a file the session's PR changes; bound to <c>$mod+alt+c</c>.</summary>
 	public const string PullRequestComment = "weavie.pullRequest.comment";
 
-	/// <summary>Posts the focused PR comment box; bound to <c>$mod+Enter</c> while it has focus.</summary>
+	/// <summary>Adds the focused PR comment box to the pending review (or saves an edit); bound to <c>$mod+Enter</c> while it has focus.</summary>
 	public const string PullRequestSubmitComment = "weavie.pullRequest.submitComment";
+
+	/// <summary>Posts the focused PR comment box immediately, outside any review; unbound by default.</summary>
+	public const string PullRequestPostCommentNow = "weavie.pullRequest.postCommentNow";
+
+	/// <summary>Opens the panel that submits the session's PR review as Comment, Approve, or Request changes.</summary>
+	public const string PullRequestFinishReview = "weavie.pullRequest.finishReview";
+
+	/// <summary>Deletes the viewer's pending PR review and its drafts, after confirming.</summary>
+	public const string PullRequestDiscardReview = "weavie.pullRequest.discardReview";
 
 	/// <summary>Closes the focused PR comment box, keeping its draft; bound to <c>Escape</c> while it has focus.</summary>
 	public const string PullRequestCancelComment = "weavie.pullRequest.cancelComment";
@@ -1748,10 +1757,41 @@ public static partial class CoreCommands {
 			Title = "Submit Comment",
 			RunsIn = CommandLocation.Web,
 			Category = "Pull Request",
-			Description = "Post the focused pull request comment, reply, or edit.",
-			Aliases = ["submit comment", "post comment", "send comment", "save comment"],
+			Description = "Add the focused pull request comment or reply to your pending review, save an edit, or submit the review summary.",
+			Aliases = ["submit comment", "add to review", "start review", "save comment"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "prCommentFocused" }],
 			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestPostCommentNow,
+			Title = "Comment Now",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Post the focused pull request comment or reply immediately instead of adding it to a review.",
+			Aliases = ["comment now", "post comment", "single comment", "send comment"],
+			When = "prCommentFocused && !prReviewPending",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestFinishReview,
+			Title = "Finish Review…",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Submit your pull request review with a summary, as Comment, Approve, or Request changes.",
+			Aliases = ["submit review", "approve", "request changes", "finish review", "pending review"],
+			When = "prReviewable",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PullRequestDiscardReview,
+			Title = "Discard Pending Review",
+			RunsIn = CommandLocation.Web,
+			Category = "Pull Request",
+			Description = "Delete your pending pull request review and every comment in it, after confirming.",
+			Aliases = ["discard review", "delete pending review", "cancel review"],
+			When = "prReviewPending",
 		});
 
 		registry.Register(new CommandDefinition {

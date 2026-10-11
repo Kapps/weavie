@@ -2,7 +2,8 @@
 
 A session whose branch has a pull request shows that PR's review threads inline in the editor — in the plain
 editor, the applied review diff, and the unified review alike — whether or not the PR was opened with
-**Open Pull Request**. The user can reply, leave a new comment on a PR line, and edit their own comments.
+**Open Pull Request**. The user can reply, leave a new comment on a PR line, and edit their own comments; new comments and replies queue into a
+pending review submitted once ([pr-review-finish.md](pr-review-finish.md)).
 Supersedes the comment sections (Phase 2/3) of [open-pr.md](open-pr.md).
 
 ## Ownership
@@ -11,7 +12,7 @@ Supersedes the comment sections (Phase 2/3) of [open-pr.md](open-pr.md).
 flowchart LR
   Mon[PullRequestStatusMonitor<br/>per session] -->|PR / head / base changed| PRC[PullRequestComments<br/>session-owned, Core]
   Web -->|refresh while visible| PRC
-  PRC -->|list · add · reply · edit · viewer| Store[IReviewCommentStore<br/>GitHub / static fake]
+  PRC -->|load · review · thread · reply · edit · submit| Store[IReviewCommentStore<br/>GitHub GraphQL / static fake]
   PRC -->|fetch pull/N/head · merge-base · show| Git[git]
   PRC -->|push pullRequests/comments| Web[pr-comments-store]
   Web --> Ctl[pr-comment-controller<br/>per editor binding]
@@ -31,8 +32,9 @@ flowchart LR
   quote the removed line; outdated threads (the forge no longer anchors them) sit collapsed at the file's top.
 - **Refresh follows visibility, not the agent.** Comments reload when the monitor reports a different PR, head,
   or base (a push moves their lines). Otherwise the web asks for a refresh while the user can see them — the
-  selected session in a visible window — on selection, on returning to the window, and every minute. Each page is
-  re-asked with its ETag, so an unchanged poll is a free 304, and an unchanged set isn't re-published.
+  selected session in a visible window — on selection, on returning to the window, and every minute. Each poll is
+  one GraphQL query (one point of the viewer's 5,000/hour budget, since pending drafts are invisible to REST), and an
+  unchanged set isn't re-published.
 - **Errors surface on the PR status chip** (warning colour, reason in its tooltip) and inline in the composer
   (a failed save keeps the draft).
 
@@ -48,7 +50,8 @@ visible code width instead of the longest line.
 | Command | Default key | When |
 |---|---|---|
 | `weavie.pullRequest.comment` — reply to the thread on the cursor's line, else start a new comment | `$mod+alt+c` | `prCommentable` |
-| `weavie.pullRequest.submitComment` | `$mod+Enter` | `prCommentFocused` |
+| `weavie.pullRequest.submitComment` — adds the comment or reply to the pending review (saves an edit) | `$mod+Enter` | `prCommentFocused` |
+| `weavie.pullRequest.postCommentNow` — posts immediately instead | — | `prCommentFocused && !prReviewPending` |
 | `weavie.pullRequest.cancelComment` — closes the box; its draft is kept for reopening | `Escape` | `prCommentFocused` |
 | `weavie.pullRequest.toggleComments` — hide/show inline threads | `$mod+alt+Shift+c` | — |
 | `weavie.pullRequest.nextComment` / `prevComment` — jump between threads in the file | `$mod+alt+]` / `$mod+alt+[` | `prCommentable` |
@@ -68,5 +71,5 @@ Ctrl+Enter in a comment box submits the comment instead of keeping a hunk.
 
 ## Out of scope
 
-Resolving threads (GraphQL-only on GitHub), deleting comments, reactions, new comments on removed (left-side)
+Resolving threads, deleting submitted comments, reactions, new comments on removed (left-side)
 lines, avatars, and comments on fork PRs (branch detection matches `origin`'s owner).

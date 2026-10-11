@@ -10,8 +10,9 @@ namespace Weavie.Headless;
 /// </summary>
 internal static class FakePullRequests {
 	/// <summary>
-	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], comments: [...] }</c> — into a static provider that
-	/// serves the PR list and each PR's review comments (a comment's <c>number</c> names its PR) as <c>viewer</c>.
+	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], threads: [...], pendingReviews: [...] }</c> — into
+	/// a static provider that serves the PR list, each PR's review threads, and the viewer's pending reviews (each
+	/// thread's and review's <c>number</c> names its PR) as <c>viewer</c>.
 	/// </summary>
 	public static StaticPullRequestProvider FromFile(string path) {
 		using var doc = JsonDocument.Parse(File.ReadAllText(path));
@@ -19,11 +20,17 @@ internal static class FakePullRequests {
 		var prsEl = root.GetProperty("prs");
 		var provider = new StaticPullRequestProvider(
 			ParsePrs(prsEl),
-			ParseComments(root.TryGetProperty("comments", out var c) ? c : default),
+			ParseThreads(root.TryGetProperty("threads", out var t) ? t : default),
 			new ForgeUser(
 				root.GetProperty("viewer").GetString() ?? throw new InvalidDataException($"{path}: 'viewer' must be a login."),
 				Str(root, "viewerAvatarUrl")));
 		SeedCommits(provider, prsEl);
+		if (root.TryGetProperty("pendingReviews", out var pending)) {
+			foreach (var review in pending.EnumerateArray()) {
+				provider.PendingReviews[Int(review, "number")] = new PendingReview(Str(review, "id"), Str(review, "body"));
+			}
+		}
+
 		return provider;
 	}
 
@@ -68,29 +75,32 @@ internal static class FakePullRequests {
 		return prs;
 	}
 
-	private static IReadOnlyList<(int Number, ReviewComment Comment)> ParseComments(JsonElement array) {
-		var comments = new List<(int, ReviewComment)>();
+	private static IReadOnlyList<(int Number, ReviewThread Thread)> ParseThreads(JsonElement array) {
+		var threads = new List<(int, ReviewThread)>();
 		if (array.ValueKind == JsonValueKind.Array) {
-			foreach (var cm in array.EnumerateArray()) {
-				bool outdated = cm.TryGetProperty("outdated", out var o) && o.ValueKind == JsonValueKind.True;
-				comments.Add((cm.GetProperty("number").GetInt32(), new ReviewComment {
-					Id = Int(cm, "id"),
-					Path = Str(cm, "path"),
-					Line = outdated ? 0 : Int(cm, "line"),
-					Outdated = outdated,
-					Side = Str(cm, "side") is { Length: > 0 } side ? side : "right",
-					Author = Str(cm, "author"),
-					AuthorAvatarUrl = Str(cm, "avatarUrl"),
-					Url = Str(cm, "url"),
-					Body = Str(cm, "body"),
-					CreatedAt = Str(cm, "createdAt"),
-					UpdatedAt = Str(cm, "updatedAt") is { Length: > 0 } updated ? updated : Str(cm, "createdAt"),
-					InReplyTo = Int(cm, "inReplyTo"),
-				}));
+			foreach (var th in array.EnumerateArray()) {
+				bool outdated = th.TryGetProperty("outdated", out var o) && o.ValueKind == JsonValueKind.True;
+				threads.Add((th.GetProperty("number").GetInt32(), new ReviewThread(
+					Str(th, "id"),
+					Str(th, "path"),
+					outdated ? 0 : Int(th, "line"),
+					Str(th, "side") is { Length: > 0 } side ? side : "right",
+					outdated,
+					[.. th.GetProperty("comments").EnumerateArray().Select(cm => new ReviewComment {
+						Id = Str(cm, "id"),
+						Author = Str(cm, "author"),
+						AuthorAvatarUrl = Str(cm, "avatarUrl"),
+						Url = Str(cm, "url"),
+						Body = Str(cm, "body"),
+						CreatedAt = Str(cm, "createdAt"),
+						UpdatedAt = Str(cm, "updatedAt") is { Length: > 0 } updated ? updated : Str(cm, "createdAt"),
+						Pending = cm.TryGetProperty("pending", out var p) && p.ValueKind == JsonValueKind.True,
+						Mine = false, // The provider derives it from the viewer.
+					})])));
 			}
 		}
 
-		return comments;
+		return threads;
 	}
 
 	private static string Str(JsonElement element, string name) =>

@@ -11,19 +11,21 @@ export interface PrUser {
 }
 
 export interface PrComment {
-  id: number;
+  id: string;
   author: string;
-  avatarUrl: string;
+  authorAvatarUrl: string;
   /** The comment's forge page; empty when it has none. */
   url: string;
   body: string;
   createdAt: string;
   updatedAt: string;
+  /** A draft in the viewer's pending review, visible only to them until they submit it. */
+  pending: boolean;
   mine: boolean;
 }
 
 export interface PrThread {
-  rootId: number;
+  id: string;
   path: string;
   line: number;
   side: "right" | "left";
@@ -37,8 +39,30 @@ export interface PrCommentSet {
   url: string;
   headSha: string;
   viewer: PrUser;
+  /** The viewer opened the PR, so their review can only comment. */
+  viewerIsAuthor: boolean;
+  /** The viewer's unsubmitted review; new comments and replies join it while it exists. */
+  pending: PrPendingReview | null;
   changedPaths: string[];
   threads: PrThread[];
+}
+
+export interface PrPendingReview {
+  id: string;
+  /** The summary drafted so far (a review started on the forge's site may carry one). */
+  body: string;
+}
+
+/** Whether a new comment posts now or joins the viewer's pending review. */
+export type PrCommentMode = "now" | "review";
+
+export type PrVerdict = "comment" | "approve" | "requestChanges";
+
+/** Every draft in the viewer's pending review, with the thread it sits in. */
+export function pendingDrafts(set: PrCommentSet): { thread: PrThread; comment: PrComment }[] {
+  return set.threads.flatMap((thread) =>
+    thread.comments.filter((comment) => comment.pending).map((comment) => ({ thread, comment })),
+  );
 }
 
 export interface PrCommentsState {
@@ -72,10 +96,10 @@ export function showPrComments(): void {
   setVisible(true);
 }
 
-/** Posts one comment mutation; resolves to the host's error, or null once it landed. */
+/** Sends one comment or review write; resolves to the host's error, or null once it landed. */
 export async function sendPrComment(
   session: ClientSession,
-  kind: "comment" | "reply" | "editComment",
+  kind: "comment" | "reply" | "editComment" | "discardComment" | "submitReview" | "discardReview",
   payload: object,
 ): Promise<string | null> {
   try {
@@ -86,4 +110,25 @@ export async function sendPrComment(
   } catch (error) {
     return describeError(error);
   }
+}
+
+/** A new comment's or reply's sends: queue into the pending review first; post now only while none exists. */
+export function queueActions(
+  set: PrCommentSet,
+  send: (mode: PrCommentMode, body: string) => Promise<string | null>,
+): {
+  submitLabel: string;
+  onSubmit: (body: string) => Promise<string | null>;
+  alternate: { label: string; onSubmit: (body: string) => Promise<string | null> } | null;
+  note: string;
+} {
+  const drafts = pendingDrafts(set).length;
+  return {
+    submitLabel: set.pending === null ? "Start review" : "Add to review",
+    onSubmit: (body) => send("review", body),
+    alternate:
+      set.pending === null ? { label: "Comment now", onSubmit: (body) => send("now", body) } : null,
+    note:
+      set.pending === null ? "" : `Review pending · ${drafts} comment${drafts === 1 ? "" : "s"}`,
+  };
 }

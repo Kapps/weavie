@@ -1,39 +1,68 @@
+using System.Text.Json.Serialization;
+
 namespace Weavie.Core.Review;
 
-/// <summary>One review conversation: its root comment and every reply, anchored where the root is.</summary>
-/// <param name="RootId">The root comment's id — the reply target.</param>
+/// <summary>One review conversation: its comments in order, anchored where the first one is.</summary>
+/// <param name="Id">The forge's opaque thread id — the reply target.</param>
 /// <param name="Path">The repository-relative file path.</param>
-/// <param name="Line">The root's 1-based line on <paramref name="Side"/>; 0 when <paramref name="Outdated"/>.</param>
+/// <param name="Line">The 1-based line on <paramref name="Side"/>; 0 when <paramref name="Outdated"/>.</param>
 /// <param name="Side"><c>"right"</c> (head) or <c>"left"</c> (merge-base).</param>
 /// <param name="Outdated">True when the anchor no longer exists in the PR's current diff.</param>
-/// <param name="Comments">The root first, then its replies in creation order.</param>
+/// <param name="Comments">The opening comment, then its replies in creation order.</param>
 public sealed record ReviewThread(
-	long RootId,
+	string Id,
 	string Path,
 	int Line,
 	string Side,
 	bool Outdated,
 	IReadOnlyList<ReviewComment> Comments) {
-	/// <summary>Groups flat forge comments into threads by root, in root creation order. Pure.</summary>
-	public static IReadOnlyList<ReviewThread> Group(IReadOnlyList<ReviewComment> comments) {
-		ArgumentNullException.ThrowIfNull(comments);
-		var byId = comments.ToDictionary(c => c.Id);
-		return [.. comments
-			.OrderBy(c => c.CreatedAt, StringComparer.Ordinal).ThenBy(c => c.Id)
-			.GroupBy(c => RootOf(c, byId).Id)
-			.Select(g => {
-				var root = byId[g.Key];
-				return new ReviewThread(root.Id, root.Path, root.Line, root.Side, root.Outdated,
-					[root, .. g.Where(c => c.Id != root.Id)]);
-			})];
-	}
+	/// <inheritdoc/>
+	public bool Equals(ReviewThread? other) =>
+		other is not null && Id == other.Id && Path == other.Path && Line == other.Line && Side == other.Side
+			&& Outdated == other.Outdated && Comments.SequenceEqual(other.Comments);
 
-	// A reply whose parent is gone roots its own thread rather than vanishing.
-	private static ReviewComment RootOf(ReviewComment comment, Dictionary<long, ReviewComment> byId) {
-		while (comment.InReplyTo != 0 && byId.TryGetValue(comment.InReplyTo, out var parent)) {
-			comment = parent;
-		}
+	/// <inheritdoc/>
+	public override int GetHashCode() => HashCode.Combine(Id, Path, Line, Comments.Count);
+}
 
-		return comment;
-	}
+/// <summary>The viewer's unsubmitted review: drafts only they can see until they submit it.</summary>
+/// <param name="Id">The forge's opaque review id.</param>
+/// <param name="Body">The review summary drafted so far (a review started on the forge's site may carry one).</param>
+public sealed record PendingReview(string Id, string Body);
+
+/// <summary>A PR's review state as the viewer sees it: every thread (drafts included) and their pending review.</summary>
+/// <param name="PullRequestId">The forge's opaque PR id that new reviews attach to.</param>
+/// <param name="Viewer">The authenticated forge user.</param>
+/// <param name="ViewerIsAuthor">True when the viewer opened the PR, so they may only comment on it.</param>
+/// <param name="Pending">The viewer's pending review, or null.</param>
+/// <param name="Threads">The PR's review threads.</param>
+public sealed record PullRequestReview(
+	string PullRequestId,
+	ForgeUser Viewer,
+	bool ViewerIsAuthor,
+	PendingReview? Pending,
+	IReadOnlyList<ReviewThread> Threads) {
+	/// <inheritdoc/>
+	public bool Equals(PullRequestReview? other) =>
+		other is not null && PullRequestId == other.PullRequestId && Viewer == other.Viewer
+			&& ViewerIsAuthor == other.ViewerIsAuthor && Pending == other.Pending && Threads.SequenceEqual(other.Threads);
+
+	/// <inheritdoc/>
+	public override int GetHashCode() => HashCode.Combine(PullRequestId, Pending, Threads.Count);
+}
+
+/// <summary>How a submitted review judges the PR.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ReviewVerdict>))]
+public enum ReviewVerdict {
+	/// <summary>Feedback without a verdict.</summary>
+	[JsonStringEnumMemberName("comment")]
+	Comment,
+
+	/// <summary>Ready to merge.</summary>
+	[JsonStringEnumMemberName("approve")]
+	Approve,
+
+	/// <summary>Must be addressed before merging.</summary>
+	[JsonStringEnumMemberName("requestChanges")]
+	RequestChanges,
 }

@@ -1,13 +1,18 @@
 import { Check, RotateCcw } from "lucide-solid";
 import type { JSX } from "solid-js";
+import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import { FinishReview } from "../pr-comments/FinishReview";
 import { DiffStats } from "./DiffStats";
 import type { ReviewOverview } from "./review-store";
 
 /** Review-wide actions and heading. */
-export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): JSX.Element {
+export function UnifiedReviewHeader(props: {
+  overview: () => ReviewOverview;
+  session: ClientSession;
+}): JSX.Element {
   return (
     <header class="unified-review-header">
       <div class="unified-review-heading">
@@ -46,6 +51,7 @@ export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): 
         >
           <RotateCcw size="1em" /> Revert pending
         </button>
+        <FinishReview session={props.session} />
       </div>
     </header>
   );

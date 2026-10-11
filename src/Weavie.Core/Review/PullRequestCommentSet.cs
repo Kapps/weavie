@@ -9,26 +9,18 @@ namespace Weavie.Core.Review;
 /// <param name="Url">The PR's web URL.</param>
 public sealed record PullRequestTarget(RepoRef Repo, string Remote, int Number, string HeadSha, string BaseSha, string Url);
 
-/// <summary>One PR's loaded review comments plus what a new comment may anchor to.</summary>
+/// <summary>One PR's loaded review state plus what a new comment may anchor to.</summary>
 /// <param name="Number">The PR number.</param>
 /// <param name="Url">The PR's web URL.</param>
 /// <param name="HeadSha">The PR head every post is made against.</param>
-/// <param name="Viewer">The authenticated forge user.</param>
 /// <param name="ChangedPaths">Repository-relative paths changed between the merge-base and <paramref name="HeadSha"/>.</param>
-/// <param name="Threads">The PR's review threads.</param>
+/// <param name="Review">The PR's threads and the viewer's pending review.</param>
 public sealed record PullRequestCommentSet(
 	int Number,
 	string Url,
 	string HeadSha,
-	ForgeUser Viewer,
 	IReadOnlyList<string> ChangedPaths,
-	IReadOnlyList<ReviewThread> Threads) {
-	/// <summary>Whether <paramref name="comment"/> was written by <see cref="Viewer"/>.</summary>
-	public bool IsMine(ReviewComment comment) {
-		ArgumentNullException.ThrowIfNull(comment);
-		return string.Equals(comment.Author, Viewer.Login, StringComparison.OrdinalIgnoreCase);
-	}
-}
+	PullRequestReview Review);
 
 /// <summary>A session's PR comments: the last good set (null without a PR) and the latest load failure.</summary>
 /// <param name="Set">The loaded comments, or null when the branch has no PR.</param>

@@ -201,6 +201,7 @@ export interface EditorController {
     ): void;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
+    setSectionCollapsed(session: ClientSession, section: string, collapsed: boolean): void;
     /** Shows every unchanged line of the file, or collapses them back when it already shows them all. */
     toggleFileContext(session: ClientSession, path: string | undefined): boolean;
     revealFileContext(session: ClientSession, path: string, span: LineSpan): void;
@@ -1105,9 +1106,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     commentProse?.refresh();
   };
 
+  // The tab outlives its review: it opens on the session overview, which stands without changes.
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
-    if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
-      void tabs.capture(session, REVIEW_TAB_KEY).close();
     reviews.setFiles(session, files, label);
     renderReviewState(session);
   };
@@ -1506,6 +1506,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         reviews.setFileCollapsed(session, target.summary().path, !target.collapsed());
         return true;
       },
+      setSectionCollapsed: reviews.setSectionCollapsed,
       setFileCollapsed: (session, path, collapsed) => {
         reviews.setFileCollapsed(session, path, collapsed);
       },

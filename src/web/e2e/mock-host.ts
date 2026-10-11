@@ -817,6 +817,7 @@ export class MockHost {
         },
         recentTerms: [],
       },
+      reviewOverview: { collapsed: [] },
       testProfile: "",
       sourceLinkHosts: [],
       agentDefaults: MOCK_AGENT_DEFAULTS,

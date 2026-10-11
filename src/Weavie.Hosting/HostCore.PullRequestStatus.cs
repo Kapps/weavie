@@ -13,16 +13,19 @@ public sealed partial class HostCore {
 			session.WorkspaceRoot,
 			_reviewComments,
 			snapshot => PublishPullRequestComments(session, snapshot, session.Bus.BroadcastTarget));
+		var overview = new PullRequestOverview(
+			_pullRequestDiscussion,
+			snapshot => PublishPullRequestOverview(snapshot, session.Bus.BroadcastTarget));
 		var monitor = new PullRequestStatusMonitor(
 			session.Background,
 			ct => ResolvePullRequestStatusAsync(session, ct),
 			(status, ct) => {
 				session.Bus.BroadcastTarget.Feature("git").Publish("pullRequest", WireJson.Default.PullRequestStatusSnapshot, status);
-				return comments.TrackAsync(status.Target, ct);
+				return Task.WhenAll(comments.TrackAsync(status.Target, ct), overview.TrackAsync(status.Target, ct));
 			},
 			Task.Delay,
 			PullRequestPollInterval);
-		session.AttachPullRequestStatus(monitor, comments);
+		session.AttachPullRequestStatus(monitor, comments, overview);
 		monitor.UpdateStatus(session.Status.Status);
 	}
 
@@ -35,6 +38,7 @@ public sealed partial class HostCore {
 		}
 
 		PublishPullRequestComments(session, session.PullRequestComments.Latest, target);
+		PublishPullRequestOverview(session.PullRequestOverview.Latest, target);
 
 		session.PullRequestStatus.RequestRefresh();
 	}

@@ -118,6 +118,12 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
+		_messages.Host.Feature("reviewOverview").Handle(
+			"setCollapsed", "Saving the overview's collapsed sections", WireJson.Default.ReviewOverviewCollapse, (message, _) => {
+				_reviewOverviewState.SetCollapsed(message.Section, message.Collapsed);
+				return Task.CompletedTask;
+			});
+
 		var acpRegistry = _messages.Host.Feature("acpRegistry");
 		acpRegistry.Handle("remove", "Removing an agent", WireJson.Default.AcpAgentMessage, (message, _) => {
 			EnsureProviderCanBeRemoved(message.Id);
@@ -310,6 +316,7 @@ public sealed partial class HostCore {
 			RemoteAgentSnapshots(),
 			BuildRailSnapshot(),
 			BuildSearchSnapshot(),
+			BuildReviewOverviewSnapshot(),
 			ResolvedTestProfile(),
 			[.. _sources.ConnectedLinkHosts()],
 			ParseJsonElement(_global.AgentDefaultsJson()),
@@ -374,6 +381,10 @@ public sealed partial class HostCore {
 
 	internal sealed record SearchTerm(string Term);
 
+	internal sealed record ReviewOverviewCollapse(string Section, bool Collapsed);
+
+	internal sealed record ReviewOverviewSnapshot(string[] Collapsed);
+
 	internal sealed record HostHello(
 		string HostIncarnation,
 		string BuildNumber,
@@ -382,6 +393,7 @@ public sealed partial class HostCore {
 		RemoteAgentSnapshot[] RemoteAgents,
 		RailSnapshot Rail,
 		SearchSnapshot Search,
+		ReviewOverviewSnapshot ReviewOverview,
 		string TestProfile,
 		string[] SourceLinkHosts,
 		JsonElement AgentDefaults,
@@ -415,6 +427,8 @@ public sealed partial class HostCore {
 		_railState.LastLocation,
 		[.. _railState.Promoted],
 		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null);
+
+	private ReviewOverviewSnapshot BuildReviewOverviewSnapshot() => new([.. _reviewOverviewState.Collapsed]);
 
 	private SearchSnapshot BuildSearchSnapshot() {
 		var search = _searchState.Current;

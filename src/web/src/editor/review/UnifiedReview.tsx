@@ -17,10 +17,11 @@ import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { activeTabFor } from "../session-store";
 import type { TabOwner } from "../tab-owner";
+import { overviewRequested, settleOverviewRequest } from "./overview/overview-request";
+import { SessionOverview } from "./overview/SessionOverview";
 import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
-import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
@@ -45,6 +46,7 @@ export function UnifiedReview(props: {
   tab: TabOwner;
   changed: () => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
+  onSectionCollapsed: (session: ClientSession, section: string, collapsed: boolean) => void;
   onRevealContext: (session: ClientSession, path: string, span: LineSpan) => void;
   bindSurface: (surface: UnifiedReviewSurface) => () => void;
   clear: () => void;
@@ -105,15 +107,25 @@ export function UnifiedReview(props: {
     }
     return SECTION_HEADER_HEIGHT + editorHeight(file);
   };
-  // The file tree sits above the diffs; the list starts below it, so row indices stay file indices.
-  let tree: HTMLElement | undefined;
-  const [treeHeight, setTreeHeight] = createSignal(0);
-  // Content below the tree keeps its place on screen when the tree grows or shrinks above it.
-  const resizeTree = (height: number): void => {
-    // A hidden tab reports no height; only a laid-out tree moves the list.
-    if (!tree!.checkVisibility()) return;
-    const previous = treeHeight();
-    setTreeHeight(height);
+  // The session overview sits above the diffs; the list starts below it, so row indices stay file indices.
+  let overviewElement: HTMLElement | undefined;
+  const [overviewHeight, setOverviewHeight] = createSignal(0);
+  // Once the overview's title scrolls away, the review header takes over naming the session.
+  const [titleBottom, setTitleBottom] = createSignal(0);
+  const measureTitle = (): void => {
+    const title = overviewElement!.querySelector(".session-overview-top")!;
+    setTitleBottom(
+      title.getBoundingClientRect().bottom - overviewElement!.getBoundingClientRect().top,
+    );
+  };
+  const pastTitle = (): boolean => viewTop() >= titleBottom();
+  // Content below the overview keeps its place on screen when the overview grows or shrinks above it.
+  const resizeOverview = (height: number): void => {
+    // A hidden tab reports no height; only a laid-out overview moves the list.
+    if (!overviewElement!.checkVisibility()) return;
+    const previous = overviewHeight();
+    setOverviewHeight(height);
+    measureTitle();
     sizeVirtualList(virtualizer.getTotalSize());
     const owner = scroll()!;
     if (owner.getScrollTop() > previous)
@@ -179,7 +191,7 @@ export function UnifiedReview(props: {
     },
     gap: FILE_GAP,
     get paddingStart() {
-      return treeHeight() + FILE_GAP;
+      return overviewHeight() + FILE_GAP;
     },
     scrollToFn: (offset, options, instance) => {
       const owner = scroll()!;
@@ -366,11 +378,12 @@ export function UnifiedReview(props: {
   };
   onMount(() => {
     // Measured before any saved position is restored against the list below it.
-    setTreeHeight(tree!.getBoundingClientRect().height);
+    setOverviewHeight(overviewElement!.getBoundingClientRect().height);
+    measureTitle();
     const observer = new ResizeObserver(([entry]) =>
-      resizeTree(entry!.borderBoxSize[0]!.blockSize),
+      resizeOverview(entry!.borderBoxSize[0]!.blockSize),
     );
-    observer.observe(tree!);
+    observer.observe(overviewElement!);
     onCleanup(() => observer.disconnect());
     const element = scroller!;
     const owner = createReviewScroll(element, virtualList!);
@@ -380,10 +393,10 @@ export function UnifiedReview(props: {
       setViewTop(owner.getScrollTop());
       if (userInitiated) {
         setAnchorPath(undefined);
-        // Within the tree no file is selected; the first one on screen stands in.
+        // Within the overview no file is selected; the first one on screen stands in.
         const top = owner.getScrollTop();
         const row = virtualizer.getVirtualItemForOffset(top);
-        if (top < treeHeight() + FILE_GAP) setSelectedPath(null);
+        if (top < overviewHeight() + FILE_GAP) setSelectedPath(null);
         else if (row !== undefined) setVisibleFile(row.index);
       }
       surface.refresh();
@@ -398,6 +411,20 @@ export function UnifiedReview(props: {
       onCleanup(() => element.removeEventListener(event, followViewport, true));
     }
   });
+  const showOverview = (): void => {
+    surface.takeControl();
+    setAnchorPath(undefined);
+    setSelectedPath(null);
+    // Through the virtualizer, so the jump replaces any scroll it is still settling toward a file.
+    virtualizer.scrollToOffset(0);
+    scroller!.focus({ preventScroll: true });
+  };
+  createEffect(() => {
+    if (scroll() === undefined || !overviewRequested(props.session)) return;
+    settleOverviewRequest(props.session);
+    showOverview();
+  });
+
   const observe = (element: HTMLElement): void => {
     const commit = (): void => {
       if (element.isConnected) {
@@ -415,7 +442,12 @@ export function UnifiedReview(props: {
 
   return (
     <section class="unified-review" data-kind="editor" data-review-mode="unified">
-      <UnifiedReviewHeader overview={props.overview} session={props.session} />
+      <UnifiedReviewHeader
+        overview={props.overview}
+        session={props.session}
+        showIdentity={pastTitle}
+        onOverview={showOverview}
+      />
       <Show when={pickerAnchor()}>
         {(anchor) => (
           <ReviewFileSwitcher
@@ -450,13 +482,17 @@ export function UnifiedReview(props: {
             sizeVirtualList(virtualizer.getTotalSize());
           }}
         >
-          <ReviewFileTree
+          <SessionOverview
+            session={props.session}
+            overview={props.overview}
             files={files}
             current={visibleFile}
             displayPath={displayPath}
             onChoose={revealFile}
+            setForSession={props.onSectionCollapsed}
+            submit={() => !pastTitle()}
             ref={(element) => {
-              tree = element;
+              overviewElement = element;
             }}
           />
           <For each={rowKeys()}>

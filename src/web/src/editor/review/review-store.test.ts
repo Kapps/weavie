@@ -86,9 +86,28 @@ describe("review store", () => {
       expect(canCloseReview(store.board(client))).toBe(true);
       store.setFiles(client, [], "");
       expect(canCloseReview(store.board(client))).toBe(false);
-      expect(saved.at(-1)).toEqual({ files: {} });
+      expect(saved.at(-1)).toEqual({ files: {}, collapsedSections: [] });
       store.select(client);
       expect(store.count()).toBe(0);
+      dispose();
+    });
+  });
+
+  it("keeps a session's collapsed overview sections across reviews and restarts", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      store.setSectionCollapsed(client, "commits", true);
+      store.setFiles(client, [firstFile], "PR #1");
+      store.reset(client);
+      expect(store.board(client).collapsedSections).toEqual(["commits"]);
+      const restored = createReviewStore(() => {});
+      const freshClient = session();
+      restored.restore(freshClient, saved.at(-1)!);
+      expect(restored.overviewFor(freshClient).collapsedSections).toEqual(["commits"]);
+      restored.setSectionCollapsed(freshClient, "commits", false);
+      expect(restored.board(freshClient).collapsedSections).toEqual([]);
       dispose();
     });
   });

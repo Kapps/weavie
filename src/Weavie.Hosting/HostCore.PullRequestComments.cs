@@ -34,8 +34,13 @@ public sealed partial class HostCore {
 			"discardReview", "Discarding a pending review", WireJson.Default.PullRequestNumberRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(
 				await comments.DiscardReviewAsync(message.Number, ct).ConfigureAwait(false)));
-		// The web asks while the user can see the comments; a PR's comments aren't tied to the agent's activity.
-		pullRequests.Handle("refresh", "Refreshing pull request comments", WireJson.Default.EmptyPayload, (_, ct) => comments.RefreshAsync(ct));
+		// The web asks while the user can see the PR; its comments and checks aren't tied to the agent's activity.
+		pullRequests.Handle("refresh", "Refreshing the pull request", WireJson.Default.EmptyPayload, (_, ct) =>
+			Task.WhenAll(comments.RefreshAsync(ct), session.PullRequestOverview.RefreshAsync(ct)));
+		pullRequests.Handle(
+			"issueComment", "Commenting on the pull request", WireJson.Default.PullRequestIssueCommentRequest, WireJson.Default.CommandWireResult,
+			async (message, ct) => CommandWireResult.From(
+				await session.PullRequestOverview.CommentAsync(message.Number, message.Body, ct).ConfigureAwait(false)));
 		pullRequests.HandleConcurrent(
 			"sources", "Loading pull request sources", WireJson.Default.PullRequestSourcesRequest, WireJson.Default.PullRequestSources,
 			(message, ct) => comments.SourcesAsync(
@@ -57,6 +62,9 @@ public sealed partial class HostCore {
 				[.. set.Review.Threads.Select(thread => thread with { Path = AbsolutePath(session, thread.Path) })]),
 			snapshot.Error));
 
+	private static void PublishPullRequestOverview(PullRequestOverviewSnapshot snapshot, MessageTarget target) =>
+		target.Feature("pullRequests").Publish("overview", WireJson.Default.PullRequestOverviewSnapshot, snapshot);
+
 	private static string AbsolutePath(HostSession session, string relative) =>
 		Path.GetFullPath(Path.Combine(session.WorkspaceRoot, relative));
 
@@ -71,6 +79,8 @@ public sealed partial class HostCore {
 	internal sealed record PullRequestSubmitRequest(int Number, string HeadSha, ReviewVerdict Verdict, string Body);
 
 	internal sealed record PullRequestNumberRequest(int Number);
+
+	internal sealed record PullRequestIssueCommentRequest(int Number, string Body);
 
 	internal sealed record PullRequestSourcesRequest(string Path, string HeadSha);
 }

@@ -610,3 +610,24 @@
   color: var(--dim);
   font-size: var(--font-hint-size);
 }
+
+/* Scrolled past the session overview, the header names the PR it's reviewing. */
+.unified-review-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  padding-right: 0.7em;
+  border-right: 1px solid var(--border);
+}
+
+.unified-review-identity-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-review-failing {
+  color: var(--bad);
+  font-size: var(--font-metadata-size);
+}

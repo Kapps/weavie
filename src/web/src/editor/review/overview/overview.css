@@ -1,0 +1,329 @@
+/* The session overview at the top of the review tab: a centered column above the diffs. */
+.session-overview {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 1.6em 2em 0.4em;
+}
+
+.session-overview-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5em;
+  margin-bottom: 1.2em;
+}
+
+.session-overview-name {
+  min-width: 0;
+}
+
+.session-overview-pr-title,
+.session-overview-branch {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.session-overview-pr-title {
+  font-family: var(--font-prose-family);
+  font-size: calc(var(--font-prose-size) * 1.45);
+}
+
+.session-overview-branch {
+  font-family: var(--font-content-family);
+  font-size: calc(var(--font-content-size) * 1.3);
+  font-weight: 400;
+}
+
+.session-overview-number {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.session-overview-byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45em;
+  margin-top: 0.55em;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.session-overview-byline .weavie-pr-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+.session-overview-author {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.session-overview-ref,
+.session-overview-sha {
+  font-family: var(--font-content-family);
+  font-size: var(--font-hint-size);
+}
+
+.session-overview-ref {
+  padding: 0.05em 0.45em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.session-overview-pill {
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.session-overview-pill-open {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.session-overview-pill-merged {
+  background: color-mix(in srgb, var(--busy) 18%, transparent);
+  color: var(--busy);
+}
+
+.session-overview-pill-closed {
+  background: color-mix(in srgb, var(--bad) 18%, transparent);
+  color: var(--bad);
+}
+
+.session-overview-pill-draft,
+.session-overview-pill-none {
+  border: 1px solid var(--border);
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.session-overview-link,
+.session-overview-compose {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.session-overview-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 2em;
+}
+
+.session-overview-columns.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.session-overview-section {
+  margin-bottom: 1.1em;
+}
+
+.session-overview-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  width: 100%;
+  margin: 0 0 0.45em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--font-metadata-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-overview-heading:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.session-overview-chevron {
+  align-self: center;
+  transition: transform 120ms ease;
+}
+
+.session-overview-heading[aria-expanded="true"] .session-overview-chevron {
+  transform: rotate(90deg);
+}
+
+.session-overview-title {
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.session-overview-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.session-overview-description {
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+}
+
+.session-overview-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Long lists scroll in place after about ten rows, so the overview never pushes the diffs far away. */
+.session-overview-scroll {
+  max-height: 20.5em;
+  overflow-y: auto;
+}
+
+.session-overview-commits {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.session-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  width: 100%;
+  min-height: 2em;
+  padding: 0.15em 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+}
+
+button.session-overview-row:not(:disabled) {
+  cursor: pointer;
+}
+
+.session-overview-commits .session-overview-row {
+  padding: 0.3em 0.75em;
+  border-top: 1px solid var(--border);
+}
+
+.session-overview-commits li:first-child {
+  border-top: 0;
+}
+
+.session-overview-row .weavie-pr-avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+
+.session-overview-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.session-overview-row:not(:disabled):hover .session-overview-row-text {
+  text-decoration: underline;
+}
+
+.session-overview-row-end,
+.session-overview-when {
+  flex: none;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+
+.session-overview-sha {
+  flex: none;
+  color: var(--accent);
+}
+
+.session-overview-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.session-overview-check-failure .session-overview-icon,
+.session-overview-verdict-changesRequested {
+  color: var(--bad);
+}
+
+.session-overview-check-pending .session-overview-icon {
+  color: var(--busy);
+}
+
+.session-overview-check-success .session-overview-icon,
+.session-overview-verdict-approved {
+  color: var(--ok);
+}
+
+.session-overview-check-neutral .session-overview-icon {
+  color: var(--dim);
+}
+
+.session-overview-comment {
+  display: flex;
+  gap: 0.7em;
+  padding: 0.75em 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-overview-comment-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-overview-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
+  color: var(--dim);
+}
+
+.session-overview-comment-head strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.session-overview-comment-body {
+  margin-top: 0.25em;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+}
+
+.session-overview-compose {
+  margin-top: 0.8em;
+}
+
+.session-overview-conversation .weavie-pr-composer {
+  margin-top: 0.8em;
+}
+
+.session-overview-error {
+  margin: 0 0 1em;
+  color: var(--bad);
+  font-size: var(--font-metadata-size);
+}
+
+.session-overview-empty {
+  margin: 0.2em 0;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}

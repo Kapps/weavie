@@ -6,7 +6,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>The review half of <see cref="GitHubReviewProvider"/>: the GraphQL read, its paging, and the writes.</summary>
-public sealed class GitHubReviewCommentsTests {
+public sealed partial class GitHubReviewCommentsTests {
 	private static readonly RepoRef Repo = new("github.com", "Kapps", "weavie");
 
 	[Fact]

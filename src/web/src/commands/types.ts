@@ -144,6 +144,7 @@ export const CommandIds = {
   toggleBlame: "weavie.git.toggleBlame",
   showBlame: "weavie.git.showBlame",
   reviewOpen: "weavie.review.open",
+  reviewOverview: "weavie.review.overview",
   reviewClose: "weavie.review.close",
   reviewToggleFile: "weavie.review.toggleFile",
   reviewToggleContext: "weavie.review.toggleContext",

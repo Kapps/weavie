@@ -197,6 +197,9 @@ public interface IGitService {
 	/// </summary>
 	Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default);
 
+	/// <summary>Every commit reachable from <paramref name="to"/> but not <paramref name="from"/>, newest first.</summary>
+	Task<IReadOnlyList<GitCommit>> LogRangeAsync(string worktreeDirectory, string from, string to, CancellationToken ct = default);
+
 	/// <summary>
 	/// Up to <paramref name="limit"/> commits that changed lines <paramref name="startLine"/>–<paramref name="endLine"/>
 	/// of <paramref name="path"/> (<c>git log -L</c>), newest first — the "other commits that changed this line" list.

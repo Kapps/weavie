@@ -26,8 +26,8 @@ or leave a new comment without leaving Weavie.
 > whole journey: pick PR → checkout → diff navigator → walk files → see a comment (`pr-comments.spec.ts` covers
 > reply, new comment, and edit).
 >
-> **Deferred** until the source-tab system ([web-and-source-tabs.md](web-and-source-tabs.md)) lands: the PR
-> *overview source tab* and host-run *OAuth* (token discovery covers auth meanwhile).
+> **Superseded:** the PR overview is the top of the review tab ([session-overview.md](session-overview.md)), not a
+> source tab. **Deferred:** host-run *OAuth* (token discovery covers auth meanwhile).
 
 ## Why
 

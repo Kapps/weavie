@@ -25,6 +25,7 @@ internal static class FakePullRequests {
 				root.GetProperty("viewer").GetString() ?? throw new InvalidDataException($"{path}: 'viewer' must be a login."),
 				Str(root, "viewerAvatarUrl")));
 		SeedCommits(provider, prsEl);
+		SeedDetails(provider, prsEl);
 		if (root.TryGetProperty("pendingReviews", out var pending)) {
 			foreach (var review in pending.EnumerateArray()) {
 				provider.PendingReviews[Int(review, "number")] = new PendingReview(Str(review, "id"), Str(review, "body"));
@@ -52,6 +53,40 @@ internal static class FakePullRequests {
 			}
 		}
 	}
+
+	// Each PR may carry its overview ("overview": { body, reviewers, conversation, checks }); states use the wire names.
+	private static void SeedDetails(StaticPullRequestProvider provider, JsonElement array) {
+		foreach (var pr in array.EnumerateArray()) {
+			if (!pr.TryGetProperty("overview", out var overview)) {
+				continue;
+			}
+
+			int number = Int(pr, "number");
+			provider.Details[number] = new PullRequestDetail(
+				$"PR_{number}",
+				number,
+				Str(pr, "url"),
+				Str(pr, "title"),
+				Str(overview, "body"),
+				pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
+				new ForgeUser(Str(pr, "author"), string.Empty),
+				Str(overview, "createdAt"),
+				[.. Items(overview, "reviewers").Select(r => new PullRequestReviewer(
+					new ForgeUser(Str(r, "login"), string.Empty), Enum.Parse<ReviewerState>(Str(r, "state"), ignoreCase: true)))],
+				[.. Items(overview, "conversation").Select(c => new PullRequestConversationItem(
+					Str(c, "id"),
+					new ForgeUser(Str(c, "author"), string.Empty),
+					Str(c, "body"),
+					Str(c, "review") is { Length: > 0 } review ? Enum.Parse<ReviewerState>(review, ignoreCase: true) : null,
+					Str(c, "createdAt"),
+					string.Empty))],
+				[.. Items(overview, "checks").Select(c => new PullRequestCheck(
+					Str(c, "name"), Enum.Parse<CheckState>(Str(c, "state"), ignoreCase: true), Str(c, "url")))]);
+		}
+	}
+
+	private static IEnumerable<JsonElement> Items(JsonElement element, string name) =>
+		element.TryGetProperty(name, out var array) ? array.EnumerateArray() : [];
 
 	private static IReadOnlyList<PullRequestSummary> ParsePrs(JsonElement array) {
 		var prs = new List<PullRequestSummary>();

@@ -71,6 +71,10 @@ public sealed partial class HostCore {
 	private void PushSearchStateToWeb() =>
 		_messages.Host.Feature("search").Publish("state", WireJson.Default.SearchSnapshot, BuildSearchSnapshot());
 
+	/// <summary>Pushes the session overview's app-global collapsed sections. Honored only from the local backend.</summary>
+	private void PushReviewOverviewStateToWeb() =>
+		_messages.Host.Feature("reviewOverview").Publish("state", WireJson.Default.ReviewOverviewSnapshot, BuildReviewOverviewSnapshot());
+
 	/// <summary>Pushes the app-global recent workspace list after another window reorders or prunes it.</summary>
 	private void PushRecentWorkspacesToWeb() =>
 		_messages.Host.Feature("recentWorkspaces").Publish("changed", WireJson.Default.RecentWorkspacesChanged, new(_platform.Recents));
@@ -229,8 +233,10 @@ public sealed partial class HostCore {
 	/// review surface in default mode too. The page surfaces the review itself (parked, editor untouched) — the
 	/// host no longer decides an auto-open.
 	/// </summary>
-	private void PushTurnChangesToWeb(HostSession session) =>
+	private void PushTurnChangesToWeb(HostSession session) {
 		PushTurnChangesToWeb(session, session.Bus.BroadcastTarget);
+		session.FollowReview(ActiveReview(session));
+	}
 
 	private void PushTurnChangesToWeb(HostSession session, MessageTarget target) =>
 		target.Feature("review").PublishJson(

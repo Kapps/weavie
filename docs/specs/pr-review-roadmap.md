@@ -5,8 +5,8 @@ follow local edits) but looks and feels worse. This roadmap splits the fix into 
 own session, branch, and PR. Reviews stay **for humans**: agent output informs the reviewer and never speaks in
 their voice.
 
-> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024); 8 in review
-> ([pr-review-finish.md](pr-review-finish.md)). Next: 7. Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
+> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024); 8 (#1029); 7 in review
+> ([session-overview.md](session-overview.md)). Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
 > [incremental-review-persistence.md](incremental-review-persistence.md), [open-pr.md](open-pr.md), and
 > [pr-comments.md](pr-comments.md).
 
@@ -127,8 +127,8 @@ overview tab until source tabs land; the review tab already proves non-file tabs
 Decided by mockup:
 
 - The overview is the top of the review tab; the changed-file tree becomes its **Changes** section and the diffs
-  follow in the same scroll. **Start review** jumps to the first unreviewed file; scrolled past, the sticky header
-  carries the session's identity and an **Overview** command back. Sessions without changes still get it.
+  follow in the same scroll. Scrolled past, the sticky header carries the session's identity and an **Overview**
+  command back. Sessions without changes still get it. Commits show only when the review compares against a branch.
 - Every section collapses. Collapse state is remembered globally by default; a setting switches it to per session.
 - The PR conversation's composer posts immediately: GitHub's PR-level comments are never part of a review.
 - Feature 8's submit control sits top-right of the overview and in the sticky header, only when there's a PR.

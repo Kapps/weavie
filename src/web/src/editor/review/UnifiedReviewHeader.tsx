@@ -1,22 +1,54 @@
-import { Check, RotateCcw } from "lucide-solid";
-import type { JSX } from "solid-js";
+import { ArrowUp, Check, RotateCcw } from "lucide-solid";
+import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { FinishReview } from "../pr-comments/FinishReview";
 import { DiffStats } from "./DiffStats";
+import { PrStatePill } from "./overview/OverviewTitle";
+import { prOverviewFor } from "./overview/overview-data";
 import type { ReviewOverview } from "./review-store";
 
-/** Review-wide actions and heading. */
+/** Review-wide actions and heading; once the overview title scrolls away, it carries the session's identity. */
 export function UnifiedReviewHeader(props: {
   overview: () => ReviewOverview;
   session: ClientSession;
+  showIdentity: () => boolean;
+  onOverview: () => void;
 }): JSX.Element {
+  const detail = () => prOverviewFor(props.session)?.detail ?? null;
+  const failing = () => detail()?.checks.filter((check) => check.state === "failure").length ?? 0;
   return (
     <header class="unified-review-header">
       <div class="unified-review-heading">
-        <span class="unified-review-kicker">{props.overview().label || "Review"}</span>
+        <Show
+          when={props.showIdentity()}
+          fallback={<span class="unified-review-kicker">{props.overview().label || "Review"}</span>}
+        >
+          <button
+            type="button"
+            class="unified-review-action"
+            title={`Show the session overview${keyHint(CommandIds.reviewOverview)}`}
+            onClick={() => props.onOverview()}
+          >
+            <ArrowUp size="1em" /> Overview
+          </button>
+          <Show when={detail()}>
+            {(pull) => (
+              <span class="unified-review-identity">
+                <PrStatePill session={props.session} detail={pull()} />
+                <span class="unified-review-identity-title">{pull().title}</span>
+                <span class="unified-review-status">#{pull().number}</span>
+                <Show when={failing() > 0}>
+                  <span class="unified-review-failing">
+                    {failing()} check{failing() === 1 ? "" : "s"} failing
+                  </span>
+                </Show>
+              </span>
+            )}
+          </Show>
+        </Show>
         <strong>
           {props.overview().files.length} changed file
           {props.overview().files.length === 1 ? "" : "s"}
@@ -51,7 +83,9 @@ export function UnifiedReviewHeader(props: {
         >
           <RotateCcw size="1em" /> Revert pending
         </button>
-        <FinishReview session={props.session} />
+        <Show when={props.showIdentity()}>
+          <FinishReview session={props.session} />
+        </Show>
       </div>
     </header>
   );

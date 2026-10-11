@@ -271,6 +271,9 @@ public static partial class CoreCommands {
 	/// <summary>Opens the unified review overview, or an explicitly addressed file and line.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
+	/// <summary>Opens the session overview at the top of the review tab, for any session.</summary>
+	public const string ReviewOverview = "weavie.review.overview";
+
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 
 	/// <summary>Accepts the remaining changes and finishes the diff review.</summary>
@@ -1593,6 +1596,17 @@ public static partial class CoreCommands {
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
 			When = "reviewAvailable",
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewOverview,
+			Title = "Show Session Overview",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Open the session overview at the top of the review tab: the branch or pull request, its "
+				+ "description, checks, reviewers, and conversation, the commits under review, and the changed files.",
+			Aliases = ["session overview", "pr overview", "pull request overview", "branch overview", "front door",
+				"show overview", "pr description", "pr checks"],
 		});
 
 		registry.Register(new CommandDefinition {

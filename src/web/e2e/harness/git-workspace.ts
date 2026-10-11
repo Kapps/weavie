@@ -96,6 +96,14 @@ export interface PrSeed {
   url: string;
   draft: boolean;
   headSha: string;
+  /** The PR's overview: description, reviewers, PR-level conversation, and checks (wire state names). */
+  overview: {
+    body: string;
+    createdAt: string;
+    reviewers: { login: string; state: string }[];
+    conversation: { id: string; author: string; body: string; review: string; createdAt: string }[];
+    checks: { name: string; state: string; url: string }[];
+  };
 }
 
 // A git workspace wired for the Open-PR flow: a local bare repo stands in for `origin` (reached via an
@@ -207,6 +215,34 @@ export async function createPrWorkspace(): Promise<{
         url: "https://github.com/acme/demo/pull/101",
         draft: false,
         headSha,
+        overview: {
+          body: "Tweaks the greeting and adds a **feature flag**.",
+          createdAt: "2026-01-01T00:00:00Z",
+          reviewers: [
+            { login: "bob", state: "changesRequested" },
+            { login: "erin", state: "pending" },
+          ],
+          conversation: [
+            {
+              id: "ic1",
+              author: "bob",
+              body: "Can we keep the old greeting behind the flag?",
+              review: "",
+              createdAt: "2026-01-02T00:00:00Z",
+            },
+            {
+              id: "r1",
+              author: "bob",
+              body: "",
+              review: "changesRequested",
+              createdAt: "2026-01-03T00:00:00Z",
+            },
+          ],
+          checks: [
+            { name: "build", state: "success", url: "" },
+            { name: "e2e (linux)", state: "failure", url: "" },
+          ],
+        },
       },
       {
         number: 102,
@@ -218,6 +254,7 @@ export async function createPrWorkspace(): Promise<{
         url: "https://github.com/acme/demo/pull/102",
         draft: false,
         headSha: headSha2,
+        overview: { body: "", createdAt: "", reviewers: [], conversation: [], checks: [] },
       },
     ],
     // A review thread on the changed greeting line of hello.ts (right/head side).

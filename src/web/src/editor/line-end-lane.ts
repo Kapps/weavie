@@ -17,6 +17,10 @@ interface Row {
   /** The flex row inside the widget node, whose inline display Monaco overwrites. */
   readonly dom: HTMLElement;
   items: LineEndItem[];
+  /** The row's unshrunk width, measured once per item change. */
+  natural: number | null;
+  /** The geometry the row was last fitted to; a render that matches it touches nothing. */
+  fitted: string;
 }
 
 interface Lane {
@@ -29,6 +33,42 @@ interface Lane {
 const EDGE_GAP = 8;
 
 const lanes = new WeakMap<monaco.editor.ICodeEditor, Lane>();
+
+// Without room before the visible edge, the row slides left over text injected after the code (the blame
+// annotation), never over the code itself, so its items stay on screen. Monaco renders widgets every scroll
+// frame, so a row reads or writes the DOM only when its items, line end, or the visible width changed.
+function fitRow(editor: monaco.editor.ICodeEditor, line: number, row: Row, left: number): void {
+  const model = editor.getModel();
+  if (model === null || line > model.getLineCount()) return;
+  const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+  const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth - EDGE_GAP;
+  const key = `${left}:${visibleRight}:${lineHeight}`;
+  if (row.fitted === key && row.natural !== null) return;
+  const { dom } = row;
+  dom.style.height = `${lineHeight}px`;
+  if (row.natural === null) {
+    dom.style.maxWidth = "none";
+    dom.style.width = "max-content";
+    row.natural = dom.offsetWidth;
+    dom.style.width = "";
+  }
+  const room = visibleRight - left;
+  const shift =
+    row.natural <= room
+      ? 0
+      : Math.max(
+          0,
+          Math.min(
+            row.natural - room,
+            left - editor.getOffsetForColumn(line, model.getLineMaxColumn(line)),
+          ),
+        );
+  dom.style.transform = shift > 0 ? `translateX(${-shift}px)` : "";
+  dom.classList.toggle("weavie-line-end-over", shift > 0);
+  // Slid over, the backing runs to the very edge so no annotation text peeks past it.
+  dom.style.maxWidth = `${Math.max(0, room + shift + (shift > 0 ? EDGE_GAP : 0))}px`;
+  row.fitted = key;
+}
 
 function createRow(editor: monaco.editor.ICodeEditor, line: number): Row {
   const node = document.createElement("div");
@@ -49,32 +89,13 @@ function createRow(editor: monaco.editor.ICodeEditor, line: number): Row {
             positionAffinity: monaco.editor.PositionAffinity.Right,
           };
     },
-    // Without room before the visible edge, the row slides left over text injected after the code (the blame
-    // annotation) — never over the code itself — so its items stay on screen.
     afterRender: (_position, coordinate) => {
-      const model = editor.getModel();
-      if (coordinate === null || model === null || line > model.getLineCount()) return;
-      const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth - EDGE_GAP;
-      const codeEnd = editor.getOffsetForColumn(line, model.getLineMaxColumn(line));
-      dom.style.height = `${editor.getOption(monaco.editor.EditorOption.lineHeight)}px`;
-      // The row's natural width, before any item shrinks to fit.
-      dom.style.maxWidth = "none";
-      dom.style.width = "max-content";
-      const natural = dom.offsetWidth;
-      dom.style.width = "";
-      const shift = Math.max(
-        0,
-        Math.min(natural - (visibleRight - coordinate.left), coordinate.left - codeEnd),
-      );
-      dom.style.transform = shift > 0 ? `translateX(${-shift}px)` : "";
-      dom.classList.toggle("weavie-line-end-over", shift > 0);
-      // Slid over, the backing runs to the very edge so no annotation text peeks past it.
-      const width = visibleRight - coordinate.left + shift + (shift > 0 ? EDGE_GAP : 0);
-      dom.style.maxWidth = `${Math.max(0, width)}px`;
+      if (coordinate !== null) fitRow(editor, line, row, coordinate.left);
     },
   };
+  const row: Row = { widget, dom, items: [], natural: null, fitted: "" };
   editor.addContentWidget(widget);
-  return { widget, dom, items: [] };
+  return row;
 }
 
 const sameItems = (a: readonly LineEndItem[], b: readonly LineEndItem[]): boolean =>
@@ -104,6 +125,7 @@ function createLane(editor: monaco.editor.ICodeEditor): Lane {
       if (!sameItems(row.items, sorted)) {
         row.dom.replaceChildren(...sorted.map((item) => item.dom));
         row.items = sorted;
+        row.natural = null;
       }
       if (existing !== undefined) editor.layoutContentWidget(row.widget);
     }

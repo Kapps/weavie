@@ -367,8 +367,11 @@ test.describe("PR review", () => {
 
     await test.step("a live thread's Fix sends it to the agent", async () => {
       await thread.getByRole("button", { name: "Fix", exact: true }).click();
+      // FLAKE 2026-10-11 05:47Z https://github.com/Kapps/weavie/actions/runs/38115271712 (shard 4/6): the log is
+      // line-incremental, so asserting the quoted thread line once the header line landed raced the rest of the paste.
+      // Fixed by polling every line of the prompt instead of only the first.
       await expect.poll(() => weavie.fakeLog()).toMatch(fixPrompt("hello.ts:2"));
-      expect(weavie.fakeLog()).toMatch(/^input bob: Why change this greeting\?/m);
+      await expect.poll(() => weavie.fakeLog()).toMatch(/^input bob: Why change this greeting\?/m);
     });
 
     await test.step("an outdated thread offers no Fix", async () => {
@@ -432,8 +435,8 @@ test.describe("across files", () => {
       await expect
         .poll(() => weavie.fakeLog())
         .toMatch(/^input Additional instruction: Keep it to one line/m);
-      expect(weavie.fakeLog()).toMatch(fixPrompt("notes.txt:1"));
-      expect(weavie.fakeLog()).toMatch(/^input Say what the notes are for\./m);
+      await expect.poll(() => weavie.fakeLog()).toMatch(fixPrompt("notes.txt:1"));
+      await expect.poll(() => weavie.fakeLog()).toMatch(/^input Say what the notes are for\./m);
       const sent = page.locator(".toast", { hasText: "Asked the agent to fix notes.txt:1." });
       await sent.locator(".toast-close").click();
       await expect(sent).toHaveCount(0);

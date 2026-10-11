@@ -15,6 +15,9 @@ public sealed class SessionSlot {
 	/// <summary>Branch (or folder leaf) name — drives the chip's deterministic hue + monogram.</summary>
 	public required string Label { get; init; }
 
+	/// <summary>The rail emoji inferred for <see cref="Label"/>; <c>null</c> keeps the hue + monogram chip.</summary>
+	public string? Emoji { get; set; }
+
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }
 

@@ -402,8 +402,10 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Pushes the authoritative session catalog. Loaded entries carry their exact live address.</summary>
-	private void PushSessionList() =>
+	private void PushSessionList() {
 		_messages.Host.Feature("sessions").Publish("catalog", WireJson.Default.SessionCatalogEntryArray, BuildSessionCatalog());
+		ScheduleSessionEmojis();
+	}
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		ReplaySession(session);
@@ -433,6 +435,7 @@ public sealed partial class HostCore {
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					SessionIdentity.Hue(slot.Label),
 					SessionIdentity.Monogram(slot.Label),
+					slot.Emoji,
 					IsWorkspaceCheckout(slot));
 			})
 			.ToArray()
@@ -449,6 +452,7 @@ public sealed partial class HostCore {
 		string Status,
 		int Hue,
 		string Monogram,
+		string? Emoji,
 		bool WorkspaceCheckout);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {

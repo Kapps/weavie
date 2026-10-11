@@ -17,7 +17,7 @@ public sealed class HostCoreAutoConfigTests {
 
 		// Settled state: the toast is posted and the card is gone (both settings written). Card-gone with a
 		// manifest present proves BOTH worktree.setupCommand and test.profile were written (the card's gate).
-		await WaitUntilAsync(() => AutoConfigToast(host) is not null && !CardShowing(host), "auto-config to settle");
+		await Wait.UntilAsync(() => AutoConfigToast(host) is not null && !CardShowing(host));
 
 		var toast = AutoConfigToast(host)!.Value;
 		Assert.Equal("info", toast.GetProperty("level").GetString());
@@ -33,12 +33,12 @@ public sealed class HostCoreAutoConfigTests {
 		await using var host = await TestHost.StartAsync(
 			repo => File.WriteAllText(Path.Combine(repo, "go.mod"), "module weavie/test\n"), sendReady: false);
 
-		await WaitUntilAsync(() => ProfileWritten(host), "auto-config to write the profile");
+		await Wait.UntilAsync(() => ProfileWritten(host));
 		Assert.Null(AutoConfigToast(host)); // held, not dropped
 
 		await host.ConnectAsync();
 
-		await WaitUntilAsync(() => AutoConfigToast(host) is not null, "the toast to arrive after ready");
+		await Wait.UntilAsync(() => AutoConfigToast(host) is not null);
 	}
 
 	// A test-profile push carrying real content means the probe wrote test.profile (fired via SettingChanged).
@@ -52,7 +52,7 @@ public sealed class HostCoreAutoConfigTests {
 			File.WriteAllText(Path.Combine(repo, "Makefile"), "all:\n\techo hi\n"));
 
 		// A manifest is present but no preset matched → the card appears (unsupported → Claude), nothing written.
-		await WaitUntilAsync(() => CardShowing(host), "the setup card");
+		await Wait.UntilAsync(() => CardShowing(host));
 		Assert.Null(AutoConfigToast(host));
 	}
 
@@ -70,18 +70,5 @@ public sealed class HostCoreAutoConfigTests {
 		var suggestions = host.Bridge.LastEvent("suggestions", "changed");
 		return suggestions.HasValue && suggestions.Value.GetProperty("items").EnumerateArray()
 			.Any(item => item.GetProperty("id").GetString() == "workspace.setup");
-	}
-
-	private static async Task WaitUntilAsync(Func<bool> condition, string what) {
-		var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-		while (DateTime.UtcNow < deadline) {
-			if (condition()) {
-				return;
-			}
-
-			await Task.Delay(25);
-		}
-
-		throw new TimeoutException($"timed out waiting for {what}");
 	}
 }

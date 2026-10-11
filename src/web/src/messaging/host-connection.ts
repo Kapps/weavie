@@ -15,6 +15,7 @@ export interface SessionCatalogEntry {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   hue: number;
   monogram: string;
+  emoji: string | null;
   workspaceCheckout: boolean;
 }
 

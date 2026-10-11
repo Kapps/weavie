@@ -18,6 +18,7 @@ public sealed class SessionStoreTests {
 	private static SessionDescriptor Descriptor(string id, string label, bool loaded) => new() {
 		Id = new SessionId(id),
 		Label = label,
+		Emoji = null,
 		WorktreePath = "/wt/" + label,
 		Loaded = loaded,
 		AgentProviderId = "claude",
@@ -26,12 +27,12 @@ public sealed class SessionStoreTests {
 	};
 
 	[Fact]
-	public void Save_PersistsLoadedFlagsWithoutClientSelection_AndReloads() {
+	public void Save_PersistsLoadedFlagsAndEmojiWithoutClientSelection_AndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
 		store.Save([
-			Descriptor("aaaa", "a", loaded: true),
+			Descriptor("aaaa", "a", loaded: true) with { Emoji = "🔍" },
 			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp" },
 		]);
 
@@ -40,6 +41,8 @@ public sealed class SessionStoreTests {
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
+		Assert.Equal("🔍", reloaded.Items.Single(i => i.Id.Value == "aaaa").Emoji);
+		Assert.Null(reloaded.Items.Single(i => i.Id.Value == "bbbb").Emoji);
 		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals));
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}

@@ -29,6 +29,8 @@ export interface SessionChip {
   status: SessionStatusName;
   hue: number;
   monogram: string;
+  /** The inferred emoji that replaces the hue + monogram, or null while none has been chosen. */
+  emoji: string | null;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
 }

@@ -67,7 +67,7 @@ export function SessionRail(props: {
                 session.loaded ? "" : " unloaded"
               }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
                 session.offline ? " offline" : ""
-              }`}
+              }${session.emoji === null ? "" : " emoji"}`}
               data-session-slot={session.id}
               title={chipTitle(session, index())}
               ref={(el) => {
@@ -79,7 +79,7 @@ export function SessionRail(props: {
               onClick={() => props.onSwitch(session)}
               onContextMenu={(event) => openMenu(event, session)}
             >
-              <span class="session-chip-mono">{session.monogram}</span>
+              <span class="session-chip-mono">{session.emoji ?? session.monogram}</span>
               {/* A host op in flight (delete / load / unload): a spinner overlays the chip, replacing the
                   status marker, until it settles. Otherwise — local: a status dot; remote: a cloud marker in
                   the dot's place (agent-hue when idle); a dormant chip gets neither. */}

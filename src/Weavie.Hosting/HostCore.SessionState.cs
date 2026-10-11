@@ -18,6 +18,7 @@ public sealed partial class HostCore {
 			.Select(slot => new SessionDescriptor {
 				Id = new SessionId(slot.Id),
 				Label = slot.Label,
+				Emoji = slot.Emoji,
 				WorktreePath = slot.WorktreePath,
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
@@ -51,6 +52,11 @@ public sealed partial class HostCore {
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
 				slot.ShellTerminals = item.ShellTerminals;
+			}
+
+			// The workspace checkout's label follows its current branch, so an emoji for another branch is stale.
+			if (slot is { } && item.Label == slot.Label) {
+				slot.Emoji = item.Emoji;
 			}
 
 			if (item.Loaded && slot is { }) {

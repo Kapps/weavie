@@ -30,7 +30,9 @@ export function SessionInboxRow(props: {
         disabled={session().pending || session().offline}
         onClick={() => void props.onOpen(session())}
       >
-        <span class="session-inbox-monogram">{session().monogram}</span>
+        <span class="session-inbox-monogram" classList={{ emoji: session().emoji !== null }}>
+          {session().emoji ?? session().monogram}
+        </span>
         <span class="session-inbox-details">
           <strong>{session().label}</strong>
           <span>

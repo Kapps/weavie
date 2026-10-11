@@ -124,13 +124,17 @@ export function RemoteAgentsPanel(props: {
                               type="button"
                               class={`remote-session status-${session.status}${
                                 session.loaded ? "" : " unloaded"
-                              }${session.pending ? " pending" : ""}`}
+                              }${session.pending ? " pending" : ""}${
+                                session.emoji === null ? "" : " emoji"
+                              }`}
                               title={`${session.label}${session.loaded ? ` — ${session.status}` : " — unloaded"}`}
                               ref={(el) => el.style.setProperty("--chip-hue", String(session.hue))}
                               onClick={() => props.onPick(session)}
                               onContextMenu={(event) => openMenu(event, session)}
                             >
-                              <span class="remote-session-mono">{session.monogram}</span>
+                              <span class="remote-session-mono">
+                                {session.emoji ?? session.monogram}
+                              </span>
                               <Show
                                 when={session.pending}
                                 fallback={

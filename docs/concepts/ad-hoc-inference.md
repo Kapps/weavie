@@ -62,6 +62,12 @@ The shipped exact `fast` and `fast-mode` option ids are the Fast Mode contract, 
 `on`/`off` select shapes. Broad labels and `model_config` categories are never guessed. Missing or ambiguous matches
 fail visibly. The receipt reports the final model selected after every mutation.
 
+## Session emoji
+
+Each rail session gets one emoji depicting its branch, chosen by an automatic utility query run one session at a time
+and persisted with the session. With automatic inference off, the chip keeps its hue + monogram; an unusable reply or
+failed query warns once per session per run and leaves the monogram.
+
 ## Failures are values
 
 Every non-cancellation failure takes the feature's visible failure path with a reason that names the actual cause —

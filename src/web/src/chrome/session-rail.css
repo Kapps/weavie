@@ -10,7 +10,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  width: 40px;
+  width: 44px;
   padding: 8px 0;
   background: var(--bar);
   border-right: 1px solid var(--border);
@@ -19,15 +19,25 @@
 .session-chip {
   position: relative;
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: hsl(var(--chip-hue, 200) 45% 38%);
   color: #fff;
-  font: 600 11px var(--ui-font);
+  font: 600 12px var(--ui-font);
   opacity: 0.7;
   cursor: pointer;
+}
+/* An inferred emoji carries its own colour, so it sits on a neutral tile instead of the identity hue. */
+.session-chip.emoji,
+.remote-session.emoji {
+  background: color-mix(in srgb, var(--fg) 9%, var(--bar));
+  font-size: 22px;
+  line-height: 1;
+}
+.remote-session.emoji {
+  font-size: 18px;
 }
 .session-chip.active {
   opacity: 1;
@@ -125,10 +135,10 @@
 }
 .session-rail-add {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border: 1px dashed var(--border);
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--dim);
   font-size: 16px;
@@ -249,13 +259,13 @@
 .session-rail-cloud {
   flex: 0 0 auto;
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--dim);
   cursor: pointer;

@@ -1,23 +1,11 @@
 import type { Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
 // Finishing a review: comments queue as pending drafts in place, then submit once with a verdict and summary
 // through the stubbed store, which enforces GitHub's pending-review rules.
 test.use({ prScenario: true });
-
-const card = (page: Page, text: string) =>
-  page.locator(".weavie-pr-card").filter({ hasText: text });
-
-async function openCommentedFile(page: Page): Promise<void> {
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-  await walkToChangedFile(page, "hello.ts");
-  await expect(card(page, "Why change this greeting?")).toBeVisible({ timeout: 10_000 });
-}
 
 async function commentOnLine(
   page: Page,

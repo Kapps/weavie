@@ -14,6 +14,7 @@
     "test": "vitest run",
     "e2e": "vite build && playwright test",
     "e2e:ci": "playwright test",
+    "e2e:perf": "vite build && dotnet build ../Weavie.Headless -v q -nologo && playwright test --project=headless --grep @perf",
     "e2e:install": "playwright install chromium",
     "capture": "pnpm install && pnpm run build && node e2e/capture.mjs"
   },

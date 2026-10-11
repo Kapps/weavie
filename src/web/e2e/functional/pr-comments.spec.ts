@@ -1,23 +1,11 @@
 import type { Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
 // Inline PR review threads: cards in a layer beside Monaco (not view-zone DOM), sized to the visible code,
 // with keyboard reply / new comment / edit round-tripping through the stubbed comment store.
 test.use({ prScenario: true });
-
-const card = (page: Page, text: string) =>
-  page.locator(".weavie-pr-card").filter({ hasText: text });
-
-async function openCommentedFile(page: Page): Promise<void> {
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-  await walkToChangedFile(page, "hello.ts");
-  await expect(card(page, "Why change this greeting?")).toBeVisible({ timeout: 10_000 });
-}
 
 // Puts the caret on `line` of the focused editor.
 async function goToLine(page: Page, line: number): Promise<void> {

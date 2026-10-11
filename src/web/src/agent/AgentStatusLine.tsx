@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { gitStatus } from "../chrome/git-status-store";
+import { scrollWheelHorizontally } from "../chrome/horizontal-overflow";
 import { type PullRequestStatus, pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
@@ -97,18 +98,7 @@ export function AgentStatusLine(props: {
               event.target.scrollIntoView({ block: "nearest", inline: "nearest" });
             }
           }}
-          onWheel={(event) => {
-            const bar = event.currentTarget;
-            if (event.ctrlKey || event.deltaX !== 0 || bar.scrollWidth <= bar.clientWidth) return;
-            const unit =
-              event.deltaMode === WheelEvent.DOM_DELTA_LINE
-                ? bar.clientHeight
-                : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-                  ? bar.clientWidth
-                  : 1;
-            bar.scrollLeft += event.deltaY * unit;
-            event.preventDefault();
-          }}
+          onWheel={scrollWheelHorizontally}
         >
           <AgentUsageIndicator session={props.session} />
           <Show when={hasDiff()}>

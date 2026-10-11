@@ -149,6 +149,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		return new SessionDescriptor {
 			Id = new SessionId(entry.Id),
 			Label = entry.Label,
+			Emoji = entry.Emoji,
 			WorktreePath = entry.WorktreePath,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
@@ -169,6 +170,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 	private static SessionEntry ToEntry(SessionDescriptor session) => new() {
 		Id = session.Id.Value,
 		Label = session.Label,
+		Emoji = session.Emoji,
 		WorktreePath = session.WorktreePath,
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
@@ -196,6 +198,9 @@ public sealed partial class SessionStore : JsonDocumentStore {
 
 		[JsonPropertyName("label")]
 		public string? Label { get; set; }
+
+		[JsonPropertyName("emoji")]
+		public string? Emoji { get; set; }
 
 		[JsonPropertyName("worktreePath")]
 		public string? WorktreePath { get; set; }

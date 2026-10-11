@@ -16,6 +16,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     status: "idle",
     hue: 120,
     monogram: "FX",
+    emoji: null,
     workspaceCheckout: false,
     backendId: "local",
     locationName: "default",

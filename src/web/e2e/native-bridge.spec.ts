@@ -120,6 +120,7 @@ test.describe("native in-process bridge contract", () => {
                 status: "idle",
                 hue: 200,
                 monogram: "C",
+                emoji: null,
                 workspaceCheckout: false,
               },
             ],

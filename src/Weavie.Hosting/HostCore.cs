@@ -327,6 +327,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		LogStartup("worktrees discovered");
 		await GatedAsync(_sessionCatalog, RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
 		LogStartup("sessions restored");
+		StartSessionEmojis();
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
 		InitSuggestions();
@@ -407,6 +408,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			if (change.Key is InferenceSettings.Enabled or InferenceSettings.AllowAutomatic
 				&& AutomaticInferenceEnabled()) {
 				ClearAutomaticInferenceOffer();
+				ScheduleSessionEmojis();
 			}
 
 			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
@@ -537,6 +539,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		Attempt(DetachReactions);
 		Attempt(_global.Dispose);
 		Attempt(() => _drainTick?.Cancel());
+		Attempt(_emojiStop.Cancel);
 		Attempt(_sessionStore.Flush);
 
 		var sessions = _sessions;

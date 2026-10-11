@@ -385,6 +385,10 @@
   color: #fff;
   font-weight: 600;
 }
+.session-inbox-monogram.emoji {
+  background: color-mix(in srgb, var(--fg) 9%, var(--bar));
+  font-size: 22px;
+}
 
 .session-inbox-details {
   display: flex;

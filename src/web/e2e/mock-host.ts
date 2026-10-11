@@ -27,6 +27,7 @@ export interface MockSession {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   hue: number;
   monogram: string;
+  emoji: string | null;
   workspaceCheckout: boolean;
   shellTerminals: string[];
 }
@@ -75,6 +76,7 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     status: "idle",
     hue: 200,
     monogram: label.slice(0, 1).toUpperCase(),
+    emoji: null,
     workspaceCheckout: false,
     shellTerminals: [`${id}-shell`],
   };

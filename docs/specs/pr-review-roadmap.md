@@ -123,7 +123,15 @@ change summary, enriched — when the branch has a PR — with title, descriptio
 PR-level conversation. Per *Sessions, not PRs*, it works for any session; PR data only adds sections. It leads into
 the diffs (and later the review guide's reading order) in one step. [open-pr.md](open-pr.md) deferred a PR
 overview tab until source tabs land; the review tab already proves non-file tabs, so that wait no longer applies.
-Mockups first.
+
+Decided by mockup:
+
+- The overview is the top of the review tab; the changed-file tree becomes its **Changes** section and the diffs
+  follow in the same scroll. **Start review** jumps to the first unreviewed file; scrolled past, the sticky header
+  carries the session's identity and an **Overview** command back. Sessions without changes still get it.
+- Every section collapses. Collapse state is remembered globally by default; a setting switches it to per session.
+- The PR conversation's composer posts immediately: GitHub's PR-level comments are never part of a review.
+- Feature 8's submit control sits top-right of the overview and in the sticky header, only when there's a PR.
 
 ## 8. Finish a review
 

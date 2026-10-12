@@ -111,9 +111,19 @@ public sealed partial class HostCore {
 
 		WireFileActivity(session);
 		WireAttention(session);
+		WireActivity(session);
+		// Delivered serially by the machine, so this closure-tracked previous status can't race its own handler.
+		var previous = session.Status.Status;
 		session.Status.Changed += status => {
 			session.PullRequestStatus.UpdateStatus(status);
+			bool marksActive = SessionStatusMachine.MarksLastActive(previous, status);
+			previous = status;
 			PostForSession(session, () => {
+				if (marksActive && _sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session)) {
+					slot.LastActiveAt = _time.GetUtcNow();
+					PersistSessionState();
+				}
+
 				PostSessionStatus(session, status);
 				PushGitStatus(session);
 
@@ -402,10 +412,8 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Pushes the authoritative session catalog. Loaded entries carry their exact live address.</summary>
-	private void PushSessionList() {
+	private void PushSessionList() =>
 		_messages.Host.Feature("sessions").Publish("catalog", WireJson.Default.SessionCatalogEntryArray, BuildSessionCatalog());
-		ScheduleSessionEmojis();
-	}
 
 	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		ReplaySession(session);
@@ -424,18 +432,19 @@ public sealed partial class HostCore {
 				var info = _agentProviders.FindInfo(slot.AgentProviderId);
 				bool structured = info?.Capabilities
 					.HasFlag(AgentProviderCapabilities.StructuredPane) == true;
+				var name = SessionName.Parse(slot.Label);
 				return new SessionCatalogEntry(
 					slot.Id,
 					slot.Label,
+					name.Title,
+					name.Prefix,
 					slot.Session?.Address,
 					slot.Loaded,
 					slot.AgentProviderId,
 					info is null ? "unavailable" : structured ? "structured" : "terminal",
 					structured ? 2 : 0,
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
-					SessionIdentity.Hue(slot.Label),
-					SessionIdentity.Monogram(slot.Label),
-					slot.Emoji,
+					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
 					IsWorkspaceCheckout(slot));
 			})
 			.ToArray()
@@ -444,15 +453,15 @@ public sealed partial class HostCore {
 	internal sealed record SessionCatalogEntry(
 		string Id,
 		string Label,
+		string Title,
+		string? Prefix,
 		SessionAddress? Address,
 		bool Loaded,
 		string ProviderId,
 		string AgentSurface,
 		int AgentInputProtocol,
 		string Status,
-		int Hue,
-		string Monogram,
-		string? Emoji,
+		long? LastActiveAt,
 		bool WorkspaceCheckout);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
@@ -1391,6 +1400,7 @@ public sealed partial class HostCore {
 }
 
 internal sealed record SessionStatusChanged(string Status);
+internal sealed record SessionActivityChanged(string? Activity);
 
 internal sealed record SessionAddressData(string Id, SessionAddress Address);
 

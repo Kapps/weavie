@@ -1,7 +1,9 @@
 import { EllipsisVertical } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
-import { type RailSession, STATUS_SHORT } from "../chrome/session-store";
+import type { RailSession } from "../chrome/session-store";
+import { sessionSubtitle, statusDot } from "../chrome/session-summary";
+import { useNow } from "../compact-age";
 
 /**
  * One compact session target with its location, provider, and live/dormant state. Touch chrome hides the rail,
@@ -16,13 +18,13 @@ export function SessionInboxRow(props: {
 }): JSX.Element {
   const session = (): RailSession => props.session;
   const manageLabel = (): string => `Manage ${session().label}`;
+  const now = useNow();
   return (
     <div
-      class={`session-inbox-row status-${session().status}`}
+      class="session-inbox-row"
       classList={{ active: session().active, offline: session().offline }}
       data-session-id={session().id}
       data-backend-id={session().backendId}
-      ref={(element) => element.style.setProperty("--chip-hue", String(session().hue))}
     >
       <button
         type="button"
@@ -30,25 +32,21 @@ export function SessionInboxRow(props: {
         disabled={session().pending || session().offline}
         onClick={() => void props.onOpen(session())}
       >
-        <span class="session-inbox-monogram" classList={{ emoji: session().emoji !== null }}>
-          {session().emoji ?? session().monogram}
-        </span>
+        <span class={`session-status status-${statusDot(session())}`} />
         <span class="session-inbox-details">
-          <strong>{session().label}</strong>
-          <span>
-            {session().locationName} ·{" "}
-            {agentProviders(session().backendId).find(
-              (provider) => provider.id === session().providerId,
-            )?.name ?? session().providerId}
-          </span>
+          <strong>
+            {session().title}
+            <Show when={session().prefix}>
+              {(prefix) => <span class="session-inbox-prefix"> {prefix()}</span>}
+            </Show>
+          </strong>
+          <span class="session-inbox-status">{sessionSubtitle(session(), now())}</span>
         </span>
-        <span class="session-inbox-state">
-          {session().loaded && <span class="session-status" />}
-          {session().offline
-            ? "Reconnecting"
-            : session().loaded
-              ? STATUS_SHORT[session().status]
-              : "Unloaded"}
+        <span class="session-inbox-where">
+          {session().locationName} ·{" "}
+          {agentProviders(session().backendId).find(
+            (provider) => provider.id === session().providerId,
+          )?.name ?? session().providerId}
         </span>
       </button>
       <Show when={props.compact}>

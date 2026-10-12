@@ -19,6 +19,12 @@ public static class SessionCommands {
 	/// <summary>Shows the shared Sessions UI; <c>$mod+Shift+n</c>.</summary>
 	public const string ShowSessions = "weavie.session.show";
 
+	/// <summary>Opens or closes the session panel beside the rail.</summary>
+	public const string ToggleSessionPanel = "weavie.session.panel";
+
+	/// <summary>Docks the session panel open beside the rail, or undocks it.</summary>
+	public const string PinSessionPanel = "weavie.session.panelPin";
+
 	/// <summary>Submits the focused new-session composer; <c>Shift+Enter</c>.</summary>
 	public const string SubmitNewSession = "weavie.session.submitNew";
 
@@ -108,9 +114,29 @@ public static class SessionCommands {
 			Title = "Sessions",
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
-			Description = "Show all sessions and the shared new-session composer.",
-			Aliases = ["new session", "show sessions", "switch session", "go to session", "change session", "pick session"],
+			Description = "Start a new session. On mobile it also lists every session to switch to.",
+			Aliases = ["new session", "show sessions"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleSessionPanel,
+			Title = "Session Panel",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open the session panel: every session grouped by what needs you, with what each agent is doing.",
+			Aliases = ["switch session", "go to session", "change session", "pick session", "session list"],
+			// Everywhere, terminals included: the panel is the main way to find and switch sessions.
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+e" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PinSessionPanel,
+			Title = "Pin Session Panel",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Keep the session panel docked open beside the rail, or undock it.",
+			Aliases = ["dock session panel", "unpin session panel"],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -67,6 +67,7 @@ import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
+import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import {
@@ -1902,6 +1903,11 @@ export default function App(): JSX.Element {
                   },
             )
           }
+        />
+        <SessionPanel
+          sessions={railSessions()}
+          inert={sessionsModalActive()}
+          onSwitch={(session) => void openSession(session)}
         />
         <MobileWorkspace
           surface={mobileSurface()}

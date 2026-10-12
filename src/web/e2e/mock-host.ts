@@ -19,15 +19,15 @@ export interface SessionAddress {
 export interface MockSession {
   id: string;
   label: string;
+  title: string;
+  prefix: string | null;
   address: SessionAddress | null;
   loaded: boolean;
   providerId: string;
   agentSurface: "terminal" | "structured";
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
-  hue: number;
-  monogram: string;
-  emoji: string | null;
+  lastActiveAt: number | null;
   workspaceCheckout: boolean;
   shellTerminals: string[];
 }
@@ -68,15 +68,15 @@ export function mockSession(id: string, label: string, providerId: string): Mock
   return {
     id,
     label,
+    title: label.split("/").at(-1)?.replaceAll("-", " ") ?? label,
+    prefix: label.includes("/") ? label.slice(0, label.lastIndexOf("/")) : null,
     address: { slot: id, incarnation: `${id}-incarnation` },
     loaded: true,
     providerId,
     agentSurface: providerId === "claude" ? "terminal" : "structured",
     agentInputProtocol: providerId === "claude" ? 0 : 2,
     status: "idle",
-    hue: 200,
-    monogram: label.slice(0, 1).toUpperCase(),
-    emoji: null,
+    lastActiveAt: null,
     workspaceCheckout: false,
     shellTerminals: [`${id}-shell`],
   };
@@ -805,7 +805,7 @@ export class MockHost {
       sessions: this.sessions,
       layout: DEFAULT_LAYOUT,
       remoteAgents: [],
-      rail: { lastLocation: "local", promoted: [], selected: null },
+      rail: { lastLocation: "local", promoted: [], selected: null, panelPinned: false },
       search: {
         options: {
           caseSensitive: false,

@@ -19,6 +19,7 @@ public sealed class RailStateStoreTests {
 		Assert.Equal("local", store.LastLocation);
 		Assert.Empty(store.Promoted);
 		Assert.Null(store.Selected);
+		Assert.False(store.PanelPinned);
 	}
 
 	[Fact]
@@ -27,6 +28,20 @@ public sealed class RailStateStoreTests {
 		new RailStateStore(fs, StorePath).SetLastLocation("remote:devbox");
 
 		Assert.Equal("remote:devbox", new RailStateStore(fs, StorePath).LastLocation);
+	}
+
+	[Fact]
+	public void SetPanelPinned_PersistsAcrossReload_AndNotifiesOnlyOnChange() {
+		var fs = new InMemoryFileSystem();
+		var store = new RailStateStore(fs, StorePath);
+		int changes = 0;
+		store.Changed += () => changes++;
+
+		store.SetPanelPinned(true);
+		store.SetPanelPinned(true);
+
+		Assert.Equal(1, changes);
+		Assert.True(new RailStateStore(fs, StorePath).PanelPinned);
 	}
 
 	[Fact]

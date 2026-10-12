@@ -12,11 +12,11 @@ public sealed class SessionSlot {
 	/// <summary>Stable rail identity, independent of a live runtime incarnation.</summary>
 	public required string Id { get; init; }
 
-	/// <summary>Branch (or folder leaf) name — drives the chip's deterministic hue + monogram.</summary>
+	/// <summary>Branch (or folder leaf) name; the switcher shows it as <see cref="SessionName"/>.</summary>
 	public required string Label { get; init; }
 
-	/// <summary>The rail emoji inferred for <see cref="Label"/>; <c>null</c> keeps the hue + monogram chip.</summary>
-	public string? Emoji { get; set; }
+	/// <summary>When the agent last started or finished work here, or <c>null</c> if it never has.</summary>
+	public DateTimeOffset? LastActiveAt { get; set; }
 
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }

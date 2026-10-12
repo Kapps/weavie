@@ -374,22 +374,6 @@
   color: var(--fg);
 }
 
-.session-inbox-monogram {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  border-radius: 9px;
-  background: hsl(var(--chip-hue, 200) 45% 38%);
-  color: #fff;
-  font-weight: 600;
-}
-.session-inbox-monogram.emoji {
-  background: color-mix(in srgb, var(--fg) 9%, var(--bar));
-  font-size: 22px;
-}
-
 .session-inbox-details {
   display: flex;
   flex: 1 1 auto;
@@ -404,33 +388,24 @@
   white-space: nowrap;
 }
 
-.session-inbox-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.session-inbox-status,
+.session-inbox-prefix {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.session-inbox-prefix {
+  font-weight: 400;
+}
+
+.session-inbox-where {
   flex: 0 0 auto;
-}
-
-.session-inbox-row.status-idle .session-status {
-  background: var(--ok);
-}
-
-.session-inbox-row.status-working .session-status,
-.session-inbox-row.status-waiting .session-status,
-.session-inbox-row.status-starting .session-status {
-  background: var(--busy);
-}
-
-.session-inbox-row.status-needsInput .session-status {
-  background: var(--warn);
-}
-
-.session-inbox-row.status-error .session-status {
-  background: var(--bad);
-}
-
-.session-inbox-row.offline .session-status {
-  background: var(--dim);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
 }
 
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {

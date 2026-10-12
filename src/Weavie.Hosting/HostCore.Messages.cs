@@ -96,6 +96,10 @@ public sealed partial class HostCore {
 			_railState.SetPromoted(message.Promoted);
 			return Task.CompletedTask;
 		});
+		rail.Handle("setPanelPinned", "Pinning the session panel", WireJson.Default.RailPanelPinned, (message, _) => {
+			_railState.SetPanelPinned(message.Pinned);
+			return Task.CompletedTask;
+		});
 		rail.Handle("setSelected", "Saving the rail selection", WireJson.Default.RailSelectionMessage, (message, _) => {
 			_railState.SetSelected(message.BackendId, message.Slot);
 			return Task.CompletedTask;
@@ -364,6 +368,8 @@ public sealed partial class HostCore {
 
 	internal sealed record RailSelectionMessage(string BackendId, string Slot);
 
+	internal sealed record RailPanelPinned(bool Pinned);
+
 	internal sealed record SearchOptionsMessage(
 		bool CaseSensitive,
 		bool WholeWord,
@@ -394,7 +400,8 @@ public sealed partial class HostCore {
 	internal sealed record RailSnapshot(
 		string LastLocation,
 		string[] Promoted,
-		RailSelection? Selected);
+		RailSelection? Selected,
+		bool PanelPinned);
 
 	internal sealed record RailSelection(string BackendId, string Slot);
 
@@ -414,7 +421,8 @@ public sealed partial class HostCore {
 	private RailSnapshot BuildRailSnapshot() => new(
 		_railState.LastLocation,
 		[.. _railState.Promoted],
-		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null);
+		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null,
+		_railState.PanelPinned);
 
 	private SearchSnapshot BuildSearchSnapshot() {
 		var search = _searchState.Current;

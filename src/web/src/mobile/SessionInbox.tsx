@@ -523,23 +523,26 @@ export function SessionInbox(props: {
         </section>
       </div>
 
-      <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
-        <Show
-          when={props.sessions.length > 0}
-          fallback={<p class="session-inbox-empty">No sessions yet.</p>}
-        >
-          <For each={props.sessions}>
-            {(session) => (
-              <SessionInboxRow
-                session={session}
-                compact={props.compact}
-                onOpen={props.onOpen}
-                onManage={openSessionMenu}
-              />
-            )}
-          </For>
-        </Show>
-      </section>
+      {/* Desktop lists sessions in the rail's session panel; touch chrome has no rail, so it lists them here. */}
+      <Show when={props.compact}>
+        <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
+          <Show
+            when={props.sessions.length > 0}
+            fallback={<p class="session-inbox-empty">No sessions yet.</p>}
+          >
+            <For each={props.sessions}>
+              {(session) => (
+                <SessionInboxRow
+                  session={session}
+                  compact={props.compact}
+                  onOpen={props.onOpen}
+                  onManage={openSessionMenu}
+                />
+              )}
+            </For>
+          </Show>
+        </section>
+      </Show>
 
       <Show when={sessionMenu()}>
         {(menu) => <ContextMenu menu={menu()} onClose={() => setSessionMenu(null)} />}

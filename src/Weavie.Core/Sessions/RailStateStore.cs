@@ -5,8 +5,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Promoted"/>, and
-/// <see cref="Selected"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
+/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Promoted"/>,
+/// <see cref="Selected"/>, and <see cref="PanelPinned"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
@@ -16,6 +16,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	private string _lastLocation = DefaultLocation;
 	private List<string> _promoted = [];
 	private (string BackendId, string Slot)? _selected;
+	private bool _panelPinned;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
 	/// <param name="fileSystem">The filesystem the state persists through.</param>
@@ -41,6 +42,25 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	/// <summary>The last client-selected backend and stable session slot, or <c>null</c> before any selection.</summary>
 	public (string BackendId, string Slot)? Selected {
 		get { lock (Gate) { return _selected; } }
+	}
+
+	/// <summary>Whether the session panel is docked open beside the rail.</summary>
+	public bool PanelPinned {
+		get { lock (Gate) { return _panelPinned; } }
+	}
+
+	/// <summary>Docks or undocks the session panel. No-op (no write, no event) when unchanged.</summary>
+	public void SetPanelPinned(bool pinned) {
+		lock (Gate) {
+			if (_panelPinned == pinned) {
+				return;
+			}
+
+			_panelPinned = pinned;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
 	}
 
 	/// <summary>Records the backend a session was just created on. No-op (no write, no event) when unchanged.</summary>
@@ -101,6 +121,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
 			? (selected.BackendId, selected.Slot)
 			: null;
+		_panelPinned = document.PanelPinned;
 	}
 
 	/// <inheritdoc/>
@@ -112,6 +133,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 			Selected = _selected is { } selected
 				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
 				: null,
+			PanelPinned = _panelPinned,
 		},
 		RailStateStoreJson.Default.Document);
 
@@ -127,6 +149,9 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 
 		[JsonPropertyName("selected")]
 		public SelectionEntry? Selected { get; set; }
+
+		[JsonPropertyName("panelPinned")]
+		public bool PanelPinned { get; set; }
 	}
 
 	private sealed class SelectionEntry {

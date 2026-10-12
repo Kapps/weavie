@@ -11,6 +11,7 @@ public sealed class AgentEventRouter : IAgentEventSink {
 	private readonly SessionChangeTracker _changes;
 	private readonly ObservedPermissionMode _mode;
 	private readonly SessionStatusMachine _status;
+	private readonly SessionActivityTracker _activity;
 	private readonly ReviewHintStore _hints;
 
 	/// <summary>Creates the event router for one loaded session.</summary>
@@ -18,14 +19,17 @@ public sealed class AgentEventRouter : IAgentEventSink {
 		SessionChangeTracker changes,
 		ObservedPermissionMode mode,
 		SessionStatusMachine status,
+		SessionActivityTracker activity,
 		ReviewHintStore hints) {
 		ArgumentNullException.ThrowIfNull(changes);
 		ArgumentNullException.ThrowIfNull(mode);
 		ArgumentNullException.ThrowIfNull(status);
+		ArgumentNullException.ThrowIfNull(activity);
 		ArgumentNullException.ThrowIfNull(hints);
 		_changes = changes;
 		_mode = mode;
 		_status = status;
+		_activity = activity;
 		_hints = hints;
 	}
 
@@ -36,6 +40,7 @@ public sealed class AgentEventRouter : IAgentEventSink {
 		_changes.Observe(value);
 		if (value is not AgentConversationEvent) _mode.Observe(value);
 		_status.Observe(value);
+		_activity.Observe(value);
 		_hints.Observe(value);
 		var locations = _changes.EditLocationsFor(shared);
 		return locations.Count == 0

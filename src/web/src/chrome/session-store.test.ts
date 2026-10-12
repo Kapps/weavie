@@ -26,6 +26,7 @@ const harness = vi.hoisted(() => ({
     {
       client: ClientSession;
       status?: (payload: { status: string }) => void;
+      activity?: (payload: { activity: string | null }) => void;
     }
   >(),
   selectionListeners: [] as Array<(session: ClientSession | null) => void>,
@@ -117,6 +118,7 @@ function session(
 ): {
   client: ClientSession;
   status?: (payload: { status: string }) => void;
+  activity?: (payload: { activity: string | null }) => void;
 } {
   const key = `${backendId}\u0000${slot}`;
   const existing = harness.sessions.get(key);
@@ -126,14 +128,17 @@ function session(
   const created = {} as {
     client: ClientSession;
     status?: (payload: { status: string }) => void;
+    activity?: (payload: { activity: string | null }) => void;
   };
   created.client = {
     connection: connection(backendId).connection,
     address: { slot, incarnation: `${slot}-incarnation` },
     feature: (feature: string) => ({
-      on: (_name: string, handler: (payload: { status: string }) => void) => {
-        if (feature === "status") {
-          created.status = handler;
+      on: (name: string, handler: (payload: unknown) => void) => {
+        if (feature === "status" && name === "changed") {
+          created.status = handler as (payload: { status: string }) => void;
+        } else if (feature === "status" && name === "activity") {
+          created.activity = handler as (payload: { activity: string | null }) => void;
         }
         return () => {};
       },
@@ -156,9 +161,11 @@ function deliverCatalog(backendId: string, slots: string[]): void {
         loaded: true,
         providerId: "claude",
         status: "starting",
-        hue: 0,
-        monogram: slot.slice(0, 1),
-        emoji: null,
+        title: slot,
+        prefix: null,
+        agentSurface: "terminal",
+        agentInputProtocol: 0,
+        lastActiveAt: null,
         workspaceCheckout: false,
       }) as SessionCatalogEntry,
   );
@@ -175,6 +182,14 @@ beforeEach(() => {
   harness.setSelected(primary.client);
   deliverCatalog("local", ["main"]);
   deliverStatus("local", "main", "starting");
+});
+
+describe("session activity", () => {
+  it("patches the owning chip and survives a catalog re-push", () => {
+    session("local", "main").activity?.({ activity: "running pnpm test" });
+    deliverCatalog("local", ["main"]);
+    expect(store.sessions().find((s) => s.id === "main")?.activity).toBe("running pnpm test");
+  });
 });
 
 describe("selected session status", () => {
@@ -207,9 +222,10 @@ const chip = (id: string, active: boolean): RailSession => ({
   agentSurface: "terminal",
   agentInputProtocol: 0,
   status: "idle",
-  hue: 0,
-  monogram: id.slice(0, 1),
-  emoji: null,
+  title: id,
+  prefix: null,
+  activity: null,
+  lastActiveAt: null,
   workspaceCheckout: false,
   backendId: "local",
   locationName: "default",

@@ -18,7 +18,7 @@ public sealed class SessionStoreTests {
 	private static SessionDescriptor Descriptor(string id, string label, bool loaded) => new() {
 		Id = new SessionId(id),
 		Label = label,
-		Emoji = null,
+		LastActiveAt = null,
 		WorktreePath = "/wt/" + label,
 		Loaded = loaded,
 		AgentProviderId = "claude",
@@ -26,13 +26,15 @@ public sealed class SessionStoreTests {
 		ShellTerminals = [new string(id[0], 32)],
 	};
 
+	private static readonly DateTimeOffset ActiveAt = new(2026, 10, 11, 9, 41, 0, TimeSpan.Zero);
+
 	[Fact]
-	public void Save_PersistsLoadedFlagsAndEmojiWithoutClientSelection_AndReloads() {
+	public void Save_PersistsLoadedFlagsAndLastActiveWithoutClientSelection_AndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
 		store.Save([
-			Descriptor("aaaa", "a", loaded: true) with { Emoji = "🔍" },
+			Descriptor("aaaa", "a", loaded: true) with { LastActiveAt = ActiveAt },
 			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp" },
 		]);
 
@@ -41,8 +43,8 @@ public sealed class SessionStoreTests {
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
-		Assert.Equal("🔍", reloaded.Items.Single(i => i.Id.Value == "aaaa").Emoji);
-		Assert.Null(reloaded.Items.Single(i => i.Id.Value == "bbbb").Emoji);
+		Assert.Equal(ActiveAt, reloaded.Items.Single(i => i.Id.Value == "aaaa").LastActiveAt);
+		Assert.Null(reloaded.Items.Single(i => i.Id.Value == "bbbb").LastActiveAt);
 		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals));
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}

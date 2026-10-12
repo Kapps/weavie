@@ -112,15 +112,15 @@ test.describe("native in-process bridge contract", () => {
               {
                 id: "cx",
                 label: "acp",
+                title: "acp",
+                prefix: null,
                 address,
                 loaded: true,
                 providerId: "acp",
                 agentSurface: "structured",
                 agentInputProtocol: 2,
                 status: "idle",
-                hue: 200,
-                monogram: "C",
-                emoji: null,
+                lastActiveAt: null,
                 workspaceCheckout: false,
               },
             ],
@@ -129,7 +129,7 @@ test.describe("native in-process bridge contract", () => {
               focused: "p_agent",
             },
             remoteAgents: [],
-            rail: { lastLocation: "local", promoted: [], selected: null },
+            rail: { lastLocation: "local", promoted: [], selected: null, panelPinned: false },
             search: {
               options: {
                 caseSensitive: false,

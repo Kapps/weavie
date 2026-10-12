@@ -3,6 +3,7 @@ import { type JSX, Show } from "solid-js";
 import type { SymbolActions } from "../symbols/symbol-match";
 import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
+import { SessionTitle } from "./SessionTitle";
 import { WeavieIcon } from "./WeavieIcon";
 
 type WindowControlAction = "minimize" | "maximize-toggle" | "close";
@@ -36,6 +37,7 @@ export function TitleBar(props: {
       </div>
 
       <div class="tb-center">
+        <SessionTitle />
         <Omnibar
           files={props.files}
           filesPending={props.filesPending}

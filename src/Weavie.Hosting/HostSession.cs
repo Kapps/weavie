@@ -189,6 +189,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// Agent integration: start the provider-specific loopback server, render openDiff to Monaco, and expose
 		// the standard registry tools to the embedded model.
 		Status = new SessionStatusMachine();
+		Activity = new SessionActivityTracker(Status);
 		// Appends the user's corrections (editor saves over an agent hunk, and review-UI reverts) into the
 		// workspace's shared ring, one entry per action — captured at the moment they act, not at a boundary.
 		// See docs/specs/learn-from-corrections.md.
@@ -198,7 +199,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		};
 		// Isolated in-place revision of a bounded region, published as in-flight on this session's bus.
 		Revise = new ReviseService(inference, Changes, new SessionReviseSurface(this));
-		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, ReviewHints);
+		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, Activity, ReviewHints);
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
 		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
@@ -487,6 +488,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>The live status of this session's agent (Starting/Working/NeedsInput/Idle/Error), for the rail.</summary>
 	public SessionStatusMachine Status { get; }
+
+	/// <summary>The one-line description of what this session's agent is doing, for the session switcher.</summary>
+	public SessionActivityTracker Activity { get; }
 
 	/// <summary>The LSP multiplexer rooted at this session's cwd, riding the web bridge.</summary>
 	public LspController Lsp { get; }

@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import type { SymbolActions } from "../symbols/symbol-match";
 import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
+import { SessionTitle } from "./SessionTitle";
 
 // The app bar below a native macOS/Linux window frame. Linux keeps the web command menu; macOS presents it
 // in AppKit's system menu bar, so its in-window strip contains only the omnibar.
@@ -20,6 +21,7 @@ export function NativeTitleBar(props: {
     <div class="native-titlebar">
       <div class="native-tb-left">{props.showApplicationMenu && <Menu />}</div>
       <div class="tb-center">
+        <SessionTitle />
         <Omnibar
           files={props.files}
           filesPending={props.filesPending}

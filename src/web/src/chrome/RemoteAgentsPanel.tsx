@@ -6,6 +6,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { type PopoverAnchor, placeRailPopover } from "./popover-position";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession, RemoteAgentRow } from "./session-store";
+import { sessionSubtitle, statusDot } from "./session-summary";
 
 // The cloud panel: manage + pick remote agents, opened from the rail's cloud button. Lists each agent
 // (connected first, offline faded) and the sessions it can still offer — those NOT already promoted into
@@ -122,29 +123,22 @@ export function RemoteAgentsPanel(props: {
                           {(session) => (
                             <button
                               type="button"
-                              class={`remote-session status-${session.status}${
-                                session.loaded ? "" : " unloaded"
-                              }${session.pending ? " pending" : ""}${
-                                session.emoji === null ? "" : " emoji"
+                              class={`remote-session${session.loaded ? "" : " unloaded"}${
+                                session.pending ? " pending" : ""
                               }`}
-                              title={`${session.label}${session.loaded ? ` — ${session.status}` : " — unloaded"}`}
-                              ref={(el) => el.style.setProperty("--chip-hue", String(session.hue))}
+                              title={`${session.label} — ${sessionSubtitle(session, Date.now())}`}
                               onClick={() => props.onPick(session)}
                               onContextMenu={(event) => openMenu(event, session)}
                             >
-                              <span class="remote-session-mono">
-                                {session.emoji ?? session.monogram}
-                              </span>
                               <Show
                                 when={session.pending}
                                 fallback={
-                                  <Show when={session.loaded && session.status !== "idle"}>
-                                    <span class="remote-session-dot" />
-                                  </Show>
+                                  <span class={`session-status status-${statusDot(session)}`} />
                                 }
                               >
                                 <span class="session-chip-spinner" aria-hidden="true" />
                               </Show>
+                              <span class="remote-session-name">{session.title}</span>
                             </button>
                           )}
                         </For>

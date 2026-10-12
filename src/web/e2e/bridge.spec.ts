@@ -280,7 +280,7 @@ test.describe("session-addressed WebSocket transport", () => {
       openGroup.getByRole("combobox", { name: "Existing branch for the session" }),
     ).toBeVisible();
     await expect(inbox.locator("#session-existing-branches option")).toHaveCount(1);
-    await inbox.locator(".session-inbox-row").click();
+    await page.keyboard.press("Escape");
     await expect(modal).toBeHidden();
     await expect(activeChip).toHaveCount(1);
 
@@ -1012,9 +1012,9 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(scrolledGeometry.composerTop).toBeLessThan(geometry.composerTop);
     expect(scrolledGeometry.lastRowBottom).toBeLessThanOrEqual(scrolledGeometry.inboxBottom);
 
-    const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
+    const unloaded = inbox.locator(".session-inbox-row", { hasText: "not loaded" });
     await expect(unloaded).toHaveCount(dormant.length);
-    await expect(unloaded.locator(".session-status")).toHaveCount(0);
+    await expect(unloaded.locator(".session-status.status-unloaded")).toHaveCount(dormant.length);
 
     const draft = inbox.getByRole("textbox", { name: "Prompt for a new session" });
     await draft.fill("Keep this mobile draft");
@@ -1032,7 +1032,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.disconnectBridge();
     await host.waitUntilConnected(checkpoint);
     const primaryRow = inbox.locator(".session-inbox-row").first();
-    await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Reconnecting");
+    await expect(primaryRow.locator(".session-inbox-status")).toHaveText("connection lost");
     const statusColors = await primaryRow.locator(".session-status").evaluate((status) => {
       const probe = document.createElement("span");
       probe.style.background = "var(--dim)";
@@ -1072,7 +1072,7 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(overlay.toastClose.height).toBeGreaterThanOrEqual(44);
 
     host.resumeHello();
-    await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Idle");
+    await expect(primaryRow.locator(".session-inbox-status")).toHaveText(/^idle/);
     await expect(toast).toHaveCount(0);
     await expect(
       inbox.locator('#session-existing-branches option[value="release/available-after-reconnect"]'),

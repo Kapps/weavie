@@ -140,6 +140,11 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+/* Where you are matters more than who's waiting: the current name keeps its width and the pills give way. */
+.session-title-current {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
 .session-title-current:hover {
   background: var(--list-hover-bg);
 }

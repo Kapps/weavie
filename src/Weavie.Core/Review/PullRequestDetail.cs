@@ -18,6 +18,8 @@ public interface IPullRequestDiscussion {
 /// <param name="Id">The forge's opaque PR id, which PR-level comments are posted to.</param>
 /// <param name="Number">The PR number.</param>
 /// <param name="Url">The PR's web URL.</param>
+/// <param name="BaseRef">The branch the PR merges into.</param>
+/// <param name="HeadRef">The branch the PR merges from.</param>
 /// <param name="Title">The PR title.</param>
 /// <param name="Body">The description (markdown; sanitized before render).</param>
 /// <param name="IsDraft">True for a draft PR.</param>
@@ -30,6 +32,8 @@ public sealed record PullRequestDetail(
 	string Id,
 	int Number,
 	string Url,
+	string BaseRef,
+	string HeadRef,
 	string Title,
 	string Body,
 	bool IsDraft,
@@ -40,8 +44,8 @@ public sealed record PullRequestDetail(
 	IReadOnlyList<PullRequestCheck> Checks) {
 	/// <inheritdoc/>
 	public bool Equals(PullRequestDetail? other) =>
-		other is not null && (Id, Number, Url, Title, Body, IsDraft, Author, CreatedAt)
-			== (other.Id, other.Number, other.Url, other.Title, other.Body, other.IsDraft, other.Author, other.CreatedAt)
+		other is not null && (Id, Number, Url, BaseRef, HeadRef, Title, Body, IsDraft, Author, CreatedAt)
+			== (other.Id, other.Number, other.Url, other.BaseRef, other.HeadRef, other.Title, other.Body, other.IsDraft, other.Author, other.CreatedAt)
 		&& Reviewers.SequenceEqual(other.Reviewers)
 		&& Conversation.SequenceEqual(other.Conversation)
 		&& Checks.SequenceEqual(other.Checks);

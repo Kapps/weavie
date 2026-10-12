@@ -10,7 +10,7 @@ import {
 } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit, reviewFileSegment } from "../harness/review";
+import { appliedEdit, jumpToReviewFile, reviewFileSegment } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
@@ -204,19 +204,21 @@ test.describe("durable pull-request review", () => {
     await expect(page.locator(".editor-review-open")).toBeVisible();
     await page.locator(".editor-review-open").click();
     // The session overview sits above the diffs; jump to the file as a reviewer would.
-    await page.locator(".unified-review-tree-row", { hasText: "hello.ts" }).click();
+    await jumpToReviewFile(page, "hello.ts");
     const hello = section(page, "hello.ts");
     await hello.locator(".unified-review-file-action.keep").click();
     await expect(hello.locator(".unified-review-status")).toHaveText("Reviewed");
 
     await openPr(page);
     await expect(page.locator(".session-chip")).toHaveCount(2);
-    await expect(page.locator(".unified-review")).toBeVisible();
+    await expect(page.locator(".unified-review .session-overview")).toBeVisible();
     await expect(hello.locator(".unified-review-status")).toHaveText("Reviewed");
     await expect(hello.locator(".unified-review-file-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
+    // Jumping to the file from the overview's tree expands it.
+    await jumpToReviewFile(page, "hello.ts");
     await openInFileReview(page, "hello.ts", /^\d+$/);
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(2);
     await expect(

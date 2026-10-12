@@ -6,8 +6,7 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { type FakeStep, writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
-import { appliedEdit } from "../harness/review";
+import { appliedEdit, openPullRequestFile } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
@@ -254,9 +253,12 @@ test.describe("addReviewHint from Claude", () => {
     await expect(page.locator(".weavie-hint-mark.weavie-hint-bug")).toHaveCount(1);
     await writeFile(join(weavie.workspace, "steps.txt"), STEPS.replace("two", "TWO"));
     await runCommand(page, "Diff Against HEAD");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("steps.txt", {
+    // The diff opens on its session overview; the file reviews inline once reopened.
+    await expect(page.locator(".unified-review .session-overview")).toBeVisible({
       timeout: 30_000,
     });
+    await openFile(page, "steps.txt");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("steps.txt");
     const review = page.locator(".editor-surface .monaco-editor").first();
     const target = "five is the target";
     await expect(review.locator(".weavie-hint-pill")).toHaveText("✦ Bug Target is vague");
@@ -308,11 +310,7 @@ test.describe("PR review", () => {
     weavie,
   }) => {
     test.slow();
-    await runCommand(page, "Open Pull Request…");
-    await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-    await page.locator(".session-prompt-input").press("Enter");
-    await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-    await walkToChangedFile(page, "hello.ts");
+    await openPullRequestFile(page, "hello.ts");
     const thread = page.locator(".weavie-pr-card").filter({ hasText: "Why change this greeting?" });
     await expect(thread).toBeVisible({ timeout: 10_000 });
     const review = page.locator(".editor-surface .monaco-editor").first();
@@ -380,8 +378,10 @@ test.describe("PR review", () => {
       await expect(page.locator(".pr-suggestion-number", { hasText: "#102" })).toBeVisible();
       await page.locator(".session-prompt-input").press("Enter");
       await expect(page.locator(".session-chip")).toHaveCount(3, { timeout: 25_000 });
-      await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-      await walkToChangedFile(page, "widget.ts");
+      await expect(page.locator(".unified-review .session-overview")).toBeVisible({
+        timeout: 20_000,
+      });
+      await openFile(page, "widget.ts");
       const outdated = page.locator(".weavie-pr-card").filter({ hasText: "Is 42 the agreed" });
       // Its right end: toasts stack over the middle of the editor's first lines.
       const summary = outdated.locator(".weavie-pr-summary");

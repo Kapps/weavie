@@ -1,12 +1,30 @@
-import { ExternalLink } from "lucide-solid";
+import { GitCompare } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import type { ClientSession } from "../../../bridge";
 import { pullRequestStatus } from "../../../chrome/pull-request-store";
+import { keyHint } from "../../../commands/key-hint";
+import { runCommandWithFeedback } from "../../../commands/registry";
+import { CommandIds } from "../../../commands/types";
 import { openUrlExternal } from "../../../terminal/terminal-links";
-import { relativeTime } from "../../blame-model";
 import { FinishReview } from "../../pr-comments/FinishReview";
 import { Avatar } from "../../pr-comments/PrCommentItem";
+import { RelativeTime } from "../../RelativeTime";
 import type { PrDetail } from "./overview-data";
+
+function ReviewBranchLink(props: { shown: boolean }): JSX.Element {
+  return (
+    <Show when={props.shown}>
+      <button
+        type="button"
+        class="session-overview-link"
+        title={`Review everything this branch changes${keyHint(CommandIds.diffAgainstBranchBase)}`}
+        onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
+      >
+        <GitCompare size="1em" /> Review branch
+      </button>
+    </Show>
+  );
+}
 
 /** The PR's state as a pill, e.g. "Open" or "Draft". */
 export function PrStatePill(props: { session: ClientSession; detail: PrDetail }): JSX.Element {
@@ -15,12 +33,15 @@ export function PrStatePill(props: { session: ClientSession; detail: PrDetail })
   return <span class={`session-overview-pill session-overview-pill-${label()}`}>{label()}</span>;
 }
 
-/** The session's name: its PR (title, state, author) or its branch; the review-submit control sits top-right. */
+/** The session's name: its PR (title, state, author, branches) or its branch, with the review-submit control. */
 export function OverviewTitle(props: {
   session: ClientSession;
   detail: PrDetail | null;
   /** Whether the review-submit control is here; the review header hosts it once the overview scrolls away. */
   submit: boolean;
+  /** Whether the review already compares the whole branch, so offering to is moot. */
+  branchReview: boolean;
+  /** Receives the title line, whose height never depends on where the submit control sits. */
   ref: (element: HTMLElement) => void;
 }): JSX.Element {
   const branch = (): string => {
@@ -28,49 +49,54 @@ export function OverviewTitle(props: {
     return status === null ? "" : (status.branch ?? "detached HEAD");
   };
   return (
-    <header class="session-overview-top" ref={props.ref}>
+    <header class="session-overview-top">
       <Show
         when={props.detail}
         fallback={
           <div class="session-overview-name">
-            <h1 class="session-overview-branch">{branch()}</h1>
+            <h1 class="session-overview-branch" ref={props.ref}>
+              {branch()}
+            </h1>
             <div class="session-overview-byline">
               <span class="session-overview-pill session-overview-pill-none">No pull request</span>
+              <ReviewBranchLink shown={!props.branchReview} />
             </div>
           </div>
         }
       >
         {(detail) => (
           <div class="session-overview-name">
-            <h1 class="session-overview-pr-title">
-              {detail().title} <span class="session-overview-number">#{detail().number}</span>
+            <h1 class="session-overview-pr-title" ref={props.ref}>
+              {detail().title}{" "}
+              <button
+                type="button"
+                class="session-overview-number"
+                title={`Open #${detail().number} on GitHub — ${detail().url}`}
+                onClick={() => openUrlExternal(detail().url)}
+              >
+                #{detail().number}
+              </button>
             </h1>
             <div class="session-overview-byline">
               <PrStatePill session={props.session} detail={detail()} />
               <Avatar user={detail().author} />
               <span class="session-overview-author">{detail().author.login}</span>
               <span>
-                wants to merge <code class="session-overview-ref">{branch()}</code>
+                wants to merge <code class="session-overview-ref">{detail().headRef}</code> into{" "}
+                <code class="session-overview-ref">{detail().baseRef}</code>
               </span>
               <Show when={detail().createdAt !== ""}>
                 <span>
-                  · opened {relativeTime(Date.parse(detail().createdAt) / 1000, Date.now() / 1000)}
+                  · opened <RelativeTime seconds={Date.parse(detail().createdAt) / 1000} />
                 </span>
               </Show>
-              <button
-                type="button"
-                class="session-overview-link"
-                title={detail().url}
-                onClick={() => openUrlExternal(detail().url)}
-              >
-                <ExternalLink size="1em" /> Open on the forge
-              </button>
+              <ReviewBranchLink shown={!props.branchReview} />
+              <Show when={props.submit}>
+                <FinishReview session={props.session} />
+              </Show>
             </div>
           </div>
         )}
-      </Show>
-      <Show when={props.submit}>
-        <FinishReview session={props.session} />
       </Show>
     </header>
   );

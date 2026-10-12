@@ -216,7 +216,9 @@ export async function createPrWorkspace(): Promise<{
         draft: false,
         headSha,
         overview: {
-          body: "Tweaks the greeting and adds a **feature flag**.",
+          body:
+            "Tweaks the greeting and adds a **feature flag**.\n\n" +
+            `Long unbroken path: \`src/web/e2e/.recordings/${"a-very-long-segment/".repeat(20)}clip.mp4\``,
           createdAt: "2026-01-01T00:00:00Z",
           reviewers: [
             { login: "bob", state: "changesRequested" },

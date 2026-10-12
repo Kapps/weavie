@@ -1,8 +1,8 @@
 import { Check, CircleDashed, CircleMinus, X } from "lucide-solid";
 import { For, type JSX } from "solid-js";
 import { openUrlExternal } from "../../../terminal/terminal-links";
-import { relativeTime } from "../../blame-model";
 import { Avatar } from "../../pr-comments/PrCommentItem";
+import { RelativeTime } from "../../RelativeTime";
 import type { CheckState, PrDetail, ReviewCommit, ReviewerState } from "./overview-data";
 
 const CHECK_ORDER: CheckState[] = ["failure", "pending", "neutral", "success"];
@@ -88,7 +88,7 @@ export function OverviewCommits(props: { commits: ReviewCommit[] }): JSX.Element
             <span class="session-overview-row-text">{commit.summary}</span>
             <code class="session-overview-sha">{commit.sha.slice(0, 7)}</code>
             <span class="session-overview-when">
-              {relativeTime(commit.timeUnix, Date.now() / 1000)}
+              <RelativeTime seconds={commit.timeUnix} />
             </span>
           </li>
         )}

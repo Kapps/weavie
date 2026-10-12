@@ -16,7 +16,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 
 	private static readonly string DetailQuery =
 		"query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
-		+ "id number url title body isDraft createdAt " + Actor
+		+ "id number url baseRefName headRefName title body isDraft createdAt " + Actor
 		+ Page("comments", string.Empty, CommentNode)
 		+ Page("reviews", ReviewStates, ReviewNode)
 		+ Page("latestOpinionatedReviews", string.Empty, OpinionNode)
@@ -51,6 +51,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 			id,
 			Int(pr, "number"),
 			String(pr, "url"),
+			String(pr, "baseRefName"),
+			String(pr, "headRefName"),
 			String(pr, "title"),
 			String(pr, "body"),
 			Bool(pr, "isDraft"),

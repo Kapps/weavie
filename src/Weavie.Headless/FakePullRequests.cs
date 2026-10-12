@@ -66,6 +66,8 @@ internal static class FakePullRequests {
 				$"PR_{number}",
 				number,
 				Str(pr, "url"),
+				Str(pr, "baseRef"),
+				Str(pr, "headRef"),
 				Str(pr, "title"),
 				Str(overview, "body"),
 				pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,

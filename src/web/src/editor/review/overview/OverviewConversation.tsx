@@ -2,10 +2,10 @@ import { MessageSquarePlus } from "lucide-solid";
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../../agent/AgentMarkdown";
 import type { ClientSession } from "../../../bridge";
-import { relativeTime } from "../../blame-model";
 import { PrCommentComposer } from "../../pr-comments/PrCommentComposer";
 import { Avatar } from "../../pr-comments/PrCommentItem";
 import { sendPrComment } from "../../pr-comments/pr-comments-store";
+import { RelativeTime } from "../../RelativeTime";
 import type { PrConversationItem, PrDetail, ReviewerState } from "./overview-data";
 
 const VERDICTS: Record<ReviewerState, string> = {
@@ -14,8 +14,6 @@ const VERDICTS: Record<ReviewerState, string> = {
   commented: "reviewed",
   pending: "was asked to review",
 };
-
-const ago = (iso: string): string => relativeTime(Date.parse(iso) / 1000, Date.now() / 1000);
 
 function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.Element {
   return (
@@ -30,7 +28,9 @@ function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.
           <span class={`session-overview-verdict-${props.item.review ?? "comment"}`}>
             {props.item.review === null ? "commented" : VERDICTS[props.item.review]}
           </span>
-          <span class="session-overview-when">{ago(props.item.createdAt)}</span>
+          <span class="session-overview-when">
+            <RelativeTime seconds={Date.parse(props.item.createdAt) / 1000} />
+          </span>
         </div>
         <Show when={props.item.body !== ""}>
           <div class="session-overview-comment-body">

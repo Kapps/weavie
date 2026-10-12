@@ -96,8 +96,10 @@ public sealed partial class HostCore {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
-		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewReveal, (message, ct) =>
-			DiffAgainstFromWebAsync(session, message.Reference, ct));
+		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewOpened, (message, ct) =>
+			DiffAgainstFromWebAsync(session, message.Reference, message.Replace, ct));
+		review.Handle("diffAgainstBase", "Reviewing the branch", WireJson.Default.DiffAgainstBaseMessage, WireJson.Default.ReviewOpened, (message, ct) =>
+			DiffAgainstBaseFromWebAsync(session, message.Replace, ct));
 
 		session.Bus.Feature("revise").Handle("start", "Starting a revision", WireJson.Default.ReviseStartMessage, (message, _) => {
 			StartRevise(session, message);
@@ -232,7 +234,9 @@ public sealed partial class HostCore {
 
 	internal sealed record PreviewRelease(string Grant);
 
-	internal sealed record DiffAgainstMessage(string Reference);
+	internal sealed record DiffAgainstMessage(string Reference, bool Replace);
+
+	internal sealed record DiffAgainstBaseMessage(bool Replace);
 
 	internal sealed record PullRequestQuery(string Query);
 

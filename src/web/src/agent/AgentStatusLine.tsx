@@ -1,11 +1,17 @@
+import { ChevronDown } from "lucide-solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import { gitStatus } from "../chrome/git-status-store";
 import { scrollWheelHorizontally } from "../chrome/horizontal-overflow";
 import { type PullRequestStatus, pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
+import {
+  captureCommandRunner,
+  onCommandsChanged,
+  runCommandWithFeedback,
+} from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { prCommentsFor } from "../editor/pr-comments/pr-comments-store";
 import { AgentControlPicker } from "./AgentControlPicker";
@@ -59,9 +65,24 @@ export function AgentStatusLine(props: {
     return added !== null && removed !== null && (added > 0 || removed > 0);
   };
   const diffError = (): string | null => gitStatus()?.error ?? null;
-  const diffTitle = (): string => {
-    commandsVersion();
-    return `Review diff against HEAD — ${diffAdded()} lines added, ${diffRemoved()} removed${keyHint(CommandIds.diffAgainstHead)}`;
+  const diffTitle = (): string =>
+    `${diffAdded()} lines added, ${diffRemoved()} removed since HEAD — review a diff`;
+  // Clicking the totals offers the session's diffs; each opens on the session overview.
+  const [diffMenu, setDiffMenu] = createSignal<ContextMenuState | null>(null);
+  const openDiffMenu = (anchor: HTMLElement): void => {
+    const rect = anchor.getBoundingClientRect();
+    setDiffMenu({
+      x: rect.left,
+      y: rect.top,
+      header: "Review a diff",
+      entries: [
+        { commandId: CommandIds.reviewOverview, label: "Current review" },
+        { commandId: CommandIds.diffAgainstHead, label: "Uncommitted" },
+        { commandId: CommandIds.diffAgainstParent, label: "Last commit" },
+        { commandId: CommandIds.diffAgainstBranchBase, label: "Branch" },
+      ],
+      runCommand: captureCommandRunner(),
+    });
   };
   const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
     commandsVersion();
@@ -107,11 +128,14 @@ export function AgentStatusLine(props: {
               class="agent-status-segment agent-status-diff"
               aria-label={diffTitle()}
               title={diffTitle()}
-              onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstHead)}
+              aria-haspopup="menu"
+              aria-expanded={diffMenu() !== null}
+              onClick={(event) => openDiffMenu(event.currentTarget)}
             >
               <span class="agent-status-diff-added">+{diffAdded()}</span>
               <span aria-hidden="true">/</span>
               <span class="agent-status-diff-removed">-{diffRemoved()}</span>
+              <ChevronDown size="1em" class="agent-status-diff-more" aria-hidden="true" />
             </button>
           </Show>
           <Show when={diffError()}>
@@ -163,6 +187,9 @@ export function AgentStatusLine(props: {
         </div>
         <AgentControlPicker session={props.session} />
       </div>
+      <Show when={diffMenu()}>
+        {(menu) => <ContextMenu menu={menu()} onClose={() => setDiffMenu(null)} />}
+      </Show>
     </Show>
   );
 }

@@ -633,13 +633,9 @@ public sealed partial class HostCore {
 
 	internal sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
 
-	private async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) {
-		var git = new GitService();
-		string[] refs = [.. await git.ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)];
-		string? branch = await git.ResolveDefaultBranchAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
-		string? remote = branch is null ? null : $"origin/{branch}";
-		return new(refs, remote is not null && refs.Contains(remote) ? remote : null);
-	}
+	private static async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) =>
+		new([.. await new GitService().ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)],
+			await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false));
 
 	private async Task<CommandResult> InvokeCommandAsync(
 		HostSession session,

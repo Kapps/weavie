@@ -29,20 +29,27 @@ public sealed partial class HostCore {
 			return ReviewCommitsSnapshot.None;
 		}
 
+		bool wholeBranch = review.PrNumber > 0
+			|| review.Label == $"vs {await DefaultDiffRefAsync(review.Worktree, ct).ConfigureAwait(false)}";
 		try {
-			return new(review.MergeBase, await new GitService().LogRangeAsync(review.Worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false), null);
+			var commits = await new GitService().LogRangeAsync(review.Worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false);
+			return new(review.MergeBase, wholeBranch, commits, null);
 		} catch (GitException ex) {
-			return new(review.MergeBase, [], ex.Message);
+			return new(review.MergeBase, wholeBranch, [], ex.Message);
 		}
 	}
 }
 
-/// <summary>A branch review's commits, newest first; <see cref="Base"/> is null when the review isn't against a branch.</summary>
-internal sealed record ReviewCommitsSnapshot(string? Base, IReadOnlyList<GitCommit> Commits, string? Error) {
-	public static ReviewCommitsSnapshot None { get; } = new(null, [], null);
+/// <summary>
+/// A review's commits since its base, newest first; <see cref="Base"/> is null without a review against a ref, and
+/// <see cref="WholeBranch"/> marks one comparing the branch with its PR's or the repository's default branch.
+/// </summary>
+internal sealed record ReviewCommitsSnapshot(string? Base, bool WholeBranch, IReadOnlyList<GitCommit> Commits, string? Error) {
+	public static ReviewCommitsSnapshot None { get; } = new(null, false, [], null);
 
 	public bool Equals(ReviewCommitsSnapshot? other) =>
-		other is not null && Base == other.Base && Error == other.Error && Commits.SequenceEqual(other.Commits);
+		other is not null && Base == other.Base && WholeBranch == other.WholeBranch && Error == other.Error
+		&& Commits.SequenceEqual(other.Commits);
 
 	public override int GetHashCode() => HashCode.Combine(Base, Error, Commits.Count);
 }

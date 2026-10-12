@@ -1,14 +1,14 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
+import { focusEditor, navChord, stepIntoReview, walkToChangedFile } from "../harness/navigator";
 
 // Probes the PR-review surface across SESSION SWITCHES (the suspected bug nest). The prScenario fixture stubs
 // one PR (#101: feature.ts added + hello.ts modified) over a local "origin", with a seeded comment on hello.ts.
 test.use({ prScenario: true });
 
 const toolbar = ".weavie-inline-toolbar";
-// The navigator auto-opens feature.ts first — a NEW file, so its rendered diff is marked by the "New file" band
-// (not the per-line added wash); every present/absent check below keys on that band.
+// The review opens on its overview; stepping in lands on feature.ts first — a NEW file, so its rendered diff is marked
+// by the "New file" band (not the per-line added wash); every present/absent check below keys on that band.
 const newFileBand = ".weavie-inline-newfile-tag";
 const chips = ".session-chip";
 
@@ -17,7 +17,8 @@ async function openPr101(page: import("@playwright/test").Page): Promise<void> {
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(chips)).toHaveCount(2, { timeout: 20_000 });
-  await expect(page.locator(toolbar)).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
+  expect(await stepIntoReview(page)).toBe("feature.ts");
 }
 
 // SCENARIO 1: PR session -> non-PR session -> back. Does the navigator/toolbar disappear on the non-PR session

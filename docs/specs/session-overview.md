@@ -24,6 +24,14 @@ those commits. Once the overview's title scrolls away, the sticky review header 
 **Show Session Overview** (`weavie.review.overview`, unbound) opens it for any session, changes or not, and is how
 Finish review reaches its control. Finishing a review still closes the tab and returns to the file underneath.
 
+## Opening a diff
+
+Every new diff opens on the overview: Open Pull Request, Diff Against…, and **Review Branch**
+(`weavie.diff.againstBranchBase`, unbound), which compares the branch with the remote's default branch
+(`origin/main` over a local `main` that may be far behind). Clicking the status bar's diff totals offers Current
+review, Uncommitted, Last commit, and Branch. A session holds one review, so switching to a different comparison asks
+first: it closes the current review the way Close Diff does.
+
 ## Collapsing
 
 Every section collapses. `editor.reviewOverviewCollapse` decides what remembers it: `global` (default; one set for all

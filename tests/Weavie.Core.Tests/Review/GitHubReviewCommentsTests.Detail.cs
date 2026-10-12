@@ -20,7 +20,8 @@ public sealed partial class GitHubReviewCommentsTests {
 		Assert.Equal(2, handler.Requests.Count);
 		Assert.Equal("PR_7", Variables(handler, 1).GetProperty("id").GetString());
 		Assert.Equal("cursor-comments", Variables(handler, 1).GetProperty("after").GetString());
-		Assert.Equal(("PR_7", 7, "Front door", "Adds it.", true), (detail.Id, detail.Number, detail.Title, detail.Body, detail.IsDraft));
+		Assert.Equal(("PR_7", 7, "main", "feature", "Front door", "Adds it.", true),
+			(detail.Id, detail.Number, detail.BaseRef, detail.HeadRef, detail.Title, detail.Body, detail.IsDraft));
 		Assert.Equal(new ForgeUser("astra", "https://a/astra"), detail.Author);
 		Assert.Equal(["IC_1", "PRR_0", "PRR_1", "IC_2"], detail.Conversation.Select(item => item.Id));
 		Assert.Equal([null, ReviewerState.Commented, ReviewerState.ChangesRequested, null], detail.Conversation.Select(item => item.Review));
@@ -46,7 +47,8 @@ public sealed partial class GitHubReviewCommentsTests {
 
 	private static string Detail(bool commentsHasNextPage) => $$"""
 		{ "data": { "repository": { "pullRequest": {
-		  "id": "PR_7", "number": 7, "url": "https://github.com/Kapps/weavie/pull/7", "title": "Front door", "body": "Adds it.",
+		  "id": "PR_7", "number": 7, "url": "https://github.com/Kapps/weavie/pull/7", "baseRefName": "main",
+		  "headRefName": "feature", "title": "Front door", "body": "Adds it.",
 		  "isDraft": true, "createdAt": "2026-01-01T00:00:00Z", "author": { "login": "astra", "avatarUrl": "https://a/astra" },
 		  "comments": { "pageInfo": { "hasNextPage": {{(commentsHasNextPage ? "true" : "false")}}, "endCursor": "cursor-comments" }, "nodes": [
 		    { "id": "IC_1", "body": "first", "createdAt": "2026-01-02T00:00:00Z", "url": "u1", "author": { "login": "mira", "avatarUrl": "" } } ] },

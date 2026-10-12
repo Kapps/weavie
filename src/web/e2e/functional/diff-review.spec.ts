@@ -1038,8 +1038,9 @@ test.describe("large review — every file remains reviewable", () => {
       writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
     }
     await runCommand(page, "Diff Against HEAD");
-    // The review lands on its first file because nothing navigated while it computed.
-    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]bulk-0\.txt$/);
+    // The review opens on its session overview because nothing navigated while it computed.
+    await expect(page.locator(".unified-review .session-overview")).toBeVisible();
+    await openFile(page, "bulk-0.txt");
     await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 1/100");
     await openFile(page, "README.md");
 

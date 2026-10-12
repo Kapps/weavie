@@ -25,7 +25,7 @@ internal sealed record EmptyPayload {
 /// <summary>Source-generated contracts for every payload crossing the web message bus (web defaults: camelCase).</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(EmptyPayload))]
-[JsonSerializable(typeof(ReviewReveal))]
+[JsonSerializable(typeof(ReviewOpened))]
 [JsonSerializable(typeof(ControlStatus))]
 [JsonSerializable(typeof(MessageHealthSnapshot))]
 [JsonSerializable(typeof(AgentPlanShown))]
@@ -141,6 +141,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.CommitRefRequest))]
 [JsonSerializable(typeof(HostCore.CommitRefResult))]
 [JsonSerializable(typeof(HostCore.DiffAgainstMessage))]
+[JsonSerializable(typeof(HostCore.DiffAgainstBaseMessage))]
 [JsonSerializable(typeof(HostCore.DiffRefsResult))]
 [JsonSerializable(typeof(HostSession.DiffResolutionMessage))]
 [JsonSerializable(typeof(HostSession.DirectoryListingMessage))]

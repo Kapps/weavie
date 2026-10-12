@@ -192,6 +192,7 @@ import "./notifications/attention";
 import "./notifications/intake";
 import "./notifications/startup-tip";
 import { installComposerClipboardCommand } from "./agent/composer-clipboard";
+import { requestOverview } from "./editor/review/overview/overview-request";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -942,7 +943,8 @@ export default function App(): JSX.Element {
         if (!result.ok) {
           throw new Error(result.error ?? "The pull request could not be opened.");
         }
-        await applySessionActivation(backendId, result, commit);
+        const opened = await applySessionActivation(backendId, result, commit);
+        if (opened !== null) showOverview(opened);
       })
       .then(() => dismissKeyed(toastKey))
       .catch((error: unknown) =>
@@ -950,19 +952,42 @@ export default function App(): JSX.Element {
       );
   };
 
-  // The review's first file opens only if the user stayed on the same file while the diff computed: their own
+  // A new review opens on the session overview.
+  const showOverview = (session: ClientSession): void => {
+    requestOverview(session);
+    editor.openReview(session, undefined, undefined);
+  };
+
+  // A new review's overview shows only if the user stayed on the same file while the diff computed: their own
   // navigation in that window is newer, so it wins.
-  const diffAgainst = (session: ClientSession, reference: string): void => {
+  const diffAgainst = (session: ClientSession, reference: string): void =>
+    openDiff(session, "diffAgainst", { reference });
+  // A session holds one review; replacing one against another source closes it like Close Diff, so ask first.
+  const openDiff = (
+    session: ClientSession,
+    kind: "diffAgainst" | "diffAgainstBase",
+    payload: object,
+  ): void => {
     const activeAtRequest = activePathFor(session);
-    void session
-      .feature("review")
-      .request<{ path: string | null; line: number | null }, { reference: string }>("diffAgainst", {
-        reference,
+    const request = (replace: boolean) =>
+      session
+        .feature("review")
+        .request<{ opened: boolean; replaces: string | null; label: string }, object>(kind, {
+          ...payload,
+          replace,
+        });
+    void request(false)
+      .then(async (answer) => {
+        if (answer.replaces === null) return answer;
+        const replace = await confirm({
+          title: `Switch from ${answer.replaces} to ${answer.label}?`,
+          body: `Switching closes the ${answer.replaces} review, accepting what's left in it, as Close Diff does.`,
+          confirmLabel: "Switch",
+        });
+        return replace ? request(true) : answer;
       })
-      .then((reveal) => {
-        if (reveal.path !== null && activePathFor(session) === activeAtRequest) {
-          editor.revealFile(session, reveal.path, reveal.line ?? undefined);
-        }
+      .then(({ opened }) => {
+        if (opened && activePathFor(session) === activeAtRequest) showOverview(session);
       })
       .catch((error: unknown) =>
         addToast("warn", error instanceof Error ? error.message : String(error)),
@@ -1683,6 +1708,10 @@ export default function App(): JSX.Element {
         } else {
           setDiffAgainstOwner(session);
         }
+        return true;
+      }),
+      registerCommand(CommandIds.diffAgainstBranchBase, (_args, { session }) => {
+        if (session !== null) openDiff(session, "diffAgainstBase", {});
         return true;
       }),
       registerCommand(CommandIds.diffAgainstParent, (_args, { session }) => {

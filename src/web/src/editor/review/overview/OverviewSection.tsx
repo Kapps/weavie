@@ -23,7 +23,9 @@ export function OverviewSection(props: {
         <span class="session-overview-title">{props.title}</span>
         <span class="session-overview-meta">{props.meta}</span>
       </button>
-      <Show when={!props.collapsed}>{props.children}</Show>
+      <Show when={!props.collapsed}>
+        <div class="session-overview-body">{props.children}</div>
+      </Show>
     </section>
   );
 }

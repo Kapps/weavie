@@ -256,6 +256,9 @@ public static partial class CoreCommands {
 	/// <summary>Reviews the working tree's diff against a ref (arg <c>ref</c>, or a prompt); bound to <c>$mod+Shift+d</c>.</summary>
 	public const string DiffAgainst = "weavie.diff.against";
 
+	/// <summary>Reviews the whole branch against the repository's default branch; palette-only, unbound.</summary>
+	public const string DiffAgainstBranchBase = "weavie.diff.againstBranchBase";
+
 	/// <summary>Reviews the working tree's diff against HEAD's parent — the last commit plus anything uncommitted.</summary>
 	public const string DiffAgainstParent = "weavie.diff.againstParent";
 
@@ -1533,6 +1536,17 @@ public static partial class CoreCommands {
 			Aliases = ["diff against", "diff against branch", "compare against", "diff vs", "review diff against", "compare with branch"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+d" }],
 			ArgsSchemaJson = "{\"ref\":{\"type\":\"string\",\"description\":\"Branch, tag, or commit to diff against; omit to prompt\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainstBranchBase,
+			Title = "Review Branch",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review everything this branch changes: the working tree against the repository's default "
+				+ "branch from their merge-base, opening on the session overview with the branch's commits.",
+			Aliases = ["review branch", "branch diff", "diff branch", "diff against main", "diff against base",
+				"review whole branch", "branch changes"],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -10,7 +10,7 @@ public sealed partial class StaticPullRequestProvider : IPullRequestDiscussion {
 		ArgumentNullException.ThrowIfNull(repo);
 		lock (_gate) {
 			return Task.FromResult(Details.GetValueOrDefault(number) ?? (_pullRequests.FirstOrDefault(p => p.Number == number) is { } pr
-				? new PullRequestDetail(PullRequestId(number), number, pr.Url, pr.Title, string.Empty, pr.IsDraft,
+				? new PullRequestDetail(PullRequestId(number), number, pr.Url, pr.BaseRef, pr.HeadRef, pr.Title, string.Empty, pr.IsDraft,
 					new ForgeUser(pr.Author, string.Empty), string.Empty, [], [], [])
 				: throw new InvalidOperationException($"GitHub has no PR #{number} in {repo.Owner}/{repo.Name}.")));
 		}

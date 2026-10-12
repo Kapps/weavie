@@ -377,7 +377,9 @@ export function UnifiedReview(props: {
     surface.takeControl();
   };
   onMount(() => {
-    // Measured before any saved position is restored against the list below it.
+    const element = scroller!;
+    const owner = createReviewScroll(element, virtualList!);
+    // Measured inside the laid-out scroller, before any saved position is restored against the list below it.
     setOverviewHeight(overviewElement!.getBoundingClientRect().height);
     measureTitle();
     const observer = new ResizeObserver(([entry]) =>
@@ -385,8 +387,6 @@ export function UnifiedReview(props: {
     );
     observer.observe(overviewElement!);
     onCleanup(() => observer.disconnect());
-    const element = scroller!;
-    const owner = createReviewScroll(element, virtualList!);
     setScroll(owner);
     sizeVirtualList(virtualizer.getTotalSize());
     const changedScroll = owner.onScroll((userInitiated) => {

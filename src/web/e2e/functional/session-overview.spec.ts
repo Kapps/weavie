@@ -1,6 +1,11 @@
+import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import { createAcpSession } from "../harness/acp-session";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 // The session overview at the top of the review tab (docs/specs/session-overview.md): a PR session adds its
 // description, conversation, checks, and reviewers; every session gets its title and changes, and the review's
@@ -45,6 +50,8 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
   );
   await expect(section(page, "reviewers")).toContainText("Changes requested");
   await expect(section(page, "reviewers")).toContainText("erin");
+  // A long unbroken line in the description wraps inside its column instead of pushing the sidebar away.
+  await expect(section(page, "checks")).toBeInViewport({ ratio: 1 });
   await expect(section(page, "commits")).toContainText("pr changes");
   await expect(section(page, "changes")).toContainText("PR #101");
   await expect(section(page, "changes").locator(".unified-review-tree")).toContainText("hello.ts");
@@ -52,23 +59,27 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
   await expect(page.locator(".finish-review-button")).toHaveCount(1);
   await expect(overview(page).locator(".finish-review-button")).toBeVisible();
 
-  // A PR-level comment posts immediately and lands in the conversation.
+  // A PR-level comment posts immediately and lands in the conversation. Keyboard-driven: the review scrolls the
+  // focused control into view, which a pointer click below the fold can't reach.
   await section(page, "conversation")
     .getByRole("button", { name: /Comment on this pull request/ })
-    .click();
-  await section(page, "conversation")
-    .locator(".weavie-pr-composer-input")
-    .fill("Thanks, looking now.");
-  await section(page, "conversation").getByRole("button", { name: "Comment", exact: true }).click();
+    .focus();
+  await page.keyboard.press("Enter");
+  const input = section(page, "conversation").locator(".weavie-pr-composer-input");
+  await expect(input).toBeFocused();
+  await input.fill("Thanks, looking now.");
+  await input.press("ControlOrMeta+Enter");
   await expect(
     section(page, "conversation").locator(".session-overview-comment").last(),
   ).toContainText("Thanks, looking now.", { timeout: 10_000 });
   await expect(section(page, "conversation").locator(".weavie-pr-composer")).toHaveCount(0);
 
   // Scrolled into the diffs, the header names the PR and hosts the submit control; Overview returns to the top.
-  await section(page, "changes")
-    .locator(".unified-review-tree-row", { hasText: "hello.ts" })
-    .click();
+  const helloRow = section(page, "changes").locator(".unified-review-tree-row", {
+    hasText: "hello.ts",
+  });
+  await helloRow.focus();
+  await page.keyboard.press("Enter");
   const header = page.locator(".unified-review-header");
   await expect(header.locator(".unified-review-identity")).toContainText(
     "Add a feature and tweak the greeting",
@@ -114,4 +125,42 @@ test("a session without a PR or changes still opens on its overview", async ({ p
   await expect(section(page, "changes")).toContainText("Nothing to review yet.");
   await expect(section(page, "conversation")).toHaveCount(0);
   await expect(section(page, "commits")).toHaveCount(0);
+});
+
+test("clicking the status bar's diff totals offers the session's diffs, each opening on its overview", async ({
+  page,
+  weavie,
+}) => {
+  // The status line belongs to the native agent pane.
+  await createAcpSession(page, "status-diff");
+  const worktree = sessionWorktrees(weavie.workspace).find((path) => path.endsWith("status-diff"));
+  await writeFile(join(worktree!, "README.md"), "# Changed\n");
+  const totals = page.locator(".agent-status-diff");
+  await expect(totals).toBeVisible({ timeout: 20_000 });
+  await totals.click();
+  const menu = page.locator(".context-menu");
+  await expect(menu).toContainText("Current review");
+  await expect(menu).toContainText("Last commit");
+  await expect(menu).toContainText("Branch");
+  await menu.getByText("Uncommitted", { exact: true }).click();
+  await expect(section(page, "changes")).toContainText("vs HEAD");
+  await expect(section(page, "changes").locator(".unified-review-tree")).toContainText("README.md");
+});
+
+test("Review Branch opens the branch's diff on the overview with its commits", async ({
+  page,
+  weavie,
+}) => {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd: weavie.workspace });
+  git("checkout", "-q", "-b", "feature/overview");
+  await writeFile(join(weavie.workspace, "branch.txt"), "on the branch\n");
+  git("add", "branch.txt");
+  git("commit", "-q", "-m", "Add the branch file");
+  await runCommand(page, "Review Branch");
+  await expect(section(page, "commits")).toContainText("Add the branch file", { timeout: 20_000 });
+  await expect(section(page, "changes")).toContainText("vs origin/main");
+  await expect(section(page, "changes").locator(".unified-review-tree")).toContainText(
+    "branch.txt",
+  );
 });

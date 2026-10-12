@@ -9,9 +9,11 @@ export interface ReviewCommit {
   summary: string;
 }
 
-/** A branch review's commits, newest first; `base` is null when the review isn't against a branch. */
+/** A review's commits since its base, newest first; `base` is null without a review against a ref. */
 export interface ReviewCommits {
   base: string | null;
+  /** The review compares the branch with its PR's or the repository's default branch. */
+  wholeBranch: boolean;
   commits: ReviewCommit[];
   error: string | null;
 }
@@ -32,6 +34,10 @@ export interface PrConversationItem {
 export interface PrDetail {
   number: number;
   url: string;
+  /** The branch the PR merges into. */
+  baseRef: string;
+  /** The branch the PR merges from. */
+  headRef: string;
   title: string;
   body: string;
   isDraft: boolean;

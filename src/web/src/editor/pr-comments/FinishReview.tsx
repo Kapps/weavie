@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
@@ -36,9 +36,25 @@ const [request, setRequest] = createSignal<{ session: ClientSession; kind: Reque
 const summaries = new Map<string, string>();
 const verdicts = new Map<string, PrVerdict>();
 
-// The session whose panel is open. Module state, so the panel survives its control moving between the overview and
-// the review header as the user scrolls.
-const [openFor, setOpenFor] = createSignal<ClientSession | null>(null);
+// The session whose panel (or discard confirm) is open. Module state, so it survives its control moving between the
+// overview and the review header as the user scrolls.
+const openFor = createSignal<ClientSession | null>(null);
+const confirmingFor = createSignal<ClientSession | null>(null);
+
+// Whether `session` holds `owner`, and a setter that only releases it from that session.
+function heldBy(
+  session: ClientSession,
+  [owner, setOwner]: Signal<ClientSession | null>,
+): [() => boolean, (held: boolean) => void] {
+  const held = (): boolean => owner() === session;
+  return [
+    held,
+    (next) => {
+      if (next) setOwner(session);
+      else if (held()) setOwner(null);
+    },
+  ];
+}
 
 /** Shows the review that hosts `session`'s Finish review control, then opens its panel (or its discard confirm). */
 export async function requestFinishReview(session: ClientSession, kind: Request): Promise<void> {
@@ -50,12 +66,8 @@ export async function requestFinishReview(session: ClientSession, kind: Request)
  * summary, pick a verdict, and submit or discard the pending review. Self-contained, so any surface can host it.
  */
 export function FinishReview(props: { session: ClientSession }): JSX.Element {
-  const open = (): boolean => openFor() === props.session;
-  const setOpen = (shown: boolean): void => {
-    if (shown) setOpenFor(props.session);
-    else if (open()) setOpenFor(null);
-  };
-  const [confirming, setConfirming] = createSignal(false);
+  const [open, setOpen] = heldBy(props.session, openFor);
+  const [confirming, setConfirming] = heldBy(props.session, confirmingFor);
   const set = () => prCommentsFor(props.session)?.set ?? null;
   createEffect(() => {
     const asked = request();

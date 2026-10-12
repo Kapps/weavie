@@ -66,6 +66,23 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// Arms a reserved source request like <see cref="ArmReview(ReviewContext, IReadOnlyList{ReviewSeed}, object)"/>,
+	/// first closing a review against a different source the way <see cref="CloseReview"/> does.
+	/// </summary>
+	public bool ReplaceReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds, object request) {
+		lock (_gate) {
+			if (!ReferenceEquals(_reviewRequest, request)) return false;
+			if (_review is { } existing && !existing.SameSource(review)) {
+				ReconcileReviewDisk();
+				CloseReviewLocked();
+				_reviewRequest = request;
+			}
+
+			return ArmReview(review, seeds, request);
+		}
+	}
+
 	private void SetReview(ReviewContext? review) {
 		if (_review == review) return;
 		_review = review;

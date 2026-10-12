@@ -1,11 +1,12 @@
-/* The session overview at the top of the review tab: a centered column above the diffs. */
+/* The session overview at the top of the review tab shares the file headers' grid below it: section chevrons sit
+   in the files' collapse-toggle column, and text starts where file names do. */
 .session-overview {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 1.6em 2em 0.4em;
+  --overview-indent: calc(1.5em + 0.65em);
+  padding: 1.6em calc(var(--review-scrollbar-size) + 0.65em) 0.4em 0.65em;
 }
 
 .session-overview-top {
+  padding-left: var(--overview-indent);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -37,8 +38,30 @@
 }
 
 .session-overview-number {
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--dim);
+  font: inherit;
   font-weight: 400;
+  cursor: pointer;
+}
+
+.session-overview-number:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* The review-submit control is the overview's one call to action. */
+.session-overview-byline .finish-review-button {
+  border-color: var(--button-bg);
+  background: var(--button-bg);
+  color: var(--button-fg);
+  font-weight: 600;
+}
+
+.session-overview-byline .finish-review-button:hover {
+  background: var(--button-hover-bg);
 }
 
 .session-overview-byline {
@@ -133,10 +156,9 @@
 }
 
 .session-overview-heading {
-  position: relative;
   display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  align-items: center;
+  gap: 0.65em;
   width: 100%;
   margin: 0 0 0.45em;
   padding: 0;
@@ -144,7 +166,6 @@
   background: none;
   color: var(--dim);
   font: inherit;
-  font-size: var(--font-metadata-size);
   text-align: left;
   cursor: pointer;
 }
@@ -154,12 +175,15 @@
   outline-offset: 2px;
 }
 
-/* Hangs in the margin so each heading's text lines up with its section's content. */
+/* Sized like a file header's collapse toggle, so the two columns line up. */
 .session-overview-chevron {
-  position: absolute;
-  left: -1.4em;
-  align-self: center;
+  flex: none;
+  width: 1.5em;
   transition: transform 120ms ease;
+}
+
+.session-overview-body {
+  padding-left: var(--overview-indent);
 }
 
 .session-overview-heading[aria-expanded="true"] .session-overview-chevron {
@@ -167,6 +191,7 @@
 }
 
 .session-overview-title {
+  font-size: var(--font-metadata-size);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -176,12 +201,12 @@
   display: inline-flex;
   align-items: baseline;
   gap: 0.5em;
+  font-size: var(--font-metadata-size);
 }
 
 .session-overview-description {
   padding-bottom: 0.4em;
   border-bottom: 1px solid var(--border);
-  --font-prose-size: var(--font-chrome-size);
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
 }
@@ -295,7 +320,6 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 
 .session-overview-comment-body {
   margin-top: 0.25em;
-  --font-prose-size: var(--font-chrome-size);
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
 }

@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
+import { focusEditor, navChord, stepIntoReview, walkToChangedFile } from "../harness/navigator";
 
 // The Open-PR journey end to end against a stubbed PR provider + a local "origin" with a base/head diff
 // (prScenario): pick the PR, check out its branch as a session, and walk its base→head diff in the inline-diff
@@ -28,13 +28,14 @@ test("File → Open Pull Request checks out its branch and pops up the diff navi
   await expect(page.locator(".toast-busy", { hasText: "#101" })).toBeVisible();
   await expect(page.locator(".session-chip")).toHaveCount(2, { timeout: 20_000 });
 
-  // The diff navigator surfaces automatically on the PR's first changed file — feature.ts, a new file, so it
-  // shows the "New file" band rather than a per-line green wash.
+  // The review opens on its session overview; a nav key steps into the PR's first changed file — feature.ts, a new
+  // file, so it shows the "New file" band rather than a per-line green wash.
   const toolbar = page.locator(".weavie-inline-toolbar");
-  await expect(toolbar).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
 
   // The correlated open result clears the spinner after the exact PR session has been selected.
   await expect(page.locator(".toast-busy")).toHaveCount(0, { timeout: 20_000 });
+  expect(await stepIntoReview(page)).toBe("feature.ts");
   await expect(page.locator(".weavie-inline-newfile-tag")).toBeVisible();
 
   // Review Changes hydrates the complete file list while the file tab retains its own state.

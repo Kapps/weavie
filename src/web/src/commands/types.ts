@@ -140,6 +140,7 @@ export const CommandIds = {
   undoChange: "weavie.diff.undo",
   diffAgainst: "weavie.diff.against",
   diffAgainstParent: "weavie.diff.againstParent",
+  diffAgainstBranchBase: "weavie.diff.againstBranchBase",
   diffAgainstHead: "weavie.diff.againstHead",
   toggleBlame: "weavie.git.toggleBlame",
   showBlame: "weavie.git.showBlame",

@@ -11,9 +11,9 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<string, AcpTerminal> _terminals = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
-	// One temp for all of the conversation's commands: an agent chains them through temp files.
-	private readonly ChildTempScope _temp = ChildTempScope.Create();
 	private readonly Lock _gate = new();
+	// One temp for all of the conversation's commands, made with the first: an agent chains them through temp files.
+	private ChildTempScope? _temp;
 	private bool _closed;
 	private long _nextId;
 
@@ -53,6 +53,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		lock (_gate) {
 			ct.ThrowIfCancellationRequested();
 			ObjectDisposedException.ThrowIf(_closed, this);
+			_temp ??= ChildTempScope.Create();
 			terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _temp, _log);
 			_terminals.TryAdd(id, terminal);
 		}
@@ -95,13 +96,16 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 	/// <summary>Releases every terminal; a create racing or following the close fails.</summary>
 	public void Close() {
 		lock (_gate) _closed = true;
-		foreach (string id in _terminals.Keys) {
-			if (_terminals.TryRemove(id, out var terminal)) {
-				_released[id] = terminal.Output();
-				terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		try {
+			foreach (string id in _terminals.Keys) {
+				if (_terminals.TryRemove(id, out var terminal)) {
+					_released[id] = terminal.Output();
+					terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+				}
 			}
+		} finally {
+			ReleaseTemp();
 		}
-		_temp.Dispose();
 	}
 
 	public async ValueTask DisposeAsync() {
@@ -112,10 +116,20 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		}
 		_terminals.Clear();
 		_released.Clear();
-		foreach (var terminal in terminals) {
-			await terminal.DisposeAsync().ConfigureAwait(false);
+		try {
+			foreach (var terminal in terminals) {
+				await terminal.DisposeAsync().ConfigureAwait(false);
+			}
+		} finally {
+			ReleaseTemp();
 		}
-		_temp.Dispose();
+	}
+
+	// _closed is already set, so no command can create the scope after this reads it.
+	private void ReleaseTemp() {
+		ChildTempScope? temp;
+		lock (_gate) temp = _temp;
+		temp?.Dispose();
 	}
 
 	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var terminal)

@@ -136,15 +136,19 @@ non-interactive child gets a temp directory Weavie owns.
 - **Scopes follow what children share.** `OwnedProcess.Start(info)` gives the child a scope of its own. An ACP
   conversation's terminal commands share one scope for the conversation's life, because an agent chains commands
   through temp files (`f=$(mktemp)` in one, `cat "$f"` in the next).
-- **One root per Weavie process.** Scopes live under an owner-only (`mkdtemp`, 0700) root `<temp>/wvXXXXXX`
+- **One root per Weavie process.** Scopes live under an owner-only (0700) root `<user temp>/wvXXXXXXXX`
   (`ChildTemp.Root`) holding an `owner` record: the pid and its start stamp — Linux's `/proc/<pid>/stat` start
-  ticks, elsewhere Unix seconds, both exact and stable. Its unpredictable name means no other user can prepare it.
-  Scope directories reuse the lowest free slot (`0`, `1`, …), so paths stay short however many children have run:
-  macOS caps a socket path at 104 bytes, and a child's runtime and named-pipe sockets sit beneath its scope.
+  ticks, elsewhere Unix seconds, both exact and stable. The name is random and creation verifies the mode and
+  creates the record exclusively, so a directory another user prepared fails loudly. The root sits in the
+  *user's* temp even for an owned Weavie (the runner's worker), so roots never nest. Scope directories are named by
+  a base-36 counter that is never reused — short enough to keep a child's socket paths inside macOS's 104-byte cap,
+  and a straggler a child left running can't share a successor's temp. A temp path the caller set explicitly in
+  the child's environment is left alone.
 - **Reclaim by dead owner, never by age.** On startup `HostCore` and the runner call
   `ChildTemp.ReclaimOrphans`, which deletes each sibling root whose owner is gone — no process has that pid, or
   the one that does started at another time (pid reuse). A directory without a readable `owner` record is not a
-  root, and a live owner's root, or one this user cannot inspect, is never touched.
+  root, and a live owner's root, or one this user cannot inspect, is never touched. A killed worker's root goes
+  when the runner's next worker starts.
 - **Terminals keep the user's temp.** PTY children (the Claude pane, shell panes) are the user's own sessions,
   so they keep the user's `TMPDIR`. An owned child carries the user's temp as `WEAVIE_USER_TEMP`, and
   `TerminalStartInfo.BuildEnvironment` restores it — so the runner's worker, itself an owned child, still gives
@@ -161,8 +165,8 @@ flowchart TD
   R1 --> C1["0 — csharp-ls"]
   R1 --> C2["1 — ACP agent"]
   R1 --> C3["2 — that conversation's terminal commands"]
-  T --> RR["wvK4m5N6 — owner: 5000 (runner)"]
-  RR --> W["0 — worker"] --> WR["wvP7q8R9 — owner: 5012"] --> WC["0 — worker's ACP agent"]
+  T --> RR["wvK4m5N6 — owner: 5000 (runner)"] --> W["0 — worker"]
+  T --> WR["wvP7q8R9 — owner: 5012 (the worker)"] --> WC["0 — worker's ACP agent"]
 ```
 
 ## Follow-ups

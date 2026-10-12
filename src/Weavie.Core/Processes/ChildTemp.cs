@@ -13,13 +13,12 @@ public static partial class ChildTemp {
 
 	private static readonly string[] Variables = OperatingSystem.IsWindows() ? ["TMP", "TEMP"] : ["TMPDIR"];
 	private static readonly Lazy<string> OwnRoot = new(CreateRoot);
-	private static readonly Lock SlotGate = new();
-	private static readonly HashSet<int> Slots = [];
+	private static long _next = -1;
 
 	/// <summary>The variables that name a process's system temp path on this OS.</summary>
 	public static IReadOnlyList<string> TempVariables => Variables;
 
-	/// <summary>This process's root, holding one directory per live scope; created on first use.</summary>
+	/// <summary>This process's root in the user's temp, holding one directory per live scope; created on first use.</summary>
 	public static string Root => OwnRoot.Value;
 
 	/// <summary>Whether this process has created its root yet.</summary>
@@ -29,44 +28,33 @@ public static partial class ChildTemp {
 	public static string UserTemp =>
 		Environment.GetEnvironmentVariable(UserTempVariable) ?? Path.TrimEndingDirectorySeparator(Path.GetTempPath());
 
-	// Directories reuse the lowest free slot: names stay one or two characters however many children have run,
-	// keeping a child's socket paths inside macOS's 104-byte cap.
-	internal static (string Directory, int Slot) CreateDirectory() {
-		int slot = 0;
-		lock (SlotGate) {
-			while (!Slots.Add(slot)) slot++;
-		}
-		try {
-			return (Directory.CreateDirectory(Path.Combine(Root, SlotName(slot))).FullName, slot);
-		} catch {
-			lock (SlotGate) Slots.Remove(slot);
-			throw;
-		}
+	// Base-36 names stay a few characters however many children have run, keeping a child's socket paths inside
+	// macOS's 104-byte cap; a name is never reused, so a straggler a child left running can't share a successor's.
+	internal static string CreateDirectory() {
+		long next = Interlocked.Increment(ref _next);
+		string name = string.Empty;
+		do {
+			name = "0123456789abcdefghijklmnopqrstuvwxyz"[(int)(next % 36)] + name;
+			next /= 36;
+		} while (next > 0);
+		return Directory.CreateDirectory(Path.Combine(Root, name)).FullName;
 	}
 
+	// A temp path the caller chose for the child, rather than inherited from this process, stays the child's.
 	internal static void Point(ProcessStartInfo info, string directory) {
 		info.Environment.TryAdd(UserTempVariable, UserTemp);
-		foreach (string variable in Variables) info.Environment[variable] = directory;
+		foreach (string variable in Variables) {
+			if (info.Environment.TryGetValue(variable, out string? value) && value != Environment.GetEnvironmentVariable(variable)) continue;
+			info.Environment[variable] = directory;
+		}
 	}
 
-	// A directory that could not be deleted keeps its slot, so no later child inherits what it holds.
-	internal static void Delete(string directory, int slot) {
+	internal static void Delete(string directory) {
 		try {
 			Directory.Delete(directory, recursive: true);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Console.WriteLine($"[process] could not remove child temp {directory}: {ex.Message}");
-			return;
 		}
-		lock (SlotGate) Slots.Remove(slot);
-	}
-
-	private static string SlotName(int slot) {
-		string name = string.Empty;
-		do {
-			name = "0123456789abcdefghijklmnopqrstuvwxyz"[slot % 36] + name;
-			slot /= 36;
-		} while (slot > 0);
-		return name;
 	}
 
 	/// <summary>Whether a child's variable is one Weavie gave it, which no other process should adopt.</summary>

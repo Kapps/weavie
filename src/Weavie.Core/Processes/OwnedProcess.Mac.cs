@@ -34,7 +34,7 @@ public sealed partial class OwnedProcess {
 
 	private void WaitMac() {
 		int rc = weavie_process_wait(Id);
-		if (rc == 0) _temp.Release();
+		_temp.Release();
 		lock (_gate) {
 			int code = 0;
 			if (rc == 0) rc = weavie_process_reap(Id, out code);

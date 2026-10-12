@@ -6,14 +6,12 @@ namespace Weavie.Core.Processes;
 /// own; an owner whose children share state through temp across runs (an agent's terminal commands) shares one.
 /// </summary>
 public sealed class ChildTempScope : IDisposable {
-	private readonly int _slot;
 	private readonly Lock _gate = new();
 	private int _holders = 1;
 	private bool _disposed;
 
-	private ChildTempScope((string Directory, int Slot) allocated) {
-		Directory = allocated.Directory;
-		_slot = allocated.Slot;
+	private ChildTempScope(string directory) {
+		Directory = directory;
 	}
 
 	/// <summary>Creates a fresh directory under this process's root.</summary>
@@ -33,7 +31,7 @@ public sealed class ChildTempScope : IDisposable {
 		lock (_gate) {
 			if (--_holders > 0) return;
 		}
-		ChildTemp.Delete(Directory, _slot);
+		ChildTemp.Delete(Directory);
 	}
 
 	/// <summary>Lets go of the directory: no new child may start in it, and it goes when the last one is reaped.</summary>

@@ -1,15 +1,18 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Weavie.Core.Processes;
 
 public static partial class ChildTemp {
 	private const string RootPrefix = "wv";
 	private const string OwnerFile = "owner";
+	private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
-	/// <summary>Deletes the roots, in the system temp path, of Weavie processes that are no longer running.</summary>
-	public static void ReclaimOrphans(Action<string> log) => ReclaimOrphans(Path.GetTempPath(), log);
+	/// <summary>Deletes the roots, in the user's temp, of Weavie processes that are no longer running.</summary>
+	public static void ReclaimOrphans(Action<string> log) => ReclaimOrphans(UserTemp, log);
 
 	/// <summary>
 	/// Deletes each root in <paramref name="temp"/> whose owner is gone: no process has its pid, or the one that
@@ -28,16 +31,27 @@ public static partial class ChildTemp {
 		}
 	}
 
-	// mkdtemp: an unpredictable name, owner-only, never a directory someone else prepared. The name stays short
-	// because every child's socket paths sit beneath it.
+	// In the user's temp, so an owned Weavie (the runner's worker) doesn't nest its root; short, because children's
+	// socket paths sit beneath it. Unpredictable and owner-only like mkdtemp: a directory someone else prepared
+	// fails the mode check, or the owner write, loudly.
 	private static string CreateRoot() {
-		string root = Directory.CreateTempSubdirectory(RootPrefix).FullName;
-		WriteOwner(root, Environment.ProcessId, StartStamp(Environment.ProcessId)!.Value);
-		return root;
+		string root = Path.Combine(UserTemp, RootPrefix + RandomNumberGenerator.GetString("0123456789abcdefghijklmnopqrstuvwxyz", 8));
+		if (OperatingSystem.IsWindows()) {
+			Directory.CreateDirectory(root);
+		} else {
+			Directory.CreateDirectory(root, OwnerOnly);
+			if (File.GetUnixFileMode(root) != OwnerOnly) throw new IOException($"Child temp root {root} is not owner-only.");
+		}
+		try {
+			using var owner = new FileStream(Path.Combine(root, OwnerFile), FileMode.CreateNew, FileAccess.Write);
+			owner.Write(Encoding.UTF8.GetBytes(string.Create(
+				CultureInfo.InvariantCulture, $"{Environment.ProcessId} {StartStamp(Environment.ProcessId)}")));
+			return root;
+		} catch {
+			Directory.Delete(root, recursive: true);
+			throw;
+		}
 	}
-
-	internal static void WriteOwner(string root, int pid, long stamp) =>
-		File.WriteAllText(Path.Combine(root, OwnerFile), string.Create(CultureInfo.InvariantCulture, $"{pid} {stamp}"));
 
 	private static (int Pid, long Stamp)? Owner(string root) {
 		string text;

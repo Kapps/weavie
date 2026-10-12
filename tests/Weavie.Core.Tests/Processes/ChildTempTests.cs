@@ -56,6 +56,17 @@ public sealed class ChildTempTests {
 	}
 
 	[Fact]
+	public async Task ATempTheCallerChoseStaysTheChilds() {
+		if (OperatingSystem.IsWindows()) return;
+		using var temp = new TempDirectory();
+		var info = Shell("printf '%s\\n' \"$TMPDIR\"", "");
+		info.Environment["TMPDIR"] = temp.Path;
+		using var child = OwnedProcess.Start(info);
+		Assert.Equal(temp.Path, await child.StandardOutput.ReadLineAsync());
+		await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+	}
+
+	[Fact]
 	public void TerminalsGetTheUserTempBack() {
 		string[] variables = OperatingSystem.IsWindows() ? ["TMP", "TEMP"] : ["TMPDIR"];
 		var owned = variables.ToDictionary(name => name, _ => "/private");

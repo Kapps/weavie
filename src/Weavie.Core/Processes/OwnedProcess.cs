@@ -102,6 +102,8 @@ public sealed partial class OwnedProcess : IDisposable {
 			_temp.Release();
 			lock (_gate) _exit.TrySetResult(process.ExitCode);
 		} catch (Exception ex) {
+			// The child is lost to us either way; its temp must not outlive the failure.
+			_temp.Release();
 			_exit.TrySetException(ex);
 		}
 	}

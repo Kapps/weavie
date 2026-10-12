@@ -6,17 +6,21 @@ namespace Weavie.Core.Sessions;
 
 /// <summary>
 /// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Promoted"/>,
-/// <see cref="Selected"/>, and <see cref="PanelPinned"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
+/// <see cref="Selected"/>, <see cref="PanelPinned"/>, and <see cref="PanelWidth"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
 public sealed partial class RailStateStore : JsonDocumentStore {
 	private const string DefaultLocation = "local";
 
+	/// <summary>The pinned session panel's width before the user resizes it.</summary>
+	public const int DefaultPanelWidth = 300;
+
 	private string _lastLocation = DefaultLocation;
 	private List<string> _promoted = [];
 	private (string BackendId, string Slot)? _selected;
 	private bool _panelPinned;
+	private int _panelWidth = DefaultPanelWidth;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
 	/// <param name="fileSystem">The filesystem the state persists through.</param>
@@ -57,6 +61,25 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 			}
 
 			_panelPinned = pinned;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
+	}
+
+	/// <summary>The pinned session panel's width in CSS pixels.</summary>
+	public int PanelWidth {
+		get { lock (Gate) { return _panelWidth; } }
+	}
+
+	/// <summary>Records the pinned panel's resized width. No-op (no write, no event) when unchanged.</summary>
+	public void SetPanelWidth(int width) {
+		lock (Gate) {
+			if (_panelWidth == width) {
+				return;
+			}
+
+			_panelWidth = width;
 			PersistLocked();
 		}
 
@@ -122,6 +145,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 			? (selected.BackendId, selected.Slot)
 			: null;
 		_panelPinned = document.PanelPinned;
+		_panelWidth = document.PanelWidth;
 	}
 
 	/// <inheritdoc/>
@@ -134,6 +158,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
 				: null,
 			PanelPinned = _panelPinned,
+			PanelWidth = _panelWidth,
 		},
 		RailStateStoreJson.Default.Document);
 
@@ -152,6 +177,9 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 
 		[JsonPropertyName("panelPinned")]
 		public bool PanelPinned { get; set; }
+
+		[JsonPropertyName("panelWidth")]
+		public int PanelWidth { get; set; } = DefaultPanelWidth;
 	}
 
 	private sealed class SelectionEntry {

@@ -30,7 +30,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   sessions,
   layout: {},
   remoteAgents: [],
-  rail: { lastLocation: "", promoted: [], selected: null, panelPinned: false },
+  rail: { lastLocation: "", promoted: [], selected: null, panelPinned: false, panelWidth: 300 },
   search: {
     options: {
       caseSensitive: false,

@@ -805,7 +805,13 @@ export class MockHost {
       sessions: this.sessions,
       layout: DEFAULT_LAYOUT,
       remoteAgents: [],
-      rail: { lastLocation: "local", promoted: [], selected: null, panelPinned: false },
+      rail: {
+        lastLocation: "local",
+        promoted: [],
+        selected: null,
+        panelPinned: false,
+        panelWidth: 300,
+      },
       search: {
         options: {
           caseSensitive: false,

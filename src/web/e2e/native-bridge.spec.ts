@@ -129,7 +129,13 @@ test.describe("native in-process bridge contract", () => {
               focused: "p_agent",
             },
             remoteAgents: [],
-            rail: { lastLocation: "local", promoted: [], selected: null, panelPinned: false },
+            rail: {
+              lastLocation: "local",
+              promoted: [],
+              selected: null,
+              panelPinned: false,
+              panelWidth: 300,
+            },
             search: {
               options: {
                 caseSensitive: false,

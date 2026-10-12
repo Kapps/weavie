@@ -1,19 +1,12 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
-import { formatKey } from "../commands/keybindings";
-import { captureCommandRunner, findCommand } from "../commands/registry";
-import { CommandIds } from "../commands/types";
-import { ContextMenu, type ContextMenuState } from "./ContextMenu";
-import { cancelSessionPanelHover } from "./SessionPanel";
-import { sessionMenuAt } from "./session-menu";
+import { For, type JSX, Show } from "solid-js";
+import { panelPinned } from "./rail-state";
+import { createSessionMenu, SessionTools } from "./SessionTools";
+import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
+import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
 
-// A filled cloud silhouette for the remote-agents button.
-const CLOUD_PATH = "M6.5 19A4.5 4.5 0 0 1 6 10.05 6 6 0 0 1 17.7 9 4.5 4.5 0 0 1 17.5 19H6.5z";
-
-// The left session rail (working set): one status dot per local session plus promoted remotes, loaded first and
-// parked after a divider. Names live in the session panel, which opens on hover; remote agents live behind the
-// cloud button (RemoteAgentsPanel).
+// The left session rail (working set): each local session and promoted remote as a status dot over the first words
+// of its name, loaded first. The full session panel opens on hover; remote agents live behind the cloud button.
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -23,36 +16,22 @@ export function SessionRail(props: {
   onNew: () => void;
   onToggleRemotes: (anchor: DOMRect) => void;
 }): JSX.Element {
-  // Advertise the New Session shortcut on the "+" tooltip, read from the command catalog (never hardcoded).
-  const newTitle = (): string => {
-    const keys = findCommand(CommandIds.showSessions)?.keys ?? [];
-    return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
-  };
   const chipTitle = (session: RailSession, index: number): string => {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
     const shortcut = switchShortcut(index);
     const base = `${session.label}${where} — ${sessionSubtitle(session, Date.now())}`;
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
-  const firstParked = (): number => props.sessions.findIndex((session) => !session.loaded);
 
-  // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for every session, plus
-  // "Remove from rail" for a remote.
-  const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const openMenu = (event: MouseEvent, session: RailSession): void => {
-    event.preventDefault();
-    setMenu(sessionMenuAt(session, event.clientX, event.clientY, true, captureCommandRunner()));
-  };
+  const menu = createSessionMenu();
 
   return (
     <>
-      <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
-        <For each={props.sessions}>
-          {(session, index) => (
-            <>
-              <Show when={index() > 0 && index() === firstParked()}>
-                <div class="session-rail-divider" />
-              </Show>
+      {/* Pinned, the session panel takes the rail's place. */}
+      <Show when={!panelPinned()}>
+        <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
+          <For each={props.sessions}>
+            {(session, index) => (
               <button
                 type="button"
                 class={`session-chip status-${session.status}${session.active ? " active" : ""}${
@@ -68,41 +47,38 @@ export function SessionRail(props: {
                   }
                 }}
                 onClick={() => props.onSwitch(session)}
-                onContextMenu={(event) => openMenu(event, session)}
+                onContextMenu={(event) => menu.open(event, session)}
               >
                 {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
                 <span class={`session-status status-${statusDot(session)}`} />
                 <Show when={session.pending}>
                   <span class="session-chip-spinner" aria-hidden="true" />
                 </Show>
+                <span class="session-chip-words">
+                  {session.title.split(" ").slice(0, 2).join(" ")}
+                </span>
+                <Show when={!session.isLocal}>
+                  <svg
+                    class="session-chip-cloud"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d={CLOUD_PATH} />
+                  </svg>
+                </Show>
               </button>
-            </>
-          )}
-        </For>
-        {/* The cloud button opens the remote-agents panel; shown only once an agent is registered. A pip
-            flags off-rail remote activity. */}
-        <Show when={props.hasRemotes}>
-          <button
-            type="button"
-            class={`session-rail-cloud${props.remoteActive ? " active" : ""}`}
-            title="Remote agents"
-            onClick={(event) => props.onToggleRemotes(event.currentTarget.getBoundingClientRect())}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d={CLOUD_PATH} />
-            </svg>
-          </button>
-        </Show>
-        <button
-          type="button"
-          class="session-rail-add"
-          title={newTitle()}
-          onClick={() => props.onNew()}
-        >
-          +
-        </button>
-      </div>
-      <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
+            )}
+          </For>
+          <SessionTools
+            hasRemotes={props.hasRemotes}
+            remoteActive={props.remoteActive}
+            onNew={props.onNew}
+            onToggleRemotes={props.onToggleRemotes}
+          />
+        </div>
+      </Show>
+      <menu.View />
     </>
   );
 }

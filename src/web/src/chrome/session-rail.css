@@ -4,10 +4,11 @@
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 22px;
-  padding: 10px 0;
+  align-items: stretch;
+  gap: 2px;
+  width: 56px;
+  padding: 8px 4px;
+  box-sizing: border-box;
   background: var(--bar);
   border-right: 1px solid var(--border);
   overflow-y: auto;
@@ -17,28 +18,51 @@
   position: relative;
   flex: 0 0 auto;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
+  gap: 4px;
+  padding: 6px 2px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 5px;
   background: transparent;
+  color: var(--fg);
+  font-size: var(--font-hint-size);
   cursor: pointer;
 }
-.session-chip.active {
-  box-shadow: 0 0 0 2px var(--accent);
+.session-chip:hover {
+  background: var(--list-hover-bg);
 }
-/* A remote session wears its agent's hue as a ring, so it reads as living on another box. */
-.session-chip.remote:not(.active) {
-  box-shadow: 0 0 0 1px hsl(var(--agent-hue, 210) 60% 58%);
+.session-chip.active {
+  background: var(--list-active-bg);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.session-chip.unloaded {
+  color: var(--dim);
+}
+/* The first words of the name, at most two lines. */
+.session-chip-words {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  text-align: center;
+}
+.session-chip-cloud {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
+  color: hsl(var(--agent-hue, 210) 55% 60%);
 }
 .session-chip:focus-visible,
 .session-rail-add:focus-visible,
 .session-rail-cloud:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 /* Its backend link is down: the last-known status is stale and clicking refuses with a toast. */
 .session-chip.offline {
@@ -50,7 +74,11 @@
 }
 .session-chip-spinner {
   position: absolute;
-  inset: 1px;
+  top: 4px;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
   border-radius: 50%;
   border: 1.5px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-top-color: var(--fg);
@@ -62,18 +90,11 @@
     transform: rotate(360deg);
   }
 }
-/* Separates loaded sessions from parked (unloaded) ones. */
-.session-rail-divider {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 1px;
-  margin: 4px 0;
-  background: color-mix(in srgb, var(--fg) 35%, transparent);
-}
 .session-rail-add,
 .session-rail-cloud {
   position: relative;
   flex: 0 0 auto;
+  align-self: center;
   display: flex;
   align-items: center;
   justify-content: center;

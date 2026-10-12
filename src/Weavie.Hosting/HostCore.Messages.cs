@@ -100,6 +100,10 @@ public sealed partial class HostCore {
 			_railState.SetPanelPinned(message.Pinned);
 			return Task.CompletedTask;
 		});
+		rail.Handle("setPanelWidth", "Resizing the session panel", WireJson.Default.RailPanelWidth, (message, _) => {
+			_railState.SetPanelWidth(message.Width);
+			return Task.CompletedTask;
+		});
 		rail.Handle("setSelected", "Saving the rail selection", WireJson.Default.RailSelectionMessage, (message, _) => {
 			_railState.SetSelected(message.BackendId, message.Slot);
 			return Task.CompletedTask;
@@ -377,6 +381,8 @@ public sealed partial class HostCore {
 
 	internal sealed record RailPanelPinned(bool Pinned);
 
+	internal sealed record RailPanelWidth(int Width);
+
 	internal sealed record SearchOptionsMessage(
 		bool CaseSensitive,
 		bool WholeWord,
@@ -413,7 +419,8 @@ public sealed partial class HostCore {
 		string LastLocation,
 		string[] Promoted,
 		RailSelection? Selected,
-		bool PanelPinned);
+		bool PanelPinned,
+		int PanelWidth);
 
 	internal sealed record RailSelection(string BackendId, string Slot);
 
@@ -434,7 +441,8 @@ public sealed partial class HostCore {
 		_railState.LastLocation,
 		[.. _railState.Promoted],
 		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null,
-		_railState.PanelPinned);
+		_railState.PanelPinned,
+		_railState.PanelWidth);
 
 	private ReviewOverviewSnapshot BuildReviewOverviewSnapshot() => new([.. _reviewOverviewState.Collapsed]);
 

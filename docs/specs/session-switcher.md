@@ -1,17 +1,19 @@
 # Session switcher
 
-The left rail is a 22px strip of status dots, one per working-set session, loaded first and parked (unloaded)
-after a divider. Names and what each agent is doing live in the session panel.
+The left rail (56px) shows each working-set session as its status dot over the first two words of its readable
+name, loaded sessions first. The session panel carries the full names and what each agent is doing.
 
 ## Surfaces
 
-- **Rail** (`SessionRail.tsx`): a dot per session (working pulses, needs-input amber, idle green, parked hollow,
-  remote sessions ringed in their agent's hue). Hovering the rail opens the panel; a click on a dot switches.
+- **Rail** (`SessionRail.tsx`): dot + short name per session (working pulses, needs-input amber, idle green,
+  parked hollow and dimmed; remote sessions carry a small cloud in their agent's hue). The current session has an
+  accent bar. Resting the pointer on the rail opens the panel; clicking a session switches to it.
 - **Session panel** (`SessionPanel.tsx`): sessions grouped as Needs you / Working / Idle / Parked. Each row shows
-  the stable rail number (the `Ctrl+Shift+N` switch), the readable branch name with its type prefix, and one line
-  of activity. Opens on rail hover or `weavie.session.panel` (`$mod+e`, everywhere including terminals); arrows,
-  Enter, and Escape drive it. `weavie.session.panelPin` (or the pin button) docks it open beside the rail, pushing
-  the panes; the pin persists in `rail-state.json`.
+  the stable rail number, the readable branch name with its type prefix, and one line of activity. Opens on rail
+  hover or `weavie.session.panel` (`$mod+e`, everywhere including terminals); arrows, Enter, and Escape drive it,
+  and while it's in use (hover- or keyboard-opened, or pinned under the pointer or focus) 1–9 switch straight to
+  that numbered session. `weavie.session.panelPin` (or the pin button) docks it open beside the rail, pushing the
+  panes; the pin persists in `rail-state.json`.
 - **Mobile** keeps the full list in the Sessions surface (no rail there); on desktop that modal is new-session only.
 
 ## Activity line

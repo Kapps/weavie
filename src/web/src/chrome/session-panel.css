@@ -5,7 +5,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 22px;
+  left: 56px;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -18,7 +18,8 @@
   box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
 }
 .session-panel.pinned {
-  position: static;
+  position: relative;
+  left: 0;
   flex: 0 0 auto;
   box-shadow: none;
 }
@@ -122,4 +123,21 @@
 .session-panel-activity {
   color: var(--dim);
   font-size: var(--font-hint-size);
+}
+
+/* Pinned, the panel stands in for the rail and carries its new-session and remote-agents buttons. */
+.session-panel-head .session-rail-add,
+.session-panel-head .session-rail-cloud {
+  margin-top: 0;
+}
+.session-panel-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+}
+.session-panel-resize:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
 }

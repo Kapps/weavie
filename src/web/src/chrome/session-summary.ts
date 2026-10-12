@@ -1,5 +1,5 @@
 import { formatKey } from "../commands/keybindings";
-import { getKeybindings } from "../commands/registry";
+import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { compactAge } from "../compact-age";
 import type { RailSession } from "./session-store";
@@ -69,4 +69,14 @@ export function switchShortcut(index: number): string {
       (binding.args as { index?: unknown } | undefined)?.index === index + 1,
   );
   return match !== undefined ? formatKey(match.key) : "";
+}
+
+/** A filled cloud silhouette: the remote-agents button and the remote marker on a session. */
+export const CLOUD_PATH =
+  "M6.5 19A4.5 4.5 0 0 1 6 10.05 6 6 0 0 1 17.7 9 4.5 4.5 0 0 1 17.5 19H6.5z";
+
+/** The new-session button's tooltip, advertising its shortcut from the command catalog. */
+export function newSessionTitle(): string {
+  const keys = findCommand(CommandIds.showSessions)?.keys ?? [];
+  return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
 }

@@ -30,6 +30,7 @@ export interface HostHello {
     promoted: string[];
     selected: { backendId: string; slot: string } | null;
     panelPinned: boolean;
+    panelWidth: number;
   };
   search: {
     options: {

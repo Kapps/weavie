@@ -585,6 +585,13 @@ export default function App(): JSX.Element {
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<PopoverAnchor | null>(null);
+  const toggleRemotePanel = (rect: DOMRect): void => {
+    setRemotePanelAnchor((open) =>
+      open !== null
+        ? null
+        : { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+    );
+  };
   const openSessions = (): void => {
     setRemotePanelAnchor(null);
     if (compact()) {
@@ -1928,23 +1935,16 @@ export default function App(): JSX.Element {
           remoteActive={remoteActivity()}
           onSwitch={openSession}
           onNew={openSessions}
-          onToggleRemotes={(rect) =>
-            setRemotePanelAnchor((open) =>
-              open !== null
-                ? null
-                : {
-                    left: rect.left,
-                    right: rect.right,
-                    top: rect.top,
-                    bottom: rect.bottom,
-                  },
-            )
-          }
+          onToggleRemotes={toggleRemotePanel}
         />
         <SessionPanel
           sessions={railSessions()}
           inert={sessionsModalActive()}
+          hasRemotes={remoteAgentRows().length > 0}
+          remoteActive={remoteActivity()}
           onSwitch={(session) => void openSession(session)}
+          onNew={openSessions}
+          onToggleRemotes={toggleRemotePanel}
         />
         <MobileWorkspace
           surface={mobileSurface()}

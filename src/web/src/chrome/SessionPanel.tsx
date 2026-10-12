@@ -5,7 +5,9 @@ import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
 import { floatingPanelLevel, registerFloatingPanel } from "./floating-panels";
-import { panelPinned, setPanelPinned } from "./rail-state";
+import { panelPinned, panelWidth, setPanelPinned, setPanelWidth } from "./rail-state";
+import { createSessionMenu, SessionTools } from "./SessionTools";
+import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import {
   SESSION_GROUPS,
@@ -15,66 +17,19 @@ import {
   switchShortcut,
 } from "./session-summary";
 
-// How the unpinned panel was opened: hovering the rail closes it on leave; the keyboard closes it on Escape.
-type OpenMode = "hover" | "keyboard";
-const [openMode, setOpenMode] = createSignal<OpenMode | null>(null);
-const HOVER_OPEN_MS = 150;
-const HOVER_CLOSE_MS = 250;
-let opening: ReturnType<typeof setTimeout> | undefined;
-let closing: ReturnType<typeof setTimeout> | undefined;
-// A rail click is a direct choice, so hover stays inert until the pointer is seen outside the rail.
-let clicked = false;
-
-// Hover follows where the pointer is seen, not enter/leave events: switching sessions rebuilds the dot under the
-// pointer, after which Chrome can report a re-entry with no move and drop the later leave.
-function trackPointer(event: PointerEvent): void {
-  locatePointer(event.target instanceof Element ? event.target : null);
-}
-
-// Leaving the window or entering an iframe sends no further moves to this document; the pointerout says where it went.
-function trackPointerOut(event: PointerEvent): void {
-  const next = event.relatedTarget instanceof Element ? event.relatedTarget : null;
-  if (next === null || next instanceof HTMLIFrameElement) locatePointer(null);
-}
-
-function locatePointer(target: Element | null): void {
-  if (target?.closest(".session-rail, .session-panel") == null) {
-    clicked = false;
-    clearTimeout(opening);
-    opening = undefined;
-    if (openMode() === "hover" && closing === undefined) {
-      closing = setTimeout(() => {
-        closing = undefined;
-        if (openMode() === "hover") setOpenMode(null);
-      }, HOVER_CLOSE_MS);
-    }
-    return;
-  }
-  clearTimeout(closing);
-  closing = undefined;
-  if (target.closest(".session-rail") === null || clicked) return;
-  if (openMode() === null && opening === undefined) {
-    opening = setTimeout(() => {
-      opening = undefined;
-      if (openMode() === null) setOpenMode("hover");
-    }, HOVER_OPEN_MS);
-  }
-}
-
-/** A click on the rail cancels a pending or hover-opened panel until the pointer leaves the rail. */
-export function cancelSessionPanelHover(): void {
-  clicked = true;
-  clearTimeout(opening);
-  opening = undefined;
-  if (openMode() === "hover") setOpenMode(null);
-}
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 520;
 
 // The session panel beside the rail: every session grouped by what needs the user, with what each agent is
 // doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
 export function SessionPanel(props: {
   sessions: RailSession[];
   inert: boolean;
+  hasRemotes: boolean;
+  remoteActive: boolean;
   onSwitch: (session: RailSession) => void;
+  onNew: () => void;
+  onToggleRemotes: (anchor: DOMRect) => void;
 }): JSX.Element {
   const now = useNow();
   window.addEventListener("pointermove", trackPointer, { passive: true });
@@ -159,6 +114,23 @@ export function SessionPanel(props: {
     event.preventDefault();
     focusRow(list[Math.max(0, Math.min(list.length - 1, target))]);
   };
+  // While the panel is in use (hover-opened, keyboard-opened, or pinned under the pointer or focus), 1–9 switch
+  // to that numbered session; a pinned panel the user isn't using leaves number keys alone.
+  const onNumberKey = (event: KeyboardEvent): void => {
+    if (event.ctrlKey || event.metaKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+    const inUse =
+      !props.inert &&
+      (openMode() !== null ||
+        (panelPinned() && (panel?.matches(":hover") || panel?.contains(document.activeElement))));
+    const session = props.sessions[Number(event.key) - 1];
+    if (!inUse || session === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    choose(session);
+  };
+  window.addEventListener("keydown", onNumberKey, { capture: true });
+  onCleanup(() => window.removeEventListener("keydown", onNumberKey, { capture: true }));
+
   // Focus goes back where it was before the switch, so the switch carries it into the same pane of the new session.
   const choose = (session: RailSession): void => {
     const target = returnFocus;
@@ -168,104 +140,152 @@ export function SessionPanel(props: {
     props.onSwitch(session);
   };
 
+  // Pinned, the panel replaces the rail; dragging its right edge resizes it, saved when the drag ends.
+  const [dragWidth, setDragWidth] = createSignal<number | null>(null);
+  const startResize = (event: PointerEvent): void => {
+    if (event.button !== 0) return;
+    const handle = event.currentTarget as HTMLElement;
+    const left = panel?.getBoundingClientRect().left ?? 0;
+    handle.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent): void => {
+      setDragWidth(Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next.clientX - left))));
+    };
+    // Lost capture follows pointerup and pointercancel alike, so every way a drag ends saves and cleans up.
+    const end = (): void => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("lostpointercapture", end);
+      const width = dragWidth();
+      setDragWidth(null);
+      if (width !== null) setPanelWidth(width);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("lostpointercapture", end);
+  };
+
+  const menu = createSessionMenu();
+
   return (
-    <Show when={visible()}>
-      <nav
-        class="session-panel"
-        classList={{ pinned: panelPinned() }}
-        // Unpinned it's a popover, layered with the floating tool windows it overlays.
-        style={panelPinned() ? "" : `z-index:${floatingPanelLevel("session-panel")}`}
-        ref={panel}
-        inert={props.inert}
-        aria-label="Sessions"
-        onKeyDown={onKeyDown}
-        onFocusOut={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
-            returnFocus = null;
-            setOpenMode(null);
+    <>
+      <Show when={visible()}>
+        <nav
+          class="session-panel"
+          classList={{ pinned: panelPinned() }}
+          // Unpinned it's a popover, layered with the floating tool windows it overlays.
+          style={
+            panelPinned()
+              ? `width:${dragWidth() ?? panelWidth()}px`
+              : `z-index:${floatingPanelLevel("session-panel")}`
           }
-        }}
-      >
-        <div class="session-panel-head">
-          <span>Sessions</span>
-          <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
-            {(keys) => <span class="session-panel-key">{keys()}</span>}
-          </Show>
-          <button
-            type="button"
-            class="session-panel-pin"
-            classList={{ on: panelPinned() }}
-            title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
-            aria-pressed={panelPinned()}
-            onClick={togglePin}
-          >
-            <Show when={panelPinned()} fallback={<Pin size={13} />}>
-              <PinOff size={13} />
-            </Show>
-          </button>
-        </div>
-        <For each={SESSION_GROUPS}>
-          {(group) => {
-            const members = createMemo(
-              () =>
-                [...byKey()]
-                  .filter(([, entry]) => sessionGroup(entry.session) === group.id)
-                  .map(([key]) => key),
-              [],
-              { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
-            );
-            return (
-              <Show when={members().length > 0}>
-                <div class="session-panel-group">{group.title}</div>
-                <For each={members()}>
-                  {(key) => (
-                    <Show when={byKey().get(key)}>
-                      {(entry) => {
-                        const session = (): RailSession => entry().session;
-                        const index = (): number => entry().index;
-                        const shortcut = (): string => switchShortcut(index());
-                        return (
-                          <button
-                            type="button"
-                            class="session-panel-row"
-                            classList={{
-                              active: session().active,
-                              parked: !session().loaded,
-                              offline: session().offline,
-                            }}
-                            data-session-slot={session().id}
-                            title={
-                              shortcut() === ""
-                                ? session().label
-                                : `${session().label} (${shortcut()})`
-                            }
-                            onClick={() => choose(session())}
-                          >
-                            <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
-                            <span class={`session-status status-${statusDot(session())}`} />
-                            <span class="session-panel-text">
-                              <span class="session-panel-name">
-                                <span class="session-panel-title">{session().title}</span>
-                                <Show when={session().prefix}>
-                                  {(prefix) => <span class="session-panel-prefix">{prefix()}</span>}
-                                </Show>
-                              </span>
-                              <span class="session-panel-activity">
-                                {sessionSubtitle(session(), now())}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      }}
-                    </Show>
-                  )}
-                </For>
-              </Show>
-            );
+          ref={panel}
+          inert={props.inert}
+          aria-label="Sessions"
+          onKeyDown={onKeyDown}
+          onFocusOut={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
+              returnFocus = null;
+              setOpenMode(null);
+            }
           }}
-        </For>
-      </nav>
-    </Show>
+        >
+          <div class="session-panel-head">
+            <span>Sessions</span>
+            <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
+              {(keys) => <span class="session-panel-key">{keys()}</span>}
+            </Show>
+            <Show when={panelPinned()}>
+              <SessionTools
+                hasRemotes={props.hasRemotes}
+                remoteActive={props.remoteActive}
+                onNew={props.onNew}
+                onToggleRemotes={props.onToggleRemotes}
+              />
+            </Show>
+            <button
+              type="button"
+              class="session-panel-pin"
+              classList={{ on: panelPinned() }}
+              title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
+              aria-pressed={panelPinned()}
+              onClick={togglePin}
+            >
+              <Show when={panelPinned()} fallback={<Pin size={13} />}>
+                <PinOff size={13} />
+              </Show>
+            </button>
+          </div>
+          <For each={SESSION_GROUPS}>
+            {(group) => {
+              const members = createMemo(
+                () =>
+                  [...byKey()]
+                    .filter(([, entry]) => sessionGroup(entry.session) === group.id)
+                    .map(([key]) => key),
+                [],
+                { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
+              );
+              return (
+                <Show when={members().length > 0}>
+                  <div class="session-panel-group">{group.title}</div>
+                  <For each={members()}>
+                    {(key) => (
+                      <Show when={byKey().get(key)}>
+                        {(entry) => {
+                          const session = (): RailSession => entry().session;
+                          const index = (): number => entry().index;
+                          const shortcut = (): string => switchShortcut(index());
+                          return (
+                            <button
+                              type="button"
+                              class="session-panel-row"
+                              classList={{
+                                active: session().active,
+                                parked: !session().loaded,
+                                offline: session().offline,
+                              }}
+                              data-session-slot={session().id}
+                              title={
+                                shortcut() === ""
+                                  ? session().label
+                                  : `${session().label} (${shortcut()})`
+                              }
+                              onClick={() => choose(session())}
+                              onContextMenu={(event) => menu.open(event, session())}
+                            >
+                              <span class="session-panel-num">
+                                {index() < 9 ? index() + 1 : ""}
+                              </span>
+                              <span class={`session-status status-${statusDot(session())}`} />
+                              <span class="session-panel-text">
+                                <span class="session-panel-name">
+                                  <span class="session-panel-title">{session().title}</span>
+                                  <Show when={session().prefix}>
+                                    {(prefix) => (
+                                      <span class="session-panel-prefix">{prefix()}</span>
+                                    )}
+                                  </Show>
+                                </span>
+                                <span class="session-panel-activity">
+                                  {sessionSubtitle(session(), now())}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        }}
+                      </Show>
+                    )}
+                  </For>
+                </Show>
+              );
+            }}
+          </For>
+          <Show when={panelPinned()}>
+            <div class="session-panel-resize" onPointerDown={startResize} />
+          </Show>
+        </nav>
+      </Show>
+      {/* Outside the panel, so a hover panel that closes as the pointer moves onto the menu keeps it. */}
+      <menu.View />
+    </>
   );
 }

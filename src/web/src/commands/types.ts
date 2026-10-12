@@ -199,6 +199,7 @@ export const CommandIds = {
   toggleEditorPreview: "weavie.editor.togglePreview",
   zoomEmbed: "weavie.editor.zoomEmbed",
   rotateMedia: "weavie.editor.rotateMedia",
+  toggleMediaFullscreen: "weavie.editor.toggleMediaFullscreen",
   increaseFontSize: "weavie.font.increase",
   decreaseFontSize: "weavie.font.decrease",
   resetFontSize: "weavie.font.reset",

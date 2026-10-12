@@ -61,8 +61,11 @@ test("an image tab wheel-zooms, pans, resets, double-click zooms, and rotates to
   const fitted = { portrait: true, fillsAnAxis: true, fitsInside: true, natural: false };
   expect(await renderedFit(pane)).toEqual(fitted);
 
-  // Double-clicking the button turns it twice and never reaches the pane's fit ↔ 2× toggle.
-  await rotateButton.dblclick();
+  // The button turns with the media; turning twice restores it, and a double-click never reaches the pane's
+  // fit ↔ 2× toggle.
+  await rotateButton.click();
+  await rotateButton.click();
+  await rotateButton.dispatchEvent("dblclick");
   await expect.poll(() => renderedFit(pane)).toEqual(fitted);
   await expect(pane).not.toHaveClass(/\bzoomed\b/);
 
@@ -93,48 +96,74 @@ test("rotating a small image keeps it at its natural size", async ({ page }) => 
   expect(await renderedFit(pane)).toMatchObject({ natural: true, fitsInside: true });
 });
 
-// Native video controls take clicks (playback toggles, nothing pans) at 1× and zoomed, and it still rotates.
-test("a video tab keeps native controls at 1× and zoomed, and rotates to fit", async ({ page }) => {
+// The pane's own playback bar plays, pauses, and seeks at 1×, zoomed, and rotated; fullscreen keeps the rotation.
+test("a video tab plays through its own controls, zoomed and rotated, and fullscreen keeps the turn", async ({
+  page,
+}) => {
   await openFile(page, "landscape.webm");
   const pane = page.locator(".editor-media");
   const video = pane.locator("video");
   await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
+  await expect(video).not.toHaveAttribute("controls");
   await video.evaluate((element) => element.pause());
   const paused = () => video.evaluate((element) => element.paused);
-  // Clicks land in the visible (pane-clipped) part of the video, paced like a person: Chromium's media controls
-  // turn two clicks inside their double-tap timer into fullscreen, whatever the DOM click count says.
-  let step = 0;
-  const togglePlayback = async (expectPaused: boolean): Promise<void> => {
-    const [outer, inner] = [(await pane.boundingBox())!, (await video.boundingBox())!];
-    const left = Math.max(outer.x, inner.x);
-    const top = Math.max(outer.y, inner.y);
-    const bottom = Math.min(outer.y + outer.height, inner.y + inner.height);
-    step += 1;
-    await page.waitForTimeout(500);
-    await page.mouse.click(left + 40 * step, top + (bottom - top) / 3);
-    await expect.poll(paused).toBe(expectPaused);
-  };
+  const play = pane.getByRole("button", { name: "Play" });
+  const pause = pane.getByRole("button", { name: "Pause" });
 
-  await togglePlayback(false);
-  await expect(pane).not.toHaveClass(/\bzoomed\b/);
-  await togglePlayback(true);
+  await play.click();
+  await expect.poll(paused).toBe(false);
+  await pause.click();
+  await expect.poll(paused).toBe(true);
+  await pane.focus();
+  await page.keyboard.press(" ");
+  await expect.poll(paused).toBe(false);
+  await page.keyboard.press(" ");
+  await expect.poll(paused).toBe(true);
 
   await video.hover();
   await page.mouse.wheel(0, -300);
   await expect(pane).toHaveClass(/\bzoomed\b/);
   const before = await zoomMatrix(pane);
-  await togglePlayback(false);
-  await togglePlayback(true);
+  await play.click();
+  await pause.click();
+  await expect.poll(paused).toBe(true);
   expect(await zoomMatrix(pane)).toEqual(before);
-  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
   await pane.focus();
   await page.keyboard.press("0");
 
   await pane.getByRole("button", { name: "Rotate 90°" }).click();
   await expect.poll(async () => (await zoomMatrix(pane)).a).toBeCloseTo(0, 5);
-  const fit = await renderedFit(pane);
-  expect(fit).toMatchObject({ portrait: true, fitsInside: true });
-  expect(fit.fillsAnAxis || fit.natural).toBe(true);
+  const fit = { portrait: true, fitsInside: true, fillsAnAxis: true, natural: false };
+  expect(await renderedFit(pane)).toEqual(fit);
+  await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+
+  // The turned seek bar runs top to bottom: a press two-thirds down seeks two-thirds in.
+  const seek = (await pane.getByRole("slider", { name: "Seek" }).boundingBox())!;
+  expect(seek.height).toBeGreaterThan(seek.width);
+  await page.mouse.click(seek.x + seek.width / 2, seek.y + (seek.height * 2) / 3);
+  await expect
+    .poll(() => video.evaluate((element) => element.currentTime / element.duration))
+    .toBeCloseTo(2 / 3, 1);
+
+  // Space on a focused control presses it rather than toggling playback.
+  await pane.getByRole("button", { name: "Fullscreen" }).focus();
+  await page.keyboard.press(" ");
+  expect(await paused()).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.className))
+    .toContain("editor-media");
+  await expect.poll(() => renderedFit(pane)).toEqual(fit);
+  expect((await zoomMatrix(pane)).a).toBeCloseTo(0, 5);
+  await pane.getByRole("button", { name: "Exit fullscreen" }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+  await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+  await runCommand(page, "Toggle Media Fullscreen");
+  await expect(pane).toHaveClass(/\bfullscreen\b/);
+  await pane.focus();
+  await page.keyboard.press("Escape");
+  await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+
   await runCommand(page, "Rotate Media");
   expect((await renderedFit(pane)).portrait).toBe(false);
 });

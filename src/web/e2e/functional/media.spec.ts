@@ -133,14 +133,14 @@ test("image renders, survives text-tab switching, and restores after reload", as
 
 // Video uses the same range-capable endpoint. Metadata readiness proves a paused, metadata-only load settles
 // without waiting for the whole video, while the explicit Range request pins seeking support.
-test("video file opens as an autoplaying <video controls> in the media pane @cross", async ({
+test("video file opens as an autoplaying <video> with the pane's controls @cross", async ({
   page,
 }) => {
   await openFile(page, "clip.webm");
 
   const video = page.locator(".editor-media video");
   await expect(video).toBeAttached();
-  await expect(video).toHaveAttribute("controls", "");
+  await expect(page.getByRole("slider", { name: "Seek" })).toBeVisible();
   await expect(video).toHaveAttribute("preload", "metadata");
   await expect(video).toHaveAttribute("autoplay", "");
   await expect(page.locator(".editor-media-notice")).toHaveCount(0);
@@ -200,7 +200,7 @@ test.describe(() => {
     const video = page.locator(".editor-media video");
     await expect(video).toBeAttached();
     await expect(video).not.toHaveAttribute("autoplay", "");
-    await expect(video).toHaveAttribute("controls", "");
+    await expect(page.getByRole("slider", { name: "Seek" })).toBeVisible();
     await expect(page.locator(".editor-media-notice")).toHaveCount(0);
   });
 });

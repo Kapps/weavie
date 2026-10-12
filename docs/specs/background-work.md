@@ -91,8 +91,8 @@ Running work keeps the session status on Waiting unless it works or needs input,
   (a subagent's transcript tab, else its task tab), and Stop appears only for stoppable tasks.
 - **Commands** — `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
   stoppable task) and `weavie.agent.showBackgroundWork` (Web, focuses the tray), both gated by
-  `agentBackgroundActive`, plus `weavie.agent.openBackgroundItem` (Web, `{id?}`; no id opens the most recently started
-  item, and an unlisted id is refused), all without default keybindings.
+  `agentBackgroundActive`; `weavie.agent.openBackgroundItem` (Web, `{id?}`; no id opens the most recently started
+  item, and an unlisted id is refused) is ungated, since finished items stay openable. None has a default keybinding.
 
 ## Stopping actions
 

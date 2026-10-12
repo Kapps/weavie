@@ -280,11 +280,9 @@
 }
 
 .agent-task-tool pre {
-  margin: 4px 0 0;
-  white-space: pre-wrap;
+  margin-top: 4px;
   font-family: var(--font-content-family);
   font-size: var(--font-content-size);
-  overflow-wrap: anywhere;
 }
 
 .agent-aside-head small {
@@ -739,6 +737,7 @@ a:has(> .agent-path-dir) {
 .agent-entry-notice,
 .agent-entry-request,
 .agent-entry-subagent,
+.agent-entry-task,
 .agent-entry-workflow {
   padding: 5px 8px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
@@ -747,6 +746,7 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-entry-subagent,
+.agent-entry-task,
 .agent-entry-workflow {
   border-left-color: var(--accent);
 }
@@ -781,6 +781,7 @@ a:has(> .agent-path-dir) {
 
 .agent-entry-notice.agent-tone-error,
 .agent-entry-subagent.agent-tone-error,
+.agent-entry-task.agent-tone-error,
 .agent-entry-workflow.agent-tone-error {
   border-left-color: var(--bad);
   background: color-mix(in srgb, var(--bad) 11%, var(--bar));

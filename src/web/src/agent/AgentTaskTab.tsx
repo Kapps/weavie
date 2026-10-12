@@ -2,7 +2,7 @@ import { createMemo, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ActivityStepOutput } from "./AgentActivityDetails";
 import { AgentPathLink } from "./AgentPaneLinks";
-import { agentBackground, backgroundRunning } from "./agent-background-store";
+import { backgroundItem, backgroundRunning } from "./agent-background-store";
 import { backgroundStatus } from "./background-format";
 import { liveNow } from "./live-clock";
 import { agentPaneModel } from "./pane-store";
@@ -14,9 +14,7 @@ export default function AgentTaskTab(props: {
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
-  const item = createMemo(() =>
-    agentBackground(props.session).find((candidate) => candidate.id === props.path),
-  );
+  const item = createMemo(() => backgroundItem(props.session, props.path));
   const step = createMemo(() => {
     const id = item()?.transcriptItemId;
     return id == null ? undefined : agentPaneModel(props.session)?.activityStep(id);

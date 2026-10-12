@@ -43,6 +43,14 @@ export function agentBackground(session: ClientSession | null): AgentBackgroundI
   return (session === null ? undefined : bySession().get(session)) ?? [];
 }
 
+/** The item `id` of one exact session's background work, while it is listed. */
+export function backgroundItem(
+  session: ClientSession | null,
+  id: string,
+): AgentBackgroundItem | undefined {
+  return agentBackground(session).find((item) => item.id === id);
+}
+
 /** The running work of the session at `address` on `backendId`, or null once it is no longer loaded here. */
 export function runningBackgroundOf(
   backendId: string,

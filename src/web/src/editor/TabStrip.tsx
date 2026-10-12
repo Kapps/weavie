@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { agentBackground } from "../agent/agent-background-store";
+import { backgroundItem } from "../agent/agent-background-store";
 import { subagentForTab } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
@@ -63,7 +63,7 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
     return name === undefined ? "Subagent" : `Subagent · ${name}`;
   }
   if (view.kind === "task") {
-    const name = agentBackground(session).find((item) => item.id === view.path)?.name;
+    const name = backgroundItem(session, view.path)?.name;
     return name === undefined ? "Task" : `Task · ${name}`;
   }
   return basename(view.path);

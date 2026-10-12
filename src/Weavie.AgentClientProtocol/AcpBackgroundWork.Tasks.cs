@@ -73,14 +73,15 @@ internal sealed partial class AcpBackgroundWork {
 			var previous = task.Item;
 			bool terminal = state is not (AgentBackgroundState.Running or AgentBackgroundState.Paused);
 			// A finished task stays finished; only a later terminal state corrects which one.
-			if (!terminal && !previous.Running) return;
-			changed = previous.State != state;
-			task.Item = previous with {
-				State = state,
-				CanStop = !terminal && previous.CanStop,
-				EndedAtMs = terminal ? previous.EndedAtMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : null,
-				Summary = OptionalString(update, "summary") ?? previous.Summary,
-			};
+			changed = (terminal || previous.Running) && previous.State != state;
+			if (terminal || previous.Running) {
+				task.Item = previous with {
+					State = state,
+					CanStop = !terminal && previous.CanStop,
+					EndedAtMs = terminal ? previous.EndedAtMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : null,
+					Summary = OptionalString(update, "summary") ?? previous.Summary,
+				};
+			}
 		}
 		if (changed) task.PublishCard();
 		root.RaiseBackground();

@@ -7,7 +7,8 @@ export type EditorViewState = unknown;
 
 export interface EditorSessionEntry {
   path: string;
-  // Tab kind: a file, iframe web tab, fetched source document, read-only transient plan, or subagent transcript.
+  // Tab kind: a file, iframe web tab, fetched source document, read-only transient plan, subagent transcript, or
+  // background task.
   // Overlay kinds are session-owned and round-trip with the tab set. Absent ⇒ "file".
   kind?: "file" | "web" | "source" | "plan" | "review" | "subagent" | "task";
   viewState: EditorViewState | null;

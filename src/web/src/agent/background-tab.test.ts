@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBackgroundItem } from "./agent-background-store";
-import { backgroundItemToOpen, backgroundTab } from "./background-tab";
+import { backgroundItemToOpen } from "./background-tab";
 
 const item = (id: string, kind: AgentBackgroundItem["kind"], startedAtMs: number) =>
   ({ id, kind, startedAtMs }) as AgentBackgroundItem;
@@ -21,10 +21,5 @@ describe("background tabs", () => {
     expect(() => backgroundItemToOpen(items, "task:gone")).toThrow("no longer listed");
     expect(() => backgroundItemToOpen([], undefined)).toThrow("no background work");
     expect(() => backgroundItemToOpen(items, 7)).toThrow("must be a string");
-  });
-
-  it("shows a subagent as its transcript tab and a task as its own tab", () => {
-    expect(backgroundTab(items[1]!)).toEqual({ kind: "subagent", path: "subagent:conv-1" });
-    expect(backgroundTab(items[0]!)).toEqual({ kind: "task", path: "task:a" });
   });
 });

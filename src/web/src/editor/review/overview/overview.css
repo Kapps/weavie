@@ -120,8 +120,8 @@
 
 .session-overview-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 2em;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 4em;
 }
 
 .session-overview-columns.single {
@@ -133,6 +133,7 @@
 }
 
 .session-overview-heading {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: 0.5em;
@@ -153,7 +154,10 @@
   outline-offset: 2px;
 }
 
+/* Hangs in the margin so each heading's text lines up with its section's content. */
 .session-overview-chevron {
+  position: absolute;
+  left: -1.4em;
   align-self: center;
   transition: transform 120ms ease;
 }
@@ -177,6 +181,7 @@
 .session-overview-description {
   padding-bottom: 0.4em;
   border-bottom: 1px solid var(--border);
+  --font-prose-size: var(--font-chrome-size);
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
 }
@@ -191,11 +196,6 @@
 .session-overview-scroll {
   max-height: 20.5em;
   overflow-y: auto;
-}
-
-.session-overview-commits {
-  border: 1px solid var(--border);
-  border-radius: 6px;
 }
 
 .session-overview-row {
@@ -214,15 +214,6 @@
 
 button.session-overview-row:not(:disabled) {
   cursor: pointer;
-}
-
-.session-overview-commits .session-overview-row {
-  padding: 0.3em 0.75em;
-  border-top: 1px solid var(--border);
-}
-
-.session-overview-commits li:first-child {
-  border-top: 0;
 }
 
 .session-overview-row .weavie-pr-avatar {
@@ -304,6 +295,7 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 
 .session-overview-comment-body {
   margin-top: 0.25em;
+  --font-prose-size: var(--font-chrome-size);
   font-family: var(--font-prose-family);
   font-size: var(--font-prose-size);
 }
@@ -326,4 +318,9 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
   margin: 0.2em 0;
   color: var(--dim);
   font-size: var(--font-metadata-size);
+}
+
+/* Inside the overview's column the tree has no scrollbar beside it, so its totals end at the column edge. */
+.session-overview .unified-review-tree-row {
+  padding-right: 0.65em;
 }

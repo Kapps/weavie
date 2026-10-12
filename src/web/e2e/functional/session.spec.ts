@@ -5,6 +5,7 @@ import {
   createSession,
   openFile,
   runCommand,
+  showParked,
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -38,6 +39,7 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
 
   // Unload: the active session's backend is torn down; its chip goes faded/unloaded.
   await runCommand(page, "Unload Session");
+  await showParked(page);
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
   await expect(
     page.locator(".toast", { hasText: "was unloaded. Its worktree was kept." }),

@@ -1,5 +1,10 @@
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
-import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
+import {
+  activeSessionSlot,
+  runCommand,
+  showParked,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { pastePng } from "../harness/pasted-image";
 
@@ -98,6 +103,7 @@ test("BTW stays at its creation point and collapse state through later primary o
   await expect(reply).toBeHidden();
 
   await runCommand(page, "Unload Session");
+  await showParked(page);
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-side-position"]');
   await expect(unloaded).toBeVisible();
   await unloaded.click();

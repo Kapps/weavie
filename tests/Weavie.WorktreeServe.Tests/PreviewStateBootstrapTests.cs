@@ -63,7 +63,6 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 			File.ReadAllText(Under(preview, WeaviePaths.WorkspaceWorktreesFile(workspaceId))));
 		var rail = new RailStateStore(_fileSystem, Under(preview, WeaviePaths.RailStateFile));
 		Assert.Equal(("local", "current"), rail.Selected);
-		Assert.Empty(rail.Promoted);
 	}
 
 	[Fact]

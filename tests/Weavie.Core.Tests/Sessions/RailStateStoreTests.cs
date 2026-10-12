@@ -6,7 +6,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Exercises <see cref="RailStateStore"/> over the in-memory filesystem: defaults, last-location + selected
-/// session + promoted-set persistence across reloads, dedup, no-op-on-unchanged (no rewrite, no event), change
+/// session + panel layout persistence across reloads, no-op-on-unchanged (no rewrite, no event), change
 /// notifications, and malformed-file backup + reset.
 /// </summary>
 public sealed class RailStateStoreTests {
@@ -17,9 +17,9 @@ public sealed class RailStateStoreTests {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 
 		Assert.Equal("local", store.LastLocation);
-		Assert.Empty(store.Promoted);
 		Assert.Null(store.Selected);
 		Assert.False(store.PanelPinned);
+		Assert.True(store.ParkedCollapsed);
 	}
 
 	[Fact]
@@ -65,18 +65,6 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
-	public void SetPromoted_PersistsAndDedups() {
-		var fs = new InMemoryFileSystem();
-		new RailStateStore(fs, StorePath).SetPromoted(["remote:devbox s1", "remote:devbox s1", "remote:devbox s2"]);
-
-		var reloaded = new RailStateStore(fs, StorePath);
-
-		Assert.Equal(2, reloaded.Promoted.Count);
-		Assert.Contains("remote:devbox s1", reloaded.Promoted);
-		Assert.Contains("remote:devbox s2", reloaded.Promoted);
-	}
-
-	[Fact]
 	public void SetSelected_PersistsAcrossReload() {
 		var fs = new InMemoryFileSystem();
 		new RailStateStore(fs, StorePath).SetSelected("remote:devbox", "feature");
@@ -117,41 +105,13 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
-	public void SetPromoted_SameSetDifferentOrder_DoesNotNotify() {
-		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
-		store.SetPromoted(["a", "b"]);
-		int changes = 0;
-		store.Changed += () => changes++;
-
-		store.SetPromoted(["b", "a"]); // same set, reordered
-
-		Assert.Equal(0, changes);
-	}
-
-	[Fact]
-	public void SetPromoted_SameCountDifferentMembers_PersistsAndNotifies() {
-		// Equal count is not equal membership: swapping one key for another (same size) is a real change that
-		// must persist and notify, not be mistaken for a no-op.
-		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
-		store.SetPromoted(["a", "b"]);
-		int changes = 0;
-		store.Changed += () => changes++;
-
-		store.SetPromoted(["a", "c"]); // same count, different member
-
-		Assert.Equal(1, changes);
-		Assert.Contains("c", store.Promoted);
-		Assert.DoesNotContain("b", store.Promoted);
-	}
-
-	[Fact]
 	public void Changed_FiresOnRealChange() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		int changes = 0;
 		store.Changed += () => changes++;
 
 		store.SetLastLocation("remote:devbox");
-		store.SetPromoted(["remote:devbox s1"]);
+		store.SetParkedCollapsed(false);
 
 		Assert.Equal(2, changes);
 	}
@@ -165,6 +125,14 @@ public sealed class RailStateStoreTests {
 
 		Assert.True(fs.FileExists(StorePath + ".bad"));
 		Assert.Equal("local", store.LastLocation);
-		Assert.Empty(store.Promoted);
+		Assert.True(store.ParkedCollapsed);
+	}
+
+	[Fact]
+	public void SetParkedCollapsed_PersistsAcrossReload() {
+		var fs = new InMemoryFileSystem();
+		new RailStateStore(fs, StorePath).SetParkedCollapsed(false);
+
+		Assert.False(new RailStateStore(fs, StorePath).ParkedCollapsed);
 	}
 }

@@ -8,7 +8,6 @@ export function sessionMenuAt(
   session: RailSession,
   x: number,
   y: number,
-  inRail: boolean,
   runCommand: CommandRunner,
 ): ContextMenuState {
   return {
@@ -16,16 +15,14 @@ export function sessionMenuAt(
     x,
     y,
     header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,
-    entries: sessionMenuEntries(session, inRail),
+    entries: sessionMenuEntries(session),
   };
 }
 
-// The right-click entries for a session chip, shared by the rail and the cloud panel so both menus stay
-// identical and command-driven. Every command carries the session's owning `backendId`, so a remote session's
-// load / unload / delete runs on its own host. The session on the workspace's own checkout gets no Delete — the
-// host refuses it — so unload is its only teardown. `inRail` adds "Remove from rail" for a remote (only
-// meaningful once it's in the working set).
-export function sessionMenuEntries(session: RailSession, inRail: boolean): ContextMenuEntry[] {
+// The right-click entries for a session, command-driven. Every command carries the session's owning `backendId`,
+// so a remote session's load / unload / delete runs on its own host. The session on the workspace's own checkout
+// gets no Delete — the host refuses it — so unload is its only teardown.
+export function sessionMenuEntries(session: RailSession): ContextMenuEntry[] {
   const args = { id: session.id, backendId: session.backendId };
   const entries: ContextMenuEntry[] = [
     session.loaded
@@ -37,16 +34,6 @@ export function sessionMenuEntries(session: RailSession, inRail: boolean): Conte
     entries.push(
       { kind: "separator" },
       { commandId: CommandIds.deleteSessionPrompt, args, label: "Delete…", danger: true },
-    );
-  }
-  if (!session.isLocal && inRail) {
-    entries.push(
-      { kind: "separator" },
-      {
-        commandId: CommandIds.removeFromRail,
-        args: { backendId: session.backendId, id: session.id },
-        label: "Remove from rail",
-      },
     );
   }
   return entries;

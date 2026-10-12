@@ -13,14 +13,9 @@ import {
   type SessionStatusName,
   selectedSession,
 } from "../bridge";
-import { demoteSession, isPromoted, promotedKeys, promoteSession } from "./rail-state";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 
-// Re-export the promote/demote/isPromoted API so consumers reach it through the session store; the state
-// itself lives host-side in rail-state.ts (persisted, not in localStorage).
-export { demoteSession, isPromoted, promoteSession };
-
-// The rail's working set is every local session plus promoted remotes. Each connection publishes its catalog,
+// The rail shows every session on every connected backend. Each connection publishes its catalog,
 // kept by host while each loaded entry points at an exact ClientSession.
 
 /** One rail chip plus which backend (location) it lives on. */
@@ -45,7 +40,6 @@ export interface RemoteAgentRow {
   name: string;
   hue: number;
   connected: boolean;
-  sessions: RailSession[];
 }
 
 interface BackendSession extends SessionChip {
@@ -240,13 +234,15 @@ export function beginSessionSelection(backendId: string, id: string): () => void
   };
 }
 
-/** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
+/**
+ * Every session on every connected backend in rail order: loaded before parked, local before remote, each
+ * backend's own catalog order within that. Remote sessions carry their agent's hue.
+ */
 export const railSessions = createMemo<RailSession[]>(() => {
-  // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).
-  void promotedKeys();
   const pending = pendingSelection();
-  return merged()
-    .filter((s) => s.isLocal || isPromoted(s.backendId, s.id))
+  const rank = (s: RailSession): number => (s.loaded ? 0 : 2) + (s.isLocal ? 0 : 1);
+  return [...merged()]
+    .sort((a, b) => rank(a) - rank(b))
     .map((s) => ({
       ...s,
       active:
@@ -272,7 +268,7 @@ export function stepRailTarget(list: RailSession[], delta: number): RailSession 
   return (delta < 0 ? list[list.length - 1] : list[0]) ?? null;
 }
 
-/** Every registered remote agent and its sessions, for the cloud panel (connected first, offline faded). */
+/** Every registered remote agent, for the cloud panel (connected first, offline faded). */
 export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
   const remotes = connectedBackends().filter((b) => !b.isLocal);
   const connectedNames = new Set(remotes.map((b) => b.name));
@@ -281,7 +277,6 @@ export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
     name: b.name,
     hue: agentHue(b.name),
     connected: true,
-    sessions: merged().filter((s) => s.backendId === b.id),
   }));
   const offline: RemoteAgentRow[] = remoteAgents()
     .filter((a) => !connectedNames.has(a.name))
@@ -290,18 +285,9 @@ export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
       name: a.name,
       hue: agentHue(a.name),
       connected: false,
-      sessions: [],
     }));
   return [...online, ...offline];
 });
-
-/** Whether any remote session is mid-turn, awaiting input, or waiting on a task — flags the cloud button so off-rail work is visible. */
-export const remoteActivity = createMemo<boolean>(() =>
-  merged().some(
-    (s) =>
-      !s.isLocal && (s.status === "working" || s.status === "needsInput" || s.status === "waiting"),
-  ),
-);
 
 /** The selected session's agent status for the pane footer, or undefined until the first push. */
 export const claudeStatus = createMemo(() => sessions().find((session) => session.active)?.status);

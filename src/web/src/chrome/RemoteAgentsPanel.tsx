@@ -1,22 +1,16 @@
 import { X } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { captureCommandRunner } from "../commands/registry";
-import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { registerFloatingPanel } from "./floating-panels";
 import { type PopoverAnchor, placeRailPopover } from "./popover-position";
-import { sessionMenuAt } from "./session-menu";
-import type { RailSession, RemoteAgentRow } from "./session-store";
-import { sessionSubtitle, statusDot } from "./session-summary";
+import type { RemoteAgentRow } from "./session-store";
 
-// The cloud panel: manage + pick remote agents, opened from the rail's cloud button. Lists each agent
-// (connected first, offline faded) and the sessions it can still offer — those NOT already promoted into
-// the rail; clicking one promotes it into the rail and switches to it. Placement stays beside the cloud button
-// and within the viewport; outside-click / Escape dismisses it.
+// The cloud panel: add and disconnect remote agents, opened from the cloud button. Lists each agent (connected
+// first, offline faded); their sessions are on the rail. Placement stays beside the cloud button and within the
+// viewport; outside-click / Escape dismisses it.
 export function RemoteAgentsPanel(props: {
   agents: RemoteAgentRow[];
   anchor: PopoverAnchor;
-  isPromoted: (backendId: string, id: string) => boolean;
-  onPick: (session: RailSession) => void;
   onDisconnect: (name: string) => void;
   onAddRemote: () => void;
   onClose: () => void;
@@ -35,12 +29,8 @@ export function RemoteAgentsPanel(props: {
     panel.style.visibility = "visible";
   };
   const onPointerDown = (event: PointerEvent): void => {
-    // Ignore the cloud button (so its toggle handler isn't fought) and our own context menu — it portals
-    // OUTSIDE the panel, so without this a mousedown on a menu item closes the panel, unmounting the menu
-    // (a child of this component) mid-click, and the click lands on whatever was behind it.
-    if (
-      !(event.target as HTMLElement).closest(".remote-panel, .session-rail-cloud, .context-menu")
-    ) {
+    // Ignore the cloud button, so its own toggle handler isn't fought.
+    if (!(event.target as HTMLElement).closest(".remote-panel, .session-rail-cloud")) {
       props.onClose();
     }
   };
@@ -61,102 +51,43 @@ export function RemoteAgentsPanel(props: {
   // An agent's avatar monogram: the first two letters of its name, uppercased.
   const monogram = (name: string): string => name.slice(0, 2).toUpperCase();
 
-  // Right-click a remote session: the same command-driven menu as the rail (load/unload + delete, routed to
-  // the owning backend). The panel only lists un-promoted sessions, so "Remove from rail" never applies here
-  // (that lives on the rail chip). Without this, the right-click fell through to the WebView's own menu.
-  const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const openMenu = (event: MouseEvent, session: RailSession): void => {
-    event.preventDefault();
-    setMenu(sessionMenuAt(session, event.clientX, event.clientY, false, captureCommandRunner()));
-  };
-
   return (
-    <>
-      <Portal>
-        <div class="remote-panel" ref={panel}>
-          <div class="remote-panel-head">Remote agents</div>
-          <For each={props.agents}>
-            {(agent) => {
-              // The sessions this agent still offers: those not already promoted into the rail. A promoted
-              // session lives in the rail, not here, so the panel never lists the same one in two places.
-              const pickable = createMemo(() =>
-                agent.sessions.filter((s) => !props.isPromoted(s.backendId, s.id)),
-              );
-              return (
-                <div class={`remote-agent${agent.connected ? "" : " offline"}`}>
-                  <div class="remote-agent-head">
-                    <span
-                      class="remote-agent-ava"
-                      ref={(el) => el.style.setProperty("--chip-hue", String(agent.hue))}
-                    >
-                      {monogram(agent.name)}
-                    </span>
-                    <span class="remote-agent-name" title={agent.name}>
-                      {agent.name}
-                    </span>
-                    <Show when={!agent.connected}>
-                      <span class="remote-agent-state">offline</span>
-                    </Show>
-                    <button
-                      type="button"
-                      class="remote-agent-x"
-                      title={`Disconnect ${agent.name}`}
-                      aria-label={`Disconnect ${agent.name}`}
-                      onClick={() => props.onDisconnect(agent.name)}
-                    >
-                      <X />
-                    </button>
-                  </div>
-                  <Show when={agent.connected}>
-                    <Show
-                      when={pickable().length > 0}
-                      fallback={
-                        <div class="remote-agent-empty">
-                          {agent.sessions.length > 0
-                            ? "All sessions in the rail"
-                            : "No sessions yet"}
-                        </div>
-                      }
-                    >
-                      <div class="remote-agent-sessions">
-                        <For each={pickable()}>
-                          {(session) => (
-                            <button
-                              type="button"
-                              class={`remote-session${session.loaded ? "" : " unloaded"}${
-                                session.pending ? " pending" : ""
-                              }`}
-                              title={`${session.label} — ${sessionSubtitle(session, Date.now())}`}
-                              onClick={() => props.onPick(session)}
-                              onContextMenu={(event) => openMenu(event, session)}
-                            >
-                              <Show
-                                when={session.pending}
-                                fallback={
-                                  <span class={`session-status status-${statusDot(session)}`} />
-                                }
-                              >
-                                <span class="session-chip-spinner" aria-hidden="true" />
-                              </Show>
-                              <span class="remote-session-name">{session.title}</span>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </Show>
-                </div>
-              );
-            }}
-          </For>
-          <button type="button" class="remote-panel-add" onClick={() => props.onAddRemote()}>
-            ＋ Add remote agent…
-          </button>
-        </div>
-      </Portal>
-      <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
-    </>
+    <Portal>
+      <div class="remote-panel" ref={panel}>
+        <div class="remote-panel-head">Remote agents</div>
+        <For each={props.agents}>
+          {(agent) => (
+            <div class={`remote-agent${agent.connected ? "" : " offline"}`}>
+              <div class="remote-agent-head">
+                <span
+                  class="remote-agent-ava"
+                  ref={(el) => el.style.setProperty("--chip-hue", String(agent.hue))}
+                >
+                  {monogram(agent.name)}
+                </span>
+                <span class="remote-agent-name" title={agent.name}>
+                  {agent.name}
+                </span>
+                <Show when={!agent.connected}>
+                  <span class="remote-agent-state">offline</span>
+                </Show>
+                <button
+                  type="button"
+                  class="remote-agent-x"
+                  title={`Disconnect ${agent.name}`}
+                  aria-label={`Disconnect ${agent.name}`}
+                  onClick={() => props.onDisconnect(agent.name)}
+                >
+                  <X />
+                </button>
+              </div>
+            </div>
+          )}
+        </For>
+        <button type="button" class="remote-panel-add" onClick={() => props.onAddRemote()}>
+          ＋ Add remote agent…
+        </button>
+      </div>
+    </Portal>
   );
 }
-
-import { registerFloatingPanel } from "./floating-panels";

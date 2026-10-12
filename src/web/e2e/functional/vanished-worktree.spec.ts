@@ -1,6 +1,12 @@
 import { rename, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
-import { activeSessionSlot, awaitEditorReady, createSession, runCommand } from "../harness/actions";
+import {
+  activeSessionSlot,
+  awaitEditorReady,
+  createSession,
+  runCommand,
+  showParked,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -16,6 +22,7 @@ test("a worktree deleted outside Weavie closes its session, for good", async ({ 
   await createSession(page, { branch: "e2e/vanished-worktree", provider: "claude" });
   await expect(chips).toHaveCount(2);
   await runCommand(page, "Unload Session");
+  await showParked(page);
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
   const [worktree] = sessionWorktrees(weavie.workspace);
   if (worktree === undefined) throw new Error("The session did not create a git worktree");

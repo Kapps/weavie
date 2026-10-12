@@ -68,7 +68,6 @@ internal static class PreviewStateBootstrap {
 		});
 		var rail = new RailStateStore(new LocalFileSystem(), Under(destination, WeaviePaths.RailStateFile));
 		rail.SetLastLocation("local");
-		rail.SetPromoted([]);
 		rail.SetSelected("local", selected[0].Id.Value);
 		return new PreviewStateBootstrapResult(selected[0].Id, provider, projected.Count);
 	}

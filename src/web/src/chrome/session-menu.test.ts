@@ -30,16 +30,16 @@ function railSession(over: Partial<RailSession>): RailSession {
 
 describe("sessionMenuEntries", () => {
   it("offers Unload for a loaded session and Load for a dormant one", () => {
-    expect(sessionMenuEntries(railSession({ loaded: true }), false)[0]).toMatchObject({
+    expect(sessionMenuEntries(railSession({ loaded: true }))[0]).toMatchObject({
       commandId: CommandIds.unloadSession,
     });
-    expect(sessionMenuEntries(railSession({ loaded: false }), false)[0]).toMatchObject({
+    expect(sessionMenuEntries(railSession({ loaded: false }))[0]).toMatchObject({
       commandId: CommandIds.loadSession,
     });
   });
 
   it("always offers a danger Delete… carrying the session id + backend", () => {
-    const entries = sessionMenuEntries(railSession({ id: "abc", backendId: "remote:bob" }), false);
+    const entries = sessionMenuEntries(railSession({ id: "abc", backendId: "remote:bob" }));
     expect(entries).toContainEqual({
       commandId: CommandIds.deleteSessionPrompt,
       args: { id: "abc", backendId: "remote:bob" },
@@ -49,35 +49,10 @@ describe("sessionMenuEntries", () => {
   });
 
   it("offers no Delete for the session on the workspace's own checkout", () => {
-    const entries = sessionMenuEntries(railSession({ workspaceCheckout: true }), false);
+    const entries = sessionMenuEntries(railSession({ workspaceCheckout: true }));
     expect(
       entries.some((e) => "commandId" in e && e.commandId === CommandIds.deleteSessionPrompt),
     ).toBe(false);
     expect(entries[0]).toMatchObject({ commandId: CommandIds.unloadSession });
-  });
-
-  it("does not offer Remove from rail for a local session", () => {
-    const entries = sessionMenuEntries(railSession({ isLocal: true }), true);
-    expect(entries.some((e) => "commandId" in e && e.commandId === CommandIds.removeFromRail)).toBe(
-      false,
-    );
-  });
-
-  it("offers Remove from rail only for a remote session already in the rail", () => {
-    expect(
-      sessionMenuEntries(railSession({ isLocal: false }), false).some(
-        (e) => "commandId" in e && e.commandId === CommandIds.removeFromRail,
-      ),
-    ).toBe(false);
-
-    const inRail = sessionMenuEntries(
-      railSession({ isLocal: false, backendId: "remote:b", id: "z" }),
-      true,
-    );
-    expect(inRail).toContainEqual({
-      commandId: CommandIds.removeFromRail,
-      args: { backendId: "remote:b", id: "z" },
-      label: "Remove from rail",
-    });
   });
 });

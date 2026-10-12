@@ -25,6 +25,9 @@ public static class SessionCommands {
 	/// <summary>Docks the session panel open beside the rail, or undocks it.</summary>
 	public const string PinSessionPanel = "weavie.session.panelPin";
 
+	/// <summary>Folds or unfolds parked (unloaded) sessions in the rail and the session panel.</summary>
+	public const string ToggleParkedSessions = "weavie.session.toggleParked";
+
 	/// <summary>Submits the focused new-session composer; <c>Shift+Enter</c>.</summary>
 	public const string SubmitNewSession = "weavie.session.submitNew";
 
@@ -81,9 +84,6 @@ public static class SessionCommands {
 	/// <summary>Disconnects + forgets a registered remote agent by <c>agent</c> (its name); web-handled, no Core handler.</summary>
 	public const string DisconnectRemote = "weavie.session.disconnectRemote";
 
-	/// <summary>Removes a promoted remote session from the rail's working set (args <c>backendId</c>/<c>id</c>); web-handled, no Core handler.</summary>
-	public const string RemoveFromRail = "weavie.session.removeFromRail";
-
 	/// <summary>Registers the session command definitions into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -137,6 +137,15 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Keep the session panel docked open beside the rail, or undock it.",
 			Aliases = ["dock session panel", "unpin session panel"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleParkedSessions,
+			Title = "Show or Hide Parked Sessions",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Fold or unfold parked (unloaded) sessions in the rail and the session panel.",
+			Aliases = ["parked sessions", "show unloaded sessions", "hide unloaded sessions", "fold parked"],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -391,19 +400,6 @@ public static class SessionCommands {
 			// Target-specific (which agent) with no meaningful no-arg palette row, like the id-targeted session ops.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"agent\":{\"type\":\"string\",\"description\":\"Name of the registered remote agent to disconnect\"}}",
-		});
-
-		registry.Register(new CommandDefinition {
-			Id = RemoveFromRail,
-			Title = "Remove from Rail",
-			RunsIn = CommandLocation.Web,
-			Category = "Session",
-			Description = "Remove a promoted remote session (by 'backendId' + 'id') from the rail's working set. The "
-				+ "session keeps running on its remote box and stays available in the cloud panel; this only drops it "
-				+ "from your rail. Web-handled (the working set is client-side).",
-			Aliases = ["remove from rail", "drop from rail", "demote session", "remove remote session from rail"],
-			ShowInPalette = false,
-			ArgsSchemaJson = "{\"backendId\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"}}",
 		});
 	}
 

@@ -142,6 +142,10 @@ The submit control lives in the front door (7) and the review header, so the two
 
 ## Under consideration
 
+- **Filter the overview to a commit.** Clicking a commit in the overview's Commits list would show only that commit's
+  changes (parent → commit) read-only, without touching the session's review, with a bar back to the review. Needs a
+  read-only diff view inside the unified review; deferred as a large lift.
+
 - **Second opinion.** A command asks another configured agent ([agent-consultation.md](agent-consultation.md))
   to review the same diff; its hints render beside the first agent's, and a line both flagged reads as agreed.
 

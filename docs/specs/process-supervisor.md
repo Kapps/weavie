@@ -120,6 +120,42 @@ everything still inside. This covers *every* child (Vite, ConPTY shells, languag
 supervised ones — so it's the backstop behind the supervisor, not a replacement for it. Mac/Linux hosts need
 their own equivalent (`PR_SET_PDEATHSIG` / a process group) — not yet wired.
 
+## Child-owned temp (forced stops leave nothing behind)
+
+A child killed outright cannot clean up after itself, and a .NET child always leaves something: its runtime
+creates `clr-debug-pipe-<pid>-*` and `dotnet-diagnostic-<pid>-*-socket` (plus `CoreFxPipe_*` for named pipes it
+serves) in its system temp. Forced stops are inevitable, so the fix is ownership, not avoiding SIGKILL: every
+non-interactive child gets a temp directory Weavie owns.
+
+- **One choke point.** Every non-PTY child — ACP agents (persistent and transient), ACP terminal commands,
+  language servers, the dev server, the runner's worker, and `ProcessCapture` one-shots — starts through
+  `OwnedProcess.Start`, which creates the child's directory before launch, points `TMPDIR` (Unix) or `TMP` +
+  `TEMP` (Windows) at it, and deletes it recursively once the child is reaped — normal exit, crash, or SIGKILL —
+  *before* the exit is observable, so whoever waits for the exit also sees the temp gone.
+- **One root per Weavie process.** Children's directories live under `<temp>/weavie-<pid>-<start stamp>`
+  (`ChildTemp.Root`). The stamp is the process start time, exact and stable: Linux's `/proc/<pid>/stat`
+  start ticks, elsewhere Unix seconds. On startup `HostCore` and the runner call `ChildTemp.ReclaimOrphans`,
+  which deletes each sibling root whose owner is gone — no process has that pid, or the one that does started at
+  another time (pid reuse). A root is never judged by age, and a live owner's root is never touched.
+- **Terminals keep the user's temp.** PTY children (the Claude pane, shell panes) are the user's own sessions,
+  so they keep the user's `TMPDIR`. An owned child carries the user's temp as `WEAVIE_USER_TEMP`, and
+  `TerminalStartInfo.BuildEnvironment` restores it — so the runner's worker, itself an owned child, still gives
+  its terminals the user's temp. The login-shell import ignores the probe's assigned temp for the same reason.
+- **Host resources stay the host's.** The hook bridge's socket (`HookProtocol.PipeName`) is an absolute path in
+  the *host's* temp on Unix, handed to Claude by `WEAVIE_HOOK_PIPE`, so the relay reaches it whatever temp its
+  terminal has.
+
+```mermaid
+flowchart TD
+  T["system temp"] --> R1["weavie-4100-8812 (live desktop host)"]
+  T --> R2["weavie-3900-7710 (owner gone: reclaimed at startup)"]
+  R1 --> C1["1 — csharp-ls"]
+  R1 --> C2["2 — ACP agent"]
+  T --> RR["weavie-5000-9001 (runner)"]
+  RR --> W["1 — worker; its own root nests here"]
+  W --> WR["weavie-5012-9004"] --> WC["1 — worker's ACP agent"]
+```
+
 ## Follow-ups
 
 - File logging to `~/.weavie/logs/<name>.log`, with a verbosity **setting**.

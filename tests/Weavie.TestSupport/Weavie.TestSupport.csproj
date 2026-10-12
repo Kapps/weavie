@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.extensibility.execution" />
+    <ProjectReference Include="../../src/Weavie.Core/Weavie.Core.csproj" />
   </ItemGroup>
 
 </Project>

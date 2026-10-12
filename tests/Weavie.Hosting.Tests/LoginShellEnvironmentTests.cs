@@ -1,3 +1,4 @@
+using Weavie.Core.Processes;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -64,5 +65,19 @@ public sealed class LoginShellEnvironmentTests {
 				new("HOME", "/from/shell"), // shell is authoritative — taken as-is, not filtered
 			],
 			imports); // SHLVL, PWD, OLDPWD and _ all dropped as transient session noise
+	}
+
+	[Fact]
+	public void ResolveImports_LeavesOutTheProbesOwnTemp_ButKeepsATempTheShellChose() {
+		string variable = OperatingSystem.IsWindows() ? "TMP" : "TMPDIR";
+		var shell = new KeyValuePair<string, string>[] {
+			new(variable, Path.Combine(ChildTemp.Root, "7")),
+			new(ChildTemp.UserTempVariable, "/tmp"),
+			new("PATH", "/usr/bin"),
+		};
+		var chosen = new KeyValuePair<string, string>(variable, "/home/user/tmp");
+
+		Assert.Equal([new("PATH", "/usr/bin")], LoginShellEnvironment.ResolveImports(shell));
+		Assert.Equal([chosen], LoginShellEnvironment.ResolveImports([chosen]));
 	}
 }

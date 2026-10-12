@@ -2,14 +2,19 @@ using System.Diagnostics;
 
 namespace Weavie.Core.Processes;
 
-/// <summary>A redirected child whose macOS session is isolated before its lifetime is exposed to callers.</summary>
+/// <summary>
+/// A redirected child whose macOS session is isolated before its lifetime is exposed to callers. Its system temp
+/// path is a private <see cref="ChildTemp"/> directory, deleted once the child is reaped and before its exit is seen.
+/// </summary>
 public sealed partial class OwnedProcess : IDisposable {
 	private readonly Process? _managed;
+	private readonly string _temp;
 	private readonly Lock _gate = new();
 	private readonly TaskCompletionSource<int> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-	private OwnedProcess(Process process) {
+	private OwnedProcess(Process process, string temp) {
 		_managed = process;
+		_temp = temp;
 		Id = process.Id;
 		StandardInput = process.StartInfo.RedirectStandardInput ? process.StandardInput : StreamWriter.Null;
 		StandardOutput = process.StandardOutput;
@@ -23,9 +28,16 @@ public sealed partial class OwnedProcess : IDisposable {
 		if (info.UseShellExecute || !info.RedirectStandardOutput || !info.RedirectStandardError) {
 			throw new ArgumentException("Owned children require shell execution disabled and stdout/stderr redirected.", nameof(info));
 		}
-		var child = OperatingSystem.IsWindows()
-			? new OwnedProcess(Process.Start(info) ?? throw new IOException($"Could not start '{info.FileName}'."))
-			: StartUnix(info);
+		string temp = ChildTemp.Assign(info);
+		OwnedProcess child;
+		try {
+			child = OperatingSystem.IsWindows()
+				? new OwnedProcess(Process.Start(info) ?? throw new IOException($"Could not start '{info.FileName}'."), temp)
+				: StartUnix(info, temp);
+		} catch {
+			ChildTemp.Release(temp);
+			throw;
+		}
 		Console.WriteLine($"[process] started host={Environment.ProcessId} child={child.Id} executable={info.FileName}");
 		return child;
 	}
@@ -76,6 +88,7 @@ public sealed partial class OwnedProcess : IDisposable {
 	private async Task ObserveManagedExitAsync(Process process) {
 		try {
 			await process.WaitForExitAsync().ConfigureAwait(false);
+			ChildTemp.Release(_temp);
 			lock (_gate) _exit.TrySetResult(process.ExitCode);
 		} catch (Exception ex) {
 			_exit.TrySetException(ex);

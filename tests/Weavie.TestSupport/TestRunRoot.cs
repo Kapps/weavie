@@ -1,3 +1,5 @@
+using Weavie.Core.Processes;
+
 namespace Weavie.TestSupport;
 
 /// <summary>
@@ -20,8 +22,8 @@ public static class TestRunRoot {
 		string temp = Directory.CreateDirectory(Path.Combine(_root, "t")).FullName;
 		var redirect = TempVariables.ToDictionary(name => name, string? (_) => temp);
 		redirect["WEAVIE_ROOT"] = Path.Combine(_root, "weavie");
-		// Weavie stops agents and LSP servers with SIGKILL, which strands a .NET child's runtime IPC files.
-		redirect["DOTNET_EnableDiagnostics"] = "0";
+		// A run launched from inside an owned child owns its temp itself; its terminals must not escape to the user's.
+		redirect[ChildTemp.UserTempVariable] = null;
 		// Enables Node's compile cache for every Node child, shared across runs at Node's default location.
 		redirect["NODE_COMPILE_CACHE"] = Path.Combine(system, "node-compile-cache");
 		_inherited = redirect.Keys.ToDictionary(name => name, Environment.GetEnvironmentVariable);
@@ -33,8 +35,13 @@ public static class TestRunRoot {
 		string root = _root ?? throw new InvalidOperationException("The test run root is not open.");
 		foreach (var (name, value) in _inherited!) Environment.SetEnvironmentVariable(name, value);
 		_root = null;
-		string[] leaked = [.. Directory.EnumerateFileSystemEntries(Path.Combine(root, "t"))
-			.Select(entry => Path.GetFileName(entry)).Order(StringComparer.Ordinal)];
+		// The run's own child-temp root is where owned children live; a directory left inside it outlived its child.
+		string temp = Path.Combine(root, "t");
+		string children = ChildTemp.Root;
+		string[] leaked = [.. Directory.EnumerateFileSystemEntries(temp)
+			.Where(entry => entry != children)
+			.Concat(Directory.Exists(children) ? Directory.EnumerateFileSystemEntries(children) : [])
+			.Select(entry => Path.GetRelativePath(temp, entry)).Order(StringComparer.Ordinal)];
 		// Process-lifetime state still writes under the root after the last test (the exit journal a host
 		// installs stamps how the process ended), and this handler runs after every one registered before it.
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => TempDirectory.Delete(root);

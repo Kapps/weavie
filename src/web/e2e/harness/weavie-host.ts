@@ -1,7 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { waitForWorkspace } from "../capture-workspace.mjs";
 import {
@@ -25,6 +26,8 @@ export interface WeavieHost {
   readonly workspace: string;
   /** The isolated HOME the host runs under (WEAVIE_ROOT lives at `<home>/.weavie`). */
   readonly home: string;
+  /** The host's own temp path; a second launch that must reach the host's pipes runs under it too. */
+  readonly temp: string;
   /** Everything the host has written to stdout so far (status lines). */
   log(): string;
   /** The fake claude's markers (its MCP/hook activity), or "" when no script ran. */
@@ -167,10 +170,23 @@ export async function waitForHttp(
   }
 }
 
+// A host's own temp dir, which its launcher removes once the host tree is dead — taking whatever the killed
+// tree stranded there. Short and unresolved: macOS caps a Unix socket path at 104 bytes and the pipes live here.
+export function makeHostTemp(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "wv-"));
+}
+
+// Points a launch at `temp` as its system temp; unsetting WEAVIE_USER_TEMP keeps its terminals inside it too.
+export function hostTempEnv(temp: string): NodeJS.ProcessEnv {
+  const env = process.platform === "win32" ? { TMP: temp, TEMP: temp } : { TMPDIR: temp };
+  return { ...env, WEAVIE_USER_TEMP: undefined };
+}
+
 // Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, both agent
 // runtimes stubbed at their process seams, and the optional fake-Claude script + its readable log.
 export interface FakeScaffold {
   home: string;
+  temp: string;
   workspace: string;
   env: NodeJS.ProcessEnv;
   fakeLog: () => string;
@@ -196,6 +212,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     );
   }
   const fakeLogPath = join(home, "fake-claude.log");
+  const temp = await makeHostTemp();
   const weavieRoot = join(home, ".weavie");
   await mkdir(join(weavieRoot, "acp"), { recursive: true });
   if (options.setupCompleted) {
@@ -228,8 +245,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
     WEAVIE_FAKE_CLAUDE_INFERENCE: options.inference,
-    // The host stops its agents with SIGKILL, which strands a .NET fake's runtime IPC files in the system temp.
-    DOTNET_EnableDiagnostics: "0",
+    ...hostTempEnv(temp),
   };
   if (options.automaticInference) {
     env.WEAVIE_INFERENCE_ENABLED = "true";
@@ -259,12 +275,19 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   }
   const scaffold: FakeScaffold = {
     home,
+    temp,
     workspace,
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
     // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's
     // file handles asynchronously, so an immediate rm can race them with EBUSY; the bounded retry covers that.
-    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    cleanup: async () => {
+      await Promise.all(
+        [root, temp].map((dir) =>
+          rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+        ),
+      );
+    },
   };
   try {
     if (options.workspaceSeed !== null) await options.workspaceSeed.run(workspace);
@@ -318,6 +341,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<HeadlessHo
     },
     workspace: fake.workspace,
     home: fake.home,
+    temp: fake.temp,
     log: () => log,
     fakeLog: fake.fakeLog,
     async restart() {

@@ -7,8 +7,9 @@ using Microsoft.Win32.SafeHandles;
 namespace Weavie.Core.Processes;
 
 public sealed partial class OwnedProcess {
-	private OwnedProcess(int pid, int input, int output, int error, ProcessStartInfo info) {
+	private OwnedProcess(int pid, int input, int output, int error, ProcessStartInfo info, string temp) {
 		Id = pid;
+		_temp = temp;
 		StandardInput = new StreamWriter(OpenPipe(input, FileAccess.Write), info.StandardInputEncoding ?? new UTF8Encoding(false)) { AutoFlush = true };
 		StandardOutput = new StreamReader(OpenPipe(output, FileAccess.Read), info.StandardOutputEncoding ?? Encoding.UTF8);
 		StandardError = new StreamReader(OpenPipe(error, FileAccess.Read), info.StandardErrorEncoding ?? Encoding.UTF8);
@@ -16,7 +17,7 @@ public sealed partial class OwnedProcess {
 		new Thread(WaitMac) { IsBackground = true, Name = $"weavie-process-{pid}" }.Start();
 	}
 
-	private static OwnedProcess StartMac(ProcessStartInfo info) {
+	private static OwnedProcess StartMac(ProcessStartInfo info, string temp) {
 		if (info.Arguments.Length != 0) {
 			throw new ArgumentException("Owned children use ArgumentList, not an unparsed argument string.", nameof(info));
 		}
@@ -25,7 +26,7 @@ public sealed partial class OwnedProcess {
 		int rc = weavie_process_spawn(info.FileName, argv.Pointer, envp.Pointer, info.WorkingDirectory,
 			out int input, out int output, out int error, out int pid);
 		if (rc != 0) throw new Win32Exception(-rc, $"Could not start '{info.FileName}' (errno {-rc}).");
-		return new OwnedProcess(pid, input, output, error, info);
+		return new OwnedProcess(pid, input, output, error, info, temp);
 	}
 
 	private static FileStream OpenPipe(int fd, FileAccess access) =>
@@ -33,6 +34,7 @@ public sealed partial class OwnedProcess {
 
 	private void WaitMac() {
 		int rc = weavie_process_wait(Id);
+		if (rc == 0) ChildTemp.Release(_temp);
 		lock (_gate) {
 			int code = 0;
 			if (rc == 0) rc = weavie_process_reap(Id, out code);

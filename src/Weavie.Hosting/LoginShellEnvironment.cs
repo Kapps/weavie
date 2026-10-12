@@ -116,13 +116,14 @@ public static class LoginShellEnvironment {
 
 	/// <summary>
 	/// The shell environment to apply, authoritative over the inherited one — the probe shell is our child, so it
-	/// already carries every inherited var and only adds or overrides on top. Transient session noise aside.
+	/// already carries every inherited var and only adds or overrides on top. Transient session noise and the
+	/// probe's own private temp aside.
 	/// </summary>
 	internal static IReadOnlyList<KeyValuePair<string, string>> ResolveImports(
 		IReadOnlyList<KeyValuePair<string, string>> shellEnv) {
 		var imports = new List<KeyValuePair<string, string>>();
 		foreach (var pair in shellEnv) {
-			if (!Skip.Contains(pair.Key)) {
+			if (!Skip.Contains(pair.Key) && !ChildTemp.IsAssigned(pair.Key, pair.Value)) {
 				imports.Add(pair);
 			}
 		}

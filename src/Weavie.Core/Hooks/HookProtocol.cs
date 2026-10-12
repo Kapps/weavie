@@ -14,9 +14,15 @@ public static class HookProtocol {
 
 	private const int MaxFrameBytes = 16 * 1024 * 1024;
 
-	/// <summary>The per-instance pipe name, scoped to the IDE server's ephemeral <paramref name="port"/>.</summary>
+	/// <summary>
+	/// The per-instance pipe, scoped to the IDE server's ephemeral <paramref name="port"/>. Off Windows it is a
+	/// socket path in this host's temp, so the relay reaches it whatever temp path the terminal gave Claude.
+	/// </summary>
 	/// <param name="port">The IDE server port, reused as a unique per-instance suffix.</param>
-	public static string PipeName(int port) => $"weavie-hook-{port.ToString(CultureInfo.InvariantCulture)}";
+	public static string PipeName(int port) {
+		string name = $"weavie-hook-{port.ToString(CultureInfo.InvariantCulture)}";
+		return OperatingSystem.IsWindows() ? name : Path.Combine(Path.GetTempPath(), name);
+	}
 
 	/// <summary>Writes a length-prefixed (4-byte little-endian) frame, then flushes.</summary>
 	/// <param name="stream">The pipe stream.</param>

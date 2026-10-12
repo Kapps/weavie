@@ -13,6 +13,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Processes;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
 using Weavie.Core.Sessions;
@@ -286,6 +287,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 	private async Task StartCoreAsync() {
 		LogStartup("backend starting");
+		ChildTemp.ReclaimOrphans(line => Log($"[temp] {line}"));
 		_shellMenu = new ShellMenuController(_platform.MenuActions);
 		await _http.StartAsync().ConfigureAwait(false);
 		LogStartup("HTTP server ready");

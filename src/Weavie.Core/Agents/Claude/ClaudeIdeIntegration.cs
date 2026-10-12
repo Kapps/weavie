@@ -12,6 +12,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 	private const string McpServerName = "weavie";
 	private readonly CapabilityRegistryHost _registry;
 	private readonly HostRuntimeInfo _runtime;
+	private readonly string _hookPipe;
 
 	/// <summary>Starts Claude's IDE server and hook bridge against the shared session credential.</summary>
 	public ClaudeIdeIntegration(
@@ -41,8 +42,9 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 			themeOverrides: null, currentSessionId: null, AgentConsultation.None, ReviewHintSink.None);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, registry.Credential.Token);
+		_hookPipe = HookProtocol.PipeName(Port);
 		HookBridge = new HookBridgeServer(
-			HookProtocol.PipeName(Port),
+			_hookPipe,
 			request => {
 				var feedback = observe(request);
 				var decision = HookPolicy.Decide(
@@ -71,7 +73,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		new Dictionary<string, string>(StringComparer.Ordinal) {
 			["CLAUDE_CODE_SSE_PORT"] = Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
 			["ENABLE_IDE_INTEGRATION"] = "true",
-			[HookProtocol.PipeEnvVar] = HookProtocol.PipeName(Port),
+			[HookProtocol.PipeEnvVar] = _hookPipe,
 		};
 
 	/// <summary>Writes Claude's registry MCP configuration and returns its path.</summary>

@@ -107,7 +107,9 @@ the dev server) MUST be launched through `ProcessSupervisor` (`Weavie.Core.Proce
 `RestartPolicy` — do not hand-roll `Process.Start`/PTY lifecycle plus restart logic. The supervisor owns
 launch, crash-restart with backoff, the crash-loop breaker, and clean teardown; it takes `start`/`stop`
 delegates so it works for both PTY children and `System.Diagnostics.Process`. Transient one-shot helpers
-(e.g. the hook relay) are exempt. See [docs/specs/process-supervisor.md](docs/specs/process-supervisor.md).
+(e.g. the hook relay) are exempt. Every non-PTY child, one-shots included, starts through `OwnedProcess.Start`
+(directly or via `ProcessCapture`), which gives it a private temp deleted once it is reaped — so a forced stop
+strands nothing. See [docs/specs/process-supervisor.md](docs/specs/process-supervisor.md).
 
 ## Failures & CI
 

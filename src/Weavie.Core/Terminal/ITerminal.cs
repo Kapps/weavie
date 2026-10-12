@@ -25,8 +25,9 @@ public sealed record TerminalStartInfo {
 	public int Rows { get; init; } = 24;
 
 	/// <summary>
-	/// The child's full environment: the current process environment, minus <see cref="RemoveEnvironment"/>,
-	/// plus <see cref="Environment"/> (overriding). <paramref name="comparer"/> sets key case-sensitivity
+	/// The child's full environment: the current process environment with the user's own temp path (see
+	/// <see cref="Processes.ChildTemp.RestoreUserTemp"/>), minus <see cref="RemoveEnvironment"/>, plus
+	/// <see cref="Environment"/> (overriding). <paramref name="comparer"/> sets key case-sensitivity
 	/// (OrdinalIgnoreCase on Windows, Ordinal on POSIX).
 	/// </summary>
 	public Dictionary<string, string> BuildEnvironment(StringComparer comparer) {
@@ -35,6 +36,8 @@ public sealed record TerminalStartInfo {
 		foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()) {
 			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
 		}
+
+		Processes.ChildTemp.RestoreUserTemp(merged);
 
 		foreach (string name in RemoveEnvironment) {
 			merged.Remove(name);

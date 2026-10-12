@@ -143,6 +143,8 @@ function fixture() {
       },
       getBoundingClientRect: () => ({ top: 6 }),
     } as unknown as HTMLElement,
+    // The translated list starts at the viewport's top and moves up with the scroll.
+    content: { getBoundingClientRect: () => ({ top: 6 - rootTop }) } as unknown as HTMLElement,
     getScrollTop: () => rootTop,
     getViewportHeight: () => state.viewportHeight,
     setScrollTop: (top) => {

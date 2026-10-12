@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { openPullRequestFile } from "../harness/review";
 
 // Video tour of finishing a PR review: queue a comment and a reply as pending drafts, then submit once.
 test.use({ prScenario: true });
@@ -22,13 +22,8 @@ test("Finish a review: pending drafts in place, then submit with a verdict", asy
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(`[pageerror] ${String(e)}`));
 
-  // (1) Open PR #101 and walk to hello.ts; the existing thread shows.
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await hold(page, 1200);
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-  await walkToChangedFile(page, "hello.ts");
+  // (1) Open PR #101's hello.ts; the existing thread shows.
+  await openPullRequestFile(page, "hello.ts");
   const thread = card(page, "Why change this greeting?");
   await expect(thread).toBeVisible({ timeout: 10_000 });
   await dismissToasts(page);

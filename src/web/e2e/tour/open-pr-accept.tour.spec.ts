@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { stepIntoReview, walkToChangedFile } from "../harness/navigator";
 
 // SCENE 2 (video tour): a PR review's applied toolbar carries Keep (accept) + Revert (reject) while review
 // threads render inline — the review engine is unified, not read-only. Modeled on functional/open-pr.spec.ts, with holds so
@@ -17,8 +17,12 @@ test("Open PR: Keep + Revert beside inline review threads; reply to a review thr
   await hold(page, 1200);
   await page.locator(".session-prompt-input").press("Enter");
 
+  // The review lands on its session overview; a nav key steps into the first changed file.
+  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
+  await hold(page, 2000);
+  expect(await stepIntoReview(page)).toBe("feature.ts");
   const toolbar = page.locator(".weavie-inline-toolbar");
-  await expect(toolbar).toBeVisible({ timeout: 20_000 });
+  await expect(toolbar).toBeVisible();
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
 
   // Keep + Revert on the applied toolbar; review threads render inline beside the code.

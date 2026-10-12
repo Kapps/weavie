@@ -432,12 +432,10 @@ public sealed partial class HostCore {
 				var info = _agentProviders.FindInfo(slot.AgentProviderId);
 				bool structured = info?.Capabilities
 					.HasFlag(AgentProviderCapabilities.StructuredPane) == true;
-				var name = SessionName.Parse(slot.Label);
 				return new SessionCatalogEntry(
 					slot.Id,
 					slot.Label,
-					name.Title,
-					name.Prefix,
+					SessionName.Title(slot.Label),
 					slot.Session?.Address,
 					slot.Loaded,
 					slot.AgentProviderId,
@@ -454,7 +452,6 @@ public sealed partial class HostCore {
 		string Id,
 		string Label,
 		string Title,
-		string? Prefix,
 		SessionAddress? Address,
 		bool Loaded,
 		string ProviderId,

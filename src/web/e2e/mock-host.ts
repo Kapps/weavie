@@ -20,7 +20,6 @@ export interface MockSession {
   id: string;
   label: string;
   title: string;
-  prefix: string | null;
   address: SessionAddress | null;
   loaded: boolean;
   providerId: string;
@@ -69,7 +68,6 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     id,
     label,
     title: label.split("/").at(-1)?.replaceAll("-", " ") ?? label,
-    prefix: label.includes("/") ? label.slice(0, label.lastIndexOf("/")) : null,
     address: { slot: id, incarnation: `${id}-incarnation` },
     loaded: true,
     providerId,

@@ -8,7 +8,6 @@ export interface SessionCatalogEntry {
   id: string;
   label: string;
   title: string;
-  prefix: string | null;
   address: SessionAddress | null;
   loaded: boolean;
   providerId: string;

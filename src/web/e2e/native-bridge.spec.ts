@@ -113,7 +113,6 @@ test.describe("native in-process bridge contract", () => {
                 id: "cx",
                 label: "acp",
                 title: "acp",
-                prefix: null,
                 address,
                 loaded: true,
                 providerId: "acp",

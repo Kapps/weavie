@@ -251,11 +251,6 @@ export function SessionPanel(props: {
                               <span class="session-panel-text">
                                 <span class="session-panel-name">
                                   <span class="session-panel-title">{session().title}</span>
-                                  <Show when={session().prefix}>
-                                    {(prefix) => (
-                                      <span class="session-panel-prefix">{prefix()}</span>
-                                    )}
-                                  </Show>
                                   {/* Remote sessions name their machine, so same-named branches stay apart. */}
                                   <Show when={!session().isLocal}>
                                     <span class="session-panel-where">

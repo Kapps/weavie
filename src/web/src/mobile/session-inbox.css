@@ -391,22 +391,9 @@
   white-space: nowrap;
 }
 
-.session-inbox-status,
-.session-inbox-prefix {
+.session-inbox-status {
   color: var(--dim);
   font-size: var(--font-metadata-size);
-}
-
-.session-inbox-details strong {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-/* A long name truncates before its type prefix does. */
-.session-inbox-prefix {
-  flex: 0 0 auto;
-  font-weight: 400;
 }
 
 .session-inbox-where {

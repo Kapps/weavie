@@ -11,6 +11,7 @@
 # dompurify is pulled transitively by the monaco-vscode quickaccess override; pin a patched release to
 # close the XSS / prototype-pollution advisories affecting <=3.3.x.
 # patchedDependencies: Monaco supports Alt peeking, embedded layout, and per-view overflow widget ownership.
+# The TextMate worker stops tokenizing a model disposed while its first tokenize pass awaits a lazy import.
 # vscode-languageclient converts nested LSP commands through Weavie's exact-client aliases;
 # see docs/specs/lsp-over-bridge.md.
 allowBuilds:
@@ -21,4 +22,5 @@ overrides:
   dompurify: 3.4.13
 patchedDependencies:
   '@codingame/monaco-vscode-api@36.2.7': patches/@codingame__monaco-vscode-api@36.2.7.patch
+  '@codingame/monaco-vscode-textmate-service-override@36.2.7': patches/@codingame__monaco-vscode-textmate-service-override@36.2.7.patch
   vscode-languageclient@9.0.1: patches/vscode-languageclient@9.0.1.patch

@@ -1,0 +1,13 @@
+diff --git a/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js b/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
+--- a/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
++++ b/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
+@@ -94,6 +94,9 @@ class TextMateWorkerTokenizer extends MirrorTextModel {
+             } = await import('@codingame/monaco-vscode-api/_virtual/main').then(function (n) { return n.main; });
+             this._diffStateStacksRefEqFn = diffStateStacksRefEq;
+         }
++        if (this._isDisposed || !this._tokenizerWithStateStore) {
++            return;
++        }
+         const startTime = ( new Date()).getTime();
+         while (true) {
+             let tokenizedLines = 0;

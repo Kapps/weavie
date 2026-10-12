@@ -10,6 +10,7 @@ overrides:
 
 patchedDependencies:
   '@codingame/monaco-vscode-api@36.2.7': 081bd2ffa5b6cc8d668eb21f25a26ca46ac377deca111149e58175b8b6132274
+  '@codingame/monaco-vscode-textmate-service-override@36.2.7': 2564b9c22934016e3b1c8ed3dbdcb88afe5a7a9c9be118b3da76bc9ba80184b5
   vscode-languageclient@9.0.1: 5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb
 
 importers:
@@ -48,7 +49,7 @@ importers:
         version: 36.2.7
       '@codingame/monaco-vscode-textmate-service-override':
         specifier: 36.2.7
-        version: 36.2.7
+        version: 36.2.7(patch_hash=2564b9c22934016e3b1c8ed3dbdcb88afe5a7a9c9be118b3da76bc9ba80184b5)
       '@codingame/monaco-vscode-theme-defaults-default-extension':
         specifier: 36.2.7
         version: 36.2.7
@@ -1894,7 +1895,7 @@ snapshots:
     dependencies:
       '@codingame/monaco-vscode-api': 36.2.7(patch_hash=081bd2ffa5b6cc8d668eb21f25a26ca46ac377deca111149e58175b8b6132274)
 
-  '@codingame/monaco-vscode-textmate-service-override@36.2.7':
+  '@codingame/monaco-vscode-textmate-service-override@36.2.7(patch_hash=2564b9c22934016e3b1c8ed3dbdcb88afe5a7a9c9be118b3da76bc9ba80184b5)':
     dependencies:
       '@codingame/monaco-vscode-api': 36.2.7(patch_hash=081bd2ffa5b6cc8d668eb21f25a26ca46ac377deca111149e58175b8b6132274)
       '@codingame/monaco-vscode-files-service-override': 36.2.7

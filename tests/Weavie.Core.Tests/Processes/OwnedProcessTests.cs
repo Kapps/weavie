@@ -71,8 +71,13 @@ public sealed class OwnedProcessTests {
 		if (OperatingSystem.IsWindows()) return;
 		using var root = new TempDirectory();
 		root.WriteFile(Path.Combine("blocked", "sh"), "not executable");
-		string invalid = root.WriteFile(Path.Combine("invalid", "sh"), "not an executable format");
-		File.SetUnixFileMode(invalid, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+		// A child writes the executable: a writable descriptor of ours could leak into a concurrent test's fork and
+		// fail the exec with ETXTBSY instead of ENOEXEC.
+		string invalid = Path.Combine(root.CreateDirectory("invalid"), "sh");
+		using (var writer = Process.Start("/bin/sh", ["-c", "printf 'not an executable format' > \"$0\" && chmod 700 \"$0\"", invalid])) {
+			writer.WaitForExit();
+			Assert.Equal(0, writer.ExitCode);
+		}
 		var info = PathProbe("sh", root.Path);
 		if (path is null) info.Environment.Remove("PATH");
 		else info.Environment["PATH"] = path;

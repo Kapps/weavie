@@ -19,15 +19,14 @@ import { captureTabCommands } from "./tab-command-bindings";
 import { isFileTab } from "./tab-entry";
 import { isPreviewMode } from "./view-mode-store";
 
-// The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
+// The structural fields the strip renders. Excludes view state and the dirty marker, so neither cursor moves nor
+// typing rebuild the rows or re-reveal the active tab.
 interface TabView {
   path: string;
   // "web" for an iframe web tab (globe icon + host label); a file tab otherwise.
   kind?: NonNullable<EditorSessionEntry["kind"]>;
   preview: boolean;
   pinned: boolean;
-  // Unsaved changes: shows a `*` until autosave reaches disk.
-  dirty: boolean;
 }
 
 // A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
@@ -78,8 +77,7 @@ export function TabStrip(props: {
         tab.path === other.path &&
         tab.kind === other.kind &&
         tab.preview === other.preview &&
-        tab.pinned === other.pinned &&
-        tab.dirty === other.dirty
+        tab.pinned === other.pinned
       );
     });
   const views = createMemo<TabView[]>(
@@ -89,8 +87,6 @@ export function TabStrip(props: {
         ...(tab.kind !== undefined ? { kind: tab.kind } : {}),
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-        // Overlay tabs are never dirty: they have no local working copy.
-        dirty: isFileTab(tab) && isDirtyPath(tab.path),
       }));
     },
     [],
@@ -253,7 +249,8 @@ export function TabStrip(props: {
                   <span class="editor-tab-label pane-tab-label">
                     {tabLabel(view, props.session())}
                   </span>
-                  <Show when={view.dirty}>
+                  {/* Unsaved changes, until autosave reaches disk; overlay tabs have no local working copy. */}
+                  <Show when={isFileTab(view) && isDirtyPath(view.path)}>
                     <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">
                       *
                     </span>

@@ -1,4 +1,4 @@
-import { type Accessor, createSignal, type Signal } from "solid-js";
+import { type Accessor, batch, createSignal, type Signal } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { normalizePath } from "../fs-path";
@@ -286,14 +286,17 @@ export function createReviewStore(
         state.entries.delete(key);
       }
     }
-    state.files = files.map((file) =>
-      attachView(ensureEntry(state, file.path, !file.currentExists), file),
-    );
-    state.label = label;
-    state.added = files.reduce((total, file) => total + file.added, 0);
-    state.removed = files.reduce((total, file) => total + file.removed, 0);
-    if (files.length === 0) save(session, state);
-    publish(session, state);
+    // One notification for the whole list, not one per file a reader of every summary would rerun on.
+    batch(() => {
+      state.files = files.map((file) =>
+        attachView(ensureEntry(state, file.path, !file.currentExists), file),
+      );
+      state.label = label;
+      state.added = files.reduce((total, file) => total + file.added, 0);
+      state.removed = files.reduce((total, file) => total + file.removed, 0);
+      if (files.length === 0) save(session, state);
+      publish(session, state);
+    });
     return state;
   };
 

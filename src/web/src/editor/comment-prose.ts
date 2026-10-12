@@ -40,7 +40,7 @@ export interface CommentProseDeps {
 }
 
 export interface CommentProse {
-  /** Re-render the active model (call after anything that changes `isBlocked`, e.g. a diff appearing/clearing). */
+  /** Re-render the active model if its `isBlocked` changed (call after a diff appears or clears). */
   refresh(): void;
   /** Tear down listeners, zones, and hidden areas (never mutates the model). */
   dispose(): void;
@@ -154,6 +154,9 @@ export function createCommentProse(
   let collapsedStarts = new Set<number>();
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
   let restoreFocusOnMouseUp = false;
+  // Whether the last render left the active model raw (mode off, not a file, or blocked), so neither a refresh
+  // that unblocks nothing nor a rescan of a still-raw model renders anything.
+  let renderedSuspended = false;
 
   const clearRender = (): void => {
     if (zoneIds.length > 0) {
@@ -182,6 +185,10 @@ export function createCommentProse(
 
   const isFileModel = (model: monaco.editor.ITextModel | null): model is monaco.editor.ITextModel =>
     model !== null && model.uri.scheme === SESSION_FILE_SCHEME;
+  const suspended = (): boolean => {
+    const model = editor.getModel();
+    return mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString());
+  };
 
   const render = (restoreMouseFocus: boolean): void => {
     // Pin the scroll across the rebuild: clearRender drops every zone to zero height first, so Monaco
@@ -193,7 +200,8 @@ export function createCommentProse(
     const shouldRestoreFocus = restoreMouseFocus || editor.hasTextFocus();
     clearRender();
     const model = editor.getModel();
-    if (mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
+    renderedSuspended = suspended();
+    if (renderedSuspended || model === null) {
       cachedBlocks = [];
       collapsedStarts = new Set();
       lastRawKey = "";
@@ -296,7 +304,7 @@ export function createCommentProse(
     }
     rescanTimer = setTimeout(() => {
       rescanTimer = undefined;
-      render(false);
+      if (!renderedSuspended || !suspended()) render(false);
     }, RESCAN_DEBOUNCE_MS);
   };
 
@@ -369,7 +377,9 @@ export function createCommentProse(
   render(false);
 
   return {
-    refresh: () => render(false),
+    refresh: () => {
+      if (suspended() !== renderedSuspended) render(false);
+    },
     dispose: () => {
       if (rescanTimer !== undefined) {
         clearTimeout(rescanTimer);

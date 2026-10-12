@@ -9,6 +9,7 @@ import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { addLineEndItem, type LineEndItem } from "./line-end-lane";
 import type { monaco } from "./monaco-setup";
+import { splitDiffLines } from "./review/diff-computation";
 import { DiffComputer } from "./review/diff-computer";
 import {
   type AcceptedDiffHunk,
@@ -214,11 +215,21 @@ function hasFadedBand(options: InlineDiffOptions): boolean {
   );
 }
 
-function fileIsKept(options: InlineDiffOptions): boolean {
+// Handlers are read through the current options when they run, so only data decides what a render shows.
+function sameRendering(left: InlineDiffOptions, right: InlineDiffOptions): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]) as Set<
+    keyof InlineDiffOptions
+  >;
+  return [...keys].every((key) =>
+    typeof left[key] === "function" ? typeof right[key] === "function" : left[key] === right[key],
+  );
+}
+
+// Nothing pending over a faded band: the live text is back at the review baseline.
+function fileIsKept(options: InlineDiffOptions, model: monaco.editor.ITextModel | null): boolean {
   return (
-    options.mode === "applied" &&
     hasFadedBand(options) &&
-    options.original === options.claudeVersion
+    splitDiffLines(options.original).join("\n") === model?.getLinesContent().join("\n")
   );
 }
 
@@ -348,7 +359,6 @@ export function createInlineDiff(
   const buildUndoWidget = (
     hunk: AcceptedDiffHunk,
     model: monaco.editor.ITextModel,
-    onUnkeep: (hunk: HunkUnkeep) => void,
   ): LineEndItem => {
     const dom = document.createElement("div");
     dom.className = "weavie-inline-accepted-tag";
@@ -363,7 +373,7 @@ export function createInlineDiff(
         // Pin the position to this hunk (it's on screen — the user just clicked it) so the restored bright
         // hunk is what the counter names and Keep/Revert act on after the re-render.
         editor.setPosition({ lineNumber: hunk.anchorLine, column: 1 });
-        onUnkeep({
+        currentOptions?.onUnkeepHunk?.({
           acceptedStart: hunk.acceptedStart,
           acceptedEndExclusive: hunk.acceptedEndExclusive,
           reviewStart: hunk.reviewStart,
@@ -604,7 +614,9 @@ export function createInlineDiff(
   const keepFile = (): boolean => {
     const options = fileOptions();
     return runAction(
-      options?.mode === "applied" && !fileIsKept(options) ? options.onKeepFile : undefined,
+      options?.mode === "applied" && !fileIsKept(options, editor.getModel())
+        ? options.onKeepFile
+        : undefined,
     );
   };
   // Per-file Revert (applied mode): the host restores the whole file to its turn baseline on disk; the
@@ -612,7 +624,9 @@ export function createInlineDiff(
   const revertFile = (): boolean => {
     const options = fileOptions();
     return runAction(
-      options?.mode === "applied" && !fileIsKept(options) ? options.onRevertFile : undefined,
+      options?.mode === "applied" && !fileIsKept(options, editor.getModel())
+        ? options.onRevertFile
+        : undefined,
     );
   };
 
@@ -943,7 +957,7 @@ export function createInlineDiff(
       presentation.prepareGeometry(null);
     });
     presentation.painted();
-    const fileKept = fileIsKept(options);
+    const fileKept = fileIsKept(options, editor.getModel());
     const editorDom = presentation.toolbarHost();
     if (editorDom !== null) {
       const bar = document.createElement("div");
@@ -1118,9 +1132,8 @@ export function createInlineDiff(
       }
       // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
       if (options.onUnkeepHunk !== undefined) {
-        const onUnkeep = options.onUnkeepHunk;
         for (const hunk of acceptedHunks) {
-          hunkWidgets.push(addLineEndItem(editor, buildUndoWidget(hunk, model, onUnkeep)));
+          hunkWidgets.push(addLineEndItem(editor, buildUndoWidget(hunk, model)));
         }
       }
       renderedUri = uriString;
@@ -1308,9 +1321,20 @@ export function createInlineDiff(
     if (model === null || model.uri.toString() !== key) {
       return;
     }
-    // The host re-emits this file's diff on every autosave, so mid-typing the pushes arrive at keystroke rate.
-    // Let the armed recompute pick the new options up rather than rendering per save; a push while nothing is
-    // pending (a keep, a fresh agent edit) still renders straight away.
+    // Every review push re-emits each file's options, mostly unchanged (an autosave's echo, another file's
+    // diff): what is on screen stays, and the actions pick up the fresh handlers.
+    if (
+      renderedUri === key &&
+      !renderInFlight &&
+      !renderQueued &&
+      currentOptions !== undefined &&
+      sameRendering(currentOptions, options)
+    ) {
+      currentOptions = options;
+      return;
+    }
+    // Mid-typing, let the armed recompute pick the new options up rather than rendering per push; a push while
+    // nothing is pending (a keep, a fresh agent edit) still renders straight away.
     if (renderedUri !== key || recomputeTimer === undefined) {
       renderActive();
     }

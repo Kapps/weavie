@@ -77,7 +77,7 @@ export function SessionInbox(props: {
   // a row: rows are rebuilt on every catalog tick, which would drop a hold in progress. Desktop opts out — the
   // inbox is a modal there, which can host neither this menu nor the confirm a delete raises.
   const openSessionMenu = (session: RailSession, x: number, y: number): void => {
-    setSessionMenu(sessionMenuAt(session, x, y, false, captureCommandRunner()));
+    setSessionMenu(sessionMenuAt(session, x, y, captureCommandRunner()));
   };
   const holdRow = holdToOpen((x, y, pressed) => {
     const row = pressed instanceof Element ? pressed.closest("[data-session-id]") : null;

@@ -1,17 +1,16 @@
-import { For, type JSX, Show } from "solid-js";
-import { panelPinned } from "./rail-state";
-import { createSessionMenu, SessionTools } from "./SessionTools";
+import { createMemo, For, type JSX, Show } from "solid-js";
+import { panelPinned, parkedCollapsed } from "./rail-state";
+import { createSessionMenu, ParkedToggle, SessionTools } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
 
-// The left session rail (working set): each local session and promoted remote as a status dot over the first words
-// of its name, loaded first. The full session panel opens on hover; remote agents live behind the cloud button.
+// The left session rail: every session on every connected backend as a status dot over the first words of its
+// name, loaded first and parked (unloaded) ones folded behind a toggle. The full session panel opens on hover.
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
   hasRemotes: boolean;
-  remoteActive: boolean;
   onSwitch: (session: RailSession) => void;
   onNew: () => void;
   onToggleRemotes: (anchor: DOMRect) => void;
@@ -24,6 +23,8 @@ export function SessionRail(props: {
   };
 
   const menu = createSessionMenu();
+  const parked = createMemo(() => props.sessions.filter((session) => !session.loaded).length);
+  const firstParked = createMemo(() => props.sessions.findIndex((session) => !session.loaded));
 
   return (
     <>
@@ -32,47 +33,53 @@ export function SessionRail(props: {
         <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
           <For each={props.sessions}>
             {(session, index) => (
-              <button
-                type="button"
-                class={`session-chip status-${session.status}${session.active ? " active" : ""}${
-                  session.loaded ? "" : " unloaded"
-                }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
-                  session.offline ? " offline" : ""
-                }`}
-                data-session-slot={session.id}
-                title={chipTitle(session, index())}
-                ref={(el) => {
-                  if (session.agentHue !== undefined) {
-                    el.style.setProperty("--agent-hue", String(session.agentHue));
-                  }
-                }}
-                onClick={() => props.onSwitch(session)}
-                onContextMenu={(event) => menu.open(event, session)}
-              >
-                {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
-                <span class={`session-status status-${statusDot(session)}`} />
-                <Show when={session.pending}>
-                  <span class="session-chip-spinner" aria-hidden="true" />
+              <>
+                <Show when={index() === firstParked()}>
+                  <ParkedToggle class="session-rail-parked" count={parked()} />
                 </Show>
-                <span class="session-chip-words">
-                  {session.title.split(" ").slice(0, 2).join(" ")}
-                </span>
-                <Show when={!session.isLocal}>
-                  <svg
-                    class="session-chip-cloud"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
+                <Show when={session.loaded || !parkedCollapsed()}>
+                  <button
+                    type="button"
+                    class={`session-chip status-${session.status}${session.active ? " active" : ""}${
+                      session.loaded ? "" : " unloaded"
+                    }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
+                      session.offline ? " offline" : ""
+                    }`}
+                    data-session-slot={session.id}
+                    title={chipTitle(session, index())}
+                    ref={(el) => {
+                      if (session.agentHue !== undefined) {
+                        el.style.setProperty("--agent-hue", String(session.agentHue));
+                      }
+                    }}
+                    onClick={() => props.onSwitch(session)}
+                    onContextMenu={(event) => menu.open(event, session)}
                   >
-                    <path d={CLOUD_PATH} />
-                  </svg>
+                    {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
+                    <span class={`session-status status-${statusDot(session)}`} />
+                    <Show when={session.pending}>
+                      <span class="session-chip-spinner" aria-hidden="true" />
+                    </Show>
+                    <span class="session-chip-words">
+                      {session.title.split(" ").slice(0, 2).join(" ")}
+                    </span>
+                    <Show when={!session.isLocal}>
+                      <svg
+                        class="session-chip-cloud"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path d={CLOUD_PATH} />
+                      </svg>
+                    </Show>
+                  </button>
                 </Show>
-              </button>
+              </>
             )}
           </For>
           <SessionTools
             hasRemotes={props.hasRemotes}
-            remoteActive={props.remoteActive}
             onNew={props.onNew}
             onToggleRemotes={props.onToggleRemotes}
           />

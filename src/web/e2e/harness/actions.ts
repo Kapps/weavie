@@ -21,6 +21,16 @@ export async function awaitFontsSettled(page: Page): Promise<void> {
   await frames(page, 2);
 }
 
+/** Unfolds the rail's parked (unloaded) sessions, which start collapsed, so their chips can be targeted. */
+export async function showParked(page: Page): Promise<void> {
+  const toggle = page.locator('.session-rail-parked[aria-expanded="false"]');
+  await page.locator(".session-rail-parked").waitFor();
+  if ((await toggle.count()) > 0) {
+    await toggle.click();
+  }
+  await expect(page.locator('.session-rail-parked[aria-expanded="true"]')).toBeVisible();
+}
+
 export async function activeSessionSlot(page: Page): Promise<string> {
   const active = page.locator(".session-chip.active");
   await expect(active).toHaveCount(1);

@@ -807,10 +807,10 @@ export class MockHost {
       remoteAgents: [],
       rail: {
         lastLocation: "local",
-        promoted: [],
         selected: null,
         panelPinned: false,
         panelWidth: 300,
+        parkedCollapsed: true,
       },
       search: {
         options: {

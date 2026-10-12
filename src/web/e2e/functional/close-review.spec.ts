@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { normalizePath } from "../../src/editor/fs-path";
-import { openFile, runCommand } from "../harness/actions";
+import { openFile, runCommand, showParked } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
@@ -46,6 +46,7 @@ test.describe("close diff", () => {
 
       await writeFakeScript(weavie.home, []);
       await runCommand(page, "Unload Session");
+      await showParked(page);
       await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
       await page.locator(".session-chip.unloaded").click();
       await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);

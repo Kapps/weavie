@@ -57,8 +57,8 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("remoteAgents").Publish("changed", WireJson.Default.RemoteAgentsChanged, new(RemoteAgentSnapshots()));
 
 	/// <summary>
-	/// Pushes the session rail's persisted UI state (last-used backend + promoted remote sessions) so the page
-	/// restores its working set and the New Session prompt's default location. Honored only from the local backend.
+	/// Pushes the session rail's persisted UI state (last-used backend, selection, panel layout) so the page
+	/// restores its panel layout and the New Session prompt's default location. Honored only from the local backend.
 	/// </summary>
 	private void PushRailStateToWeb() =>
 		_messages.Host.Feature("rail").Publish("changed", WireJson.Default.RailSnapshot, BuildRailSnapshot());

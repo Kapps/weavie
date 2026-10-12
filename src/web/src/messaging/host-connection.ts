@@ -27,10 +27,10 @@ export interface HostHello {
   remoteAgents: { name: string; url: string; token: string }[];
   rail: {
     lastLocation: string;
-    promoted: string[];
     selected: { backendId: string; slot: string } | null;
     panelPinned: boolean;
     panelWidth: number;
+    parkedCollapsed: boolean;
   };
   search: {
     options: {

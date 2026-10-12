@@ -92,8 +92,8 @@ public sealed partial class HostCore {
 			_railState.SetLastLocation(message.Location);
 			return Task.CompletedTask;
 		});
-		rail.Handle("setPromoted", "Saving pinned rail sessions", WireJson.Default.RailPromotionSet, (message, _) => {
-			_railState.SetPromoted(message.Promoted);
+		rail.Handle("setParkedCollapsed", "Folding parked sessions", WireJson.Default.RailParkedCollapsed, (message, _) => {
+			_railState.SetParkedCollapsed(message.Collapsed);
 			return Task.CompletedTask;
 		});
 		rail.Handle("setPanelPinned", "Pinning the session panel", WireJson.Default.RailPanelPinned, (message, _) => {
@@ -375,7 +375,7 @@ public sealed partial class HostCore {
 
 	internal sealed record RailLocation(string Location);
 
-	internal sealed record RailPromotionSet(string[] Promoted);
+	internal sealed record RailParkedCollapsed(bool Collapsed);
 
 	internal sealed record RailSelectionMessage(string BackendId, string Slot);
 
@@ -417,10 +417,10 @@ public sealed partial class HostCore {
 
 	internal sealed record RailSnapshot(
 		string LastLocation,
-		string[] Promoted,
 		RailSelection? Selected,
 		bool PanelPinned,
-		int PanelWidth);
+		int PanelWidth,
+		bool ParkedCollapsed);
 
 	internal sealed record RailSelection(string BackendId, string Slot);
 
@@ -439,10 +439,10 @@ public sealed partial class HostCore {
 
 	private RailSnapshot BuildRailSnapshot() => new(
 		_railState.LastLocation,
-		[.. _railState.Promoted],
 		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null,
 		_railState.PanelPinned,
-		_railState.PanelWidth);
+		_railState.PanelWidth,
+		_railState.ParkedCollapsed);
 
 	private ReviewOverviewSnapshot BuildReviewOverviewSnapshot() => new([.. _reviewOverviewState.Collapsed]);
 

@@ -1,7 +1,10 @@
 # Session switcher
 
-The left rail (56px) shows each working-set session as its status dot over the first two words of its readable
-name, loaded sessions first. The session panel carries the full names and what each agent is doing.
+The left rail (56px) shows every session on every connected backend — this machine's first, then each remote's —
+as its status dot over the first two words of its readable name. Loaded sessions come first; parked (unloaded)
+ones fold behind one toggle, collapsed by default and shared with the panel's Parked section (`parkedCollapsed` in
+`rail-state.json`). Hiding a session means unloading it; there is no separate working set. The session panel
+carries the full names and what each agent is doing; the cloud button only adds and disconnects remote agents.
 
 ## Surfaces
 

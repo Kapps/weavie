@@ -1,15 +1,17 @@
 import { Pin, PinOff } from "lucide-solid";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
 import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
 import { floatingPanelLevel, registerFloatingPanel } from "./floating-panels";
-import { panelPinned, panelWidth, setPanelPinned, setPanelWidth } from "./rail-state";
-import { createSessionMenu, SessionTools } from "./SessionTools";
+import { panelPinned, parkedCollapsed, setPanelPinned, setParkedCollapsed } from "./rail-state";
+import { createSessionMenu, ParkedToggle, SessionTools } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
+import { createPanelResize } from "./session-panel-resize";
 import type { RailSession } from "./session-store";
 import {
+  CLOUD_PATH,
   SESSION_GROUPS,
   sessionGroup,
   sessionSubtitle,
@@ -17,16 +19,12 @@ import {
   switchShortcut,
 } from "./session-summary";
 
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 520;
-
 // The session panel beside the rail: every session grouped by what needs the user, with what each agent is
 // doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
 export function SessionPanel(props: {
   sessions: RailSession[];
   inert: boolean;
   hasRemotes: boolean;
-  remoteActive: boolean;
   onSwitch: (session: RailSession) => void;
   onNew: () => void;
   onToggleRemotes: (anchor: DOMRect) => void;
@@ -86,6 +84,12 @@ export function SessionPanel(props: {
     setPanelPinned(pinned);
   };
   onCleanup(
+    registerCommand(CommandIds.toggleParkedSessions, () => {
+      setParkedCollapsed(!parkedCollapsed());
+      return true;
+    }),
+  );
+  onCleanup(
     registerCommand(CommandIds.pinSessionPanel, () => {
       togglePin();
       return true;
@@ -140,27 +144,7 @@ export function SessionPanel(props: {
     props.onSwitch(session);
   };
 
-  // Pinned, the panel replaces the rail; dragging its right edge resizes it, saved when the drag ends.
-  const [dragWidth, setDragWidth] = createSignal<number | null>(null);
-  const startResize = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
-    const handle = event.currentTarget as HTMLElement;
-    const left = panel?.getBoundingClientRect().left ?? 0;
-    handle.setPointerCapture(event.pointerId);
-    const move = (next: PointerEvent): void => {
-      setDragWidth(Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next.clientX - left))));
-    };
-    // Lost capture follows pointerup and pointercancel alike, so every way a drag ends saves and cleans up.
-    const end = (): void => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("lostpointercapture", end);
-      const width = dragWidth();
-      setDragWidth(null);
-      if (width !== null) setPanelWidth(width);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("lostpointercapture", end);
-  };
+  const resize = createPanelResize(() => panel);
 
   const menu = createSessionMenu();
 
@@ -173,7 +157,7 @@ export function SessionPanel(props: {
           // Unpinned it's a popover, layered with the floating tool windows it overlays.
           style={
             panelPinned()
-              ? `width:${dragWidth() ?? panelWidth()}px`
+              ? `width:${resize.width()}px`
               : `z-index:${floatingPanelLevel("session-panel")}`
           }
           ref={panel}
@@ -196,7 +180,6 @@ export function SessionPanel(props: {
             <Show when={panelPinned()}>
               <SessionTools
                 hasRemotes={props.hasRemotes}
-                remoteActive={props.remoteActive}
                 onNew={props.onNew}
                 onToggleRemotes={props.onToggleRemotes}
               />
@@ -226,8 +209,17 @@ export function SessionPanel(props: {
               );
               return (
                 <Show when={members().length > 0}>
-                  <div class="session-panel-group">{group.title}</div>
-                  <For each={members()}>
+                  <Show
+                    when={group.id === "parked"}
+                    fallback={<div class="session-panel-group">{group.title}</div>}
+                  >
+                    <ParkedToggle
+                      class="session-panel-group session-panel-parked"
+                      count={members().length}
+                      label={`${group.title} · ${members().length}`}
+                    />
+                  </Show>
+                  <For each={group.id === "parked" && parkedCollapsed() ? [] : members()}>
                     {(key) => (
                       <Show when={byKey().get(key)}>
                         {(entry) => {
@@ -264,6 +256,19 @@ export function SessionPanel(props: {
                                       <span class="session-panel-prefix">{prefix()}</span>
                                     )}
                                   </Show>
+                                  {/* Remote sessions name their machine, so same-named branches stay apart. */}
+                                  <Show when={!session().isLocal}>
+                                    <span class="session-panel-where">
+                                      <svg
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                        aria-hidden="true"
+                                      >
+                                        <path d={CLOUD_PATH} />
+                                      </svg>
+                                      {session().locationName}
+                                    </span>
+                                  </Show>
                                 </span>
                                 <span class="session-panel-activity">
                                   {sessionSubtitle(session(), now())}
@@ -280,7 +285,7 @@ export function SessionPanel(props: {
             }}
           </For>
           <Show when={panelPinned()}>
-            <div class="session-panel-resize" onPointerDown={startResize} />
+            <div class="session-panel-resize" onPointerDown={resize.start} />
           </Show>
         </nav>
       </Show>

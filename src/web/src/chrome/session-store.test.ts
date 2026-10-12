@@ -6,7 +6,7 @@ import type { RailSession } from "./session-store";
 
 vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
-// NOTE: the store's working-set views (`sessions`, `railSessions`, `remoteAgentRows`) are module-scope Solid
+// NOTE: the store's session views (`sessions`, `railSessions`, `remoteAgentRows`) are module-scope Solid
 // memos, exercised here by delivering catalogs and reading them back. What this env can't reach is the app's
 // side of a switch (focus, panes, the host round-trip) — that lives in the Playwright suite
 // (e2e/functional/session.spec.ts).
@@ -151,14 +151,14 @@ function session(
   return created;
 }
 
-function deliverCatalog(backendId: string, slots: string[]): void {
+function deliverCatalog(backendId: string, slots: string[], parked: readonly string[] = []): void {
   const catalog = slots.map(
     (slot) =>
       ({
         id: slot,
         label: slot,
         address: { slot, incarnation: `${slot}-incarnation` },
-        loaded: true,
+        loaded: !parked.includes(slot),
         providerId: "claude",
         status: "starting",
         title: slot,
@@ -182,6 +182,18 @@ beforeEach(() => {
   harness.setSelected(primary.client);
   deliverCatalog("local", ["main"]);
   deliverStatus("local", "main", "starting");
+});
+
+describe("rail order", () => {
+  it("lists loaded before parked and local before remote, keeping each catalog's order", () => {
+    deliverCatalog("remote:order", ["r1", "r2"], ["r2"]);
+    deliverCatalog("local", ["main", "l2"], ["l2"]);
+    const order = store
+      .railSessions()
+      .filter((s) => s.backendId === "local" || s.backendId === "remote:order")
+      .map((s) => `${s.backendId}/${s.id}`);
+    expect(order).toEqual(["local/main", "remote:order/r1", "local/l2", "remote:order/r2"]);
+  });
 });
 
 describe("session activity", () => {

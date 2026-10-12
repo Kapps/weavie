@@ -1,5 +1,5 @@
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
-import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
+import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // The session switcher: a rail of status dots, the session panel (hover, Ctrl+E, pin), and live agent
@@ -145,4 +145,27 @@ test("a session waiting on approval shows amber on the rail and its request in t
     waitingSlot,
   );
   await expect(page.locator(".session-panel")).toBeHidden();
+});
+
+test("parked sessions fold behind one toggle shared by the rail and the panel", async ({
+  page,
+}) => {
+  await createAcpSession(page, "feature/parked-fold");
+  await runCommand(page, "Unload Session");
+  const toggle = page.locator(".session-rail-parked");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
+
+  await toggle.click();
+  await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
+
+  await page.locator(".pane-area").hover();
+  await page.locator(".session-rail").hover();
+  const parkedHeader = page.locator(".session-panel-parked");
+  await expect(parkedHeader).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".session-panel-row.parked")).toHaveCount(1);
+  await parkedHeader.click();
+  await expect(page.locator(".session-panel-row.parked")).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
 });

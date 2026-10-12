@@ -14,15 +14,16 @@ public static class TestRunRoot {
 	/// <summary>Creates the run root and redirects the temp path and <c>WEAVIE_ROOT</c> into it.</summary>
 	public static void Open() {
 		if (_root is not null) throw new InvalidOperationException("The test run root is already open.");
+		string system = Path.GetTempPath();
 		// Short on purpose: macOS caps a Unix socket path at 104 bytes and the pipes the tests open live under it.
 		_root = Directory.CreateTempSubdirectory("wvt-").FullName;
 		string temp = Directory.CreateDirectory(Path.Combine(_root, "t")).FullName;
 		var redirect = TempVariables.ToDictionary(name => name, string? (_) => temp);
 		redirect["WEAVIE_ROOT"] = Path.Combine(_root, "weavie");
-		// Children never write process-global state into it: Weavie stops agents and LSP servers with SIGKILL,
-		// which strands a .NET child's runtime IPC files, and npm keeps a shared compile cache in the temp path.
+		// Weavie stops agents and LSP servers with SIGKILL, which strands a .NET child's runtime IPC files.
 		redirect["DOTNET_EnableDiagnostics"] = "0";
-		redirect["NODE_DISABLE_COMPILE_CACHE"] = "1";
+		// Node's compile cache is shared across runs, so it stays at Node's default under the system temp path.
+		redirect["NODE_COMPILE_CACHE"] = Path.Combine(system, "node-compile-cache");
 		_inherited = redirect.Keys.ToDictionary(name => name, Environment.GetEnvironmentVariable);
 		foreach (var (name, value) in redirect) Environment.SetEnvironmentVariable(name, value);
 	}

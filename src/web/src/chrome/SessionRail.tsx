@@ -1,17 +1,9 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
-import { captureCommandRunner } from "../commands/registry";
-import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { For, type JSX, Show } from "solid-js";
 import { panelPinned } from "./rail-state";
-import { sessionMenuAt } from "./session-menu";
+import { createSessionMenu, SessionTools } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import {
-  CLOUD_PATH,
-  newSessionTitle,
-  sessionSubtitle,
-  statusDot,
-  switchShortcut,
-} from "./session-summary";
+import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
 
 // The left session rail (working set): each local session and promoted remote as a status dot over the first words
 // of its name, loaded first. The full session panel opens on hover; remote agents live behind the cloud button.
@@ -31,13 +23,7 @@ export function SessionRail(props: {
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
 
-  // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for every session, plus
-  // "Remove from rail" for a remote.
-  const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const openMenu = (event: MouseEvent, session: RailSession): void => {
-    event.preventDefault();
-    setMenu(sessionMenuAt(session, event.clientX, event.clientY, true, captureCommandRunner()));
-  };
+  const menu = createSessionMenu();
 
   return (
     <>
@@ -61,7 +47,7 @@ export function SessionRail(props: {
                   }
                 }}
                 onClick={() => props.onSwitch(session)}
-                onContextMenu={(event) => openMenu(event, session)}
+                onContextMenu={(event) => menu.open(event, session)}
               >
                 {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
                 <span class={`session-status status-${statusDot(session)}`} />
@@ -84,33 +70,15 @@ export function SessionRail(props: {
               </button>
             )}
           </For>
-          {/* The cloud button opens the remote-agents panel; shown only once an agent is registered. A pip
-            flags off-rail remote activity. */}
-          <Show when={props.hasRemotes}>
-            <button
-              type="button"
-              class={`session-rail-cloud${props.remoteActive ? " active" : ""}`}
-              title="Remote agents"
-              onClick={(event) =>
-                props.onToggleRemotes(event.currentTarget.getBoundingClientRect())
-              }
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d={CLOUD_PATH} />
-              </svg>
-            </button>
-          </Show>
-          <button
-            type="button"
-            class="session-rail-add"
-            title={newSessionTitle()}
-            onClick={() => props.onNew()}
-          >
-            +
-          </button>
+          <SessionTools
+            hasRemotes={props.hasRemotes}
+            remoteActive={props.remoteActive}
+            onNew={props.onNew}
+            onToggleRemotes={props.onToggleRemotes}
+          />
         </div>
       </Show>
-      <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
+      <menu.View />
     </>
   );
 }

@@ -18,7 +18,8 @@
   box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
 }
 .session-panel.pinned {
-  position: static;
+  position: relative;
+  left: 0;
   flex: 0 0 auto;
   box-shadow: none;
 }
@@ -124,36 +125,10 @@
   font-size: var(--font-hint-size);
 }
 
-/* Pinned, the panel stands in for the rail: its own new-session and remote-agents buttons, and a drag edge. */
-.session-panel.pinned {
-  position: relative;
-  left: 0;
-}
-.session-panel-tool {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dim);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-}
-.session-panel-tool:hover {
-  color: var(--fg);
-  background: var(--list-hover-bg);
-}
-.session-panel-tool svg {
-  width: 13px;
-  height: 13px;
-}
-.session-panel-tool.active {
-  color: var(--busy);
+/* Pinned, the panel stands in for the rail and carries its new-session and remote-agents buttons. */
+.session-panel-head .session-rail-add,
+.session-panel-head .session-rail-cloud {
+  margin-top: 0;
 }
 .session-panel-resize {
   position: absolute;

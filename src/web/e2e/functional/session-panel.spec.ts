@@ -61,6 +61,8 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await page.locator(".pane-area").hover();
   await expect(panel).toBeHidden();
   await page.keyboard.press("2");
+  // A switch would land within a frame or two; give it room before asserting none did.
+  await page.waitForTimeout(500);
   await expect(page.locator(".session-chip").first()).toHaveClass(/\bactive\b/);
 
   // A modal makes the rail inert, which swallows its pointer leave; hover still works afterwards.
@@ -81,7 +83,12 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   expect(await left()).toBeGreaterThan(unpinned + 200);
   // Pinned, the panel replaces the rail and carries its own new-session button.
   await expect(page.locator(".session-rail")).toHaveCount(0);
-  await expect(panel.locator(".session-panel-add")).toBeVisible();
+  await expect(panel.locator(".session-rail-add")).toBeVisible();
+  // Rows keep the rail's right-click session menu.
+  await panel.locator(".session-panel-row").first().click({ button: "right" });
+  await expect(page.locator(".context-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".context-menu")).toBeHidden();
 
   // Dragging the right edge resizes it, and the width survives a reload.
   const edge = await panel.locator(".session-panel-resize").boundingBox();

@@ -6,11 +6,10 @@ import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
 import { floatingPanelLevel, registerFloatingPanel } from "./floating-panels";
 import { panelPinned, panelWidth, setPanelPinned, setPanelWidth } from "./rail-state";
+import { createSessionMenu, SessionTools } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import {
-  CLOUD_PATH,
-  newSessionTitle,
   SESSION_GROUPS,
   sessionGroup,
   sessionSubtitle,
@@ -18,11 +17,11 @@ import {
   switchShortcut,
 } from "./session-summary";
 
-// The session panel beside the rail: every session grouped by what needs the user, with what each agent is
-// doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 520;
 
+// The session panel beside the rail: every session grouped by what needs the user, with what each agent is
+// doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
 export function SessionPanel(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -120,8 +119,9 @@ export function SessionPanel(props: {
   const onNumberKey = (event: KeyboardEvent): void => {
     if (event.ctrlKey || event.metaKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
     const inUse =
-      openMode() !== null ||
-      (panelPinned() && (panel?.matches(":hover") || panel?.contains(document.activeElement)));
+      !props.inert &&
+      (openMode() !== null ||
+        (panelPinned() && (panel?.matches(":hover") || panel?.contains(document.activeElement))));
     const session = props.sessions[Number(event.key) - 1];
     if (!inUse || session === undefined) return;
     event.preventDefault();
@@ -143,153 +143,149 @@ export function SessionPanel(props: {
   // Pinned, the panel replaces the rail; dragging its right edge resizes it, saved when the drag ends.
   const [dragWidth, setDragWidth] = createSignal<number | null>(null);
   const startResize = (event: PointerEvent): void => {
+    if (event.button !== 0) return;
     const handle = event.currentTarget as HTMLElement;
     const left = panel?.getBoundingClientRect().left ?? 0;
     handle.setPointerCapture(event.pointerId);
     const move = (next: PointerEvent): void => {
       setDragWidth(Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next.clientX - left))));
     };
+    // Lost capture follows pointerup and pointercancel alike, so every way a drag ends saves and cleans up.
     const end = (): void => {
       handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("lostpointercapture", end);
       const width = dragWidth();
       setDragWidth(null);
       if (width !== null) setPanelWidth(width);
     };
     handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
+    handle.addEventListener("lostpointercapture", end);
   };
 
+  const menu = createSessionMenu();
+
   return (
-    <Show when={visible()}>
-      <nav
-        class="session-panel"
-        classList={{ pinned: panelPinned() }}
-        // Unpinned it's a popover, layered with the floating tool windows it overlays.
-        style={
-          panelPinned()
-            ? `width:${dragWidth() ?? panelWidth()}px`
-            : `z-index:${floatingPanelLevel("session-panel")}`
-        }
-        ref={panel}
-        inert={props.inert}
-        aria-label="Sessions"
-        onKeyDown={onKeyDown}
-        onFocusOut={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
-            returnFocus = null;
-            setOpenMode(null);
+    <>
+      <Show when={visible()}>
+        <nav
+          class="session-panel"
+          classList={{ pinned: panelPinned() }}
+          // Unpinned it's a popover, layered with the floating tool windows it overlays.
+          style={
+            panelPinned()
+              ? `width:${dragWidth() ?? panelWidth()}px`
+              : `z-index:${floatingPanelLevel("session-panel")}`
           }
-        }}
-      >
-        <div class="session-panel-head">
-          <span>Sessions</span>
-          <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
-            {(keys) => <span class="session-panel-key">{keys()}</span>}
-          </Show>
-          <Show when={panelPinned()}>
-            <Show when={props.hasRemotes}>
-              <button
-                type="button"
-                class="session-panel-tool"
-                classList={{ active: props.remoteActive }}
-                title="Remote agents"
-                onClick={(event) =>
-                  props.onToggleRemotes(event.currentTarget.getBoundingClientRect())
-                }
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d={CLOUD_PATH} />
-                </svg>
-              </button>
+          ref={panel}
+          inert={props.inert}
+          aria-label="Sessions"
+          onKeyDown={onKeyDown}
+          onFocusOut={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
+              returnFocus = null;
+              setOpenMode(null);
+            }
+          }}
+        >
+          <div class="session-panel-head">
+            <span>Sessions</span>
+            <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
+              {(keys) => <span class="session-panel-key">{keys()}</span>}
+            </Show>
+            <Show when={panelPinned()}>
+              <SessionTools
+                hasRemotes={props.hasRemotes}
+                remoteActive={props.remoteActive}
+                onNew={props.onNew}
+                onToggleRemotes={props.onToggleRemotes}
+              />
             </Show>
             <button
               type="button"
-              class="session-panel-tool session-panel-add"
-              title={newSessionTitle()}
-              onClick={() => props.onNew()}
+              class="session-panel-pin"
+              classList={{ on: panelPinned() }}
+              title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
+              aria-pressed={panelPinned()}
+              onClick={togglePin}
             >
-              +
-            </button>
-          </Show>
-          <button
-            type="button"
-            class="session-panel-pin"
-            classList={{ on: panelPinned() }}
-            title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
-            aria-pressed={panelPinned()}
-            onClick={togglePin}
-          >
-            <Show when={panelPinned()} fallback={<Pin size={13} />}>
-              <PinOff size={13} />
-            </Show>
-          </button>
-        </div>
-        <For each={SESSION_GROUPS}>
-          {(group) => {
-            const members = createMemo(
-              () =>
-                [...byKey()]
-                  .filter(([, entry]) => sessionGroup(entry.session) === group.id)
-                  .map(([key]) => key),
-              [],
-              { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
-            );
-            return (
-              <Show when={members().length > 0}>
-                <div class="session-panel-group">{group.title}</div>
-                <For each={members()}>
-                  {(key) => (
-                    <Show when={byKey().get(key)}>
-                      {(entry) => {
-                        const session = (): RailSession => entry().session;
-                        const index = (): number => entry().index;
-                        const shortcut = (): string => switchShortcut(index());
-                        return (
-                          <button
-                            type="button"
-                            class="session-panel-row"
-                            classList={{
-                              active: session().active,
-                              parked: !session().loaded,
-                              offline: session().offline,
-                            }}
-                            data-session-slot={session().id}
-                            title={
-                              shortcut() === ""
-                                ? session().label
-                                : `${session().label} (${shortcut()})`
-                            }
-                            onClick={() => choose(session())}
-                          >
-                            <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
-                            <span class={`session-status status-${statusDot(session())}`} />
-                            <span class="session-panel-text">
-                              <span class="session-panel-name">
-                                <span class="session-panel-title">{session().title}</span>
-                                <Show when={session().prefix}>
-                                  {(prefix) => <span class="session-panel-prefix">{prefix()}</span>}
-                                </Show>
-                              </span>
-                              <span class="session-panel-activity">
-                                {sessionSubtitle(session(), now())}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      }}
-                    </Show>
-                  )}
-                </For>
+              <Show when={panelPinned()} fallback={<Pin size={13} />}>
+                <PinOff size={13} />
               </Show>
-            );
-          }}
-        </For>
-        <Show when={panelPinned()}>
-          <div class="session-panel-resize" onPointerDown={startResize} />
-        </Show>
-      </nav>
-    </Show>
+            </button>
+          </div>
+          <For each={SESSION_GROUPS}>
+            {(group) => {
+              const members = createMemo(
+                () =>
+                  [...byKey()]
+                    .filter(([, entry]) => sessionGroup(entry.session) === group.id)
+                    .map(([key]) => key),
+                [],
+                { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
+              );
+              return (
+                <Show when={members().length > 0}>
+                  <div class="session-panel-group">{group.title}</div>
+                  <For each={members()}>
+                    {(key) => (
+                      <Show when={byKey().get(key)}>
+                        {(entry) => {
+                          const session = (): RailSession => entry().session;
+                          const index = (): number => entry().index;
+                          const shortcut = (): string => switchShortcut(index());
+                          return (
+                            <button
+                              type="button"
+                              class="session-panel-row"
+                              classList={{
+                                active: session().active,
+                                parked: !session().loaded,
+                                offline: session().offline,
+                              }}
+                              data-session-slot={session().id}
+                              title={
+                                shortcut() === ""
+                                  ? session().label
+                                  : `${session().label} (${shortcut()})`
+                              }
+                              onClick={() => choose(session())}
+                              onContextMenu={(event) => menu.open(event, session())}
+                            >
+                              <span class="session-panel-num">
+                                {index() < 9 ? index() + 1 : ""}
+                              </span>
+                              <span class={`session-status status-${statusDot(session())}`} />
+                              <span class="session-panel-text">
+                                <span class="session-panel-name">
+                                  <span class="session-panel-title">{session().title}</span>
+                                  <Show when={session().prefix}>
+                                    {(prefix) => (
+                                      <span class="session-panel-prefix">{prefix()}</span>
+                                    )}
+                                  </Show>
+                                </span>
+                                <span class="session-panel-activity">
+                                  {sessionSubtitle(session(), now())}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        }}
+                      </Show>
+                    )}
+                  </For>
+                </Show>
+              );
+            }}
+          </For>
+          <Show when={panelPinned()}>
+            <div class="session-panel-resize" onPointerDown={startResize} />
+          </Show>
+        </nav>
+      </Show>
+      {/* Outside the panel, so a hover panel that closes as the pointer moves onto the menu keeps it. */}
+      <menu.View />
+    </>
   );
 }

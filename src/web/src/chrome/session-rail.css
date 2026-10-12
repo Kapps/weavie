@@ -65,10 +65,10 @@
 /* Separates loaded sessions from parked (unloaded) ones. */
 .session-rail-divider {
   flex: 0 0 auto;
-  width: 10px;
+  width: 12px;
   height: 1px;
   margin: 4px 0;
-  background: var(--border);
+  background: color-mix(in srgb, var(--fg) 35%, transparent);
 }
 .session-rail-add,
 .session-rail-cloud {

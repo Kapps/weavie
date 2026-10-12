@@ -33,6 +33,7 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await expect(panel).toBeHidden();
 
   const before = await activeSessionSlot(page);
+  await page.locator(".xterm:visible").first().click();
   await page.keyboard.press("ControlOrMeta+e");
   await expect(rows.filter({ hasText: "panel second" })).toBeFocused();
   const other = rows.filter({ hasNotText: "panel second" });
@@ -41,6 +42,17 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await expect(other).toBeFocused();
   await page.keyboard.press("Enter");
   await waitForSessionSwitch(page, before);
+  await expect(panel).toBeHidden();
+  // Focus is carried into the new session rather than dropped on the page.
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+
+  // A modal makes the rail inert, which swallows its pointer leave; hover still works afterwards.
+  await page.locator(".session-rail-add").click();
+  await page.keyboard.press("Escape");
+  await page.locator(".pane-area").hover();
+  await page.locator(".session-rail").hover();
+  await expect(panel).toBeVisible();
+  await page.locator(".pane-area").hover();
   await expect(panel).toBeHidden();
 
   const left = async (): Promise<number> =>
@@ -52,6 +64,13 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   expect(await left()).toBeGreaterThan(unpinned + 200);
 
   await page.reload();
+  await expect(page.locator(".session-panel.pinned")).toBeVisible();
+  // Pinned, Escape hands focus back instead of closing anything.
+  await page.locator(".xterm:visible").first().click();
+  await page.keyboard.press("ControlOrMeta+e");
+  await expect(panel.locator(".session-panel-row.active")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel.locator(":focus")).toHaveCount(0);
   await expect(page.locator(".session-panel.pinned")).toBeVisible();
   // Unpinned under the pointer, it stays open as a hover panel until the pointer leaves.
   await page.locator(".session-panel-pin").click();

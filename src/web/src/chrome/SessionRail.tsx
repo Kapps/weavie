@@ -3,7 +3,7 @@ import { formatKey } from "../commands/keybindings";
 import { captureCommandRunner, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
-import { cancelSessionPanelHover, hoverRail } from "./SessionPanel";
+import { cancelSessionPanelHover } from "./SessionPanel";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
 import { sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
@@ -46,13 +46,7 @@ export function SessionRail(props: {
 
   return (
     <>
-      <div
-        class="session-rail"
-        inert={props.inert}
-        onPointerEnter={() => hoverRail(true)}
-        onPointerLeave={() => hoverRail(false)}
-        onPointerDown={cancelSessionPanelHover}
-      >
+      <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
         <For each={props.sessions}>
           {(session, index) => (
             <>

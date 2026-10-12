@@ -363,7 +363,11 @@ export function SessionInbox(props: {
         <img src="/weavie.png" width="32" height="32" alt="" />
         <div>
           <h1 id="session-inbox-title">Sessions</h1>
-          <span>Pick up where your agents left off</span>
+          <span>
+            {props.compact
+              ? "Pick up where your agents left off"
+              : "Start an agent on a new or existing branch"}
+          </span>
         </div>
         <button
           type="button"

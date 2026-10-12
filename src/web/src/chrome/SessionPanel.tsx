@@ -20,31 +20,52 @@ type OpenMode = "hover" | "keyboard";
 const [openMode, setOpenMode] = createSignal<OpenMode | null>(null);
 const HOVER_OPEN_MS = 150;
 const HOVER_CLOSE_MS = 250;
-let hoverTimer: ReturnType<typeof setTimeout> | undefined;
-// Switching sessions rebuilds the dot under a resting pointer, which re-fires the rail's pointerenter without the
-// pointer ever leaving; only a real entry counts.
-let inRail = false;
+let opening: ReturnType<typeof setTimeout> | undefined;
+let closing: ReturnType<typeof setTimeout> | undefined;
+// A rail click is a direct choice, so hover stays inert until the pointer is seen outside the rail.
+let clicked = false;
 
-/** The pointer entered or left the rail: resting on it opens the panel, leaving rail and panel closes it. */
-export function hoverRail(inside: boolean): void {
-  if (inside !== inRail) {
-    inRail = inside;
-    hoverSessionPanel(inside);
+// Hover follows where the pointer is seen, not enter/leave events: switching sessions rebuilds the dot under the
+// pointer, after which Chrome can report a re-entry with no move and drop the later leave.
+function trackPointer(event: PointerEvent): void {
+  locatePointer(event.target instanceof Element ? event.target : null);
+}
+
+// Leaving the window or entering an iframe sends no further moves to this document; the pointerout says where it went.
+function trackPointerOut(event: PointerEvent): void {
+  const next = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+  if (next === null || next instanceof HTMLIFrameElement) locatePointer(null);
+}
+
+function locatePointer(target: Element | null): void {
+  if (target?.closest(".session-rail, .session-panel") == null) {
+    clicked = false;
+    clearTimeout(opening);
+    opening = undefined;
+    if (openMode() === "hover" && closing === undefined) {
+      closing = setTimeout(() => {
+        closing = undefined;
+        if (openMode() === "hover") setOpenMode(null);
+      }, HOVER_CLOSE_MS);
+    }
+    return;
+  }
+  clearTimeout(closing);
+  closing = undefined;
+  if (target.closest(".session-rail") === null || clicked) return;
+  if (openMode() === null && opening === undefined) {
+    opening = setTimeout(() => {
+      opening = undefined;
+      if (openMode() === null) setOpenMode("hover");
+    }, HOVER_OPEN_MS);
   }
 }
 
-function hoverSessionPanel(inside: boolean): void {
-  clearTimeout(hoverTimer);
-  if (inside && openMode() === null) {
-    hoverTimer = setTimeout(() => setOpenMode("hover"), HOVER_OPEN_MS);
-  } else if (!inside && openMode() === "hover") {
-    hoverTimer = setTimeout(() => setOpenMode(null), HOVER_CLOSE_MS);
-  }
-}
-
-/** A click on the rail is a direct choice, so it cancels a pending or hover-opened panel. */
+/** A click on the rail cancels a pending or hover-opened panel until the pointer leaves the rail. */
 export function cancelSessionPanelHover(): void {
-  clearTimeout(hoverTimer);
+  clicked = true;
+  clearTimeout(opening);
+  opening = undefined;
   if (openMode() === "hover") setOpenMode(null);
 }
 
@@ -56,6 +77,12 @@ export function SessionPanel(props: {
   onSwitch: (session: RailSession) => void;
 }): JSX.Element {
   const now = useNow();
+  window.addEventListener("pointermove", trackPointer, { passive: true });
+  window.addEventListener("pointerout", trackPointerOut, { passive: true });
+  onCleanup(() => {
+    window.removeEventListener("pointermove", trackPointer);
+    window.removeEventListener("pointerout", trackPointerOut);
+  });
   // Rows key on session identity, not object identity: chips are rebuilt on every status or activity push, and
   // re-creating a row would drop keyboard focus mid-navigation.
   const byKey = createMemo(
@@ -76,7 +103,9 @@ export function SessionPanel(props: {
     returnFocus?.focus();
     returnFocus = null;
   };
-  const focusRow = (row: Element | undefined | null): void => (row as HTMLElement | null)?.focus();
+  // focusVisible: a keyboard-opened panel shows the focus ring on its first row, not only after an arrow key.
+  const focusRow = (row: Element | undefined | null): void =>
+    (row as HTMLElement | null)?.focus({ focusVisible: true } as FocusOptions);
   const rows = (): HTMLElement[] => [
     ...(panel?.querySelectorAll<HTMLElement>(".session-panel-row") ?? []),
   ];
@@ -95,9 +124,15 @@ export function SessionPanel(props: {
       return true;
     }),
   );
+  // Unpinned under the pointer, it stays as a hover panel until the pointer leaves.
+  const togglePin = (): void => {
+    const pinned = !panelPinned();
+    if (!pinned && panel?.matches(":hover")) setOpenMode("hover");
+    setPanelPinned(pinned);
+  };
   onCleanup(
     registerCommand(CommandIds.pinSessionPanel, () => {
-      setPanelPinned(!panelPinned());
+      togglePin();
       return true;
     }),
   );
@@ -109,6 +144,12 @@ export function SessionPanel(props: {
   });
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    // Unpinned, Escape belongs to the floating-panel dismissal; pinned, it hands focus back.
+    if (event.key === "Escape" && panelPinned()) {
+      event.preventDefault();
+      close();
+      return;
+    }
     const list = rows();
     const at = list.indexOf(document.activeElement as HTMLElement);
     const step: Record<string, number | undefined> = { ArrowDown: at + 1, ArrowUp: at - 1 };
@@ -118,9 +159,12 @@ export function SessionPanel(props: {
     event.preventDefault();
     focusRow(list[Math.max(0, Math.min(list.length - 1, target))]);
   };
+  // Focus goes back where it was before the switch, so the switch carries it into the same pane of the new session.
   const choose = (session: RailSession): void => {
-    if (!panelPinned()) setOpenMode(null);
+    const target = returnFocus;
     returnFocus = null;
+    target?.focus();
+    if (!panelPinned()) setOpenMode(null);
     props.onSwitch(session);
   };
 
@@ -134,8 +178,6 @@ export function SessionPanel(props: {
         ref={panel}
         inert={props.inert}
         aria-label="Sessions"
-        onPointerEnter={() => hoverSessionPanel(true)}
-        onPointerLeave={() => hoverSessionPanel(false)}
         onKeyDown={onKeyDown}
         onFocusOut={(event) => {
           const next = event.relatedTarget as Node | null;
@@ -156,7 +198,7 @@ export function SessionPanel(props: {
             classList={{ on: panelPinned() }}
             title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
             aria-pressed={panelPinned()}
-            onClick={() => setPanelPinned(!panelPinned())}
+            onClick={togglePin}
           >
             <Show when={panelPinned()} fallback={<Pin size={13} />}>
               <PinOff size={13} />
@@ -204,11 +246,9 @@ export function SessionPanel(props: {
                             <span class={`session-status status-${statusDot(session())}`} />
                             <span class="session-panel-text">
                               <span class="session-panel-name">
-                                {session().title}
+                                <span class="session-panel-title">{session().title}</span>
                                 <Show when={session().prefix}>
-                                  {(prefix) => (
-                                    <span class="session-panel-prefix"> {prefix()}</span>
-                                  )}
+                                  {(prefix) => <span class="session-panel-prefix">{prefix()}</span>}
                                 </Show>
                               </span>
                               <span class="session-panel-activity">

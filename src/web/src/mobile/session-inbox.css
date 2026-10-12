@@ -84,6 +84,11 @@
   gap: 10px;
 }
 
+/* Clear the desktop dialog's corner close button. */
+.session-inbox-surface.open .session-inbox-dialog .session-inbox-header {
+  padding-right: 36px;
+}
+
 .session-inbox-header h1 {
   margin: 0;
   font-size: 1.5em;
@@ -91,8 +96,6 @@
 }
 
 .session-inbox-header span,
-.session-inbox-details span,
-.session-inbox-state,
 .session-inbox-empty {
   color: var(--dim);
   font-size: var(--font-hint-size);
@@ -394,13 +397,21 @@
   font-size: var(--font-metadata-size);
 }
 
+.session-inbox-details strong {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+/* A long name truncates before its type prefix does. */
 .session-inbox-prefix {
+  flex: 0 0 auto;
   font-weight: 400;
 }
 
 .session-inbox-where {
   flex: 0 0 auto;
-  max-width: 40%;
+  max-width: 35%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

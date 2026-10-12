@@ -9,7 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  width: 300px;
+  width: clamp(220px, 24vw, 300px);
   padding: 6px;
   overflow-y: auto;
   box-sizing: border-box;
@@ -102,7 +102,17 @@
   flex-direction: column;
   min-width: 0;
 }
-.session-panel-name,
+/* A long name truncates before its type prefix does. */
+.session-panel-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.session-panel-prefix {
+  flex: 0 0 auto;
+}
+.session-panel-title,
 .session-panel-activity {
   overflow: hidden;
   text-overflow: ellipsis;

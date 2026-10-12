@@ -34,12 +34,7 @@ export function SessionInboxRow(props: {
       >
         <span class={`session-status status-${statusDot(session())}`} />
         <span class="session-inbox-details">
-          <strong>
-            <span class="session-inbox-title">{session().title}</span>
-            <Show when={session().prefix}>
-              {(prefix) => <span class="session-inbox-prefix">{prefix()}</span>}
-            </Show>
-          </strong>
+          <strong>{session().title}</strong>
           <span class="session-inbox-status">{sessionSubtitle(session(), now())}</span>
         </span>
         <span class="session-inbox-where">

@@ -24,8 +24,6 @@ export interface SessionChip {
   label: string;
   /** The readable branch leaf: `feature/review-front-door` → `review front door`. */
   title: string;
-  /** The branch type before the leaf (`feature`), or null when the label has none. */
-  prefix: string | null;
   loaded: boolean;
   providerId: string;
   agentSurface: "terminal" | "structured" | "unavailable";

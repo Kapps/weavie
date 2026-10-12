@@ -1,16 +1,13 @@
 namespace Weavie.Core.Sessions;
 
-/// <summary>A session label split for display: <c>feature/review-front-door</c> → prefix <c>feature</c>, title <c>review front door</c>.</summary>
-/// <param name="Prefix">The branch type before the last <c>/</c>, or <c>null</c> when there is none.</param>
-/// <param name="Title">The readable branch leaf, with <c>-</c> and <c>_</c> as spaces.</param>
-public sealed record SessionName(string? Prefix, string Title) {
-	/// <summary>Splits <paramref name="label"/> into its prefix and readable title.</summary>
-	public static SessionName Parse(string label) {
+/// <summary>A session label's readable name: <c>feature/review-front-door</c> → <c>review front door</c>.</summary>
+public static class SessionName {
+	/// <summary>The branch leaf after the last <c>/</c>, with <c>-</c> and <c>_</c> as spaces.</summary>
+	public static string Title(string label) {
 		ArgumentException.ThrowIfNullOrEmpty(label);
 		string trimmed = label.TrimEnd('/');
-		int slash = trimmed.LastIndexOf('/');
-		string leaf = slash >= 0 ? trimmed[(slash + 1)..] : trimmed;
+		string leaf = trimmed[(trimmed.LastIndexOf('/') + 1)..];
 		string title = string.Join(' ', leaf.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries));
-		return new SessionName(slash > 0 ? trimmed[..slash] : null, title.Length == 0 ? label : title);
+		return title.Length == 0 ? label : title;
 	}
 }

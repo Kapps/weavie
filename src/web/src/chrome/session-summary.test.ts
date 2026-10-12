@@ -10,7 +10,6 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   id: "s",
   label: "feature/review-front-door",
   title: "review front door",
-  prefix: "feature",
   active: false,
   loaded: true,
   providerId: "claude",

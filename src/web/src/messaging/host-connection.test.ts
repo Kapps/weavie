@@ -19,7 +19,6 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   agentInputProtocol: 1,
   status: "idle",
   title: id,
-  prefix: null,
   lastActiveAt: null,
   workspaceCheckout: false,
 });

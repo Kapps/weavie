@@ -15,7 +15,6 @@ function railSession(over: Partial<RailSession>): RailSession {
     agentInputProtocol: 0,
     status: "idle",
     title: "x",
-    prefix: "feature",
     activity: null,
     lastActiveAt: null,
     workspaceCheckout: false,

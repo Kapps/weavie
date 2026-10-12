@@ -115,15 +115,12 @@
   flex-direction: column;
   min-width: 0;
 }
-/* A long name truncates before its type prefix does. */
+/* The name truncates; a remote session's machine stays readable at the end. */
 .session-panel-name {
   display: flex;
   align-items: baseline;
   gap: 5px;
   min-width: 0;
-}
-.session-panel-prefix {
-  flex: 0 0 auto;
 }
 .session-panel-where {
   display: flex;
@@ -144,7 +141,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-panel-prefix,
 .session-panel-activity {
   color: var(--dim);
   font-size: var(--font-hint-size);

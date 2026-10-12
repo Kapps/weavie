@@ -32,14 +32,20 @@ public abstract class PullRequestOwner<TSnapshot>
 	/// Follows the branch's PR (null: none), reloading only when the PR or its head/base changes, never merely because
 	/// the branch was re-checked.
 	/// </summary>
-	public Task TrackAsync(PullRequestTarget? target, CancellationToken ct) {
-		if (_tracking && _target == target) {
-			return Task.CompletedTask;
-		}
+	public async Task TrackAsync(PullRequestTarget? target, CancellationToken ct) {
+		// Behind the gate, so a load already running publishes before the target moves and never after it.
+		await Gate.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			if (_tracking && _target == target) {
+				return;
+			}
 
-		_tracking = true;
-		_target = target;
-		return RefreshAsync(ct);
+			_tracking = true;
+			_target = target;
+			await RefreshLockedAsync(ct).ConfigureAwait(false);
+		} finally {
+			Gate.Release();
+		}
 	}
 
 	/// <summary>Re-reads the current PR, publishing only when something changed.</summary>

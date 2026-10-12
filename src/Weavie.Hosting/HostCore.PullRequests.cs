@@ -157,7 +157,7 @@ public sealed partial class HostCore {
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
-				false,
+				null,
 				ct)
 				.ConfigureAwait(false);
 			return null;

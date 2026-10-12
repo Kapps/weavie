@@ -969,23 +969,21 @@ export default function App(): JSX.Element {
     payload: object,
   ): void => {
     const activeAtRequest = activePathFor(session);
-    const request = (replace: boolean) =>
-      session
-        .feature("review")
-        .request<{ opened: boolean; replaces: string | null; label: string }, object>(kind, {
-          ...payload,
-          replace,
-        });
-    void request(false)
-      .then(async (answer) => {
-        if (answer.replaces === null) return answer;
-        const replace = await confirm({
-          title: `Switch from ${answer.replaces} to ${answer.label}?`,
-          body: `Switching closes the ${answer.replaces} review, accepting what's left in it, as Close Diff does.`,
-          confirmLabel: "Switch",
-        });
-        return replace ? request(true) : answer;
-      })
+    type Answer = { opened: boolean; replaces: string | null; label: string };
+    const request = (replaces: string | null) =>
+      session.feature("review").request<Answer, object>(kind, { ...payload, replaces });
+    // Each refusal names the review open right now, so a confirm only ever closes the review it described.
+    const settle = async (answer: Answer): Promise<Answer> => {
+      if (answer.replaces === null) return answer;
+      const replace = await confirm({
+        title: `Switch from ${answer.replaces} to ${answer.label}?`,
+        body: `Switching closes the ${answer.replaces} review, accepting what's left in it, as Close Diff does.`,
+        confirmLabel: "Switch",
+      });
+      return replace ? settle(await request(answer.replaces)) : answer;
+    };
+    void request(null)
+      .then(settle)
       .then(({ opened }) => {
         if (opened && activePathFor(session) === activeAtRequest) showOverview(session);
       })

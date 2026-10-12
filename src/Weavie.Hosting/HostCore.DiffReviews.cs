@@ -18,13 +18,13 @@ public sealed partial class HostCore {
 	/// change tracker so the diff reviews through the same accept/reject engine as a turn. Failures surface as
 	/// toasts; an empty diff says so and retracts any prior review instead of arming an unwalkable navigator.
 	/// Answers whether a new review opened; the page shows its overview only if the user hasn't navigated since asking.
-	/// A review against another source is replaced only when <paramref name="replace"/> is set; otherwise the answer
-	/// names it so the page can ask first.
+	/// A review against another source is replaced only when <paramref name="replaces"/> names it, the review the user
+	/// agreed to close; otherwise the answer names the open review so the page can ask (again).
 	/// </summary>
 	private async Task<ReviewOpened> DiffAgainstFromWebAsync(
 		HostSession session,
 		string reference,
-		bool replace,
+		string? replaces,
 		CancellationToken ct) {
 		reference = reference.Trim();
 		if (reference.Length == 0) {
@@ -63,12 +63,16 @@ public sealed partial class HostCore {
 			if (session.Changes.Review is not { } open || !open.SameSource(review)) return ReviewOpened.No;
 		}
 
-		if (!replace && session.Changes.Review is { } current && !current.SameSource(review)) {
+		if (session.Changes.Review is { } current && !current.SameSource(review) && current.Label != replaces) {
 			return new(false, current.Label, review.Label);
 		}
 
 		try {
-			return new(await SeedAndArmReviewAsync(review, session, changes, request, replace, ct).ConfigureAwait(false), null, review.Label);
+			bool opened = await SeedAndArmReviewAsync(review, session, changes, request, replaces, ct).ConfigureAwait(false);
+			// Another review took over while this one was computing: ask about that one instead.
+			return !opened && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
+				? new(false, now.Label, review.Label)
+				: new(opened, null, review.Label);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
 			return ReviewOpened.No;
@@ -76,13 +80,13 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Reviews the whole branch: a diff against <see cref="DefaultDiffRefAsync"/> from their merge-base.</summary>
-	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, bool replace, CancellationToken ct) {
+	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
 		if (await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } reference) {
 			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
 			return ReviewOpened.No;
 		}
 
-		return await DiffAgainstFromWebAsync(session, reference, replace, ct).ConfigureAwait(false);
+		return await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -104,7 +108,7 @@ public sealed partial class HostCore {
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
 	/// first file's diff, and answers whether a new review opened (resuming the same source keeps the user's place).
-	/// <paramref name="replace"/> closes a review against another source first.
+	/// <paramref name="replaces"/>, when set, names the review against another source to close first.
 	/// Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the session usable.
 	/// </summary>
 	private async Task<bool> SeedAndArmReviewAsync(
@@ -112,7 +116,7 @@ public sealed partial class HostCore {
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
 		object request,
-		bool replace,
+		string? replaces,
 		CancellationToken ct) {
 		bool resuming = session.Changes.Review is { } existing && existing.SameSource(review);
 
@@ -137,7 +141,7 @@ public sealed partial class HostCore {
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
 			ReviewSeed[] armed = [.. seeds.Select(seed => new ReviewSeed(seed.Absolute,
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists))];
-			if (!(replace ? session.Changes.ReplaceReview(review, armed, request) : session.Changes.ArmReview(review, armed, request)))
+			if (!(replaces is null ? session.Changes.ArmReview(review, armed, request) : session.Changes.ReplaceReview(review, armed, request, replaces)))
 				return Task.FromResult(false);
 
 			PushTurnChangesToWeb(session);

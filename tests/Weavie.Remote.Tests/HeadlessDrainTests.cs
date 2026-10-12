@@ -16,7 +16,8 @@ public sealed class HeadlessDrainTests {
 				"--workspace", workspace.Path, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
 			port,
 			readyMarker: "open  http://",
-			timeout: TimeSpan.FromSeconds(60));
+			timeout: TimeSpan.FromSeconds(60),
+			ownTemp: false);
 
 		using var http = new HttpClient();
 		using var response = await http.PostAsync($"{host.BaseUrl}/control/drain?token={Tokens.Correct}", content: null);

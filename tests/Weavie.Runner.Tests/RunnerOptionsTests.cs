@@ -6,11 +6,13 @@ namespace Weavie.Runner.Tests;
 /// Covers <see cref="RunnerOptions.Resolve"/>: the <c>--tls</c> modes, the fail-closed rejection of an exposed
 /// bind without TLS, and the worker-port pinning secured modes rely on — plus <see cref="RunnerOptions.UnknownArgs"/>.
 /// </summary>
-public sealed class RunnerOptionsTests {
-	private static string[] Args(params string[] extra) =>
-		["--headless", TempFile(), "--token", "tok", .. extra];
+public sealed class RunnerOptionsTests : IDisposable {
+	private readonly TempDirectory _dir = new("weavie-runner-options");
 
-	private static string TempFile() => Path.GetTempFileName();
+	public void Dispose() => _dir.Dispose();
+
+	private string[] Args(params string[] extra) =>
+		["--headless", _dir.WriteFile("Weavie.Headless", ""), "--token", "tok", .. extra];
 
 	[Fact]
 	public void Defaults_to_none_on_loopback() {

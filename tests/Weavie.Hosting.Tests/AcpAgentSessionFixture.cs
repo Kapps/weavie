@@ -64,7 +64,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public ReviewHintStore ReviewHints { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
-	public string Workspace => _directory.Path;
+	public string Workspace => _directory.Combine("workspace");
 	public string FakeAcpStateDirectory => _directory.Combine("weavie", "fake-acp-state");
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
@@ -371,6 +371,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		IAgentAuthenticationTerminal authenticationTerminal,
 		Func<AcpAgentDefinition, Func<AcpAgentDefinition>> launches) {
 		var directory = new TempDirectory("weavie-acp-tests");
+		// A subdirectory, so the fake's "outside the workspace" files still land inside the owned directory.
+		string workspace = directory.CreateDirectory("workspace");
 		var processEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal) {
 			["WEAVIE_ROOT"] = directory.Combine("weavie"),
 		};
@@ -385,11 +387,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			directory.Combine("keybindings.json"),
 			enableWatcher: false);
 		var editor = new EditorStore();
-		var reviewHints = new ReviewHintStore(fileSystem, directory.Path, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
+		var reviewHints = new ReviewHintStore(fileSystem, workspace, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			FakeDiffPresenter.AlwaysKeep(),
-			[directory.Path],
+			[workspace],
 			"weavie-test",
 			settings,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
@@ -406,7 +408,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			: fileSystem;
 		var store = new AcpSessionStore(directory.Combine("acp-conversations.db"));
 		if (failSessionPersistence) {
-			store.ReadConversations(providerId, directory.Path);
+			store.ReadConversations(providerId, workspace);
 			using var database = new SqliteConnection($"Data Source={store.FilePath};Pooling=False");
 			database.Open();
 			using var failure = database.CreateCommand();
@@ -414,7 +416,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			failure.ExecuteNonQuery();
 		}
 		var controls = new AcpControlStore(sessionFileSystem, directory.Combine("acp-controls.json"));
-		if (persistedSessionId is not null) SeedSession(store, providerId, directory.Path, persistedSessionId, 0);
+		if (persistedSessionId is not null) SeedSession(store, providerId, workspace, persistedSessionId, 0);
 		var events = new RecordingAgentEventSink();
 		var definition = new AcpAgentDefinition {
 			Id = providerId,
@@ -426,7 +428,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		var session = new AcpAgentSession(
 			new AgentSessionContext {
 				Settings = settings,
-				Workspace = directory.Path,
+				Workspace = workspace,
 				FileSystem = fileSystem,
 				Registry = registry,
 				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),

@@ -13,6 +13,8 @@ import { defineConfig, devices } from "@playwright/test";
 // competing workers make measured paint and full-stack timing assertions describe scheduler contention.
 export default defineConfig({
   testDir: "./e2e",
+  // Owns the run's temp root and fails the run when a test leaves anything in it.
+  globalSetup: "./e2e/harness/temp-root.ts",
   fullyParallel: true,
   // Each worker owns a browser plus up to three dotnet processes. Serial execution gives measured paint and
   // full-stack timing assertions the runner instead of letting another browser deschedule them mid-sample.

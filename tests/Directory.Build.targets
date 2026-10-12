@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Every xunit assembly runs under the leak-checked framework, which owns the run's temp root. -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <AssemblyAttribute Include="Xunit.TestFrameworkAttribute">
+      <_Parameter1>Weavie.TestSupport.LeakCheckedTestFramework</_Parameter1>
+      <_Parameter2>Weavie.TestSupport</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

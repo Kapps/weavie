@@ -1,11 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { expect } from "@playwright/test";
 import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
 import { test } from "./harness/network-fixtures";
+import { makeTempDir } from "./harness/temp-root";
 import { headlessProgram, programExists } from "./harness/test-programs";
+import { killProcessTree } from "./harness/weavie-host";
 
 // End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,
 // point a browser at it, and prove the bridge round-trips into the C# session. Skipped when the host hasn't
@@ -17,12 +17,13 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     "Weavie.Headless not built (run `dotnet build src/Weavie.Headless`)",
   );
 
-  let proc: ChildProcess;
+  let proc: ChildProcess | undefined;
+  let workspace: string | undefined;
   let workspacePage: { pageUrl: string; token: string };
 
   test.beforeAll(async () => {
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
-    const workspace = await mkdtemp(join(tmpdir(), "weavie-e2e-"));
+    workspace = await makeTempDir("weavie-e2e-");
     proc = spawn(headlessProgram.command, headlessProgram.args, {
       env: {
         ...process.env,
@@ -35,8 +36,9 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     workspacePage = await waitForWorkspace(proc, 30_000);
   });
 
-  test.afterAll(() => {
-    proc?.kill("SIGINT");
+  test.afterAll(async () => {
+    if (proc !== undefined) await killProcessTree(proc);
+    if (workspace !== undefined) await rm(workspace, { recursive: true, force: true });
   });
 
   test("a browser completes the host hello and renders the returned session catalog", async ({

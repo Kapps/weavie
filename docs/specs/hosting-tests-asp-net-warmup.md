@@ -23,4 +23,4 @@ xunit runs test collections in parallel (one collection per class by default). E
 
 ## Fix
 
-`tests/Weavie.Hosting.Tests/AspNetCoreWarmup.cs` forces the load once, single-threaded, via a `[ModuleInitializer]` — module initializers run exactly once before any test executes, ahead of xunit's parallel collections. Same pattern as `TestRoot.cs`'s `WEAVIE_ROOT` redirect.
+`tests/Weavie.Hosting.Tests/AspNetCoreWarmup.cs` forces the load once, single-threaded, via a `[ModuleInitializer]` — module initializers run exactly once before any test executes, ahead of xunit's parallel collections.

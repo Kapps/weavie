@@ -1,16 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
-// Canonicalize a fresh temp dir. On macOS os.tmpdir() is under /var, a symlink to /private/var, and the
-// kernel resolves a process's cwd — so the fake claude's Directory.GetCurrentDirectory() (which backs
-// {{WORKSPACE}}) yields /private/var while the host holds the unresolved /var string, and change-tracking
-// path checks (PathBoundary) miss. Resolving at the source makes every layer agree; idempotent on
-// Linux/Windows (no symlink), so it leaves those unaffected.
-async function makeTempDir(prefix: string): Promise<string> {
-  return realpath(await mkdtemp(join(tmpdir(), prefix)));
-}
 
 // Valid 8×8 solid-color PNGs (signature + IHDR + zlib IDAT + IEND, CRC-correct), for the media-pane
 // journeys: PIXEL_RED seeds pixel.png; PIXEL_BLUE overwrites it to drive the fs-change refresh.
@@ -65,10 +55,10 @@ const SEED: Record<string, string | Buffer> = {
   "clip.webm": CLIP_WEBM,
 };
 
-// A throwaway git repo so HostCore can create sessions/worktrees off HEAD. Returns the path; call
-// removeWorkspace when done.
-export async function createGitWorkspace(): Promise<string> {
-  const dir = await makeTempDir("weavie-e2e-ws-");
+// A throwaway git repo under `parent` so HostCore can create sessions/worktrees off HEAD. Returns its path.
+export async function createGitWorkspace(parent: string): Promise<string> {
+  const dir = join(parent, "workspace");
+  await mkdir(dir);
   for (const [name, content] of Object.entries(SEED)) {
     await writeFile(join(dir, name), content);
   }
@@ -135,7 +125,7 @@ export interface ThreadSeed {
 const avatar = (color: string): string =>
   `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="${color}"/><circle cx="4" cy="3" r="1.6" fill="#fff"/><rect x="1.5" y="5.2" width="5" height="3" rx="1.5" fill="#fff"/></svg>`)}`;
 
-export async function createPrWorkspace(): Promise<{
+export async function createPrWorkspace(parent: string): Promise<{
   dir: string;
   prs: PrSeed[];
   threads: ThreadSeed[];
@@ -144,8 +134,9 @@ export async function createPrWorkspace(): Promise<{
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
-  const bare = await makeTempDir("weavie-e2e-origin");
-  const dir = await makeTempDir("weavie-e2e-ws-");
+  const bare = join(parent, "origin");
+  const dir = join(parent, "workspace");
+  await Promise.all([mkdir(bare), mkdir(dir)]);
   const originUrl = "https://github.com/acme/demo.git";
   const headRef = "pr-branch";
   const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -307,13 +298,6 @@ export async function createPrWorkspace(): Promise<{
     // Only bob has a photo, so both the image and the monogram paths render.
     viewerAvatarUrl: "",
   };
-}
-
-export async function removeWorkspace(dir: string): Promise<void> {
-  // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's file
-  // handles asynchronously, so an immediate rm can still race them with EBUSY. A short bounded wait covers that OS
-  // latency (mirrors Core's WorktreeManager) — NOT the old fallback that retried while real orphans stayed alive.
-  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 // The absolute paths of every git worktree of `repoRoot` except the primary checkout — i.e. the worktrees

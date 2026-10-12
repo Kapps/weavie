@@ -36,6 +36,11 @@ responses end to end" — is the wrong target on two counts:
 4. **No sleeps as synchronization.** Assert on the state event (dirty→clean flush, session-ready),
    never `wait(1s)` — a timing guess is the silent-timeout fallback the repo bans and the #1 flake
    source.
+5. **A run owns one temp root and must leave it empty.** Every xunit assembly runs under
+   `LeakCheckedTestFramework`, which points the process's (and its children's) temp path and `WEAVIE_ROOT` into
+   a per-run root and fails the run with an assembly cleanup failure naming anything a test left there. The
+   Playwright configs' `globalSetup` (`e2e/harness/temp-root.ts`) does the same for every e2e temp dir
+   (`makeTempDir`). Create temp state through `TempDirectory` / `makeTempDir`, never the bare system temp path.
 
 ## Choosing test boundaries
 

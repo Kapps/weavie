@@ -32,7 +32,8 @@ public sealed class RunnerFixture : IAsyncLifetime {
 			args,
 			port,
 			readyMarker: "control plane: http://",
-			timeout: TimeSpan.FromSeconds(60));
+			timeout: TimeSpan.FromSeconds(60),
+			ownTemp: true);
 		try {
 			await WaitForWorkerAsync(host, token);
 			return host;

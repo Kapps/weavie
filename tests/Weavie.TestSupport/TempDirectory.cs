@@ -20,8 +20,7 @@ public sealed class TempDirectory : IDisposable {
 
 	/// <summary>Creates a temp directory whose name starts with <paramref name="prefix"/>.</summary>
 	public TempDirectory(string prefix) {
-		Path = SysPath.Combine(SysPath.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
-		Directory.CreateDirectory(Path);
+		Path = Directory.CreateTempSubdirectory($"{prefix}-").FullName;
 	}
 
 	/// <summary>The directory's absolute path.</summary>
@@ -44,13 +43,17 @@ public sealed class TempDirectory : IDisposable {
 	/// <summary>Deletes the directory and everything under it.</summary>
 	public void Dispose() {
 		try {
-			foreach (string file in Directory.EnumerateFiles(Path, "*", Walk)) {
-				File.SetAttributes(file, FileAttributes.Normal);
-			}
-
-			Directory.Delete(Path, recursive: true);
+			Delete(Path);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// Best-effort: a watcher or child process can still hold the tree once the test is over.
+			// A watcher or child process can still hold the tree; TestRunRoot reports whatever survives the run.
 		}
+	}
+
+	internal static void Delete(string path) {
+		foreach (string file in Directory.EnumerateFiles(path, "*", Walk)) {
+			File.SetAttributes(file, FileAttributes.Normal);
+		}
+
+		Directory.Delete(path, recursive: true);
 	}
 }

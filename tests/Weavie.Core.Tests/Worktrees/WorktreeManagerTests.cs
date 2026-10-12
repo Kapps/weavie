@@ -480,7 +480,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 		var (manager, _, git) = NewManager();
 		// A distinct checkout whose path differs from the repo root only in case was reported as the primary
 		// one, which hides it from the session rail.
-		string shouty = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "REPO");
+		string shouty = _temp.Combine("REPO");
 		git.Worktrees.Add(new GitWorktree { Path = shouty, Branch = "feature", Head = "b" });
 
 		var statuses = await manager.ListAsync();
@@ -495,27 +495,19 @@ public sealed class WorktreeManagerTests : IDisposable {
 		var (manager, registry, _) = NewManager();
 		// The managed dir is ".../worktrees"; this path sits under ".../WORKTREES", a different directory off
 		// Windows. Judging it "ours" would hand-delete a tree Weavie never provisioned.
-		string foreignPath = Path.Combine(
-			Path.GetTempPath(), "weavie-wt-mgr-tests", "WORKTREES", "case-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(foreignPath);
-		try {
-			registry.Add(new WorktreeRecord {
-				Branch = "foreign",
-				Path = foreignPath,
-				BaseRef = "main",
-				CreatedAtUtc = DateTimeOffset.UnixEpoch,
-				AgentProviderId = "acp",
-			});
+		string foreignPath = _temp.CreateDirectory("WORKTREES", "case");
+		registry.Add(new WorktreeRecord {
+			Branch = "foreign",
+			Path = foreignPath,
+			BaseRef = "main",
+			CreatedAtUtc = DateTimeOffset.UnixEpoch,
+			AgentProviderId = "acp",
+		});
 
-			await Assert.ThrowsAsync<WorktreeOrphanException>(
-				() => manager.RemoveAsync(foreignPath, deleteBranch: false, force: true));
+		await Assert.ThrowsAsync<WorktreeOrphanException>(
+			() => manager.RemoveAsync(foreignPath, deleteBranch: false, force: true));
 
-			Assert.True(Directory.Exists(foreignPath));
-		} finally {
-			if (Directory.Exists(foreignPath)) {
-				Directory.Delete(foreignPath, recursive: true);
-			}
-		}
+		Assert.True(Directory.Exists(foreignPath));
 	}
 
 	/// <summary>An in-memory <see cref="IGitService"/> with controllable branches, worktrees, and dirty paths.</summary>

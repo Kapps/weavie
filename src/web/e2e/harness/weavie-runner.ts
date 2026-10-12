@@ -1,6 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import { Agent } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { waitForOutputLines } from "./process-output.mjs";
 import { headlessProgram, programExists, runnerProgram } from "./test-programs";
 import {
@@ -18,6 +21,14 @@ export function runnerBuilt(): boolean {
 
 export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> {
   const fake = await prepareFake(options);
+  // The runner stops its worker with SIGKILL, stranding the worker's hook pipe in the temp path, so the runner
+  // gets a temp dir this launch removes. Short and unresolved: macOS caps a Unix socket path at 104 bytes.
+  const temp = await mkdtemp(join(tmpdir(), "wv-"));
+  const cleanup = async (): Promise<void> => {
+    await fake.cleanup();
+    await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  };
+  const tempEnv = process.platform === "win32" ? { TMP: temp, TEMP: temp } : { TMPDIR: temp };
   const runnerToken = randomBytes(16).toString("hex");
 
   let log = "";
@@ -36,7 +47,7 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
       "--token",
       runnerToken,
     ],
-    { env: { ...process.env, ...fake.env }, stdio: ["ignore", "pipe", "pipe"] },
+    { env: { ...process.env, ...fake.env, ...tempEnv }, stdio: ["ignore", "pipe", "pipe"] },
   );
   const collect = (chunk: Buffer) => {
     log += chunk.toString("utf8");
@@ -54,7 +65,7 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
     );
   } catch (error) {
     await killProcessTree(proc);
-    await fake.cleanup();
+    await cleanup();
     throw error;
   }
 
@@ -68,7 +79,7 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
     async stop() {
       // The runner owns the worker and its agent/shell/LSP descendants, so teardown must kill the whole tree.
       await killProcessTree(proc);
-      await fake.cleanup();
+      await cleanup();
     },
   };
 }

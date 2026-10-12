@@ -12,7 +12,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>addReviewHint on the registry server.</summary>
 [Collection("Settings")]
-public sealed class McpReviewHintToolsTests : IAsyncDisposable {
+public sealed class McpReviewHintToolsTests : IAsyncLifetime {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-review-hint-tools-tests");
 	private readonly SettingsStore _settings;
@@ -32,7 +32,9 @@ public sealed class McpReviewHintToolsTests : IAsyncDisposable {
 		_ide.Start();
 	}
 
-	public async ValueTask DisposeAsync() {
+	public Task InitializeAsync() => Task.CompletedTask;
+
+	public async Task DisposeAsync() {
 		_client.Dispose();
 		await _registry.DisposeAsync();
 		await _ide.DisposeAsync();

@@ -11,7 +11,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>listAgents/consultAgent on the registry server, and per-call cancellation of long tool calls.</summary>
 [Collection("Settings")]
-public sealed class McpAgentToolsTests : IAsyncDisposable {
+public sealed class McpAgentToolsTests : IAsyncLifetime {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-agent-tools-tests");
 	private readonly SettingsStore _settings;
@@ -30,7 +30,9 @@ public sealed class McpAgentToolsTests : IAsyncDisposable {
 		_server.Start();
 	}
 
-	public async ValueTask DisposeAsync() {
+	public Task InitializeAsync() => Task.CompletedTask;
+
+	public async Task DisposeAsync() {
 		await _server.DisposeAsync();
 		_models.Dispose();
 		_settings.Dispose();

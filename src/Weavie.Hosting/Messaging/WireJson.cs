@@ -125,6 +125,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(AgentPaneRecordRequest))]
 [JsonSerializable(typeof(GlobalHostFeatures.AgentProviderRequest))]
 [JsonSerializable(typeof(HostSession.AgentSideReplyMessage))]
+[JsonSerializable(typeof(HostSession.AgentAsideCollapsedMessage))]
 [JsonSerializable(typeof(HostSession.AgentSubmitMessage))]
 [JsonSerializable(typeof(ApplicationMenuState))]
 [JsonSerializable(typeof(HostSession.AttachmentMessage))]

@@ -199,6 +199,12 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
+		messages.Handle("setAsideCollapsed", "Updating a side conversation", WireJson.Default.AgentAsideCollapsedMessage, (message, _) => {
+			var sideConversations = Agent.SideConversations
+				?? throw new InvalidOperationException("This agent does not support side conversations.");
+			sideConversations.SetAsideCollapsed(message.ConversationId, message.Collapsed);
+			return Task.CompletedTask;
+		});
 		messages.Handle(
 			"openPlan", "Opening the plan", WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
@@ -351,6 +357,8 @@ public sealed partial class HostSession {
 		string[]? AttachmentIds);
 
 	internal sealed record AgentSideReplyMessage(string ConversationId, AgentSubmitMessage Submission);
+
+	internal sealed record AgentAsideCollapsedMessage(string ConversationId, bool Collapsed);
 }
 
 internal sealed record AttachmentState(string Id, string Status, string Error);

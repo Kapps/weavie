@@ -93,6 +93,23 @@ function subagent(conversationId: string, parent: string | null): AgentPaneUpdat
   ];
 }
 
+describe("side conversation collapse", () => {
+  it("follows the latest recorded collapse and never renders it as a nested entry", () => {
+    const toggle = (status: string): AgentPaneUpdate => ({
+      ...aside("btw"),
+      type: "side-conversation-collapsed",
+      status,
+    });
+    const entry = (messages: AgentPaneUpdate[]) =>
+      toAgentTranscript([aside("btw"), ...messages]).find((item) => item.kind === "aside")!;
+
+    expect(entry([]).asideCollapsed).toBe(false);
+    expect(entry([toggle("collapsed")]).asideCollapsed).toBe(true);
+    expect(entry([toggle("collapsed"), toggle("expanded")]).asideCollapsed).toBe(false);
+    expect(entry([toggle("collapsed")]).asideEntries).toEqual(entry([]).asideEntries);
+  });
+});
+
 describe("subagent cards", () => {
   it("renders a subagent as its own card at its spawn point, naming a nested spawn's parent", () => {
     const outer = subagent("outer", null);

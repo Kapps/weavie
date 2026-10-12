@@ -38,7 +38,7 @@ public sealed partial class AcpAgentSession {
 				foreach (var state in _sideConversations.Values.ToArray()) {
 					if ((!state.Failed && state.SessionId is not null) || terminalSides.Contains(state.ConversationId)) continue;
 					var failed = state with { Failed = true };
-					var terminal = SideTerminal(new(state.ConversationId, state.AnchorTurnNumber, state.InitialPrompt));
+					var terminal = SideTerminal(Side(state));
 					_sessions.Save(_definition.Id, _context.Workspace, failed, [terminal]);
 					_sideConversations[state.ConversationId] = failed;
 					recovery.Add(terminal);

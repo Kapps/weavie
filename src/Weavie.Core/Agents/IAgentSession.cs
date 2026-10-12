@@ -84,6 +84,9 @@ public interface IStructuredAgentSideConversations {
 
 	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
 	void ReplyAside(string conversationId, AgentTurnSubmission submission);
+
+	/// <summary>Records whether one side conversation's card is collapsed, so it stays that way across restarts.</summary>
+	void SetAsideCollapsed(string conversationId, bool collapsed);
 }
 
 /// <summary>Rewinds one structured agent's primary conversation to just before an earlier prompt.</summary>

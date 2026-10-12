@@ -21,8 +21,11 @@ export function AsideEntry(props: {
   const composer = replyComposer(props.session, conversationId);
   const replying = () => composer.state().replyOpen;
   let card: HTMLElement | undefined;
-  const collapsed = () => props.expandedDetails.has(props.entry.id);
-  const toggle = () => props.onDetailsToggle(props.entry.id, !collapsed());
+  const collapsed = () => props.entry.asideCollapsed === true;
+  const toggle = () =>
+    props.session
+      .feature("agent")
+      .publish("setAsideCollapsed", { conversationId, collapsed: !collapsed() });
   const toggleLabel = () => (collapsed() ? "Expand BTW" : "Collapse BTW");
   const toggleTitle = () => {
     const key = liveKeyLabel(CommandIds.toggleAgentAside);

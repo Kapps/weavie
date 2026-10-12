@@ -50,14 +50,6 @@
   line-height: 1.15;
   text-align: center;
 }
-.session-chip-cloud {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 9px;
-  height: 9px;
-  color: hsl(var(--agent-hue, 210) 55% 60%);
-}
 .session-chip:focus-visible,
 .session-rail-add:focus-visible,
 .session-rail-cloud:focus-visible {
@@ -134,42 +126,57 @@
 /* A session's status dot, shared by the rail, the session panel, the title bar, and the pane footer
    (idle = calm green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
 .session-status {
+  --status-color: var(--dim);
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
   box-sizing: border-box;
   border-radius: 50%;
-  background: var(--dim);
+  background: var(--status-color);
 }
 .session-status.status-idle {
-  background: var(--ok);
+  --status-color: var(--ok);
 }
 .session-status.status-needsInput {
-  background: var(--warn);
+  --status-color: var(--warn);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 30%, transparent);
 }
 .session-status.status-error {
-  background: var(--bad);
+  --status-color: var(--bad);
 }
 .session-status.status-working {
-  background: var(--busy);
+  --status-color: var(--busy);
   animation: weavie-status-pulse 1.2s ease-in-out infinite;
 }
 .session-status.status-waiting {
-  background: var(--busy);
+  --status-color: var(--busy);
   animation: weavie-status-pulse 2.4s ease-in-out infinite;
 }
 .session-status.status-starting {
-  background: var(--busy);
+  --status-color: var(--busy);
   opacity: 0.6;
-}
-/* Its backend is unreachable, so the last-known status is stale. */
-.session-status.status-offline {
-  background: var(--dim);
 }
 .session-status.status-unloaded {
   background: transparent;
   border: 1px solid var(--dim);
+}
+/* A remote session's status reads as a cloud in place of the dot (rail only). */
+.session-status.cloud {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  fill: var(--status-color);
+}
+.session-status.cloud.status-needsInput {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--warn) 60%, transparent));
+}
+.session-status.cloud.status-unloaded {
+  fill: none;
+  stroke: var(--dim);
+  stroke-width: 1.5px;
 }
 @keyframes weavie-status-pulse {
   0%,

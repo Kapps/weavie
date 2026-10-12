@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { awaitEditorReady, createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { makeTempDir } from "../harness/temp-root";
 import { headlessProgram } from "../harness/test-programs";
 
 // "Open With Weavie", full stack: a second launch carrying a path hands it to the running host over the
@@ -36,7 +36,7 @@ test("a second launch hands its path to the running Weavie instead of booting an
 }) => {
   await awaitEditorReady(page);
 
-  const outsideDir = await mkdtemp(join(tmpdir(), "weavie-openwith-"));
+  const outsideDir = await makeTempDir("weavie-openwith-");
   try {
     const handed = join(outsideDir, "handed-over.md");
     await writeFile(handed, "# Handed over\n");
@@ -58,7 +58,7 @@ test("a handed-over path opens in the selected session, not the workspace one", 
   await awaitEditorReady(page);
   await createSession(page, { branch: "open-with-target", provider: "fake-acp" });
 
-  const outsideDir = await mkdtemp(join(tmpdir(), "weavie-openwith-sel-"));
+  const outsideDir = await makeTempDir("weavie-openwith-sel-");
   try {
     const handed = join(outsideDir, "into-selected.md");
     await writeFile(handed, "# Into the selected session\n");

@@ -20,9 +20,4 @@
     <ProjectReference Include="..\..\src\Weavie.Runner\Weavie.Runner.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Weavie.TestSupport\Weavie.TestSupport.csproj" />
-    <Using Include="Weavie.TestSupport" />
-  </ItemGroup>
-
 </Project>

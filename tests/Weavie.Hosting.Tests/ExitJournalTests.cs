@@ -7,12 +7,12 @@ namespace Weavie.Hosting.Tests;
 /// leaves the live marker behind. Each test uses its own temp path, for the same reason
 /// <see cref="CrashReporterTests"/> does — concurrent <c>TestHost</c>s touch the real one.
 /// </summary>
-public sealed class ExitJournalTests {
-	private static string IsolatedPath() =>
-		Path.Combine(
-			Path.GetTempPath(),
-			"weavie-exit-journal-tests-" + Guid.NewGuid().ToString("n"),
-			"last-exit.log");
+public sealed class ExitJournalTests : IDisposable {
+	private readonly TempDirectory _dir = new("weavie-exit-journal-tests");
+
+	public void Dispose() => _dir.Dispose();
+
+	private string IsolatedPath() => _dir.Combine("journal", "last-exit.log");
 
 	[Fact]
 	public void NoJournal_ReadsAsNothingToExplain() =>

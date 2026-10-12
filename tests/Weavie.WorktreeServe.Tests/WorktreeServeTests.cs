@@ -134,15 +134,23 @@ public sealed class WorktreeServeTests {
 
 	[Fact]
 	public void Port_lease_serializes_preview_launchers() {
-		using var first = PortLease.Acquire(39876);
+		using var locks = new TempDirectory("worktree-serve-port");
+		using var first = PortLease.Acquire(39876, locks.Path);
 
-		Assert.Throws<InvalidOperationException>(() => PortLease.Acquire(39876));
+		Assert.Throws<InvalidOperationException>(() => PortLease.Acquire(39876, locks.Path));
+	}
+
+	[Fact]
+	public void State_lease_serializes_preview_launchers() {
+		using var state = new TempDirectory("worktree-serve-lease");
+		using var first = PortLease.AcquireState(state.Path);
+
+		Assert.Throws<InvalidOperationException>(() => PortLease.AcquireState(state.Path));
 	}
 
 	[Fact]
 	public void Production_state_store_is_never_accepted_for_a_preview() {
-		string production = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".weavie");
+		string production = Environment.GetEnvironmentVariable("WEAVIE_ROOT")!;
 
 		Assert.Throws<InvalidOperationException>(() => WorktreeServeApp.RejectProductionState(production));
 		Assert.Throws<InvalidOperationException>(

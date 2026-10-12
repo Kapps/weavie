@@ -9,6 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: here,
+  globalSetup: "../harness/temp-root.ts",
   // Videos land under src/web/test-results/<spec>-<title>-<project>/video.webm.
   outputDir: join(here, "..", "..", "test-results"),
   fullyParallel: false,

@@ -22,7 +22,8 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 				"--workspace", _workspace.Path, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
 			port,
 			readyMarker: "open  http://",
-			timeout: TimeSpan.FromSeconds(60));
+			timeout: TimeSpan.FromSeconds(60),
+			ownTemp: false);
 	}
 
 	public async Task DisposeAsync() {
@@ -346,7 +347,8 @@ public sealed class LocalHeadlessFixture : IAsyncLifetime {
 			["--port", port.ToString(), "--workspace", _workspace.Path],
 			port,
 			readyMarker: "open  http://",
-			timeout: TimeSpan.FromSeconds(60));
+			timeout: TimeSpan.FromSeconds(60),
+			ownTemp: false);
 	}
 
 	public async Task DisposeAsync() {

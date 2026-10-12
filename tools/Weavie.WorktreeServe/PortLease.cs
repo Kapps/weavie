@@ -7,8 +7,8 @@ internal sealed class PortLease : IDisposable {
 		_stream = stream;
 	}
 
-	public static PortLease Acquire(int port) {
-		string path = Path.Combine(Path.GetTempPath(), $"weavie-worktree-serve-{port}.lock");
+	public static PortLease Acquire(int port, string lockDirectory) {
+		string path = Path.Combine(lockDirectory, $"weavie-worktree-serve-{port}.lock");
 		return Acquire(path, $"another Weavie worktree preview owns HTTPS port {port}.");
 	}
 
@@ -17,6 +17,8 @@ internal sealed class PortLease : IDisposable {
 		return Acquire(path, $"another Weavie worktree preview owns state root {stateRoot}.");
 	}
 
+	// The lock file outlives the lease: deleting it on release would let a waiter lock the unlinked file while a
+	// newcomer locks a fresh one at the same path.
 	private static PortLease Acquire(string path, string message) {
 		try {
 			return new PortLease(new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));

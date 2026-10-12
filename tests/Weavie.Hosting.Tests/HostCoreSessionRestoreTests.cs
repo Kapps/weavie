@@ -260,7 +260,8 @@ public sealed class HostCoreSessionRestoreTests {
 
 	[Fact]
 	public void BrokenInstallCannotTakeTheReservedClaudeId() {
-		var providers = Providers(new RecordingAcpCatalog { BrokenAgents = [Broken("claude")] });
+		using var root = new TempDirectory("weavie-broken-acp");
+		var providers = Providers(root, new RecordingAcpCatalog { BrokenAgents = [Broken("claude")] });
 
 		Assert.False(providers.FindInfo("acp-config")?.Available);
 		Assert.True(providers.FindInfo("claude")?.Available);
@@ -269,7 +270,8 @@ public sealed class HostCoreSessionRestoreTests {
 	[Fact]
 	public void BrokenInstallStaysUnavailableUnderItsIdUntilReinstalled() {
 		var catalog = new RecordingAcpCatalog { BrokenAgents = [Broken("claude-acp")] };
-		var providers = Providers(catalog);
+		using var root = new TempDirectory("weavie-broken-acp");
+		var providers = Providers(root, catalog);
 
 		var broken = providers.FindInfo("claude-acp");
 		Assert.False(broken?.Available);
@@ -282,14 +284,12 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True(providers.FindInfo("claude-acp")?.Available);
 	}
 
-	private static AgentProviderRegistry Providers(RecordingAcpCatalog catalog) {
-		string root = Path.Combine(Path.GetTempPath(), $"weavie-broken-acp-{Guid.NewGuid():N}");
-		return AgentProviderComposition.Create(
-			CoreSettings.CreateStore(Path.Combine(root, "settings.toml"), enableWatcher: false),
-			new ClaudeSessionStore(new InMemoryFileSystem(), Path.Combine(root, "claude-sessions.json")),
+	private static AgentProviderRegistry Providers(TempDirectory root, RecordingAcpCatalog catalog) =>
+		AgentProviderComposition.Create(
+			CoreSettings.CreateStore(root.Combine("settings.toml"), enableWatcher: false),
+			new ClaudeSessionStore(new InMemoryFileSystem(), root.Combine("claude-sessions.json")),
 			catalog,
-			new AcpSessionStore(Path.Combine(root, "acp-conversations.db")));
-	}
+			new AcpSessionStore(root.Combine("acp-conversations.db")));
 
 	private static AcpBrokenAgent Broken(string id) => new() {
 		Id = id,

@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { awaitEditorReady, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { makeTempDir } from "../harness/temp-root";
 import type { WeavieWindow } from "../harness/weavie-window";
 
 // Opening a file that lives outside the session's worktree, full stack: the omnibar completes a typed absolute
@@ -14,7 +14,7 @@ test("an absolute path opens a file outside the worktree, and the footer says wh
 }) => {
   await awaitEditorReady(page);
 
-  const outsideDir = await mkdtemp(join(tmpdir(), "weavie-outside-"));
+  const outsideDir = await makeTempDir("weavie-outside-");
   try {
     const outside = join(outsideDir, "outside-notes.md");
     await writeFile(outside, "# Outside the worktree\n");
@@ -51,7 +51,7 @@ test("an edit made outside Weavie reaches a buffer opened from outside the workt
 }) => {
   await awaitEditorReady(page);
 
-  const outsideDir = await mkdtemp(join(tmpdir(), "weavie-outside-"));
+  const outsideDir = await makeTempDir("weavie-outside-");
   try {
     const outside = join(outsideDir, "watched-notes.md");
     await writeFile(outside, "# Before\n");

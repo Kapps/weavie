@@ -1,8 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
-import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { waitForWorkspace } from "../capture-workspace.mjs";
 import {
@@ -12,7 +11,8 @@ import {
   writeFakeScript,
   writeTestProgramWrapper,
 } from "./fake-claude";
-import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
+import { createGitWorkspace, createPrWorkspace } from "./git-workspace";
+import { makeTempDir } from "./temp-root";
 import { fakeAcpProgram, headlessProgram, programExists } from "./test-programs";
 
 export function headlessBuilt(): boolean {
@@ -178,12 +178,12 @@ export interface FakeScaffold {
 }
 
 export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold> {
-  // Resolve the real path: on macOS os.tmpdir() is under the /var → /private/var symlink, and worktrees live
-  // under WEAVIE_ROOT (=home/.weavie), so an unresolved home would desync a forked session's cwd (which the
-  // kernel resolves) from the host's stored path. Idempotent on Linux/Windows.
-  const home = await realpath(await mkdtemp(join(tmpdir(), "weavie-e2e-home-")));
-  const pr = options.pr ? await createPrWorkspace() : null;
-  const workspace = pr?.dir ?? (await createGitWorkspace());
+  // One directory owns the test's HOME, workspace, and PR origin, so a single removal cleans all of them.
+  const root = await makeTempDir("weavie-e2e-");
+  const home = join(root, "home");
+  await mkdir(home);
+  const pr = options.pr ? await createPrWorkspace(root) : null;
+  const workspace = pr?.dir ?? (await createGitWorkspace(root));
   const wrapper = await writeFakeClaudeWrapper(home);
   const fakeBin = join(home, "bin");
   await mkdir(fakeBin);
@@ -228,6 +228,8 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
     WEAVIE_FAKE_CLAUDE_INFERENCE: options.inference,
+    // The host stops its agents with SIGKILL, which strands a .NET fake's runtime IPC files in the system temp.
+    DOTNET_EnableDiagnostics: "0",
   };
   if (options.automaticInference) {
     env.WEAVIE_INFERENCE_ENABLED = "true";
@@ -260,13 +262,9 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     workspace,
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
-    cleanup: () =>
-      // Same bounded wait as removeWorkspace: the tree is dead, but Windows frees its handles under HOME (logs,
-      // config, IDE lock) asynchronously, so an immediate rm can race them.
-      Promise.all([
-        rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
-        removeWorkspace(workspace),
-      ]).then(),
+    // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's
+    // file handles asynchronously, so an immediate rm can race them with EBUSY; the bounded retry covers that.
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
   };
   try {
     if (options.workspaceSeed !== null) await options.workspaceSeed.run(workspace);

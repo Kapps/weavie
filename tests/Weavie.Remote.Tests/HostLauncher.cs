@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Weavie.Remote.Tests;
@@ -46,14 +47,16 @@ internal static class Hosts {
 
 /// <summary>
 /// A launched host process. <see cref="StartAsync"/> waits for a readiness marker (failing if the process
-/// exits first); <see cref="RunToExitAsync"/> runs a process expected to refuse and exit. Disposing kills
-/// the whole tree so a runner's spawned worker can't linger.
+/// exits first); <see cref="RunToExitAsync"/> runs a process expected to refuse and exit. Disposing asks the
+/// host to shut down and waits for it, so it tears down its own children and endpoints.
 /// </summary>
 public sealed class HostHandle : IAsyncDisposable {
 	private readonly Process _process;
+	private readonly TempDirectory? _temp;
 
-	private HostHandle(Process process, int port, string pageUrl, string token) {
+	private HostHandle(Process process, TempDirectory? temp, int port, string pageUrl, string token) {
 		_process = process;
+		_temp = temp;
 		Port = port;
 		PageUrl = pageUrl;
 		Token = token;
@@ -67,8 +70,12 @@ public sealed class HostHandle : IAsyncDisposable {
 
 	public string Token { get; }
 
+	/// <summary>
+	/// Starts a host. <paramref name="ownTemp"/> gives it a temp dir of its own, for a host whose children Weavie
+	/// stops with SIGKILL (the runner's worker), so the sockets they strand go with the handle.
+	/// </summary>
 	public static async Task<HostHandle> StartAsync(
-		string dll, IReadOnlyList<string> args, int port, string readyMarker, TimeSpan timeout) {
+		string dll, IReadOnlyList<string> args, int port, string readyMarker, TimeSpan timeout, bool ownTemp) {
 		var output = new StringBuilder();
 		var ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -78,6 +85,11 @@ public sealed class HostHandle : IAsyncDisposable {
 			UseShellExecute = false,
 		};
 		psi.Environment["WEAVIE_ROOT"] = IsolatedWeavieRoot(args);
+		// Short: the worker's hook pipe lives under it, and a Unix socket path is capped near 104 bytes.
+		var temp = ownTemp ? new TempDirectory("h") : null;
+		if (temp is not null) {
+			psi.Environment[OperatingSystem.IsWindows() ? "TMP" : "TMPDIR"] = temp.Path;
+		}
 		psi.ArgumentList.Add(dll);
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);
@@ -115,6 +127,8 @@ public sealed class HostHandle : IAsyncDisposable {
 			await WaitForPortAsync(port, process, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
 		} catch {
 			TreeKill(process);
+			await process.WaitForExitAsync().ConfigureAwait(false);
+			temp?.Dispose();
 			throw new InvalidOperationException($"host did not become ready in {timeout.TotalSeconds:F0}s:\n{Snapshot(output)}");
 		}
 
@@ -125,7 +139,7 @@ public sealed class HostHandle : IAsyncDisposable {
 			.FirstOrDefault(line => line.StartsWith("[weavie-headless] token ", StringComparison.Ordinal))
 			?.Split("token ", StringSplitOptions.None)[1]
 			?? string.Empty;
-		return new HostHandle(process, port, pageUrl, token);
+		return new HostHandle(process, temp, port, pageUrl, token);
 	}
 
 	private static async Task WaitForPortAsync(int port, Process process, TimeSpan timeout) {
@@ -204,11 +218,28 @@ public sealed class HostHandle : IAsyncDisposable {
 		return _process.ExitCode;
 	}
 
+	/// <summary>Stops the host the way an operator does (SIGTERM, so it releases its pipes), failing if it lingers.</summary>
 	public async ValueTask DisposeAsync() {
-		TreeKill(_process);
-		await _process.WaitForExitAsync().ConfigureAwait(false);
-		_process.Dispose();
+		try {
+			if (OperatingSystem.IsWindows() || _process.HasExited) {
+				TreeKill(_process);
+			} else if (kill(_process.Id, SIGTERM) != 0) {
+				throw new InvalidOperationException($"could not signal host {_process.Id} (errno {Marshal.GetLastPInvokeError()}).");
+			}
+			await WaitForExitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+		} catch {
+			TreeKill(_process);
+			throw;
+		} finally {
+			_process.Dispose();
+			_temp?.Dispose();
+		}
 	}
+
+	private const int SIGTERM = 15;
+
+	[DllImport("libc", SetLastError = true)]
+	private static extern int kill(int pid, int signal);
 
 	private static string Snapshot(StringBuilder output) {
 		lock (output) {

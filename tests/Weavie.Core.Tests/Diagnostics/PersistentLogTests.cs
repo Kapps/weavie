@@ -6,7 +6,8 @@ namespace Weavie.Core.Tests;
 public sealed class PersistentLogTests {
 	[Fact]
 	public void CompletedLinesAreOnDiskBeforeTheWriterIsClosed() {
-		string path = Path.Combine(Path.GetTempPath(), $"weavie-log-{Guid.NewGuid():N}", "host.log");
+		using var directory = new TempDirectory("weavie-log");
+		string path = directory.Combine("logs", "host.log");
 		using var sink = new FileLogSink(path);
 		var buffer = new LogBuffer(10, sink);
 		using var console = buffer.Tee(TextWriter.Null);
@@ -19,13 +20,13 @@ public sealed class PersistentLogTests {
 
 	[Fact]
 	public void AnUnwritableLogRemainsVisibleInTheInAppBuffer() {
-		string parent = Path.GetTempFileName();
+		using var directory = new TempDirectory("weavie-log");
+		string parent = directory.WriteFile("not-a-directory", "");
 		using var sink = new FileLogSink(Path.Combine(parent, "host.log"));
 		var buffer = new LogBuffer(10, sink);
 		buffer.Append("still running");
 		Assert.NotEmpty(buffer.PersistenceFailure);
 		Assert.Contains(buffer.Snapshot().Lines, line => line.Contains("Persistent logging error", StringComparison.Ordinal));
 		Assert.Contains("still running", buffer.Snapshot().Lines);
-		File.Delete(parent);
 	}
 }

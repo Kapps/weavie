@@ -1,9 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { makeTempDir } from "./harness/temp-root";
 import { killProcessTree } from "./harness/weavie-host";
 
 test("POSIX shutdown waits for inherited pipes after the root exits", async () => {
@@ -48,7 +48,7 @@ test("POSIX shutdown waits for inherited pipes after the root exits", async () =
 test("Windows process-tree shutdown rejects an exited root with a surviving child", async () => {
   test.skip(process.platform !== "win32", "Windows process ownership regression");
 
-  const dir = await mkdtemp(join(tmpdir(), "weavie-process-tree-"));
+  const dir = await makeTempDir("weavie-process-tree-");
   const pidFile = join(dir, "child.pid");
   const root = spawn(
     process.execPath,

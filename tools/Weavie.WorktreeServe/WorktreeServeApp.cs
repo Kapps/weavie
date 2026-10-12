@@ -38,7 +38,7 @@ internal sealed class WorktreeServeApp(ITailscaleCli tailscale) {
 		try {
 			ClaimStateRoot(stateRoot);
 			stateLease = PortLease.AcquireState(stateRoot);
-			lease = PortLease.Acquire(options.HttpsPort);
+			lease = PortLease.Acquire(options.HttpsPort, Path.GetTempPath());
 			string magicDns = TailscaleServeSession.DiscoverMagicDns(_tailscale);
 			EnsurePortAvailable(options.HttpsPort);
 

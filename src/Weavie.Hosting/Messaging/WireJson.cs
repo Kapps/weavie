@@ -194,6 +194,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.RailPromotionSet))]
 [JsonSerializable(typeof(HostCore.RailSelectionMessage))]
 [JsonSerializable(typeof(HostCore.RailPanelPinned))]
+[JsonSerializable(typeof(HostCore.RailPanelWidth))]
 [JsonSerializable(typeof(HostCore.RemoteAgentMessage))]
 [JsonSerializable(typeof(HostCore.RemoteAgentName))]
 [JsonSerializable(typeof(HostSession.ResetDirectoryWatchesMessage))]

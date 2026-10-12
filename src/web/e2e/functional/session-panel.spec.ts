@@ -46,6 +46,23 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   // Focus is carried into the new session rather than dropped on the page.
   await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 
+  // With the panel open, a number key switches to that session; with it closed, the key types as usual.
+  const onFirst = await activeSessionSlot(page);
+  await page.keyboard.press("ControlOrMeta+e");
+  await page.keyboard.press("2");
+  await waitForSessionSwitch(page, onFirst);
+  await expect(panel).toBeHidden();
+  await expect(page.locator(".session-chip").nth(1)).toHaveClass(/\bactive\b/);
+  const onSecond = await activeSessionSlot(page);
+  await page.locator(".session-rail").hover();
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("1");
+  await waitForSessionSwitch(page, onSecond);
+  await page.locator(".pane-area").hover();
+  await expect(panel).toBeHidden();
+  await page.keyboard.press("2");
+  await expect(page.locator(".session-chip").first()).toHaveClass(/\bactive\b/);
+
   // A modal makes the rail inert, which swallows its pointer leave; hover still works afterwards.
   await page.locator(".session-rail-add").click();
   await page.keyboard.press("Escape");
@@ -62,9 +79,23 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await panel.getByRole("button", { name: /Pin session panel/ }).click();
   await expect(panel).toHaveClass(/\bpinned\b/);
   expect(await left()).toBeGreaterThan(unpinned + 200);
+  // Pinned, the panel replaces the rail and carries its own new-session button.
+  await expect(page.locator(".session-rail")).toHaveCount(0);
+  await expect(panel.locator(".session-panel-add")).toBeVisible();
+
+  // Dragging the right edge resizes it, and the width survives a reload.
+  const edge = await panel.locator(".session-panel-resize").boundingBox();
+  if (edge === null) throw new Error("no resize edge");
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2 + 80, edge.y + 200, { steps: 5 });
+  await page.mouse.up();
+  const resized = (await panel.boundingBox())?.width ?? 0;
+  expect(resized).toBeGreaterThan(360);
 
   await page.reload();
   await expect(page.locator(".session-panel.pinned")).toBeVisible();
+  expect((await panel.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
   // Pinned, Escape hands focus back instead of closing anything.
   await page.locator(".xterm:visible").first().click();
   await page.keyboard.press("ControlOrMeta+e");

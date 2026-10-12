@@ -9,6 +9,7 @@ import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature, selectedSession 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
 const [panelPinnedSig, setPanelPinnedSig] = createSignal(false);
+const [panelWidthSig, setPanelWidthSig] = createSignal(300);
 
 // The session ids last seen on each backend, so a one-shot auto-promote can pick out the GENUINELY new
 // session (rather than guessing from client selection, which can point at an existing session).
@@ -21,16 +22,27 @@ interface RailState {
   lastLocation: string;
   promoted: string[];
   panelPinned: boolean;
+  panelWidth: number;
 }
 
 function applyRailState(state: RailState): void {
   setLastLocationSig(state.lastLocation);
   setPromotedSig(new Set(state.promoted));
   setPanelPinnedSig(state.panelPinned);
+  setPanelWidthSig(state.panelWidth);
 }
 
 /** Whether the session panel is docked open beside the rail (reactive). */
 export const panelPinned = panelPinnedSig;
+
+/** The pinned session panel's width in CSS pixels (reactive). */
+export const panelWidth = panelWidthSig;
+
+/** Remember the pinned session panel's resized width. */
+export function setPanelWidth(width: number): void {
+  setPanelWidthSig(width);
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("rail").publish("setPanelWidth", { width });
+}
 
 /** Dock or undock the session panel. */
 export function setPanelPinned(pinned: boolean): void {

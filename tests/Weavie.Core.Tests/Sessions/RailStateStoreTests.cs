@@ -45,6 +45,16 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
+	public void SetPanelWidth_PersistsAcrossReload() {
+		var fs = new InMemoryFileSystem();
+		Assert.Equal(RailStateStore.DefaultPanelWidth, new RailStateStore(fs, StorePath).PanelWidth);
+
+		new RailStateStore(fs, StorePath).SetPanelWidth(240);
+
+		Assert.Equal(240, new RailStateStore(fs, StorePath).PanelWidth);
+	}
+
+	[Fact]
 	public void SetLastLocation_BlankFallsBackToLocal() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		store.SetLastLocation("remote:devbox");

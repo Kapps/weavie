@@ -26,7 +26,7 @@ test.use({
         path,
         source
           .map((line, lineIndex) =>
-            lineIndex >= 3_500 && lineIndex < 3_550
+            lineIndex >= 3_500 && lineIndex < 3_520
               ? `export const value${lineIndex} = "changed ${index} ${lineIndex} ${"wide ".repeat(index % 3 === 0 ? 200 : 1)}";`
               : line,
           )

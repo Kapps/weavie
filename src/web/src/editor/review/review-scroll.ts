@@ -86,6 +86,10 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   let contentHeight = 0;
   const getScrollTop = (): number => scrollable.getScrollPosition().scrollTop;
   const setScrollTop = (scrollTop: number): void => {
+    // TEMP diagnostic (bug/review-scroll-subpixel): who nudges the scroll by a sub-pixel amount.
+    const from = getScrollTop();
+    if (from !== scrollTop && Math.abs(scrollTop - from) < 1)
+      console.error("[review-scroll-diag]", from, scrollTop, new Error().stack);
     update(() => scrollable.setScrollPosition({ scrollTop }));
   };
   const offMiddleClick = registerMiddleClickScroll(element, () => true, {

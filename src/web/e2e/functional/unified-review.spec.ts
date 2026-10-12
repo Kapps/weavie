@@ -258,7 +258,9 @@ test.describe("Review Changes tab — file tree", () => {
     },
   });
 
-  test("the file tree above the diffs folds folders and jumps to a file", async ({
+  // TEMP diagnostic (bug/review-scroll-subpixel): repeat to catch the sub-pixel restore flake in CI.
+  for (const attempt of Array.from({ length: 25 }, (_, index) => index))
+  test(`the file tree above the diffs folds folders and jumps to a file #${attempt}`, async ({
     page,
     weavie,
   }) => {

@@ -2,8 +2,8 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// The session switcher: a rail of status dots, the session panel (hover, Ctrl+E, pin), the title bar's
-// current-session readout, and live agent activity from the fake ACP agent.
+// The session switcher: a rail of status dots, the session panel (hover, Ctrl+E, pin), and live agent
+// activity from the fake ACP agent.
 test.use({
   fakeScript: {
     steps: [
@@ -60,19 +60,18 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await expect(panel).toBeHidden();
 });
 
-test("rows show live activity, and a session waiting on approval is flagged in the title bar", async ({
+test("a session waiting on approval shows amber on the rail and its request in the panel", async ({
   page,
 }) => {
   const surface = await createAcpSession(page, "feature/needs-approval");
   await submitAcpDraft(surface, "permission-lifecycle:edit-hold");
   await expect(surface.locator(".agent-entry-request")).toBeVisible();
-  await expect(page.locator(".session-title-current")).toContainText("needs approval");
+  const waiting = page.locator(".session-chip.active");
+  await expect(waiting.locator(".session-status")).toHaveClass(/\bstatus-needsInput\b/);
+  const waitingSlot = await activeSessionSlot(page);
 
-  const before = await activeSessionSlot(page);
   await page.locator(".session-chip").first().click();
-  await waitForSessionSwitch(page, before);
-  const pill = page.locator(".session-title-needs");
-  await expect(pill).toHaveText("needs approval needs you");
+  await waitForSessionSwitch(page, waitingSlot);
 
   // A click on the rail never pops the panel open under the resting pointer; entering the rail afresh does.
   await page.waitForTimeout(400);
@@ -81,10 +80,12 @@ test("rows show live activity, and a session waiting on approval is flagged in t
   await page.locator(".session-rail").hover();
   const needs = page.locator(".session-panel-row", { hasText: "needs approval" });
   await expect(needs).toContainText("wants to edit permission-edit.txt");
-  await page.locator(".pane-area").hover();
+  await expect(page.locator(".session-panel-group").first()).toHaveText("Needs you");
 
-  const onMain = await activeSessionSlot(page);
-  await pill.click();
-  await waitForSessionSwitch(page, onMain);
-  await expect(page.locator(".session-title-current")).toContainText("needs approval");
+  await needs.click();
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    waitingSlot,
+  );
+  await expect(page.locator(".session-panel")).toBeHidden();
 });

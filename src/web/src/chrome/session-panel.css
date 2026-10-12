@@ -1,4 +1,4 @@
-/* The session panel (SessionPanel.tsx) beside the rail, and the title bar's session readout (SessionTitle.tsx). */
+/* The session panel (SessionPanel.tsx) beside the rail. */
 
 /* Unpinned it overlays the panes from the rail's edge; pinned it docks in the body row and pushes them over. */
 .session-panel {
@@ -112,53 +112,4 @@
 .session-panel-activity {
   color: var(--dim);
   font-size: var(--font-hint-size);
-}
-
-/* Left of the omnibar: the current session, then a pill per other session that needs the user. */
-.session-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-.session-title-current,
-.session-title-needs {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--fg);
-  font-size: var(--font-chrome-size);
-  white-space: nowrap;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-/* Where you are matters more than who's waiting: the current name keeps its width and the pills give way. */
-.session-title-current {
-  flex: 0 0 auto;
-  max-width: 100%;
-}
-.session-title-current:hover {
-  background: var(--list-hover-bg);
-}
-.session-title-needs {
-  flex: 0 1 auto;
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-  font-size: var(--font-metadata-size);
-}
-.session-title-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.session-title-prefix {
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
 }

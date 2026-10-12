@@ -1,8 +1,7 @@
 # Session switcher
 
 The left rail is a 22px strip of status dots, one per working-set session, loaded first and parked (unloaded)
-after a divider. Names and what each agent is doing live in the session panel; the title bar always names the
-session on screen and flags any other session waiting on the user.
+after a divider. Names and what each agent is doing live in the session panel.
 
 ## Surfaces
 
@@ -13,7 +12,6 @@ session on screen and flags any other session waiting on the user.
   of activity. Opens on rail hover or `weavie.session.panel` (`$mod+e`, everywhere including terminals); arrows,
   Enter, and Escape drive it. `weavie.session.panelPin` (or the pin button) docks it open beside the rail, pushing
   the panes; the pin persists in `rail-state.json`.
-- **Title bar** (`SessionTitle.tsx`): the current session's name, then a pill per other session needing input.
 - **Mobile** keeps the full list in the Sessions surface (no rail there); on desktop that modal is new-session only.
 
 ## Activity line
@@ -25,7 +23,7 @@ flowchart LR
   A --> T[SessionActivityTracker]
   S[SessionStatusMachine] --> T
   T --> F["status/activity (latest line, at most every 300 ms)"]
-  F --> W[session store → panel, title, mobile row]
+  F --> W[session store → panel, mobile row]
 ```
 
 - Providers report each tool call as a provider-neutral `AgentActivity` (kind + short subject: a file name, the

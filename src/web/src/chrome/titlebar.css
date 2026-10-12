@@ -78,18 +78,12 @@
 
 .tb-center {
   flex: 1 1 auto;
-  /* The session readout takes the left gutter so the omnibar stays centred in the bar. */
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr);
+  justify-content: center;
   /* Full bar height + stretch the omnibar to fill it, so the box is flush top and bottom (no gaps). */
   align-self: stretch;
   align-items: stretch;
   min-width: 0;
   padding: 0 8px;
-}
-.tb-center > .session-title {
-  justify-self: start;
-  max-width: 100%;
 }
 
 .tb-controls {

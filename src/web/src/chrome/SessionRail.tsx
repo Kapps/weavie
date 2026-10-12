@@ -5,7 +5,7 @@ import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
 
-// The left session rail: every session on every connected backend as a status dot over the first words of its
+// The left session rail: every session on every connected backend as a status dot (a cloud for remotes) over the first words of its
 // name, loaded first and parked (unloaded) ones folded behind a toggle. The full session panel opens on hover.
 export function SessionRail(props: {
   sessions: RailSession[];
@@ -47,32 +47,30 @@ export function SessionRail(props: {
                     }`}
                     data-session-slot={session.id}
                     title={chipTitle(session, index())}
-                    ref={(el) => {
-                      if (session.agentHue !== undefined) {
-                        el.style.setProperty("--agent-hue", String(session.agentHue));
-                      }
-                    }}
                     onClick={() => props.onSwitch(session)}
                     onContextMenu={(event) => menu.open(event, session)}
                   >
                     {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
-                    <span class={`session-status status-${statusDot(session)}`} />
+                    <Show
+                      when={session.isLocal}
+                      fallback={
+                        <svg
+                          class={`session-status cloud status-${statusDot(session)}`}
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path d={CLOUD_PATH} />
+                        </svg>
+                      }
+                    >
+                      <span class={`session-status status-${statusDot(session)}`} />
+                    </Show>
                     <Show when={session.pending}>
                       <span class="session-chip-spinner" aria-hidden="true" />
                     </Show>
                     <span class="session-chip-words">
                       {session.title.split(" ").slice(0, 2).join(" ")}
                     </span>
-                    <Show when={!session.isLocal}>
-                      <svg
-                        class="session-chip-cloud"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path d={CLOUD_PATH} />
-                      </svg>
-                    </Show>
                   </button>
                 </Show>
               </>

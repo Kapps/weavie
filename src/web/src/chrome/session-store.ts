@@ -26,8 +26,6 @@ export interface RailSession extends SessionChip {
   /** The backend's display name ("default" for local, else the registered agent name). */
   locationName: string;
   isLocal: boolean;
-  /** The agent's identity hue (remote sessions only), colouring the remote marker at rest. */
-  agentHue?: number;
   /** A host op (delete / load / unload) is in flight against this session — its chip shows a spinner. */
   pending: boolean;
   /** The backend's link is down (socket opening/retrying) — the session can't be reached right now. */
@@ -245,7 +243,7 @@ export const railSessions = createMemo<RailSession[]>(() => {
   return [...merged()]
     .sort((a, b) => rank(a) - rank(b))
     .map((s) => ({
-      ...(s.isLocal ? s : { ...s, agentHue: agentHue(s.locationName) }),
+      ...s,
       active:
         pending === null ? s.active : s.backendId === pending.backendId && s.id === pending.id,
     }));

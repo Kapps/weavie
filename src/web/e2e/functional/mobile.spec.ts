@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
 import { landscapeMedia, renderedFit, zoomMatrix } from "../harness/media-fixtures";
@@ -699,7 +700,7 @@ test("WebM video opens inline in the compact editor", async ({ page }) => {
   await expect(video).toBeVisible();
   await expect(video).toHaveAttribute("src", /\/weavie-media\/clip\.webm\?/);
   await expect(video).toHaveAttribute("playsinline", "");
-  await expect(video).toHaveAttribute("controls", "");
+  await expect(page.getByRole("slider", { name: "Seek" })).toBeVisible();
   await expect(video).toHaveAttribute("preload", "metadata");
   await expect
     .poll(() => video.evaluate((element) => element.readyState))
@@ -707,47 +708,153 @@ test("WebM video opens inline in the compact editor", async ({ page }) => {
   await expect(page.locator(".editor-media-notice")).toHaveCount(0);
 });
 
-// A pinch zooms the media pane, and a quarter turn enlarges a landscape video to fill the portrait screen.
+// On a phone a quarter turn fills the whole screen in landscape — over the app chrome, uncropped — and pinch zooms
+// toward the fingers while one finger pans, at 1× and turned. Turning back returns to the pane.
 test.describe("landscape media", () => {
   test.use({ workspaceSeed: landscapeMedia });
 
-  test("pinch zooms a video and rotating fills the portrait pane", async ({ page }) => {
+  const open = async (page: Page, name: string): Promise<Locator> => {
     await page.getByRole("button", { name: "Code", exact: true }).click();
     await page.getByRole("button", { name: "Files" }).click();
-    await page.locator(".browser-row", { hasText: "landscape.webm" }).click();
+    await page.locator(".browser-row", { hasText: name }).click();
     await page
       .locator('.tool-panel[data-tool="files"]')
       .getByRole("button", { name: /^Close/ })
       .click();
     const pane = page.locator(".editor-media");
-    const video = pane.locator("video");
-    await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
-    const unrotated = (await video.boundingBox())!;
+    await expect(pane.getByRole("button", { name: "Rotate 90°" })).toBeVisible();
+    return pane;
+  };
 
+  // Pinches out around a point right of center, then drags one finger; returns the zoom before and after the drag.
+  const pinchThenPan = async (page: Page, pane: Locator) => {
     const box = (await pane.boundingBox())!;
     const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
     const touch = touchSession(page);
+    const send = (type: string, touchPoints: { x: number; y: number; id: number }[]) =>
+      touch.send("Input.dispatchTouchEvent", { type, touchPoints });
     const fingers = (spread: number) => [
-      { x: cx - spread, y: cy, id: 1 },
-      { x: cx + spread, y: cy, id: 2 },
+      { x: cx + 60 - spread, y: cy, id: 1 },
+      { x: cx + 60 + spread, y: cy, id: 2 },
     ];
-    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(30) });
-    for (const spread of [50, 70, 90]) {
-      await touch.send("Input.dispatchTouchEvent", {
-        type: "touchMove",
-        touchPoints: fingers(spread),
-      });
-    }
-    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await expect.poll(async () => (await zoomMatrix(pane)).a).toBeCloseTo(3, 1);
-    await expect(pane.locator(".editor-media-hint")).toContainText("× — drag to pan, 0 resets");
+    await send("touchStart", fingers(20));
+    for (const spread of [40, 60, 80]) await send("touchMove", fingers(spread));
+    await send("touchEnd", []);
+    await expect
+      .poll(async () => {
+        const { a, b } = await zoomMatrix(pane);
+        return Math.hypot(a, b);
+      })
+      .toBeCloseTo(4, 1);
+    const zoomed = await zoomMatrix(pane);
+    await send("touchStart", [{ x: cx, y: cy, id: 3 }]);
+    for (const step of [10, 30, 60, 90])
+      await send("touchMove", [{ x: cx + step, y: cy + step / 2, id: 3 }]);
+    await send("touchEnd", []);
+    return { zoomed, panned: await zoomMatrix(pane) };
+  };
+
+  test("rotating a video fills the screen in landscape; pinch zooms and one finger pans", async ({
+    page,
+  }) => {
+    const pane = await open(page, "landscape.webm");
+    const video = pane.locator("video");
+    await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
+    const inPane = (await pane.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(inPane.height).toBeLessThan(viewport.height - 100);
+
+    // At 1× the pinch zooms toward the fingers (off-center), and a drag pans.
+    const flat = await pinchThenPan(page, pane);
+    expect(flat.zoomed.e).toBeLessThan(-100);
+    expect(flat.panned.e - flat.zoomed.e).toBeCloseTo(90, 0);
+    expect(flat.panned.f - flat.zoomed.f).toBeCloseTo(45, 0);
+
+    // A quarter turn resets the zoom and covers the whole screen, bottom nav included.
+    await pane.getByRole("button", { name: "Rotate 90°" }).click();
+    await expect(pane).toHaveClass(/\bfullscreen\b/);
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.fullscreenElement?.classList.contains("editor-media")),
+      )
+      .toBe(true);
+    await expect(pane).not.toHaveClass(/\bzoomed\b/);
+    expect(await pane.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+    expect(
+      await page.evaluate(
+        ([x, y]) => document.elementFromPoint(x!, y!)?.closest(".editor-media") !== null,
+        [viewport.width / 2, viewport.height - 20],
+      ),
+    ).toBe(true);
+    expect(await renderedFit(pane)).toEqual({
+      portrait: true,
+      fillsAnAxis: true,
+      fitsInside: true,
+      natural: false,
+    });
+
+    // The turned controls run along the long edge and still play.
+    const seek = (await pane.getByRole("slider", { name: "Seek" }).boundingBox())!;
+    expect(seek.height).toBeGreaterThan(viewport.height / 2);
+    await video.evaluate((element) => element.pause());
+    await pane.getByRole("button", { name: "Play" }).click();
+    await expect.poll(() => video.evaluate((element) => element.paused)).toBe(false);
+    await pane.getByRole("button", { name: "Pause" }).click();
+
+    // Turned, the pinch still zooms toward the fingers and a drag pans in screen space.
+    const turned = await pinchThenPan(page, pane);
+    expect(turned.panned.e - turned.zoomed.e).toBeCloseTo(90, 0);
+    expect(turned.panned.f - turned.zoomed.f).toBeCloseTo(45, 0);
 
     await pane.getByRole("button", { name: "Rotate 90°" }).click();
-    await expect.poll(async () => (await zoomMatrix(pane)).a).toBeCloseTo(0, 5);
-    const fit = await renderedFit(pane);
-    expect(fit).toMatchObject({ portrait: true, fitsInside: true, fillsAnAxis: true });
-    const rotated = (await video.boundingBox())!;
-    expect(rotated.height).toBeGreaterThan(unrotated.width * 1.2);
+    await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+    expect(await pane.boundingBox()).toEqual(inPane);
+    expect((await renderedFit(pane)).portrait).toBe(false);
+  });
+
+  // iPhone has no element fullscreen: the pane alone must cover the screen, tab bar and bottom nav included.
+  test("without element fullscreen, a rotated pane still covers the whole screen", async ({
+    page,
+  }) => {
+    const pane = await open(page, "landscape.png");
+    await page.evaluate(() =>
+      Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: false }),
+    );
+    const viewport = page.viewportSize()!;
+    await pane.getByRole("button", { name: "Rotate 90°" }).click();
+    await expect(pane).toHaveClass(/\bfullscreen\b/);
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    expect(await pane.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+    for (const y of [10, viewport.height / 2, viewport.height - 20]) {
+      expect(
+        await page.evaluate(
+          ([px, py]) => document.elementFromPoint(px!, py!)?.closest(".editor-media") !== null,
+          [viewport.width / 2, y],
+        ),
+      ).toBe(true);
+    }
+    expect(await renderedFit(pane)).toMatchObject({
+      portrait: true,
+      fitsInside: true,
+      fillsAnAxis: true,
+    });
+    await pane.getByRole("button", { name: "Rotate 90°" }).click();
+    await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+  });
+
+  test("a rotated image fills the screen and pans once zoomed", async ({ page }) => {
+    const pane = await open(page, "landscape.png");
+    await pane.getByRole("button", { name: "Rotate 90°" }).click();
+    await expect(pane).toHaveClass(/\bfullscreen\b/);
+    expect(await renderedFit(pane)).toMatchObject({
+      portrait: true,
+      fitsInside: true,
+      fillsAnAxis: true,
+    });
+    const turned = await pinchThenPan(page, pane);
+    expect(turned.panned.e - turned.zoomed.e).toBeCloseTo(90, 0);
+    expect(turned.panned.f - turned.zoomed.f).toBeCloseTo(45, 0);
   });
 });
 

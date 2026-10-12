@@ -1,3 +1,4 @@
+import { Maximize, Minimize, RotateCw } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -11,17 +12,19 @@ import { type ClientSession, mediaResourceUrl } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { useCompactMode } from "../../mobile/useCompactMode";
 import { basename, samePath } from "../fs-path";
 import { createPanZoom } from "../pan-zoom";
-import { registerMediaPane } from "./media-rotate";
+import { registerMediaPane } from "./media-commands";
 import { mediaTypeOf } from "./media-types";
+import VideoControls, { togglePlayback } from "./VideoControls";
 
 /**
  * The media-tab surface: the active image/video file rendered over the (kept-mounted) Monaco host, at the
  * same layer as the Preview/Web overlays. The browser streams bytes directly from the workspace HTTP server.
- * Videos get native controls. The view zooms/pans (wheel, pinch, drag, +/-/0) and rotates a quarter turn,
- * refitting so a sideways video fills a portrait screen; a video's double-click stays the browser's
- * fullscreen toggle. Failed reads and deletions render loudly in the pane.
+ * The view zooms/pans (wheel, pinch, drag, +/-/0), rotates a quarter turn by laying the media out in the
+ * pane's swapped axes, and goes fullscreen with its rotation intact; on a phone, rotating fills the screen.
+ * Videos play through the pane's own controls. Failed reads and deletions render loudly in the pane.
  */
 export default function MediaPane(props: {
   session: ClientSession;
@@ -29,37 +32,48 @@ export default function MediaPane(props: {
   bind(element: HTMLElement): () => void;
 }): JSX.Element {
   let host!: HTMLDivElement;
-  let content: HTMLElement | undefined;
   const zoom = createPanZoom(() => host);
+  const compact = useCompactMode();
+  const coarse = window.matchMedia("(pointer: coarse)");
   const [rotated, setRotated] = createSignal(false);
-  // A quarter turn swaps the fitted box's axes, so it rescales to fit the pane the other way round.
-  const [fitScale, setFitScale] = createSignal(1);
-  // An image stays capped at its natural size, as unrotated; a video fills, like fullscreen playback.
-  const refit = (): void => {
-    const w = content?.offsetWidth ?? 0;
-    const h = content?.offsetHeight ?? 0;
-    const cap =
-      content instanceof HTMLImageElement ? Math.max(1, content.naturalWidth / w) : Infinity;
-    setFitScale(
-      rotated() && w > 0 && h > 0 ? Math.min(host.clientWidth / h, host.clientHeight / w, cap) : 1,
-    );
+  const [fullscreen, setFullscreen] = createSignal(false);
+  const [video, setVideo] = createSignal<HTMLVideoElement>();
+  // The pane covers the viewport itself (iPhone has no element fullscreen); the Fullscreen API, where the
+  // browser grants it, also hides the browser's own chrome.
+  const showFullscreen = (on: boolean): void => {
+    setFullscreen(on);
+    if (on && document.fullscreenEnabled) {
+      host.requestFullscreen().catch(() => undefined);
+    } else if (!on && document.fullscreenElement === host) {
+      void document.exitFullscreen();
+    }
   };
+  const toggleFullscreen = (): void => showFullscreen(!fullscreen());
   const rotate = (): void => {
     zoom.reset();
     setRotated((value) => !value);
-    refit();
+    // A phone held sideways: the turned media takes the whole screen. A narrow desktop window just turns.
+    if (compact() && coarse.matches) showFullscreen(rotated());
+  };
+  // Keeps the browser's fullscreen in step: leaving it (Escape, back) exits, and one granted after a quick
+  // toggle back out is released.
+  const syncFullscreen = (): void => {
+    const granted = document.fullscreenElement === host;
+    if (!granted && fullscreen()) setFullscreen(false);
+    else if (granted && !fullscreen()) void document.exitFullscreen();
   };
   onMount(() => {
     onCleanup(props.bind(host));
-    onCleanup(registerMediaPane(props.session, rotate));
+    onCleanup(registerMediaPane(props.session, { rotate, toggleFullscreen }));
     host.addEventListener("wheel", zoom.onWheel, { passive: false });
-    const observer = new ResizeObserver(refit);
-    observer.observe(host);
-    onCleanup(() => observer.disconnect());
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    onCleanup(() => {
+      document.removeEventListener("fullscreenchange", syncFullscreen);
+      if (document.fullscreenElement === host) void document.exitFullscreen();
+    });
   });
   const loaded = (): void => {
     setStatus("ready");
-    refit();
   };
 
   // Live view of editor.videoAutoplay — toggling it updates the mounted element, so the next load honors it.
@@ -100,25 +114,56 @@ export default function MediaPane(props: {
     setError(`Unable to load ${basename(props.path)}.`);
   };
 
+  // Escape leaves fullscreen from anywhere in the pane; Space and the shared +/-/0 zoom keys act only on the
+  // pane itself, so a focused control keeps its own keys.
+  const viewKey = (key: string, onPane: boolean): boolean => {
+    const playing = video();
+    if (key === "Escape" && fullscreen()) {
+      showFullscreen(false);
+    } else if (!onPane) {
+      return false;
+    } else if (key === " " && playing !== undefined) {
+      togglePlayback(playing);
+    } else {
+      return zoom.zoomKey(key);
+    }
+    return true;
+  };
+  const tool = (label: string, title: string, click: () => void, icon: JSX.Element) => (
+    <button type="button" title={title} aria-label={label} onClick={click}>
+      {icon}
+    </button>
+  );
+
   return (
     <div
       class="editor-media"
       role="application"
       aria-label={basename(props.path)}
-      classList={{ zoomed: zoom.scale() > 1, panning: zoom.panning() }}
+      classList={{
+        zoomed: zoom.scale() > 1,
+        panning: zoom.panning(),
+        rotated: rotated(),
+        fullscreen: fullscreen(),
+      }}
       data-kind="editor"
       tabindex="0"
       ref={host}
       {...zoom.handlers}
       onKeyDown={(event) => {
-        if (!event.ctrlKey && !event.metaKey && !event.altKey && zoom.zoomKey(event.key)) {
+        if (
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          viewKey(event.key, event.target === event.currentTarget)
+        ) {
           event.preventDefault();
         }
       }}
     >
       <div
         class="editor-media-zoom"
-        style={`transform: ${zoom.transform()}${rotated() ? ` rotate(90deg) scale(${fitScale()})` : ""}`}
+        style={`transform: ${zoom.transform()}${rotated() ? " rotate(90deg)" : ""}`}
       >
         <Show when={url()} keyed>
           {(src) => (
@@ -127,9 +172,6 @@ export default function MediaPane(props: {
               fallback={
                 <img
                   class="editor-media-content"
-                  ref={(element) => {
-                    content = element;
-                  }}
                   src={src}
                   alt={basename(props.path)}
                   onLoad={loaded}
@@ -140,16 +182,12 @@ export default function MediaPane(props: {
               {/* biome-ignore lint/a11y/useMediaCaption: workspace video files carry no caption tracks. */}
               <video
                 class="editor-media-content"
-                ref={(element) => {
-                  content = element;
-                }}
+                ref={setVideo}
                 src={src}
-                controls
                 preload="metadata"
                 autoplay={autoplay()}
                 playsinline
                 onLoadedMetadata={loaded}
-                onDblClick={(event) => event.stopPropagation()}
                 onError={failed}
               />
             </Show>
@@ -157,33 +195,35 @@ export default function MediaPane(props: {
         </Show>
       </div>
       <Show when={status() === "ready"}>
-        <button
-          type="button"
-          class="editor-media-rotate"
-          title={`Rotate 90°${keyHint(CommandIds.rotateMedia)}`}
-          aria-label="Rotate 90°"
+        {/* Presses on the controls never reach the pane's pan/zoom gestures. */}
+        <div
+          class="editor-media-chrome"
+          role="toolbar"
+          aria-label="Media controls"
           onPointerDown={(event) => event.stopPropagation()}
           onDblClick={(event) => event.stopPropagation()}
-          onClick={rotate}
         >
-          <svg
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-            <path d="M21 3v5h-5" />
-          </svg>
-        </button>
-      </Show>
-      <Show when={zoom.hint()}>
-        <div class="editor-media-hint">{zoom.hint()}</div>
+          <div class="editor-media-tools">
+            {tool(
+              fullscreen() ? "Exit fullscreen" : "Fullscreen",
+              `${fullscreen() ? "Exit fullscreen" : "Fullscreen"}${keyHint(CommandIds.toggleMediaFullscreen)}`,
+              toggleFullscreen,
+              fullscreen() ? <Minimize size={16} /> : <Maximize size={16} />,
+            )}
+            {tool(
+              "Rotate 90°",
+              `Rotate 90°${keyHint(CommandIds.rotateMedia)}`,
+              rotate,
+              <RotateCw size={16} />,
+            )}
+          </div>
+          <Show when={zoom.hint()}>
+            <div class="editor-media-hint">{zoom.hint()}</div>
+          </Show>
+          <Show when={video()} keyed>
+            {(element) => <VideoControls video={element} />}
+          </Show>
+        </div>
       </Show>
       <Show when={status() === "error"}>
         <div class="editor-media-notice">{error()}</div>

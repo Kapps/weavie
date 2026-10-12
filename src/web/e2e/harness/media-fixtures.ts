@@ -33,8 +33,9 @@ export function zoomMatrix(pane: Locator): Promise<{ a: number; b: number; e: nu
 }
 
 /**
- * The rendered (transformed) media box against the pane. A quarter turn fits it inside the pane, filling one
- * axis unless that would enlarge it past its natural size (`natural`: its longer side is at natural size).
+ * The rendered media picture against the pane: an image's transformed box, or the letterboxed picture inside a
+ * video's box. A quarter turn fits it inside the pane, filling one axis unless that would enlarge an image past
+ * its natural size (`natural`: its longer side is at natural size).
  */
 export async function renderedFit(pane: Locator): Promise<{
   portrait: boolean;
@@ -43,24 +44,34 @@ export async function renderedFit(pane: Locator): Promise<{
   natural: boolean;
 }> {
   const content = pane.locator(".editor-media-content");
-  const [outer, inner, naturalLong] = await Promise.all([
+  const [outer, box, media] = await Promise.all([
     pane.boundingBox(),
     content.boundingBox(),
-    content.evaluate((element) =>
-      element instanceof HTMLVideoElement
-        ? Math.max(element.videoWidth, element.videoHeight)
-        : Math.max(
-            (element as HTMLImageElement).naturalWidth,
-            (element as HTMLImageElement).naturalHeight,
-          ),
-    ),
+    content.evaluate((element) => {
+      const video = element instanceof HTMLVideoElement ? element : null;
+      const image = element as HTMLImageElement;
+      const turned = new DOMMatrix(getComputedStyle(element.parentElement!).transform).b !== 0;
+      return {
+        video: video !== null,
+        width: video?.videoWidth ?? image.naturalWidth,
+        height: video?.videoHeight ?? image.naturalHeight,
+        turned,
+      };
+    }),
   ]);
-  if (outer === null || inner === null) throw new Error("media pane or content is not rendered");
+  if (outer === null || box === null) throw new Error("media pane or content is not rendered");
+  let inner = { width: box.width, height: box.height };
+  if (media.video) {
+    const aspect = media.turned ? media.height / media.width : media.width / media.height;
+    const width = Math.min(box.width, box.height * aspect);
+    inner = { width, height: width / aspect };
+  }
   return {
     portrait: inner.height > inner.width,
     fillsAnAxis:
       Math.abs(inner.width - outer.width) < 1.5 || Math.abs(inner.height - outer.height) < 1.5,
     fitsInside: inner.width <= outer.width + 1.5 && inner.height <= outer.height + 1.5,
-    natural: Math.abs(Math.max(inner.width, inner.height) - naturalLong) < 1.5,
+    natural:
+      Math.abs(Math.max(inner.width, inner.height) - Math.max(media.width, media.height)) < 1.5,
   };
 }

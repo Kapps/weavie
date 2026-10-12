@@ -1,17 +1,7 @@
 diff --git a/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js b/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
-index 1f50fe02a7391045657ea00a731448a90ac4c955..586c862b6717eed5190883fff6dc50f2efb3e5b1 100644
 --- a/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
 +++ b/vscode/src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateWorkerTokenizer.js
-@@ -88,15 +88,15 @@ class TextMateWorkerTokenizer extends MirrorTextModel {
-         this._tokenize();
-     }
-     async _tokenize() {
--        if (this._isDisposed || !this._tokenizerWithStateStore) {
--            return;
--        }
-         if (!this._diffStateStacksRefEqFn) {
-             const {
-                 diffStateStacksRefEq
+@@ -94,6 +94,9 @@ class TextMateWorkerTokenizer extends MirrorTextModel {
              } = await import('@codingame/monaco-vscode-api/_virtual/main').then(function (n) { return n.main; });
              this._diffStateStacksRefEqFn = diffStateStacksRefEq;
          }

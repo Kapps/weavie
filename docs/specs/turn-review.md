@@ -435,7 +435,9 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 - **Large reviews.** The top file tree and all diff sections share one scroll surface, and the page virtualizes
   those sections with the same virtualizer as the agent transcript. The tree scrolls away instead of permanently
   consuming vertical space, and only the sections on screen hold a live editor — a 100-file review never means
-  100 Monaco instances. Collapsing a file disposes its section editor; collapsing unchanged regions within an
+  100 Monaco instances. Sections lease editors from a review-owned pool, which never holds more than the most
+sections mounted at once, so file boundaries create and dispose no editors. Collapsing a file releases its editor
+to the pool; collapsing unchanged regions within an
   expanded file keeps the section proportional to what actually changed. It has no line-count cutoff: a
   4,000-line file renders normally when the diff engine completes. An actual
   computation timeout leaves that file shown in full, uncollapsed and unmarked, with a notice. File review

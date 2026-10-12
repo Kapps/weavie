@@ -41,17 +41,16 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
 }
 
 /**
- * A secondary editor embedded in another surface (the unified review's per-file diffs). Same settings, fonts and
- * language services as the main pane — `overrides` win over the user's editor settings and stay applied when
- * those settings change — but it never becomes the editor service's target.
+ * A secondary editor embedded in another surface (the unified review's pooled per-file diffs), created without a
+ * model. Same settings, fonts and language services as the main pane — `overrides` win over the user's editor
+ * settings and stay applied when those settings change — but it never becomes the editor service's target.
  */
 export function createEmbeddedEditor(
   container: HTMLElement,
-  model: monaco.editor.ITextModel,
   construction: Required<EditorConstruction>,
   overrides: monaco.editor.IEditorOptions,
 ): monaco.editor.IStandaloneCodeEditor {
-  return buildEditor(container, model, overrides, construction);
+  return buildEditor(container, null, overrides, construction);
 }
 
 // The construction options + live font/settings wiring every weavie editor shares.

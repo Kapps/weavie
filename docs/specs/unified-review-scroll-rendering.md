@@ -4,10 +4,12 @@ The unified review uses one logical scroll position for its file list, pinned he
 Monaco viewports. Their placement uses CSS transforms. Completion, hover, and rename widgets live
 outside the transformed content so their fixed positions remain relative to the window.
 
-Each review section owns an external widget layer. The Monaco patch gives every view using that
-layer its own child container, focus tracking, inherited context keys, and keyboard registration.
-Nested definition peeks share the placement layer but own separate children. View disposal removes
-those children; section disposal removes the layer. This keeps popup keyboard commands attached to
+Each pooled review editor owns an external widget layer for the life of the review's editor pool;
+sections lease editors from the pool. The Monaco patch gives every view using that layer its own
+child container, focus tracking, inherited context keys, and keyboard registration. Nested
+definition peeks share the placement layer but own separate children. View disposal — including a
+section releasing its editor (`setModel(null)`) — removes those children; closing the review removes
+the layers. This keeps popup keyboard commands attached to
 the editor that opened them, including when a peek remains mounted.
 
 ## Investigation

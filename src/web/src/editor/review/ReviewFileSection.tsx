@@ -28,6 +28,7 @@ import type { TabOwner } from "../tab-owner";
 import { DiffStats } from "./DiffStats";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewEditor } from "./review-editor";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import type { ReviewScroll } from "./review-scroll";
 import {
   isFullContext,
@@ -44,6 +45,7 @@ export function ReviewFileSection(props: {
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
+  editors: () => ReviewEditorPool;
   editorHeight: () => number;
   onEditorHeight: (height: number) => boolean;
   index: number;
@@ -225,6 +227,7 @@ export function ReviewFileSection(props: {
             onEditor={setEditor}
             header={() => header}
             scroller={props.scroller}
+            editors={props.editors}
             editorHeight={props.editorHeight}
             onEditorHeight={props.onEditorHeight}
             scope={props.scope}

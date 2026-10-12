@@ -22,6 +22,7 @@ import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-context";
+import { createReviewEditorPool, type ReviewEditorPool } from "./review-editor-pool";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type {
@@ -62,6 +63,7 @@ export function UnifiedReview(props: {
   let virtualList: HTMLDivElement | undefined;
   let toolbarHost: HTMLElement | undefined;
   const [scroll, setScroll] = createSignal<ReviewScroll>();
+  const [editors, setEditors] = createSignal<ReviewEditorPool>();
   const sizeVirtualList = (height: number): void => {
     scroll()?.setContentHeight(height);
   };
@@ -375,6 +377,9 @@ export function UnifiedReview(props: {
     const element = scroller!;
     const owner = createReviewScroll(element, virtualList!);
     setScroll(owner);
+    const pool = createReviewEditorPool(owner);
+    setEditors(pool);
+    onCleanup(() => pool.dispose());
     sizeVirtualList(virtualizer.getTotalSize());
     const changedScroll = owner.onScroll((userInitiated) => {
       setViewTop(owner.getScrollTop());
@@ -476,6 +481,7 @@ export function UnifiedReview(props: {
                           session={props.session}
                           tab={props.tab}
                           scroller={() => scroll()!}
+                          editors={() => editors()!}
                           editorHeight={() => editorHeight(view())}
                           onEditorHeight={(height) => {
                             const file = view();

@@ -58,15 +58,16 @@ test("middle scrolling crosses files after its starting editor unmounts, without
     const selection = editor.getSelection();
     const model = editor.getModel()!;
     const value = model.getValue();
-    let disposed = false;
-    editor.onDidDispose(() => {
-      disposed = true;
+    // Review editors are pooled: unmounting the section releases its editor rather than disposing it.
+    let released = false;
+    editor.onDidChangeModel(() => {
+      if (editor.getModel() !== model) released = true;
     });
     return {
       scrollLeft: () => editor.getScrollLeft(),
       unchangedSelection: () => JSON.stringify(editor.getSelection()) === JSON.stringify(selection),
       unchangedText: () => model.getValue() === value,
-      disposed: () => disposed,
+      released: () => released,
     };
   }, original);
   const origin = await arm(page, editor);
@@ -77,8 +78,7 @@ test("middle scrolling crosses files after its starting editor unmounts, without
   expect(await observation.evaluate((sample) => sample.unchangedText())).toBe(true);
 
   await page.mouse.move(origin.x + 120, origin.y + 250);
-  await expect.poll(() => observation.evaluate((sample) => sample.disposed())).toBe(true);
-  expect(await original!.evaluate((node) => node.isConnected)).toBe(false);
+  await expect.poll(() => observation.evaluate((sample) => sample.released())).toBe(true);
   await expect(page.locator(".middle-click-autoscroll-origin")).toBeVisible();
   await expect.poll(() => reviewScroll(page).then(({ top, maximum }) => maximum - top)).toBe(0);
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText("file 5/5");

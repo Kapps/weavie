@@ -82,13 +82,17 @@ test("scrolled review completions stay at the caret and belong to their editor",
     expect(focused[0]).toMatch(new RegExp(`${path.replace(".", "\\.")}$`));
     await section.locator(".unified-review-file-toggle").click();
     await expect(section.locator(".monaco-editor")).toHaveCount(0);
-    await expect(page.locator(".suggest-widget")).toHaveCount(0);
+    await expect(page.locator(".suggest-widget.visible")).toHaveCount(0);
+    // Review editors are pooled: each live editor keeps exactly one widget layer, released or leased.
     await expect
       .poll(async () =>
         page.evaluate(
           () =>
             document.querySelectorAll(".unified-review-overflow-widgets").length -
-            document.querySelectorAll(".unified-review-editor-viewport > .monaco-editor").length,
+            (window.__WEAVIE_MONACO__!.editor.getEditors() as MonacoEditor.ICodeEditor[]).filter(
+              (editor) =>
+                editor.getContainerDomNode().classList.contains("unified-review-editor-viewport"),
+            ).length,
         ),
       )
       .toBe(0);

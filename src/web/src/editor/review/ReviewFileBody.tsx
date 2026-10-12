@@ -14,6 +14,7 @@ import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import type { TabOwner } from "../tab-owner";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import type { ReviewScroll } from "./review-scroll";
 import {
   hasReviewChanges,
@@ -36,6 +37,7 @@ export function ReviewFileBody(props: {
   revealContext: (span: LineSpan) => void;
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
+  editors: () => ReviewEditorPool;
   editorHeight: () => number;
   onEditorHeight: (height: number) => boolean;
   measure: () => void;
@@ -129,6 +131,7 @@ export function ReviewFileBody(props: {
             tab: props.tab,
             scope: props.scope,
             container,
+            editors: props.editors(),
             scroller: props.scroller(),
             header: props.header(),
             model: copy.model,

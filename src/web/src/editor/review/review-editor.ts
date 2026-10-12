@@ -10,11 +10,12 @@ import {
   type InlineDiffPresentation,
   type ReviewScopeState,
 } from "../inline-diff";
-import { createEmbeddedEditor, monaco } from "../monaco-setup";
+import { monaco } from "../monaco-setup";
 import type { TextLocation } from "../nav-history";
 import type { TabOwner } from "../tab-owner";
 import type { DiffMarkers } from "./diff-markers";
 import { collapseUnchanged } from "./review-context";
+import type { ReviewEditorPool } from "./review-editor-pool";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewScroll } from "./review-scroll";
 import type { LineSpan, ReviewFileDiff } from "./review-store";
@@ -49,6 +50,7 @@ export function createReviewEditor(options: {
   tab: TabOwner;
   scope: ReviewScopeState;
   container: HTMLElement;
+  editors: ReviewEditorPool;
   scroller: ReviewScroll;
   header: HTMLElement;
   model: monaco.editor.ITextModel;
@@ -67,43 +69,20 @@ export function createReviewEditor(options: {
   const loading = document.createElement("div");
   loading.className = "unified-review-notice";
   loading.textContent = "Calculating diff…";
-  const mount = document.createElement("div");
-  mount.className = "unified-review-editor-viewport";
-  mount.style.visibility = "hidden";
+  const slot = options.editors.lease();
+  const { mount, widgets } = slot;
   container.append(loading, mount);
-  // Fixed widgets must escape the transformed scroll content; each editor owns its widget focus.
-  const widgets = document.createElement("div");
-  widgets.className = "monaco-editor unified-review-overflow-widgets";
-  options.scroller.element.append(widgets);
-  const horizontalScrollbarSize =
-    monaco.editor.EditorOptions.scrollbar.defaultValue.horizontalScrollbarSize;
   const viewport = createReviewEditorViewport(
     container,
     mount,
     options.scroller,
     options.header,
-    (dimension) =>
-      createEmbeddedEditor(
-        mount,
-        model,
-        { dimension, overflowWidgetsDomNode: widgets },
-        {
-          readOnly: !options.editable,
-          scrollBeyondLastLine: false,
-          automaticLayout: false,
-          smoothScrolling: false,
-          overviewRulerLanes: 0,
-          overviewRulerBorder: false,
-          hideCursorInOverviewRuler: true,
-          minimap: { enabled: false },
-          folding: false,
-          stickyScroll: { enabled: false },
-          renderLineHighlightOnlyWhenFocus: true,
-          // Visible-line width changes must not change the section's height.
-          scrollbar: { horizontalScrollbarSize, ignoreHorizontalScrollbarInContentHeight: true },
-          padding: { top: 6, bottom: 6 + horizontalScrollbarSize },
-        },
-      ),
+    (dimension) => {
+      slot.editor.layout(dimension);
+      slot.editor.updateOptions({ readOnly: !options.editable });
+      slot.editor.setModel(model);
+      return slot.editor;
+    },
   );
   const editor = viewport.editor as CollapsingEditor;
   // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
@@ -255,10 +234,14 @@ export function createReviewEditor(options: {
     capture,
     restore,
   });
-  widgets.addEventListener("focusin", () => {
-    editorContexts.activate(binding.connection);
-    options.onCursor(editor.getPosition()?.lineNumber ?? 1);
-  });
+  widgets.addEventListener(
+    "focusin",
+    () => {
+      editorContexts.activate(binding.connection);
+      options.onCursor(editor.getPosition()?.lineNumber ?? 1);
+    },
+    { signal: slot.signal },
+  );
   const inline = createInlineDiff(editor, presentation);
   const contentSize = editor.onDidContentSizeChange(measure);
   options.configure(inline, model.uri.toString(), options.diff);
@@ -342,10 +325,9 @@ export function createReviewEditor(options: {
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();
       inline.dispose();
-      editor.dispose();
-      widgets.remove();
+      hover(undefined);
       loading.remove();
-      mount.remove();
+      slot.release();
     },
   };
 }

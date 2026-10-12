@@ -7,12 +7,13 @@ export interface ReviewCommit {
   author: string;
   timeUnix: number;
   summary: string;
+  /** Whether the session's review spans this commit. */
+  inReview: boolean;
 }
 
-/** A review's commits since its base, newest first; `base` is null without a review against a ref. */
+/** The branch's commits since it left its base, newest first. */
 export interface ReviewCommits {
-  base: string | null;
-  /** The review compares the branch with its PR's or the repository's default branch. */
+  /** The review compares the whole branch with its PR's or the repository's default branch. */
   wholeBranch: boolean;
   commits: ReviewCommit[];
   error: string | null;

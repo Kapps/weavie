@@ -348,3 +348,25 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 .session-overview .unified-review-tree-row {
   padding-right: 0.65em;
 }
+
+/* Commit rows share one set of columns, so SHAs and times line up whatever each time's width. */
+.session-overview-commits {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  column-gap: 0.55em;
+}
+
+.session-overview-commits > li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.session-overview-commits .session-overview-when {
+  text-align: right;
+}
+
+/* A commit the current review doesn't span. */
+.session-overview-outside {
+  opacity: 0.45;
+}

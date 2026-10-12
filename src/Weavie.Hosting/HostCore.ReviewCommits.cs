@@ -4,13 +4,13 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// The commits a branch review covers (its merge-base to HEAD), for the session overview. Refreshed when HEAD moves
-// and, without the burst cooldown, when the session's review changes source; a review not against a branch has none.
+// The branch's commits for the session overview, each marked by whether the session's review spans it. Refreshed when
+// HEAD moves and, without the burst cooldown, when the review changes source.
 public sealed partial class HostCore {
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot> AttachReviewCommits(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewCommitsSnapshot>(
 			session.Background,
-			ct => ResolveReviewCommitsAsync(ActiveReview(session), ct),
+			ct => ResolveReviewCommitsAsync(session.WorkspaceRoot, ActiveReview(session), ct),
 			commits => session.Bus.BroadcastTarget.Feature("review").Publish("commits", WireJson.Default.ReviewCommitsSnapshot, commits));
 		session.AttachReviewCommits(monitor);
 		session.Changes.ReviewChanged += monitor.RefreshNow;
@@ -24,32 +24,43 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(ReviewContext? review, CancellationToken ct) {
-		if (review is null) {
-			return ReviewCommitsSnapshot.None;
-		}
-
-		bool wholeBranch = review.PrNumber > 0
-			|| review.Label == $"vs {await DefaultDiffRefAsync(review.Worktree, ct).ConfigureAwait(false)}";
+	// The branch starts at its PR's merge-base, else where it left the default branch; the review spans the commits
+	// after its own base. Two range logs over the branch only, never a history walk.
+	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(string worktree, ReviewContext? review, CancellationToken ct) {
+		var git = new GitService();
 		try {
-			var commits = await new GitService().LogRangeAsync(review.Worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false);
-			return new(review.MergeBase, wholeBranch, commits, null);
+			string? defaultRef = await DefaultDiffRefAsync(worktree, ct).ConfigureAwait(false);
+			string? branchBase = review is { PrNumber: > 0 } ? review.MergeBase
+				: defaultRef is null ? null
+				: await git.MergeBaseAsync(worktree, defaultRef, "HEAD", ct).ConfigureAwait(false);
+			if (branchBase is null) {
+				return ReviewCommitsSnapshot.None;
+			}
+
+			var branch = await git.LogRangeAsync(worktree, branchBase, "HEAD", ct).ConfigureAwait(false);
+			var reviewed = review is null
+				? []
+				: (await git.LogRangeAsync(worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false)).Select(c => c.Sha).ToHashSet(StringComparer.Ordinal);
+			bool wholeBranch = review is not null && (review.PrNumber > 0 || review.Label == $"vs {defaultRef}");
+			return new(wholeBranch, [.. branch.Select(c => new BranchCommit(c.Sha, c.Author, c.TimeUnix, c.Summary, reviewed.Contains(c.Sha)))], null);
 		} catch (GitException ex) {
-			return new(review.MergeBase, wholeBranch, [], ex.Message);
+			return new(false, [], ex.Message);
 		}
 	}
 }
 
+/// <summary>A branch commit and whether the session's review spans it.</summary>
+internal sealed record BranchCommit(string Sha, string Author, long TimeUnix, string Summary, bool InReview);
+
 /// <summary>
-/// A review's commits since its base, newest first; <see cref="Base"/> is null without a review against a ref, and
-/// <see cref="WholeBranch"/> marks one comparing the branch with its PR's or the repository's default branch.
+/// The branch's commits since it left its base, newest first; <see cref="WholeBranch"/> marks a review comparing the
+/// whole branch with its PR's or the repository's default branch.
 /// </summary>
-internal sealed record ReviewCommitsSnapshot(string? Base, bool WholeBranch, IReadOnlyList<GitCommit> Commits, string? Error) {
-	public static ReviewCommitsSnapshot None { get; } = new(null, false, [], null);
+internal sealed record ReviewCommitsSnapshot(bool WholeBranch, IReadOnlyList<BranchCommit> Commits, string? Error) {
+	public static ReviewCommitsSnapshot None { get; } = new(false, [], null);
 
 	public bool Equals(ReviewCommitsSnapshot? other) =>
-		other is not null && Base == other.Base && WholeBranch == other.WholeBranch && Error == other.Error
-		&& Commits.SequenceEqual(other.Commits);
+		other is not null && WholeBranch == other.WholeBranch && Error == other.Error && Commits.SequenceEqual(other.Commits);
 
-	public override int GetHashCode() => HashCode.Combine(Base, Error, Commits.Count);
+	public override int GetHashCode() => HashCode.Combine(WholeBranch, Error, Commits.Count);
 }

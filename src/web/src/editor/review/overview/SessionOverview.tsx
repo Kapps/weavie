@@ -34,8 +34,7 @@ export function SessionOverview(props: {
   const detail = () => pr()?.detail ?? null;
   const commits = () => {
     const value = reviewCommitsFor(props.session);
-    // A whole-branch review always lists its commits; a narrower one (vs HEAD^) only when it covers some.
-    return value?.base == null || (!value.wholeBranch && value.commits.length === 0) ? null : value;
+    return value === null || (value.commits.length === 0 && value.error === null) ? null : value;
   };
   // Meta is a thunk so the heading's counts stay live; the section itself is created once.
   const section = (id: string, title: string, meta: () => JSX.Element, body: () => JSX.Element) => (
@@ -55,7 +54,11 @@ export function SessionOverview(props: {
     section(
       "commits",
       "Commits",
-      () => commits()?.commits.length,
+      () => {
+        const all = commits()?.commits ?? [];
+        const spanned = all.filter((commit) => commit.inReview).length;
+        return spanned === all.length ? all.length : `${spanned} of ${all.length} in this review`;
+      },
       () => (
         <>
           <Show when={commits()?.error}>

@@ -129,31 +129,40 @@ non-interactive child gets a temp directory Weavie owns.
 
 - **One choke point.** Every non-PTY child — ACP agents (persistent and transient), ACP terminal commands,
   language servers, the dev server, the runner's worker, and `ProcessCapture` one-shots — starts through
-  `OwnedProcess.Start`, which creates the child's directory before launch, points `TMPDIR` (Unix) or `TMP` +
-  `TEMP` (Windows) at it, and deletes it recursively once the child is reaped — normal exit, crash, or SIGKILL —
-  *before* the exit is observable, so whoever waits for the exit also sees the temp gone.
-- **One root per Weavie process.** Children's directories live under `<temp>/weavie-<pid>-<start stamp>`
-  (`ChildTemp.Root`). The stamp is the process start time, exact and stable: Linux's `/proc/<pid>/stat`
-  start ticks, elsewhere Unix seconds. On startup `HostCore` and the runner call `ChildTemp.ReclaimOrphans`,
-  which deletes each sibling root whose owner is gone — no process has that pid, or the one that does started at
-  another time (pid reuse). A root is never judged by age, and a live owner's root is never touched.
+  `OwnedProcess.Start`, which points `TMPDIR` (Unix) or `TMP` + `TEMP` (Windows) at a `ChildTempScope` directory.
+  A scope is deleted recursively once its owner has let go and the last child started in it is reaped — normal
+  exit, crash, or SIGKILL — and a child's release happens *before* its exit is observable, so whoever waits for
+  the exit also sees its temp gone.
+- **Scopes follow what children share.** `OwnedProcess.Start(info)` gives the child a scope of its own. An ACP
+  conversation's terminal commands share one scope for the conversation's life, because an agent chains commands
+  through temp files (`f=$(mktemp)` in one, `cat "$f"` in the next).
+- **One root per Weavie process.** Scopes live under an owner-only (`mkdtemp`, 0700) root `<temp>/wvXXXXXX`
+  (`ChildTemp.Root`) holding an `owner` record: the pid and its start stamp — Linux's `/proc/<pid>/stat` start
+  ticks, elsewhere Unix seconds, both exact and stable. Its unpredictable name means no other user can prepare it.
+  Scope directories reuse the lowest free slot (`0`, `1`, …), so paths stay short however many children have run:
+  macOS caps a socket path at 104 bytes, and a child's runtime and named-pipe sockets sit beneath its scope.
+- **Reclaim by dead owner, never by age.** On startup `HostCore` and the runner call
+  `ChildTemp.ReclaimOrphans`, which deletes each sibling root whose owner is gone — no process has that pid, or
+  the one that does started at another time (pid reuse). A directory without a readable `owner` record is not a
+  root, and a live owner's root, or one this user cannot inspect, is never touched.
 - **Terminals keep the user's temp.** PTY children (the Claude pane, shell panes) are the user's own sessions,
   so they keep the user's `TMPDIR`. An owned child carries the user's temp as `WEAVIE_USER_TEMP`, and
   `TerminalStartInfo.BuildEnvironment` restores it — so the runner's worker, itself an owned child, still gives
   its terminals the user's temp. The login-shell import ignores the probe's assigned temp for the same reason.
-- **Host resources stay the host's.** The hook bridge's socket (`HookProtocol.PipeName`) is an absolute path in
-  the *host's* temp on Unix, handed to Claude by `WEAVIE_HOOK_PIPE`, so the relay reaches it whatever temp its
-  terminal has.
+- **Rendezvous points stay with their owner.** Off Windows the hook bridge's socket (`HookProtocol.PipeName`) is
+  an absolute path in the *host's* temp, handed to Claude by `WEAVIE_HOOK_PIPE`, and the open-with instance pipe
+  (`InstanceProtocol.PipeName`) is an absolute path in the *user's* temp — so a relay, or a `weavie <path>` run
+  from an agent's command, reaches them whatever temp it was given.
 
 ```mermaid
 flowchart TD
-  T["system temp"] --> R1["weavie-4100-8812 (live desktop host)"]
-  T --> R2["weavie-3900-7710 (owner gone: reclaimed at startup)"]
-  R1 --> C1["1 — csharp-ls"]
-  R1 --> C2["2 — ACP agent"]
-  T --> RR["weavie-5000-9001 (runner)"]
-  RR --> W["1 — worker; its own root nests here"]
-  W --> WR["weavie-5012-9004"] --> WC["1 — worker's ACP agent"]
+  T["system temp"] --> R1["wvA1b2C3 — owner: 4100 (live desktop host)"]
+  T --> R2["wvQ9x8Z7 — owner: 3900 (gone: reclaimed at startup)"]
+  R1 --> C1["0 — csharp-ls"]
+  R1 --> C2["1 — ACP agent"]
+  R1 --> C3["2 — that conversation's terminal commands"]
+  T --> RR["wvK4m5N6 — owner: 5000 (runner)"]
+  RR --> W["0 — worker"] --> WR["wvP7q8R9 — owner: 5012"] --> WC["0 — worker's ACP agent"]
 ```
 
 ## Follow-ups

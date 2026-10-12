@@ -19,7 +19,7 @@ public sealed class InstanceHandoffTests {
 		Assert.NotEqual(first, second);
 		Assert.Equal(first, InstanceProtocol.PipeName("/home/a/.weavie"));
 		// macOS caps sun_path at 104 bytes and prefixes a long TMPDIR, so the name itself must stay small.
-		Assert.True(first.Length <= 32, first);
+		Assert.True(Path.GetFileName(first).Length <= 32, first);
 	}
 
 	[Fact]

@@ -25,14 +25,34 @@ public sealed class ChildTempTests {
 	[Fact]
 	public async Task KilledChildKeepsItsTempWhileAliveAndLosesItOnceReaped() {
 		if (OperatingSystem.IsWindows()) return;
-		using var child = OwnedProcess.Start(Shell("touch \"$TMPDIR/left-behind\"; printf '%s\\n' \"$TMPDIR\"; exec sleep 300", ""));
+		using var child = OwnedProcess.Start(Sleeper());
 		string temp = (await child.StandardOutput.ReadLineAsync())!;
-		await Task.Delay(TimeSpan.FromMilliseconds(200));
 
 		Assert.True(File.Exists(Path.Combine(temp, "left-behind")));
 		child.Kill(entireProcessTree: false);
 		await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
 		Assert.False(Directory.Exists(temp));
+	}
+
+	[Fact]
+	public async Task SharedScopeOutlivesEachChildAndGoesAfterItsOwnerAndLastChild() {
+		if (OperatingSystem.IsWindows()) return;
+		var scope = ChildTempScope.Create();
+		using (var first = OwnedProcess.Start(Shell("printf '%s\\n' \"$TMPDIR\"", ""), scope)) {
+			Assert.Equal(scope.Directory, (await first.StandardOutput.ReadLineAsync())!);
+			await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+		}
+		Assert.True(Directory.Exists(scope.Directory));
+
+		using var second = OwnedProcess.Start(Sleeper(), scope);
+		Assert.Equal(scope.Directory, (await second.StandardOutput.ReadLineAsync())!);
+		scope.Dispose();
+		Assert.True(Directory.Exists(scope.Directory));
+		Assert.Throws<ObjectDisposedException>(() => OwnedProcess.Start(Sleeper(), scope));
+
+		second.Kill(entireProcessTree: false);
+		await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.False(Directory.Exists(scope.Directory));
 	}
 
 	[Fact]
@@ -54,10 +74,10 @@ public sealed class ChildTempTests {
 		using var temp = new TempDirectory();
 		int self = Environment.ProcessId;
 		long started = ChildTemp.StartStamp(self)!.Value;
-		string live = Root(temp, ChildTemp.RootName(self, started));
-		string reused = Root(temp, ChildTemp.RootName(self, started + 1));
-		string exited = Root(temp, ChildTemp.RootName(int.MaxValue, started));
-		string[] unrelated = [Root(temp, "weavie-theme-preview-1"), Root(temp, $"weavie-{self}-x"), Root(temp, "other")];
+		string live = Root(temp, "wv-live", $"{self} {started}");
+		string reused = Root(temp, "wv-reused", $"{self} {started + 1}");
+		string exited = Root(temp, "wv-exited", $"{int.MaxValue} {started}");
+		string[] unrelated = [Root(temp, "wv-unowned", null), Root(temp, "wv-garbled", "x y"), Root(temp, "other", $"{int.MaxValue} 1")];
 		var log = new List<string>();
 
 		ChildTemp.ReclaimOrphans(temp.Path, log.Add);
@@ -74,7 +94,7 @@ public sealed class ChildTempTests {
 		using var temp = new TempDirectory();
 		using var sleeper = Process.Start("sleep", "300");
 		try {
-			string root = Root(temp, ChildTemp.RootName(sleeper.Id, ChildTemp.StartStamp(sleeper.Id)!.Value));
+			string root = Root(temp, "wv-sleeper", $"{sleeper.Id} {ChildTemp.StartStamp(sleeper.Id)}");
 			ChildTemp.ReclaimOrphans(temp.Path, _ => { });
 			Assert.True(Directory.Exists(root));
 		} finally {
@@ -83,11 +103,26 @@ public sealed class ChildTempTests {
 		}
 	}
 
-	private static string Root(TempDirectory temp, string name) {
+	[Fact]
+	public void OwnRootIsOwnerOnlyAndRecordsThisProcess() {
+		Assert.Equal(UserTemp, Path.GetDirectoryName(ChildTemp.Root));
+		Assert.Equal(
+			$"{Environment.ProcessId} {ChildTemp.StartStamp(Environment.ProcessId)}",
+			File.ReadAllText(Path.Combine(ChildTemp.Root, "owner")));
+		if (!OperatingSystem.IsWindows()) {
+			Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(ChildTemp.Root));
+		}
+	}
+
+	private static string Root(TempDirectory temp, string name, string? owner) {
 		string root = temp.CreateDirectory(name);
 		File.WriteAllText(Path.Combine(temp.CreateDirectory(name, "1"), "file"), "child output");
+		if (owner is not null) File.WriteAllText(Path.Combine(root, "owner"), owner);
 		return root;
 	}
+
+	private static ProcessStartInfo Sleeper() =>
+		Shell("touch \"$TMPDIR/left-behind\"; printf '%s\\n' \"$TMPDIR\"; exec sleep 300", "");
 
 	private static ProcessStartInfo Shell(string unix, string windows) {
 		var info = new ProcessStartInfo(OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh") {

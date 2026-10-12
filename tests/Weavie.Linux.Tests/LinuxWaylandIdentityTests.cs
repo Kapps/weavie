@@ -50,6 +50,8 @@ public sealed class LinuxWaylandIdentityTests {
 			appInfo.Environment["XDG_RUNTIME_DIR"] = runtime;
 			appInfo.Environment["XDG_DATA_HOME"] = dataHome;
 			appInfo.Environment["WEAVIE_ROOT"] = root.Combine("weavie");
+			// The app is killed, so its temp is this test's: whatever the app's runtime strands goes with the root.
+			appInfo.Environment["TMPDIR"] = root.CreateDirectory("t");
 			appInfo.Environment["WAYLAND_DISPLAY"] = socketName;
 			appInfo.Environment["GDK_BACKEND"] = "wayland";
 			appInfo.Environment["WAYLAND_DEBUG"] = "client";

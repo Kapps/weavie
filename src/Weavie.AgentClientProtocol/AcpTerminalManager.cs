@@ -11,6 +11,8 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<string, AcpTerminal> _terminals = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
+	// One temp for all of the conversation's commands: an agent chains them through temp files.
+	private readonly ChildTempScope _temp = ChildTempScope.Create();
 	private readonly Lock _gate = new();
 	private bool _closed;
 	private long _nextId;
@@ -51,7 +53,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		lock (_gate) {
 			ct.ThrowIfCancellationRequested();
 			ObjectDisposedException.ThrowIf(_closed, this);
-			terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _log);
+			terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _temp, _log);
 			_terminals.TryAdd(id, terminal);
 		}
 		try {
@@ -99,6 +101,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 				terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
 			}
 		}
+		_temp.Dispose();
 	}
 
 	public async ValueTask DisposeAsync() {
@@ -112,6 +115,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		foreach (var terminal in terminals) {
 			await terminal.DisposeAsync().ConfigureAwait(false);
 		}
+		_temp.Dispose();
 	}
 
 	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var terminal)
@@ -147,6 +151,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 	private readonly string _cwd;
 	private readonly IReadOnlyDictionary<string, string> _environment;
 	private readonly long? _limit;
+	private readonly ChildTempScope _temp;
 	private readonly Action<string> _log;
 	private readonly Lock _gate = new();
 	private readonly StringBuilder _output = new();
@@ -163,6 +168,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		string cwd,
 		IReadOnlyDictionary<string, string> environment,
 		long? limit,
+		ChildTempScope temp,
 		Action<string> log) {
 		_id = id;
 		_command = command;
@@ -170,6 +176,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		_cwd = cwd;
 		_environment = environment;
 		_limit = limit;
+		_temp = temp;
 		_log = log;
 		_supervisor = new ProcessSupervisor(
 			$"acp-terminal:{id}",
@@ -235,7 +242,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		};
 		foreach (string argument in _arguments) info.ArgumentList.Add(argument);
 		foreach (var entry in _environment) info.Environment[entry.Key] = entry.Value;
-		var process = OwnedProcess.Start(info);
+		var process = OwnedProcess.Start(info, _temp);
 		lock (_gate) {
 			_process = process;
 		}

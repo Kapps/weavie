@@ -4,15 +4,15 @@ namespace Weavie.Core.Processes;
 
 /// <summary>
 /// A redirected child whose macOS session is isolated before its lifetime is exposed to callers. Its system temp
-/// path is a private <see cref="ChildTemp"/> directory, deleted once the child is reaped and before its exit is seen.
+/// path is a <see cref="ChildTempScope"/> it holds until it is reaped, released before its exit is seen.
 /// </summary>
 public sealed partial class OwnedProcess : IDisposable {
 	private readonly Process? _managed;
-	private readonly string _temp;
+	private readonly ChildTempScope _temp;
 	private readonly Lock _gate = new();
 	private readonly TaskCompletionSource<int> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-	private OwnedProcess(Process process, string temp) {
+	private OwnedProcess(Process process, ChildTempScope temp) {
 		_managed = process;
 		_temp = temp;
 		Id = process.Id;
@@ -22,20 +22,31 @@ public sealed partial class OwnedProcess : IDisposable {
 		_ = ObserveManagedExitAsync(process);
 	}
 
-	/// <summary>Starts a child with redirected output; macOS uses an atomic native spawn into a new session.</summary>
+	/// <summary>Starts a child in a temp directory of its own; see <see cref="Start(ProcessStartInfo, ChildTempScope)"/>.</summary>
 	public static OwnedProcess Start(ProcessStartInfo info) {
+		using var temp = ChildTempScope.Create();
+		return Start(info, temp);
+	}
+
+	/// <summary>
+	/// Starts a child with redirected output in <paramref name="temp"/>; macOS uses an atomic native spawn into a new
+	/// session.
+	/// </summary>
+	public static OwnedProcess Start(ProcessStartInfo info, ChildTempScope temp) {
 		ArgumentNullException.ThrowIfNull(info);
+		ArgumentNullException.ThrowIfNull(temp);
 		if (info.UseShellExecute || !info.RedirectStandardOutput || !info.RedirectStandardError) {
 			throw new ArgumentException("Owned children require shell execution disabled and stdout/stderr redirected.", nameof(info));
 		}
-		string temp = ChildTemp.Assign(info);
+		temp.Acquire();
 		OwnedProcess child;
 		try {
+			ChildTemp.Point(info, temp.Directory);
 			child = OperatingSystem.IsWindows()
 				? new OwnedProcess(Process.Start(info) ?? throw new IOException($"Could not start '{info.FileName}'."), temp)
 				: StartUnix(info, temp);
 		} catch {
-			ChildTemp.Release(temp);
+			temp.Release();
 			throw;
 		}
 		Console.WriteLine($"[process] started host={Environment.ProcessId} child={child.Id} executable={info.FileName}");
@@ -88,7 +99,7 @@ public sealed partial class OwnedProcess : IDisposable {
 	private async Task ObserveManagedExitAsync(Process process) {
 		try {
 			await process.WaitForExitAsync().ConfigureAwait(false);
-			ChildTemp.Release(_temp);
+			_temp.Release();
 			lock (_gate) _exit.TrySetResult(process.ExitCode);
 		} catch (Exception ex) {
 			_exit.TrySetException(ex);

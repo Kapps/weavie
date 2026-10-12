@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace Weavie.Core.Processes;
 
 public sealed partial class OwnedProcess {
-	private static OwnedProcess StartUnix(ProcessStartInfo info, string temp) {
+	private static OwnedProcess StartUnix(ProcessStartInfo info, ChildTempScope temp) {
 		string command = info.FileName;
 		string directory = Path.Combine(Environment.CurrentDirectory, info.WorkingDirectory);
 		if (command.Contains('/', StringComparison.Ordinal)) {
@@ -25,7 +25,7 @@ public sealed partial class OwnedProcess {
 	}
 
 	// Both .NET and posix_spawnp otherwise search the parent PATH instead of the supplied child environment.
-	private static OwnedProcess StartUnixCommand(ProcessStartInfo info, string command, string temp) {
+	private static OwnedProcess StartUnixCommand(ProcessStartInfo info, string command, ChildTempScope temp) {
 		string original = info.FileName;
 		try {
 			info.FileName = command;

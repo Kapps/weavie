@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Processes;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Desktop;
@@ -31,11 +32,15 @@ public static class InstanceProtocol {
 	/// <summary>How long the whole handover may take before a launch gives up and boots its own window.</summary>
 	public const int ExchangeTimeoutMs = 5_000;
 
-	/// <summary>The per-root pipe name. Short by construction: macOS caps a Unix socket path at 104 bytes.</summary>
+	/// <summary>
+	/// The per-root pipe. Short by construction: macOS caps a Unix socket path at 104 bytes. Off Windows it sits in
+	/// the user's temp, so a launch from inside an owned child (an agent's command) still finds the instance.
+	/// </summary>
 	public static string PipeName(string weavieRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(weavieRoot);
 		byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(weavieRoot)));
-		return $"weavie-open-{Convert.ToHexString(hash)[..16].ToLowerInvariant()}";
+		string name = $"weavie-open-{Convert.ToHexString(hash)[..16].ToLowerInvariant()}";
+		return OperatingSystem.IsWindows() ? name : Path.Combine(ChildTemp.UserTemp, name);
 	}
 
 	/// <summary>Serializes what a second launch is handing over.</summary>

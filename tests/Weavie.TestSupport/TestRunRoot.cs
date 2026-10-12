@@ -9,7 +9,6 @@ namespace Weavie.TestSupport;
 /// <see cref="LeakCheckedTestFramework"/> drives both.
 /// </summary>
 public static class TestRunRoot {
-	private static readonly string[] TempVariables = OperatingSystem.IsWindows() ? ["TMP", "TEMP"] : ["TMPDIR"];
 	private static Dictionary<string, string?>? _inherited;
 	private static string? _root;
 
@@ -20,7 +19,7 @@ public static class TestRunRoot {
 		// Short on purpose: macOS caps a Unix socket path at 104 bytes and the pipes the tests open live under it.
 		_root = Directory.CreateTempSubdirectory("wvt-").FullName;
 		string temp = Directory.CreateDirectory(Path.Combine(_root, "t")).FullName;
-		var redirect = TempVariables.ToDictionary(name => name, string? (_) => temp);
+		var redirect = ChildTemp.TempVariables.ToDictionary(name => name, string? (_) => temp);
 		redirect["WEAVIE_ROOT"] = Path.Combine(_root, "weavie");
 		// A run launched from inside an owned child owns its temp itself; its terminals must not escape to the user's.
 		redirect[ChildTemp.UserTempVariable] = null;
@@ -37,10 +36,10 @@ public static class TestRunRoot {
 		_root = null;
 		// The run's own child-temp root is where owned children live; a directory left inside it outlived its child.
 		string temp = Path.Combine(root, "t");
-		string children = ChildTemp.Root;
+		string? children = ChildTemp.RootCreated ? ChildTemp.Root : null;
 		string[] leaked = [.. Directory.EnumerateFileSystemEntries(temp)
 			.Where(entry => entry != children)
-			.Concat(Directory.Exists(children) ? Directory.EnumerateFileSystemEntries(children) : [])
+			.Concat(children is null ? [] : Directory.EnumerateDirectories(children))
 			.Select(entry => Path.GetRelativePath(temp, entry)).Order(StringComparer.Ordinal)];
 		// Process-lifetime state still writes under the root after the last test (the exit journal a host
 		// installs stamps how the process ended), and this handler runs after every one registered before it.

@@ -1,48 +1,80 @@
 using System.Diagnostics;
-using System.Globalization;
 
 namespace Weavie.Core.Processes;
 
 /// <summary>
-/// Each owned child's private temp directory, under one root per Weavie process. The child sees it as its system
-/// temp path, so whatever it strands there — a .NET runtime's diagnostic pipes after a forced stop — goes with the
-/// directory once the child is reaped. See docs/specs/process-supervisor.md.
+/// Owned children's private temp directories, under one root per Weavie process. A child sees its directory as its
+/// system temp path, so whatever it strands there — a .NET runtime's diagnostic pipes after a forced stop — goes
+/// with the directory once its <see cref="ChildTempScope"/> is done. See docs/specs/process-supervisor.md.
 /// </summary>
 public static partial class ChildTemp {
 	/// <summary>Carries the user's own temp path through owned children, so their terminals can restore it.</summary>
 	public const string UserTempVariable = "WEAVIE_USER_TEMP";
 
 	private static readonly string[] Variables = OperatingSystem.IsWindows() ? ["TMP", "TEMP"] : ["TMPDIR"];
-	private static readonly Lazy<string> OwnRoot = new(() =>
-		Path.Combine(Path.GetTempPath(), RootName(Environment.ProcessId, StartStamp(Environment.ProcessId)!.Value)));
-	private static long _next;
+	private static readonly Lazy<string> OwnRoot = new(CreateRoot);
+	private static readonly Lock SlotGate = new();
+	private static readonly HashSet<int> Slots = [];
 
-	/// <summary>This process's root, holding one directory per live owned child.</summary>
+	/// <summary>The variables that name a process's system temp path on this OS.</summary>
+	public static IReadOnlyList<string> TempVariables => Variables;
+
+	/// <summary>This process's root, holding one directory per live scope; created on first use.</summary>
 	public static string Root => OwnRoot.Value;
 
-	/// <summary>Creates a child's directory and points <paramref name="info"/>'s temp variables at it.</summary>
-	internal static string Assign(ProcessStartInfo info) {
-		string directory = Directory.CreateDirectory(Path.Combine(
-			Root, Interlocked.Increment(ref _next).ToString(CultureInfo.InvariantCulture))).FullName;
-		info.Environment.TryAdd(UserTempVariable, Path.TrimEndingDirectorySeparator(Path.GetTempPath()));
-		foreach (string variable in Variables) info.Environment[variable] = directory;
-		return directory;
+	/// <summary>Whether this process has created its root yet.</summary>
+	public static bool RootCreated => OwnRoot.IsValueCreated;
+
+	/// <summary>The user's own temp path: inherited from an owning Weavie, else this process's.</summary>
+	public static string UserTemp =>
+		Environment.GetEnvironmentVariable(UserTempVariable) ?? Path.TrimEndingDirectorySeparator(Path.GetTempPath());
+
+	// Directories reuse the lowest free slot: names stay one or two characters however many children have run,
+	// keeping a child's socket paths inside macOS's 104-byte cap.
+	internal static (string Directory, int Slot) CreateDirectory() {
+		int slot = 0;
+		lock (SlotGate) {
+			while (!Slots.Add(slot)) slot++;
+		}
+		try {
+			return (Directory.CreateDirectory(Path.Combine(Root, SlotName(slot))).FullName, slot);
+		} catch {
+			lock (SlotGate) Slots.Remove(slot);
+			throw;
+		}
 	}
 
-	/// <summary>Deletes a reaped child's directory with everything it left there.</summary>
-	internal static void Release(string directory) {
+	internal static void Point(ProcessStartInfo info, string directory) {
+		info.Environment.TryAdd(UserTempVariable, UserTemp);
+		foreach (string variable in Variables) info.Environment[variable] = directory;
+	}
+
+	// A directory that could not be deleted keeps its slot, so no later child inherits what it holds.
+	internal static void Delete(string directory, int slot) {
 		try {
 			Directory.Delete(directory, recursive: true);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Console.WriteLine($"[process] could not remove child temp {directory}: {ex.Message}");
+			return;
 		}
+		lock (SlotGate) Slots.Remove(slot);
 	}
 
-	/// <summary>Whether a child's variable is one <see cref="Assign"/> gave it, which no other process should adopt.</summary>
+	private static string SlotName(int slot) {
+		string name = string.Empty;
+		do {
+			name = "0123456789abcdefghijklmnopqrstuvwxyz"[slot % 36] + name;
+			slot /= 36;
+		} while (slot > 0);
+		return name;
+	}
+
+	/// <summary>Whether a child's variable is one Weavie gave it, which no other process should adopt.</summary>
 	public static bool IsAssigned(string name, string value) {
 		ArgumentNullException.ThrowIfNull(value);
 		return name == UserTempVariable
-			|| (Variables.Contains(name) && Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(value)) == Root);
+			|| (Variables.Contains(name) && RootCreated
+				&& Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(value)) == Root);
 	}
 
 	/// <summary>Gives an interactive terminal the user's temp path rather than this owned process's private one.</summary>

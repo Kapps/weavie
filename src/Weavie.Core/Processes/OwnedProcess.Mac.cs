@@ -7,7 +7,7 @@ using Microsoft.Win32.SafeHandles;
 namespace Weavie.Core.Processes;
 
 public sealed partial class OwnedProcess {
-	private OwnedProcess(int pid, int input, int output, int error, ProcessStartInfo info, string temp) {
+	private OwnedProcess(int pid, int input, int output, int error, ProcessStartInfo info, ChildTempScope temp) {
 		Id = pid;
 		_temp = temp;
 		StandardInput = new StreamWriter(OpenPipe(input, FileAccess.Write), info.StandardInputEncoding ?? new UTF8Encoding(false)) { AutoFlush = true };
@@ -17,7 +17,7 @@ public sealed partial class OwnedProcess {
 		new Thread(WaitMac) { IsBackground = true, Name = $"weavie-process-{pid}" }.Start();
 	}
 
-	private static OwnedProcess StartMac(ProcessStartInfo info, string temp) {
+	private static OwnedProcess StartMac(ProcessStartInfo info, ChildTempScope temp) {
 		if (info.Arguments.Length != 0) {
 			throw new ArgumentException("Owned children use ArgumentList, not an unparsed argument string.", nameof(info));
 		}
@@ -34,7 +34,7 @@ public sealed partial class OwnedProcess {
 
 	private void WaitMac() {
 		int rc = weavie_process_wait(Id);
-		if (rc == 0) ChildTemp.Release(_temp);
+		if (rc == 0) _temp.Release();
 		lock (_gate) {
 			int code = 0;
 			if (rc == 0) rc = weavie_process_reap(Id, out code);

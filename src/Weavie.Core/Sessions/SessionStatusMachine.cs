@@ -30,6 +30,11 @@ public sealed class SessionStatusMachine {
 		}
 	}
 
+	/// <summary>Whether a status transition counts as the agent starting or finishing work.</summary>
+	public static bool MarksLastActive(SessionStatus prior, SessionStatus next) => IsActive(prior) || IsActive(next);
+
+	private static bool IsActive(SessionStatus status) => status is SessionStatus.Working or SessionStatus.NeedsInput;
+
 	/// <summary>Feeds a normalized agent event into the machine.</summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);

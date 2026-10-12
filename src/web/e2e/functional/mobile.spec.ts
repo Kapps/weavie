@@ -663,7 +663,7 @@ test("a compact session row manages its session from a hold and its actions butt
   expect(Math.min(...rowHeights)).toBeGreaterThanOrEqual(44);
 
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
+  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
 
   // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
   // stay armed to eat the tap that follows.
@@ -678,12 +678,12 @@ test("a compact session row manages its session from a hold and its actions butt
     "Recreate with…",
   ]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
-  await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");
+  await expect(row.locator(".session-inbox-status")).not.toHaveText(/^not loaded/);
 
   // The actions button opens the same command rows and runs them.
   await manage.click();
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
-  await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
+  await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
 });
 
 test("WebM video opens inline in the compact editor", async ({ page }) => {
@@ -859,9 +859,9 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
 
   await page.evaluate(() => history.back());
   await expect(inbox).toBeVisible();
-  await expect(
-    inbox.locator(".session-inbox-row", { hasText: "bug/mobile-navigation" }),
-  ).toHaveCount(1);
+  await expect(inbox.locator(".session-inbox-row", { hasText: "mobile navigation" })).toHaveCount(
+    1,
+  );
   await page.evaluate(() => history.forward());
   await expect(agentSurface).toBeVisible();
 
@@ -1093,7 +1093,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
-  await expect(inbox).toContainText("bug/mobile-navigation");
+  await expect(inbox).toContainText("mobile navigation");
   // WebKit's back gesture skips entries pushed after the gesture ends, so the switch claims its entry in the tap.
   const tapped = await inbox
     .locator(".session-inbox-open")
@@ -1172,7 +1172,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(bar).toBeFocused();
 
   await page.getByRole("button", { name: "Sessions" }).click();
-  await inbox.locator(".session-inbox-row", { hasText: "bug/mobile-navigation" }).click();
+  await inbox.locator(".session-inbox-row", { hasText: "mobile navigation" }).click();
   await expect(agentSurface).toBeVisible();
 
   await agentSurface.evaluate((element) => {

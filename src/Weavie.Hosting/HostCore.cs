@@ -34,7 +34,7 @@ namespace Weavie.Hosting;
 /// </summary>
 public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IHostPlatform _platform;
-	private readonly TimeProvider _drainTime;
+	private readonly TimeProvider _time;
 	private readonly HostRuntimeInfo _runtime;
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
@@ -140,15 +140,15 @@ public sealed partial class HostCore : IAsyncDisposable {
 		string workspaceRoot,
 		WorkspaceHttpServerOptions httpOptions,
 		IWorkspaceWebSocketBridge httpBridge,
-		TimeProvider drainTime) {
+		TimeProvider time) {
 		ArgumentNullException.ThrowIfNull(platform);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(httpOptions);
 		ArgumentNullException.ThrowIfNull(httpBridge);
-		ArgumentNullException.ThrowIfNull(drainTime);
+		ArgumentNullException.ThrowIfNull(time);
 		_platform = platform;
-		_drainTime = drainTime;
+		_time = time;
 		// The build a managed worker actually loaded (its own versions/<build>/ path), or the dev version — surfaced
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
@@ -332,7 +332,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		LogStartup("worktrees discovered");
 		await GatedAsync(_sessionCatalog, RestoreSessionStateAsync, CancellationToken.None).ConfigureAwait(false);
 		LogStartup("sessions restored");
-		StartSessionEmojis();
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
 		InitSuggestions();
@@ -412,7 +411,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 			if (change.Key is InferenceSettings.Enabled or InferenceSettings.AllowAutomatic
 				&& AutomaticInferenceEnabled()) {
 				ClearAutomaticInferenceOffer();
-				ScheduleSessionEmojis();
 			}
 
 			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
@@ -545,7 +543,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		Attempt(DetachReactions);
 		Attempt(_global.Dispose);
 		Attempt(() => _drainTick?.Cancel());
-		Attempt(_emojiStop.Cancel);
 		Attempt(_sessionStore.Flush);
 
 		var sessions = _sessions;

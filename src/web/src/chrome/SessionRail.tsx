@@ -1,17 +1,19 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { formatKey } from "../commands/keybindings";
-import { captureCommandRunner, findCommand, getKeybindings } from "../commands/registry";
+import { captureCommandRunner, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { cancelSessionPanelHover } from "./SessionPanel";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
+import { sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
 
-// A filled cloud silhouette, reused for the remote marker on a promoted chip and the cloud button glyph.
+// A filled cloud silhouette for the remote-agents button.
 const CLOUD_PATH = "M6.5 19A4.5 4.5 0 0 1 6 10.05 6 6 0 0 1 17.7 9 4.5 4.5 0 0 1 17.5 19H6.5z";
 
-// The left session rail (working set): one chip per local session plus promoted remotes. A promoted remote
-// chip wears a cloud marker in place of the local status dot; remote agents themselves live behind the cloud
-// button (RemoteAgentsPanel). Chip hue is set via a ref because Solid's reactive `style={{}}` breaks here.
+// The left session rail (working set): one status dot per local session plus promoted remotes, loaded first and
+// parked after a divider. Names live in the session panel, which opens on hover; remote agents live behind the
+// cloud button (RemoteAgentsPanel).
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -26,27 +28,13 @@ export function SessionRail(props: {
     const keys = findCommand(CommandIds.showSessions)?.keys ?? [];
     return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
   };
-  // The switch shortcut for the chip at `index` (0-based); only the first 9 chips have a number binding.
-  const switchShortcut = (index: number): string => {
-    const match = getKeybindings().find(
-      (binding) =>
-        binding.command === CommandIds.selectSessionByIndex &&
-        (binding.args as { index?: unknown } | undefined)?.index === index + 1,
-    );
-    return match !== undefined ? formatKey(match.key) : "";
-  };
-  // The chip's hover tooltip: its label + status (or unloaded / connection-lost hint), with the switch
-  // shortcut appended.
   const chipTitle = (session: RailSession, index: number): string => {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
-    const base = session.offline
-      ? `${session.label}${where} — connection lost (reconnecting…)`
-      : session.loaded
-        ? `${session.label}${where} — ${session.status}`
-        : `${session.label}${where} — unloaded (click to load)`;
     const shortcut = switchShortcut(index);
+    const base = `${session.label}${where} — ${sessionSubtitle(session, Date.now())}`;
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
+  const firstParked = (): number => props.sessions.findIndex((session) => !session.loaded);
 
   // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for every session, plus
   // "Remove from rail" for a remote.
@@ -58,45 +46,37 @@ export function SessionRail(props: {
 
   return (
     <>
-      <div class="session-rail" inert={props.inert}>
+      <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
         <For each={props.sessions}>
           {(session, index) => (
-            <button
-              type="button"
-              class={`session-chip status-${session.status}${session.active ? " active" : ""}${
-                session.loaded ? "" : " unloaded"
-              }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
-                session.offline ? " offline" : ""
-              }${session.emoji === null ? "" : " emoji"}`}
-              data-session-slot={session.id}
-              title={chipTitle(session, index())}
-              ref={(el) => {
-                el.style.setProperty("--chip-hue", String(session.hue));
-                if (session.agentHue !== undefined) {
-                  el.style.setProperty("--agent-hue", String(session.agentHue));
-                }
-              }}
-              onClick={() => props.onSwitch(session)}
-              onContextMenu={(event) => openMenu(event, session)}
-            >
-              <span class="session-chip-mono">{session.emoji ?? session.monogram}</span>
-              {/* A host op in flight (delete / load / unload): a spinner overlays the chip, replacing the
-                  status marker, until it settles. Otherwise — local: a status dot; remote: a cloud marker in
-                  the dot's place (agent-hue when idle); a dormant chip gets neither. */}
-              <Show when={session.pending}>
-                <span class="session-chip-spinner" aria-hidden="true" />
+            <>
+              <Show when={index() > 0 && index() === firstParked()}>
+                <div class="session-rail-divider" />
               </Show>
-              <Show when={!session.pending && session.loaded && session.isLocal}>
-                <span class="session-chip-dot" />
-              </Show>
-              <Show when={!session.pending && session.loaded && !session.isLocal}>
-                <span class="session-chip-cloud">
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d={CLOUD_PATH} />
-                  </svg>
-                </span>
-              </Show>
-            </button>
+              <button
+                type="button"
+                class={`session-chip status-${session.status}${session.active ? " active" : ""}${
+                  session.loaded ? "" : " unloaded"
+                }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
+                  session.offline ? " offline" : ""
+                }`}
+                data-session-slot={session.id}
+                title={chipTitle(session, index())}
+                ref={(el) => {
+                  if (session.agentHue !== undefined) {
+                    el.style.setProperty("--agent-hue", String(session.agentHue));
+                  }
+                }}
+                onClick={() => props.onSwitch(session)}
+                onContextMenu={(event) => openMenu(event, session)}
+              >
+                {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
+                <span class={`session-status status-${statusDot(session)}`} />
+                <Show when={session.pending}>
+                  <span class="session-chip-spinner" aria-hidden="true" />
+                </Show>
+              </button>
+            </>
           )}
         </For>
         {/* The cloud button opens the remote-agents panel; shown only once an agent is registered. A pip

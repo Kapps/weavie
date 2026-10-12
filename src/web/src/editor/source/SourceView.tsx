@@ -2,6 +2,7 @@ import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { liveKeyHint } from "../../commands/keys-live";
 import { CommandIds } from "../../commands/types";
+import { compactAge } from "../../compact-age";
 import { openUrlExternal } from "../../terminal/terminal-links";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
@@ -221,27 +222,10 @@ function incompleteBanner(truncated: boolean, unknownBlocks: number): HTMLElemen
   return banner;
 }
 
-// A short "2h ago"-style label from an ISO timestamp, falling back to a local date past a month; "" when absent/bad.
+// The "2h ago"-style age of an ISO timestamp; "" when absent or unparseable.
 function relativeTime(iso: string): string {
-  if (iso.length === 0) {
-    return "";
-  }
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) {
-    return "";
-  }
-  const minutes = Math.round((Date.now() - then) / 60000);
-  if (minutes < 1) {
-    return "just now";
-  }
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-  if (minutes < 60 * 24) {
-    return `${Math.round(minutes / 60)}h ago`;
-  }
-  const days = Math.round(minutes / (60 * 24));
-  return days < 30 ? `${days}d ago` : new Date(iso).toLocaleDateString();
+  const then = iso.length === 0 ? Number.NaN : new Date(iso).getTime();
+  return Number.isNaN(then) ? "" : compactAge(then, Date.now());
 }
 
 // A centered loading spinner or error message for the shadow root. The text is set via textContent (never

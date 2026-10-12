@@ -7,15 +7,15 @@ import type { AgentDefaults } from "./protocol-types";
 export interface SessionCatalogEntry {
   id: string;
   label: string;
+  title: string;
+  prefix: string | null;
   address: SessionAddress | null;
   loaded: boolean;
   providerId: string;
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
-  hue: number;
-  monogram: string;
-  emoji: string | null;
+  lastActiveAt: number | null;
   workspaceCheckout: boolean;
 }
 
@@ -29,6 +29,7 @@ export interface HostHello {
     lastLocation: string;
     promoted: string[];
     selected: { backendId: string; slot: string } | null;
+    panelPinned: boolean;
   };
   search: {
     options: {

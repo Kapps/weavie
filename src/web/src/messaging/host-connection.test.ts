@@ -18,9 +18,9 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   agentSurface: "structured",
   agentInputProtocol: 1,
   status: "idle",
-  hue: 0,
-  monogram: id.slice(0, 1),
-  emoji: null,
+  title: id,
+  prefix: null,
+  lastActiveAt: null,
   workspaceCheckout: false,
 });
 
@@ -30,7 +30,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
   sessions,
   layout: {},
   remoteAgents: [],
-  rail: { lastLocation: "", promoted: [], selected: null },
+  rail: { lastLocation: "", promoted: [], selected: null, panelPinned: false },
   search: {
     options: {
       caseSensitive: false,

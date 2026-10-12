@@ -9,6 +9,11 @@ internal sealed class ManualTimeProvider : TimeProvider {
 
 	public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
 
+	/// The wall clock starts at a fixed instant and moves only with <see cref="Advance"/>.
+	public static DateTimeOffset Epoch { get; } = new(2026, 10, 12, 9, 0, 0, TimeSpan.Zero);
+
+	public override DateTimeOffset GetUtcNow() => Epoch + TimeSpan.FromTicks(GetTimestamp());
+
 	public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
 		var timer = new ManualTimer(this, callback, state);
 		timer.Change(dueTime, period);

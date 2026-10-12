@@ -108,44 +108,65 @@ registerHostFeature((connection) =>
     }
     setByBackend((prev) => {
       const next = new Map(prev);
+      // Activity arrives on each session's own feed, so it carries across catalog pushes by owner.
+      const activity = new Map(
+        (prev.get(connection.id) ?? []).map((chip) => [chip.owner, chip.activity] as const),
+      );
       next.set(
         connection.id,
-        catalog.map((entry) => ({
-          owner: entry.address === null ? null : (connection.session(entry.address) ?? null),
-          id: entry.id,
-          label: entry.label,
-          loaded: entry.loaded,
-          providerId: entry.providerId,
-          agentSurface: entry.agentSurface,
-          agentInputProtocol: entry.agentInputProtocol,
-          status: entry.status,
-          hue: entry.hue,
-          monogram: entry.monogram,
-          emoji: entry.emoji,
-          workspaceCheckout: entry.workspaceCheckout,
-        })),
+        catalog.map((entry) => {
+          const owner = entry.address === null ? null : (connection.session(entry.address) ?? null);
+          return {
+            owner,
+            id: entry.id,
+            label: entry.label,
+            title: entry.title,
+            prefix: entry.prefix,
+            loaded: entry.loaded,
+            providerId: entry.providerId,
+            agentSurface: entry.agentSurface,
+            agentInputProtocol: entry.agentInputProtocol,
+            status: entry.status,
+            activity: owner === null ? null : (activity.get(owner) ?? null),
+            lastActiveAt: entry.lastActiveAt,
+            workspaceCheckout: entry.workspaceCheckout,
+          };
+        }),
       );
       return next;
     });
   }),
 );
 
-registerSessionFeature((session) =>
-  session.feature("status").on<{ status: SessionStatusName }>("changed", ({ status }) => {
-    setByBackend((previous) => {
-      const chips = previous.get(session.connection.id);
-      if (chips === undefined) {
-        return previous;
-      }
-      const next = new Map(previous);
-      next.set(
-        session.connection.id,
-        chips.map((chip) => (chip.owner === session ? { ...chip, status } : chip)),
-      );
-      return next;
-    });
-  }),
-);
+// Patches the chip `session` owns; a session with no chip yet (its catalog not arrived) is left alone.
+const patchOwned = (session: ClientSession, patch: Partial<BackendSession>): void => {
+  setByBackend((previous) => {
+    const chips = previous.get(session.connection.id);
+    if (chips === undefined) {
+      return previous;
+    }
+    const next = new Map(previous);
+    next.set(
+      session.connection.id,
+      chips.map((chip) => (chip.owner === session ? { ...chip, ...patch } : chip)),
+    );
+    return next;
+  });
+};
+
+registerSessionFeature((session) => {
+  const status = session.feature("status");
+  const offStatus = status.on<{ status: SessionStatusName }>("changed", (message) =>
+    patchOwned(session, { status: message.status }),
+  );
+  const offActivity = status.on<{ activity: string | null }>("activity", (message) =>
+    patchOwned(session, { activity: message.activity }),
+  );
+  return () => {
+    offStatus();
+    offActivity();
+  };
+});
 
 onBackendDisconnected((backendId) => {
   setByBackend((prev) => {

@@ -2078,8 +2078,7 @@ public static partial class CoreCommands {
 		});
 
 		// Recent files: a dropdown in the editor tab bar listing frecency-ranked recently-opened files. Web-handled
-		// (the dropdown lives in the tab strip). $mod+e is VS Code's quick-open-recent chord and is otherwise free;
-		// the per-binding !terminalFocused guard leaves Ctrl+E as the shell's readline "end of line".
+		// (the dropdown lives in the tab strip).
 		registry.Register(new CommandDefinition {
 			Id = OpenRecentFiles,
 			Title = "Open Recent File",

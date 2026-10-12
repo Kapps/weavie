@@ -32,6 +32,7 @@ internal sealed partial class AcpConversation {
 		}
 
 		bool completed = tool.Status is "completed" or "failed";
+		if (!completed) Observe(new AgentActivityObserved(Activity(tool), AwaitingApproval: false));
 		if (tool.MutationMetadataDisclosed || completed) {
 			EnsureObservedMutation(tool);
 		}

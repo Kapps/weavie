@@ -363,7 +363,11 @@ export function SessionInbox(props: {
         <img src="/weavie.png" width="32" height="32" alt="" />
         <div>
           <h1 id="session-inbox-title">Sessions</h1>
-          <span>Pick up where your agents left off</span>
+          <span>
+            {props.compact
+              ? "Pick up where your agents left off"
+              : "Start an agent on a new or existing branch"}
+          </span>
         </div>
         <button
           type="button"
@@ -523,23 +527,26 @@ export function SessionInbox(props: {
         </section>
       </div>
 
-      <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
-        <Show
-          when={props.sessions.length > 0}
-          fallback={<p class="session-inbox-empty">No sessions yet.</p>}
-        >
-          <For each={props.sessions}>
-            {(session) => (
-              <SessionInboxRow
-                session={session}
-                compact={props.compact}
-                onOpen={props.onOpen}
-                onManage={openSessionMenu}
-              />
-            )}
-          </For>
-        </Show>
-      </section>
+      {/* Desktop lists sessions in the rail's session panel; touch chrome has no rail, so it lists them here. */}
+      <Show when={props.compact}>
+        <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
+          <Show
+            when={props.sessions.length > 0}
+            fallback={<p class="session-inbox-empty">No sessions yet.</p>}
+          >
+            <For each={props.sessions}>
+              {(session) => (
+                <SessionInboxRow
+                  session={session}
+                  compact={props.compact}
+                  onOpen={props.onOpen}
+                  onManage={openSessionMenu}
+                />
+              )}
+            </For>
+          </Show>
+        </section>
+      </Show>
 
       <Show when={sessionMenu()}>
         {(menu) => <ContextMenu menu={menu()} onClose={() => setSessionMenu(null)} />}

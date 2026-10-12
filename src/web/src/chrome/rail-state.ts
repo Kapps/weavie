@@ -8,6 +8,7 @@ import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature, selectedSession 
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
+const [panelPinnedSig, setPanelPinnedSig] = createSignal(false);
 
 // The session ids last seen on each backend, so a one-shot auto-promote can pick out the GENUINELY new
 // session (rather than guessing from client selection, which can point at an existing session).
@@ -19,11 +20,22 @@ const pendingPromote = new Map<string, Set<string>>();
 interface RailState {
   lastLocation: string;
   promoted: string[];
+  panelPinned: boolean;
 }
 
 function applyRailState(state: RailState): void {
   setLastLocationSig(state.lastLocation);
   setPromotedSig(new Set(state.promoted));
+  setPanelPinnedSig(state.panelPinned);
+}
+
+/** Whether the session panel is docked open beside the rail (reactive). */
+export const panelPinned = panelPinnedSig;
+
+/** Dock or undock the session panel. */
+export function setPanelPinned(pinned: boolean): void {
+  setPanelPinnedSig(pinned);
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("rail").publish("setPanelPinned", { pinned });
 }
 
 registerHostFeature((connection) => {

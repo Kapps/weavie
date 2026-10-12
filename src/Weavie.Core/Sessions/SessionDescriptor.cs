@@ -13,8 +13,8 @@ public sealed record SessionDescriptor {
 	/// <summary>The rail label — typically the session's branch name.</summary>
 	public required string Label { get; init; }
 
-	/// <summary>The rail emoji inferred for <see cref="Label"/>, or <c>null</c> while none has been chosen.</summary>
-	public required string? Emoji { get; init; }
+	/// <summary>When the agent last started or finished work in this session, or <c>null</c> if it never has.</summary>
+	public required DateTimeOffset? LastActiveAt { get; init; }
 
 	/// <summary>The session's working directory.</summary>
 	public required string WorktreePath { get; init; }

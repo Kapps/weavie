@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Weavie.Core.Hooks;
 using Weavie.Core.Review.Hints;
 
@@ -12,6 +11,9 @@ public static class ClaudeHookEventAdapter {
 		var events = new List<AgentEvent> { Primary(request) };
 		if (!string.IsNullOrEmpty(request.PermissionMode)) {
 			events.Add(new AgentEditDispositionObserved(request.PermissionMode));
+		}
+		if (request.Event is HookEventKind.PreToolUse or HookEventKind.PermissionRequest) {
+			events.Add(new AgentActivityObserved(ClaudeToolActivity.For(request), request.Event == HookEventKind.PermissionRequest));
 		}
 		if (request.Event == HookEventKind.PostToolUse && request.ToolName == ClaudeReportFindings.ToolName) {
 			events.Add(ReviewFindings(request));
@@ -44,22 +46,8 @@ public static class ClaudeHookEventAdapter {
 			"NotebookEdit" => "notebook_path",
 			_ => null,
 		};
-		if (key is null) {
-			return new AgentMutation.None();
-		}
-
-		try {
-			using var doc = JsonDocument.Parse(request.ToolInputJson);
-			if (doc.RootElement.ValueKind == JsonValueKind.Object
-				&& doc.RootElement.TryGetProperty(key, out var value)
-				&& value.ValueKind == JsonValueKind.String
-				&& value.GetString() is { Length: > 0 } path) {
-				return new AgentMutation.File(path, request.Cwd, request.ToolName != "NotebookEdit");
-			}
-		} catch (JsonException) {
-			// Malformed provider input retains the existing "not a trackable edit" behavior.
-		}
-
-		return new AgentMutation.None();
+		return key is not null && ClaudeToolActivity.Input(request, key) is { Length: > 0 } path
+			? new AgentMutation.File(path, request.Cwd, request.ToolName != "NotebookEdit")
+			: new AgentMutation.None();
 	}
 }

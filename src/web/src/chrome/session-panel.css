@@ -1,0 +1,125 @@
+/* The session panel (SessionPanel.tsx) beside the rail. */
+
+/* Unpinned it overlays the panes from the rail's edge; pinned it docks in the body row and pushes them over. */
+.session-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: clamp(220px, 24vw, 300px);
+  padding: 6px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--bar);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+}
+.session-panel.pinned {
+  position: static;
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+.session-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+.session-panel-head > span:first-child {
+  flex: 1;
+}
+.session-panel-key {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: var(--font-hint-size);
+}
+.session-panel-pin {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.session-panel-pin:hover,
+.session-panel-pin.on {
+  color: var(--fg);
+}
+.session-panel-group {
+  padding: 10px 8px 3px;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.session-panel-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--font-chrome-size);
+  text-align: left;
+  cursor: pointer;
+}
+.session-panel-row:hover {
+  background: var(--list-hover-bg);
+}
+.session-panel-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.session-panel-row.active {
+  background: var(--list-active-bg);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.session-panel-row.parked,
+.session-panel-row.offline {
+  color: var(--dim);
+}
+.session-panel-row .session-status {
+  margin-top: 5px;
+}
+.session-panel-num {
+  flex: 0 0 10px;
+  margin-top: 1px;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+.session-panel-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* A long name truncates before its type prefix does. */
+.session-panel-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.session-panel-prefix {
+  flex: 0 0 auto;
+}
+.session-panel-title,
+.session-panel-activity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-panel-prefix,
+.session-panel-activity {
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}

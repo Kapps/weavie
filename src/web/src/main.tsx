@@ -13,6 +13,8 @@ import "./styles.css";
 import "./layout/layout.css";
 import "./agent/agent.css";
 import "./chrome/session-rail.css";
+import "./chrome/session-panel.css";
+import "./chrome/remote-panel.css";
 import "./chrome/context-menu.css";
 import "./chrome/tabs.css";
 import "./editor/editor.css";

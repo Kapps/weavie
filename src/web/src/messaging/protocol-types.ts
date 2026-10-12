@@ -22,15 +22,19 @@ export type SessionStatusName =
 export interface SessionChip {
   id: string;
   label: string;
+  /** The readable branch leaf: `feature/review-front-door` → `review front door`. */
+  title: string;
+  /** The branch type before the leaf (`feature`), or null when the label has none. */
+  prefix: string | null;
   loaded: boolean;
   providerId: string;
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;
   status: SessionStatusName;
-  hue: number;
-  monogram: string;
-  /** The inferred emoji that replaces the hue + monogram, or null while none has been chosen. */
-  emoji: string | null;
+  /** What the agent is doing (`running pnpm test`, `wants to edit App.tsx`), or null when only the status applies. */
+  activity: string | null;
+  /** When the agent last started or finished work (Unix ms), or null if it never has. */
+  lastActiveAt: number | null;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
 }

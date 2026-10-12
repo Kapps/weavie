@@ -51,6 +51,7 @@ internal sealed partial class AcpConversation {
 		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
 		lock (_turnTransitionGate) {
 			if (!state.Completed) {
+				Observe(new AgentActivityObserved(Activity(tool), AwaitingApproval: true));
 				Observe(new AgentPermissionRequested());
 				Observe(new AgentPermissionResolved(RequiresUserInput: true));
 				Emit(new AgentPaneMessage {

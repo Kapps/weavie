@@ -164,7 +164,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		string provider) => new() {
 			Id = new SessionId(id),
 			Label = label,
-			Emoji = null,
+			LastActiveAt = null,
 			WorktreePath = worktree,
 			Loaded = loaded,
 			AgentProviderId = provider,

@@ -109,7 +109,7 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			long now = _drainTime.GetTimestamp();
+			long now = _time.GetTimestamp();
 			var holds = DrainHolds(now);
 			if (holds.Count == 0) {
 				_drainInputFrozen = true;
@@ -156,7 +156,7 @@ public sealed partial class HostCore {
 			}
 
 			if (_lastInputTimestamps.TryGetValue(session.SlotId, out long lastInput)
-				&& _drainTime.GetElapsedTime(lastInput, now) < RecentInputGrace) {
+				&& _time.GetElapsedTime(lastInput, now) < RecentInputGrace) {
 				holds.Add((label, "recent-input"));
 			}
 		}
@@ -192,7 +192,7 @@ public sealed partial class HostCore {
 			}
 
 			if (userInitiated) {
-				_lastInputTimestamps[slot] = _drainTime.GetTimestamp();
+				_lastInputTimestamps[slot] = _time.GetTimestamp();
 			}
 			reevaluate = _drainExit is not null;
 		}

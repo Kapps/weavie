@@ -25,6 +25,17 @@ public sealed class AcpPermissionLifecycleTests {
 	}
 
 	[Fact]
+	public async Task PermissionRequest_ReportsTheToolAwaitingApproval() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("permission-lifecycle:edit-hold");
+		await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+
+		var pending = Assert.Single(fixture.Events.Values.OfType<AgentActivityObserved>(), value => value.AwaitingApproval);
+		Assert.Equal("wants to edit permission-edit.txt", pending.Activity.Wants);
+	}
+
+	[Fact]
 	public async Task Disposal_SettlesSidePermissionMutationsBeforeRetiringTheirOwner() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

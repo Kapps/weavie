@@ -84,6 +84,11 @@
   gap: 10px;
 }
 
+/* Clear the desktop dialog's corner close button. */
+.session-inbox-surface.open .session-inbox-dialog .session-inbox-header {
+  padding-right: 36px;
+}
+
 .session-inbox-header h1 {
   margin: 0;
   font-size: 1.5em;
@@ -91,8 +96,6 @@
 }
 
 .session-inbox-header span,
-.session-inbox-details span,
-.session-inbox-state,
 .session-inbox-empty {
   color: var(--dim);
   font-size: var(--font-hint-size);
@@ -374,22 +377,6 @@
   color: var(--fg);
 }
 
-.session-inbox-monogram {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  border-radius: 9px;
-  background: hsl(var(--chip-hue, 200) 45% 38%);
-  color: #fff;
-  font-weight: 600;
-}
-.session-inbox-monogram.emoji {
-  background: color-mix(in srgb, var(--fg) 9%, var(--bar));
-  font-size: 22px;
-}
-
 .session-inbox-details {
   display: flex;
   flex: 1 1 auto;
@@ -404,33 +391,32 @@
   white-space: nowrap;
 }
 
-.session-inbox-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.session-inbox-status,
+.session-inbox-prefix {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.session-inbox-details strong {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+/* A long name truncates before its type prefix does. */
+.session-inbox-prefix {
   flex: 0 0 auto;
+  font-weight: 400;
 }
 
-.session-inbox-row.status-idle .session-status {
-  background: var(--ok);
-}
-
-.session-inbox-row.status-working .session-status,
-.session-inbox-row.status-waiting .session-status,
-.session-inbox-row.status-starting .session-status {
-  background: var(--busy);
-}
-
-.session-inbox-row.status-needsInput .session-status {
-  background: var(--warn);
-}
-
-.session-inbox-row.status-error .session-status {
-  background: var(--bad);
-}
-
-.session-inbox-row.offline .session-status {
-  background: var(--dim);
+.session-inbox-where {
+  flex: 0 0 auto;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
 }
 
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {

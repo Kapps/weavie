@@ -55,6 +55,17 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
+	/// <inheritdoc/>
+	public void SetAsideCollapsed(string conversationId, bool collapsed) {
+		ArgumentException.ThrowIfNullOrEmpty(conversationId);
+		lock (_turnTransitionGate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			var state = _sideConversations.GetValueOrDefault(conversationId)
+				?? throw new InvalidOperationException("That side conversation is no longer available.");
+			_primary.Publish(SideMessage(Side(state), "side-conversation-collapsed", collapsed ? "collapsed" : "expanded"));
+		}
+	}
+
 	private void EnsureSideConversationSupport(AcpConversation primary) {
 		if (!primary.Ready || !Forkable) {
 			throw new InvalidOperationException(
@@ -109,26 +120,23 @@ public sealed partial class AcpAgentSession {
 
 	private void PublishSideTerminal(SideConversation side) => _primary.Publish(SideTerminal(side));
 
-	private AgentPaneMessage SideMarker(SideConversation side, string status) => new() {
-		Type = "side-conversation-started",
+	private AgentPaneMessage SideMarker(SideConversation side, string status) =>
+		SideMessage(side, "side-conversation-started", status) with { Text = side.InitialPrompt };
+
+	private AgentPaneMessage SideTerminal(SideConversation side) => SideMessage(side, "side-conversation-failed", "failed");
+
+	private AgentPaneMessage SideMessage(SideConversation side, string type, string status) => new() {
+		Type = type,
 		ProviderId = _definition.Id,
 		ThreadId = _primary.ThreadId,
 		ConversationId = side.ConversationId,
 		AnchorTurnId = side.AnchorTurnNumber.ToString(CultureInfo.InvariantCulture),
 		IsPrimaryThread = false,
-		Text = side.InitialPrompt,
 		Status = status,
 	};
 
-	private AgentPaneMessage SideTerminal(SideConversation side) => new() {
-		Type = "side-conversation-failed",
-		ProviderId = _definition.Id,
-		ThreadId = _primary.ThreadId,
-		ConversationId = side.ConversationId,
-		AnchorTurnId = side.AnchorTurnNumber.ToString(CultureInfo.InvariantCulture),
-		IsPrimaryThread = false,
-		Status = "failed",
-	};
+	private static SideConversation Side(AcpConversationState state) =>
+		new(state.ConversationId, state.AnchorTurnNumber, state.InitialPrompt);
 
 	private sealed record SideConversation(string ConversationId, long AnchorTurnNumber, string InitialPrompt);
 

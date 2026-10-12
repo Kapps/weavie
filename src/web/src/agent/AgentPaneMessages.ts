@@ -388,6 +388,7 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     text: entry.text,
     tone: entry.tone,
     ...(entry.asideActive === undefined ? {} : { asideActive: entry.asideActive }),
+    ...(entry.asideCollapsed === undefined ? {} : { asideCollapsed: entry.asideCollapsed }),
     ...(entry.asideEntries === undefined ? {} : { asideEntries: entry.asideEntries }),
     ...(entry.asideReplyable === undefined ? {} : { asideReplyable: entry.asideReplyable }),
     ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),

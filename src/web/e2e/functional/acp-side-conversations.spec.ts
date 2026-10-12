@@ -54,7 +54,7 @@ for (const { primaryRunning, prompt } of [
   });
 }
 
-test("BTW stays at its creation point through later primary output, side replies, and reopening", async ({
+test("BTW stays at its creation point and collapse state through later primary output, side replies, and reopening", async ({
   page,
 }) => {
   const surface = await createAcpSession(page, "acp-side-position");
@@ -94,6 +94,8 @@ test("BTW stays at its creation point through later primary output, side replies
   await reply.press("Enter");
   await expect(aside).toContainText("echo: one more side detail");
   await expectCreationOrder();
+  await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
+  await expect(reply).toBeHidden();
 
   await runCommand(page, "Unload Session");
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-side-position"]');
@@ -101,7 +103,10 @@ test("BTW stays at its creation point through later primary output, side replies
   await unloaded.click();
   await expect(aside).toHaveAttribute("data-agent-aside", conversationId!);
   await expect(aside).toContainText("echo: one more side detail");
+  await expect(aside.getByRole("button", { name: "Expand BTW", exact: true })).toBeVisible();
   await expectCreationOrder();
+  await aside.getByRole("button", { name: "Expand BTW", exact: true }).click();
+  await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
   await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
 });
 

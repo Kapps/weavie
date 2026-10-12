@@ -82,12 +82,12 @@ export function sideConversationEntry(
   const sideFailure = [...messages]
     .reverse()
     .find((message) => message.type === "side-conversation-failed");
+  const collapse = [...messages]
+    .reverse()
+    .find((message) => message.type === "side-conversation-collapsed");
   const state = sideConversationState(messages);
   const childMessages: AgentPaneUpdate[] = messages
-    .filter(
-      (message) =>
-        message.type !== "side-conversation-started" && message.type !== "side-conversation-failed",
-    )
+    .filter((message) => !message.type.startsWith("side-conversation-"))
     .map((message) => ({
       ...message,
       conversationId: null,
@@ -116,6 +116,7 @@ export function sideConversationEntry(
   return {
     actionMessage: null,
     asideActive: state.active,
+    asideCollapsed: collapse?.status === "collapsed",
     asideEntries: project(childMessages),
     asideReplyable: state.replyable,
     conversationId: first.conversationId!,

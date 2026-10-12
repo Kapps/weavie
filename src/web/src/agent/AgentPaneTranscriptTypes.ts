@@ -34,6 +34,7 @@ export interface AgentTranscriptEntry {
   turnStart?: true;
   promptTurnId?: string;
   asideActive?: boolean;
+  asideCollapsed?: boolean;
   asideEntries?: AgentTranscriptEntry[];
   asideReplyable?: boolean;
   conversationId?: string;

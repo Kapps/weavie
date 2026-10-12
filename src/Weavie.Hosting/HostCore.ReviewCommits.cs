@@ -24,22 +24,21 @@ public sealed partial class HostCore {
 		}
 	}
 
-	// The branch starts at its PR's merge-base, else where it left the default branch; the review spans the commits
-	// after its own base. Two range logs over the branch only, never a history walk.
+	// The branch starts at its PR's merge-base, else where it left the default branch (or, with none, at the review's
+	// base); the review spans the commits after its own base. Range logs over the branch only, never a history walk.
 	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(string worktree, ReviewContext? review, CancellationToken ct) {
 		var git = new GitService();
 		try {
 			string? defaultRef = await DefaultDiffRefAsync(worktree, ct).ConfigureAwait(false);
-			string? branchBase = review is { PrNumber: > 0 } ? review.MergeBase
-				: defaultRef is null ? null
+			string? branchBase = review is { PrNumber: > 0 } || defaultRef is null ? review?.MergeBase
 				: await git.MergeBaseAsync(worktree, defaultRef, "HEAD", ct).ConfigureAwait(false);
 			if (branchBase is null) {
 				return ReviewCommitsSnapshot.None;
 			}
 
 			var branch = await git.LogRangeAsync(worktree, branchBase, "HEAD", ct).ConfigureAwait(false);
-			var reviewed = review is null
-				? []
+			var reviewed = review is null ? []
+				: review.MergeBase == branchBase ? branch.Select(c => c.Sha).ToHashSet(StringComparer.Ordinal)
 				: (await git.LogRangeAsync(worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false)).Select(c => c.Sha).ToHashSet(StringComparer.Ordinal);
 			bool wholeBranch = review is not null && (review.PrNumber > 0 || review.Label == $"vs {defaultRef}");
 			return new(wholeBranch, [.. branch.Select(c => new BranchCommit(c.Sha, c.Author, c.TimeUnix, c.Summary, reviewed.Contains(c.Sha)))], null);

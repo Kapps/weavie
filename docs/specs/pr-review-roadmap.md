@@ -128,7 +128,7 @@ Decided by mockup:
 
 - The overview is the top of the review tab; the changed-file tree becomes its **Changes** section and the diffs
   follow in the same scroll. Scrolled past, the sticky header carries the session's identity and an **Overview**
-  command back. Sessions without changes still get it. Commits show only when the review compares against a branch.
+  command back. Sessions without changes still get it. Commits list the whole branch, dimming those the review doesn't span.
 - Every section collapses. Collapse state is remembered globally by default; a setting switches it to per session.
 - The PR conversation's composer posts immediately: GitHub's PR-level comments are never part of a review.
 - Feature 8's submit control sits top-right of the overview and in the sticky header, only when there's a PR.

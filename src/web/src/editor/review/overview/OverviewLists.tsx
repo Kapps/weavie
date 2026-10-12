@@ -78,15 +78,18 @@ export function OverviewReviewers(props: { detail: PrDetail }): JSX.Element {
 }
 
 /** The branch's commits, newest first, those outside the review dimmed; the list scrolls past ten. */
-export function OverviewCommits(props: { commits: ReviewCommit[] }): JSX.Element {
+export function OverviewCommits(props: {
+  commits: ReviewCommit[];
+  reviewing: boolean;
+}): JSX.Element {
   return (
     <ul class="session-overview-list session-overview-commits session-overview-scroll">
       <For each={props.commits} fallback={<li class="session-overview-empty">No commits yet</li>}>
         {(commit) => (
           <li
             class="session-overview-row"
-            classList={{ "session-overview-outside": !commit.inReview }}
-            title={`${commit.summary}\n${commit.author}${commit.inReview ? "" : "\nNot in this review"}`}
+            classList={{ "session-overview-outside": props.reviewing && !commit.inReview }}
+            title={`${commit.summary}\n${commit.author}${!props.reviewing || commit.inReview ? "" : "\nNot in this review"}`}
           >
             <Avatar user={{ login: commit.author, avatarUrl: "" }} />
             <span class="session-overview-row-text">{commit.summary}</span>

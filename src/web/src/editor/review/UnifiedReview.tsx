@@ -118,7 +118,8 @@ export function UnifiedReview(props: {
       titleElement!.getBoundingClientRect().bottom - overviewElement!.getBoundingClientRect().top,
     );
   };
-  const pastTitle = (): boolean => viewTop() >= titleBottom();
+  // Memoised: it reads the scroll position, so its readers must only rerun when it flips, not every frame.
+  const pastTitle = createMemo(() => viewTop() >= titleBottom());
   // Content below the overview keeps its place on screen when the overview grows or shrinks above it.
   const resizeOverview = (height: number): void => {
     // A hidden tab reports no height; only a laid-out overview moves the list.

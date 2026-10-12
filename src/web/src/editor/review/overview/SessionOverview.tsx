@@ -3,7 +3,7 @@ import { AgentMarkdown } from "../../../agent/AgentMarkdown";
 import type { ClientSession } from "../../../bridge";
 import { DiffStats } from "../DiffStats";
 import { ReviewFileTree } from "../ReviewFileTree";
-import type { ReviewFileView, ReviewOverview } from "../review-store";
+import { canCloseReview, type ReviewFileView, type ReviewOverview } from "../review-store";
 import { isReviewed } from "../review-tree";
 import { OverviewConversation } from "./OverviewConversation";
 import { checksSummary, OverviewChecks, OverviewCommits, OverviewReviewers } from "./OverviewLists";
@@ -14,8 +14,8 @@ import { prOverviewFor, reviewCommitsFor } from "./overview-data";
 import "./overview.css";
 
 /**
- * The top of a session's review: what the session is (its PR or branch), the PR's discussion and checks, the commits
- * a branch review covers, and its changed files, which lead straight into the diffs below.
+ * The top of a session's review: what the session is (its PR or branch), the PR's discussion and checks, the branch's
+ * commits (dimmed where the review doesn't span them), and its changed files, which lead straight into the diffs below.
  */
 export function SessionOverview(props: {
   session: ClientSession;
@@ -32,6 +32,8 @@ export function SessionOverview(props: {
 }): JSX.Element {
   const pr = () => prOverviewFor(props.session);
   const detail = () => pr()?.detail ?? null;
+  // Without a review open there's nothing for a commit to fall outside of.
+  const reviewing = () => canCloseReview(props.overview());
   const commits = () => {
     const value = reviewCommitsFor(props.session);
     return value === null || (value.commits.length === 0 && value.error === null) ? null : value;
@@ -57,14 +59,16 @@ export function SessionOverview(props: {
       () => {
         const all = commits()?.commits ?? [];
         const spanned = all.filter((commit) => commit.inReview).length;
-        return spanned === all.length ? all.length : `${spanned} of ${all.length} in this review`;
+        return !reviewing() || spanned === all.length
+          ? all.length
+          : `${spanned} of ${all.length} in this review`;
       },
       () => (
         <>
           <Show when={commits()?.error}>
             {(error) => <p class="session-overview-error">{error()}</p>}
           </Show>
-          <OverviewCommits commits={commits()?.commits ?? []} />
+          <OverviewCommits commits={commits()?.commits ?? []} reviewing={reviewing()} />
         </>
       ),
     );

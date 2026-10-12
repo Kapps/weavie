@@ -11,14 +11,15 @@ reaches the diffs; there is no separate "start" step.
 
 | Section | Shown when | Content |
 |---|---|---|
-| Title | always | PR title, `#N`, state, author, link, or the branch name; [Finish review](pr-review-finish.md) top-right |
+| Title | always | PR title with its `#N` link, state, author, "merge head into base", or the branch name; [Finish review](pr-review-finish.md) in the byline |
 | Description, Conversation | the branch has a PR | PR body; PR-level comments and review events, with a composer |
 | Checks, Reviewers | the branch has a PR | failing checks first; each reviewer's latest state |
-| Commits | the review compares against a branch (a PR or Diff Against) | `merge-base..HEAD`, scrolling past ten rows |
+| Commits | the branch has commits of its own | from where it left its PR's or the default branch, dimming those the review doesn't span |
 | Changes | always | the review's file tree, headed by what it compares (`PR #12`, `vs main`, or agent edits) |
 
-Commits appear only for a branch comparison so the overview never pairs "4 commits" with a file list that isn't
-those commits. Once the overview's title scrolls away, the sticky review header carries the session's identity
+Commits always list the whole branch; when the review is narrower (Uncommitted, Last commit, agent edits) the commits
+it doesn't span are dimmed and the heading reads "1 of 7 in this review", so the list never claims more than the
+file list shows. Once the overview's title scrolls away, the sticky review header carries the session's identity
 (state, title, failing checks) and the Finish review control, with an **Overview** button back to the top.
 
 **Show Session Overview** (`weavie.review.overview`, unbound) opens it for any session, changes or not, and is how
@@ -52,8 +53,8 @@ flowchart LR
   Web -->|pullRequests/issueComment| O
 ```
 
-- **Commits** come from local git: the active review's merge-base to `HEAD`, refreshed when `HEAD` moves or the
-  review changes.
+- **Commits** come from local git: the branch's range plus the review's range (`base..HEAD` each), refreshed when
+  `HEAD` moves or the review changes.
 - **PR data** is one GraphQL query per refresh (detail, reviewers, conversation, check rollup), loaded when the
   branch's PR or head changes and on the same visible-session poll that refreshes PR comments. A transient failure
   keeps the last good overview for the same PR and shows the error.

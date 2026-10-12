@@ -22,7 +22,7 @@ public static class TestRunRoot {
 		redirect["WEAVIE_ROOT"] = Path.Combine(_root, "weavie");
 		// Weavie stops agents and LSP servers with SIGKILL, which strands a .NET child's runtime IPC files.
 		redirect["DOTNET_EnableDiagnostics"] = "0";
-		// Node's compile cache is shared across runs, so it stays at Node's default under the system temp path.
+		// Enables Node's compile cache for every Node child, shared across runs at Node's default location.
 		redirect["NODE_COMPILE_CACHE"] = Path.Combine(system, "node-compile-cache");
 		_inherited = redirect.Keys.ToDictionary(name => name, Environment.GetEnvironmentVariable);
 		foreach (var (name, value) in redirect) Environment.SetEnvironmentVariable(name, value);
@@ -39,8 +39,11 @@ public static class TestRunRoot {
 		// installs stamps how the process ended), and this handler runs after every one registered before it.
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => TempDirectory.Delete(root);
 		if (leaked.Length > 0) {
-			throw new InvalidOperationException(
-				$"Tests left {leaked.Length} temp entries behind; each test must remove what it creates: {string.Join(", ", leaked)}");
+			string message =
+				$"Tests left {leaked.Length} temp entries behind; each test must remove what it creates: {string.Join(", ", leaked)}";
+			// The runner's console logger drops an assembly-cleanup failure's message.
+			Console.Error.WriteLine(message);
+			throw new InvalidOperationException(message);
 		}
 	}
 }

@@ -134,9 +134,10 @@ public sealed class WorktreeServeTests {
 
 	[Fact]
 	public void Port_lease_serializes_preview_launchers() {
-		using var first = PortLease.Acquire(39876);
+		using var locks = new TempDirectory("worktree-serve-port");
+		using var first = PortLease.Acquire(39876, locks.Path);
 
-		Assert.Throws<InvalidOperationException>(() => PortLease.Acquire(39876));
+		Assert.Throws<InvalidOperationException>(() => PortLease.Acquire(39876, locks.Path));
 	}
 
 	[Fact]

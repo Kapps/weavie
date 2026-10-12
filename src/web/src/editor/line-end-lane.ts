@@ -34,40 +34,57 @@ const EDGE_GAP = 8;
 
 const lanes = new WeakMap<monaco.editor.ICodeEditor, Lane>();
 
+interface Fit {
+  readonly editor: monaco.editor.ICodeEditor;
+  readonly line: number;
+  readonly row: Row;
+  readonly left: number;
+  readonly room: number;
+}
+
+// Rows whose geometry changed during the current Monaco render, fitted together once it returns: measuring a
+// line end inside a render re-enters it, nesting a full editor render per row.
+let pending: Fit[] = [];
+
 // Without room before the visible edge, the row slides left over text injected after the code (the blame
-// annotation), never over the code itself, so its items stay on screen. Monaco renders widgets every scroll
-// frame, so a row reads or writes the DOM only when its items, line end, or the visible width changed.
+// annotation), never over the code itself, so its items stay on screen. One write-read-write pass for the batch.
+function fitPending(): void {
+  const fits = pending;
+  pending = [];
+  const unmeasured = fits.filter(({ row }) => row.natural === null);
+  for (const { row } of unmeasured) {
+    row.dom.style.maxWidth = "none";
+    row.dom.style.width = "max-content";
+  }
+  for (const { row } of unmeasured) row.natural = row.dom.offsetWidth;
+  const shifts = fits.map(({ editor, line, row, left, room }) => {
+    const natural = row.natural ?? 0;
+    const model = editor.getModel();
+    if (natural <= room || model === null || line > model.getLineCount()) return 0;
+    const codeEnd = editor.getOffsetForColumn(line, model.getLineMaxColumn(line));
+    return Math.max(0, Math.min(natural - room, left - codeEnd));
+  });
+  shifts.forEach((shift, index) => {
+    const { row, room } = fits[index] as Fit;
+    row.dom.style.width = "";
+    row.dom.style.transform = shift > 0 ? `translateX(${-shift}px)` : "";
+    row.dom.classList.toggle("weavie-line-end-over", shift > 0);
+    // Slid over, the backing runs to the very edge so no annotation text peeks past it.
+    row.dom.style.maxWidth = `${Math.max(0, room + shift + (shift > 0 ? EDGE_GAP : 0))}px`;
+  });
+}
+
+// Monaco renders widgets every scroll frame, so a row is refitted only when its items, line end, or the visible
+// width changed.
 function fitRow(editor: monaco.editor.ICodeEditor, line: number, row: Row, left: number): void {
-  const model = editor.getModel();
-  if (model === null || line > model.getLineCount()) return;
   const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
   const visibleRight = editor.getScrollLeft() + editor.getLayoutInfo().contentWidth - EDGE_GAP;
   const key = `${left}:${visibleRight}:${lineHeight}`;
   if (row.fitted === key && row.natural !== null) return;
-  const { dom } = row;
-  dom.style.height = `${lineHeight}px`;
-  if (row.natural === null) {
-    dom.style.maxWidth = "none";
-    dom.style.width = "max-content";
-    row.natural = dom.offsetWidth;
-    dom.style.width = "";
-  }
-  const room = visibleRight - left;
-  const shift =
-    row.natural <= room
-      ? 0
-      : Math.max(
-          0,
-          Math.min(
-            row.natural - room,
-            left - editor.getOffsetForColumn(line, model.getLineMaxColumn(line)),
-          ),
-        );
-  dom.style.transform = shift > 0 ? `translateX(${-shift}px)` : "";
-  dom.classList.toggle("weavie-line-end-over", shift > 0);
-  // Slid over, the backing runs to the very edge so no annotation text peeks past it.
-  dom.style.maxWidth = `${Math.max(0, room + shift + (shift > 0 ? EDGE_GAP : 0))}px`;
   row.fitted = key;
+  row.dom.style.height = `${lineHeight}px`;
+  if (pending.length === 0) queueMicrotask(fitPending);
+  pending.push({ editor, line, row, left, room: visibleRight - left });
 }
 
 function createRow(editor: monaco.editor.ICodeEditor, line: number): Row {

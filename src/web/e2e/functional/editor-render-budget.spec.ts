@@ -29,10 +29,10 @@ const ENTERS = 5;
 // Scrolling measured 1.01 reads per notch, all from mounting sections and their rows.
 const READS_PER_NOTCH = 1.5;
 // Per keystroke, measured 50 reads (+89 deferred) in the multi-file review, mostly re-rendering the hunks for
-// autosave's echo, and 23 (+84) in the PR review. Per Enter, 71 (+118): each moved row is re-fitted.
+// autosave's echo, and 23 (+84) in the PR review. Per Enter in the last hunk, 95 (+205).
 const REVIEW_KEY = { reads: 60, deferred: 110 };
 const PR_KEY = { reads: 30, deferred: 105 };
-const ENTER = { reads: 90, deferred: 150 };
+const ENTER = { reads: 120, deferred: 260 };
 
 const base = Array.from({ length: LINES }, (_, index) => `export const value${index} = ${index};`);
 // Per 30 lines: a changed line plus an added one, and three deleted lines — eight hunks a file.
@@ -73,6 +73,13 @@ test.describe.configure({ timeout: 180_000 });
 // DOM snapshots read every node's scroll offsets on each action, through the probe's patched getters.
 test.use({ trace: { mode: "retain-on-failure", snapshots: false }, preNavigate: deferredPhase });
 
+// The Monaco editor holding the caret.
+async function focusedEditor(page: Page) {
+  return page.evaluateHandle(
+    () => window.__WEAVIE_MONACO__!.editor.getEditors().find((editor) => editor.hasTextFocus())!,
+  );
+}
+
 interface Budget {
   reads: number;
   deferred: number;
@@ -84,14 +91,23 @@ function expectWithin(sample: RenderSample, steps: number, budget: Budget): void
   expect(sample.deferred, report).toBeLessThanOrEqual(steps * budget.deferred);
 }
 
-// Types `key` KEYS times on the caret's line: no content widget may be added or removed.
+// Types `key` KEYS times on the caret's line: no content widget or zone card may be added or removed. Each key
+// also refocuses the window, which refreshes PR comments, so the minute's refresh tick landing mid-run adds nothing
+// new: the host publishes only changed comments (Refresh_PublishesOnlyWhenTheCommentsChanged).
 async function expectTypingWithin(page: Page, key: string, perKey: Budget): Promise<void> {
   const sample = await measureRender(page, KEYS, KEYS * perKey.reads, async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.keyboard.type(key);
     await settle(page);
   });
-  expect(sample.added + sample.removed, describeSample(sample)).toBe(0);
+  const report = describeSample(sample);
+  expect(sample.added + sample.removed, report).toBe(0);
   expectWithin(sample, KEYS, perKey);
+  expect(sample.reads, `the probe must still see Weavie's frames\n${report}`).toBeGreaterThan(0);
+  const line = await (await focusedEditor(page)).evaluate((editor) =>
+    editor.getModel()!.getLineContent(editor.getPosition()!.lineNumber),
+  );
+  expect(line, "every key must reach the buffer").toMatch(new RegExp(`${key}{${KEYS}}$`));
 }
 
 test.describe("a decorated multi-file review", () => {
@@ -119,12 +135,15 @@ test.describe("a decorated multi-file review", () => {
     await expect(page.locator(".unified-review-file .weavie-blame").first()).toBeVisible();
   });
 
-  // The caret at the end of the first file's first added line: a hunk with keep/revert and a hint. Clicked at
-  // the line's left edge because its hint pill covers the end.
-  async function caretInHunk(page: Page): Promise<void> {
+  // Focuses the first file (clicking its first added line's left edge, clear of the hint pill) and puts the caret
+  // at the end of added line `line`, in a hunk with keep/revert and a hint.
+  async function caretAt(page: Page, line: number): Promise<void> {
     const section = page.locator(".unified-review-file").first();
     await section.locator(".view-line", { hasText: "added0" }).click({ position: { x: 2, y: 2 } });
-    await page.keyboard.press("End");
+    await (await focusedEditor(page)).evaluate((editor, lineNumber) => {
+      editor.setPosition({ lineNumber, column: editor.getModel()!.getLineMaxColumn(lineNumber) });
+      editor.revealLineInCenter(lineNumber);
+    }, line);
     await settle(page);
   }
 
@@ -146,20 +165,18 @@ test.describe("a decorated multi-file review", () => {
   });
 
   test("typing on a decorated line re-adds no widget @perf", async ({ page }) => {
-    await caretInHunk(page);
+    await caretAt(page, addedLines[0]!);
     await expectTypingWithin(page, "x", REVIEW_KEY);
   });
 
+  // In the last hunk, so a re-add of every row (a dozen) dwarfs the few rows an Enter really moves.
   test("Enter re-adds only the line-end rows it moved @perf", async ({ page }) => {
-    await caretInHunk(page);
+    await caretAt(page, addedLines.at(-1)!);
     let moves = 0;
     const sample = await measureRender(page, ENTERS, ENTERS * ENTER.reads, async () => {
       // Rows below the caret shift down a line. The caret line's row is carried down by its tracked decoration
       // and re-anchored by the debounced placement, so it may move twice.
-      moves += await page.evaluate(() => {
-        const editor = window
-          .__WEAVIE_MONACO__!.editor.getEditors()
-          .find((candidate) => candidate.hasTextFocus())!;
+      moves += await (await focusedEditor(page)).evaluate((editor) => {
         const caret = editor.getPosition()!.lineNumber;
         const rows = [...editor.getDomNode()!.querySelectorAll("[widgetid^='weavie.lineEnd.']")];
         const line = (row: Element): number =>

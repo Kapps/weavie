@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
+import { frames } from "./render-budget";
 import type { WeavieWindow } from "./weavie-window";
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
@@ -17,9 +18,7 @@ export async function awaitEditorReady(page: Page): Promise<void> {
 // webfont load and give the editor a frame to lay out against it before reading computed typography.
 export async function awaitFontsSettled(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready);
-  await page.evaluate(
-    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-  );
+  await frames(page, 2);
 }
 
 export async function activeSessionSlot(page: Page): Promise<string> {

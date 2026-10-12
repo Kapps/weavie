@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 // Load-independent render guards: counts of what a code path DOES (forced-layout reads from Weavie's bundles,
-// content widgets added or removed), never how long it took, so a slow machine only delays
+// content widgets and zone cards added or removed), never how long it took, so a slow machine only delays
 // a run and a regression fails with the offending call site or widget named.
 
 /** What one probed window did. */
@@ -12,11 +12,12 @@ export interface RenderSample {
   reads: number;
   /** The same reads from timer, idle and resize-observer callbacks (see `deferredPhase`). */
   deferred: number;
-  /** Content widget nodes attached to and detached from Monaco's widget containers. */
+  /** Nodes attached to and detached from Monaco's content-widget containers and the zone-card layer. */
   added: number;
   removed: number;
   /** Read sites (`file:line:col apis  …source…`) and widget ids (`+id`/`-id`), most frequent first. */
   sites: [string, number][];
+  deferredSites: [string, number][];
   widgets: [string, number][];
 }
 
@@ -67,6 +68,7 @@ const FORCING = {
 /**
  * A `preNavigate` hook marking timer, idle and resize-observer callbacks from page load on. Their reads are counted
  * apart from the input and render path: debounced work runs in its own task, and an observer runs after layout.
+ * Only the synchronous callback is marked; work after an `await` inside it counts as on-path.
  */
 export const deferredPhase = {
   run: async (page: Page): Promise<void> => {
@@ -117,7 +119,9 @@ export async function measureRender(
   step: () => Promise<void>,
 ): Promise<RenderSample> {
   await page.evaluate((forcing) => {
-    const sites = new Map<string, { count: number; apis: Set<string> }>();
+    type Sites = Map<string, { count: number; apis: Set<string> }>;
+    const sites: Sites = new Map();
+    const deferredSites: Sites = new Map();
     const widgets = new Map<string, number>();
     const state = {
       frames: 0,
@@ -139,16 +143,14 @@ export async function measureRender(
       const stack = (new Error().stack ?? "").split("\n").slice(3);
       const site = stack.map((frame) => appFrame.exec(frame)).find((match) => match !== null);
       if (!site) return;
-      if (phase.__deferredDepth! > 0) {
-        state.deferred += 1;
-        return;
-      }
-      state.reads += 1;
+      const deferred = phase.__deferredDepth! > 0;
+      state[deferred ? "deferred" : "reads"] += 1;
+      const into = deferred ? deferredSites : sites;
       const key = `${site[1]}\u0000${site[2]}\u0000${site[3]}`;
-      const entry = sites.get(key) ?? { count: 0, apis: new Set<string>() };
+      const entry = into.get(key) ?? { count: 0, apis: new Set<string>() };
       entry.count += 1;
       entry.apis.add(api);
-      sites.set(key, entry);
+      into.set(key, entry);
     };
     const restore: (() => void)[] = [];
     const patch = (target: object, name: string): void => {
@@ -180,13 +182,15 @@ export async function measureRender(
     const tally = (records: MutationRecord[]): void => {
       for (const record of records) {
         const container = record.target as Element;
-        if (!container.matches?.(".contentWidgets, .overflowingContentWidgets")) continue;
+        const layers = ".contentWidgets, .overflowingContentWidgets, .weavie-zone-cards-clip";
+        if (!container.matches?.(layers)) continue;
         for (const [sign, nodes] of [
           ["+", record.addedNodes],
           ["-", record.removedNodes],
         ] as const) {
           for (const node of nodes) {
-            const id = (node as Element).getAttribute?.("widgetId") ?? node.nodeName;
+            const element = node as Element;
+            const id = element.getAttribute?.("widgetId") || element.className || node.nodeName;
             const key = `${sign}${id.replace(/\d+/g, "#")}`;
             state[sign === "+" ? "added" : "removed"] += 1;
             widgets.set(key, (widgets.get(key) ?? 0) + 1);
@@ -219,26 +223,31 @@ export async function measureRender(
             );
           return sources.get(url)!;
         };
-        const ranked = [...sites].sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+        // Minified names say nothing, so each site carries the source around the read instead.
+        const describe = (from: Sites): Promise<[string, number][]> =>
+          Promise.all(
+            [...from]
+              .sort((a, b) => b[1].count - a[1].count)
+              .slice(0, 8)
+              .map(async ([key, { count, apis }]): Promise<[string, number]> => {
+                const [url = "", line, column] = key.split("\u0000");
+                const text = (await source(url))[Number(line) - 1] ?? "";
+                const at = Number(column) - 1;
+                const file = url.slice(url.lastIndexOf("/") + 1);
+                return [
+                  `${file}:${line}:${column} ${[...apis].join("/")}  …${text.slice(Math.max(0, at - 70), at + 50)}…`,
+                  count,
+                ];
+              }),
+          );
         return {
           frames: state.frames,
           reads: state.reads,
           deferred: state.deferred,
           added: state.added,
           removed: state.removed,
-          // Minified names say nothing, so each site carries the source around the read instead.
-          sites: await Promise.all(
-            ranked.map(async ([key, { count, apis }]) => {
-              const [url = "", line, column] = key.split("\u0000");
-              const text = (await source(url))[Number(line) - 1] ?? "";
-              const at = Number(column) - 1;
-              const file = url.slice(url.lastIndexOf("/") + 1);
-              return [
-                `${file}:${line}:${column} ${[...apis].join("/")}  …${text.slice(Math.max(0, at - 70), at + 50)}…`,
-                count,
-              ];
-            }),
-          ),
+          sites: await describe(sites),
+          deferredSites: await describe(deferredSites),
           widgets: [...widgets].sort((a, b) => b[1] - a[1]),
         };
       },
@@ -263,15 +272,16 @@ export async function measureRender(
   return stop();
 }
 
-/** A failure message naming the top read sites and widget churn, so a red run points at the culprit. */
+/** A failure message naming the top read sites and widget/card churn, so a red run points at the culprit. */
 export function describeSample(sample: RenderSample): string {
   const lines = (entries: [string, number][]): string =>
     entries.map(([site, count]) => `  ${String(count).padStart(5)}  ${site}`).join("\n") ||
     "  (none)";
   return [
-    `${sample.reads} Weavie forced-layout reads (+${sample.deferred} deferred), ${sample.added} content widgets added, ${sample.removed} removed, ${sample.frames} frames.`,
+    `${sample.reads} Weavie forced-layout reads (+${sample.deferred} deferred), ${sample.added} widgets/cards added, ${sample.removed} removed, ${sample.frames} frames.`,
     `Top read sites:\n${lines(sample.sites)}`,
-    `Content widget churn:\n${lines(sample.widgets)}`,
+    `Top deferred read sites:\n${lines(sample.deferredSites)}`,
+    `Widget and card churn:\n${lines(sample.widgets)}`,
   ].join("\n");
 }
 
@@ -284,9 +294,9 @@ export function frames(page: Page, count: number): Promise<void> {
 }
 
 /**
- * Resolves once every debounce an edit arms has fired and painted, twice over for chains. The first wait passes
- * autosave (600ms), so the host's echo of the saved diff normally renders in the same step; a late echo can only
- * lower the count.
+ * Resolves once every debounce an edit arms has fired and painted, twice over for chains. The first wait runs past
+ * the longest autosave debounce, so the host's echo of the saved diff normally renders in the same step; a late
+ * echo can only lower the count.
  */
 export function settle(page: Page): Promise<void> {
   return page.evaluate(async () => {

@@ -1035,7 +1035,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return {
       original: message.baseline,
       acceptedBaseline: message.acceptedBaseline,
-      claudeVersion: message.current,
       mode: "applied",
       onKeepHunk: (hunk) => keepHunk(session, message.path, hunk),
       onKeepFile: () => keepFile(session, message.path),
@@ -1057,7 +1056,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       message.acceptedBaselineExists === message.currentExists
     ) {
       inlineDiff?.clear(session, message.path);
-      commentProse?.refresh();
       const active = activePathFor(session);
       if (active !== null && samePath(active, message.path)) {
         advanceToNextPendingFile(session, message.path, (file, line) =>
@@ -1072,7 +1070,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       message.path,
       appliedReviewOptions(session, message, (file, line) => openReviewFile(session, file, line)),
     );
-    commentProse?.refresh();
   };
 
   const renderReviewState = (session: ClientSession): void => {
@@ -1117,6 +1114,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviews.setDiff(session, message);
     if (selectedSession() === session) {
       renderTurnDiff(session, message);
+      commentProse?.refresh();
     }
   };
 

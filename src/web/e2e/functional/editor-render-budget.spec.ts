@@ -28,11 +28,11 @@ const ENTERS = 5;
 // reads from debounced and observer callbacks, which only settle-paced steps make deterministic.
 // Scrolling measured 1.01 reads per notch, all from mounting sections and their rows.
 const READS_PER_NOTCH = 1.5;
-// Per keystroke, measured 50 reads (+89 deferred) in the multi-file review, mostly re-rendering the hunks for
-// autosave's echo, and 23 (+84) in the PR review. Per Enter in the last hunk, 95 (+205).
-const REVIEW_KEY = { reads: 60, deferred: 110 };
-const PR_KEY = { reads: 30, deferred: 105 };
-const ENTER = { reads: 120, deferred: 260 };
+// Per keystroke, measured 11 reads (+89 deferred) in the multi-file review and 14 (+84) in the PR review, where
+// the tab's unsaved marker comes and goes. Per Enter in the last hunk, 22 (+206).
+const REVIEW_KEY = { reads: 14, deferred: 110 };
+const PR_KEY = { reads: 18, deferred: 105 };
+const ENTER = { reads: 28, deferred: 260 };
 
 const base = Array.from({ length: LINES }, (_, index) => `export const value${index} = ${index};`);
 // Per 30 lines: a changed line plus an added one, and three deleted lines — eight hunks a file.

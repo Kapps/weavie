@@ -394,11 +394,10 @@ test.describe("applied review — typing never tears the diff down (regression)"
       requestAnimationFrame(tick);
     });
 
-    // Line 140 is untouched by the agent, so this lands as a USER change (weavie-inline-user) below the
-    // anchor, without disturbing any pending hunk — and it's the deterministic "the recompute landed" signal.
+    // Line 140 is untouched by the agent, so this lands as a fifth pending hunk below the anchor, without
+    // disturbing the other four — and it's the deterministic "the recompute landed" signal.
     await page.keyboard.type("// noted!!", { delay: 150 });
-    await expect(page.locator(".weavie-inline-user")).toHaveCount(1);
-    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(4);
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(5);
 
     const probe = await page.evaluate(
       () => (window as Window & { __DIFF_PROBE__?: Record<string, number> }).__DIFF_PROBE__,

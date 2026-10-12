@@ -47,8 +47,14 @@ public sealed record AgentBackgroundItem {
 	/// <summary>A longer description of the work, when reported.</summary>
 	public required string? Detail { get; init; }
 
-	/// <summary>The latest activity reported, such as the last tool used or a summary.</summary>
+	/// <summary>The latest activity reported, such as the last tool used.</summary>
 	public required string? LastActivity { get; init; }
+
+	/// <summary>The result the agent reported on reaching a terminal state, such as a failure's error.</summary>
+	public required string? Summary { get; init; }
+
+	/// <summary>The file the agent writes the work's output to, when it reported one.</summary>
+	public required string? OutputPath { get; init; }
 
 	/// <summary>Usage reported by a task, when any.</summary>
 	public required AgentBackgroundUsage? Usage { get; init; }
@@ -65,7 +71,7 @@ public sealed record AgentBackgroundItem {
 	/// <summary>When the work reached a terminal state, as Unix milliseconds.</summary>
 	public required long? EndedAtMs { get; init; }
 
-	/// <summary>The transcript item that renders this work, when it has a card.</summary>
+	/// <summary>The transcript item that renders this work: its card, or the tool call that started a task.</summary>
 	public required string? TranscriptItemId { get; init; }
 
 	/// <summary>Whether the work is still live.</summary>

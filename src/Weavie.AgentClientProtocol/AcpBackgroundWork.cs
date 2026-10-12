@@ -52,6 +52,8 @@ internal sealed partial class AcpBackgroundWork(AcpConversation root) {
 			Type = "subagent",
 			Detail = task.Length > 0 ? task : null,
 			LastActivity = null,
+			Summary = null,
+			OutputPath = null,
 			Usage = null,
 			State = AgentBackgroundState.Running,
 			CanStop = false,

@@ -12,12 +12,7 @@ internal sealed partial class FakeAcpAgent {
 		switch (text) {
 			case "task-held":
 				string tool = "exec-" + Guid.NewGuid().ToString("N");
-				Update(Tool(tool, "sleep 30", "in_progress"));
-				Update(new JsonObject {
-					["sessionUpdate"] = "tool_call_update",
-					["toolCallId"] = tool,
-					["_meta"] = new JsonObject { ["jetbrains"] = new JsonObject { ["air"] = new JsonObject { ["asyncTasks"] = new JsonObject { ["backgrounded"] = true } } } },
-				});
+				BackgroundedTool(tool, "sleep 30");
 				SpawnTask(_sessionId!, tool, "sleep 30", "shell", tool);
 				_ = ReleaseTaskAsync(_sessionId!, tool, "release-task", tool, ct);
 				break;
@@ -32,6 +27,23 @@ internal sealed partial class FakeAcpAgent {
 				});
 				_ = ReleaseTaskAsync(_sessionId!, workflow, "release-workflow", null, ct);
 				break;
+			// A backgrounded MCP call that fails, reporting its error and output file only at the end, as Claude does.
+			case "task-failed":
+				string call = "mcp-" + Guid.NewGuid().ToString("N")[..8];
+				string output = StatePath(call + ".output");
+				File.WriteAllText(output, "consult output" + Environment.NewLine);
+				BackgroundedTool(call, "weavie/consultAgent");
+				SpawnTask(_sessionId!, call, "Consult Astra", "monitor", null);
+				Update(new JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = call, ["status"] = "failed", ["content"] = new JsonArray(new JsonObject { ["type"] = "content", ["content"] = Text("consult tool error") }) });
+				UpdateOn(_sessionId!, new JsonObject {
+					["sessionUpdate"] = "async_task_state_update",
+					["asyncTaskId"] = call,
+					["state"] = "failed",
+					["summary"] = "No agent named Astra",
+					["toolCallId"] = call,
+					["outputFilePath"] = output,
+				});
+				break;
 			case "task-in-subagent":
 				string child = NextSubagent();
 				SpawnSubagent(_sessionId!, child, "Runner", "Run in background");
@@ -42,6 +54,15 @@ internal sealed partial class FakeAcpAgent {
 		}
 		Message("task turn done");
 		return new JsonObject { ["stopReason"] = "end_turn" };
+	}
+
+	private void BackgroundedTool(string id, string title) {
+		Update(Tool(id, title, "in_progress"));
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = id,
+			["_meta"] = new JsonObject { ["jetbrains"] = new JsonObject { ["air"] = new JsonObject { ["asyncTasks"] = new JsonObject { ["backgrounded"] = true } } } },
+		});
 	}
 
 	private void SpawnTask(string sessionId, string id, string name, string type, string? toolCallId) {

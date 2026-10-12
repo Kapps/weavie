@@ -19,7 +19,7 @@ export default function AgentSubagentTab(props: {
   onMount(() => onCleanup(props.bind(host)));
 
   return (
-    <div class="editor-subagent agent-body" data-kind="editor" tabindex="0" ref={host}>
+    <div class="editor-agent-view agent-body" data-kind="editor" tabindex="0" ref={host}>
       <Show
         when={entry()}
         fallback={

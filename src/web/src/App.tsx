@@ -14,11 +14,12 @@ import {
 import { toggleAgentAside } from "./agent/AgentNestedCard";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
-import { runningLocalBackground } from "./agent/agent-background-store";
+import { agentBackground, runningLocalBackground } from "./agent/agent-background-store";
 import { copyActiveAgentCodeBlock } from "./agent/agent-code-copy";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { BackgroundStopPrompt } from "./agent/BackgroundStopPrompt";
 import { confirmStopBackgroundWork } from "./agent/background-guard";
+import { backgroundItemToOpen, backgroundTab } from "./agent/background-tab";
 import {
   type AgentPaneModel,
   agentAuthenticationTerminalActive,
@@ -162,7 +163,7 @@ import {
 import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
-import { isFileTab, tabKind } from "./editor/tab-entry";
+import { isFileTab, subagentTabPath, tabKind } from "./editor/tab-entry";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   refreshSelectedFileIndex,
@@ -1523,7 +1524,16 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.openSubagent, (args, context) => {
         const conversationId = (args as { conversationId?: unknown } | undefined)?.conversationId;
         if (context.session === null || typeof conversationId !== "string") return false;
-        editor.openSubagentTab(context.session, conversationId);
+        editor.openAgentTab(context.session, "subagent", subagentTabPath(conversationId));
+      }),
+      registerCommand(CommandIds.openBackgroundItem, (args, context) => {
+        if (context.session === null)
+          throw new Error("Select a session to open its background work.");
+        const id = (args as { id?: unknown } | undefined)?.id;
+        const { kind, path } = backgroundTab(
+          backgroundItemToOpen(agentBackground(context.session), id),
+        );
+        editor.openAgentTab(context.session, kind, path);
       }),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),

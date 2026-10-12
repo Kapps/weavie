@@ -5,7 +5,7 @@ import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { paneActivityIdentity } from "./AgentPaneIdentity";
 import { projectAgentTranscript } from "./AgentPaneMessages";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
 import { computeSectionLabels, isResult, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
@@ -43,6 +43,8 @@ export interface AgentPaneModel {
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
   setActivityExpanded(id: string, expanded: boolean): void;
+  /** The live activity step with transcript item id `itemId`, in the transcript or a nested one. */
+  activityStep(itemId: string): AgentActivityStep | undefined;
 }
 
 export interface MutableAgentPaneModel extends AgentPaneModel {
@@ -233,6 +235,14 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       project([]);
       clearAgentInputDrafts(session);
       setGeneration((value) => value + 1);
+    },
+    activityStep(itemId) {
+      revision();
+      for (const activity of activities.values()) {
+        const step = activity.projection.step(itemId);
+        if (step !== undefined) return step;
+      }
+      return undefined;
     },
     setActivityExpanded(id, expanded) {
       const activity = activities.get(id);

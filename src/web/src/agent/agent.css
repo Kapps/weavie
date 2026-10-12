@@ -249,11 +249,42 @@
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
-.editor-subagent {
+.editor-agent-view {
   position: absolute;
   inset: 0;
   z-index: 4;
   padding: 5px 0;
+}
+
+.agent-task-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 6px 0 0;
+  font-size: var(--font-metadata-size);
+}
+
+.agent-task-facts dt {
+  color: var(--dim);
+}
+
+.agent-task-facts dd {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-task-tool {
+  margin-top: 10px;
+}
+
+.agent-task-tool pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  overflow-wrap: anywhere;
 }
 
 .agent-aside-head small {
@@ -1251,18 +1282,6 @@ label.agent-input-choice:hover {
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
   line-height: 1.4;
-}
-
-/* A card the tray jumped to flashes once so the eye lands on it. */
-.agent-entry-jumped {
-  animation: agent-entry-jumped 1.2s ease-out;
-}
-
-@keyframes agent-entry-jumped {
-  from {
-    box-shadow: inset 0 0 0 1px var(--accent);
-    background-color: color-mix(in srgb, var(--accent) 16%, var(--bar));
-  }
 }
 
 .agent-status-scroll {

@@ -51,7 +51,7 @@ export function ActivityDetails(props: {
   );
 }
 
-function ActivityStepOutput(props: {
+export function ActivityStepOutput(props: {
   session: ClientSession;
   step: AgentActivityStep;
 }): JSX.Element {

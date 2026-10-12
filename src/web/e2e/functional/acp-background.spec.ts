@@ -30,7 +30,7 @@ test("a subagent renders as a live card that collapses when it finishes", async 
   await card.getByRole("button", { name: "Open" }).click();
   const tab = page.locator(".editor-tab", { hasText: "Subagent · Explore" });
   await expect(tab).toBeVisible();
-  const transcript = page.locator(".editor-subagent");
+  const transcript = page.locator(".editor-agent-view");
   await expect(transcript).toContainText("held subagent finished");
   await expect(transcript.locator(".agent-entry-status").first()).toContainText("completed");
   await tab.hover();

@@ -21,11 +21,7 @@ import { createAgentPaneLayout } from "./AgentPaneLayout";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
-import {
-  type AgentBackgroundItem,
-  agentBackground,
-  backgroundRunning,
-} from "./agent-background-store";
+import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
@@ -169,28 +165,6 @@ export function AgentPaneBody(props: {
     ),
   );
   onCleanup(() => setContext("agentBackgroundActive", false));
-  const jumpToBackground = (item: AgentBackgroundItem): void => {
-    const index = props.model.entries.findIndex(
-      (entry) =>
-        entry.conversationId === item.transcriptItemId ||
-        entry.actionMessage?.itemId === item.transcriptItemId,
-    );
-    const id = item.transcriptItemId;
-    if (id === null || index < 0) return;
-    scroll.jumpToIndex(index);
-    requestAnimationFrame(() => {
-      const card = body?.querySelector<HTMLElement>(
-        `[data-agent-subagent="${CSS.escape(id)}"], [data-agent-workflow="${CSS.escape(id)}"]`,
-      );
-      if (card === null || card === undefined) return;
-      card.classList.remove("agent-entry-jumped");
-      void card.offsetWidth;
-      card.classList.add("agent-entry-jumped");
-      card.addEventListener("animationend", () => card.classList.remove("agent-entry-jumped"), {
-        once: true,
-      });
-    });
-  };
   onMount(() => {
     const element = body;
     if (element === undefined) {
@@ -290,7 +264,7 @@ export function AgentPaneBody(props: {
           </Show>
         </div>
       </div>
-      <AgentBackgroundTray session={props.model.session} onJump={jumpToBackground} />
+      <AgentBackgroundTray session={props.model.session} />
       <AgentComposer
         active={props.active}
         compact={props.compact}

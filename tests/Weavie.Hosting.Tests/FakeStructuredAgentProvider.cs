@@ -126,7 +126,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 			if (submission.Text == BackgroundPrompt) {
 				BackgroundWork = [new AgentBackgroundItem {
 					Id = "task:sleep", Kind = AgentBackgroundKind.Task, Name = "sleep 30", Type = "shell", Detail = null,
-					LastActivity = null, Usage = null, State = AgentBackgroundState.Running, CanStop = true,
+					LastActivity = null, Summary = null, OutputPath = null, Usage = null, State = AgentBackgroundState.Running, CanStop = true,
 					StartedAtMs = 1, EndedAtMs = null, TranscriptItemId = null,
 				}];
 				BackgroundWorkChanged?.Invoke(BackgroundWork);

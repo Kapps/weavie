@@ -10,6 +10,8 @@ export interface AgentBackgroundItem {
   type: string;
   detail: string | null;
   lastActivity: string | null;
+  summary: string | null;
+  outputPath: string | null;
   usage: { totalTokens: number | null; toolUses: number | null; durationMs: number | null } | null;
   state: "running" | "paused" | "completed" | "failed" | "stopped";
   canStop: boolean;

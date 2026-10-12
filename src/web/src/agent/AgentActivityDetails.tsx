@@ -51,12 +51,14 @@ export function ActivityDetails(props: {
   );
 }
 
-function ActivityStepOutput(props: {
+export function ActivityStepOutput(props: {
   session: ClientSession;
   step: AgentActivityStep;
 }): JSX.Element {
   const deferred = () => deferredToolOutput(props.step.actionMessage);
-  const [loaded] = createResource(deferred, (message) => loadToolOutput(props.session, message));
+  const [loaded, { refetch }] = createResource(deferred, (message) =>
+    loadToolOutput(props.session, message),
+  );
   return (
     <Switch
       fallback={
@@ -69,8 +71,11 @@ function ActivityStepOutput(props: {
     >
       <Match when={loaded.error !== undefined}>
         <span class="agent-entry-status" role="alert">
-          Couldn't load this tool output (hide and show it to retry):{" "}
-          {loaded.error instanceof Error ? loaded.error.message : String(loaded.error)}
+          Couldn't load this tool output:{" "}
+          {loaded.error instanceof Error ? loaded.error.message : String(loaded.error)}{" "}
+          <button type="button" class="agent-entry-rewind" onClick={() => void refetch()}>
+            Retry
+          </button>
         </span>
       </Match>
       <Match when={deferred() !== null && loaded.state !== "ready"}>

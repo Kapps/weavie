@@ -63,6 +63,12 @@ export class ProjectedAgentActivity {
     return this.sources.map((_, index) => this.materializeAt(index));
   }
 
+  /** The step with transcript item id `id`, materialized whether or not its activity is expanded. */
+  step(id: string): AgentActivityStep | undefined {
+    const index = this.indexes.get(id);
+    return index === undefined ? undefined : this.materializeAt(index);
+  }
+
   materializeAt(index: number): AgentActivityStep {
     const message = this.sources[index];
     if (message === undefined) {

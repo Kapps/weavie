@@ -47,7 +47,9 @@ flowchart LR
 - Nested spawns join the same root's work, naming their parent; `subagent_state_update` ends a subagent (a
   `turn-completed` with its state and `CompletedAtMs`) and retires it once its own nested subagents have ended.
 - Tasks are keyed by the agent's task id. Progress only updates the live item; a later terminal state corrects an
-  earlier one (Claude reports `stopped`, then `completed`). Stopping a task sends `_session/async_task/stop` on
+  earlier one (Claude reports `stopped`, then `completed`). A terminal state's `summary` (a failure's error) is the
+  item's `Summary`; `toolCallId` and `outputFilePath`, which Claude may send only late, make the started tool call the
+  item's transcript item and its output file the item's `OutputPath`. Stopping a task sends `_session/async_task/stop` on
   the root conversation's endpoint even when a subagent started it.
 - A conversation loading history treats announcements as replays: a replayed id gets a retired sink owner whose
   traffic drops, an id already owned keeps its owner, and their later states are ignored. A retired endpoint that
@@ -82,11 +84,15 @@ Running work keeps the session status on Waiting unless it works or needs input,
 - **Workflow card** — a Claude workflow (`taskType` `workflow`; Claude reports `showInTranscript: false` for
   workflows) journals an item `task:<id>` from spawn to its final state, joined live with the task's usage and
   Stop. Phase 2 (phases, agent rows, log lines) attaches to this item.
-- **Tray** — a roving-focus toolbar above the composer lists every item; Enter jumps to an item's card, and Stop
-  appears only for stoppable tasks. Background shell commands appear only here.
+- **Task tab** — a task's own read-only editor tab (path = its item id): type, live state and elapsed time, start
+  time, usage, detail, last activity, result or error, a link to its output file, and the output of the tool call
+  that started it. It follows the task live and says so once the task is cleared.
+- **Tray** — a roving-focus toolbar above the composer lists every item; clicking or Enter opens the item in a tab
+  (a subagent's transcript tab, else its task tab), and Stop appears only for stoppable tasks.
 - **Commands** — `weavie.agent.stopBackgroundTask` (Core, `{id?}`; no id stops the most recently started
   stoppable task) and `weavie.agent.showBackgroundWork` (Web, focuses the tray), both gated by
-  `agentBackgroundActive` and without default keybindings.
+  `agentBackgroundActive`; `weavie.agent.openBackgroundItem` (Web, `{id?}`; no id opens the most recently started
+  item, and an unlisted id is refused) is ungated, since finished items stay openable. None has a default keybinding.
 
 ## Stopping actions
 

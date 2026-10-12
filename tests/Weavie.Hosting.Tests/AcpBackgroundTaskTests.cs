@@ -25,7 +25,8 @@ public sealed class AcpBackgroundTaskTests {
 		await using var fixture = await StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-held", "1");
 
-		Assert.Equal((AgentBackgroundKind.Task, "shell", true, null), (item.Kind, item.Type, item.CanStop, item.TranscriptItemId));
+		Assert.Equal((AgentBackgroundKind.Task, "shell", true), (item.Kind, item.Type, item.CanStop));
+		Assert.Equal("tool:" + item.Id["task:".Length..], item.TranscriptItemId);
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "backgroundTask");
 		Signal(fixture, "release-task");
@@ -36,6 +37,17 @@ public sealed class AcpBackgroundTaskTests {
 		fixture.Submit("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: hello");
 		Assert.Empty(fixture.Session.BackgroundWork);
+	}
+
+	[Fact]
+	public async Task AFailedTaskCarriesItsErrorOutputFileAndLateAttributedToolCall() {
+		await using var fixture = await StartedAsync();
+		var item = await StartTaskAsync(fixture, "task-failed", "1");
+
+		string call = item.Id["task:".Length..];
+		Assert.Equal(
+			(AgentBackgroundState.Failed, "No agent named Astra", Path.Combine(fixture.FakeAcpStateDirectory, call + ".output"), "tool:" + call, null),
+			(item.State, item.Summary, item.OutputPath, item.TranscriptItemId, item.LastActivity));
 	}
 
 	[Theory]

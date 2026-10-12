@@ -4,19 +4,12 @@ import { createHorizontalOverflow, scrollWheelHorizontally } from "../chrome/hor
 import { liveKeyHint } from "../commands/keys-live";
 import { registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import {
-  type AgentBackgroundItem,
-  agentBackground,
-  backgroundRunning,
-} from "./agent-background-store";
+import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { backgroundStatus, rovingTarget } from "./background-format";
 import { liveNow } from "./live-clock";
 
 /** Everything still running beside the session's turns, as a roving-focus toolbar above the composer. */
-export function AgentBackgroundTray(props: {
-  session: ClientSession;
-  onJump: (item: AgentBackgroundItem) => void;
-}): JSX.Element {
+export function AgentBackgroundTray(props: { session: ClientSession }): JSX.Element {
   const items = () => agentBackground(props.session);
   const now = liveNow(() => items().some(backgroundRunning));
   let tray: HTMLDivElement | undefined;
@@ -78,9 +71,10 @@ export function AgentBackgroundTray(props: {
                   type="button"
                   class="agent-status-segment"
                   tabIndex={index() === 0 ? 0 : -1}
-                  title={`${item.detail ?? item.name} — ${backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), item.usage)}`}
-                  aria-disabled={item.transcriptItemId === null}
-                  onClick={() => props.onJump(item)}
+                  title={`Open ${item.detail ?? item.name} in a tab${liveKeyHint(CommandIds.openBackgroundItem)} — ${backgroundStatus(item.state, item.startedAtMs, item.endedAtMs, now(), item.usage)}`}
+                  onClick={() =>
+                    void runCommandWithFeedback(CommandIds.openBackgroundItem, { id: item.id })
+                  }
                 >
                   <Show
                     when={backgroundRunning(item)}

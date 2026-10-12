@@ -7,7 +7,7 @@ import type {
   EditorViewState,
   ReviewResume,
 } from "./session-types";
-import { isFileTab, matchesTab, tabKind, tabResourceKey } from "./tab-entry";
+import { isFileTab, matchesTab, type TabKind, tabKind, tabResourceKey } from "./tab-entry";
 import { TabOwner } from "./tab-owner";
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
@@ -100,7 +100,7 @@ class OwnedEditorSession {
       focus?: boolean;
       preview?: boolean;
       scratch?: boolean;
-      kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
+      kind?: TabKind;
     },
   ): ActivateResult {
     const current = this.readState() ?? { active: null, open: [] };
@@ -562,7 +562,7 @@ export function openTab(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
+    kind?: TabKind;
   } = {},
 ): ActivateResult {
   return (
@@ -582,7 +582,7 @@ export function openTabFor(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "file" | "web" | "source" | "plan" | "review" | "subagent";
+    kind?: TabKind;
   } = {},
 ): ActivateResult {
   return (

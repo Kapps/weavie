@@ -13,6 +13,9 @@ internal sealed partial class AcpConversation {
 		tool.Shown = !tool.Subagent;
 	}
 
+	/// <summary>The transcript item id of the tool call <paramref name="toolCallId"/>.</summary>
+	internal static string ToolItemId(string toolCallId) => "tool:" + toolCallId;
+
 	private AgentPaneMessage ToolMessage(AcpToolState tool) => new() {
 		Type = tool.Status is "completed" or "failed" or "cancelled" or "settled"
 			? "item-completed"
@@ -20,7 +23,7 @@ internal sealed partial class AcpConversation {
 		ProviderId = Definition.Id,
 		ThreadId = SessionId(),
 		TurnId = tool.TurnId,
-		ItemId = $"tool:{tool.Id}",
+		ItemId = ToolItemId(tool.Id),
 		ItemType = "tool",
 		Category = tool.Kind,
 		Summary = tool.Title,

@@ -27,6 +27,7 @@ import { isPreviewMode } from "./view-mode-store";
 
 const PlanView = lazy(() => import("./plan/PlanView"));
 const AgentSubagentTab = lazy(() => import("../agent/AgentSubagentTab"));
+const AgentTaskTab = lazy(() => import("../agent/AgentTaskTab"));
 const PreviewPane = lazy(() => import("./preview/PreviewPane"));
 const SourceView = lazy(() => import("./source/SourceView"));
 const ReviewTab = lazy(() => import("./review/ReviewTab"));
@@ -126,6 +127,9 @@ function ActiveTabContent(props: {
           </Match>
           <Match when={kind === "subagent"}>
             <AgentSubagentTab session={tab.session} path={tab.entry.path} bind={bind} />
+          </Match>
+          <Match when={kind === "task"}>
+            <AgentTaskTab session={tab.session} path={tab.entry.path} bind={bind} />
           </Match>
           <Match when={kind === "plan"}>
             <PlanView session={tab.session} path={tab.entry.path} bind={bind} />

@@ -1,5 +1,17 @@
-import { Bot, ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
+import {
+  Activity,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Code,
+  Eye,
+  FileText,
+  Globe,
+  Pin,
+  X,
+} from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { backgroundItem } from "../agent/agent-background-store";
 import { subagentForTab } from "../agent/subagent-tab";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { createHorizontalOverflow } from "../chrome/horizontal-overflow";
@@ -49,6 +61,10 @@ function tabLabel(view: TabView, session: ClientSession | null): string {
   if (view.kind === "subagent") {
     const name = subagentForTab(session, view.path)?.subagent?.name;
     return name === undefined ? "Subagent" : `Subagent · ${name}`;
+  }
+  if (view.kind === "task") {
+    const name = backgroundItem(session, view.path)?.name;
+    return name === undefined ? "Task" : `Task · ${name}`;
   }
   return basename(view.path);
 }
@@ -218,7 +234,7 @@ export function TabStrip(props: {
                   pinned: view.pinned,
                 }}
                 title={
-                  view.kind === "plan" || view.kind === "subagent"
+                  view.kind === "plan" || view.kind === "subagent" || view.kind === "task"
                     ? tabLabel(view, props.session())
                     : view.path
                 }
@@ -246,6 +262,9 @@ export function TabStrip(props: {
                   </Show>
                   <Show when={view.kind === "subagent"}>
                     <Bot size={13} class="editor-tab-icon" />
+                  </Show>
+                  <Show when={view.kind === "task"}>
+                    <Activity size={13} class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "plan"}>
                     <FileText size={13} class="editor-tab-icon" />

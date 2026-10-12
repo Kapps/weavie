@@ -154,6 +154,9 @@ public static partial class CoreCommands {
 	/// <summary>Opens one subagent's read-only transcript as an editor tab.</summary>
 	public const string OpenSubagent = "weavie.agent.openSubagent";
 
+	/// <summary>Opens one background item of the focused agent in its own editor tab.</summary>
+	public const string OpenBackgroundItem = "weavie.agent.openBackgroundItem";
+
 	/// <summary>Moves focus to the focused agent's background-work tray.</summary>
 	public const string ShowBackgroundWork = "weavie.agent.showBackgroundWork";
 
@@ -1119,6 +1122,16 @@ public static partial class CoreCommands {
 			Description = "Open one subagent's whole read-only transcript as an editor tab that follows it live.",
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"conversationId\":{\"type\":\"string\",\"description\":\"The subagent's conversation id\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenBackgroundItem,
+			Title = "Open Background Work",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Open a subagent's transcript or a background task's state and result in an editor tab.",
+			Aliases = ["open subagent", "open background task", "task result"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Background item id; omit for the most recently started item\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

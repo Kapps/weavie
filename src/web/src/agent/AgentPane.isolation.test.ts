@@ -96,6 +96,8 @@ describe("agent pane model isolation", () => {
       expect(model.entries[1]?.summary).toBe("ran 1000 commands");
       expect(model.entries[1]?.detailCount).toBe(1_000);
       expect(model.entries[1]?.details).toEqual([]);
+      expect(model.activityStep("command-500")?.label).toContain("command-500");
+      expect(model.activityStep("command-missing")).toBeUndefined();
       model.setActivityExpanded(model.entries[1]!.id, true);
       expect(model.entries[1]?.details).toHaveLength(1_000);
       model.setActivityExpanded(model.entries[1]!.id, false);

@@ -25,8 +25,11 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
   // gets a temp dir this launch removes. Short and unresolved: macOS caps a Unix socket path at 104 bytes.
   const temp = await mkdtemp(join(tmpdir(), "wv-"));
   const cleanup = async (): Promise<void> => {
-    await fake.cleanup();
-    await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    try {
+      await fake.cleanup();
+    } finally {
+      await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   };
   const tempEnv = process.platform === "win32" ? { TMP: temp, TEMP: temp } : { TMPDIR: temp };
   const runnerToken = randomBytes(16).toString("hex");

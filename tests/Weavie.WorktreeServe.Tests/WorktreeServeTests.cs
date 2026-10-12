@@ -133,7 +133,14 @@ public sealed class WorktreeServeTests {
 	}
 
 	[Fact]
-	public void Lease_serializes_preview_launchers() {
+	public void Port_lease_serializes_preview_launchers() {
+		using var first = PortLease.Acquire(39876);
+
+		Assert.Throws<InvalidOperationException>(() => PortLease.Acquire(39876));
+	}
+
+	[Fact]
+	public void State_lease_serializes_preview_launchers() {
 		using var state = new TempDirectory("worktree-serve-lease");
 		using var first = PortLease.AcquireState(state.Path);
 

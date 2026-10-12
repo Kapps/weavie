@@ -17,9 +17,11 @@ internal sealed class PortLease : IDisposable {
 		return Acquire(path, $"another Weavie worktree preview owns state root {stateRoot}.");
 	}
 
+	// The lock file lives exactly as long as the lease, so released ports leave nothing in the temp path.
 	private static PortLease Acquire(string path, string message) {
 		try {
-			return new PortLease(new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+			return new PortLease(new FileStream(
+				path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose));
 		} catch (IOException ex) {
 			throw new InvalidOperationException(message, ex);
 		}

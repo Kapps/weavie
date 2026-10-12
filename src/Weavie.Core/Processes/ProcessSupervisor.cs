@@ -11,7 +11,7 @@ namespace Weavie.Core.Processes;
 /// arriving while not <see cref="SupervisorState.Running"/> is ignored, as is any exit reported for an instance
 /// that is no longer the current one (so a stopped predecessor's late exit never restarts its healthy replacement).
 /// Stops run one at a time and a launch waits for the stop before it, so two instances never overlap.
-/// <see cref="StateChanged"/> and <see cref="Stopped"/> handlers run in order on a separate observer lane.</para>
+/// <see cref="StateChanged"/> and <see cref="ForceStopped"/> handlers run in order on a separate observer lane.</para>
 /// </summary>
 public sealed partial class ProcessSupervisor : IAsyncDisposable {
 	private readonly Action<SupervisedLaunch> _start;
@@ -31,7 +31,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 	private int _consecutiveCrashes;   // drives backoff growth; reset by a healthy run
 	private DateTimeOffset _startedAt;
 	private CancellationTokenSource? _cts;
-	private Task _stopping = Task.CompletedTask; // the latest stop; every later stop and launch runs after it
+	private Task _lifecycle = Task.CompletedTask; // the latest stop or launch; the next one runs after it
 	private Task? _disposal;
 
 	/// <summary>Creates a supervisor. Nothing launches until <see cref="Start"/> is called.</summary>
@@ -116,7 +116,8 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 	/// </summary>
 	public void Start() {
 		SupervisedLaunch launch;
-		Task stopping;
+		Task previous;
+		TaskCompletionSource launched;
 		lock (_gate) {
 			if (_disposal is not null || _state is SupervisorState.Running or SupervisorState.BackingOff) {
 				return;
@@ -132,12 +133,12 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			_generation++;
 			launch = new SupervisedLaunch(this, 0, _generation);
 			_current = launch;
-			stopping = _stopping;
+			previous = ChainLocked(out launched);
 			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}
 
 		Log(SupervisorLogLevel.Info, "starting");
-		LaunchAfter(stopping, launch);
+		_ = LaunchAfterAsync(previous, launch, launched);
 	}
 
 	internal void NotifyLaunchExited(SupervisedLaunch launch, int exitCode) =>
@@ -200,7 +201,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 		Task previous;
 		lock (_gate) {
 			if (_disposal is not null || _state == SupervisorState.Idle) {
-				return _stopping;
+				return _lifecycle;
 			}
 
 			_cts?.Cancel();
@@ -209,7 +210,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			_consecutiveCrashes = 0;
 			_recentRestarts.Clear();
 			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Idle, null, _restartCount));
-			previous = BeginStopLocked(out done);
+			previous = ChainLocked(out done);
 		}
 
 		Log(SupervisorLogLevel.Info, "stopping");
@@ -230,7 +231,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			_cts?.Cancel();
 			_state = SupervisorState.Idle;
 			_current = null;
-			previous = BeginStopLocked(out done);
+			previous = ChainLocked(out done);
 			_disposal = disposal = done.Task.ContinueWith(_ => _cts?.Dispose(), CancellationToken.None,
 				TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 		}
@@ -239,14 +240,15 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 		return new ValueTask(disposal);
 	}
 
-	private Task BeginStopLocked(out TaskCompletionSource done) {
-		var previous = _stopping;
+	// Stops and launches form one chain: each runs after the one before it, so a stop never misses a launch in flight.
+	private Task ChainLocked(out TaskCompletionSource done) {
+		var previous = _lifecycle;
 		done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		_stopping = done.Task;
+		_lifecycle = done.Task;
 		return previous;
 	}
 
-	// Runs the stop delegate after the previous stop; never faults, so launches chained behind it always proceed.
+	// Runs the stop delegate after whatever is ahead in the chain; never faults, so the chain always proceeds.
 	private async Task RunStopAsync(Task previous, TaskCompletionSource done) {
 		try {
 			await previous.ConfigureAwait(false);
@@ -254,7 +256,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			if (outcome.WasForced) {
 				Log(SupervisorLogLevel.Warning, $"force-stopped: it {outcome.ForcedBecause}");
 				lock (_gate) {
-					QueueStoppedLocked(outcome);
+					QueueForceStoppedLocked(outcome);
 				}
 			}
 		} catch (Exception ex) {
@@ -318,7 +320,7 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			if (stopCurrent) {
 				// The transition above makes a synchronous exit callback stale before the stop delegate runs, and
 				// the replacement launch waits on this stop, so it never overlaps the instance being replaced.
-				stopPrevious = BeginStopLocked(out var done);
+				stopPrevious = ChainLocked(out var done);
 				stopDone = done;
 			}
 		}
@@ -346,7 +348,8 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 		}
 
 		SupervisedLaunch launch;
-		Task stopping;
+		Task previous;
+		TaskCompletionSource launched;
 		lock (_gate) {
 			if (_disposal is not null || token.IsCancellationRequested || _state != SupervisorState.BackingOff) {
 				return;
@@ -359,26 +362,23 @@ public sealed partial class ProcessSupervisor : IAsyncDisposable {
 			_generation++;
 			launch = new SupervisedLaunch(this, attempt, _generation);
 			_current = launch;
-			stopping = _stopping;
+			previous = ChainLocked(out launched);
 			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}
 
 		Log(SupervisorLogLevel.Info, $"restarting (attempt {attempt})");
-		LaunchAfter(stopping, launch);
+		await LaunchAfterAsync(previous, launch, launched).ConfigureAwait(false);
 	}
 
-	private void LaunchAfter(Task stopping, SupervisedLaunch launch) {
-		if (stopping.IsCompleted) {
-			Launch(launch);
-		} else {
-			_ = LaunchWhenStoppedAsync(stopping, launch);
-		}
-	}
-
-	private async Task LaunchWhenStoppedAsync(Task stopping, SupervisedLaunch launch) {
-		await stopping.ConfigureAwait(false);
-		if (IsCurrentLaunch(launch)) {
-			Launch(launch);
+	// Launches synchronously when nothing is ahead in the chain; never faults, so the chain always proceeds.
+	private async Task LaunchAfterAsync(Task previous, SupervisedLaunch launch, TaskCompletionSource launched) {
+		try {
+			await previous.ConfigureAwait(false);
+			if (IsCurrentLaunch(launch)) {
+				Launch(launch);
+			}
+		} finally {
+			launched.SetResult();
 		}
 	}
 

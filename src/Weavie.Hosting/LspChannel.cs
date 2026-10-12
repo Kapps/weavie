@@ -43,7 +43,7 @@ internal sealed class LspChannel : IAsyncDisposable {
 			$"lsp:{channel}", StartServer, StopServerAsync,
 			new SupervisionOptions { Policy = RestartPolicy.Never }, LogSupervisor, clock: null);
 		_supervisor.StateChanged += OnSupervisorStateChanged;
-		_supervisor.Stopped += forceStopped;
+		_supervisor.ForceStopped += forceStopped;
 	}
 
 	/// <summary>Spawns the server.</summary>

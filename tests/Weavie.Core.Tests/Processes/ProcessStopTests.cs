@@ -82,7 +82,7 @@ public sealed class ProcessStopTests {
 		if (OperatingSystem.IsWindows()) return;
 		var child = OwnedProcess.Start(Redirected("/bin/cat"));
 		try {
-			var outcome = await child.StopAsync(ProcessStopPlan.CloseInput(child, Deadline), new SystemSupervisorClock());
+			var outcome = await child.StopAsync(ProcessStopPlan.CloseInput(child, new SemaphoreSlim(1, 1), Deadline), new SystemSupervisorClock());
 			Assert.Same(ProcessStopOutcome.Graceful, outcome);
 		} finally {
 			child.Dispose();
@@ -97,7 +97,7 @@ public sealed class ProcessStopTests {
 		var child = OwnedProcess.Start(info);
 		try {
 			var outcome = await child.StopAsync(
-				ProcessStopPlan.CloseInput(child, TimeSpan.FromMilliseconds(200)), new SystemSupervisorClock());
+				ProcessStopPlan.CloseInput(child, new SemaphoreSlim(1, 1), TimeSpan.FromMilliseconds(200)), new SystemSupervisorClock());
 			Assert.Equal("didn't exit within 0.2s of closing its input", outcome.ForcedBecause);
 			Assert.True(child.HasExited);
 		} finally {

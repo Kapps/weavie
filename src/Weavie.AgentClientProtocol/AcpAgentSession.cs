@@ -72,7 +72,7 @@ public sealed partial class AcpAgentSession :
 			}
 		};
 		_connection.ProtocolFaulted += OnProtocolFault;
-		_connection.ProcessStopped += outcome => context.ChildForceStopped(_definition.Name, outcome);
+		_connection.ProcessForceStopped += outcome => context.ChildForceStopped(_definition.Name, outcome);
 	}
 
 	private AcpAgentDefinition ResolveDefinition() {

@@ -19,15 +19,18 @@ internal sealed partial class FakeAcpAgent {
 		while (!File.Exists(Path.Combine(Environment.CurrentDirectory, "release-" + name))) await Task.Delay(10, ct).ConfigureAwait(false);
 	}
 
+	// A command that runs until killed. Weavie kills an agent-run command as a tree, which strands a .NET command's
+	// runtime IPC files, so this one opts out of them.
+	private JsonObject TerminalHold() => new() {
+		["sessionId"] = _sessionId,
+		["command"] = Environment.ProcessPath,
+		["args"] = new JsonArray("terminal-hold"),
+		["env"] = new JsonArray(new JsonObject { ["name"] = "DOTNET_EnableDiagnostics", ["value"] = "0" }),
+	};
+
 	// Records how the client ended a terminal wait it was still serving, so a test can prove it was answered.
 	private async Task TerminalWaitAsync(CancellationToken ct) {
-		var created = await Connection().RequestAsync("terminal/create", new JsonObject {
-			["sessionId"] = _sessionId,
-			["command"] = Environment.ProcessPath,
-			["args"] = new JsonArray("terminal-hold"),
-			// Weavie kills an agent-run command as a tree, which strands a .NET command's runtime IPC files.
-			["env"] = new JsonArray(new JsonObject { ["name"] = "DOTNET_EnableDiagnostics", ["value"] = "0" }),
-		}, ct).ConfigureAwait(false);
+		var created = await Connection().RequestAsync("terminal/create", TerminalHold(), ct).ConfigureAwait(false);
 		string terminalId = AcpJson.RequiredString(created, "terminalId", "terminal/create response");
 		var waiting = Connection().RequestAsync("terminal/wait_for_exit", new JsonObject {
 			["sessionId"] = _sessionId,

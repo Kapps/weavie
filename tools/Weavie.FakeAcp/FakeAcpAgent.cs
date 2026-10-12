@@ -1097,13 +1097,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 	}
 
 	private async Task TerminalCancellationAsync(CancellationToken ct) {
-		string executable = Environment.ProcessPath
-			?? throw new InvalidOperationException("The fake ACP executable path is unavailable.");
-		var created = await Connection().RequestAsync("terminal/create", new JsonObject {
-			["sessionId"] = _sessionId,
-			["command"] = executable,
-			["args"] = new JsonArray("terminal-hold"),
-		}, ct).ConfigureAwait(false);
+		var created = await Connection().RequestAsync("terminal/create", TerminalHold(), ct).ConfigureAwait(false);
 		string terminalId = AcpJson.RequiredString(created, "terminalId", "terminal/create response");
 		using var cancellation = new CancellationTokenSource();
 		var waiting = Connection().RequestAsync("terminal/wait_for_exit", new JsonObject {

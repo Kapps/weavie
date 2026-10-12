@@ -12,7 +12,15 @@ export function fakeClaudeBuilt(): boolean {
 // and point claude.path at it. WindowsPtyLauncher runs .cmd through cmd.exe; POSIX gets an exec'd shell script.
 export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
   const name = process.platform === "win32" ? "fake-claude.cmd" : "fake-claude.sh";
-  return writeTestProgramWrapper(dir, name, fakeClaudeProgram, []);
+  // A PTY child is still stopped with SIGTERM, which a .NET 10 program without its own handler doesn't survive
+  // cleanly, so the .NET fake would strand its runtime IPC files in the temp dir.
+  return writeTestProgramWrapper(
+    dir,
+    name,
+    fakeClaudeProgram,
+    [],
+    "export DOTNET_EnableDiagnostics=0\n",
+  );
 }
 
 export async function writeTestProgramWrapper(
@@ -20,6 +28,7 @@ export async function writeTestProgramWrapper(
   name: string,
   program: TestProgram,
   extraArgs: string[],
+  posixPrelude: string,
 ): Promise<string> {
   const command = [program.command, ...program.args, ...extraArgs];
   const wrapper = join(dir, name);
@@ -29,7 +38,7 @@ export async function writeTestProgramWrapper(
   }
   await writeFile(
     wrapper,
-    `#!/bin/sh\nexec ${command.map((part) => JSON.stringify(part)).join(" ")} "$@"\n`,
+    `#!/bin/sh\n${posixPrelude}exec ${command.map((part) => JSON.stringify(part)).join(" ")} "$@"\n`,
   );
   await chmod(wrapper, 0o755);
   return wrapper;

@@ -111,19 +111,19 @@ sequenceDiagram
         O->>C: kill tree
         C-->>O: exited
         O-->>S: Forced(because)
-        S->>S: log Warning, raise Stopped
+        S->>S: log Warning, raise ForceStopped
     end
 ```
 
-The supervisor runs stops **one at a time** and launches only after the stop before it has completed, so a
-replacement never overlaps its predecessor — the ACP agents' single active writer, the runner's pinned port, and
+Stops and launches form **one chain**: each runs only after the one before it has completed, so a replacement
+never overlaps its predecessor and a stop never misses a launch still in flight — the ACP agents' single active writer, the runner's pinned port, and
 LSP channel ids depend on that. `Start()` during an in-flight `StopAsync()`, and the restart scheduled by
 `ReportUnhealthy`, both wait for the stop. A retired ACP generation's output is still read (and discarded) while it
 shuts down, so a child writing on its way out never blocks on a full pipe.
 
-A forced stop logs a Warning and raises `Stopped` — including the stop `DisposeAsync` runs. `HostSession` turns it
-into a toast (`<name> didn't exit within 5s of <ask>; Weavie force-stopped it`) and an `ExitJournal` note, since at
-app exit nobody sees the toast. Session teardown stops shells, the agent, and language servers in parallel, sessions
+A forced stop logs a Warning and raises `ForceStopped` — including the stop `DisposeAsync` runs. `HostSession` turns
+it into a toast (`<name> didn't exit within 5s of <ask>; Weavie force-stopped it`) and a console-log line, which is
+the record at app exit, where nobody sees the toast. Session teardown stops shells, the agent, and language servers in parallel, sessions
 stop in parallel, and the Mac host starts every window's teardown before waiting on any, so deadlines overlap
 instead of adding up.
 

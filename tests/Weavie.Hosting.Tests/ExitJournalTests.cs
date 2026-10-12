@@ -22,7 +22,7 @@ public sealed class ExitJournalTests : IDisposable {
 	public void ARunThatStampedItsEnding_ReadsAsNothingToExplain() {
 		string path = IsolatedPath();
 		ExitJournal.MarkRunning(path, "run.log");
-		ExitJournal.MarkEnded(path, "terminated by AppKit", "run.log", []);
+		ExitJournal.MarkEnded(path, "terminated by AppKit", "run.log");
 
 		Assert.Null(ExitJournal.ReadUnfinishedRun(path));
 	}
@@ -31,7 +31,7 @@ public sealed class ExitJournalTests : IDisposable {
 	public void ASignalledRun_RemainsVisibleOnNextLaunch() {
 		string path = IsolatedPath();
 		ExitJournal.MarkRunning(path, "run.log");
-		ExitJournal.MarkEnded(path, "signalled SIGTERM", "run.log", []);
+		ExitJournal.MarkEnded(path, "signalled SIGTERM", "run.log");
 
 		Assert.StartsWith("signalled SIGTERM:", ExitJournal.ReadUnfinishedRun(path), StringComparison.Ordinal);
 	}
@@ -40,7 +40,7 @@ public sealed class ExitJournalTests : IDisposable {
 	public void StartingAnotherRun_DoesNotOverwritePreservedExitEvidence() {
 		string current = IsolatedPath();
 		string previous = Path.ChangeExtension(current, "previous.log");
-		ExitJournal.MarkEnded(current, "signalled SIGHUP", "crashed-run.log", []);
+		ExitJournal.MarkEnded(current, "signalled SIGHUP", "crashed-run.log");
 		Assert.True(ExitJournal.PreservePreviousRun(current, previous));
 		ExitJournal.MarkRunning(current, "new-run.log");
 		Assert.Contains("signalled SIGHUP", File.ReadAllText(previous), StringComparison.Ordinal);

@@ -15,14 +15,22 @@ public sealed record ProcessStopPlan {
 	/// <summary>How long the child gets to exit after the ask before it is force-killed.</summary>
 	public required TimeSpan Deadline { get; init; }
 
-	/// <summary>Closes the child's stdin: the EOF a stdio protocol server treats as the end of its session.</summary>
-	public static ProcessStopPlan CloseInput(OwnedProcess process, TimeSpan deadline) {
+	/// <summary>
+	/// Closes the child's stdin — the EOF a stdio protocol server treats as the end of its session — once the write in
+	/// flight under <paramref name="writeGate"/> finishes; a write the child never drains holds it to the deadline.
+	/// </summary>
+	public static ProcessStopPlan CloseInput(OwnedProcess process, SemaphoreSlim writeGate, TimeSpan deadline) {
 		ArgumentNullException.ThrowIfNull(process);
+		ArgumentNullException.ThrowIfNull(writeGate);
 		return new ProcessStopPlan {
 			Description = "closing its input",
-			Ask = _ => {
-				process.StandardInput.Close();
-				return Task.CompletedTask;
+			Ask = async ct => {
+				await writeGate.WaitAsync(ct).ConfigureAwait(false);
+				try {
+					process.StandardInput.Close();
+				} finally {
+					writeGate.Release();
+				}
 			},
 			Deadline = deadline,
 		};

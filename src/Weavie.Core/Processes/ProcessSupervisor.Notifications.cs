@@ -12,7 +12,7 @@ public sealed partial class ProcessSupervisor {
 	public event Action<SupervisorStateChanged>? StateChanged;
 
 	/// <summary>Raised when a stop had to force-kill its child, including the stop that disposal runs.</summary>
-	public event Action<ProcessStopOutcome>? Stopped;
+	public event Action<ProcessStopOutcome>? ForceStopped;
 
 	internal Task DrainObserversAsync() {
 		lock (_gate) {
@@ -28,8 +28,8 @@ public sealed partial class ProcessSupervisor {
 		}
 	}
 
-	private void QueueStoppedLocked(ProcessStopOutcome outcome) =>
-		QueueLocked(Stopped, () => Stopped, outcome, closable: false);
+	private void QueueForceStoppedLocked(ProcessStopOutcome outcome) =>
+		QueueLocked(ForceStopped, () => ForceStopped, outcome, closable: false);
 
 	private void QueueLocked<T>(Action<T>? handlers, Func<Action<T>?> subscribed, T value, bool closable) {
 		if (handlers is null) {

@@ -550,6 +550,34 @@ public sealed class ProcessSupervisorTests {
 	}
 
 	[Fact]
+	public async Task StopDuringALaunchInFlight_RunsOnlyOnceTheLaunchReturns() {
+		var launching = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseLaunch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int stops = 0;
+		await using var supervisor = new ProcessSupervisor(
+			"test",
+			_ => {
+				launching.TrySetResult();
+				releaseLaunch.Task.GetAwaiter().GetResult();
+			},
+			() => ProcessStop.Immediately(() => Interlocked.Increment(ref stops)),
+			Opts(RestartPolicy.Never),
+			log: null,
+			new FakeSupervisorClock());
+		var starting = Task.Run(supervisor.Start);
+		await launching.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+		var stopping = supervisor.StopAsync();
+		await Task.Delay(50);
+		Assert.Equal(0, Volatile.Read(ref stops));
+		releaseLaunch.SetResult();
+
+		await stopping.WaitAsync(TimeSpan.FromSeconds(2));
+		await starting;
+		Assert.Equal(1, Volatile.Read(ref stops));
+	}
+
+	[Fact]
 	public async Task RestartAfterUnhealthy_WaitsForTheUnhealthyInstanceToStop() {
 		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
 		h.Sup.Start();
@@ -572,7 +600,7 @@ public sealed class ProcessSupervisorTests {
 		var forced = ProcessStopOutcome.Forced("didn't exit within 5s of closing its input");
 		await using var supervisor = new ProcessSupervisor(
 			"test", _ => { }, () => Task.FromResult(forced), Opts(RestartPolicy.Never), logged.Enqueue, new FakeSupervisorClock());
-		supervisor.Stopped += outcome => stopped.TrySetResult(outcome);
+		supervisor.ForceStopped += outcome => stopped.TrySetResult(outcome);
 		supervisor.Start();
 
 		await supervisor.StopAsync();
@@ -588,7 +616,7 @@ public sealed class ProcessSupervisorTests {
 		var supervisor = new ProcessSupervisor(
 			"test", _ => { }, () => Task.FromResult(ProcessStopOutcome.Forced("didn't exit")), Opts(RestartPolicy.Never),
 			log: null, new FakeSupervisorClock());
-		supervisor.Stopped += outcome => stopped.TrySetResult(outcome);
+		supervisor.ForceStopped += outcome => stopped.TrySetResult(outcome);
 		supervisor.Start();
 
 		await supervisor.DisposeAsync();

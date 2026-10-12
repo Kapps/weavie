@@ -15,8 +15,8 @@ namespace Weavie.AgentClientProtocol;
 /// </summary>
 internal sealed class AcpTransientConnection : IAsyncDisposable {
 	private const int StderrTailLines = 12;
-	private static readonly TimeSpan StopDeadline = TimeSpan.FromSeconds(5);
 	private static readonly SystemSupervisorClock Clock = new();
+	private readonly SemaphoreSlim _writeGate = new(1, 1);
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 	private readonly Queue<string> _stderr = new();
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
@@ -130,8 +130,13 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 
 	private async Task WriteAsync(string line) {
 		ObjectDisposedException.ThrowIf(_disposed, this);
-		await _process.StandardInput.WriteLineAsync(line).ConfigureAwait(false);
-		await _process.StandardInput.FlushAsync().ConfigureAwait(false);
+		await _writeGate.WaitAsync().ConfigureAwait(false);
+		try {
+			await _process.StandardInput.WriteLineAsync(line).ConfigureAwait(false);
+			await _process.StandardInput.FlushAsync().ConfigureAwait(false);
+		} finally {
+			_writeGate.Release();
+		}
 	}
 
 	private async Task ReadStdoutAsync(Action<long, string, JsonElement> onRequest, Action<string, JsonElement> onNotification) {
@@ -203,11 +208,8 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 		if (_disposed) return;
 		_disposed = true;
 		FailPending(new ObjectDisposedException(nameof(AcpTransientConnection)));
-		try {
-			await _process.StopAsync(ProcessStopPlan.CloseInput(_process, StopDeadline), Clock).ConfigureAwait(false);
-		} finally {
-			_process.Dispose();
-		}
+		var outcome = await AcpProcessStop.StopAsync(_process, _writeGate, Clock).ConfigureAwait(false);
+		if (outcome.WasForced) Console.WriteLine($"[acp:{Definition.Id}] {Definition.Name} {outcome.ForcedBecause}; force-stopped it");
 	}
 }
 

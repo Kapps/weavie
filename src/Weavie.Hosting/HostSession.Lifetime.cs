@@ -17,9 +17,8 @@ public sealed partial class HostSession {
 		await DisposeStepAsync(failures, "message admission", () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file observation", FileActivity.StopObservingAsync).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "background tasks", () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
-		// Every child gets its graceful-stop deadline at once, and each step completes only when its children have
-		// exited, so a following worktree delete can't race a process still rooted there. PTY teardown blocks, so
-		// each step starts off the calling UI thread.
+		// Children stop in parallel and off the calling thread; each step ends only once its children have exited,
+		// so a following worktree delete can't race a process still rooted there.
 		await Task.WhenAll(
 			DisposeStepAsync(failures, "shell processes", () => Task.Run(() => Shells.DisposeAsync().AsTask())),
 			DisposeStepAsync(failures, "agent", () => Task.Run(() => Agent.DisposeAsync().AsTask())),
@@ -53,12 +52,10 @@ public sealed partial class HostSession {
 		}
 	}
 
-	// A force-killed child may have stranded state (a .NET child's runtime IPC files); the journal keeps the
-	// record when the stop happens at exit, where no toast is seen.
+	// The console log keeps the record when the stop happens at exit, where nobody sees the toast.
 	private void ReportForceStopped(string name, ProcessStopOutcome outcome) {
 		string message = $"{name} {outcome.ForcedBecause}; Weavie force-stopped it";
 		Console.WriteLine($"[session:{SlotId}] {message}");
-		ExitJournal.Note(message);
 		Notify("warn", message);
 	}
 }

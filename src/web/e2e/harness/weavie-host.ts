@@ -188,7 +188,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const fakeBin = join(home, "bin");
   await mkdir(fakeBin);
   const fakeLspName = process.platform === "win32" ? "csharp-ls.cmd" : "csharp-ls";
-  await writeTestProgramWrapper(fakeBin, fakeLspName, fakeAcpProgram, ["lsp"]);
+  await writeTestProgramWrapper(fakeBin, fakeLspName, fakeAcpProgram, ["lsp"], "");
   if (process.platform !== "win32") {
     const profile = `export PATH=${JSON.stringify(fakeBin)}:$PATH\n`;
     await Promise.all(

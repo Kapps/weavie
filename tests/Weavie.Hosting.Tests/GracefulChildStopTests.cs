@@ -25,7 +25,7 @@ public sealed class GracefulChildStopTests {
 			Arguments = ["flood-on-close"],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 		}, Directory.GetCurrentDirectory(), log.Enqueue);
-		connection.ProcessStopped += _ => Interlocked.Increment(ref forced);
+		connection.ProcessForceStopped += _ => Interlocked.Increment(ref forced);
 		int pid;
 		try {
 			connection.Start();

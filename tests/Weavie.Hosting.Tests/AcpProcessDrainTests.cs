@@ -76,7 +76,7 @@ public sealed class AcpProcessDrainTests {
 		var started = Channel.CreateUnbounded<AcpProcessGeneration>();
 		connection.ProcessStarted += generation => started.Writer.TryWrite(generation);
 		var forced = new System.Collections.Concurrent.ConcurrentQueue<string>();
-		connection.ProcessStopped += outcome => forced.Enqueue(outcome.ForcedBecause!);
+		connection.ProcessForceStopped += outcome => forced.Enqueue(outcome.ForcedBecause!);
 		connection.Start();
 		await ReadGenerationAsync(started.Reader);
 		string payload = new('x', 16 * 1024 * 1024);

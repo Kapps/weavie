@@ -52,6 +52,8 @@ public sealed class LinuxWaylandIdentityTests {
 			appInfo.Environment["WEAVIE_ROOT"] = root.Combine("weavie");
 			appInfo.Environment["WAYLAND_DISPLAY"] = socketName;
 			appInfo.Environment["GDK_BACKEND"] = "wayland";
+			// The test ends the host with a tree kill, which strands a .NET process's runtime IPC files.
+			appInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
 			appInfo.Environment["WAYLAND_DEBUG"] = "client";
 			app = Start(appInfo, output, line => {
 				if (line.Contains($"set_app_id(\"{appId}\")", StringComparison.Ordinal)) {

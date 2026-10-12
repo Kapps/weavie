@@ -1,13 +1,13 @@
-import { ChevronDown, ChevronRight } from "lucide-solid";
+import { ChevronDown, ChevronRight, Pin, PinOff } from "lucide-solid";
 import { createSignal, type JSX, Show } from "solid-js";
-import { liveKeyHint } from "../commands/keys-live";
+import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { captureCommandRunner } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
-import { parkedCollapsed, setParkedCollapsed } from "./rail-state";
+import { panelPinned, parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, newSessionTitle } from "./session-summary";
+import { CLOUD_PATH, newSessionTitle, sessionSubtitle } from "./session-summary";
 
 /** The new-session and remote-agents buttons: at the rail's foot, or in the pinned session panel's header. */
 export function SessionTools(props: {
@@ -60,7 +60,7 @@ export function createSessionMenu(): {
 }
 
 /** Folds or unfolds parked (unloaded) sessions; one shared state for the rail and the session panel. */
-export function ParkedToggle(props: { class: string; count: number; label?: string }): JSX.Element {
+export function ParkedToggle(props: { class: string; count: number; label: string }): JSX.Element {
   return (
     <button
       type="button"
@@ -72,7 +72,51 @@ export function ParkedToggle(props: { class: string; count: number; label?: stri
       <Show when={parkedCollapsed()} fallback={<ChevronDown size={11} />}>
         <ChevronRight size={11} />
       </Show>
-      {props.label ?? props.count}
+      {props.label}
     </button>
+  );
+}
+
+/** The session panel's shortcut and its pin button: in the pinned panel's header, or at the expanded rail's foot. */
+export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
+  return (
+    <>
+      <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
+        {(keys) => <span class="session-panel-key">{keys()}</span>}
+      </Show>
+      <button
+        type="button"
+        class="session-panel-pin"
+        classList={{ on: panelPinned() }}
+        title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
+        aria-pressed={panelPinned()}
+        onClick={() => props.onTogglePin()}
+      >
+        <Show when={panelPinned()} fallback={<Pin size={13} />}>
+          <PinOff size={13} />
+        </Show>
+      </button>
+    </>
+  );
+}
+
+/** A session's full name, its machine when remote, and what its agent is doing: a panel row or an expanded chip. */
+export function SessionText(props: { session: RailSession; now: number }): JSX.Element {
+  return (
+    <span class="session-panel-text">
+      <span class="session-panel-name">
+        <span class="session-panel-title">{props.session.title}</span>
+        {/* Remote sessions name their machine, so same-named branches stay apart. */}
+        <Show when={!props.session.isLocal}>
+          <span class="session-panel-where">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d={CLOUD_PATH} />
+            </svg>
+            {props.session.locationName}
+          </span>
+        </Show>
+      </span>
+      <span class="session-panel-activity">{sessionSubtitle(props.session, props.now)}</span>
+    </span>
   );
 }

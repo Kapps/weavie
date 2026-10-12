@@ -1,12 +1,21 @@
 /* The left session rail (SessionRail.tsx): each session as a status dot over its name, the parked toggle, the cloud button, and "+".
-   A strip in the body row's flow, so the panes start to its right. Names live in the session panel. */
-.session-rail {
+   Its slot holds a strip in the body row's flow, so the panes start to its right; expanded, the rail overlays them from there. */
+.session-rail-slot {
+  position: relative;
   flex: 0 0 auto;
+  width: 56px;
+}
+.session-rail {
+  --chip-face: 43px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
-  width: 56px;
   padding: 8px 4px;
   box-sizing: border-box;
   background: var(--bar);
@@ -14,13 +23,14 @@
   overflow-y: auto;
   scrollbar-width: none;
 }
+.session-rail.expanded {
+  width: calc(100% + clamp(220px, 24vw, 300px));
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+}
 .session-chip {
   position: relative;
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
   padding: 6px 2px;
   border: 0;
   border-radius: 5px;
@@ -28,6 +38,31 @@
   color: var(--fg);
   font-size: var(--font-hint-size);
   cursor: pointer;
+}
+/* The collapsed chip: its dot over the first words of the name, kept as the expanded row's leading column. */
+.session-chip-face {
+  position: relative;
+  flex: 0 0 var(--chip-face);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.session-chip-detail {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 0;
+  left: calc(2px + var(--chip-face) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-chip .session-panel-text {
+  flex: 1 1 auto;
+  font-size: var(--font-chrome-size);
+  text-align: left;
 }
 .session-chip:hover {
   background: var(--list-hover-bg);
@@ -50,6 +85,10 @@
   line-height: 1.15;
   text-align: center;
 }
+/* Expanded, the full name beside the face replaces its words, which keep their space so the chip keeps its height. */
+.session-rail.expanded .session-chip-words {
+  visibility: hidden;
+}
 .session-chip:focus-visible,
 .session-rail-add:focus-visible,
 .session-rail-cloud:focus-visible {
@@ -66,7 +105,7 @@
 }
 .session-chip-spinner {
   position: absolute;
-  top: 4px;
+  top: -2px;
   left: calc(50% - 6px);
   width: 12px;
   height: 12px;
@@ -98,6 +137,26 @@
 }
 .session-rail-parked:hover {
   color: var(--fg);
+}
+.session-rail.expanded .session-rail-parked {
+  justify-content: flex-start;
+  padding-left: 12px;
+}
+/* The cloud and "+" stay centered under the chips' faces; expanded, the panel's shortcut and pin sit at the far end. */
+.session-rail-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 10px 0 2px;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+.session-rail-tools {
+  flex: 0 0 var(--chip-face);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: auto;
 }
 .session-rail-add,
 .session-rail-cloud {

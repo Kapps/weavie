@@ -205,6 +205,9 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   carve-outs: `CancellationToken` and `Caller*`). Use overloads or the test factory.
 - **Enforce, don't suppress.** Strict enforcement is the default; never silence an analyzer or
   warning to make a problem disappear. Ask before any build-config, enforcement, or philosophy call.
+- **Per-frame and per-keystroke code runs `pnpm e2e:perf` before pushing.** A change under `src/web/src/editor`,
+  or to anything running per scroll frame or keystroke, must pass the render budgets
+  (`e2e/functional/editor-render-budget.spec.ts`): forced-layout reads and content-widget churn, counted per input.
 - **Run the formatter before calling a change done.** Web/TS: `biome check --write` (Biome,
   `lineWidth: 100`); .NET: `dotnet format`. Both are CI gates — hand-fixing wrap after the fact, or a
   red check, means it wasn't run.

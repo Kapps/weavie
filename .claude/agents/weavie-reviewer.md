@@ -85,6 +85,10 @@ Then Weavie's hard rules (these override generic "best practice"):
   the reverse: an awaitable named as if synchronous), a getter that mutates, an `Is*`/`Has*` that
   doesn't return `bool`, a "fetch"/"load" that returns a cached value. The fix is to rename to match
   the behavior. Raise as Should-fix — a misleading name costs every future reader.
+- **Nothing per frame or per keystroke touches layout or rebuilds DOM.** Flag a per-frame or per-keystroke
+  callback (`afterRender`, `onDidScrollChange`, `onDidChangeModelContent`, `ResizeObserver`, rAF loops) that
+  reads layout (`offset*`, `client*`, `scroll*`, `getBoundingClientRect`, `getComputedStyle`, …) or removes
+  and re-adds widgets/DOM that didn't change, and check that `pnpm e2e:perf` ran for such a change.
 - **Minimum lines of code.** Favour the fewest lines that do the job — prefer the plainest version,
   and prefer deleting over adding.
 - **No new duplication.** Duplication is already common in this codebase, so watch for it actively:

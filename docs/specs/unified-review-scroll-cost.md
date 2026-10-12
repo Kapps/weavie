@@ -118,8 +118,8 @@ rather than a function each consumer re-runs.
 Measured in headless over a twelve-file review scroll (482 frames), counting only reads whose stack reaches Weavie's
 own bundles: **1244 reads -> 283**, and the visible-file sites leave the top offenders entirely. Counts are
 transport-independent, which is why headless answers this; its frame times are not representative and were not used
-for any timing claim. `unified-review-forced-reads.spec.ts` holds that path open — it fails at 2.58 reads per frame
-and passes at 0.59.
+for any timing claim. `editor-render-budget.spec.ts` holds that path open, budgeting the scroll at under one Weavie
+read per wheel notch.
 
 The frame-time effect of this third fix is **not measured on the native build**: a locked display stops the frame
 callbacks the harness needs, verified by bypassing the guard and watching the run hang at readiness for 38 minutes.

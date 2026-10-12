@@ -74,21 +74,21 @@ describe("omnibar file search over a huge workspace", () => {
   const rows = buildIndex(INDEX_SIZE);
   const finder = createFileFinder(rows);
 
-  it("bounds precision scoring for broad queries and each typed prefix", () => {
-    const word = "controller";
-    for (const query of [
-      "s",
-      "se",
-      "zqwxnomatch",
-      ...Array.from(word, (_, i) => word.slice(0, i + 1)),
-    ]) {
-      vi.mocked(Fzf).mockClear();
-      const result = rankFiles(finder, query, [], null);
-      expect(Fzf).toHaveBeenCalledOnce();
-      const candidates = vi.mocked(Fzf).mock.calls[0]![0];
-      expect(candidates.length, query).toBeLessThanOrEqual(2000);
-      expect(result.matches.length, query).toBe(candidates.length);
-    }
+  // 2026-10-12 flake (https://github.com/Kapps/weavie/actions/runs/38289112149): all 13 queries ran, each scanning the
+  // 120k-row index, inside one 5s test that timed out on a loaded runner. Fixed by giving each query its own test.
+  const word = "controller";
+  it.each([
+    "s",
+    "se",
+    "zqwxnomatch",
+    ...Array.from(word, (_, i) => word.slice(0, i + 1)),
+  ])("bounds precision scoring for the query %s", (query) => {
+    vi.mocked(Fzf).mockClear();
+    const result = rankFiles(finder, query, [], null);
+    expect(Fzf).toHaveBeenCalledOnce();
+    const candidates = vi.mocked(Fzf).mock.calls[0]![0];
+    expect(candidates.length).toBeLessThanOrEqual(2000);
+    expect(result.matches.length).toBe(candidates.length);
   });
 
   it("reports all broad-query matches beyond the precision-scored candidates", () => {

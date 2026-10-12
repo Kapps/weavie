@@ -72,7 +72,7 @@ public static class WeaviePaths {
 	public static string RemoteAgentsFile { get; } = Path.Combine(Root, "remote-agents.json");
 
 	/// <summary>
-	/// The session rail's app-global UI state (last backend + promoted remote sessions):
+	/// The session rail's app-global UI state (last backend, selection, panel layout):
 	/// <c>~/.weavie/rail-state.json</c>. Runtime UI state, never settings.toml. See <see cref="Sessions.RailStateStore"/>.
 	/// </summary>
 	public static string RailStateFile { get; } = Path.Combine(Root, "rail-state.json");

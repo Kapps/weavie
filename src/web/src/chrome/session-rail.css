@@ -1,4 +1,4 @@
-/* The left session rail (SessionRail.tsx): one status dot per working-set session, the cloud button, and "+".
+/* The left session rail (SessionRail.tsx): each session as a status dot over its name, the parked toggle, the cloud button, and "+".
    A strip in the body row's flow, so the panes start to its right. Names live in the session panel. */
 .session-rail {
   flex: 0 0 auto;
@@ -90,6 +90,23 @@
     transform: rotate(360deg);
   }
 }
+.session-rail-parked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  margin-top: 6px;
+  padding: 3px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+  cursor: pointer;
+}
+.session-rail-parked:hover {
+  color: var(--fg);
+}
 .session-rail-add,
 .session-rail-cloud {
   position: relative;
@@ -119,18 +136,6 @@
   width: 13px;
   height: 13px;
 }
-/* A pip flags off-rail remote activity (a remote session mid-turn or awaiting input). */
-.session-rail-cloud.active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--busy);
-}
-
 /* A session's status dot, shared by the rail, the session panel, the title bar, and the pane footer
    (idle = calm green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
 .session-status {

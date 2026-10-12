@@ -2,7 +2,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { createAcpSession } from "../harness/acp-session";
-import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand, showParked } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 import { pastePng } from "../harness/pasted-image";
@@ -159,6 +159,7 @@ test("reopened ACP transcript preserves images and clean history and resumes its
   const displayed = await messages.allTextContents();
 
   await runCommand(page, "Unload Session");
+  await showParked(page);
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-transcript-context"]');
   await expect(unloaded).toBeVisible();
   await expect(readFile(stagedImage)).rejects.toMatchObject({ code: "ENOENT" });

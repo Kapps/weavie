@@ -192,7 +192,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.PullRequestWire))]
 [JsonSerializable(typeof(HostCore.PullRequestWire[]))]
 [JsonSerializable(typeof(HostCore.RailLocation))]
-[JsonSerializable(typeof(HostCore.RailPromotionSet))]
+[JsonSerializable(typeof(HostCore.RailParkedCollapsed))]
 [JsonSerializable(typeof(HostCore.RailSelectionMessage))]
 [JsonSerializable(typeof(HostCore.RailPanelPinned))]
 [JsonSerializable(typeof(HostCore.RailPanelWidth))]

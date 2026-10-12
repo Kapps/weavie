@@ -160,6 +160,8 @@ test("middle-click autoscrolls any scrollable surface, not just the transcript",
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
     const rail = page.locator(".session-rail");
+    // Parked chips start folded; unfold them so the rail overflows.
+    await page.locator(".session-rail-parked").click();
     await expect(page.locator(".session-chip")).toHaveCount(sessions.length);
     expect(
       await rail.evaluate((element) => element.scrollHeight - element.clientHeight),

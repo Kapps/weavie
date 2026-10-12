@@ -54,14 +54,12 @@ public sealed class SessionCommandsTests {
 		Assert.Contains("switch session", panelDef.Aliases);
 		Assert.True(registry.TryGet(SessionCommands.PinSessionPanel, out var pinDef));
 		Assert.Equal(CommandLocation.Web, pinDef!.RunsIn);
+		Assert.True(registry.TryGet(SessionCommands.ToggleParkedSessions, out var parkedDef));
+		Assert.Equal(CommandLocation.Web, parkedDef!.RunsIn);
 		// Disconnecting a remote agent is web-handled (the agent registry is client-side); no Core handler.
 		Assert.True(registry.TryGet(SessionCommands.DisconnectRemote, out var disconnectDef));
 		Assert.Equal(CommandLocation.Web, disconnectDef!.RunsIn);
 		Assert.False(disconnectDef.ShowInPalette);
-		// Removing a promoted remote session from the rail is web-handled (the working set is client-side).
-		Assert.True(registry.TryGet(SessionCommands.RemoveFromRail, out var removeDef));
-		Assert.Equal(CommandLocation.Web, removeDef!.RunsIn);
-		Assert.False(removeDef.ShowInPalette);
 	}
 
 	[Fact]

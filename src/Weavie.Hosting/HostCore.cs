@@ -60,7 +60,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
 	// connections, this owns persistence — see remote-agents.ts).
 	private readonly RemoteAgentStore _remoteAgents;
-	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
+	// App-global session-rail UI state (last-used backend, selection, panel layout); same push pattern.
 	private readonly RailStateStore _railState;
 	// App-global find-in-files UI state (match options, include/exclude globs, recent terms); same push pattern.
 	private readonly SearchStateStore _searchState;
@@ -444,7 +444,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
 		_remoteAgents.Changed += _onRemoteAgentsChanged;
 
-		// Session rail UI state (last-used backend + promoted remotes): same re-push-on-change as remote agents.
+		// Session rail UI state (last-used backend, selection, panel layout): same re-push-on-change as remote agents.
 		_onRailStateChanged = PushRailStateToWeb;
 		_railState.Changed += _onRailStateChanged;
 

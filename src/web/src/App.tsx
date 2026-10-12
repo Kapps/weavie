@@ -66,7 +66,7 @@ import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
-import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
+import { lastLocation, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionRail } from "./chrome/SessionRail";
@@ -81,13 +81,9 @@ import {
 // status survive HMR.
 import {
   beginSessionSelection,
-  demoteSession,
   findSession,
-  isPromoted,
-  promoteSession,
   type RailSession,
   railSessions,
-  remoteActivity,
   remoteAgentRows,
   sessions,
   sessionsReceived,
@@ -585,6 +581,10 @@ export default function App(): JSX.Element {
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<PopoverAnchor | null>(null);
+  // The popup anchors on the cloud button, which goes away with the last remote agent.
+  createEffect(() => {
+    if (remoteAgentRows().length === 0) setRemotePanelAnchor(null);
+  });
   const toggleRemotePanel = (rect: DOMRect): void => {
     setRemotePanelAnchor((open) =>
       open !== null
@@ -1797,15 +1797,6 @@ export default function App(): JSX.Element {
         removeAgent(name);
         return true;
       }),
-      // Remove a promoted remote session from the rail's working set (rail right-click on a remote chip).
-      registerCommand(CommandIds.removeFromRail, (args) => {
-        const a = args as { backendId?: unknown; id?: unknown } | undefined;
-        if (typeof a?.backendId !== "string" || typeof a?.id !== "string") {
-          return false;
-        }
-        demoteSession(a.backendId, a.id);
-        return true;
-      }),
     ];
     // Live-track the pane-hint setting so toggling editor.paneShortcutHints shows/hides the badges at once.
     const offEditorOptions = onEditorOptionsChanged((options) =>
@@ -1937,7 +1928,6 @@ export default function App(): JSX.Element {
           sessions={railSessions()}
           inert={sessionsModalActive()}
           hasRemotes={remoteAgentRows().length > 0}
-          remoteActive={remoteActivity()}
           onSwitch={openSession}
           onNew={openSessions}
           onToggleRemotes={toggleRemotePanel}
@@ -1946,7 +1936,6 @@ export default function App(): JSX.Element {
           sessions={railSessions()}
           inert={sessionsModalActive()}
           hasRemotes={remoteAgentRows().length > 0}
-          remoteActive={remoteActivity()}
           onSwitch={(session) => void openSession(session)}
           onNew={openSessions}
           onToggleRemotes={toggleRemotePanel}
@@ -1966,7 +1955,6 @@ export default function App(): JSX.Element {
                 return false;
               }
               setLastLocation(backendId);
-              promoteNextSessionOn(backendId);
               return createSessionAt(backendId, {
                 branch: seed.branch,
                 base: seed.base,
@@ -2058,9 +2046,7 @@ export default function App(): JSX.Element {
             // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
             // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
             addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
-            // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
-            // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
-            promoteNextSessionOn(location);
+            // The host resolves the PR's branch refs by number, then checks it out on that backend.
             openPullRequestAt(location, target);
           }}
           onCancel={() => setOpenPrOpen(false)}
@@ -2110,13 +2096,6 @@ export default function App(): JSX.Element {
           <RemoteAgentsPanel
             agents={remoteAgentRows()}
             anchor={anchor()}
-            isPromoted={isPromoted}
-            onPick={(session) => {
-              // Pull the picked remote session into the rail and switch to it.
-              promoteSession(session.backendId, session.id);
-              switchToSession(session);
-              setRemotePanelAnchor(null);
-            }}
             onDisconnect={(name) => removeAgent(name)}
             onAddRemote={() => {
               setRemotePanelAnchor(null);

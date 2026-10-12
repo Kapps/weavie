@@ -1,6 +1,10 @@
+import { ChevronDown, ChevronRight } from "lucide-solid";
 import { createSignal, type JSX, Show } from "solid-js";
+import { liveKeyHint } from "../commands/keys-live";
 import { captureCommandRunner } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
 import { CLOUD_PATH, newSessionTitle } from "./session-summary";
@@ -8,17 +12,16 @@ import { CLOUD_PATH, newSessionTitle } from "./session-summary";
 /** The new-session and remote-agents buttons: at the rail's foot, or in the pinned session panel's header. */
 export function SessionTools(props: {
   hasRemotes: boolean;
-  remoteActive: boolean;
   onNew: () => void;
   onToggleRemotes: (anchor: DOMRect) => void;
 }): JSX.Element {
   return (
     <>
-      {/* Shown once a remote agent is registered; a pip flags remote activity off the rail. */}
+      {/* Shown once a remote agent is registered. */}
       <Show when={props.hasRemotes}>
         <button
           type="button"
-          class={`session-rail-cloud${props.remoteActive ? " active" : ""}`}
+          class="session-rail-cloud"
           title="Remote agents"
           onClick={(event) => props.onToggleRemotes(event.currentTarget.getBoundingClientRect())}
         >
@@ -48,10 +51,28 @@ export function createSessionMenu(): {
   return {
     open: (event, session) => {
       event.preventDefault();
-      setMenu(sessionMenuAt(session, event.clientX, event.clientY, true, captureCommandRunner()));
+      setMenu(sessionMenuAt(session, event.clientX, event.clientY, captureCommandRunner()));
     },
     View: () => (
       <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
     ),
   };
+}
+
+/** Folds or unfolds parked (unloaded) sessions; one shared state for the rail and the session panel. */
+export function ParkedToggle(props: { class: string; count: number; label?: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      class={props.class}
+      aria-expanded={!parkedCollapsed()}
+      title={`${parkedCollapsed() ? "Show" : "Hide"} ${props.count} parked session${props.count === 1 ? "" : "s"}${liveKeyHint(CommandIds.toggleParkedSessions)}`}
+      onClick={() => setParkedCollapsed(!parkedCollapsed())}
+    >
+      <Show when={parkedCollapsed()} fallback={<ChevronDown size={11} />}>
+        <ChevronRight size={11} />
+      </Show>
+      {props.label ?? props.count}
+    </button>
+  );
 }

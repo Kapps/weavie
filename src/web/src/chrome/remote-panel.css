@@ -78,53 +78,10 @@
 .remote-agent-x:hover {
   opacity: 1;
 }
-/* A connected agent with no sessions yet — say so rather than show a bare header that reads as broken. */
-.remote-agent-empty {
-  margin-top: 6px;
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-  font-style: italic;
-}
-.remote-agent-sessions {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-top: 6px;
-}
-.remote-session {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg);
-  font: var(--font-chrome-size) var(--font-chrome-family);
-  text-align: left;
-  cursor: pointer;
-}
-.remote-session:hover {
-  background: var(--list-hover-bg);
-}
-.remote-session:focus-visible,
 .remote-agent-x:focus-visible,
 .remote-panel-add:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-.remote-session.unloaded {
-  color: var(--dim);
-}
-.remote-session.pending {
-  cursor: progress;
-}
-.remote-session-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .remote-panel-add {
   width: 100%;
@@ -138,10 +95,4 @@
 }
 .remote-panel-add:hover {
   text-decoration: underline;
-}
-.remote-session .session-chip-spinner {
-  position: static;
-  width: 8px;
-  height: 8px;
-  box-sizing: border-box;
 }

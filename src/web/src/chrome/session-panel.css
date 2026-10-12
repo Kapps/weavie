@@ -60,6 +60,18 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.session-panel-parked {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.session-panel-parked:hover {
+  color: var(--fg);
+}
 .session-panel-row {
   display: flex;
   align-items: flex-start;
@@ -112,6 +124,19 @@
 }
 .session-panel-prefix {
   flex: 0 0 auto;
+}
+.session-panel-where {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+.session-panel-where svg {
+  width: 10px;
+  height: 10px;
 }
 .session-panel-title,
 .session-panel-activity {

@@ -371,10 +371,6 @@ test.describe("session-addressed WebSocket transport", () => {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
       await remote.waitUntilConnected();
-      host.publishHost("rail", "changed", {
-        lastLocation: "local",
-        promoted: ["remote:devbox remote"],
-      });
       await page.locator(".session-chip.remote").click();
 
       const warning = page.locator(".connection-banner-error");
@@ -609,10 +605,6 @@ test.describe("session-addressed WebSocket transport", () => {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
       await remote.waitUntilConnected();
-      host.publishHost("rail", "changed", {
-        lastLocation: "local",
-        promoted: ["remote:devbox remote-acp"],
-      });
       remote.publishAgentPane(remoteSession.address, {
         providerId: "acp",
         type: "item-completed",
@@ -671,10 +663,6 @@ test.describe("session-addressed WebSocket transport", () => {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
       await remote.waitUntilConnected();
-      host.publishHost("rail", "changed", {
-        lastLocation: "local",
-        promoted: ["remote:devbox remote-acp"],
-      });
       await page.locator(".session-chip.remote").click();
       await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^acp @/);
 
@@ -798,10 +786,6 @@ test.describe("session-addressed WebSocket transport", () => {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
       await remote.waitUntilConnected();
-      host.publishHost("rail", "changed", {
-        lastLocation: "local",
-        promoted: ["remote:devbox remote-acp"],
-      });
       await page.locator(".session-chip.remote").click();
       await expect(page.locator(".session-chip.remote.active")).toHaveAttribute("title", /^acp @/);
 

@@ -5,8 +5,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Promoted"/>,
-/// <see cref="Selected"/>, <see cref="PanelPinned"/>, and <see cref="PanelWidth"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
+/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Selected"/>,
+/// <see cref="PanelPinned"/>, <see cref="PanelWidth"/>, and <see cref="ParkedCollapsed"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
@@ -17,10 +17,10 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	public const int DefaultPanelWidth = 300;
 
 	private string _lastLocation = DefaultLocation;
-	private List<string> _promoted = [];
 	private (string BackendId, string Slot)? _selected;
 	private bool _panelPinned;
 	private int _panelWidth = DefaultPanelWidth;
+	private bool _parkedCollapsed = true;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
 	/// <param name="fileSystem">The filesystem the state persists through.</param>
@@ -38,9 +38,23 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		get { lock (Gate) { return _lastLocation; } }
 	}
 
-	/// <summary>The promoted remote-session keys (<c>"backendId id"</c>). Snapshot copy; safe to enumerate.</summary>
-	public IReadOnlyList<string> Promoted {
-		get { lock (Gate) { return [.. _promoted]; } }
+	/// <summary>Whether unloaded ("parked") sessions are folded away in the rail and session panel.</summary>
+	public bool ParkedCollapsed {
+		get { lock (Gate) { return _parkedCollapsed; } }
+	}
+
+	/// <summary>Folds or unfolds parked sessions. No-op (no write, no event) when unchanged.</summary>
+	public void SetParkedCollapsed(bool collapsed) {
+		lock (Gate) {
+			if (_parkedCollapsed == collapsed) {
+				return;
+			}
+
+			_parkedCollapsed = collapsed;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
 	}
 
 	/// <summary>The last client-selected backend and stable session slot, or <c>null</c> before any selection.</summary>
@@ -101,22 +115,6 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		Changed?.Invoke();
 	}
 
-	/// <summary>Replaces the promoted set with <paramref name="keys"/>. No-op (no write, no event) when unchanged.</summary>
-	public void SetPromoted(IEnumerable<string> keys) {
-		ArgumentNullException.ThrowIfNull(keys);
-		var next = keys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal).ToList();
-		lock (Gate) {
-			if (next.Count == _promoted.Count && next.All(_promoted.Contains)) {
-				return;
-			}
-
-			_promoted = next;
-			PersistLocked();
-		}
-
-		Changed?.Invoke();
-	}
-
 	/// <summary>Records the client-selected backend and stable session slot. No-op when unchanged or blank.</summary>
 	public void SetSelected(string backendId, string slot) {
 		if (string.IsNullOrWhiteSpace(backendId) || string.IsNullOrWhiteSpace(slot)) {
@@ -140,12 +138,12 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	protected override void Restore(string? text) {
 		var document = (text is null ? null : JsonSerializer.Deserialize(text, RailStateStoreJson.Default.Document)) ?? new Document();
 		_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
-		_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
 		_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
 			? (selected.BackendId, selected.Slot)
 			: null;
 		_panelPinned = document.PanelPinned;
 		_panelWidth = document.PanelWidth;
+		_parkedCollapsed = document.ParkedCollapsed;
 	}
 
 	/// <inheritdoc/>
@@ -153,12 +151,12 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		new Document {
 			Version = 2,
 			LastLocation = _lastLocation,
-			Promoted = _promoted,
 			Selected = _selected is { } selected
 				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
 				: null,
 			PanelPinned = _panelPinned,
 			PanelWidth = _panelWidth,
+			ParkedCollapsed = _parkedCollapsed,
 		},
 		RailStateStoreJson.Default.Document);
 
@@ -169,9 +167,6 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		[JsonPropertyName("lastLocation")]
 		public string LastLocation { get; set; } = DefaultLocation;
 
-		[JsonPropertyName("promoted")]
-		public List<string> Promoted { get; set; } = [];
-
 		[JsonPropertyName("selected")]
 		public SelectionEntry? Selected { get; set; }
 
@@ -180,6 +175,9 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 
 		[JsonPropertyName("panelWidth")]
 		public int PanelWidth { get; set; } = DefaultPanelWidth;
+
+		[JsonPropertyName("parkedCollapsed")]
+		public bool ParkedCollapsed { get; set; } = true;
 	}
 
 	private sealed class SelectionEntry {

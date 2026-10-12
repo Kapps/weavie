@@ -1,3 +1,5 @@
+using Weavie.Core.Processes;
+
 namespace Weavie.Core.Lsp;
 
 /// <summary>
@@ -5,9 +7,9 @@ namespace Weavie.Core.Lsp;
 /// written (Content-Length framed) to its stdin in submission order, inbound stdout frames are raised de-framed
 /// via <see cref="FrameReceived"/>, and its exit is raised once via <see cref="Exited"/>. The transport that
 /// carries these payloads to the editor (the web bridge) is not this type's concern — it deals only in raw
-/// JSON-RPC bytes. Obtained from <see cref="ILspServerLauncher"/>; disposing kills and reaps the process.
+/// JSON-RPC bytes. Obtained from <see cref="ILspServerLauncher"/>; <see cref="StopAsync"/> ends and reaps the process.
 /// </summary>
-public interface ILspServerProcess : IDisposable {
+public interface ILspServerProcess {
 	/// <summary>Raised with each complete JSON-RPC payload read from the server's stdout (UTF-8 bytes, de-framed).</summary>
 	event Action<byte[]>? FrameReceived;
 
@@ -24,4 +26,10 @@ public interface ILspServerProcess : IDisposable {
 	/// </summary>
 	/// <param name="payload">The raw JSON-RPC payload (UTF-8) to frame and send.</param>
 	void Write(ReadOnlyMemory<byte> payload);
+
+	/// <summary>
+	/// Stops forwarding frames, runs the LSP <c>shutdown</c>/<c>exit</c> sequence and closes stdin, force-killing the
+	/// server when it hasn't exited by the deadline. Completes once the process is reaped.
+	/// </summary>
+	Task<ProcessStopOutcome> StopAsync();
 }

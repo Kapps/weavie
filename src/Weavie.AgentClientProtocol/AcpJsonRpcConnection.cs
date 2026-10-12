@@ -10,6 +10,8 @@ namespace Weavie.AgentClientProtocol;
 /// <summary>A strict bidirectional JSON-RPC 2.0 connection to one supervised ACP agent process.</summary>
 public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+	private static readonly TimeSpan AcpStopDeadline = TimeSpan.FromSeconds(5);
+	private readonly ISupervisorClock _clock = new SystemSupervisorClock();
 	private readonly Func<AcpAgentDefinition> _currentDefinition;
 	private readonly string _providerId;
 	private readonly string _providerName;
@@ -49,15 +51,16 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		_supervisor = new ProcessSupervisor(
 			$"acp:{initial.Id}",
 			StartProcess,
-			StopProcess,
+			StopProcessAsync,
 			new SupervisionOptions {
 				Policy = RestartPolicy.Never,
 				RequireExplicitHealth = true,
 				HealthyAfter = TimeSpan.Zero,
 			},
 			entry => _log($"[acp:{initial.Id}] {entry.Level}: {entry.Message}"),
-			new SystemSupervisorClock());
+			_clock);
 		_supervisor.StateChanged += change => ProcessStateChanged?.Invoke(change);
+		_supervisor.Stopped += outcome => ProcessStopped?.Invoke(outcome);
 	}
 
 	/// <summary>Raised for ACP notifications.</summary>
@@ -72,6 +75,9 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	/// <summary>Raised for supervised process lifecycle changes.</summary>
 	public event Action<SupervisorStateChanged>? ProcessStateChanged;
 
+	/// <summary>Raised when stopping an agent process had to force-kill it.</summary>
+	public event Action<ProcessStopOutcome>? ProcessStopped;
+
 	/// <summary>Raised when strict ACP framing is violated.</summary>
 	public event Action<long, Exception>? ProtocolFaulted;
 
@@ -81,7 +87,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	/// <summary>Intentionally replaces the current agent process generation.</summary>
 	public void Restart() {
 		FailPending(new IOException("ACP agent restarted."));
-		_supervisor.Stop();
+		_ = _supervisor.StopAsync();
 		_supervisor.Start();
 	}
 
@@ -165,16 +171,15 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	}
 
 	/// <inheritdoc/>
-	public ValueTask DisposeAsync() {
+	public async ValueTask DisposeAsync() {
 		lock (_processGate) {
 			if (_disposed) {
-				return ValueTask.CompletedTask;
+				return;
 			}
 			_disposed = true;
 		}
-		_supervisor.Dispose();
+		await _supervisor.DisposeAsync().ConfigureAwait(false);
 		FailPending(new ObjectDisposedException(nameof(AcpJsonRpcConnection)));
-		return ValueTask.CompletedTask;
 	}
 
 	private void CancelRequest(long id, CancellationToken ct) {
@@ -194,7 +199,8 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private void StopProcess() {
+	// Retires the generation at once, then lets the agent end its session on stdin EOF before force-killing it.
+	private async Task<ProcessStopOutcome> StopProcessAsync() {
 		OwnedProcess? process;
 		lock (_deliveryGate) {
 			lock (_processGate) {
@@ -205,17 +211,29 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 		RetireEndpoints();
 		if (process is null) {
-			return;
+			return ProcessStopOutcome.Graceful;
 		}
 		FailPending(new IOException("ACP agent stopped."));
 		try {
-			if (!process.HasExited) {
-				process.Kill(entireProcessTree: true);
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException) {
-			_log($"[acp:{_providerId}] stop failed: {ex.Message}");
+			return await process.StopAsync(ProcessStopPlan.Request("closing its input", ct => CloseInputAsync(process, ct), AcpStopDeadline), _clock).ConfigureAwait(false);
 		} finally {
-			process.Dispose();
+			// A write still in flight fails once the child is gone, so its stream is released only after it settles.
+			await _writeGate.WaitAsync().ConfigureAwait(false);
+			try {
+				process.Dispose();
+			} finally {
+				_writeGate.Release();
+			}
+		}
+	}
+
+	// Behind the write gate, so an in-flight write finishes first; a write the agent never drains holds it to the deadline.
+	private async Task CloseInputAsync(OwnedProcess process, CancellationToken ct) {
+		await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			process.StandardInput.Close();
+		} finally {
+			_writeGate.Release();
 		}
 	}
 

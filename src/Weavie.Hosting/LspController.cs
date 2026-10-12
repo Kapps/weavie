@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Lsp;
+using Weavie.Core.Processes;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -18,6 +19,7 @@ public sealed class LspController : IAsyncDisposable {
 	private readonly ILspServerLauncher _launcher;
 	private readonly Func<string, LanguageServerDescriptor?> _resolve;
 	private readonly Action<string> _log;
+	private readonly Action<string, ProcessStopOutcome> _forceStopped;
 	private readonly ConcurrentDictionary<ChannelKey, LspChannel> _channels = new();
 
 	/// <summary>Creates the multiplexer for a session rooted at <paramref name="workspaceRoot"/>.</summary>
@@ -25,19 +27,23 @@ public sealed class LspController : IAsyncDisposable {
 	/// <param name="launcher">Spawns a resolved server (the process seam; a fake in tests).</param>
 	/// <param name="resolve">Maps a start selector to a server recipe (the catalog in production).</param>
 	/// <param name="log">Diagnostic sink (server stderr + lifecycle).</param>
+	/// <param name="forceStopped">Told the server's display name when stopping it had to force-kill it.</param>
 	public LspController(
 		string workspaceRoot,
 		ILspServerLauncher launcher,
 		Func<string, LanguageServerDescriptor?> resolve,
-		Action<string> log) {
+		Action<string> log,
+		Action<string, ProcessStopOutcome> forceStopped) {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(launcher);
 		ArgumentNullException.ThrowIfNull(resolve);
 		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(forceStopped);
 		_workspaceRoot = workspaceRoot;
 		_launcher = launcher;
 		_resolve = resolve;
 		_log = log;
+		_forceStopped = forceStopped;
 	}
 
 	/// <summary>
@@ -72,9 +78,10 @@ public sealed class LspController : IAsyncDisposable {
 			_workspaceRoot,
 			_launcher,
 			_log,
+			outcome => _forceStopped(descriptor.DisplayName, outcome),
 			() => _channels.TryRemove(key, out _));
 		if (!_channels.TryAdd(key, ch)) {
-			ch.Dispose();
+			_ = ch.DisposeAsync().AsTask(); // never started, so there is nothing to stop
 			error = $"channel '{channel}' is already bound to a live server";
 			return false;
 		}
@@ -91,10 +98,10 @@ public sealed class LspController : IAsyncDisposable {
 		}
 	}
 
-	/// <summary>Tears a channel's server down off the message-dispatch thread.</summary>
+	/// <summary>Stops a channel's server.</summary>
 	internal Task StopAsync(MessagePeer owner, string channel) =>
 		_channels.TryRemove(new ChannelKey(owner, channel), out var ch)
-			? Task.Run(ch.Dispose)
+			? ch.DisposeAsync().AsTask()
 			: Task.CompletedTask;
 
 	internal Task DisconnectAsync(MessagePeer owner) {
@@ -153,17 +160,11 @@ public sealed class LspController : IAsyncDisposable {
 		}
 	}
 
-	/// <inheritdoc/>
-	public async ValueTask DisposeAsync() {
+	/// <summary>Stops every server in parallel and completes once each has exited, so none outlives the session.</summary>
+	public ValueTask DisposeAsync() {
 		var channels = _channels.Values.ToArray();
 		_channels.Clear();
-		// Reap off the calling (often UI) thread: each Dispose blocks until its server is killed + waited, so no
-		// server outlives the session and a following worktree removal can't race a live process.
-		await Task.Run(() => {
-			foreach (var ch in channels) {
-				ch.Dispose();
-			}
-		}).ConfigureAwait(false);
+		return new ValueTask(DisposeAsync(channels, publishExit: false, string.Empty));
 	}
 
 	private static string DidChangeParams(IReadOnlyList<WatchedFileChange> changes) {
@@ -185,17 +186,9 @@ public sealed class LspController : IAsyncDisposable {
 		IReadOnlyList<LspChannel> channels,
 		bool publishExit,
 		string reason) =>
-		channels.Count == 0
-			? Task.CompletedTask
-			: Task.Run(() => {
-				foreach (var channel in channels) {
-					if (publishExit) {
-						channel.DisposeWithExit(reason);
-					} else {
-						channel.Dispose();
-					}
-				}
-			});
+		Task.WhenAll(channels.Select(channel => publishExit
+			? channel.DisposeWithExitAsync(reason)
+			: channel.DisposeAsync().AsTask()));
 
 	private readonly record struct ChannelKey(MessagePeer Owner, string Channel);
 }

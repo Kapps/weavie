@@ -35,7 +35,8 @@ supplies two delegates, which keeps the supervisor agnostic to how a thing is sp
 - `start(SupervisedLaunch launch)` — launch a fresh instance and wire its exit back through
   `launch.NotifyExited`. `launch.Attempt` (0 = first, ≥1 = restart) lets the caller announce a restart in
   the UI. An exception thrown here is treated as a failed launch (a crash) and feeds the backoff/breaker.
-- `stop()` — kill/dispose the current instance; must be a safe no-op when nothing runs.
+- `stop()` — stop the current instance and return a `Task<ProcessStopOutcome>` that completes once it has
+  exited; must be a safe no-op when nothing runs. See [Stopping](#stopping-graceful-then-forced).
 
 `launch.NotifyExited(int exitCode)` is called from the child's exit callback (any thread). The handle ties
 the exit to the specific instance, so a stopped predecessor's late exit is ignored rather than misattributed
@@ -64,18 +65,67 @@ and the window deterministically (no real waiting).
 stateDiagram-v2
     [*] --> Idle
     Idle --> Running: Start()
-    Running --> Idle: clean exit (Never/OnFailure) · Stop()
-    Running --> BackingOff: crash · any exit under Always
+    Running --> Idle: clean exit (Never/OnFailure) · StopAsync()
+    Running --> BackingOff: crash · any exit under Always · ReportUnhealthy()
     BackingOff --> Running: backoff elapsed
-    BackingOff --> Idle: Stop()
+    BackingOff --> Idle: StopAsync()
     Running --> Failed: > MaxRestartsInWindow
     Failed --> Running: Start()
-    Failed --> Idle: Stop()
+    Failed --> Idle: StopAsync()
 ```
 
 `StateChanged` carries `(State, ExitCode?, RestartCount)`. `ExitCode` is set when a process exit drove the
-transition and `null` for a launch or an intentional `Stop`/`Dispose` — which lets a UI tell a real exit
+transition and `null` for a launch or an intentional `StopAsync`/`DisposeAsync` — which lets a UI tell a real exit
 (show a "process exited" notice) apart from a deliberate teardown (stay quiet, the pane is being reset).
+
+### Stopping: graceful, then forced
+
+A stop asks the child to exit through **its own protocol** and force-kills it only past a deadline. SIGKILL skips a
+.NET child's runtime cleanup and strands its IPC files (`dotnet-diagnostic-*`, `clr-debug-pipe-*`) and named pipes
+(`CoreFxPipe_*`) in the temp directory, and since .NET 10 removed the runtime's default SIGTERM handler, a signal
+doesn't help either — so the ask is protocol-specific:
+
+| Child | Ask (`ProcessStopPlan`) | Deadline |
+| --- | --- | --- |
+| ACP agent (`AcpJsonRpcConnection`, `AcpTransientConnection`) | close stdin (behind the write gate, so an in-flight write finishes first) | 5s |
+| Language server (`LspServerProcess`) | LSP `shutdown` request → `exit` notification → close stdin | 5s |
+| Runner worker (`HeadlessLauncher`) | `POST /control/shutdown` → the worker's orderly `StopApplication` | 10s (an idle worker measured ~130ms; its own children get 5s each) |
+| PTY terminals, Vite, agent-run commands (`AcpTerminal`) | their existing teardown (`ProcessStop.Immediately`) | — |
+
+`ProcessStop.RunAsync(plan, exited, force, clock)` runs the escalation: an `IOException` from the ask means the
+child is already gone (keep waiting for its exit); any other ask failure forces at once; past the deadline `force`
+runs exactly once and the exit is awaited without bound (a killed child exits). The outcome is
+`ProcessStopOutcome.Graceful` or `Forced(because)`.
+
+```mermaid
+sequenceDiagram
+    participant S as ProcessSupervisor
+    participant O as Owner stop delegate
+    participant C as Child
+    S->>O: stop()
+    O->>C: ask (stdin EOF · LSP shutdown/exit · HTTP shutdown)
+    alt exits before the deadline
+        C-->>O: exited
+        O-->>S: Graceful
+    else deadline passes, or the ask fails
+        O->>C: kill tree
+        C-->>O: exited
+        O-->>S: Forced(because)
+        S->>S: log Warning, raise Stopped
+    end
+```
+
+The supervisor runs stops **one at a time** and launches only after the stop before it has completed, so a
+replacement never overlaps its predecessor — the ACP agents' single active writer, the runner's pinned port, and
+LSP channel ids depend on that. `Start()` during an in-flight `StopAsync()`, and the restart scheduled by
+`ReportUnhealthy`, both wait for the stop. A retired ACP generation's output is still read (and discarded) while it
+shuts down, so a child writing on its way out never blocks on a full pipe.
+
+A forced stop logs a Warning and raises `Stopped` — including the stop `DisposeAsync` runs. `HostSession` turns it
+into a toast (`<name> didn't exit within 5s of <ask>; Weavie force-stopped it`) and an `ExitJournal` note, since at
+app exit nobody sees the toast. Session teardown stops shells, the agent, and language servers in parallel, sessions
+stop in parallel, and the Mac host starts every window's teardown before waiting on any, so deadlines overlap
+instead of adding up.
 
 ### Logging
 
@@ -110,7 +160,7 @@ side without cross-talk.
 
 ## Orphan prevention (hard kill)
 
-`ProcessSupervisor` owns *graceful* teardown — its `stop` delegate kills the tree on a clean shutdown. But the
+`ProcessSupervisor` owns *graceful* teardown — its `stop` delegate asks, then kills the tree past the deadline. But the
 supervisor is managed code in cross-platform Core, and the orphan problem is the host dying with **no managed
 code running** (a debugger Stop, a crash): no `Dispose`, no `stop`, nothing. The only thing that reaps children
 then is an OS primitive. On Windows that's a **Job Object** with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
@@ -119,6 +169,13 @@ job, children inherit it, and when the host dies by any means the OS closes the 
 everything still inside. This covers *every* child (Vite, ConPTY shells, language servers, `claude`), not just
 supervised ones — so it's the backstop behind the supervisor, not a replacement for it. Mac/Linux hosts need
 their own equivalent (`PR_SET_PDEATHSIG` / a process group) — not yet wired.
+
+Two stop paths still strand a .NET child's runtime files, so the tests mask exactly those sources with
+`DOTNET_EnableDiagnostics=0`: an agent-run command (`AcpTerminal`) is killed as a tree because SIGTERM to its leader
+would orphan the rest of the tree (Linux children share Weavie's process group), and an agent wedged on a write it
+never drains can only be force-killed. PTY terminals still end with SIGTERM → SIGKILL, which a .NET 10 child
+without its own handler doesn't survive cleanly. A graceful parent's grandchildren that ignore its exit are not
+reaped on Linux without a process group.
 
 ## Follow-ups
 

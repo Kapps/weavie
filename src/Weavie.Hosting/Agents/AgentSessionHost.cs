@@ -119,7 +119,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		Terminal?.Dispose();
+		if (Terminal is { } terminal) {
+			await terminal.DisposeAsync().ConfigureAwait(false);
+		}
 		try {
 			await DisposeProviderAsync().ConfigureAwait(false);
 		} finally {

@@ -243,6 +243,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
+				ChildForceStopped = ReportForceStopped,
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
@@ -274,7 +275,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			workspaceRoot,
 			new LspServerLauncher(),
 			LanguageServerCatalog.Resolve,
-			Tagged("[lsp]"));
+			Tagged("[lsp]"),
+			ReportForceStopped);
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		WireMessages(inputFrozen, acceptTerminalInput);
 	}

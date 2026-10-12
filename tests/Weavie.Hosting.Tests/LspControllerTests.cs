@@ -1,5 +1,6 @@
 using System.Text;
 using Weavie.Core.Lsp;
+using Weavie.Core.Processes;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
@@ -35,7 +36,7 @@ public sealed class LspControllerTests {
 		out MessagePeer peer) {
 		var bus = NewBus(bridge);
 		peer = bus.Peer(WebPeer.Native);
-		return new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		return new LspController(Path.GetTempPath(), launcher, Resolve, _ => { }, (_, _) => { });
 	}
 
 	[Fact]
@@ -69,7 +70,7 @@ public sealed class LspControllerTests {
 		var exit = await Wait.ForAsync(() => bridge.LastEvent("lsp", "exit"));
 		Assert.Equal("ch1", exit.GetProperty("channel").GetString());
 		Assert.Equal(3, exit.GetProperty("code").GetInt32());
-		await Wait.UntilAsync(() => launcher.Servers[0].Disposed);
+		await Wait.UntilAsync(() => launcher.Servers[0].Stopped);
 	}
 
 	[Fact]
@@ -82,7 +83,7 @@ public sealed class LspControllerTests {
 		Assert.False(controller.Start(peer, "fake", "ch1", out string? error));
 
 		Assert.Single(launcher.Servers);
-		Assert.False(launcher.Servers[0].Disposed);
+		Assert.False(launcher.Servers[0].Stopped);
 		Assert.Contains("already bound", error);
 	}
 
@@ -106,8 +107,8 @@ public sealed class LspControllerTests {
 		var exit = bridge.LastEvent("lsp", "exit");
 		Assert.True(exit.HasValue);
 		Assert.Equal("lsp1-oldpage", exit!.Value.GetProperty("channel").GetString());
-		Assert.True(launcher.Servers[0].Disposed);
-		Assert.False(launcher.Servers[1].Disposed);
+		Assert.True(launcher.Servers[0].Stopped);
+		Assert.False(launcher.Servers[1].Stopped);
 	}
 
 	[Fact]
@@ -117,7 +118,7 @@ public sealed class LspControllerTests {
 		var bus = NewBus(bridge);
 		var first = bus.Peer(new WebPeer("page-a"));
 		var second = bus.Peer(new WebPeer("page-b"));
-		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { }, (_, _) => { });
 		Assert.True(controller.Start(first, "fake", "same", out _));
 		Assert.True(controller.Start(second, "fake", "same", out _));
 		bridge.Clear();
@@ -135,15 +136,15 @@ public sealed class LspControllerTests {
 		var bus = NewBus(bridge);
 		var first = bus.Peer(new WebPeer("page-a"));
 		var second = bus.Peer(new WebPeer("page-b"));
-		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { }, (_, _) => { });
 		Assert.True(controller.Start(first, "fake", "a", out _));
 		Assert.True(controller.Start(second, "fake", "b", out _));
 
 		await controller.DisconnectAsync(first);
 		controller.Data(second, "b", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"still-live"}"""));
 
-		Assert.True(launcher.Servers[0].Disposed);
-		Assert.False(launcher.Servers[1].Disposed);
+		Assert.True(launcher.Servers[0].Stopped);
+		Assert.False(launcher.Servers[1].Stopped);
 		Assert.Contains("still-live", launcher.Servers[1].LastWrittenText());
 	}
 
@@ -154,7 +155,7 @@ public sealed class LspControllerTests {
 		var bus = NewBus(bridge);
 		var first = bus.Peer(new WebPeer("page-a"));
 		var second = bus.Peer(new WebPeer("page-b"));
-		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { }, (_, _) => { });
 		Assert.True(controller.Start(first, "fake", "a-old", out _));
 		Assert.True(controller.Start(first, "fake", "a-new", out _));
 		Assert.True(controller.Start(second, "fake", "b-old", out _));
@@ -162,9 +163,9 @@ public sealed class LspControllerTests {
 
 		await controller.DropOtherEpochsAsync(first, "new");
 
-		Assert.True(launcher.Servers[0].Disposed);
-		Assert.False(launcher.Servers[1].Disposed);
-		Assert.False(launcher.Servers[2].Disposed);
+		Assert.True(launcher.Servers[0].Stopped);
+		Assert.False(launcher.Servers[1].Stopped);
+		Assert.False(launcher.Servers[2].Stopped);
 		var (exitPeer, exitJson) = Assert.Single(bridge.Sent);
 		Assert.Equal(new WebPeer("page-a"), exitPeer);
 		Assert.True(MessageEnvelope.TryParse(exitJson, out var envelope));
@@ -196,7 +197,8 @@ public sealed class LspControllerTests {
 				FileExtensions = [".ghost"],
 				Candidates = [new("weavie-no-such-language-server-xyz", [])],
 			},
-			_ => { });
+			_ => { },
+			(_, _) => { });
 		var bus = new SessionMessageBus(
 			new SessionAddress("lsp-test", Guid.NewGuid().ToString("n")),
 			bridge.Broadcast,
@@ -233,7 +235,25 @@ public sealed class LspControllerTests {
 		await controller.DisposeAsync();
 
 		Assert.Equal(2, launcher.Servers.Count);
-		Assert.All(launcher.Servers, s => Assert.True(s.Disposed));
+		Assert.All(launcher.Servers, s => Assert.True(s.Stopped));
+	}
+
+	[Fact]
+	public async Task A_forced_stop_is_reported_with_the_servers_name() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var bus = NewBus(bridge);
+		var peer = bus.Peer(WebPeer.Native);
+		var reported = new TaskCompletionSource<(string, ProcessStopOutcome)>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var controller = new LspController(
+			Path.GetTempPath(), launcher, Resolve, _ => { }, (server, outcome) => reported.TrySetResult((server, outcome)));
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
+		var forced = ProcessStopOutcome.Forced("didn't exit within 5s of the LSP shutdown request");
+		launcher.Servers[0].Outcome = forced;
+
+		await controller.StopAsync(peer, "ch1");
+
+		Assert.Equal(("Fake", forced), await reported.Task.WaitAsync(TimeSpan.FromSeconds(5)));
 	}
 
 	private sealed class FakeLauncher : ILspServerLauncher {
@@ -252,7 +272,9 @@ public sealed class LspControllerTests {
 		public event Action<byte[]>? FrameReceived;
 		public event Action<int>? Exited;
 
-		public bool Disposed { get; private set; }
+		public bool Stopped { get; private set; }
+
+		public ProcessStopOutcome Outcome { get; set; } = ProcessStopOutcome.Graceful;
 
 		public void Start() { }
 
@@ -266,6 +288,9 @@ public sealed class LspControllerTests {
 
 		public void RaiseExited(int code) => Exited?.Invoke(code);
 
-		public void Dispose() => Disposed = true;
+		public Task<ProcessStopOutcome> StopAsync() {
+			Stopped = true;
+			return Task.FromResult(Outcome);
+		}
 	}
 }

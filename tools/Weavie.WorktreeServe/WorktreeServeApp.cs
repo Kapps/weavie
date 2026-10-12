@@ -77,15 +77,17 @@ internal sealed class WorktreeServeApp(ITailscaleCli tailscale) {
 				failure = failure is null ? ex : new AggregateException(failure, ex);
 			}
 		}
-		serve?.Dispose();
+		if (serve is not null) {
+			await serve.DisposeAsync().ConfigureAwait(false);
+		}
 		if (headless is not null) {
-			headless.Stop();
+			await headless.StopAsync().ConfigureAwait(false);
 			try {
 				await headless.Completion.ConfigureAwait(false);
 			} catch (Exception ex) {
 				failure = failure is null ? ex : new AggregateException(failure, ex);
 			}
-			headless.Dispose();
+			await headless.DisposeAsync().ConfigureAwait(false);
 		}
 		lease?.Dispose();
 		stateLease?.Dispose();

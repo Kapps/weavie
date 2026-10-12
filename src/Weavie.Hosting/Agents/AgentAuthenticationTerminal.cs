@@ -63,7 +63,7 @@ internal sealed class AgentAuthenticationTerminal : IAgentAuthenticationTerminal
 		try {
 			return await completion.WaitAsync(ct).ConfigureAwait(false);
 		} finally {
-			Controller.Stop();
+			await Controller.StopAsync().ConfigureAwait(false);
 			lock (_gate) {
 				_launch = null;
 				_completion = null;
@@ -93,11 +93,10 @@ internal sealed class AgentAuthenticationTerminal : IAgentAuthenticationTerminal
 		}
 	}
 
-	public ValueTask DisposeAsync() {
+	public async ValueTask DisposeAsync() {
 		Controller.SupervisorChanged -= ObserveSupervisor;
-		Controller.Dispose();
+		await Controller.DisposeAsync().ConfigureAwait(false);
 		lock (_gate) _completion?.TrySetCanceled();
-		return ValueTask.CompletedTask;
 	}
 }
 

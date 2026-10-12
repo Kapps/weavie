@@ -9,11 +9,14 @@ using Weavie.Core.Processes;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>
-/// The JSON-RPC transport for one transient ACP process: launched once, never restarted, and killed as a tree on
-/// disposal. Owners decide how agent requests and notifications are answered.
+/// The JSON-RPC transport for one transient ACP process: launched once, never restarted, and on disposal asked to
+/// exit by closing its input (force-killed as a tree past the deadline). Owners decide how agent requests and
+/// notifications are answered.
 /// </summary>
 internal sealed class AcpTransientConnection : IAsyncDisposable {
 	private const int StderrTailLines = 12;
+	private static readonly TimeSpan StopDeadline = TimeSpan.FromSeconds(5);
+	private static readonly SystemSupervisorClock Clock = new();
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 	private readonly Queue<string> _stderr = new();
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
@@ -201,15 +204,7 @@ internal sealed class AcpTransientConnection : IAsyncDisposable {
 		_disposed = true;
 		FailPending(new ObjectDisposedException(nameof(AcpTransientConnection)));
 		try {
-			if (!_process.HasExited) _process.Kill(entireProcessTree: true);
-		} catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or Win32Exception) {
-			// The process already exited; nothing to terminate.
-		}
-
-		try {
-			await _process.WaitForExitAsync().ConfigureAwait(false);
-		} catch (InvalidOperationException) {
-			// The handle is already gone.
+			await _process.StopAsync(ProcessStopPlan.CloseInput(_process, StopDeadline), Clock).ConfigureAwait(false);
 		} finally {
 			_process.Dispose();
 		}

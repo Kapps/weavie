@@ -72,7 +72,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 				PortIsPinned = _options.WorkerPort.HasValue,
 				Token = _workerToken,
 			};
-			backend.Supervisor = _launcher.BuildSupervisor(backend);
+			backend.Supervisor = _launcher.BuildSupervisor(backend, RequestShutdownAsync);
 			_backend = backend;
 			backend.Supervisor.Start();
 			return backend;
@@ -83,9 +83,14 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	public async ValueTask DisposeAsync() {
 		_healthCancellation.Cancel();
 		await _healthMonitor.ConfigureAwait(false);
+		WorkspaceBackend? backend;
 		lock (_gate) {
-			_backend?.Supervisor?.Dispose();
+			backend = _backend;
 			_backend = null;
+		}
+
+		if (backend?.Supervisor is { } supervisor) {
+			await supervisor.DisposeAsync().ConfigureAwait(false);
 		}
 
 		_http.Dispose();

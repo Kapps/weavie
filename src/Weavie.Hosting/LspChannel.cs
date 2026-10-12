@@ -9,9 +9,9 @@ namespace Weavie.Hosting;
 /// (<see cref="RestartPolicy.Never"/> — restart is the client's job, since a restarted server needs a fresh
 /// <c>initialize</c>/re-<c>didOpen</c> only <c>monaco-languageclient</c> can drive), streams its stdout frames to
 /// the page as <c>lsp/data</c>, and reports a self-exit as <c>lsp/exit</c>. The <see cref="LspController"/>'s
-/// per-channel unit. Disposing kills and reaps the server (the worktree-removal guarantee).
+/// per-channel unit. Disposing stops and reaps the server (the worktree-removal guarantee).
 /// </summary>
-internal sealed class LspChannel : IDisposable {
+internal sealed class LspChannel : IAsyncDisposable {
 	private readonly MessageTargetFeature _messages;
 	private readonly string _channel;
 	private readonly ResolvedCommand _command;
@@ -30,6 +30,7 @@ internal sealed class LspChannel : IDisposable {
 		string workspaceRoot,
 		ILspServerLauncher launcher,
 		Action<string> log,
+		Action<ProcessStopOutcome> forceStopped,
 		Action onClosed) {
 		_messages = messages;
 		_channel = channel;
@@ -39,9 +40,10 @@ internal sealed class LspChannel : IDisposable {
 		_log = log;
 		_onClosed = onClosed;
 		_supervisor = new ProcessSupervisor(
-			$"lsp:{channel}", StartServer, StopServer,
+			$"lsp:{channel}", StartServer, StopServerAsync,
 			new SupervisionOptions { Policy = RestartPolicy.Never }, LogSupervisor, clock: null);
 		_supervisor.StateChanged += OnSupervisorStateChanged;
+		_supervisor.Stopped += forceStopped;
 	}
 
 	/// <summary>Spawns the server.</summary>
@@ -68,20 +70,20 @@ internal sealed class LspChannel : IDisposable {
 		proc.Start();
 	}
 
-	private void StopServer() {
+	private Task<ProcessStopOutcome> StopServerAsync() {
 		ILspServerProcess? proc;
 		lock (_gate) {
 			proc = _live;
 			_live = null;
 		}
 
-		proc?.Dispose();
+		return proc?.StopAsync() ?? Task.FromResult(ProcessStopOutcome.Graceful);
 	}
 
 	private void OnFrame(byte[] frame) => _messages.Publish("data", WireJson.Default.LspDataWire, LspMessages.Data(_channel, frame));
 
 	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
-		// A non-null exit code means the server ended on its own (crash, clean exit, or crash-loop give-up): dispose
+		// A non-null exit code means the server ended on its own (crash, clean exit, or crash-loop give-up): reap
 		// the dead instance (cancels its pumps), tell the page so its client tears down and — if a document still
 		// needs it — reconnects on a fresh channel, and drop ourselves from the hub. An intentional Stop/Dispose
 		// carries a null code and emits nothing (the page initiated it).
@@ -89,7 +91,7 @@ internal sealed class LspChannel : IDisposable {
 			return;
 		}
 
-		StopServer();
+		_ = StopServerAsync();
 		_messages.Publish("exit", WireJson.Default.LspExitWire, LspMessages.Exit(_channel, code, null));
 		_onClosed();
 	}
@@ -97,14 +99,14 @@ internal sealed class LspChannel : IDisposable {
 	private void LogSupervisor(SupervisorLogEntry entry) => _log($"{entry.Name}: {entry.Message}");
 
 	/// <inheritdoc/>
-	public void Dispose() => _supervisor.Dispose();
+	public ValueTask DisposeAsync() => _supervisor.DisposeAsync();
 
 	/// <summary>
-	/// Kills the server AND posts <c>lsp/exit</c> — for a teardown the owning page did NOT initiate (a newer
+	/// Stops the server AND posts <c>lsp/exit</c> — for a teardown the owning page did NOT initiate (a newer
 	/// page instance reaped this channel), so a still-live sibling client learns instead of waiting silently.
 	/// </summary>
-	public void DisposeWithExit(string reason) {
-		Dispose();
+	public async Task DisposeWithExitAsync(string reason) {
+		await DisposeAsync().ConfigureAwait(false);
 		_messages.Publish("exit", WireJson.Default.LspExitWire, LspMessages.Exit(_channel, -1, reason));
 	}
 }

@@ -3,7 +3,7 @@ using Weavie.Core.Processes;
 
 namespace Weavie.WorktreeServe;
 
-internal sealed class SupervisedProcess : IDisposable {
+internal sealed class SupervisedProcess : IAsyncDisposable {
 	private readonly ProcessStartInfo _startInfo;
 	private readonly Action<string> _stdout;
 	private readonly Action<string> _stderr;
@@ -22,7 +22,7 @@ internal sealed class SupervisedProcess : IDisposable {
 		_supervisor = new ProcessSupervisor(
 			name,
 			Start,
-			StopCurrent,
+			() => ProcessStop.Immediately(StopCurrent),
 			new SupervisionOptions { Policy = RestartPolicy.Never },
 			entry => Console.WriteLine($"[worktree-serve] {entry.Name}: {entry.Message}"),
 			clock: null);
@@ -32,9 +32,9 @@ internal sealed class SupervisedProcess : IDisposable {
 
 	public void Start() => _supervisor.Start();
 
-	public void Stop() => _supervisor.Stop();
+	public Task StopAsync() => _supervisor.StopAsync();
 
-	public void Dispose() => _supervisor.Dispose();
+	public ValueTask DisposeAsync() => _supervisor.DisposeAsync();
 
 	private void Start(SupervisedLaunch launch) {
 		try {

@@ -94,7 +94,8 @@ await using var controller = new LspController(
 	workspace!,
 	new LspServerLauncher(),
 	LanguageServerCatalog.Resolve,
-	line => Console.WriteLine($"[lsp] {line}"));
+	line => Console.WriteLine($"[lsp] {line}"),
+	(server, outcome) => Console.WriteLine($"[lsp] {server} {outcome.ForcedBecause}; force-stopped it"));
 var peer = bus.Peer(WebPeer.Native);
 
 // The workspace watcher lives on the host session in production; stand up an equivalent so the file-watch →

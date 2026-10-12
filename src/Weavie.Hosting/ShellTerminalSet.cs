@@ -5,7 +5,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-internal sealed class ShellTerminalSet : IDisposable {
+internal sealed class ShellTerminalSet : IAsyncDisposable {
 	private readonly SessionMessageBus _bus;
 	private readonly MessageFeatureChannel _catalog;
 	private readonly SettingsStore _settings;
@@ -177,7 +177,7 @@ internal sealed class ShellTerminalSet : IDisposable {
 	private static void PublishCatalog(IMessageFeatureTarget target, IReadOnlyList<string> ids) =>
 		target.Publish("catalog", WireJson.Default.ShellTerminalCatalog, new(ids));
 
-	public void Dispose() {
+	public async ValueTask DisposeAsync() {
 		ShellTerminal[] terminals;
 		lock (_gate) {
 			if (_disposed) return;
@@ -186,12 +186,12 @@ internal sealed class ShellTerminalSet : IDisposable {
 			_items.Clear();
 		}
 		foreach (var terminal in terminals) {
-			terminal.Dispose();
+			await terminal.DisposeAsync().ConfigureAwait(false);
 		}
 	}
 }
 
-internal sealed class ShellTerminal : IDisposable {
+internal sealed class ShellTerminal : IAsyncDisposable {
 	private IDisposable? _messages;
 	private readonly string _scrollbackPath;
 
@@ -212,14 +212,14 @@ internal sealed class ShellTerminal : IDisposable {
 
 	internal void DetachMessages() => Interlocked.Exchange(ref _messages, null)?.Dispose();
 
-	internal void DisposePermanently() {
-		Dispose();
+	internal async Task DisposePermanentlyAsync() {
+		await DisposeAsync().ConfigureAwait(false);
 		File.Delete(_scrollbackPath);
 	}
 
-	public void Dispose() {
+	public ValueTask DisposeAsync() {
 		DetachMessages();
-		Controller.Dispose();
+		return Controller.DisposeAsync();
 	}
 }
 

@@ -228,8 +228,6 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
     WEAVIE_FAKE_CLAUDE_INFERENCE: options.inference,
-    // The host stops its agents with SIGKILL, which strands a .NET fake's runtime IPC files in the system temp.
-    DOTNET_EnableDiagnostics: "0",
   };
   if (options.automaticInference) {
     env.WEAVIE_INFERENCE_ENABLED = "true";

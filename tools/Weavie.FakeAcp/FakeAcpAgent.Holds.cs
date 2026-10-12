@@ -25,6 +25,8 @@ internal sealed partial class FakeAcpAgent {
 			["sessionId"] = _sessionId,
 			["command"] = Environment.ProcessPath,
 			["args"] = new JsonArray("terminal-hold"),
+			// Weavie kills an agent-run command as a tree, which strands a .NET command's runtime IPC files.
+			["env"] = new JsonArray(new JsonObject { ["name"] = "DOTNET_EnableDiagnostics", ["value"] = "0" }),
 		}, ct).ConfigureAwait(false);
 		string terminalId = AcpJson.RequiredString(created, "terminalId", "terminal/create response");
 		var waiting = Connection().RequestAsync("terminal/wait_for_exit", new JsonObject {

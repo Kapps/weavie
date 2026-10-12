@@ -65,13 +65,18 @@ public sealed class AcpProcessDrainTests {
 	[Fact]
 	public async Task AcpConnection_RestartAndDisposeTerminateBlockedStdinWrites() {
 		string marker = Path.Combine(Path.GetTempPath(), $"weavie-acp-stdin-{Guid.NewGuid():N}");
-		var definition = Definition(FakeExecutable(), ["stdin-stall", marker]);
+		// This agent is wedged on purpose so only a force-kill ends it, which strands a .NET child's runtime IPC files.
+		var definition = Definition(FakeExecutable(), ["stdin-stall", marker]) with {
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["DOTNET_EnableDiagnostics"] = "0" },
+		};
 		await using var connection = new AcpJsonRpcConnection(
 			definition,
 			Directory.GetCurrentDirectory(),
 			_ => { });
 		var started = Channel.CreateUnbounded<AcpProcessGeneration>();
 		connection.ProcessStarted += generation => started.Writer.TryWrite(generation);
+		var forced = new System.Collections.Concurrent.ConcurrentQueue<string>();
+		connection.ProcessStopped += outcome => forced.Enqueue(outcome.ForcedBecause!);
 		connection.Start();
 		await ReadGenerationAsync(started.Reader);
 		string payload = new('x', 16 * 1024 * 1024);
@@ -88,6 +93,8 @@ public sealed class AcpProcessDrainTests {
 		await connection.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
 		await Assert.ThrowsAnyAsync<Exception>(() => second.WaitAsync(TimeSpan.FromSeconds(10)));
 		File.Delete(marker);
+		await Wait.UntilAsync(() => forced.Count == 2);
+		Assert.All(forced, because => Assert.Equal("didn't exit within 5s of closing its input", because));
 	}
 
 	[Fact]

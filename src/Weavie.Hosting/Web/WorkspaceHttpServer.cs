@@ -106,7 +106,9 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		app.Use(async (context, next) => {
 			string path = context.Request.Path.Value ?? "/";
 			bool index = path is "/" or "/index.html";
-			if (Volatile.Read(ref _ready) || (index && !_authentication.CookieMatches(context))) {
+			// A worker still starting must be stoppable through its orderly shutdown, not only by a kill.
+			bool shutdown = _options.EnableControl && path == "/control/shutdown";
+			if (Volatile.Read(ref _ready) || shutdown || (index && !_authentication.CookieMatches(context))) {
 				await next().ConfigureAwait(false);
 				return;
 			}
@@ -129,6 +131,11 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 				cancellationToken: context.RequestAborted));
 			app.MapPost("/control/drain", context => {
 				_core.BeginDrain(app.Lifetime.StopApplication);
+				context.Response.StatusCode = StatusCodes.Status202Accepted;
+				return Task.CompletedTask;
+			});
+			app.MapPost("/control/shutdown", context => {
+				app.Lifetime.StopApplication();
 				context.Response.StatusCode = StatusCodes.Status202Accepted;
 				return Task.CompletedTask;
 			});

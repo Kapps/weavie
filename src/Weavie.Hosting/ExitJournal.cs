@@ -23,6 +23,7 @@ public static class ExitJournal {
 	private static int _installed;
 	private static readonly Lock EndingGate = new();
 	private static bool _signalRecorded;
+	private static readonly List<string> Notes = [];
 	private static string _path = string.Empty;
 	private static string _logFile = string.Empty;
 
@@ -80,8 +81,17 @@ public static class ExitJournal {
 		ArgumentException.ThrowIfNullOrEmpty(reason);
 		lock (EndingGate) {
 			if (!_signalRecorded && Volatile.Read(ref _path) is { Length: > 0 } path) {
-				MarkEnded(path, reason, _logFile);
+				MarkEnded(path, reason, _logFile, Notes);
 			}
+		}
+	}
+
+	/// <summary>Adds an event worth reading after the run (a child Weavie had to force-kill) to how it ends.</summary>
+	/// <param name="note">One line describing the event.</param>
+	public static void Note(string note) {
+		ArgumentException.ThrowIfNullOrEmpty(note);
+		lock (EndingGate) {
+			Notes.Add($"{DateTimeOffset.Now:o} {note}");
 		}
 	}
 
@@ -143,8 +153,8 @@ public static class ExitJournal {
 	internal static bool MarkRunning(string journalPath, string logFile) =>
 		Write(journalPath, $"{LiveMarker} pid {Environment.ProcessId}, since {DateTimeOffset.Now:o}\nconsole log: {logFile}");
 
-	internal static void MarkEnded(string journalPath, string reason, string logFile) =>
-		Write(journalPath, $"{reason}: {DateTimeOffset.Now:o}\nconsole log: {logFile}");
+	internal static void MarkEnded(string journalPath, string reason, string logFile, IEnumerable<string> notes) =>
+		Write(journalPath, string.Join('\n', [$"{reason}: {DateTimeOffset.Now:o}", $"console log: {logFile}", .. notes]));
 
 	private static bool Write(string journalPath, string entry) {
 		try {

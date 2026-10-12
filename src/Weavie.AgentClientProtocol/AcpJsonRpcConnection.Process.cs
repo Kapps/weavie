@@ -122,7 +122,9 @@ public sealed partial class AcpJsonRpcConnection {
 				try {
 					Action? dispatch;
 					lock (_deliveryGate) {
-						lock (_processGate) if (_processGeneration != generation) return;
+						// A retired generation's output is discarded but still read, so a child writing while it
+						// shuts down never blocks on a full pipe.
+						lock (_processGate) if (_processGeneration != generation) continue;
 						dispatch = HandleLine(line, generation);
 					}
 					dispatch?.Invoke();

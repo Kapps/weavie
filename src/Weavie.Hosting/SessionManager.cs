@@ -60,16 +60,15 @@ public sealed class SessionManager : IAsyncDisposable {
 			_slots.Clear();
 		}
 
+		// Sessions stop in parallel, so their children's stop deadlines overlap instead of adding up.
 		var failures = new List<Exception>();
-		foreach (var slot in snapshot) {
-			if (slot.Session is { } session) {
-				try {
-					await session.DisposeAsync().ConfigureAwait(false);
-				} catch (Exception ex) {
-					failures.Add(ex);
-				}
+		await Task.WhenAll(snapshot.Select(slot => slot.Session).OfType<HostSession>().Select(async session => {
+			try {
+				await session.DisposeAsync().ConfigureAwait(false);
+			} catch (Exception ex) {
+				lock (failures) failures.Add(ex);
 			}
-		}
+		})).ConfigureAwait(false);
 
 		if (failures.Count > 0) {
 			throw new AggregateException("One or more sessions failed to shut down.", failures);

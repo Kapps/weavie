@@ -12,6 +12,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly ConcurrentDictionary<string, AcpTerminal> _terminals = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
+	private readonly List<Task> _stopping = [];
 	private bool _closed;
 	private long _nextId;
 
@@ -90,28 +91,28 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		await terminal.DisposeAsync().ConfigureAwait(false);
 	}
 
-	/// <summary>Releases every terminal; a create racing or following the close fails.</summary>
+	/// <summary>Releases every terminal, stopping each in the background; a create racing or following the close fails.</summary>
 	public void Close() {
 		lock (_gate) _closed = true;
 		foreach (string id in _terminals.Keys) {
 			if (_terminals.TryRemove(id, out var terminal)) {
 				_released[id] = terminal.Output();
-				terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+				var stopping = terminal.DisposeAsync().AsTask();
+				lock (_gate) _stopping.Add(stopping);
 			}
 		}
 	}
 
+	/// <summary>Stops every terminal, including those <see cref="Close"/> left stopping, and waits for them to exit.</summary>
 	public async ValueTask DisposeAsync() {
-		AcpTerminal[] terminals;
+		Task[] stopping;
 		lock (_gate) {
 			_closed = true;
-			terminals = [.. _terminals.Values];
+			stopping = [.. _terminals.Values.Select(terminal => terminal.DisposeAsync().AsTask()), .. _stopping];
 		}
 		_terminals.Clear();
 		_released.Clear();
-		foreach (var terminal in terminals) {
-			await terminal.DisposeAsync().ConfigureAwait(false);
-		}
+		await Task.WhenAll(stopping).ConfigureAwait(false);
 	}
 
 	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var terminal)
@@ -174,7 +175,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		_supervisor = new ProcessSupervisor(
 			$"acp-terminal:{id}",
 			StartProcess,
-			StopProcess,
+			StopProcessAsync,
 			new SupervisionOptions { Policy = RestartPolicy.Never },
 			entry => log($"[acp-terminal:{id}] {entry.Level}: {entry.Message}"),
 			new SystemSupervisorClock());
@@ -206,10 +207,9 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		}
 	}
 
-	public ValueTask DisposeAsync() {
-		_supervisor.Dispose();
+	public async ValueTask DisposeAsync() {
+		await _supervisor.DisposeAsync().ConfigureAwait(false);
 		_started.TrySetException(new ObjectDisposedException(nameof(AcpTerminal)));
-		return ValueTask.CompletedTask;
 	}
 
 	private void StartProcess(SupervisedLaunch launch) {
@@ -295,23 +295,21 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		}
 	}
 
-	private void StopProcess() {
+	// An agent-run command is an arbitrary process tree that SIGTERM to its leader would orphan, so it is killed whole.
+	private async Task<ProcessStopOutcome> StopProcessAsync() {
 		OwnedProcess? process;
 		lock (_gate) {
 			process = _process;
 			_process = null;
 		}
-		if (process is null) return;
+		if (process is null) return ProcessStopOutcome.Graceful;
 		try {
-			if (!process.HasExited) {
-				process.Kill(entireProcessTree: true);
-				process.WaitForExit();
-			}
-		} catch (InvalidOperationException) {
-			// The process exited between the observation and kill.
+			process.Kill(entireProcessTree: true);
+			await process.WaitForExitAsync().ConfigureAwait(false);
 		} finally {
 			process.Dispose();
 		}
+		return ProcessStopOutcome.Graceful;
 	}
 }
 

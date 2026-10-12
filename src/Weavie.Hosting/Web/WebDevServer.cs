@@ -49,7 +49,7 @@ public sealed class WebDevServer : IDisposable {
 		_supervisor = new ProcessSupervisor(
 			name: "vite",
 			start: StartProcess,
-			stop: StopProcess,
+			stop: () => ProcessStop.Immediately(StopProcess),
 			options: new SupervisionOptions { Policy = RestartPolicy.Always },
 			log: entry => Emit(entry.Message),
 			clock: null);
@@ -85,7 +85,7 @@ public sealed class WebDevServer : IDisposable {
 
 		// Bring-up failed: halt background restarts so the error page's Retry (which calls StartAsync again) gets
 		// a clean start, and a broken Vite isn't left hot-looping behind the rendered error page.
-		_supervisor.Stop();
+		await _supervisor.StopAsync().ConfigureAwait(false);
 		return null;
 	}
 
@@ -190,8 +190,8 @@ public sealed class WebDevServer : IDisposable {
 		LastFailure = new DevServerFailureInfo(reason, _recent.ToArray());
 	}
 
-	/// <summary>Stops and disposes the supervised Vite process (graceful teardown on a clean host exit).</summary>
-	public void Dispose() => _supervisor.Dispose();
+	/// <summary>Stops and disposes the supervised Vite process; its stop is synchronous, so this returns once it has exited.</summary>
+	public void Dispose() => _supervisor.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
 /// <summary>Why the Vite dev server failed to come up, plus the tail of its captured output — enough for the

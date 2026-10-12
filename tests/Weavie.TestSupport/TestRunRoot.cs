@@ -20,8 +20,6 @@ public static class TestRunRoot {
 		string temp = Directory.CreateDirectory(Path.Combine(_root, "t")).FullName;
 		var redirect = TempVariables.ToDictionary(name => name, string? (_) => temp);
 		redirect["WEAVIE_ROOT"] = Path.Combine(_root, "weavie");
-		// Weavie stops agents and LSP servers with SIGKILL, which strands a .NET child's runtime IPC files.
-		redirect["DOTNET_EnableDiagnostics"] = "0";
 		// Enables Node's compile cache for every Node child, shared across runs at Node's default location.
 		redirect["NODE_COMPILE_CACHE"] = Path.Combine(system, "node-compile-cache");
 		_inherited = redirect.Keys.ToDictionary(name => name, Environment.GetEnvironmentVariable);

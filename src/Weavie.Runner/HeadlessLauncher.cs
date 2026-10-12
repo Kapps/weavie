@@ -11,6 +11,9 @@ namespace Weavie.Runner;
 /// demand. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class HeadlessLauncher {
+	// An idle worker's orderly shutdown measured ~130ms (with or without a page connected); its sessions' agents and
+	// language servers each get their own 5s stop deadline in parallel, so the worker gets that plus margin.
+	private static readonly TimeSpan WorkerStopDeadline = TimeSpan.FromSeconds(10);
 	private readonly Func<string> _workerPath;
 	private readonly string _workerBind;
 	private readonly Action<SupervisorLogEntry>? _log;
@@ -31,10 +34,15 @@ public sealed class HeadlessLauncher {
 
 	/// <summary>
 	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive
-	/// under <see cref="RestartPolicy.OnFailure"/>: a crash relaunches with backoff, a clean exit does not.
+	/// under <see cref="RestartPolicy.OnFailure"/>: a crash relaunches with backoff, a clean exit does not. A stop
+	/// asks the worker to shut down through <paramref name="requestShutdown"/>, so it disposes its sessions and
+	/// removes its own pipes, and force-kills it only past the deadline.
 	/// </summary>
-	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend) {
+	public ProcessSupervisor BuildSupervisor(
+		WorkspaceBackend backend,
+		Func<WorkspaceBackend, CancellationToken, Task> requestShutdown) {
 		ArgumentNullException.ThrowIfNull(backend);
+		ArgumentNullException.ThrowIfNull(requestShutdown);
 
 		ProcessSupervisor supervisor = null!;
 		OwnedProcess? current = null;
@@ -53,15 +61,11 @@ public sealed class HeadlessLauncher {
 				// Report through this launch's handle so a later restart's exit can't be misattributed.
 				_ = process.ObserveExitAsync(launch.NotifyExited);
 			},
-			stop: () => {
-				try {
-					if (current is { HasExited: false }) {
-						current.Kill(entireProcessTree: true);
-					}
-				} catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) {
-					// Already gone / unkillable; nothing to do.
-				}
-			},
+			stop: () => current is { } process
+				? process.StopAsync(
+					ProcessStopPlan.Request("the shutdown request", ct => requestShutdown(backend, ct), WorkerStopDeadline),
+					new SystemSupervisorClock())
+				: Task.FromResult(ProcessStopOutcome.Graceful),
 			options: new SupervisionOptions {
 				Policy = RestartPolicy.OnFailure,
 				MaxConsecutiveFailures = 3,

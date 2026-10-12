@@ -126,9 +126,12 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	}
 
 	/// <summary>Tears the window's core down (terminals / IDE-MCP / LSP) and removes its notification observers.</summary>
-	public void DisposeCore() {
+	public void DisposeCore() => FinishDisposeCore(BeginDisposeCore());
+
+	/// <summary>Removes the window's observers and starts its core's teardown; null when already disposed.</summary>
+	internal Task? BeginDisposeCore() {
 		if (_disposed) {
-			return;
+			return null;
 		}
 
 		_disposed = true;
@@ -152,9 +155,17 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		RemoveObserver(ref _deminiaturizeObserver);
 		_core.Ready -= PushWindowState;
 		_bridge.Security.Revoke();
+		return _core.DisposeAsync().AsTask();
+	}
+
+	/// <summary>Waits for the core teardown <see cref="BeginDisposeCore"/> started, then releases the window's own resources.</summary>
+	internal void FinishDisposeCore(Task? disposing) {
+		if (disposing is null) {
+			return;
+		}
 
 		try {
-			_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			disposing.GetAwaiter().GetResult();
 		} finally {
 			_notifications.Dispose();
 			_applicationMenu.Dispose();

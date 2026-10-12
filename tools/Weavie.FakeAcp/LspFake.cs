@@ -12,6 +12,7 @@ internal static class LspFake {
 		var input = Console.OpenStandardInput();
 		var output = Console.OpenStandardOutput();
 		var opened = new HashSet<string>(StringComparer.Ordinal);
+		bool shutDown = false;
 		while (await LspFraming.ReadFrameAsync(input, CancellationToken.None).ConfigureAwait(false) is { } frame) {
 			using var document = JsonDocument.Parse(frame);
 			var message = document.RootElement;
@@ -42,6 +43,15 @@ internal static class LspFake {
 				case "initialized":
 					await RegisterAsync(output).ConfigureAwait(false);
 					break;
+				case "shutdown" when shutDown:
+					await ErrorAsync(output, message.GetProperty("id"), "already shut down").ConfigureAwait(false);
+					break;
+				case "shutdown":
+					shutDown = true;
+					await RespondAsync(output, message.GetProperty("id"), null).ConfigureAwait(false);
+					break;
+				case "exit":
+					return;
 				case "textDocument/didOpen":
 					opened.Add(message.GetProperty("params").GetProperty("textDocument").GetProperty("uri").GetString()
 						?? throw new JsonException("didOpen URI cannot be null."));
@@ -112,7 +122,7 @@ internal static class LspFake {
 		}).ConfigureAwait(false);
 	}
 
-	private static Task RespondAsync(Stream output, JsonElement id, JsonNode result) =>
+	private static Task RespondAsync(Stream output, JsonElement id, JsonNode? result) =>
 		WriteAsync(output, new JsonObject {
 			["jsonrpc"] = "2.0",
 			["id"] = JsonNode.Parse(id.GetRawText()),

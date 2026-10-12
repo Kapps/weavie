@@ -101,9 +101,15 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// quit is indistinguishable from being killed, which is the whole question when a window just vanishes.
 		ExitJournal.Record("terminated by AppKit");
 
-		foreach (var window in _windows.ToArray()) {
+		var windows = _windows.ToArray();
+		foreach (var window in windows) {
 			window.SaveWindowState();
-			window.DisposeCore();
+		}
+
+		// Every window's teardown starts before any is waited on, so their children's stop deadlines run at once.
+		var disposing = windows.Select(window => window.BeginDisposeCore()).ToArray();
+		for (int i = 0; i < windows.Length; i++) {
+			windows[i].FinishDisposeCore(disposing[i]);
 		}
 
 		_windows.Clear();

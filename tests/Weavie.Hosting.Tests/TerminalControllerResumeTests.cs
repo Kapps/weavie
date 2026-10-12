@@ -20,15 +20,15 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 public sealed class TerminalControllerResumeTests {
 	[Fact]
-	public void LaunchPreservesNormalClaudeAuthenticationEnvironment() {
-		using var h = new Harness();
+	public async Task LaunchPreservesNormalClaudeAuthenticationEnvironment() {
+		await using var h = new Harness();
 
 		Assert.Empty(h.Agent.ResolveLaunch().RemoveEnvironment);
 	}
 
 	[Fact]
-	public void NoTranscript_CreatesWithSessionId() {
-		using var h = new Harness();
+	public async Task NoTranscript_CreatesWithSessionId() {
+		await using var h = new Harness();
 
 		h.Controller.OnReady(80, 24); // fresh session, no transcript → create with --session-id
 
@@ -36,11 +36,11 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void TranscriptExists_ResumesEvenWithoutAdopt() {
+	public async Task TranscriptExists_ResumesEvenWithoutAdopt() {
 		// The reported "Session ID … is already in use" bug: the store tracks an id whose transcript still exists on
 		// disk, but the id was never re-adopted (a resume that failed for a transient reason had cleared the old
 		// "started" bit). The launch must --resume the existing conversation, not re-create it under --session-id.
-		using var h = new Harness();
+		await using var h = new Harness();
 		string id = h.SessionId;
 		h.CreateTranscript(id); // Claude has the conversation, but nothing was adopted this run
 
@@ -50,10 +50,10 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void PaintingTheTui_WithoutATranscript_DoesNotResume() {
+	public async Task PaintingTheTui_WithoutATranscript_DoesNotResume() {
 		// Painting a TUI is not a conversation: an id that came up but was never messaged has no transcript, so the
 		// next launch must re-create it, not --resume a doomed id (the "missing session" bug).
-		using var h = new Harness();
+		await using var h = new Harness();
 
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(new byte[8192]); // a full TUI's worth of output, still no transcript
@@ -62,10 +62,10 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void TranscriptMissing_EvenAfterAdopt_CreatesFresh() {
+	public async Task TranscriptMissing_EvenAfterAdopt_CreatesFresh() {
 		// A prior run adopted the id, but Claude no longer has its transcript under this cwd (cleared, or filed under
 		// a different directory). The launch must NOT --resume a doomed id — it re-creates under --session-id.
-		using var h = new Harness();
+		await using var h = new Harness();
 		string id = h.SessionId;
 		h.Store.Adopt(h.Workspace, id); // adopted, but no transcript written
 
@@ -75,8 +75,8 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void UnconfirmedStartupCrash_ForgetsId_SoNextLaunchMintsFresh() {
-		using var h = new Harness();
+	public async Task UnconfirmedStartupCrash_ForgetsId_SoNextLaunchMintsFresh() {
+		await using var h = new Harness();
 		string id = h.SessionId;
 		h.CreateTranscript(id);
 		h.Controller.OnReady(80, 24); // --resume <id>, its startup unconfirmed
@@ -88,8 +88,8 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void ConfirmedThenCrash_KeepsId() {
-		using var h = new Harness();
+	public async Task ConfirmedThenCrash_KeepsId() {
+		await using var h = new Harness();
 		string id = h.SessionId;
 		h.CreateTranscript(id);
 		h.Controller.OnReady(80, 24);
@@ -101,8 +101,8 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
-	public void ClearHook_AbandonsTheTrackedSession() {
-		using var h = new Harness();
+	public async Task ClearHook_AbandonsTheTrackedSession() {
+		await using var h = new Harness();
 		string id = h.SessionId;
 		h.Store.Adopt(h.Workspace, id);
 
@@ -119,7 +119,7 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	/// <summary>A self-contained controller + scriptable PTY + isolated stores over an in-memory transcript tree.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _temp = new("weavie-tc");
 		private readonly InMemoryFileSystem _fs = new();
@@ -175,8 +175,8 @@ public sealed class TerminalControllerResumeTests {
 			return index < 0 ? [] : args.Skip(index).Take(2).ToArray();
 		}
 
-		public void Dispose() {
-			Controller.Dispose();
+		public async ValueTask DisposeAsync() {
+			await Controller.DisposeAsync();
 			_settings.Dispose();
 			_temp.Dispose();
 		}

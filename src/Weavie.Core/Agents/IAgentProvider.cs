@@ -2,6 +2,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Agents;
 
@@ -79,6 +80,9 @@ public sealed record AgentSessionContext {
 
 	/// <summary>The host-owned visible terminal used for standard ACP terminal authentication.</summary>
 	public required IAgentAuthenticationTerminal AuthenticationTerminal { get; init; }
+
+	/// <summary>Told a child's display name when stopping it had to force-kill it.</summary>
+	public required Action<string, ProcessStopOutcome> ChildForceStopped { get; init; }
 }
 
 /// <summary>Creates provider sessions without exposing provider protocols to the host composition.</summary>

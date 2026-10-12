@@ -4,7 +4,7 @@ using Weavie.Core.Remote;
 
 namespace Weavie.WorktreeServe;
 
-internal sealed class TailscaleServeSession : IDisposable {
+internal sealed class TailscaleServeSession : IAsyncDisposable {
 	private readonly ITailscaleCli _cli;
 	private readonly string _magicDns;
 	private readonly int _httpsPort;
@@ -96,7 +96,7 @@ internal sealed class TailscaleServeSession : IDisposable {
 	}
 
 	public async Task StopAndVerifyAsync() {
-		_process.Stop();
+		await _process.StopAsync().ConfigureAwait(false);
 		await _process.Completion.ConfigureAwait(false);
 		var status = ReadStatus(_cli);
 		if (status.IsExactHttpsProxy(_magicDns, _httpsPort, _target)) {
@@ -105,7 +105,7 @@ internal sealed class TailscaleServeSession : IDisposable {
 		}
 	}
 
-	public void Dispose() => _process.Dispose();
+	public ValueTask DisposeAsync() => _process.DisposeAsync();
 
 	private static string Hint(string stderr) =>
 		stderr.Trim() is { Length: > 0 } hint ? hint : "(no error output)";

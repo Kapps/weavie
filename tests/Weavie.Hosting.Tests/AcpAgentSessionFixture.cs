@@ -437,6 +437,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				Events = events,
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
+				ChildForceStopped = (name, outcome) => events.Logs.Enqueue($"{name} {outcome.ForcedBecause}"),
 			},
 			launches(definition),
 			store,

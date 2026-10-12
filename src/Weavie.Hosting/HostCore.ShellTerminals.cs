@@ -42,7 +42,7 @@ public sealed partial class HostCore {
 			() => Task.FromResult(DetachShellTerminal(session, argsJson)),
 			ct).ConfigureAwait(false);
 		if (terminal is not null) {
-			await Task.Run(terminal.DisposePermanently).ConfigureAwait(false);
+			await Task.Run(terminal.DisposePermanentlyAsync).ConfigureAwait(false);
 		}
 		return result;
 	}

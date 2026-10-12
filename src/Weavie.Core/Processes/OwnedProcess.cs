@@ -65,6 +65,10 @@ public sealed partial class OwnedProcess : IDisposable {
 		}
 	}
 
+	/// <summary>Asks the child to exit per <paramref name="plan"/>, force-killing its tree past the deadline.</summary>
+	public Task<ProcessStopOutcome> StopAsync(ProcessStopPlan plan, ISupervisorClock clock) =>
+		ProcessStop.RunAsync(plan, _exit.Task, () => Kill(entireProcessTree: true), clock);
+
 	/// <summary>Drains the child's two output streams as lines.</summary>
 	public Task DrainLinesAsync(Action<string> output, Action<string> error) =>
 		Task.WhenAll(DrainAsync(StandardOutput, output), DrainAsync(StandardError, error));

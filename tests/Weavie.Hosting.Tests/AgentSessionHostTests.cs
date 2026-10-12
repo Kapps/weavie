@@ -543,6 +543,7 @@ public sealed partial class AgentSessionHostTests {
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
 				AuthenticationTerminal = authenticationTerminal,
+				ChildForceStopped = static (_, _) => { },
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),

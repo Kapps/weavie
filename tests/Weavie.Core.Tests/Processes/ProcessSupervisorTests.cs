@@ -11,7 +11,7 @@ namespace Weavie.Core.Tests;
 public sealed class ProcessSupervisorTests {
 	[Fact]
 	public async Task Start_LaunchesOnce_AndIsRunning() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
 
 		h.Sup.Start();
 
@@ -25,7 +25,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task CleanExit_OnFailure_DoesNotRestart() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -39,7 +39,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Crash_OnFailure_RestartsAfterBackoff() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -60,7 +60,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task UnhealthyRunningGeneration_IsStoppedAndRestartedAsAFailure() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -78,7 +78,7 @@ public sealed class ProcessSupervisorTests {
 	[InlineData(true)]
 	[InlineData(false)]
 	public async Task UnconfirmedGenerationsTripTheConsecutiveBreakerAcrossLongRuns(bool reportUnhealthy) {
-		using var h = new Harness(Opts(
+		await using var h = new Harness(Opts(
 			RestartPolicy.OnFailure,
 			initialMs: 100,
 			healthyMs: 1_000,
@@ -110,7 +110,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task ReportHealthyRequiresTheCurrentGenerationToClearProbation() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, healthyMs: 1_000));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, healthyMs: 1_000));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 		long generation = h.Sup.Generation;
@@ -130,13 +130,13 @@ public sealed class ProcessSupervisorTests {
 		int startCount = 0;
 		int stops = 0;
 		var clock = new FakeSupervisorClock();
-		using var supervisor = new ProcessSupervisor(
+		await using var supervisor = new ProcessSupervisor(
 			"test",
 			_ => {
 				Interlocked.Increment(ref startCount);
 				starts.Release();
 			},
-			() => Interlocked.Increment(ref stops),
+			() => ProcessStop.Immediately(() => Interlocked.Increment(ref stops)),
 			Opts(RestartPolicy.OnFailure, initialMs: 100),
 			entry => {
 				if (entry.Message.Contains("unhealthy generation", StringComparison.Ordinal)) {
@@ -178,15 +178,15 @@ public sealed class ProcessSupervisorTests {
 		var observed = new ConcurrentQueue<SupervisorState>();
 		var threeObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		int stopCalls = 0;
-		using var supervisor = new ProcessSupervisor(
+		await using var supervisor = new ProcessSupervisor(
 			"test",
 			_ => { },
-			() => {
+			() => ProcessStop.Immediately(() => {
 				if (Interlocked.Increment(ref stopCalls) == 1) {
 					stopEntered.TrySetResult();
 					releaseStop.Task.GetAwaiter().GetResult();
 				}
-			},
+			}),
 			Opts(RestartPolicy.OnFailure),
 			log: null,
 			clock: new FakeSupervisorClock());
@@ -199,13 +199,18 @@ public sealed class ProcessSupervisorTests {
 		supervisor.Start();
 
 		var unhealthy = Task.Run(() => supervisor.ReportUnhealthy(supervisor.Generation, "stuck worker"));
+		Task stopping;
 		try {
 			await stopEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-			supervisor.Stop();
+			stopping = supervisor.StopAsync();
 			Assert.Equal(SupervisorState.Idle, supervisor.State);
+			Assert.False(stopping.IsCompleted); // queued behind the blocked unhealthy stop
 		} finally {
 			releaseStop.TrySetResult();
 		}
+
+		await stopping.WaitAsync(TimeSpan.FromSeconds(2));
+		Assert.Equal(2, Volatile.Read(ref stopCalls));
 
 		Assert.True(await unhealthy.WaitAsync(TimeSpan.FromSeconds(2)));
 		await threeObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -220,10 +225,10 @@ public sealed class ProcessSupervisorTests {
 		var releaseRunning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		SupervisedLaunch? launch = null;
 		int backingOffObserved = 0;
-		using var supervisor = new ProcessSupervisor(
+		await using var supervisor = new ProcessSupervisor(
 			"test",
 			current => launch = current,
-			() => { },
+			() => ProcessStop.Immediately(() => { }),
 			Opts(RestartPolicy.OnFailure),
 			log: null,
 			clock: new FakeSupervisorClock());
@@ -238,7 +243,7 @@ public sealed class ProcessSupervisorTests {
 		supervisor.Start();
 		await runningEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 		launch!.NotifyExited(1);
-		supervisor.Dispose();
+		await supervisor.DisposeAsync();
 
 		releaseRunning.TrySetResult();
 		await supervisor.DrainObserversAsync().WaitAsync(TimeSpan.FromSeconds(2));
@@ -251,10 +256,10 @@ public sealed class ProcessSupervisorTests {
 		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		int removedObserverCalls = 0;
-		using var supervisor = new ProcessSupervisor(
+		await using var supervisor = new ProcessSupervisor(
 			"test",
 			_ => { },
-			() => { },
+			() => ProcessStop.Immediately(() => { }),
 			Opts(RestartPolicy.OnFailure),
 			log: null,
 			clock: new FakeSupervisorClock());
@@ -277,21 +282,21 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task UnhealthyReport_IsIgnoredWhenNoGenerationIsRunning() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
 
 		Assert.False(h.Sup.ReportUnhealthy(1, "nothing is running"));
 		Assert.Equal(0, h.Stops);
 
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
-		h.Sup.Stop();
+		await h.Sup.StopAsync();
 		Assert.False(h.Sup.ReportUnhealthy(h.Sup.Generation, "already stopped"));
 		Assert.Equal(1, h.Stops);
 	}
 
 	[Fact]
 	public async Task UnhealthyReport_ForAStaleGeneration_DoesNotStopItsReplacement() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 		long staleGeneration = h.Sup.Generation;
@@ -306,7 +311,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Never_DoesNotRestartOnCrash() {
-		using var h = new Harness(Opts(RestartPolicy.Never));
+		await using var h = new Harness(Opts(RestartPolicy.Never));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -319,7 +324,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Always_RestartsOnCleanExit() {
-		using var h = new Harness(Opts(RestartPolicy.Always, initialMs: 100));
+		await using var h = new Harness(Opts(RestartPolicy.Always, initialMs: 100));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -334,7 +339,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Backoff_GrowsPerConsecutiveCrash() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -356,7 +361,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task HealthyRun_ResetsBackoff() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2, healthyMs: 1000));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2, healthyMs: 1000));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -379,7 +384,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Backoff_IsCappedAtMaxBackoff() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2, maxMs: 150));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2, maxMs: 150));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -399,7 +404,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task CrashLoop_TripsBreakerAfterMaxRestarts() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -426,7 +431,7 @@ public sealed class ProcessSupervisorTests {
 	public async Task StopThenStart_ClearsCrashHistory() {
 		// The update rollback path relies on this: Stop() → Start() onto the known-good build must not
 		// inherit the bad build's crashes, or the breaker would insta-trip on the rollback.
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -438,7 +443,7 @@ public sealed class ProcessSupervisorTests {
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.Stop();
+		await h.Sup.StopAsync();
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
@@ -451,11 +456,11 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Stop_StopsInstance_AndSuppressesRestart() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.Stop();
+		await h.Sup.StopAsync();
 
 		Assert.Equal(1, h.Stops);
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
@@ -469,14 +474,14 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task Stop_CancelsPendingBackoff() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 1000));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 1000));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
 		h.NotifyExited(1);
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
 
-		h.Sup.Stop();
+		await h.Sup.StopAsync();
 		h.Clock.Advance(TimeSpan.FromMilliseconds(2000)); // the scheduled restart must not fire
 
 		await Task.Delay(100);
@@ -486,7 +491,7 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task LaunchException_CountsAsCrash_AndRestarts() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100), throwOnAttempts: 0);
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100), throwOnAttempts: 0);
 
 		h.Sup.Start(); // attempt 0 throws inside the start delegate
 
@@ -503,13 +508,13 @@ public sealed class ProcessSupervisorTests {
 
 	[Fact]
 	public async Task StaleExit_AfterStopStart_DoesNotRestartReplacement() {
-		using var h = new Harness(Opts(RestartPolicy.Always, initialMs: 10));
+		await using var h = new Harness(Opts(RestartPolicy.Always, initialMs: 10));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 		var predecessor = h.LastLaunch;
 
 		// Stop kills the child, but its exit event hasn't been delivered yet when Start launches a replacement.
-		h.Sup.Stop();
+		await h.Sup.StopAsync();
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 		Assert.Equal(2, h.StartCount);
@@ -527,12 +532,77 @@ public sealed class ProcessSupervisorTests {
 	}
 
 	[Fact]
+	public async Task Start_DuringAnInFlightStop_LaunchesOnlyOnceTheStopCompletes() {
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		h.HeldStop = new TaskCompletionSource<ProcessStopOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		var stopping = h.Sup.StopAsync();
+		h.Sup.Start();
+
+		Assert.False(await h.WaitStartAsync(timeoutMs: 100));
+		Assert.Equal(SupervisorState.Running, h.Sup.State);
+		h.HeldStop.SetResult(ProcessStopOutcome.Graceful);
+		await stopping.WaitAsync(TimeSpan.FromSeconds(2));
+		Assert.True(await h.WaitStartAsync());
+		Assert.Equal(2, h.StartCount);
+	}
+
+	[Fact]
+	public async Task RestartAfterUnhealthy_WaitsForTheUnhealthyInstanceToStop() {
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		h.HeldStop = new TaskCompletionSource<ProcessStopOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		Assert.True(h.Sup.ReportUnhealthy(h.Sup.Generation, "wedged"));
+		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
+
+		Assert.False(await h.WaitStartAsync(timeoutMs: 100));
+		h.HeldStop.SetResult(ProcessStopOutcome.Graceful);
+		Assert.True(await h.WaitStartAsync());
+		Assert.Equal(2, h.StartCount);
+	}
+
+	[Fact]
+	public async Task ForcedStop_LogsAWarningAndRaisesStopped() {
+		var logged = new ConcurrentQueue<SupervisorLogEntry>();
+		var stopped = new TaskCompletionSource<ProcessStopOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var forced = ProcessStopOutcome.Forced("didn't exit within 5s of closing its input");
+		await using var supervisor = new ProcessSupervisor(
+			"test", _ => { }, () => Task.FromResult(forced), Opts(RestartPolicy.Never), logged.Enqueue, new FakeSupervisorClock());
+		supervisor.Stopped += outcome => stopped.TrySetResult(outcome);
+		supervisor.Start();
+
+		await supervisor.StopAsync();
+
+		Assert.Same(forced, await stopped.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+		await Wait.UntilAsync(() => logged.Any(entry => entry.Level == SupervisorLogLevel.Warning
+			&& entry.Message.Contains("didn't exit within 5s", StringComparison.Ordinal)));
+	}
+
+	[Fact]
+	public async Task ForcedStopDuringDispose_StillRaisesStopped() {
+		var stopped = new TaskCompletionSource<ProcessStopOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var supervisor = new ProcessSupervisor(
+			"test", _ => { }, () => Task.FromResult(ProcessStopOutcome.Forced("didn't exit")), Opts(RestartPolicy.Never),
+			log: null, new FakeSupervisorClock());
+		supervisor.Stopped += outcome => stopped.TrySetResult(outcome);
+		supervisor.Start();
+
+		await supervisor.DisposeAsync();
+
+		Assert.True((await stopped.Task.WaitAsync(TimeSpan.FromSeconds(2))).WasForced);
+	}
+
+	[Fact]
 	public async Task Dispose_StopsAndIgnoresFurtherExits() {
-		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+		await using var h = new Harness(Opts(RestartPolicy.OnFailure));
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.Dispose();
+		await h.Sup.DisposeAsync();
 		Assert.Equal(1, h.Stops);
 
 		h.NotifyExited(1); // ignored after dispose
@@ -564,7 +634,7 @@ public sealed class ProcessSupervisorTests {
 		};
 
 	/// <summary>A supervisor wired to recording start/stop delegates and a manually-advanced clock.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		public readonly FakeSupervisorClock Clock = new();
 		public readonly List<int> Starts = [];
 		public readonly List<SupervisorStateChanged> Changes = [];
@@ -616,7 +686,10 @@ public sealed class ProcessSupervisorTests {
 			}
 		}
 
-		public void Dispose() => Sup.Dispose();
+		public ValueTask DisposeAsync() => Sup.DisposeAsync();
+
+		/// <summary>While set, every stop waits for the test to complete it with an outcome.</summary>
+		public TaskCompletionSource<ProcessStopOutcome>? HeldStop { get; set; }
 
 		/// <summary>The most recently launched instance's handle.</summary>
 		public SupervisedLaunch LastLaunch {
@@ -643,58 +716,11 @@ public sealed class ProcessSupervisorTests {
 			_started.Release();
 		}
 
-		private void OnStop() {
+		private Task<ProcessStopOutcome> OnStop() {
 			lock (_gate) {
 				Stops++;
+				return HeldStop?.Task ?? Task.FromResult(ProcessStopOutcome.Graceful);
 			}
 		}
-	}
-
-	/// <summary>A clock whose delays complete only when the test advances time past their due point.</summary>
-	private sealed class FakeSupervisorClock : ISupervisorClock {
-		private readonly object _gate = new();
-		private readonly List<Pending> _pending = [];
-		private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
-
-		public DateTimeOffset UtcNow {
-			get {
-				lock (_gate) {
-					return _now;
-				}
-			}
-		}
-
-		public Task Delay(TimeSpan delay, CancellationToken cancellationToken) {
-			if (delay <= TimeSpan.Zero) {
-				return Task.CompletedTask;
-			}
-
-			var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-			lock (_gate) {
-				_pending.Add(new Pending(_now + delay, tcs));
-			}
-
-			cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
-			return tcs.Task;
-		}
-
-		public void Advance(TimeSpan by) {
-			var due = new List<TaskCompletionSource>();
-			lock (_gate) {
-				_now += by;
-				for (int i = _pending.Count - 1; i >= 0; i--) {
-					if (_pending[i].Due <= _now) {
-						due.Add(_pending[i].Tcs);
-						_pending.RemoveAt(i);
-					}
-				}
-			}
-
-			foreach (var tcs in due) {
-				tcs.TrySetResult();
-			}
-		}
-
-		private readonly record struct Pending(DateTimeOffset Due, TaskCompletionSource Tcs);
 	}
 }

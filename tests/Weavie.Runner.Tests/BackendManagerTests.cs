@@ -57,11 +57,11 @@ public sealed class BackendManagerTests {
 			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
 			"127.0.0.1");
 		var backend = manager.Ensure();
-		backend.Supervisor!.Dispose();
-		using var terminal = new ProcessSupervisor(
+		await backend.Supervisor!.DisposeAsync();
+		await using var terminal = new ProcessSupervisor(
 			"worker",
 			_ => { },
-			() => { },
+			() => ProcessStop.Immediately(() => { }),
 			new SupervisionOptions { Policy = RestartPolicy.OnFailure, MaxRestartsInWindow = 0 },
 			log: null,
 			clock: null);
@@ -94,10 +94,10 @@ public sealed class BackendManagerTests {
 
 	[Fact]
 	public async Task StatusAsync_ReturnsStartingUntilWorkerControlEndpointAnswers() {
-		using var supervisor = new ProcessSupervisor(
+		await using var supervisor = new ProcessSupervisor(
 			"worker",
 			_ => { },
-			() => { },
+			() => ProcessStop.Immediately(() => { }),
 			new SupervisionOptions { Policy = RestartPolicy.OnFailure },
 			log: null,
 			clock: null);
@@ -180,7 +180,7 @@ public sealed class BackendManagerTests {
 
 	[Fact]
 	public async Task StatusAsync_BoundsANonAnsweringWorkerControlRequest() {
-		using var supervisor = Supervisor();
+		await using var supervisor = Supervisor();
 		supervisor.Start();
 		using var http = new HttpClient(new HangingHttpHandler());
 		await using var manager = new BackendManager(
@@ -198,7 +198,7 @@ public sealed class BackendManagerTests {
 
 	[Fact]
 	public async Task StatusAsync_RejectsAWorkerFromAnotherContract() {
-		using var supervisor = Supervisor();
+		await using var supervisor = Supervisor();
 		supervisor.Start();
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(
@@ -217,7 +217,7 @@ public sealed class BackendManagerTests {
 
 	[Fact]
 	public async Task StatusAsync_DiscardsAReplyFromAReplacedGeneration() {
-		using var supervisor = Supervisor();
+		await using var supervisor = Supervisor();
 		supervisor.Start();
 		using var http = new HttpClient(new StubHttpHandler(_ => {
 			supervisor.ReportUnhealthy(supervisor.Generation, "replace during status request");
@@ -321,9 +321,9 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
-	public void HealthMonitorState_ResetsTheUnhealthyStreakOnANewGeneration() {
-		using var firstSupervisor = Supervisor();
-		using var secondSupervisor = Supervisor();
+	public async Task HealthMonitorState_ResetsTheUnhealthyStreakOnANewGeneration() {
+		await using var firstSupervisor = Supervisor();
+		await using var secondSupervisor = Supervisor();
 		firstSupervisor.Start();
 		secondSupervisor.Start();
 		var first = Backend();
@@ -340,9 +340,9 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
-	public void HealthMonitorState_ResetsAcrossBackendsWhoseSupervisorsShareAGenerationNumber() {
-		using var firstSupervisor = Supervisor();
-		using var secondSupervisor = Supervisor();
+	public async Task HealthMonitorState_ResetsAcrossBackendsWhoseSupervisorsShareAGenerationNumber() {
+		await using var firstSupervisor = Supervisor();
+		await using var secondSupervisor = Supervisor();
 		firstSupervisor.Start();
 		secondSupervisor.Start();
 		var first = Backend();
@@ -403,7 +403,7 @@ public sealed class BackendManagerTests {
 	private static ProcessSupervisor Supervisor() => new(
 		"worker",
 		_ => { },
-		() => { },
+		() => ProcessStop.Immediately(() => { }),
 		new SupervisionOptions { Policy = RestartPolicy.OnFailure },
 		log: null,
 		clock: null);

@@ -20,8 +20,8 @@ public sealed class TerminalControllerReattachTests {
 	private const string ClaudeStartupModes = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?2004h";
 
 	[Fact]
-	public void FirstStart_PostsNoRestorePreamble() {
-		using var h = new Harness();
+	public async Task FirstStart_PostsNoRestorePreamble() {
+		await using var h = new Harness();
 
 		h.Controller.OnReady(80, 24);
 
@@ -30,8 +30,8 @@ public sealed class TerminalControllerReattachTests {
 	}
 
 	[Fact]
-	public void ReattachToLiveChild_ReplaysLatchedModes_ThenNudges() {
-		using var h = new Harness();
+	public async Task ReattachToLiveChild_ReplaysLatchedModes_ThenNudges() {
+		await using var h = new Harness();
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes(ClaudeStartupModes));
 		h.Bridge.Clear();
@@ -46,8 +46,8 @@ public sealed class TerminalControllerReattachTests {
 	}
 
 	[Fact]
-	public void ReattachAfterRelaunch_DoesNotLeakThePreviousChildsModes() {
-		using var h = new Harness();
+	public async Task ReattachAfterRelaunch_DoesNotLeakThePreviousChildsModes() {
+		await using var h = new Harness();
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes(ClaudeStartupModes));
 
@@ -65,8 +65,8 @@ public sealed class TerminalControllerReattachTests {
 	}
 
 	[Fact]
-	public void RestoredShellChild_SpawnsAtSeededSize_NotThePlaceholder() {
-		using var h = new Harness("shell");
+	public async Task RestoredShellChild_SpawnsAtSeededSize_NotThePlaceholder() {
+		await using var h = new Harness("shell");
 		h.Controller.Resize(200, 50); // CreateSession seeds from the persisted size, before any pane mounts
 
 		h.Controller.EnsureStarted(); // background pre-spawn (RestoreSessionState), before the page's term-ready
@@ -76,8 +76,8 @@ public sealed class TerminalControllerReattachTests {
 	}
 
 	[Fact]
-	public void RestoredShellChild_WithoutSeed_PreSpawnsAtThePlaceholder() {
-		using var h = new Harness("shell");
+	public async Task RestoredShellChild_WithoutSeed_PreSpawnsAtThePlaceholder() {
+		await using var h = new Harness("shell");
 
 		h.Controller.EnsureStarted();
 
@@ -89,7 +89,7 @@ public sealed class TerminalControllerReattachTests {
 		Encoding.UTF8.GetString(Convert.FromBase64String(message.GetProperty("dataB64").GetString()!));
 
 	/// <summary>A self-contained claude-pane controller over a scriptable PTY, torn down on dispose.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _temp = new("weavie-reattach");
 
@@ -115,8 +115,8 @@ public sealed class TerminalControllerReattachTests {
 		public ScriptablePtyLauncher Launcher { get; }
 		public TerminalController Controller { get; }
 
-		public void Dispose() {
-			Controller.Dispose();
+		public async ValueTask DisposeAsync() {
+			await Controller.DisposeAsync();
 			_settings.Dispose();
 			_temp.Dispose();
 		}

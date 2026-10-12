@@ -31,7 +31,7 @@ public sealed partial class BackendManager {
 			lock (_gate) {
 				// Stop() (not just a respawn) so the swap starts with a clean crash history — a rollback
 				// restarted straight from Failed would inherit the bad build's crashes and insta-trip the breaker.
-				backend.Supervisor!.Stop();
+				_ = backend.Supervisor!.StopAsync();
 				backend.Supervisor.Start();
 			}
 
@@ -109,6 +109,12 @@ public sealed partial class BackendManager {
 		}
 	}
 
+	// The supervisor's stop request: the worker runs the same orderly shutdown as a drain's end, without waiting to go quiet.
+	private async Task RequestShutdownAsync(WorkspaceBackend backend, CancellationToken ct) {
+		using var response = await _http.PostAsync(ControlUrl(backend, "shutdown"), content: null, ct).ConfigureAwait(false);
+		response.EnsureSuccessStatusCode();
+	}
+
 	internal async Task<bool> TryDrainAsync(
 		WorkspaceBackend backend,
 		Action<string, string?> report,
@@ -164,7 +170,7 @@ public sealed partial class BackendManager {
 				report("rolled-back", $"build {badBuild} failed health probation — rolled back to build {restored}");
 				rolledBackFrom = badBuild;
 				lock (_gate) {
-					supervisor.Stop();
+					_ = supervisor.StopAsync();
 					supervisor.Start();
 				}
 

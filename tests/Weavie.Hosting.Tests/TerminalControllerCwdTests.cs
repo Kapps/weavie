@@ -14,8 +14,8 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 public sealed class TerminalControllerCwdTests {
 	[Fact]
-	public void InWorkspaceCwd_BecomesTheRelaunchDirectory() {
-		using var h = new Harness();
+	public async Task InWorkspaceCwd_BecomesTheRelaunchDirectory() {
+		await using var h = new Harness();
 		string nested = Directory.CreateDirectory(Path.Combine(h.Workspace, "src", "nested")).FullName;
 
 		h.Controller.OnReady(80, 24);
@@ -28,8 +28,8 @@ public sealed class TerminalControllerCwdTests {
 	}
 
 	[Fact]
-	public void ExistingSiblingOutsideTheWorkspace_IsIgnored() {
-		using var h = new Harness();
+	public async Task ExistingSiblingOutsideTheWorkspace_IsIgnored() {
+		await using var h = new Harness();
 		// A directory that genuinely EXISTS (so Directory.Exists passes) but is OUTSIDE the worktree, and whose
 		// path has the worktree as a string prefix — isolating the containment guard from the existence check.
 		string evil = Directory.CreateDirectory(h.Workspace + "-evil").FullName;
@@ -42,8 +42,8 @@ public sealed class TerminalControllerCwdTests {
 	}
 
 	[Fact]
-	public void TraversalToAnExistingDirectoryOutside_IsIgnored() {
-		using var h = new Harness();
+	public async Task TraversalToAnExistingDirectoryOutside_IsIgnored() {
+		await using var h = new Harness();
 		string evil = Directory.CreateDirectory(h.Workspace + "-evil").FullName;
 		// A traversal string that resolves to the existing outside directory — proves containment (not existence)
 		// is what rejects it.
@@ -57,7 +57,7 @@ public sealed class TerminalControllerCwdTests {
 	}
 
 	/// <summary>A real shell-pane controller over a recording PTY launcher; temp worktree torn down on dispose.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _temp = new("weavie-tcwd");
 
@@ -89,8 +89,8 @@ public sealed class TerminalControllerCwdTests {
 			Controller.OnReady(80, 24);
 		}
 
-		public void Dispose() {
-			Controller.Dispose();
+		public async ValueTask DisposeAsync() {
+			await Controller.DisposeAsync();
 			_settings.Dispose();
 			_temp.Dispose();
 		}

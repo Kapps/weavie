@@ -17,8 +17,8 @@ public sealed class TerminalControllerCoalesceTests {
 	private const string ClaudeStartupModes = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?2004h";
 
 	[Fact]
-	public void BatchedOutput_IsHeldUntilAReattachFlushesIt_BeforeTheModePreamble() {
-		using var h = new Harness("claude", withScrollback: false);
+	public async Task BatchedOutput_IsHeldUntilAReattachFlushesIt_BeforeTheModePreamble() {
+		await using var h = new Harness("claude", withScrollback: false);
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes(ClaudeStartupModes));
 		Assert.Empty(h.Bridge.PostedEventsNamed("output")); // batched, not posted per-chunk
@@ -34,8 +34,8 @@ public sealed class TerminalControllerCoalesceTests {
 	}
 
 	[Fact]
-	public void BatchedOutput_DuringResync_ReachesThePageOnce_ViaTheReplay() {
-		using var h = new Harness("shell", withScrollback: true);
+	public async Task BatchedOutput_DuringResync_ReachesThePageOnce_ViaTheReplay() {
+		await using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes("batched-line\r\n"));
 		Assert.Empty(h.Bridge.PostedEventsNamed("output")); // batched (and written to scrollback)
@@ -53,7 +53,7 @@ public sealed class TerminalControllerCoalesceTests {
 		Encoding.UTF8.GetString(Convert.FromBase64String(message.GetProperty("dataB64").GetString()!));
 
 	/// <summary>A controller with batching left on (a long window), so a test drives each drain boundary itself.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		private const long LongWindowMs = 600_000;
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _root = new("weavie-coalesce");
@@ -79,8 +79,8 @@ public sealed class TerminalControllerCoalesceTests {
 		public ScriptablePtyLauncher Launcher { get; }
 		public TerminalController Controller { get; }
 
-		public void Dispose() {
-			Controller.Dispose();
+		public async ValueTask DisposeAsync() {
+			await Controller.DisposeAsync();
 			_settings.Dispose();
 			_root.Dispose();
 		}

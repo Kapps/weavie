@@ -16,7 +16,7 @@ namespace Weavie.Hosting;
 /// <see cref="ProcessSupervisor"/> with a lifecycle-specific restart policy: permanent agent panes relaunch,
 /// while closeable shell/authentication tabs remain exited until the user reopens them.
 /// </summary>
-public sealed class TerminalController : IDisposable {
+public sealed class TerminalController : IAsyncDisposable {
 	private readonly MessageFeatureChannel _messages;
 	private readonly string _pane;
 	private readonly SettingsStore _settings;
@@ -86,7 +86,7 @@ public sealed class TerminalController : IDisposable {
 		_supervisor = new ProcessSupervisor(
 			$"terminal:{pane}",
 			StartTerminal,
-			StopTerminal,
+			() => ProcessStop.Immediately(StopTerminal),
 			new SupervisionOptions { Policy = restartPolicy },
 			LogSupervisor,
 			clock: null);
@@ -273,14 +273,14 @@ public sealed class TerminalController : IDisposable {
 	/// its next terminal <c>ready</c> event starts a fresh child.
 	/// </summary>
 	public void Restart() {
-		_supervisor.Stop();
+		_ = _supervisor.StopAsync();
 		Console.WriteLine($"[weavie] terminal[{_pane}] restarting");
 		Console.Out.Flush();
 		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.
 		PostTermReset(respawn: true);
 	}
 
-	internal void Stop() => _supervisor.Stop();
+	internal Task StopAsync() => _supervisor.StopAsync();
 
 	/// <summary>
 	/// The terminal <c>reset</c> event: the page clears this pane and re-emits <c>ready</c>. Respawn
@@ -535,8 +535,8 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log + scrollback log.</summary>
-	public void Dispose() {
-		_supervisor.Dispose();
+	public async ValueTask DisposeAsync() {
+		await _supervisor.DisposeAsync().ConfigureAwait(false);
 		_coalescer.Dispose();
 		lock (_gate) {
 			_ptyLog?.Dispose();

@@ -10,7 +10,7 @@ if (args is ["lsp"]) {
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE") == "immediate-malformed") {
 	Console.Out.WriteLine("{");
 	Console.Out.Flush();
-	await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+	await UntilInputEndsAsync().ConfigureAwait(false);
 	return;
 }
 
@@ -57,7 +57,16 @@ if (args is ["malformed-error"]) {
 	};
 	Console.Out.WriteLine(response.ToJsonString());
 	Console.Out.Flush();
-	await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+	await UntilInputEndsAsync().ConfigureAwait(false);
+	return;
+}
+
+if (args is ["flood-on-close"]) {
+	Console.Error.WriteLine($"pid {Environment.ProcessId}");
+	Console.Error.Flush();
+	await UntilInputEndsAsync().ConfigureAwait(false);
+	for (int line = 0; line < 1024; line++) Console.Out.WriteLine(new string('f', 255));
+	Console.Out.Flush();
 	return;
 }
 
@@ -81,6 +90,7 @@ if (args is ["stdin-stall", var marker]) {
 		received += read;
 	}
 	File.WriteAllText(marker, string.Empty);
+	// Wedged for good: the host's blocked write keeps stdin open, so only a force-kill ends this agent.
 	await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
 	return;
 }
@@ -88,3 +98,9 @@ if (args is ["stdin-stall", var marker]) {
 var agent = new FakeAcpSessions();
 var server = new AcpAgentServer(agent, Console.In, Console.Out, Console.Error);
 await server.RunAsync(CancellationToken.None).ConfigureAwait(false);
+
+// Stdin EOF is how the host ends an ACP agent's session.
+static async Task UntilInputEndsAsync() {
+	while (await Console.In.ReadLineAsync().ConfigureAwait(false) is not null) {
+	}
+}

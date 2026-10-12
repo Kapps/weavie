@@ -14,8 +14,8 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 public sealed class TerminalControllerResyncTests {
 	[Fact]
-	public void BeforeFirstStart_DoesNothing() {
-		using var h = new Harness("claude", withScrollback: false);
+	public async Task BeforeFirstStart_DoesNothing() {
+		await using var h = new Harness("claude", withScrollback: false);
 
 		h.Controller.ResyncPane();
 
@@ -24,8 +24,8 @@ public sealed class TerminalControllerResyncTests {
 	}
 
 	[Fact]
-	public void PaneWithoutScrollback_NudgesThePtySizeToRepaint() {
-		using var h = new Harness("claude", withScrollback: false);
+	public async Task PaneWithoutScrollback_NudgesThePtySizeToRepaint() {
+		await using var h = new Harness("claude", withScrollback: false);
 		h.Controller.OnReady(80, 24);
 
 		h.Controller.ResyncPane();
@@ -41,8 +41,8 @@ public sealed class TerminalControllerResyncTests {
 	// under xunit's parallelized classes. Fix: PosixFileLimitWarmup.cs raises the soft limit to the hard
 	// cap once at assembly load, the same call HostCore makes for the real app.
 	[Fact]
-	public void ShellOutputDuringResync_ReachesThePageExactlyOnce_ViaTheReplay() {
-		using var h = new Harness("shell", withScrollback: true);
+	public async Task ShellOutputDuringResync_ReachesThePageExactlyOnce_ViaTheReplay() {
+		await using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
 
 		// Output emitted between the reset and the page's term-ready reply must not post live: the page already
@@ -60,8 +60,8 @@ public sealed class TerminalControllerResyncTests {
 	}
 
 	[Fact]
-	public void ReplayedScrollback_IsFlaggedReplay_LiveOutputIsNot() {
-		using var h = new Harness("shell", withScrollback: true);
+	public async Task ReplayedScrollback_IsFlaggedReplay_LiveOutputIsNot() {
+		await using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
 		// A device query the child once sent (answered by the then-live client) lands in the scrollback log.
 		h.Launcher.Terminal!.EmitOutput("\x1b[6n"u8.ToArray());
@@ -78,8 +78,8 @@ public sealed class TerminalControllerResyncTests {
 	}
 
 	[Fact]
-	public void PaneWithScrollback_ResetsThePaneWithoutRespawn() {
-		using var h = new Harness("shell", withScrollback: true);
+	public async Task PaneWithScrollback_ResetsThePaneWithoutRespawn() {
+		await using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
 
 		h.Controller.ResyncPane();
@@ -93,7 +93,7 @@ public sealed class TerminalControllerResyncTests {
 		System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(message.GetProperty("dataB64").GetString()!));
 
 	/// <summary>A real controller over a resize-recording PTY launcher; temp files torn down on dispose.</summary>
-	private sealed class Harness : IDisposable {
+	private sealed class Harness : IAsyncDisposable {
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _root = new("weavie-resync");
 
@@ -119,8 +119,8 @@ public sealed class TerminalControllerResyncTests {
 		public RecordingPtyLauncher Launcher { get; }
 		public TerminalController Controller { get; }
 
-		public void Dispose() {
-			Controller.Dispose();
+		public async ValueTask DisposeAsync() {
+			await Controller.DisposeAsync();
 			_settings.Dispose();
 			_root.Dispose();
 		}

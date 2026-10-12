@@ -16,7 +16,7 @@ public sealed class SupervisedProcessTests {
 		};
 		start.ArgumentList.Add("-c");
 		start.ArgumentList.Add("(sleep 2) &");
-		using var process = new SupervisedProcess("test", start, _ => { }, _ => { });
+		await using var process = new SupervisedProcess("test", start, _ => { }, _ => { });
 
 		process.Start();
 

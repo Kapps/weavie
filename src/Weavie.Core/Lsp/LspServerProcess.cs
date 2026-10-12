@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using Weavie.Core.Processes;
 
@@ -11,6 +13,10 @@ namespace Weavie.Core.Lsp;
 /// WebSocket-coupled bridge connection — it knows nothing about how frames reach the editor.
 /// </summary>
 internal sealed class LspServerProcess : ILspServerProcess {
+	private const string ShutdownId = "weavie/shutdown";
+	private static readonly TimeSpan StopDeadline = TimeSpan.FromSeconds(5);
+	private static readonly byte[] ShutdownRequest = Encoding.UTF8.GetBytes($"{{\"jsonrpc\":\"2.0\",\"id\":\"{ShutdownId}\",\"method\":\"shutdown\"}}");
+	private static readonly byte[] ExitNotification = Encoding.UTF8.GetBytes("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}");
 	private readonly OwnedProcess _process;
 	private readonly string _label;
 	private readonly Action<string> _log;
@@ -19,8 +25,10 @@ internal sealed class LspServerProcess : ILspServerProcess {
 	// LSP message ordering is preserved (a SemaphoreSlim around stdin would not guarantee FIFO).
 	private readonly Channel<byte[]> _outbound =
 		Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+	private readonly TaskCompletionSource _shutdownAnswered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private Task _stdinPump = Task.CompletedTask;
 	private int _exitedRaised;
-	private bool _disposed;
+	private volatile bool _stopping;
 
 	public LspServerProcess(OwnedProcess process, string label, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(process);
@@ -40,12 +48,40 @@ internal sealed class LspServerProcess : ILspServerProcess {
 	public void Start() {
 		_ = PumpStdoutAsync(_cts.Token);
 		_ = PumpStderrAsync(_cts.Token);
-		_ = PumpStdinAsync(_cts.Token);
+		_stdinPump = PumpStdinAsync(_cts.Token);
 		_ = WaitForExitAsync(_cts.Token);
 	}
 
 	/// <inheritdoc/>
-	public void Write(ReadOnlyMemory<byte> payload) => _outbound.Writer.TryWrite(payload.ToArray());
+	public void Write(ReadOnlyMemory<byte> payload) {
+		if (!_stopping) {
+			_outbound.Writer.TryWrite(payload.ToArray());
+		}
+	}
+
+	/// <inheritdoc/>
+	public async Task<ProcessStopOutcome> StopAsync() {
+		_stopping = true;
+		var plan = ProcessStopPlan.Request("the LSP shutdown request", AskToExitAsync, StopDeadline);
+		try {
+			return await _process.StopAsync(plan, new SystemSupervisorClock()).ConfigureAwait(false);
+		} finally {
+			_outbound.Writer.TryComplete();
+			await _cts.CancelAsync().ConfigureAwait(false);
+			_process.Dispose();
+			_cts.Dispose();
+		}
+	}
+
+	// The LSP exit sequence: shutdown (answered, or refused by a server the page already shut down), exit, stdin EOF.
+	private async Task AskToExitAsync(CancellationToken ct) {
+		_outbound.Writer.TryWrite(ShutdownRequest);
+		await _shutdownAnswered.Task.WaitAsync(ct).ConfigureAwait(false);
+		_outbound.Writer.TryWrite(ExitNotification);
+		_outbound.Writer.TryComplete();
+		await _stdinPump.WaitAsync(ct).ConfigureAwait(false);
+		_process.StandardInput.Close();
+	}
 
 	private async Task PumpStdoutAsync(CancellationToken ct) {
 		var stdout = _process.StandardOutput.BaseStream;
@@ -61,12 +97,33 @@ internal sealed class LspServerProcess : ILspServerProcess {
 				break; // server closed stdout
 			}
 
+			if (_stopping) {
+				if (AnswersShutdown(body)) {
+					_shutdownAnswered.TrySetResult();
+				}
+				continue;
+			}
+
 			try {
 				FrameReceived?.Invoke(body);
 			} catch (Exception ex) {
 				// A subscriber fault must not kill the pump — that would silently freeze language features.
 				_log($"{_label} frame handler threw: {ex.Message}");
 			}
+		}
+	}
+
+	private static bool AnswersShutdown(byte[] body) {
+		try {
+			using var document = JsonDocument.Parse(body);
+			var root = document.RootElement;
+			return root.ValueKind == JsonValueKind.Object
+				&& !root.TryGetProperty("method", out _)
+				&& root.TryGetProperty("id", out var id)
+				&& id.ValueKind == JsonValueKind.String
+				&& id.GetString() == ShutdownId;
+		} catch (JsonException) {
+			return false;
 		}
 	}
 
@@ -98,7 +155,7 @@ internal sealed class LspServerProcess : ILspServerProcess {
 		try {
 			await _process.WaitForExitAsync(ct).ConfigureAwait(false);
 		} catch (OperationCanceledException) {
-			return; // disposed before a natural exit; Dispose does the reaping
+			return; // stopped before a natural exit; StopAsync does the reaping
 		}
 
 		RaiseExited(_process.HasExited ? _process.ExitCode : -1);
@@ -107,31 +164,6 @@ internal sealed class LspServerProcess : ILspServerProcess {
 	private void RaiseExited(int code) {
 		if (Interlocked.Exchange(ref _exitedRaised, 1) == 0) {
 			Exited?.Invoke(code);
-		}
-	}
-
-	/// <inheritdoc/>
-	public void Dispose() {
-		if (_disposed) {
-			return;
-		}
-
-		_disposed = true;
-		_outbound.Writer.TryComplete();
-		_cts.Cancel();
-		try {
-			if (!_process.HasExited) {
-				// Force-kill the whole tree and wait — unbounded on purpose. The session's "no server outlives me"
-				// guarantee (so a following worktree removal can't race a live process) only holds if we actually
-				// block until it's gone; a bounded wait that gave up would be a silent fallback. A killed process exits.
-				_process.Kill(entireProcessTree: true);
-				_process.WaitForExit();
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) {
-			// Already gone.
-		} finally {
-			_process.Dispose();
-			_cts.Dispose();
 		}
 	}
 }

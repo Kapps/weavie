@@ -1,3 +1,5 @@
+using Weavie.Core.Processes;
+
 namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
@@ -15,17 +17,19 @@ public sealed partial class HostSession {
 		await DisposeStepAsync(failures, "message admission", () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file observation", FileActivity.StopObservingAsync).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "background tasks", () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
-		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
-		// process still rooted there). Keep it off the calling UI thread.
-		await DisposeStepAsync(failures, "shell processes", () => Task.Run(() => Shells.Dispose())).ConfigureAwait(false);
-		await DisposeStepAsync(failures, "agent", () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
+		// Every child gets its graceful-stop deadline at once, and each step completes only when its children have
+		// exited, so a following worktree delete can't race a process still rooted there. PTY teardown blocks, so
+		// each step starts off the calling UI thread.
+		await Task.WhenAll(
+			DisposeStepAsync(failures, "shell processes", () => Task.Run(() => Shells.DisposeAsync().AsTask())),
+			DisposeStepAsync(failures, "agent", () => Task.Run(() => Agent.DisposeAsync().AsTask())),
+			DisposeStepAsync(failures, "language servers", () => Task.Run(() => Lsp.DisposeAsync().AsTask()))).ConfigureAwait(false);
 		await DisposeStepAsync(
 			failures, "file activity drain",
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "observed paths", () => Task.Run(ObservedPaths.Dispose)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file activity", () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file opener", () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, "language servers", () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "pasted images", () => {
 			PastedImages.Clear();
 			return Task.CompletedTask;
@@ -45,7 +49,16 @@ public sealed partial class HostSession {
 			Console.WriteLine($"[session:{SlotId}] disposed {resource}");
 		} catch (Exception ex) {
 			Console.WriteLine($"[session:{SlotId}] disposing {resource} failed: {ex}");
-			failures.Add(ex);
+			lock (failures) failures.Add(ex);
 		}
+	}
+
+	// A force-killed child may have stranded state (a .NET child's runtime IPC files); the journal keeps the
+	// record when the stop happens at exit, where no toast is seen.
+	private void ReportForceStopped(string name, ProcessStopOutcome outcome) {
+		string message = $"{name} {outcome.ForcedBecause}; Weavie force-stopped it";
+		Console.WriteLine($"[session:{SlotId}] {message}");
+		ExitJournal.Note(message);
+		Notify("warn", message);
 	}
 }

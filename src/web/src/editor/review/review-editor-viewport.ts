@@ -5,6 +5,10 @@ import type { ReviewScroll } from "./review-scroll";
 // Band growth quantum: a crossing relayouts once per step instead of once per frame.
 const BAND_STEP = 256;
 
+// Layout positions are whole 1/64 px units; a rect read through a fractional scroll transform carries float32
+// noise around them, which would otherwise leak into restored scroll positions.
+const layoutPx = (value: number): number => Math.round(value * 64) / 64;
+
 /** Keeps Monaco's rendered window inside a full-height section owned by the review scroller. */
 export function createReviewEditorViewport(
   container: HTMLElement,
@@ -31,13 +35,12 @@ export function createReviewEditorViewport(
   let headerHeight = 0;
   let viewportHeight = 0;
   const measure = (): void => {
-    containerTop =
-      container.getBoundingClientRect().top -
-      scroller.getBoundingClientRect().top +
-      scrollOwner.getScrollTop();
+    containerTop = layoutPx(
+      container.getBoundingClientRect().top - scrollOwner.content.getBoundingClientRect().top,
+    );
     containerHeight = container.clientHeight;
     width = container.clientWidth;
-    headerHeight = header.getBoundingClientRect().height;
+    headerHeight = layoutPx(header.getBoundingClientRect().height);
     viewportHeight = scroller.clientHeight;
   };
   // The absolute editor mount cannot change the reserved section geometry.

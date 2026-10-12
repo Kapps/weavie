@@ -18,6 +18,8 @@ const SMOOTH_SCROLL_MS = 125;
 export interface ReviewScroll {
   readonly element: HTMLElement;
   readonly viewport: HTMLElement;
+  /** The list that scrolling translates; positions measured against it don't move with the scroll. */
+  readonly content: HTMLElement;
   getScrollTop(): number;
   /** The viewport's height from the owner's own scroll dimensions, so callers never measure the DOM. */
   getViewportHeight(): number;
@@ -170,6 +172,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   return {
     element,
     viewport: node,
+    content,
     getScrollTop,
     getViewportHeight: () => scrollable.getScrollDimensions().height,
     setScrollTop,

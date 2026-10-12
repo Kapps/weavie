@@ -147,8 +147,8 @@ non-interactive child gets a temp directory Weavie owns.
 - **Reclaim by dead owner, never by age.** On startup `HostCore` and the runner call
   `ChildTemp.ReclaimOrphans`, which deletes each sibling root whose owner is gone — no process has that pid, or
   the one that does started at another time (pid reuse). A directory without a readable `owner` record is not a
-  root, and a live owner's root, or one this user cannot inspect, is never touched. A killed worker's root goes
-  when the runner's next worker starts.
+  root, and a live owner's root, or one this user cannot inspect, is never touched. A process that exits cleanly
+  removes its own root unless a scope outlived it; a killed worker's root goes when the runner's next worker starts.
 - **Terminals keep the user's temp.** PTY children (the Claude pane, shell panes) are the user's own sessions,
   so they keep the user's `TMPDIR`. An owned child carries the user's temp as `WEAVIE_USER_TEMP`, and
   `TerminalStartInfo.BuildEnvironment` restores it — so the runner's worker, itself an owned child, still gives

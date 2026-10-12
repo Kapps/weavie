@@ -98,12 +98,14 @@ public sealed partial class OwnedProcess : IDisposable {
 
 	private async Task ObserveManagedExitAsync(Process process) {
 		try {
-			await process.WaitForExitAsync().ConfigureAwait(false);
-			_temp.Release();
+			try {
+				await process.WaitForExitAsync().ConfigureAwait(false);
+			} finally {
+				// A failed wait loses the child to us just the same; its temp must not outlive it.
+				_temp.Release();
+			}
 			lock (_gate) _exit.TrySetResult(process.ExitCode);
 		} catch (Exception ex) {
-			// The child is lost to us either way; its temp must not outlive the failure.
-			_temp.Release();
 			_exit.TrySetException(ex);
 		}
 	}

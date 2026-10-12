@@ -40,11 +40,12 @@ public static partial class ChildTemp {
 		return Directory.CreateDirectory(Path.Combine(Root, name)).FullName;
 	}
 
-	// A temp path the caller chose for the child, rather than inherited from this process, stays the child's.
+	// A temp path the caller chose for the child stays the child's — unless it is one Weavie assigned another child.
 	internal static void Point(ProcessStartInfo info, string directory) {
 		info.Environment.TryAdd(UserTempVariable, UserTemp);
 		foreach (string variable in Variables) {
-			if (info.Environment.TryGetValue(variable, out string? value) && value != Environment.GetEnvironmentVariable(variable)) continue;
+			if (info.Environment.TryGetValue(variable, out string? value) && value is not null
+				&& value != Environment.GetEnvironmentVariable(variable) && !IsAssigned(variable, value)) continue;
 			info.Environment[variable] = directory;
 		}
 	}

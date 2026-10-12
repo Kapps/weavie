@@ -36,6 +36,7 @@ public static partial class ChildTemp {
 	// fails the mode check, or the owner write, loudly.
 	private static string CreateRoot() {
 		string root = Path.Combine(UserTemp, RootPrefix + RandomNumberGenerator.GetString("0123456789abcdefghijklmnopqrstuvwxyz", 8));
+		if (Directory.Exists(root)) throw new IOException($"Child temp root {root} already exists.");
 		if (OperatingSystem.IsWindows()) {
 			Directory.CreateDirectory(root);
 		} else {
@@ -45,12 +46,18 @@ public static partial class ChildTemp {
 		try {
 			using var owner = new FileStream(Path.Combine(root, OwnerFile), FileMode.CreateNew, FileAccess.Write);
 			owner.Write(Encoding.UTF8.GetBytes(string.Create(
-				CultureInfo.InvariantCulture, $"{Environment.ProcessId} {StartStamp(Environment.ProcessId)}")));
+				CultureInfo.InvariantCulture, $"{Environment.ProcessId} {StartStamp(Environment.ProcessId)!.Value}")));
+			AppDomain.CurrentDomain.ProcessExit += (_, _) => RemoveIfIdle(root);
 			return root;
 		} catch {
 			Directory.Delete(root, recursive: true);
 			throw;
 		}
+	}
+
+	// A clean exit takes the root along unless a scope outlived it; that one waits for the next startup's reclaim.
+	private static void RemoveIfIdle(string root) {
+		if (Directory.Exists(root) && !Directory.EnumerateDirectories(root).Any()) Delete(root);
 	}
 
 	private static (int Pid, long Stamp)? Owner(string root) {

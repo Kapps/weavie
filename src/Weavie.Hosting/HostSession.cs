@@ -39,7 +39,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private PullRequestComments? _pullRequestComments;
-	private GitStatusMonitor? _gitStatus;
+	private PullRequestOverview? _pullRequestOverview;
+	private CoalescedSnapshotMonitor<GitStatusSnapshot>? _gitStatus;
+	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot>? _reviewCommits;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
@@ -371,20 +373,35 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal PullRequestComments PullRequestComments =>
 		_pullRequestComments ?? throw new InvalidOperationException("Pull request comments were not attached.");
 
-	internal GitStatusMonitor GitStatus =>
+	internal PullRequestOverview PullRequestOverview =>
+		_pullRequestOverview ?? throw new InvalidOperationException("Pull request overview was not attached.");
+
+	internal CoalescedSnapshotMonitor<GitStatusSnapshot> GitStatus =>
 		_gitStatus ?? throw new InvalidOperationException("Git status was not attached.");
 
-	internal void AttachGitStatus(GitStatusMonitor monitor) {
+	internal CoalescedSnapshotMonitor<ReviewCommitsSnapshot> ReviewCommits =>
+		_reviewCommits ?? throw new InvalidOperationException("Review commits were not attached.");
+
+	internal void AttachReviewCommits(CoalescedSnapshotMonitor<ReviewCommitsSnapshot> monitor) {
+		ArgumentNullException.ThrowIfNull(monitor);
+		if (Interlocked.CompareExchange(ref _reviewCommits, monitor, null) is not null) {
+			throw new InvalidOperationException("Review commits are already attached.");
+		}
+	}
+
+	internal void AttachGitStatus(CoalescedSnapshotMonitor<GitStatusSnapshot> monitor) {
 		ArgumentNullException.ThrowIfNull(monitor);
 		if (Interlocked.CompareExchange(ref _gitStatus, monitor, null) is not null) {
 			throw new InvalidOperationException("Git status is already attached.");
 		}
 	}
 
-	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor, PullRequestComments comments) {
+	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor, PullRequestComments comments, PullRequestOverview overview) {
 		ArgumentNullException.ThrowIfNull(monitor);
 		ArgumentNullException.ThrowIfNull(comments);
+		ArgumentNullException.ThrowIfNull(overview);
 		if (Interlocked.CompareExchange(ref _pullRequestComments, comments, null) is not null
+			|| Interlocked.CompareExchange(ref _pullRequestOverview, overview, null) is not null
 			|| Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
 			throw new InvalidOperationException("Pull request status is already attached.");
 		}

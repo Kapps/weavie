@@ -256,6 +256,9 @@ public static partial class CoreCommands {
 	/// <summary>Reviews the working tree's diff against a ref (arg <c>ref</c>, or a prompt); bound to <c>$mod+Shift+d</c>.</summary>
 	public const string DiffAgainst = "weavie.diff.against";
 
+	/// <summary>Reviews the whole branch against the repository's default branch; palette-only, unbound.</summary>
+	public const string DiffAgainstBranchBase = "weavie.diff.againstBranchBase";
+
 	/// <summary>Reviews the working tree's diff against HEAD's parent — the last commit plus anything uncommitted.</summary>
 	public const string DiffAgainstParent = "weavie.diff.againstParent";
 
@@ -270,6 +273,9 @@ public static partial class CoreCommands {
 
 	/// <summary>Opens the unified review overview, or an explicitly addressed file and line.</summary>
 	public const string ReviewOpen = "weavie.review.open";
+
+	/// <summary>Opens the session overview at the top of the review tab, for any session.</summary>
+	public const string ReviewOverview = "weavie.review.overview";
 
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 
@@ -1533,6 +1539,17 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = DiffAgainstBranchBase,
+			Title = "Review Branch",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review everything this branch changes: the working tree against the repository's default "
+				+ "branch from their merge-base, opening on the session overview with the branch's commits.",
+			Aliases = ["review branch", "branch diff", "diff branch", "diff against main", "diff against base",
+				"review whole branch", "branch changes"],
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = DiffAgainstParent,
 			Title = "Diff Against Parent",
 			RunsIn = CommandLocation.Web,
@@ -1593,6 +1610,17 @@ public static partial class CoreCommands {
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
 			When = "reviewAvailable",
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewOverview,
+			Title = "Show Session Overview",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Open the session overview at the top of the review tab: the branch or pull request, its "
+				+ "description, checks, reviewers, and conversation, the commits under review, and the changed files.",
+			Aliases = ["session overview", "pr overview", "pull request overview", "branch overview", "front door",
+				"show overview", "pr description", "pr checks"],
 		});
 
 		registry.Register(new CommandDefinition {

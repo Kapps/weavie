@@ -35,7 +35,7 @@ var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
 	var fakePrs = FakePullRequests.FromFile(fakePrsPath);
-	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs };
+	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs, PullRequestDiscussion = fakePrs };
 }
 
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } fakeNotionPath && File.Exists(fakeNotionPath)) {

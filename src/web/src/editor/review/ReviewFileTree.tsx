@@ -23,7 +23,6 @@ export function ReviewFileTree(props: {
   current: () => number | undefined;
   displayPath: (path: string) => string;
   onChoose: (index: number) => void;
-  ref: (element: HTMLElement) => void;
 }): JSX.Element {
   const tree = createMemo(() =>
     compactPathTree(
@@ -77,7 +76,7 @@ export function ReviewFileTree(props: {
   };
 
   return (
-    <div class="unified-review-tree" role="tree" aria-label="Changed files" ref={props.ref}>
+    <div class="unified-review-tree" role="tree" aria-label="Changed files">
       <Index each={rows()}>
         {(row, index) => {
           const node = () => row().node;

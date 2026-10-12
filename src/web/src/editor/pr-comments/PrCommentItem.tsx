@@ -4,7 +4,7 @@ import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
 import { notify } from "../../notify/notify";
 import { openUrlExternal } from "../../terminal/terminal-links";
-import { relativeTime } from "../blame-model";
+import { RelativeTime } from "../RelativeTime";
 import { PrCommentComposer } from "./PrCommentComposer";
 import { type PrComment, type PrUser, sendPrComment } from "./pr-comments-store";
 
@@ -104,8 +104,8 @@ export function CommentItem(props: {
           <Show
             when={props.comment.pending}
             fallback={
-              <span class="weavie-pr-time" title={new Date(time() * 1000).toLocaleString()}>
-                {relativeTime(time(), Date.now() / 1000)}
+              <span class="weavie-pr-time">
+                <RelativeTime seconds={time()} />
                 {seconds(props.comment.updatedAt) > time() ? " · edited" : ""}
               </span>
             }

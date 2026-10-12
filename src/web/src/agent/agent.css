@@ -1389,6 +1389,11 @@ label.agent-input-choice:hover {
   color: var(--diff-removed, #c47a7a);
 }
 
+/* Hints that the totals open a menu of the session's other diffs. */
+.agent-status-diff-more {
+  opacity: 0.6;
+}
+
 .agent-status-unavailable {
   cursor: default;
 }

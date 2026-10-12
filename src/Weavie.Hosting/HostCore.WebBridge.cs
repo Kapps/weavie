@@ -71,6 +71,10 @@ public sealed partial class HostCore {
 	private void PushSearchStateToWeb() =>
 		_messages.Host.Feature("search").Publish("state", WireJson.Default.SearchSnapshot, BuildSearchSnapshot());
 
+	/// <summary>Pushes the session overview's app-global collapsed sections. Honored only from the local backend.</summary>
+	private void PushReviewOverviewStateToWeb() =>
+		_messages.Host.Feature("reviewOverview").Publish("state", WireJson.Default.ReviewOverviewSnapshot, BuildReviewOverviewSnapshot());
+
 	/// <summary>Pushes the app-global recent workspace list after another window reorders or prunes it.</summary>
 	private void PushRecentWorkspacesToWeb() =>
 		_messages.Host.Feature("recentWorkspaces").Publish("changed", WireJson.Default.RecentWorkspacesChanged, new(_platform.Recents));
@@ -629,13 +633,9 @@ public sealed partial class HostCore {
 
 	internal sealed record DiffRefsResult(string[] Refs, string? DefaultRef);
 
-	private async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) {
-		var git = new GitService();
-		string[] refs = [.. await git.ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)];
-		string? branch = await git.ResolveDefaultBranchAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
-		string? remote = branch is null ? null : $"origin/{branch}";
-		return new(refs, remote is not null && refs.Contains(remote) ? remote : null);
-	}
+	private static async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) =>
+		new([.. await new GitService().ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)],
+			await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false));
 
 	private async Task<CommandResult> InvokeCommandAsync(
 		HostSession session,

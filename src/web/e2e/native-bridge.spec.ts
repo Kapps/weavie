@@ -141,6 +141,7 @@ test.describe("native in-process bridge contract", () => {
               },
               recentTerms: [],
             },
+            reviewOverview: { collapsed: [] },
             testProfile: "",
             sourceLinkHosts: [],
             commandCatalog: { commands: [], keybindings: [] },

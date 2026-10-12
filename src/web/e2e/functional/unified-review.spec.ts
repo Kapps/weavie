@@ -419,10 +419,8 @@ test("a deleted file starts collapsed and expands its review snapshot", async ({
 }) => {
   await unlink(join(weavie.workspace, "notes.txt"));
   await runCommand(page, "Diff Against HEAD");
-
-  const cue = page.locator(".editor-empty-review");
-  await expect(cue).toBeVisible({ timeout: 30_000 });
-  await cue.click();
+  // A new diff opens the review tab on its session overview.
+  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 30_000 });
 
   const notes = sectionFor(page, "notes.txt");
   const toggle = notes.locator(".unified-review-file-toggle");

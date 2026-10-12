@@ -36,6 +36,7 @@
 
 .unified-review-header {
   z-index: 3;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -57,8 +58,16 @@
   gap: 0.65em;
 }
 
+/* The heading gives way (truncating the PR title) so the actions on the right always stay on screen. */
 .unified-review-heading {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.unified-review-header-actions {
+  flex: none;
 }
 
 .unified-review-kicker,
@@ -609,4 +618,30 @@
   border-top: 1px solid var(--border);
   color: var(--dim);
   font-size: var(--font-hint-size);
+}
+
+/* Scrolled past the session overview, the header names the PR it's reviewing. */
+.unified-review-identity {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.unified-review-identity > :not(.unified-review-identity-title) {
+  flex: none;
+}
+
+.unified-review-identity-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-review-failing {
+  color: var(--bad);
+  font-size: var(--font-metadata-size);
 }

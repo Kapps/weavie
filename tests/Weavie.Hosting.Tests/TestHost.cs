@@ -634,8 +634,10 @@ internal sealed class TestHost : IAsyncDisposable {
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,
+			ReviewOverviewState = new ReviewOverviewStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "review-overview-state.json")),
 			PullRequests = pullRequests,
 			ReviewComments = pullRequests as IReviewCommentStore ?? NoPullRequests(),
+			PullRequestDiscussion = pullRequests as IPullRequestDiscussion ?? NoPullRequests(),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),

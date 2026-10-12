@@ -1,4 +1,5 @@
-import type { Locator, Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { openFile, runCommand } from "./actions";
 import type { FakeStep } from "./fake-claude";
 
 // Drives a real APPLIED change (the post-turn review surface), unlike the openDiff proposal seam diff.spec.ts
@@ -22,4 +23,20 @@ export function appliedEdit(relPath: string, content: string): FakeStep[] {
 /** The review strip's segment for a repo-relative path; clicking it jumps the review to that file. */
 export function reviewFileSegment(scope: Page | Locator, path: string): Locator {
   return scope.locator(`.unified-review-map-file[title^="${path} +"]`);
+}
+
+/** Jumps the review to `name` from the overview's Changes tree; the keyboard reaches a row below the fold. */
+export async function jumpToReviewFile(page: Page, name: string): Promise<void> {
+  await page.locator(".unified-review-tree-row", { hasText: name }).focus();
+  await page.keyboard.press("Enter");
+}
+
+/** Opens the scenario's PR #101, which lands on its session overview, then opens `file` under its review. */
+export async function openPullRequestFile(page: Page, file: string): Promise<void> {
+  await runCommand(page, "Open Pull Request…");
+  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
+  await page.locator(".session-prompt-input").press("Enter");
+  await expect(page.locator(".unified-review .session-overview")).toBeVisible({ timeout: 20_000 });
+  await openFile(page, file);
+  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
 }

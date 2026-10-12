@@ -29,4 +29,6 @@ export interface EditorSession {
 
 export interface ReviewResume {
   files: Record<string, { collapsed: boolean; signature: string; reviewedAt: string | null }>;
+  /** The overview sections collapsed in this session; absent from snapshots saved before it existed. */
+  collapsedSections?: string[];
 }

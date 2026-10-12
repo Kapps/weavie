@@ -87,6 +87,9 @@ public static class EditorSettings {
 	/// <summary>Which lines carry the faded Git blame annotation — none/the cursor's/every line (custom behavior).</summary>
 	public const string GitBlame = "editor.gitBlame";
 
+	/// <summary>Whether the session overview remembers collapsed sections for all sessions or per session.</summary>
+	public const string ReviewOverviewCollapse = "editor.reviewOverviewCollapse";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		SpellCheck,
@@ -94,7 +97,7 @@ public static class EditorSettings {
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay, GitBlame,
+		VideoAutoplay, GitBlame, ReviewOverviewCollapse,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -240,6 +243,14 @@ public static class EditorSettings {
 			["git blame", "blame", "blame annotations", "git lens", "gitlens", "line authorship", "who wrote this",
 				"inline blame", "commit annotations"],
 			[GitBlameOff, GitBlameCurrentLine, GitBlameAll], GitBlameCurrentLine));
+
+		registry.Register(Choice(ReviewOverviewCollapse,
+			"What remembers the session overview's collapsed sections (Commits, Checks, …) at the top of the review "
+				+ "tab: 'global' (the default) collapses a section in every session at once; 'session' remembers each "
+				+ "session's own.",
+			["overview collapse", "collapsed sections", "review overview sections", "remember collapsed sections",
+				"session overview", "front door"],
+			["global", "session"], "global"));
 	}
 
 	/// <summary>
@@ -278,6 +289,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));
+		writer.WriteString("reviewOverviewCollapse", store.RequireString(ReviewOverviewCollapse));
 		writer.WriteEndObject();
 	}
 

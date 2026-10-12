@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed class GitStatusMonitorTests {
+public sealed class CoalescedSnapshotMonitorTests {
 	[Fact]
 	public async Task RefreshesDuringAProbe_CoalesceIntoOneFollowUpProbe() {
 		await using var background = new SessionTaskScope(_ => { });
@@ -12,7 +12,7 @@ public sealed class GitStatusMonitorTests {
 		var published = new List<GitStatusSnapshot>();
 		var delay = new ManualDelay();
 		int calls = 0;
-		var monitor = new GitStatusMonitor(
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
 			background,
 			async ct => {
 				int call = Interlocked.Increment(ref calls);
@@ -48,7 +48,7 @@ public sealed class GitStatusMonitorTests {
 	public async Task Latest_CachesThePublishedSnapshotForReplay() {
 		await using var background = new SessionTaskScope(_ => { });
 		var expected = Snapshot(7);
-		var monitor = new GitStatusMonitor(
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
 			background,
 			_ => Task.FromResult(expected),
 			_ => { });
@@ -64,7 +64,7 @@ public sealed class GitStatusMonitorTests {
 		await using var background = new SessionTaskScope(_ => { });
 		int calls = 0;
 		var delay = new ManualDelay();
-		var monitor = new GitStatusMonitor(
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
 			background,
 			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
 			_ => { },
@@ -84,7 +84,7 @@ public sealed class GitStatusMonitorTests {
 		int calls = 0;
 		int publications = 0;
 		var delay = new ManualDelay();
-		var monitor = new GitStatusMonitor(
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
 			background,
 			_ => {
 				Interlocked.Increment(ref calls);
@@ -104,6 +104,26 @@ public sealed class GitStatusMonitorTests {
 
 		Assert.Equal(1, publications);
 		Assert.Equal(snapshot, monitor.Latest);
+	}
+
+	[Fact]
+	public async Task RefreshNow_SkipsTheCooldown() {
+		await using var background = new SessionTaskScope(_ => { });
+		int calls = 0;
+		var delay = new ManualDelay();
+		var monitor = new CoalescedSnapshotMonitor<GitStatusSnapshot>(
+			background,
+			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
+			_ => { },
+			delay.WaitAsync,
+			TimeSpan.FromSeconds(10));
+
+		monitor.RequestRefresh();
+		await Wait.UntilAsync(() => calls == 1);
+		monitor.RefreshNow();
+
+		await Wait.UntilAsync(() => calls == 2);
+		Assert.Equal(Snapshot(2), monitor.Latest);
 	}
 
 	private static GitStatusSnapshot Snapshot(int added) =>

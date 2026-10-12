@@ -78,9 +78,9 @@ test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ p
   const prompt = page.locator(".session-prompt");
   await expect(prompt).toBeVisible();
   await expect(prompt.locator(".session-prompt-input")).toHaveValue("");
-  await expect(prompt.getByRole("button", { name: /^Diff/ })).toBeDisabled();
-  await prompt.locator(".session-prompt-input").press("Enter");
-  await expect(prompt).toBeVisible();
+  // Without a remote, the empty prompt offers the local default branch, the same base Review Branch uses.
+  await expect(prompt.locator(".session-prompt-input")).toHaveAttribute("placeholder", "main");
+  await expect(prompt.getByRole("button", { name: /^Diff/ })).toBeEnabled();
   await prompt.locator(".session-prompt-input").fill("HEAD^");
   await prompt.locator(".session-prompt-input").press("Enter");
 

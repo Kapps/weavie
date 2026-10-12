@@ -96,8 +96,10 @@ public sealed partial class HostCore {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
-		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewReveal, (message, ct) =>
-			DiffAgainstFromWebAsync(session, message.Reference, ct));
+		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewOpened, (message, ct) =>
+			DiffAgainstFromWebAsync(session, message.Reference, message.Replaces, ct));
+		review.Handle("diffAgainstBase", "Reviewing the branch", WireJson.Default.DiffAgainstBaseMessage, WireJson.Default.ReviewOpened, (message, ct) =>
+			DiffAgainstBaseFromWebAsync(session, message.Replaces, ct));
 
 		session.Bus.Feature("revise").Handle("start", "Starting a revision", WireJson.Default.ReviseStartMessage, (message, _) => {
 			StartRevise(session, message);
@@ -183,6 +185,7 @@ public sealed partial class HostCore {
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);
 		PushReviewStateToWeb(session, target);
+		PushReviewCommits(session, target);
 		session.DiffPresenter.Replay(target.Feature("editor"));
 		PushFileIndexToWeb(session, true, target);
 		PushGitStatus(session, target);
@@ -231,7 +234,11 @@ public sealed partial class HostCore {
 
 	internal sealed record PreviewRelease(string Grant);
 
-	internal sealed record DiffAgainstMessage(string Reference);
+	/// <summary>Diff against <c>Reference</c>; <c>Replaces</c> names the open review the user agreed to close, if any.</summary>
+	internal sealed record DiffAgainstMessage(string Reference, string? Replaces);
+
+	/// <summary>Review the whole branch; <c>Replaces</c> as in <see cref="DiffAgainstMessage"/>.</summary>
+	internal sealed record DiffAgainstBaseMessage(string? Replaces);
 
 	internal sealed record PullRequestQuery(string Query);
 

@@ -27,18 +27,17 @@ async function settledFile(page: Page): Promise<string> {
   return currentFile(page);
 }
 
+const focusedKind = (page: Page): Promise<string | null> =>
+  page.evaluate(
+    () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,
+  );
+
+// Leaves a focused editor alone: in the review tab, clicking the first editor would make its file current.
 export async function focusEditor(page: Page): Promise<void> {
   await awaitEditorReady(page);
+  if ((await focusedKind(page)) === "editor") return;
   await page.locator(".monaco-editor").first().click();
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,
-        ),
-      { timeout: 1_000 },
-    )
-    .toBe("editor");
+  await expect.poll(() => focusedKind(page), { timeout: 1_000 }).toBe("editor");
 }
 
 async function stepToNextFile(page: Page, from: string): Promise<string> {
@@ -56,10 +55,16 @@ async function stepToNextFile(page: Page, from: string): Promise<string> {
   return currentFile(page);
 }
 
+/** Focuses the review and returns its current file; a review shown on its overview parks, so a nav key steps in. */
+export async function stepIntoReview(page: Page): Promise<string> {
+  await focusEditor(page);
+  if (!isFileName(await currentFile(page))) await page.keyboard.press(navChord("ArrowRight"));
+  return settledFile(page);
+}
+
 // Complete a real navigation cycle; an unexpected cycle fails instead of returning a partial file set.
 async function* changedFiles(page: Page): AsyncGenerator<string> {
-  await focusEditor(page);
-  const first = await settledFile(page);
+  const first = await stepIntoReview(page);
   const seen = new Set<string>();
   let current = first;
   do {

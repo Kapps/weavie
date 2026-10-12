@@ -26,5 +26,6 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   paneShortcutHints: true,
   videoAutoplay: true,
   gitBlame: "currentLine",
+  reviewOverviewCollapse: "global",
   spellCheck: true,
 };

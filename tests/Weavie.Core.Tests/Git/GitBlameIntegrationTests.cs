@@ -161,6 +161,21 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task LogRange_ListsTheBranchsOwnCommitsNewestFirst() {
+		_repo.Write("notes.md", "base\n");
+		string mergeBase = _repo.Commit("base");
+		_repo.Git("checkout", "--quiet", "-b", "feature");
+		_repo.Write("notes.md", "one\n");
+		_repo.Commit("one");
+		_repo.Write("notes.md", "two\n");
+		_repo.Commit("two");
+
+		var commits = await new GitService().LogRangeAsync(_repo.Path, mergeBase, "HEAD");
+
+		Assert.Equal(["two", "one"], commits.Select(c => c.Summary));
+	}
+
+	[Fact]
 	public async Task CommitHunk_ReadsAMergeAgainstItsFirstParent() {
 		_repo.Write("notes.md", "base\n");
 		_repo.Commit("base");

@@ -72,6 +72,8 @@ export interface ReviewFileView {
 export interface ReviewOverview {
   history: ReviewHistory;
   label: string;
+  /** The session overview's sections collapsed in this session (used when collapse is remembered per session). */
+  collapsedSections: readonly string[];
   files: ReviewFileView[];
   added: number;
   removed: number;
@@ -101,6 +103,7 @@ function reviewSignature(diff: ReviewFileDiff, pending: boolean): string {
 export interface SessionReviewBoard {
   files: ReviewFileView[];
   label: string;
+  collapsedSections: readonly string[];
   added: number;
   removed: number;
   history: ReviewHistory;
@@ -128,12 +131,14 @@ export interface ReviewStore {
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   setFileContext(session: ClientSession, path: string, context: readonly LineSpan[]): void;
+  setSectionCollapsed(session: ClientSession, section: string, collapsed: boolean): void;
   reset(session: ClientSession): SessionReviewBoard;
 }
 
 const emptyOverview = (): ReviewOverview => ({
   history: EMPTY_REVIEW_HISTORY,
   label: "",
+  collapsedSections: [],
   files: [],
   added: 0,
   removed: 0,
@@ -162,6 +167,7 @@ export function createReviewStore(
       entries: new Map(),
       files: [],
       label: "",
+      collapsedSections: [],
       added: 0,
       removed: 0,
       history: EMPTY_REVIEW_HISTORY,
@@ -176,6 +182,7 @@ export function createReviewStore(
     return {
       history: state.history,
       label: state.label,
+      collapsedSections: state.collapsedSections,
       files: state.files,
       added: state.added,
       removed: state.removed,
@@ -204,6 +211,7 @@ export function createReviewStore(
           },
         ]),
       ),
+      collapsedSections: [...state.collapsedSections],
     });
   };
 
@@ -271,6 +279,7 @@ export function createReviewStore(
     for (const [path, saved] of Object.entries(resume.files)) {
       Object.assign(ensureEntry(state, path, saved.collapsed), saved);
     }
+    state.collapsedSections = resume.collapsedSections ?? [];
     publish(session, state);
   };
 
@@ -357,6 +366,19 @@ export function createReviewStore(
   ): void => {
     board(session).entries.get(normalizePath(path))?.context[1](context);
   };
+  const setSectionCollapsed = (
+    session: ClientSession,
+    section: string,
+    collapsed: boolean,
+  ): void => {
+    const state = board(session);
+    if (state.collapsedSections.includes(section) === collapsed) return;
+    state.collapsedSections = collapsed
+      ? [...state.collapsedSections, section]
+      : state.collapsedSections.filter((id) => id !== section);
+    save(session, state);
+    publish(session, state);
+  };
   const reset = (session: ClientSession): SessionReviewBoard => {
     const state = board(session);
     state.entries.clear();
@@ -393,6 +415,7 @@ export function createReviewStore(
     setHistory,
     setFileCollapsed,
     setFileContext,
+    setSectionCollapsed,
     reset,
   };
 }

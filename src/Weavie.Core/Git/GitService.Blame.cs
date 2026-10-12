@@ -48,6 +48,22 @@ public sealed partial class GitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<IReadOnlyList<GitCommit>> LogRangeAsync(
+		string worktreeDirectory,
+		string from,
+		string to,
+		CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(from);
+		ArgumentException.ThrowIfNullOrEmpty(to);
+		var result = await RunCheckedAsync(
+			worktreeDirectory,
+			["--no-optional-locks", "log", LogFormat, $"{from}..{to}", "--"],
+			ct).ConfigureAwait(false);
+		return ParseLog(result.StdOut);
+	}
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(
 		string worktreeDirectory,
 		string startCommit,

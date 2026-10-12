@@ -568,6 +568,9 @@ public sealed class WorktreeManagerTests : IDisposable {
 		public Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<GitCommit>>([]);
 
+		public Task<IReadOnlyList<GitCommit>> LogRangeAsync(string worktreeDirectory, string from, string to, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<GitCommit>>([]);
+
 		public Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(string worktreeDirectory, string startCommit, string path, int startLine, int endLine, int limit, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<GitLineCommit>>([]);
 

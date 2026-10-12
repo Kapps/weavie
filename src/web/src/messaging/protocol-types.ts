@@ -279,6 +279,7 @@ export interface EditorOptionsSpec {
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;
+  reviewOverviewCollapse: "global" | "session";
   spellCheck: boolean;
 }
 

@@ -5,56 +5,22 @@ using Weavie.Core.Git;
 namespace Weavie.Core.Review;
 
 /// <summary>
-/// Owns one session's live PR review comments: loads them for the branch's current PR, validates and writes
-/// comments, drafts, and reviews against the exact head the user saw, and publishes each snapshot. Every load and post
-/// runs behind one gate and publishes inside it, so the last published snapshot is always the newest.
+/// Owns one session's live PR review comments: loads them for the branch's current PR (a push moves their lines),
+/// validates and writes comments, drafts, and reviews against the exact head the user saw, and publishes each snapshot.
 /// </summary>
-public sealed class PullRequestComments {
-	private readonly SemaphoreSlim _gate = new(1, 1);
+public sealed class PullRequestComments : PullRequestOwner<PullRequestCommentsSnapshot> {
 	private readonly GitService _git = new();
 	private readonly string _worktree;
 	private readonly IReviewCommentStore _store;
-	private readonly Action<PullRequestCommentsSnapshot> _publish;
-	private volatile PullRequestTarget? _target;
-	private volatile bool _tracking;
 	private volatile PullRequestDiff? _diff;
-	private volatile PullRequestCommentsSnapshot _latest = new(null, null);
 
 	/// <summary>Creates the comments owner for the git worktree at <paramref name="worktree"/>.</summary>
-	public PullRequestComments(string worktree, IReviewCommentStore store, Action<PullRequestCommentsSnapshot> publish) {
+	public PullRequestComments(string worktree, IReviewCommentStore store, Action<PullRequestCommentsSnapshot> publish)
+		: base(new PullRequestCommentsSnapshot(null, null), publish) {
 		ArgumentException.ThrowIfNullOrEmpty(worktree);
 		ArgumentNullException.ThrowIfNull(store);
-		ArgumentNullException.ThrowIfNull(publish);
 		_worktree = worktree;
 		_store = store;
-		_publish = publish;
-	}
-
-	/// <summary>The most recently published snapshot.</summary>
-	public PullRequestCommentsSnapshot Latest => _latest;
-
-	/// <summary>
-	/// Follows the branch's PR (null: none). Comments reload only when the PR or its head/base changes — a push
-	/// moves their lines — never merely because the branch was re-checked.
-	/// </summary>
-	public Task TrackAsync(PullRequestTarget? target, CancellationToken ct) {
-		if (_tracking && _target == target) {
-			return Task.CompletedTask;
-		}
-
-		_tracking = true;
-		_target = target;
-		return RefreshAsync(ct);
-	}
-
-	/// <summary>Re-reads the current PR's comments, publishing only when something changed.</summary>
-	public async Task RefreshAsync(CancellationToken ct) {
-		await _gate.WaitAsync(ct).ConfigureAwait(false);
-		try {
-			await RefreshLockedAsync(ct).ConfigureAwait(false);
-		} finally {
-			_gate.Release();
-		}
 	}
 
 	/// <summary>
@@ -150,9 +116,9 @@ public sealed class PullRequestComments {
 		Func<PullRequestCommentSet, string?> validate,
 		Func<PullRequestTarget, PullRequestReview, Task> post,
 		CancellationToken ct) {
-		await _gate.WaitAsync(ct).ConfigureAwait(false);
+		await Gate.WaitAsync(ct).ConfigureAwait(false);
 		try {
-			if (_latest.Set is not { } set || _target is not { } target || set.Number != number || target.Number != number) {
+			if (Latest.Set is not { } set || Target is not { } target || set.Number != number || target.Number != number) {
 				return CommandResult.Failure($"PR #{number} isn't this session's pull request.");
 			}
 
@@ -171,12 +137,13 @@ public sealed class PullRequestComments {
 
 			return CommandResult.Success();
 		} finally {
-			_gate.Release();
+			Gate.Release();
 		}
 	}
 
-	private async Task RefreshLockedAsync(CancellationToken ct) {
-		if (_target is not { } target) {
+	/// <inheritdoc/>
+	protected override async Task RefreshLockedAsync(CancellationToken ct) {
+		if (Target is not { } target) {
 			Publish(new PullRequestCommentsSnapshot(null, null));
 			return;
 		}
@@ -185,20 +152,15 @@ public sealed class PullRequestComments {
 			var diff = await DiffAsync(target, ct).ConfigureAwait(false);
 			var review = await _store.LoadAsync(target.Repo, target.Number, ct).ConfigureAwait(false);
 			var set = new PullRequestCommentSet(target.Number, target.Url, target.HeadSha, diff.Paths, review);
-			if (_latest is not { Error: null, Set: { } current } || current != set) {
+			if (Latest is not { Error: null, Set: { } current } || current != set) {
 				Publish(new PullRequestCommentsSnapshot(set, null));
 			}
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {
-			var lastGood = _latest.Set is { } set && set.Number == target.Number ? set : null;
+			var lastGood = Latest.Set is { } set && set.Number == target.Number ? set : null;
 			Publish(new PullRequestCommentsSnapshot(lastGood, $"Couldn't load PR #{target.Number}'s comments: {ex.Message}"));
 		}
-	}
-
-	private void Publish(PullRequestCommentsSnapshot snapshot) {
-		_latest = snapshot;
-		_publish(snapshot);
 	}
 
 	// Commentable paths are the PR's own diff (merge-base..head), computed once per head/base pair.

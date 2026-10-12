@@ -166,7 +166,8 @@ test.describe("deleted review snapshots", () => {
     const path = join(weavie.workspace, "notes.txt");
     await unlink(path);
     await runCommand(page, "Diff Against HEAD");
-    await page.locator(".editor-empty-review").click();
+    // A new diff opens the review tab on its session overview.
+    await expect(page.locator(".unified-review .session-overview")).toBeVisible();
     const section = page.locator(".unified-review-file", {
       has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
     });

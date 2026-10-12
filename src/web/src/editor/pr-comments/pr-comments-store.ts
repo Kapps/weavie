@@ -99,7 +99,14 @@ export function showPrComments(): void {
 /** Sends one comment or review write; resolves to the host's error, or null once it landed. */
 export async function sendPrComment(
   session: ClientSession,
-  kind: "comment" | "reply" | "editComment" | "discardComment" | "submitReview" | "discardReview",
+  kind:
+    | "comment"
+    | "reply"
+    | "editComment"
+    | "discardComment"
+    | "submitReview"
+    | "discardReview"
+    | "issueComment",
   payload: object,
 ): Promise<string | null> {
   try {

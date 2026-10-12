@@ -42,6 +42,7 @@ export interface HostHello {
     };
     recentTerms: string[];
   };
+  reviewOverview: { collapsed: string[] };
   testProfile: string;
   sourceLinkHosts: string[];
   agentDefaults: AgentDefaults;

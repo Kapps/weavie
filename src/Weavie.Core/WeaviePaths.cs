@@ -83,6 +83,12 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string SearchStateFile { get; } = Path.Combine(Root, "search-state.json");
 
+	/// <summary>
+	/// The session overview's app-global collapsed sections: <c>~/.weavie/review-overview-state.json</c>. Runtime UI
+	/// state, never settings.toml. See <see cref="Review.ReviewOverviewStateStore"/>.
+	/// </summary>
+	public static string ReviewOverviewStateFile { get; } = Path.Combine(Root, "review-overview-state.json");
+
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 

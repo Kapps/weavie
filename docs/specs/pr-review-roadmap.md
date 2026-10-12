@@ -5,8 +5,8 @@ follow local edits) but looks and feels worse. This roadmap splits the fix into 
 own session, branch, and PR. Reviews stay **for humans**: agent output informs the reviewer and never speaks in
 their voice.
 
-> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024); 8 in review
-> ([pr-review-finish.md](pr-review-finish.md)). Next: 7. Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
+> Status: **building**. Shipped: 1 (#1021), the file tree from 5 (#1023); 6 in review (#1024); 8 (#1029); 7 in review
+> ([session-overview.md](session-overview.md)). Builds on [turn-review.md](turn-review.md), [diff-against.md](diff-against.md),
 > [incremental-review-persistence.md](incremental-review-persistence.md), [open-pr.md](open-pr.md), and
 > [pr-comments.md](pr-comments.md).
 
@@ -123,7 +123,15 @@ change summary, enriched — when the branch has a PR — with title, descriptio
 PR-level conversation. Per *Sessions, not PRs*, it works for any session; PR data only adds sections. It leads into
 the diffs (and later the review guide's reading order) in one step. [open-pr.md](open-pr.md) deferred a PR
 overview tab until source tabs land; the review tab already proves non-file tabs, so that wait no longer applies.
-Mockups first.
+
+Decided by mockup:
+
+- The overview is the top of the review tab; the changed-file tree becomes its **Changes** section and the diffs
+  follow in the same scroll. Scrolled past, the sticky header carries the session's identity and an **Overview**
+  command back. Sessions without changes still get it. Commits list the whole branch, dimming those the review doesn't span.
+- Every section collapses. Collapse state is remembered globally by default; a setting switches it to per session.
+- The PR conversation's composer posts immediately: GitHub's PR-level comments are never part of a review.
+- Feature 8's submit control sits top-right of the overview and in the sticky header, only when there's a PR.
 
 ## 8. Finish a review
 
@@ -133,6 +141,10 @@ restarts, and can be edited or discarded before submitting. Posting a single com
 The submit control lives in the front door (7) and the review header, so the two sessions agree on placement.
 
 ## Under consideration
+
+- **Filter the overview to a commit.** Clicking a commit in the overview's Commits list would show only that commit's
+  changes (parent → commit) read-only, without touching the session's review, with a bar back to the review. Needs a
+  read-only diff view inside the unified review; deferred as a large lift.
 
 - **Second opinion.** A command asks another configured agent ([agent-consultation.md](agent-consultation.md))
   to review the same diff; its hints render beside the first agent's, and a line both flagged reads as agreed.

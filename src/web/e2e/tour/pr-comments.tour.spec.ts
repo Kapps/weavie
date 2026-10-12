@@ -1,16 +1,23 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { openPullRequestFile } from "../harness/review";
 
 // Video tour of inline PR review threads: fit, reply, new comment, edit, and threads surviving Close Diff.
 test.use({ prScenario: true });
-test.setTimeout(120_000);
+test.setTimeout(150_000);
 
 const hold = (page: Page, ms: number) => page.waitForTimeout(ms);
 const card = (page: Page, text: string) =>
   page.locator(".weavie-pr-card").filter({ hasText: text });
 const shots = "e2e/.recordings";
+// Ctrl+Enter starts a pending review (the finish-review tour); Comment now posts immediately, so edits show "edited".
+async function postNow(page: Page, scope: Locator): Promise<void> {
+  const now = scope.getByRole("button", { name: "Comment now", exact: true });
+  await now.hover();
+  await hold(page, 800);
+  await now.click();
+}
 // The sandbox has no TS language server; its "unavailable" toasts would cover the card on camera.
 async function dismissToasts(page: Page): Promise<void> {
   const close = page.locator(".toast:not(.leaving) .toast-close");
@@ -19,15 +26,8 @@ async function dismissToasts(page: Page): Promise<void> {
 }
 
 test("PR comments: inline cards, reply, new comment, edit, close diff", async ({ page }) => {
-  await runCommand(page, "Open Pull Request…");
-  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
-  await hold(page, 1200);
-  await page.locator(".session-prompt-input").press("Enter");
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
-  await hold(page, 800);
-
-  // (1) Thread card inline under line 2, clamped to the visible editor.
-  await walkToChangedFile(page, "hello.ts");
+  // (1) Open PR #101's hello.ts: the thread card sits inline under line 2, clamped to the visible editor.
+  await openPullRequestFile(page, "hello.ts");
   const thread = card(page, "Why change this greeting?");
   await expect(thread).toBeVisible({ timeout: 10_000 });
   const editor = await page.locator(".monaco-editor").first().boundingBox();
@@ -52,7 +52,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   await page.screenshot({ path: `${shots}/pr-comments-editor.png` });
   await thread.screenshot({ path: `${shots}/pr-comments-card.png` });
 
-  // (2) Hover a comment, reply via the Reply… box + Ctrl+Enter.
+  // (2) Hover a comment, reply via the Reply… box + Comment now.
   await thread.locator(".weavie-pr-comment").first().hover();
   await hold(page, 1200);
   await thread.locator(".weavie-pr-reply-stub").click();
@@ -61,7 +61,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   await reply.pressSequentially("Addressed in the latest push.", { delay: 40 });
   await hold(page, 800);
   await thread.screenshot({ path: `${shots}/pr-comments-composer.png` });
-  await reply.press("ControlOrMeta+Enter");
+  await postNow(page, thread);
   await expect(
     thread.locator(".weavie-pr-comment-body", { hasText: "Addressed in the latest push." }),
   ).toBeVisible({ timeout: 10_000 });
@@ -81,7 +81,7 @@ test("PR comments: inline cards, reply, new comment, edit, close diff", async ({
   await hold(page, 800);
   await input.pressSequentially("Nit: keep the period.", { delay: 40 });
   await hold(page, 600);
-  await input.press("ControlOrMeta+Enter");
+  await postNow(page, draft);
   const posted = card(page, "Nit: keep the period.");
   await expect(posted).toBeVisible({ timeout: 10_000 });
   await hold(page, 1800);

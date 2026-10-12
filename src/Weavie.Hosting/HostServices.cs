@@ -76,6 +76,9 @@ public sealed record HostServices : IDisposable {
 	/// </summary>
 	public required SearchStateStore SearchState { get; init; }
 
+	/// <summary>The session overview's app-global collapsed sections (<c>~/.weavie/review-overview-state.json</c>).</summary>
+	public required ReviewOverviewStateStore ReviewOverviewState { get; init; }
+
 	/// <summary>
 	/// Lists open pull requests for the Open-PR flow. The default talks to GitHub; the headless harness swaps a
 	/// <see cref="StaticPullRequestProvider"/> so a PR journey is deterministic and offline.
@@ -84,6 +87,9 @@ public sealed record HostServices : IDisposable {
 
 	/// <summary>Loads/posts a PR's review comments (same GitHub client as <see cref="PullRequests"/>, or the harness stub).</summary>
 	public required IReviewCommentStore ReviewComments { get; init; }
+
+	/// <summary>Loads a PR's overview and posts PR-level comments (same GitHub client, or the harness stub).</summary>
+	public required IPullRequestDiscussion PullRequestDiscussion { get; init; }
 
 	/// <summary>
 	/// The source system (Notion, …): validates the user's pasted access token and fetches docs. The default talks
@@ -131,6 +137,8 @@ public sealed record HostServices : IDisposable {
 		railState.Log += Log;
 		var searchState = new SearchStateStore(new LocalFileSystem(), path: null);
 		searchState.Log += Log;
+		var reviewOverviewState = new ReviewOverviewStateStore(new LocalFileSystem(), path: null);
+		reviewOverviewState.Log += Log;
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
 			Settings = settings,
@@ -147,8 +155,10 @@ public sealed record HostServices : IDisposable {
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,
+			ReviewOverviewState = reviewOverviewState,
 			PullRequests = github,
 			ReviewComments = github,
+			PullRequestDiscussion = github,
 			Sources = SourceConnector.CreateDefault(),
 			LogBuffer = logBuffer,
 			LastCrashFile = WeaviePaths.LastCrashFile,

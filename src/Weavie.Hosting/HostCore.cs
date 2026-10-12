@@ -64,6 +64,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly RailStateStore _railState;
 	// App-global find-in-files UI state (match options, include/exclude globs, recent terms); same push pattern.
 	private readonly SearchStateStore _searchState;
+	private readonly Weavie.Core.Review.ReviewOverviewStateStore _reviewOverviewState;
 	// App-global captured console output (stdout/stderr teed into a bounded ring), served by the in-app log viewer.
 	private readonly LogBuffer _logBuffer;
 	// Where a prior run's unhandled-crash report lives / rotates to; test hosts point these at a private temp
@@ -77,6 +78,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
 	private readonly Weavie.Core.Review.IReviewCommentStore _reviewComments;
+	private readonly Weavie.Core.Review.IPullRequestDiscussion _pullRequestDiscussion;
 	// The source system (Notion personal-access-token validate + fetch); see HostCore.Sources.cs.
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
 	private readonly LayoutStore _layout;
@@ -115,6 +117,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
+	private Action? _onReviewOverviewStateChanged;
 	private Action? _onRecentsChanged;
 	private IDisposable? _shellSettingSubscription;
 
@@ -192,12 +195,14 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
 		_searchState = services.SearchState;
+		_reviewOverviewState = services.ReviewOverviewState;
 		_logBuffer = services.LogBuffer;
 		_lastCrashFile = services.LastCrashFile;
 		_previousCrashFile = services.PreviousCrashFile;
 		_exitJournalFile = services.ExitJournalFile;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
+		_pullRequestDiscussion = services.PullRequestDiscussion;
 		_sources = services.Sources;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
@@ -446,6 +451,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Find-in-files UI state (options + globs + recent terms): same re-push-on-change.
 		_onSearchStateChanged = PushSearchStateToWeb;
 		_searchState.Changed += _onSearchStateChanged;
+		_onReviewOverviewStateChanged = PushReviewOverviewStateToWeb;
+		_reviewOverviewState.Changed += _onReviewOverviewStateChanged;
 
 		// Recent workspaces are app-global: opening/pruning one in any window refreshes every existing File menu.
 		_onRecentsChanged = PushRecentWorkspacesToWeb;
@@ -591,6 +598,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onSearchStateChanged is not null) {
 			_searchState.Changed -= _onSearchStateChanged;
 			_onSearchStateChanged = null;
+		}
+
+		if (_onReviewOverviewStateChanged is not null) {
+			_reviewOverviewState.Changed -= _onReviewOverviewStateChanged;
+			_onReviewOverviewStateChanged = null;
 		}
 		if (_onRecentsChanged is not null) {
 			_platform.RecentsChanged -= _onRecentsChanged;

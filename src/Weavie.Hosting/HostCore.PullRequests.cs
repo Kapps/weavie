@@ -151,13 +151,13 @@ public sealed partial class HostCore {
 		if (session.Changes.Review is { } existing && existing.SameSource(review))
 			review = review with { MergeBase = existing.MergeBase };
 		try {
-			// The page activates this PR's session as this request's answer, landing on the review's first file.
+			// The page activates this PR's session as this request's answer, landing on its overview.
 			await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
 				request,
-				(path, line) => session.FileOpener.Open(path, line, preview: true, scratch: false, EditorOpenIntent.Reveal),
+				null,
 				ct)
 				.ConfigureAwait(false);
 			return null;

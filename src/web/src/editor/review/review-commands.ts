@@ -5,6 +5,7 @@ import type { EditorController } from "../editor-controller";
 import type { InlineDiffActions } from "../inline-diff";
 import { activeTabFor } from "../session-store";
 import { commandPath } from "../tab-command-bindings";
+import { requestOverview } from "./overview/overview-request";
 
 export type ReviewCommandBinding = readonly [id: string, capture: CommandCapture];
 
@@ -108,6 +109,13 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
           session === null ? undefined : activeTabFor(session)?.presentation?.capture().text;
         return () =>
           session !== null && text != null && editor.openReview(session, text.path, text.line);
+      }),
+    ],
+    [
+      CommandIds.reviewOverview,
+      forSession((session) => {
+        requestOverview(session);
+        return editor.openReview(session, undefined, undefined);
       }),
     ],
     [

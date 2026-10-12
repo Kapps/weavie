@@ -17,15 +17,18 @@ public sealed partial class HostCore {
 	/// working tree from its merge-base with HEAD (so a branch shows only this side's changes), and seeds the
 	/// change tracker so the diff reviews through the same accept/reject engine as a turn. Failures surface as
 	/// toasts; an empty diff says so and retracts any prior review instead of arming an unwalkable navigator.
-	/// Returns the first file to reveal; the page opens it only if the user hasn't navigated since asking.
+	/// Answers whether a new review opened; the page shows its overview only if the user hasn't navigated since asking.
+	/// A review against another source is replaced only when <paramref name="replaces"/> names it, the review the user
+	/// agreed to close; otherwise the answer names the open review so the page can ask (again).
 	/// </summary>
-	private async Task<ReviewReveal> DiffAgainstFromWebAsync(
+	private async Task<ReviewOpened> DiffAgainstFromWebAsync(
 		HostSession session,
 		string reference,
+		string? replaces,
 		CancellationToken ct) {
 		reference = reference.Trim();
 		if (reference.Length == 0) {
-			return ReviewReveal.None;
+			return ReviewOpened.No;
 		}
 
 		object request = session.Changes.BeginReviewRequest();
@@ -36,13 +39,13 @@ public sealed partial class HostCore {
 		try {
 			if (await git.ResolveCommitAsync(worktree, reference, ct).ConfigureAwait(false) is not { } target) {
 				Notify(session, "warn", $"'{reference}' isn't a branch, tag, or commit here.");
-				return ReviewReveal.None;
+				return ReviewOpened.No;
 			}
 
 			string head = await git.GetHeadCommitAsync(worktree, ct).ConfigureAwait(false);
 			if (await git.MergeBaseAsync(worktree, target, head, ct).ConfigureAwait(false) is not { } mergeBase) {
 				Notify(session, "warn", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
-				return ReviewReveal.None;
+				return ReviewOpened.No;
 			}
 
 			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
@@ -51,39 +54,71 @@ public sealed partial class HostCore {
 			changes = await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't diff against '{reference}': {ex.Message}");
-			return ReviewReveal.None;
+			return ReviewOpened.No;
 		}
 
 		if (changes.Count == 0) {
 			// An empty Git diff does not discard saved rejection receipts.
 			Notify(session, "info", $"No changes against '{reference}'.");
-			if (session.Changes.Review is null) return ReviewReveal.None;
+			if (session.Changes.Review is not { } open || !open.SameSource(review)) return ReviewOpened.No;
+		}
+
+		if (session.Changes.Review is { } current && !current.SameSource(review) && current.Label != replaces) {
+			return new(false, current.Label, review.Label);
 		}
 
 		try {
-			return await SeedAndArmReviewAsync(review, session, changes, request, static (_, _) => { }, ct).ConfigureAwait(false);
+			bool opened = await SeedAndArmReviewAsync(review, session, changes, request, replaces, ct).ConfigureAwait(false);
+			// Another review took over while this one was computing: ask about that one instead.
+			return !opened && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
+				? new(false, now.Label, review.Label)
+				: new(opened, null, review.Label);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
-			return ReviewReveal.None;
+			return ReviewOpened.No;
 		}
+	}
+
+	/// <summary>Reviews the whole branch: a diff against <see cref="DefaultDiffRefAsync"/> from their merge-base.</summary>
+	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
+		if (await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } reference) {
+			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
+			return ReviewOpened.No;
+		}
+
+		return await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// The ref a whole-branch review compares against: the remote's default branch, else the local one. The remote's
+	/// copy wins because a local default branch is often far behind and would fold others' merged work into the diff.
+	/// </summary>
+	private static async Task<string?> DefaultDiffRefAsync(string worktree, CancellationToken ct) {
+		var git = new GitService();
+		if (await git.ResolveDefaultBranchAsync(worktree, ct).ConfigureAwait(false) is not { } branch) {
+			return null;
+		}
+
+		string remote = $"origin/{branch}";
+		return await git.ResolveCommitAsync(worktree, remote, ct).ConfigureAwait(false) is null ? branch : remote;
 	}
 
 	/// <summary>
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff, and returns that file to reveal (a review surfaces its code — post-turn review parks);
-	/// <paramref name="armed"/> runs with it in the same UI step that armed the review. Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving
-	/// the session usable.
+	/// first file's diff, and answers whether a new review opened (resuming the same source keeps the user's place).
+	/// <paramref name="replaces"/>, when set, names the review against another source to close first.
+	/// Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the session usable.
 	/// </summary>
-	private async Task<ReviewReveal> SeedAndArmReviewAsync(
+	private async Task<bool> SeedAndArmReviewAsync(
 		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
 		object request,
-		Action<string, int?> armed,
+		string? replaces,
 		CancellationToken ct) {
-		bool resuming = session.Changes.Review is not null;
+		bool resuming = session.Changes.Review is { } existing && existing.SameSource(review);
 
 		var git = new GitService();
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
@@ -104,30 +139,16 @@ public sealed partial class HostCore {
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
 		return await _ui.InvokeAsync(() => {
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
-			if (!session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
-				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray(), request))
-				return Task.FromResult(ReviewReveal.None);
+			ReviewSeed[] armed = [.. seeds.Select(seed => new ReviewSeed(seed.Absolute,
+				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists))];
+			if (!(replaces is null ? session.Changes.ArmReview(review, armed, request) : session.Changes.ReplaceReview(review, armed, request, replaces)))
+				return Task.FromResult(false);
 
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
 			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
 				PushTurnDiffToWeb(session, path);
-			if (resuming || seeds.Count == 0) {
-				return Task.FromResult(ReviewReveal.None);
-			}
-
-			var firstSeed = seeds.FirstOrDefault(seed => seed.Current.Exists);
-			if (firstSeed == default) {
-				return Task.FromResult(ReviewReveal.None);
-			}
-
-			string first = firstSeed.Absolute;
-			int? line = session.Changes.GetTurn(first) is { } turn
-				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
-				: null;
-			PushTurnDiffToWeb(session, first);
-			armed(first, line);
-			return Task.FromResult(new ReviewReveal(first, line));
+			return Task.FromResult(!resuming && seeds.Count > 0);
 		}, ct).ConfigureAwait(false);
 	}
 
@@ -152,7 +173,10 @@ public sealed partial class HostCore {
 	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
 }
 
-/// <summary>The file a freshly armed review surfaces, or <see cref="None"/> when there is nothing to reveal.</summary>
-internal sealed record ReviewReveal(string? Path, int? Line) {
-	public static ReviewReveal None { get; } = new(null, null);
+/// <summary>
+/// Whether a request opened its review <c>Label</c>; <c>Replaces</c> names the review it would close when it was
+/// refused for it.
+/// </summary>
+internal sealed record ReviewOpened(bool Opened, string? Replaces, string Label) {
+	public static ReviewOpened No { get; } = new(false, null, string.Empty);
 }

@@ -1269,7 +1269,7 @@ test.describe("ACP composer", () => {
     await expect(counts).toHaveText("+3/-8");
     await expect(counts).toHaveAttribute(
       "title",
-      "Review diff against HEAD — 3 lines added, 8 removed",
+      "3 lines added, 8 removed since HEAD — review a diff",
     );
     const [chipBox, statusBox] = await Promise.all([
       counts.boundingBox(),
@@ -1280,7 +1280,9 @@ test.describe("ACP composer", () => {
     expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(
       (statusBox?.x ?? 0) + (statusBox?.width ?? 0),
     );
+    // The totals open the session's diffs; Uncommitted is the diff they count.
     await counts.click();
+    await page.locator(".context-menu").getByText("Uncommitted", { exact: true }).click();
     const diffAgainst = await host.waitForSession(
       agentSession.address,
       "request",

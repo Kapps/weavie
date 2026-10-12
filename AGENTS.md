@@ -195,6 +195,9 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   or any other dev-only sink is still a silent fallback, because the person hitting the limit never
   sees it (e.g. capping a file index at 20k and only logging it leaves files silently unopenable).
   Surface it where the affected user is, or don't impose the bound.
+- **Settle a debatable choice with a setting, not a debate.** When two behaviors are both defensible
+  and offering both is nearly free, ship the better default plus a Weavie setting for the other — no UI
+  beyond the settings registry; users change it by asking their agent.
 - **Native AOT-safe code only.** The macOS, Linux, headless, and runner apps ship Native AOT, so shipped code is
   reflection-free: JSON goes through source-generated contracts (`JsonTypeInfo<T>`; bus payloads in `WireJson`),
   and a deserialized type keeps an initializer default only on a `set` property. See

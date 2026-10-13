@@ -83,24 +83,7 @@ export function SessionRail(props: {
                   onContextMenu={(event) => menu.open(event, session)}
                 >
                   <span class="session-chip-face">
-                    {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
-                    <Show
-                      when={session.isLocal}
-                      fallback={
-                        <svg
-                          class={`session-status cloud status-${statusDot(session)}`}
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path d={CLOUD_PATH} />
-                        </svg>
-                      }
-                    >
-                      <span class={`session-status status-${statusDot(session)}`} />
-                    </Show>
-                    <Show when={session.pending}>
-                      <span class="session-chip-spinner" aria-hidden="true" />
-                    </Show>
+                    <StatusIcon session={session} />
                     <span class="session-chip-words">
                       {session.title.split(" ").slice(0, 2).join(" ")}
                     </span>
@@ -108,6 +91,9 @@ export function SessionRail(props: {
                   {/* Out of flow, so expanding never changes the chip's height. */}
                   <Show when={props.expanded}>
                     <span class="session-chip-detail">
+                      <span class="session-chip-lead">
+                        <StatusIcon session={session} />
+                      </span>
                       <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
                       <SessionText session={session} now={props.now} />
                     </span>
@@ -133,5 +119,30 @@ export function SessionRail(props: {
       </nav>
       <menu.View />
     </div>
+  );
+}
+
+/** A session's status dot (a cloud for remotes); a host op in flight (delete / load / unload) spins over it until it settles. */
+function StatusIcon(props: { session: RailSession }): JSX.Element {
+  return (
+    <span class="session-chip-icon">
+      <Show
+        when={props.session.isLocal}
+        fallback={
+          <svg
+            class={`session-status cloud status-${statusDot(props.session)}`}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path d={CLOUD_PATH} />
+          </svg>
+        }
+      >
+        <span class={`session-status status-${statusDot(props.session)}`} />
+      </Show>
+      <Show when={props.session.pending}>
+        <span class="session-chip-spinner" aria-hidden="true" />
+      </Show>
+    </span>
   );
 }

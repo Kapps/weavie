@@ -39,9 +39,8 @@
   font-size: var(--font-hint-size);
   cursor: pointer;
 }
-/* The collapsed chip: its dot over the first words of the name, kept as the expanded row's leading column. */
+/* The collapsed chip: its dot over the first words of the name. Expanded, it keeps its space so the chip keeps its height. */
 .session-chip-face {
-  position: relative;
   flex: 0 0 var(--chip-face);
   display: flex;
   flex-direction: column;
@@ -54,7 +53,7 @@
   top: 0;
   right: 8px;
   bottom: 0;
-  left: calc(2px + var(--chip-face) + 8px);
+  left: 2px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -85,8 +84,7 @@
   line-height: 1.15;
   text-align: center;
 }
-/* Expanded, the full name beside the face replaces its words, which keep their space so the chip keeps its height. */
-.session-rail.expanded .session-chip-words {
+.session-rail.expanded .session-chip-face {
   visibility: hidden;
 }
 .session-chip:focus-visible,
@@ -103,9 +101,19 @@
 .session-chip.pending {
   cursor: progress;
 }
+/* Expanded, the dot keeps its column and centers on the details beside it. */
+.session-chip-lead {
+  flex: 0 0 var(--chip-face);
+  display: flex;
+  justify-content: center;
+}
+.session-chip-icon {
+  position: relative;
+  display: flex;
+}
 .session-chip-spinner {
   position: absolute;
-  top: -2px;
+  top: calc(50% - 6px);
   left: calc(50% - 6px);
   width: 12px;
   height: 12px;

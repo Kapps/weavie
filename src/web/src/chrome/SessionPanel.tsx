@@ -6,18 +6,11 @@ import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
 import { floatingPanelLevel, registerFloatingPanel } from "./floating-panels";
 import { panelPinned, parkedCollapsed, setPanelPinned, setParkedCollapsed } from "./rail-state";
-import { createSessionMenu, ParkedToggle, SessionTools } from "./SessionTools";
+import { createSessionMenu, ParkedToggle, SessionStatus, SessionTools } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import { createPanelResize } from "./session-panel-resize";
 import type { RailSession } from "./session-store";
-import {
-  CLOUD_PATH,
-  SESSION_GROUPS,
-  sessionGroup,
-  sessionSubtitle,
-  statusDot,
-  switchShortcut,
-} from "./session-summary";
+import { SESSION_GROUPS, sessionGroup, sessionSubtitle, switchShortcut } from "./session-summary";
 
 // The session panel beside the rail: every session grouped by what needs the user, with what each agent is
 // doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
@@ -236,35 +229,18 @@ export function SessionPanel(props: {
                                 offline: session().offline,
                               }}
                               data-session-slot={session().id}
-                              title={
-                                shortcut() === ""
-                                  ? session().label
-                                  : `${session().label} (${shortcut()})`
-                              }
+                              title={`${session().label}${session().isLocal ? "" : ` @ ${session().locationName}`}${
+                                shortcut() === "" ? "" : ` (${shortcut()})`
+                              }`}
                               onClick={() => choose(session())}
                               onContextMenu={(event) => menu.open(event, session())}
                             >
                               <span class="session-panel-num">
                                 {index() < 9 ? index() + 1 : ""}
                               </span>
-                              <span class={`session-status status-${statusDot(session())}`} />
+                              <SessionStatus session={session()} />
                               <span class="session-panel-text">
-                                <span class="session-panel-name">
-                                  <span class="session-panel-title">{session().title}</span>
-                                  {/* Remote sessions name their machine, so same-named branches stay apart. */}
-                                  <Show when={!session().isLocal}>
-                                    <span class="session-panel-where">
-                                      <svg
-                                        viewBox="0 0 24 24"
-                                        fill="currentColor"
-                                        aria-hidden="true"
-                                      >
-                                        <path d={CLOUD_PATH} />
-                                      </svg>
-                                      {session().locationName}
-                                    </span>
-                                  </Show>
-                                </span>
+                                <span class="session-panel-title">{session().title}</span>
                                 <span class="session-panel-activity">
                                   {sessionSubtitle(session(), now())}
                                 </span>

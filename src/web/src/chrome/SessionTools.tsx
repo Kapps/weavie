@@ -7,7 +7,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, newSessionTitle } from "./session-summary";
+import { CLOUD_PATH, newSessionTitle, statusDot } from "./session-summary";
 
 /** The new-session and remote-agents buttons: at the rail's foot, or in the pinned session panel's header. */
 export function SessionTools(props: {
@@ -74,5 +74,25 @@ export function ParkedToggle(props: { class: string; count: number; label?: stri
       </Show>
       {props.label ?? props.count}
     </button>
+  );
+}
+
+/** A session's status dot; a remote session's status reads as a cloud in its place. */
+export function SessionStatus(props: { session: RailSession }): JSX.Element {
+  return (
+    <Show
+      when={props.session.isLocal}
+      fallback={
+        <svg
+          class={`session-status cloud status-${statusDot(props.session)}`}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d={CLOUD_PATH} />
+        </svg>
+      }
+    >
+      <span class={`session-status status-${statusDot(props.session)}`} />
+    </Show>
   );
 }

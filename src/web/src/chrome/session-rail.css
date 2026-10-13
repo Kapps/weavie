@@ -165,7 +165,7 @@
   background: transparent;
   border: 1px solid var(--dim);
 }
-/* A remote session's status reads as a cloud in place of the dot (rail only). */
+/* A remote session's status reads as a cloud in place of the dot. */
 .session-status.cloud {
   width: 14px;
   height: 14px;

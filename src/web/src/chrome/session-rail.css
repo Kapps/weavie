@@ -53,7 +53,7 @@
   top: 0;
   right: 8px;
   bottom: 0;
-  left: 2px;
+  left: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -100,12 +100,6 @@
 }
 .session-chip.pending {
   cursor: progress;
-}
-/* Expanded, the dot keeps its column and centers on the details beside it. */
-.session-chip-lead {
-  flex: 0 0 var(--chip-face);
-  display: flex;
-  justify-content: center;
 }
 .session-chip-icon {
   position: relative;

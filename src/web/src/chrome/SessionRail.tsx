@@ -21,7 +21,7 @@ export interface SessionListHandlers {
 
 // The left session rail: every session on every connected backend as a status dot (a cloud for remotes) over the first words of its
 // name, loaded first and parked (unloaded) ones folded behind a toggle. Expanded (the unpinned session panel), it widens in place and
-// each chip gains its full name and activity beside its dot, so nothing moves vertically.
+// each chip gains its number, dot, full name, and activity in a row, so nothing moves vertically.
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -44,7 +44,6 @@ export function SessionRail(props: {
   const menu = createSessionMenu();
   const parked = createMemo(() => props.sessions.filter((session) => !session.loaded).length);
   const firstParked = createMemo(() => props.sessions.findIndex((session) => !session.loaded));
-  // The tools open their own surfaces, so they dismiss a hover-expanded rail.
   return (
     <div class="session-rail-slot">
       <nav
@@ -91,10 +90,8 @@ export function SessionRail(props: {
                   {/* Out of flow, so expanding never changes the chip's height. */}
                   <Show when={props.expanded}>
                     <span class="session-chip-detail">
-                      <span class="session-chip-lead">
-                        <StatusIcon session={session} />
-                      </span>
                       <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
+                      <StatusIcon session={session} />
                       <SessionText session={session} now={props.now} />
                     </span>
                   </Show>

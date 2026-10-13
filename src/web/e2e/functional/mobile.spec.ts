@@ -345,7 +345,14 @@ test("touching the agent panel only focuses the composer when its input is tappe
         element.setAttribute("data-test-focus-count", "0");
       });
 
-      await surface.getByText("echo: Check touch focus", { exact: true }).tap();
+      const reply = surface.getByText("echo: Check touch focus", { exact: true });
+      await reply.tap();
+      // Safari's tap: a touch pointerdown, then a click mislabelled pointerType "mouse" (WebKit 282988).
+      await reply.evaluate((element) => {
+        const init = { bubbles: true, button: 0, detail: 1, isPrimary: true };
+        element.dispatchEvent(new PointerEvent("pointerdown", { ...init, pointerType: "touch" }));
+        element.dispatchEvent(new PointerEvent("click", { ...init, pointerType: "mouse" }));
+      });
       await surface.locator(".pane-label").tap();
       const control = surface.locator(".agent-status-axis").first();
       await control.tap();

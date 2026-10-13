@@ -2,6 +2,9 @@
    in the files' collapse-toggle column, and text starts where file names do. */
 .session-overview {
   --overview-indent: calc(1.5em + 0.65em);
+  /* Scrolled past during file jumps; skipping it keeps every jump frame from restyling it. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 600px;
   padding: 1.6em calc(var(--review-scrollbar-size) + 0.65em) 0.4em 0.65em;
 }
 

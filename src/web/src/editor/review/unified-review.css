@@ -167,6 +167,8 @@
   position: absolute;
   left: 0;
   width: 100%;
+  /* Off-screen sections skip style and paint; the virtualiser's estimate stands in until first painted. */
+  content-visibility: auto;
   border-block: 1px solid var(--border);
   background: var(--bg);
 }

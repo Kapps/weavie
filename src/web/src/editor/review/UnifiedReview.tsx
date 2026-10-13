@@ -517,6 +517,7 @@ export function UnifiedReview(props: {
                           tab={props.tab}
                           scroller={() => scroll()!}
                           editorHeight={() => editorHeight(view())}
+                          estimatedSize={() => estimatedFileSize(view())}
                           onEditorHeight={(height) => {
                             const file = view();
                             if (editorHeights.get(file) === height) return false;

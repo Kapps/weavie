@@ -45,6 +45,8 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   scroller: () => ReviewScroll;
   editorHeight: () => number;
+  /** The section's size before it's first painted; WebKit skips styling off-screen sections until then. */
+  estimatedSize: () => number;
   onEditorHeight: (height: number) => boolean;
   index: number;
   fileCount: number;
@@ -129,6 +131,7 @@ export function ReviewFileSection(props: {
       class="unified-review-file"
       classList={{ collapsed: collapsed() }}
       data-index={props.index}
+      style={{ "contain-intrinsic-block-size": `auto ${props.estimatedSize()}px` }}
       ref={(element) => {
         article = element;
         props.observe(element);

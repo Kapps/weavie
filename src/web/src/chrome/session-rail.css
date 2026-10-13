@@ -39,8 +39,9 @@
   font-size: var(--font-hint-size);
   cursor: pointer;
 }
-/* The collapsed chip: its dot over the first words of the name. Expanded, it keeps its space so the chip keeps its height. */
+/* The chip's dot over the first words of its name, unchanged when the rail expands. */
 .session-chip-face {
+  position: relative;
   flex: 0 0 var(--chip-face);
   display: flex;
   flex-direction: column;
@@ -53,7 +54,7 @@
   top: 0;
   right: 8px;
   bottom: 0;
-  left: 8px;
+  left: calc(2px + var(--chip-face) + 8px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -84,9 +85,6 @@
   line-height: 1.15;
   text-align: center;
 }
-.session-rail.expanded .session-chip-face {
-  visibility: hidden;
-}
 .session-chip:focus-visible,
 .session-rail-add:focus-visible,
 .session-rail-cloud:focus-visible {
@@ -101,13 +99,9 @@
 .session-chip.pending {
   cursor: progress;
 }
-.session-chip-icon {
-  position: relative;
-  display: flex;
-}
 .session-chip-spinner {
   position: absolute;
-  top: calc(50% - 6px);
+  top: -2px;
   left: calc(50% - 6px);
   width: 12px;
   height: 12px;

@@ -21,7 +21,7 @@ export interface SessionListHandlers {
 
 // The left session rail: every session on every connected backend as a status dot (a cloud for remotes) over the first words of its
 // name, loaded first and parked (unloaded) ones folded behind a toggle. Expanded (the unpinned session panel), it widens in place and
-// each chip gains its number, dot, full name, and activity in a row, so nothing moves vertically.
+// each chip stays as it is and gains its number, full name, and activity to its right.
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -82,7 +82,24 @@ export function SessionRail(props: {
                   onContextMenu={(event) => menu.open(event, session)}
                 >
                   <span class="session-chip-face">
-                    <StatusIcon session={session} />
+                    {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
+                    <Show
+                      when={session.isLocal}
+                      fallback={
+                        <svg
+                          class={`session-status cloud status-${statusDot(session)}`}
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path d={CLOUD_PATH} />
+                        </svg>
+                      }
+                    >
+                      <span class={`session-status status-${statusDot(session)}`} />
+                    </Show>
+                    <Show when={session.pending}>
+                      <span class="session-chip-spinner" aria-hidden="true" />
+                    </Show>
                     <span class="session-chip-words">
                       {session.title.split(" ").slice(0, 2).join(" ")}
                     </span>
@@ -91,7 +108,6 @@ export function SessionRail(props: {
                   <Show when={props.expanded}>
                     <span class="session-chip-detail">
                       <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
-                      <StatusIcon session={session} />
                       <SessionText session={session} now={props.now} />
                     </span>
                   </Show>
@@ -116,30 +132,5 @@ export function SessionRail(props: {
       </nav>
       <menu.View />
     </div>
-  );
-}
-
-/** A session's status dot (a cloud for remotes); a host op in flight (delete / load / unload) spins over it until it settles. */
-function StatusIcon(props: { session: RailSession }): JSX.Element {
-  return (
-    <span class="session-chip-icon">
-      <Show
-        when={props.session.isLocal}
-        fallback={
-          <svg
-            class={`session-status cloud status-${statusDot(props.session)}`}
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path d={CLOUD_PATH} />
-          </svg>
-        }
-      >
-        <span class={`session-status status-${statusDot(props.session)}`} />
-      </Show>
-      <Show when={props.session.pending}>
-        <span class="session-chip-spinner" aria-hidden="true" />
-      </Show>
-    </span>
   );
 }

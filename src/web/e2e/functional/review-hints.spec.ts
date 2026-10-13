@@ -64,6 +64,12 @@ test.describe("ReportFindings", () => {
     },
   });
 
+  // FLAKE 2026-10-13 16:08Z https://github.com/Kapps/weavie/actions/runs/38424452181 (macOS shard 4/6): the catalog
+  // formats Ctrl as "⌃" on macOS, so the hardcoded "Ctrl+Alt+Shift+F" never matched. Fixed by expecting the
+  // platform's own glyph; this was deterministic on macOS, not a timing flake.
+  const ctrl = process.platform === "darwin" ? "⌃" : "Ctrl";
+  const fixChord = `${ctrl}+Alt+Shift+F`;
+
   test("renders in a plain tab and turn review with a popover advertising catalog shortcuts", async ({
     page,
     weavie,
@@ -80,7 +86,7 @@ test.describe("ReportFindings", () => {
         .locator(".tb-omnibar-row")
         .filter({ has: page.locator(".tb-row-leaf", { hasText: /^Fix Review Hint$/ }) })
         .locator(".tb-row-keys"),
-    ).toHaveText("Ctrl+Alt+Shift+F");
+    ).toHaveText(fixChord);
     await page.keyboard.press("Escape");
     await openFile(page, "notes.txt");
     const editor = page.locator(".editor-surface .monaco-editor").first();
@@ -108,7 +114,7 @@ test.describe("ReportFindings", () => {
       await expect(popover(page).getByRole("button", { name: "Comment on PR" })).toHaveCount(0);
       await expect(popover(page).getByRole("button", { name: "Fix", exact: true })).toHaveAttribute(
         "title",
-        "Fix (Ctrl+Alt+Shift+F)",
+        `Fix (${fixChord})`,
       );
       await expect(popover(page).getByRole("button", { name: "Dismiss hint" })).toHaveAttribute(
         "title",
@@ -368,6 +374,9 @@ test.describe("PR review", () => {
       // FLAKE 2026-10-11 05:47Z https://github.com/Kapps/weavie/actions/runs/38115271712 (shard 4/6): the log is
       // line-incremental, so asserting the quoted thread line once the header line landed raced the rest of the paste.
       // Fixed by polling every line of the prompt instead of only the first.
+      // FLAKE 2026-10-13 16:00Z https://github.com/Kapps/weavie/actions/runs/38424452181 (Windows shard 4/6): the fake
+      // logged the paste as one line with neither ESC[200~ nor its newlines, i.e. ConPTY parsed the bytes as
+      // keystrokes. Not fixed yet: the fake's console input mode when the paste lands is still unexplained.
       await expect.poll(() => weavie.fakeLog()).toMatch(fixPrompt("hello.ts:2"));
       await expect.poll(() => weavie.fakeLog()).toMatch(/^input bob: Why change this greeting\?/m);
     });

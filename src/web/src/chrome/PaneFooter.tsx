@@ -4,17 +4,20 @@ import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { gitStatus } from "./git-status-store";
 import { currentPullRequestStatus } from "./pull-request-store";
-import { reviewBranchTitle } from "./review-branch-title";
+import { reviewBranchTitle, reviewPullRequestTitle } from "./review-branch-title";
 import { claudeStatus, STATUS_LABEL, STATUS_SHORT } from "./session-store";
 import { UpdateIndicator } from "./UpdateIndicator";
 
 /**
- * The shell pane's status footer, serving both terminal panes: the workspace git branch (and its PR), which
- * reviews the branch on click, plus the Claude session's live status promoted from the header dot.
+ * The shell pane's status footer, serving both terminal panes: the workspace git branch, which reviews the branch (or
+ * its PR) on click, plus the Claude session's live status promoted from the header dot.
  */
 export function PaneFooter(): JSX.Element {
   const status = (): SessionStatusName | undefined => claudeStatus();
-  const pullRequest = () => currentPullRequestStatus(selectedSession())?.pullRequest ?? null;
+  const title = (branch: string): string => {
+    const pr = currentPullRequestStatus(selectedSession())?.pullRequest ?? null;
+    return pr === null ? reviewBranchTitle(branch) : reviewPullRequestTitle(pr);
+  };
   return (
     <div class="pane-footer">
       <Show when={gitStatus()?.branch}>
@@ -22,7 +25,7 @@ export function PaneFooter(): JSX.Element {
           <button
             type="button"
             class="footer-seg footer-branch"
-            title={reviewBranchTitle(pullRequest(), branch())}
+            title={title(branch())}
             onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
           >
             <span class="footer-glyph">⎇</span>
@@ -32,7 +35,6 @@ export function PaneFooter(): JSX.Element {
                 ●
               </span>
             </Show>
-            <Show when={pullRequest()}>{(pr) => <span>#{pr().number}</span>}</Show>
           </button>
         )}
       </Show>

@@ -1451,7 +1451,7 @@ test.describe("ACP composer", () => {
     ).toBeVisible();
   });
 
-  test("status line reviews the current branch and its pull request", async ({ page }) => {
+  test("status line reviews the current branch's pull request in Weavie", async ({ page }) => {
     await mountAgent(page);
     const url = `${host.url}/pull/123`;
     const reviewRequests = () =>
@@ -1466,10 +1466,6 @@ test.describe("ACP composer", () => {
       branch: "feat/native-ui-pr",
       dirty: false,
     });
-    const reviewBranch = page.locator(".agent-status-review-branch");
-    await expect(reviewBranch).toHaveAttribute("title", /Review branch feat\/native-ui-pr/);
-    await reviewBranch.click();
-    await expect.poll(reviewRequests).toBe(1);
     host.publishSession(agentSession.address, "git", "pullRequest", {
       branch: "feat/native-ui-pr",
       pullRequest: { number: 123, url, state: "open" },
@@ -1483,9 +1479,8 @@ test.describe("ACP composer", () => {
       "title",
       new RegExp(`Review PR #123 in Weavie — open it on GitHub \\(${modifier}\\+Shift\\+G\\)`),
     );
-    await expect(reviewBranch).toHaveCount(0);
     await link.click();
-    await expect.poll(reviewRequests).toBe(2);
+    await expect.poll(reviewRequests).toBe(1);
 
     host.publishSession(agentSession.address, "git", "pullRequest", {
       branch: "feat/native-ui-pr",
@@ -1519,7 +1514,6 @@ test.describe("ACP composer", () => {
       dirty: false,
     });
     await expect(link).toHaveCount(0);
-    await expect(reviewBranch).toHaveAttribute("title", /Review branch another-branch/);
   });
 
   test("subagent completion keeps the primary turn working until its own result", async ({

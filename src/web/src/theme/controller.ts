@@ -122,11 +122,17 @@ export function savedPalette(type: "light" | "dark"): Readonly<Record<string, st
   return state[type].resolved.colors;
 }
 
-let preview: Slot | null = null;
-const displayedSlot = (): Slot => preview ?? activeSlot(state);
-// The picker previews the app theme, so a set editor theme stays put while the app theme is previewed.
-const editorSlot = (): Slot =>
-  (isDark(state.mode) ? state.editorDark : state.editorLight) ?? displayedSlot();
+/** Which theme a picker selects: the app theme, or the code-editor theme. */
+export type ThemeTarget = "app" | "editor";
+
+let preview: { slot: Slot; target: ThemeTarget } | null = null;
+const previewFor = (target: ThemeTarget): Slot | undefined =>
+  preview?.target === target ? preview.slot : undefined;
+const savedEditorSlot = (): Slot | undefined =>
+  isDark(state.mode) ? state.editorDark : state.editorLight;
+const displayedSlot = (): Slot => previewFor("app") ?? activeSlot(state);
+// An app-theme preview leaves a set editor theme in place.
+const editorSlot = (): Slot => previewFor("editor") ?? savedEditorSlot() ?? displayedSlot();
 
 /** The resolved appearance mode, including the system preference. */
 export const currentThemeType = (): "light" | "dark" => (isDark(state.mode) ? "dark" : "light");
@@ -134,8 +140,11 @@ export const currentThemeType = (): "light" | "dark" => (isDark(state.mode) ? "d
 /** The saved active theme, independent of a picker preview. */
 export const currentThemeId = (): string => activeSlot(state).id;
 
-/** Owns one transient preview; disposing restores the latest host appearance. */
-export function beginThemePreview(): {
+/** The saved editor theme for the current polarity, or undefined when the editor follows the app theme. */
+export const currentEditorThemeId = (): string | undefined => savedEditorSlot()?.id;
+
+/** Owns one transient preview of `target`'s theme; disposing restores the latest host appearance. */
+export function beginThemePreview(target: ThemeTarget): {
   show: (slot: ThemeSlot) => void;
   clear: () => void;
   dispose: () => void;
@@ -146,7 +155,7 @@ export function beginThemePreview(): {
       if (disposed) return;
       const base = slot.theme ?? BUILTIN_THEMES[slot.id];
       if (base === undefined) throw new Error(`No theme data for ${slot.id}`);
-      preview = resolveSlot(slot, base);
+      preview = { slot: resolveSlot(slot, base), target };
       reapplyActive();
     },
     clear() {

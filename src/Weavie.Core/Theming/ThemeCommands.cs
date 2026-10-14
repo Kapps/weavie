@@ -122,6 +122,34 @@ public static class ThemeCommands {
 		}
 	}
 
+	/// <summary>
+	/// Sets the code-editor theme for one <paramref name="polarity"/> (<c>light</c>/<c>dark</c>); an empty
+	/// <paramref name="id"/> resets it so the editor follows the app theme.
+	/// </summary>
+	public static CommandResult SelectEditorTheme(string id, string polarity, SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
+		if (polarity is not ("light" or "dark")) {
+			return CommandResult.Failure($"Editor theme polarity must be 'light' or 'dark', not '{polarity}'.");
+		}
+
+		if (id.Length > 0 && ThemePolarity(id) is null) {
+			return CommandResult.Failure($"Unknown theme '{id}'. Use the listThemes tool to see available themes.");
+		}
+
+		try {
+			string key = polarity == "light" ? ThemeSettings.EditorLightKey : ThemeSettings.EditorDarkKey;
+			if (id.Length == 0) {
+				settings.Clear(key);
+				return CommandResult.Success($"The {polarity}-mode editor now follows the app theme.");
+			}
+
+			SetString(settings, key, id);
+			return CommandResult.Success($"The {polarity}-mode editor theme is now '{id}'.");
+		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
+			return CommandResult.Failure(ex.Message);
+		}
+	}
+
 	// Steps the appearance mode system → light → dark → system.
 	private static CommandResult CycleMode(SettingsStore settings) {
 		string next = ThemeSettings.Mode(settings) switch {

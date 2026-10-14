@@ -85,6 +85,9 @@ plus a theme **per polarity**. Three live settings drive it:
 - `weavie.theme.select` (`id`) routes by the theme's polarity — a light theme fills `theme.light`, a
   dark theme fills `theme.dark` — **and flips `theme.mode` to that polarity**, so picking a theme shows
   it immediately.
+- `weavie.theme.selectEditor` (`id`) opens the same picker targeting the editor theme: previews recolor only
+  the editor, Apply sets `theme.editorLight`/`theme.editorDark` for the current polarity, and Reset (shown
+  when one is set) clears it so the editor follows the app theme. An empty `id` resets directly.
 - `weavie.theme.cycleMode` steps `system → light → dark → system` (default `$mod+Shift+m`).
 
 **Who resolves what.** The host injects/pushes **both** themes as a pair —

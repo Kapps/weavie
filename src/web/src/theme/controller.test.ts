@@ -45,7 +45,7 @@ beforeEach(() => {
 
 it("cancels onto the latest host state and removes preview-only colors", async () => {
   const controller = await import("./controller");
-  const preview = controller.beginThemePreview();
+  const preview = controller.beginThemePreview("app");
   preview.show({
     id: "temporary",
     theme: {
@@ -87,4 +87,24 @@ it("themes editor surfaces from the editor slot and the chrome from the app slot
   expect(editorProperties.get("--diff-added-line")).toBe("initial");
   expect(controller.currentMonacoTheme().theme.type).toBe("light");
   expect(controller.currentXtermTheme().background).not.toBe("#fafafa");
+});
+
+it("previews an editor theme on the editor surfaces only", async () => {
+  const controller = await import("./controller");
+  const preview = controller.beginThemePreview("editor");
+  preview.show({
+    id: "temporary",
+    theme: {
+      name: "Temporary",
+      type: "light",
+      colors: { "editor.background": "#fdfdfd" },
+      tokenColors: [],
+    },
+  });
+  expect(editorProperties.get("--bg")).toBe("#fdfdfd");
+  expect(properties.get("--bg")).not.toBe("#fdfdfd");
+  expect(controller.currentMonacoTheme().theme.type).toBe("light");
+  expect(controller.currentEditorThemeId()).toBeUndefined();
+  preview.dispose();
+  expect(editorProperties.get("--bg")).toBe(properties.get("--bg"));
 });

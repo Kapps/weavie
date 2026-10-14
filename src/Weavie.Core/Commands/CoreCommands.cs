@@ -435,6 +435,9 @@ public static partial class CoreCommands {
 	/// <summary>Pops the most recent color override on the active theme.</summary>
 	public const string UndoThemeOverride = "weavie.theme.undoOverride";
 
+	/// <summary>Opens the theme picker for the code-editor theme, or selects the given <c>id</c> as it.</summary>
+	public const string SelectEditorTheme = "weavie.theme.selectEditor";
+
 	/// <summary>Clears all color overrides on the active theme.</summary>
 	public const string ResetTheme = "weavie.theme.reset";
 
@@ -2221,6 +2224,17 @@ public static partial class CoreCommands {
 			Description = "Browse color themes with live preview, or pass an installed theme 'id' to select it directly. Search Open VSX to preview and install more themes.",
 			Aliases = ["select theme", "switch theme", "change theme", "color theme", "appearance", "open vsx"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+shift+t" }],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectEditorTheme,
+			Title = "Select Editor Theme…",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Theme",
+			Description = "Pick a color theme for the code editor and diff views only, for the current light/dark mode, with live preview and a Reset back to the app theme. Pass a theme 'id' to select it directly, or an empty 'id' to reset.",
+			Aliases = ["select editor theme", "editor theme", "code theme", "syntax theme", "editor color theme"],
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
 		});
 

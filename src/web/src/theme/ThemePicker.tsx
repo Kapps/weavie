@@ -20,6 +20,8 @@ export function ThemePicker() {
 
 function Picker() {
   const m = createThemePicker();
+  const command = m.target === "editor" ? CommandIds.selectEditorTheme : CommandIds.selectTheme;
+  const title = m.target === "editor" ? "Select Editor Theme" : "Select Color Theme";
   const focusBefore = document.activeElement;
   let input!: HTMLInputElement;
   onCleanup(() => {
@@ -87,13 +89,10 @@ function Picker() {
       onKeyDown={keys}
     >
       <div class="theme-picker-header">
-        <strong
-          id="theme-picker-title"
-          title={`Select Color Theme${keyHint(CommandIds.selectTheme)}`}
-        >
-          Select Color Theme
+        <strong id="theme-picker-title" title={`${title}${keyHint(command)}`}>
+          {title}
         </strong>
-        <span>{keyHint(CommandIds.selectTheme)}</span>
+        <span>{keyHint(command)}</span>
       </div>
       <div class="theme-picker-sources">
         <button
@@ -240,6 +239,18 @@ function Picker() {
             ? "↑ ↓ Browse · Enter or → Open variants · Esc Cancel"
             : "↑ ↓ Preview · Enter Apply · Esc Cancel"}
         </small>
+        <Show when={m.reset}>
+          {(reset) => (
+            <button
+              type="button"
+              disabled={m.saving()}
+              title="Revert the editor to the app theme"
+              onClick={() => void reset()()}
+            >
+              Reset
+            </button>
+          )}
+        </Show>
         <button type="button" disabled={m.saving()} onClick={m.close}>
           Cancel
         </button>

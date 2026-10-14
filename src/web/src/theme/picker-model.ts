@@ -1,25 +1,35 @@
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import type { ThemeSlot } from "../bridge";
-import { beginThemePreview, currentThemeId, currentThemeType } from "./controller";
 import {
+  beginThemePreview,
+  currentEditorThemeId,
+  currentThemeId,
+  currentThemeType,
+} from "./controller";
+import {
+  closeThemePicker,
   type ExtensionChoice,
   installTheme,
   type SearchResults,
+  selectEditorTheme,
   selectTheme,
-  setThemePickerOpen,
   type ThemeChoice,
   type ThemePreview,
   type ThemeSearchOrder,
   themePickerStartsInRegistry,
+  themePickerTarget,
   themeRequest,
 } from "./picker-state";
 
 export type ThemeFilter = "light" | "dark" | "all";
 
 export function createThemePicker() {
-  const savedId = currentThemeId();
+  const target = themePickerTarget();
+  const editorThemeId = currentEditorThemeId();
+  const savedId = target === "editor" ? (editorThemeId ?? currentThemeId()) : currentThemeId();
+  const save = target === "editor" ? selectEditorTheme : selectTheme;
   const [mode, setMode] = createSignal<ThemeFilter>(currentThemeType());
-  const preview = beginThemePreview();
+  const preview = beginThemePreview(target);
   const lifetime = new AbortController();
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
   const [query, setQuery] = createSignal("");
@@ -59,7 +69,7 @@ export function createThemePicker() {
     if (!lifetime.signal.aborted) setError(String(e));
   };
   const close = () => {
-    if (!saving()) setThemePickerOpen(false);
+    if (!saving()) closeThemePicker();
   };
 
   function closeVariants() {
@@ -180,20 +190,22 @@ export function createThemePicker() {
     return false;
   }
 
-  async function apply(choice: ThemeChoice, install: boolean) {
+  async function commit(id: string, install: ThemeChoice | null) {
     if (saving()) return;
     setSaving(true);
     setError("");
     try {
-      if (install) await installTheme(choice);
-      await selectTheme(choice.id, lifetime.signal);
-      setThemePickerOpen(false);
+      if (install !== null) await installTheme(install);
+      await save(id, lifetime.signal);
+      closeThemePicker();
     } catch (e) {
       fail(e);
     } finally {
       setSaving(false);
     }
   }
+  const apply = (choice: ThemeChoice, install: boolean) =>
+    commit(choice.id, install ? choice : null);
 
   async function accept() {
     const choice = choices()[selected()];
@@ -211,7 +223,10 @@ export function createThemePicker() {
   }
 
   return {
+    target,
     savedId,
+    /** Present only for the editor picker with a set editor theme: reverts the editor to the app theme. */
+    reset: target === "editor" && editorThemeId !== undefined ? () => commit("", null) : undefined,
     mode,
     setMode,
     query,

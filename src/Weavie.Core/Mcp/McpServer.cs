@@ -493,7 +493,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "describeTheme":
-				await HandleDescribeThemeAsync(responder, idRaw, ct).ConfigureAwait(false);
+				await HandleDescribeThemeAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "setThemeOverride":
 				await HandleSetThemeOverrideAsync(responder, args, idRaw, ct).ConfigureAwait(false);

@@ -229,10 +229,16 @@ function applyEditorTheme(): void {
     editorRule = (element.sheet!.cssRules[0] as CSSStyleRule).style;
   }
   const slot = editorSlot();
+  const vars = paletteVars(slot.resolved.colors);
+  // A var the editor palette lacks resets to `initial`, so CSS fallbacks apply instead of the app's value.
+  const names = new Set([
+    ...Object.keys(paletteVars(displayedSlot().resolved.colors)),
+    ...Object.keys(vars),
+  ]);
   editorRule.cssText = "";
   editorRule.setProperty("color-scheme", polarityOf(slot));
-  for (const [name, value] of Object.entries(paletteVars(slot.resolved.colors))) {
-    editorRule.setProperty(name, value);
+  for (const name of names) {
+    editorRule.setProperty(name, vars[name] ?? "initial");
   }
 }
 

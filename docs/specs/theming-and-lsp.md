@@ -77,6 +77,8 @@ plus a theme **per polarity**. Three live settings drive it:
   follow the app theme). It recolors Monaco plus every `[data-editor-theme]` surface (the code editor and
   unified review), whose CSS vars the controller shadows on one scoped rule; chat, panels, terminals, and
   chrome keep the app theme. Set both to one id to keep the editor fixed across modes.
+  Override tools and the undo/reset commands take an optional `theme` id to edit the editor theme's
+  overrides instead of the active app theme's.
 
 **Verb commands** (palette / keybinding / Claude `runCommand`):
 

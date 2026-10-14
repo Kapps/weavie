@@ -39,9 +39,9 @@ public sealed partial class McpServer {
 		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleDescribeThemeAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
+	private async Task HandleDescribeThemeAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var themeOverrides = Require(_themeOverrides, "Theming");
-		string active = ActiveThemeId();
+		string active = TargetThemeId(args);
 		var overrides = themeOverrides.Get(active);
 		string json = JsonWrite.Object(writer => {
 			writer.WriteString("active", active);
@@ -97,7 +97,7 @@ public sealed partial class McpServer {
 			return;
 		}
 
-		string active = ActiveThemeId();
+		string active = TargetThemeId(args);
 		themeOverrides.Append(active, new ThemeOverrideSet {
 			Table = table,
 			Key = key,
@@ -152,7 +152,7 @@ public sealed partial class McpServer {
 			return;
 		}
 
-		string active = ActiveThemeId();
+		string active = TargetThemeId(args);
 		themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
 		string scope = target is null or "all" ? string.Empty : $" ({target})";
 		await SendToolTextAsync(responder, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
@@ -166,7 +166,7 @@ public sealed partial class McpServer {
 			return;
 		}
 
-		string active = ActiveThemeId();
+		string active = TargetThemeId(args);
 		var ops = themeOverrides.Get(active);
 		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
 		if (kept.Count == ops.Count) {
@@ -177,6 +177,9 @@ public sealed partial class McpServer {
 		themeOverrides.SetOps(active, kept);
 		await SendToolTextAsync(responder, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
+
+	// The theme an override tool edits: the explicit 'theme' arg (e.g. the editor theme), else the active app theme.
+	private string TargetThemeId(JsonElement args) => args.GetStringOrNull("theme") is { Length: > 0 } id ? id : ActiveThemeId();
 
 	private string ActiveThemeId() =>
 		_settings is null ? ThemeSettings.DefaultThemeId : ThemeSettings.ResolveActiveThemeId(_settings);

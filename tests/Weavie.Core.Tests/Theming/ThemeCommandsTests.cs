@@ -97,6 +97,17 @@ public sealed class ThemeCommandsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Reset_WithTheme_ClearsOnlyThatTheme() {
+		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
+		_overrides.Append("weavie-light", new ThemeOverrideSet { Key = "editor.background", Value = "#ffffff" });
+
+		var cleared = await Run(CoreCommands.ResetTheme, "{\"theme\":\"weavie-light\"}");
+		Assert.True(cleared.Ok);
+		Assert.Empty(_overrides.Get("weavie-light"));
+		Assert.Single(_overrides.Get("weavie-dark"));
+	}
+
+	[Fact]
 	public async Task Undo_PopsLastOverride() {
 		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
 		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "focusBorder", Value = "#ffffff" });

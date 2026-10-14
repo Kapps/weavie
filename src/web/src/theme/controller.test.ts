@@ -84,6 +84,7 @@ it("themes editor surfaces from the editor slot and the chrome from the app slot
   expect(editorProperties.get("--bg")).toBe("#fafafa");
   expect(editorProperties.get("--weavie-editor-background")).toBe("#fafafa");
   expect(editorProperties.get("color-scheme")).toBe("light");
+  expect(editorProperties.get("--diff-added-line")).toBe("initial");
   expect(controller.currentMonacoTheme().theme.type).toBe("light");
   expect(controller.currentXtermTheme().background).not.toBe("#fafafa");
 });

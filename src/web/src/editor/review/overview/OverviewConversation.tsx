@@ -37,6 +37,7 @@ function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.
             <AgentMarkdown
               cacheKey={props.item}
               content={props.item.body}
+              flavor="github"
               renderMermaid={false}
               session={props.session}
             />

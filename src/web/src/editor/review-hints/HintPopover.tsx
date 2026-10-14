@@ -109,6 +109,7 @@ export function HintPopover(props: {
           <AgentMarkdown
             cacheKey={hint()}
             content={hint().body}
+            flavor="agent"
             renderMermaid={false}
             session={props.session}
           />

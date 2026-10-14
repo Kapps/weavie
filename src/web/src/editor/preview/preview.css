@@ -140,6 +140,19 @@
   max-width: 100%;
 }
 
+.contains-task-list:has(> .task-list-item) {
+  padding-left: 0.4em;
+}
+
+.task-list-item {
+  list-style: none;
+}
+
+.task-list-item-checkbox {
+  margin: 0 0.4em 0 0;
+  vertical-align: -0.1em;
+}
+
 /* Mermaid diagram, rendered async into the placeholder by hydrateMermaid. */
 .editor-preview-body .mermaid-rendered {
   margin: 1em 0;

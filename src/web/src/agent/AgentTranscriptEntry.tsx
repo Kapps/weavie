@@ -106,6 +106,7 @@ export function TranscriptEntry(props: {
               <AgentMarkdown
                 cacheKey={props.entry}
                 content={props.entry.text ?? ""}
+                flavor="agent"
                 renderMermaid={!props.entry.streaming}
                 session={props.session}
               />

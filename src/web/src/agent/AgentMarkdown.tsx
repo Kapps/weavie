@@ -9,12 +9,23 @@ import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { installAgentMermaid } from "./agent-mermaid";
 
-const renderMarkdown = createMarkdownRenderer({
-  allowHtml: false,
-  allowImages: false,
-  allowMermaid: true,
-  safeLinksOnly: true,
-});
+/** `agent` is model output; `github` is GitHub-authored prose, rendered with GitHub's sanitized HTML and images. */
+export type MarkdownFlavor = "agent" | "github";
+
+const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
+  agent: createMarkdownRenderer({
+    allowHtml: false,
+    allowImages: false,
+    allowMermaid: true,
+    safeLinksOnly: true,
+  }),
+  github: createMarkdownRenderer({
+    allowHtml: true,
+    allowImages: true,
+    allowMermaid: true,
+    safeLinksOnly: true,
+  }),
+};
 
 interface CachedMarkdown {
   content: string;
@@ -27,6 +38,7 @@ const renderedMarkdown = new WeakMap<object, CachedMarkdown>();
 export function AgentMarkdown(props: {
   cacheKey: object;
   content: string;
+  flavor: MarkdownFlavor;
   renderMermaid: boolean;
   session: ClientSession | null;
 }): JSX.Element {
@@ -39,7 +51,12 @@ export function AgentMarkdown(props: {
     const currentGeneration = generation;
     const shouldHydrate = props.renderMermaid;
     const includeRefs = props.session !== null && refLinkPrefixFor(props.session) !== null;
-    const rendered = renderCached(props.cacheKey, props.content, includeRefs);
+    const rendered = renderCached(
+      props.cacheKey,
+      renderers[props.flavor],
+      props.content,
+      includeRefs,
+    );
     const hasMermaid = rendered.querySelector("pre.mermaid-pending") !== null;
     if (hasMermaid && shouldHydrate && unsubscribeTheme === undefined) {
       unsubscribeTheme = onPreviewThemeChanged(render);
@@ -79,7 +96,12 @@ export function AgentMarkdown(props: {
   return <div class="agent-markdown" ref={host} />;
 }
 
-function renderCached(cacheKey: object, content: string, includeRefs: boolean): HTMLElement {
+function renderCached(
+  cacheKey: object,
+  renderMarkdown: (content: string) => HTMLElement,
+  content: string,
+  includeRefs: boolean,
+): HTMLElement {
   let cached = renderedMarkdown.get(cacheKey);
   if (cached === undefined || cached.content !== content || cached.includeRefs !== includeRefs) {
     const template = renderMarkdown(content);

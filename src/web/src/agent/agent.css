@@ -539,6 +539,14 @@ a:has(> .agent-path-dir) {
   margin-top: 0.2em;
 }
 
+.agent-markdown img {
+  max-width: 100%;
+}
+
+.agent-markdown summary {
+  cursor: pointer;
+}
+
 .agent-markdown blockquote {
   padding-left: 0.75em;
   border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));

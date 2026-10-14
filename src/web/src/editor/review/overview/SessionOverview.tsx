@@ -99,6 +99,7 @@ export function SessionOverview(props: {
                           <AgentMarkdown
                             cacheKey={pull()}
                             content={pull().body}
+                            flavor="github"
                             renderMermaid={false}
                             session={props.session}
                           />

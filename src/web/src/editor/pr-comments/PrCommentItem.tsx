@@ -60,6 +60,7 @@ function CommentBody(props: { comment: PrComment; session: ClientSession }): JSX
         <AgentMarkdown
           cacheKey={props.comment}
           content={props.comment.body}
+          flavor="github"
           renderMermaid={false}
           session={props.session}
         />

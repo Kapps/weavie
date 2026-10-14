@@ -69,7 +69,6 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { lastLocation, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
-import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import {
   seedSearch,
@@ -1924,14 +1923,6 @@ export default function App(): JSX.Element {
         />
       </Show>
       <div class="app-body">
-        <SessionRail
-          sessions={railSessions()}
-          inert={sessionsModalActive()}
-          hasRemotes={remoteAgentRows().length > 0}
-          onSwitch={openSession}
-          onNew={openSessions}
-          onToggleRemotes={toggleRemotePanel}
-        />
         <SessionPanel
           sessions={railSessions()}
           inert={sessionsModalActive()}

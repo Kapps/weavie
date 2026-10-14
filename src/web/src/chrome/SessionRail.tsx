@@ -1,19 +1,39 @@
 import { createMemo, For, type JSX, Show } from "solid-js";
-import { panelPinned, parkedCollapsed } from "./rail-state";
-import { createSessionMenu, ParkedToggle, SessionStatus, SessionTools } from "./SessionTools";
+import { floatingPanelLevel } from "./floating-panels";
+import { parkedCollapsed } from "./rail-state";
+import {
+  createSessionMenu,
+  PanelControls,
+  ParkedToggle,
+  SessionStatus,
+  SessionText,
+  SessionTools,
+} from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
 import { sessionSubtitle, switchShortcut } from "./session-summary";
 
+/** The session panel's list behavior, applied to the rail while it stands in for the unpinned panel. */
+export interface SessionListHandlers {
+  ref: (element: HTMLElement) => void;
+  onKeyDown: (event: KeyboardEvent) => void;
+  onFocusOut: (event: FocusEvent) => void;
+}
+
 // The left session rail: every session on every connected backend as a status dot (a cloud for remotes) over the first words of its
-// name, loaded first and parked (unloaded) ones folded behind a toggle. The full session panel opens on hover.
+// name, loaded first and parked (unloaded) ones folded behind a toggle. Expanded (the unpinned session panel), it widens in place and
+// each chip stays as it is and gains its number, full name, and activity to its right.
 export function SessionRail(props: {
   sessions: RailSession[];
   inert: boolean;
   hasRemotes: boolean;
+  expanded: boolean;
+  now: number;
+  list: SessionListHandlers;
   onSwitch: (session: RailSession) => void;
   onNew: () => void;
   onToggleRemotes: (anchor: DOMRect) => void;
+  onTogglePin: () => void;
 }): JSX.Element {
   const chipTitle = (session: RailSession, index: number): string => {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
@@ -25,31 +45,44 @@ export function SessionRail(props: {
   const menu = createSessionMenu();
   const parked = createMemo(() => props.sessions.filter((session) => !session.loaded).length);
   const firstParked = createMemo(() => props.sessions.findIndex((session) => !session.loaded));
-
   return (
-    <>
-      {/* Pinned, the session panel takes the rail's place. */}
-      <Show when={!panelPinned()}>
-        <div class="session-rail" inert={props.inert} onPointerDown={cancelSessionPanelHover}>
-          <For each={props.sessions}>
-            {(session, index) => (
-              <>
-                <Show when={index() === firstParked()}>
-                  <ParkedToggle class="session-rail-parked" count={parked()} />
-                </Show>
-                <Show when={session.loaded || !parkedCollapsed()}>
-                  <button
-                    type="button"
-                    class={`session-chip status-${session.status}${session.active ? " active" : ""}${
-                      session.loaded ? "" : " unloaded"
-                    }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
-                      session.offline ? " offline" : ""
-                    }`}
-                    data-session-slot={session.id}
-                    title={chipTitle(session, index())}
-                    onClick={() => props.onSwitch(session)}
-                    onContextMenu={(event) => menu.open(event, session)}
-                  >
+    <div class="session-rail-slot">
+      <nav
+        {...props.list}
+        class="session-rail"
+        classList={{ expanded: props.expanded }}
+        style={props.expanded ? `z-index:${floatingPanelLevel("session-panel")}` : undefined}
+        inert={props.inert}
+        aria-label="Sessions"
+      >
+        <For each={props.sessions}>
+          {(session, index) => (
+            <>
+              <Show when={index() === firstParked()}>
+                <ParkedToggle
+                  class="session-rail-parked"
+                  count={parked()}
+                  label={props.expanded ? `Parked · ${parked()}` : String(parked())}
+                />
+              </Show>
+              <Show when={session.loaded || !parkedCollapsed()}>
+                <button
+                  type="button"
+                  class={`session-chip status-${session.status}${session.active ? " active" : ""}${
+                    session.loaded ? "" : " unloaded"
+                  }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
+                    session.offline ? " offline" : ""
+                  }`}
+                  data-session-slot={session.id}
+                  title={chipTitle(session, index())}
+                  // A pointer click leaves the pointer on the rail, so hover must not reopen it there.
+                  onClick={(event) => {
+                    if (event.detail > 0) cancelSessionPanelHover();
+                    props.onSwitch(session);
+                  }}
+                  onContextMenu={(event) => menu.open(event, session)}
+                >
+                  <span class="session-chip-face">
                     {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
                     <SessionStatus session={session} />
                     <Show when={session.pending}>
@@ -58,19 +91,34 @@ export function SessionRail(props: {
                     <span class="session-chip-words">
                       {session.title.split(" ").slice(0, 2).join(" ")}
                     </span>
-                  </button>
-                </Show>
-              </>
-            )}
-          </For>
-          <SessionTools
-            hasRemotes={props.hasRemotes}
-            onNew={props.onNew}
-            onToggleRemotes={props.onToggleRemotes}
-          />
+                  </span>
+                  {/* Out of flow, so expanding never changes the chip's height. */}
+                  <Show when={props.expanded}>
+                    <span class="session-chip-detail">
+                      <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
+                      <SessionText session={session} now={props.now} />
+                    </span>
+                  </Show>
+                </button>
+              </Show>
+            </>
+          )}
+        </For>
+        <div class="session-rail-foot">
+          {/* The tools open their own surfaces, so they dismiss a hover-expanded rail. */}
+          <div class="session-rail-tools" onPointerDown={cancelSessionPanelHover}>
+            <SessionTools
+              hasRemotes={props.hasRemotes}
+              onNew={props.onNew}
+              onToggleRemotes={props.onToggleRemotes}
+            />
+          </div>
+          <Show when={props.expanded}>
+            <PanelControls onTogglePin={props.onTogglePin} />
+          </Show>
         </div>
-      </Show>
+      </nav>
       <menu.View />
-    </>
+    </div>
   );
 }

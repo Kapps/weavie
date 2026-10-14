@@ -1,19 +1,28 @@
-import { Pin, PinOff } from "lucide-solid";
 import { createEffect, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
-import { liveKeyHint, liveKeyLabel } from "../commands/keys-live";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
-import { floatingPanelLevel, registerFloatingPanel } from "./floating-panels";
+import { registerFloatingPanel } from "./floating-panels";
 import { panelPinned, parkedCollapsed, setPanelPinned, setParkedCollapsed } from "./rail-state";
-import { createSessionMenu, ParkedToggle, SessionStatus, SessionTools } from "./SessionTools";
+import { type SessionListHandlers, SessionRail } from "./SessionRail";
+import {
+  createSessionMenu,
+  PanelControls,
+  ParkedToggle,
+  SessionStatus,
+  SessionText,
+  SessionTools,
+} from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import { createPanelResize } from "./session-panel-resize";
 import type { RailSession } from "./session-store";
-import { SESSION_GROUPS, sessionGroup, sessionSubtitle, switchShortcut } from "./session-summary";
+import { SESSION_GROUPS, sessionGroup, switchShortcut } from "./session-summary";
 
-// The session panel beside the rail: every session grouped by what needs the user, with what each agent is
-// doing. Unpinned it overlays the panes (opened by hovering the rail or the panel command); pinned it docks.
+// Keyboard-navigable session entries: the pinned panel's rows, or the expanded rail's chips.
+const ROWS = ".session-panel-row, .session-chip";
+
+// The session panel: every session with what each agent is doing. Unpinned it is the rail, expanded in place by
+// hovering it or the panel command; pinned it docks in the rail's place, grouped by what needs the user.
 export function SessionPanel(props: {
   sessions: RailSession[];
   inert: boolean;
@@ -40,7 +49,6 @@ export function SessionPanel(props: {
         ]),
       ),
   );
-  const visible = (): boolean => panelPinned() || openMode() !== null;
   let panel: HTMLElement | undefined;
   let returnFocus: HTMLElement | null = null;
 
@@ -52,9 +60,7 @@ export function SessionPanel(props: {
   // focusVisible: a keyboard-opened panel shows the focus ring on its first row, not only after an arrow key.
   const focusRow = (row: Element | undefined | null): void =>
     (row as HTMLElement | null)?.focus({ focusVisible: true } as FocusOptions);
-  const rows = (): HTMLElement[] => [
-    ...(panel?.querySelectorAll<HTMLElement>(".session-panel-row") ?? []),
-  ];
+  const rows = (): HTMLElement[] => [...(panel?.querySelectorAll<HTMLElement>(ROWS) ?? [])];
 
   onCleanup(
     registerCommand(CommandIds.toggleSessionPanel, () => {
@@ -65,7 +71,7 @@ export function SessionPanel(props: {
       returnFocus = document.activeElement as HTMLElement | null;
       setOpenMode("keyboard");
       queueMicrotask(() =>
-        focusRow(panel?.querySelector(".session-panel-row.active") ?? rows()[0]),
+        focusRow(rows().find((row) => row.classList.contains("active")) ?? rows()[0]),
       );
       return true;
     }),
@@ -141,127 +147,115 @@ export function SessionPanel(props: {
 
   const menu = createSessionMenu();
 
+  const list: SessionListHandlers = {
+    ref: (element) => {
+      panel = element;
+    },
+    onKeyDown,
+    onFocusOut: (event) => {
+      const next = event.relatedTarget as Node | null;
+      if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
+        returnFocus = null;
+        setOpenMode(null);
+      }
+    },
+  };
+
   return (
-    <>
-      <Show when={visible()}>
-        <nav
-          class="session-panel"
-          classList={{ pinned: panelPinned() }}
-          // Unpinned it's a popover, layered with the floating tool windows it overlays.
-          style={
-            panelPinned()
-              ? `width:${resize.width()}px`
-              : `z-index:${floatingPanelLevel("session-panel")}`
-          }
-          ref={panel}
+    <Show
+      when={panelPinned()}
+      fallback={
+        <SessionRail
+          sessions={props.sessions}
           inert={props.inert}
-          aria-label="Sessions"
-          onKeyDown={onKeyDown}
-          onFocusOut={(event) => {
-            const next = event.relatedTarget as Node | null;
-            if (openMode() === "keyboard" && !panelPinned() && !panel?.contains(next)) {
-              returnFocus = null;
-              setOpenMode(null);
-            }
-          }}
-        >
-          <div class="session-panel-head">
-            <span>Sessions</span>
-            <Show when={liveKeyLabel(CommandIds.toggleSessionPanel)}>
-              {(keys) => <span class="session-panel-key">{keys()}</span>}
-            </Show>
-            <Show when={panelPinned()}>
-              <SessionTools
-                hasRemotes={props.hasRemotes}
-                onNew={props.onNew}
-                onToggleRemotes={props.onToggleRemotes}
-              />
-            </Show>
-            <button
-              type="button"
-              class="session-panel-pin"
-              classList={{ on: panelPinned() }}
-              title={`${panelPinned() ? "Unpin" : "Pin"} session panel${liveKeyHint(CommandIds.pinSessionPanel)}`}
-              aria-pressed={panelPinned()}
-              onClick={togglePin}
-            >
-              <Show when={panelPinned()} fallback={<Pin size={13} />}>
-                <PinOff size={13} />
-              </Show>
-            </button>
-          </div>
-          <For each={SESSION_GROUPS}>
-            {(group) => {
-              const members = createMemo(
-                () =>
-                  [...byKey()]
-                    .filter(([, entry]) => sessionGroup(entry.session) === group.id)
-                    .map(([key]) => key),
-                [],
-                { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
-              );
-              return (
-                <Show when={members().length > 0}>
-                  <Show
-                    when={group.id === "parked"}
-                    fallback={<div class="session-panel-group">{group.title}</div>}
-                  >
-                    <ParkedToggle
-                      class="session-panel-group session-panel-parked"
-                      count={members().length}
-                      label={`${group.title} · ${members().length}`}
-                    />
-                  </Show>
-                  <For each={group.id === "parked" && parkedCollapsed() ? [] : members()}>
-                    {(key) => (
-                      <Show when={byKey().get(key)}>
-                        {(entry) => {
-                          const session = (): RailSession => entry().session;
-                          const index = (): number => entry().index;
-                          const shortcut = (): string => switchShortcut(index());
-                          return (
-                            <button
-                              type="button"
-                              class="session-panel-row"
-                              classList={{
-                                active: session().active,
-                                parked: !session().loaded,
-                                offline: session().offline,
-                              }}
-                              data-session-slot={session().id}
-                              title={`${session().label}${session().isLocal ? "" : ` @ ${session().locationName}`}${
-                                shortcut() === "" ? "" : ` (${shortcut()})`
-                              }`}
-                              onClick={() => choose(session())}
-                              onContextMenu={(event) => menu.open(event, session())}
-                            >
-                              <span class="session-panel-num">
-                                {index() < 9 ? index() + 1 : ""}
-                              </span>
-                              <SessionStatus session={session()} />
-                              <span class="session-panel-text">
-                                <span class="session-panel-title">{session().title}</span>
-                                <span class="session-panel-activity">
-                                  {sessionSubtitle(session(), now())}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        }}
-                      </Show>
-                    )}
-                  </For>
+          hasRemotes={props.hasRemotes}
+          expanded={openMode() !== null}
+          now={now()}
+          list={list}
+          onSwitch={choose}
+          onNew={props.onNew}
+          onToggleRemotes={props.onToggleRemotes}
+          onTogglePin={togglePin}
+        />
+      }
+    >
+      <nav
+        {...list}
+        class="session-panel"
+        style={`width:${resize.width()}px`}
+        inert={props.inert}
+        aria-label="Sessions"
+      >
+        <div class="session-panel-head">
+          <span>Sessions</span>
+          <SessionTools
+            hasRemotes={props.hasRemotes}
+            onNew={props.onNew}
+            onToggleRemotes={props.onToggleRemotes}
+          />
+          <PanelControls onTogglePin={togglePin} />
+        </div>
+        <For each={SESSION_GROUPS}>
+          {(group) => {
+            const members = createMemo(
+              () =>
+                [...byKey()]
+                  .filter(([, entry]) => sessionGroup(entry.session) === group.id)
+                  .map(([key]) => key),
+              [],
+              { equals: (a, b) => a.length === b.length && a.every((key, i) => key === b[i]) },
+            );
+            return (
+              <Show when={members().length > 0}>
+                <Show
+                  when={group.id === "parked"}
+                  fallback={<div class="session-panel-group">{group.title}</div>}
+                >
+                  <ParkedToggle
+                    class="session-panel-group session-panel-parked"
+                    count={members().length}
+                    label={`${group.title} · ${members().length}`}
+                  />
                 </Show>
-              );
-            }}
-          </For>
-          <Show when={panelPinned()}>
-            <div class="session-panel-resize" onPointerDown={resize.start} />
-          </Show>
-        </nav>
-      </Show>
-      {/* Outside the panel, so a hover panel that closes as the pointer moves onto the menu keeps it. */}
+                <For each={group.id === "parked" && parkedCollapsed() ? [] : members()}>
+                  {(key) => (
+                    <Show when={byKey().get(key)}>
+                      {(entry) => {
+                        const session = (): RailSession => entry().session;
+                        const index = (): number => entry().index;
+                        const shortcut = (): string => switchShortcut(index());
+                        return (
+                          <button
+                            type="button"
+                            class="session-panel-row"
+                            classList={{
+                              active: session().active,
+                              parked: !session().loaded,
+                              offline: session().offline,
+                            }}
+                            data-session-slot={session().id}
+                            title={`${session().label}${session().isLocal ? "" : ` @ ${session().locationName}`}${
+                              shortcut() === "" ? "" : ` (${shortcut()})`
+                            }`}
+                            onClick={() => choose(session())}
+                            onContextMenu={(event) => menu.open(event, session())}
+                          >
+                            <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
+                            <SessionStatus session={session()} />
+                            <SessionText session={session()} now={now()} />
+                          </button>
+                        );
+                      }}
+                    </Show>
+                  )}
+                </For>
+              </Show>
+            );
+          }}
+        </For>
+        <div class="session-panel-resize" onPointerDown={resize.start} />
+      </nav>
       <menu.View />
-    </>
+    </Show>
   );
 }

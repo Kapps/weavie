@@ -2,8 +2,8 @@ import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// The session switcher: a rail of status dots, the session panel (hover, Ctrl+E, pin), and live agent
-// activity from the fake ACP agent.
+// The session switcher: a rail of status dots that expands in place into the session panel (hover, Ctrl+E), the
+// pinned panel, and live agent activity from the fake ACP agent.
 test.use({
   fakeScript: {
     steps: [
@@ -12,15 +12,26 @@ test.use({
   },
 });
 
-test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a reload", async ({
+const expanded = ".session-rail.expanded";
+
+test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel across a reload", async ({
   page,
 }) => {
   await createAcpSession(page, "feature/panel-second");
-  const panel = page.locator(".session-panel");
-  const rows = panel.locator(".session-panel-row");
+  const panel = page.locator(expanded);
+  const rows = panel.locator(".session-chip");
 
+  // Expanding widens the rail in place: every chip keeps its box, including a one-word name ("main").
+  const chipBoxes = (): Promise<string> =>
+    page
+      .locator(".session-chip")
+      .evaluateAll((chips) =>
+        JSON.stringify(chips.map((chip) => [chip.offsetTop, chip.offsetHeight])),
+      );
+  const collapsed = await chipBoxes();
   await page.locator(".session-rail").hover();
   await expect(rows).toHaveCount(2);
+  expect(await chipBoxes()).toBe(collapsed);
   await expect(rows.filter({ hasText: "panel second" })).toHaveClass(/\bactive\b/);
   await page.locator(".pane-area").hover();
   await expect(panel).toBeHidden();
@@ -37,7 +48,7 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await page.keyboard.press("ControlOrMeta+e");
   await expect(rows.filter({ hasText: "panel second" })).toBeFocused();
   const other = rows.filter({ hasNotText: "panel second" });
-  // Both sessions are idle, so they share a group in rail order: the workspace session first.
+  // The expanded rail keeps rail order: the workspace session first.
   await page.keyboard.press("ArrowUp");
   await expect(other).toBeFocused();
   await page.keyboard.press("Enter");
@@ -79,45 +90,47 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   const unpinned = await left();
   await page.locator(".session-rail").hover();
   await panel.getByRole("button", { name: /Pin session panel/ }).click();
-  await expect(panel).toHaveClass(/\bpinned\b/);
+  const pinned = page.locator(".session-panel");
+  await expect(pinned).toBeVisible();
   expect(await left()).toBeGreaterThan(unpinned + 200);
   // Pinned, the panel replaces the rail and carries its own new-session button.
   await expect(page.locator(".session-rail")).toHaveCount(0);
-  await expect(panel.locator(".session-rail-add")).toBeVisible();
+  await expect(pinned.locator(".session-rail-add")).toBeVisible();
   // Rows keep the rail's right-click session menu.
-  await panel.locator(".session-panel-row").first().click({ button: "right" });
+  await pinned.locator(".session-panel-row").first().click({ button: "right" });
   await expect(page.locator(".context-menu")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".context-menu")).toBeHidden();
 
   // Dragging the right edge resizes it, and the width survives a reload.
-  const edge = await panel.locator(".session-panel-resize").boundingBox();
+  const edge = await pinned.locator(".session-panel-resize").boundingBox();
   if (edge === null) throw new Error("no resize edge");
   await page.mouse.move(edge.x + edge.width / 2, edge.y + 200);
   await page.mouse.down();
   await page.mouse.move(edge.x + edge.width / 2 + 80, edge.y + 200, { steps: 5 });
   await page.mouse.up();
-  const resized = (await panel.boundingBox())?.width ?? 0;
+  const resized = (await pinned.boundingBox())?.width ?? 0;
   expect(resized).toBeGreaterThan(360);
 
   await page.reload();
-  await expect(page.locator(".session-panel.pinned")).toBeVisible();
-  expect((await panel.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
+  await expect(pinned).toBeVisible();
+  expect((await pinned.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
   // Pinned, Escape hands focus back instead of closing anything.
   await page.locator(".xterm:visible").first().click();
   await page.keyboard.press("ControlOrMeta+e");
-  await expect(panel.locator(".session-panel-row.active")).toBeFocused();
+  await expect(pinned.locator(".session-panel-row.active")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(panel.locator(":focus")).toHaveCount(0);
-  await expect(page.locator(".session-panel.pinned")).toBeVisible();
-  // Unpinned under the pointer, it stays open as a hover panel until the pointer leaves.
+  await expect(pinned.locator(":focus")).toHaveCount(0);
+  await expect(pinned).toBeVisible();
+  // Unpinned under the pointer, the rail stays expanded until the pointer leaves.
   await page.locator(".session-panel-pin").click();
-  await expect(panel).not.toHaveClass(/\bpinned\b/);
+  await expect(pinned).toBeHidden();
+  await expect(panel).toBeVisible();
   await page.locator(".pane-area").hover();
   await expect(panel).toBeHidden();
 });
 
-test("a session waiting on approval shows amber on the rail and its request in the panel", async ({
+test("a session waiting on approval shows amber on the rail and its request when expanded", async ({
   page,
 }) => {
   const surface = await createAcpSession(page, "feature/needs-approval");
@@ -132,22 +145,26 @@ test("a session waiting on approval shows amber on the rail and its request in t
 
   // A click on the rail never pops the panel open under the resting pointer; entering the rail afresh does.
   await page.waitForTimeout(400);
-  await expect(page.locator(".session-panel")).toBeHidden();
+  await expect(page.locator(expanded)).toBeHidden();
   await page.locator(".pane-area").hover();
   await page.locator(".session-rail").hover();
-  const needs = page.locator(".session-panel-row", { hasText: "needs approval" });
+  const needs = page.locator(`${expanded} .session-chip`, { hasText: "needs approval" });
   await expect(needs).toContainText("wants to edit permission-edit.txt");
+  await runCommand(page, "Pin Session Panel");
   await expect(page.locator(".session-panel-group").first()).toHaveText("Needs you");
+  await runCommand(page, "Pin Session Panel");
+  await page.locator(".pane-area").hover();
+  await page.locator(".session-rail").hover();
 
   await needs.click();
   await expect(page.locator(".session-chip.active")).toHaveAttribute(
     "data-session-slot",
     waitingSlot,
   );
-  await expect(page.locator(".session-panel")).toBeHidden();
+  await expect(page.locator(expanded)).toBeHidden();
 });
 
-test("parked sessions fold behind one toggle shared by the rail and the panel", async ({
+test("parked sessions fold behind one toggle shared by the rail and the pinned panel", async ({
   page,
 }) => {
   await createAcpSession(page, "feature/parked-fold");
@@ -159,13 +176,13 @@ test("parked sessions fold behind one toggle shared by the rail and the panel", 
   await toggle.click();
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
 
-  await page.locator(".pane-area").hover();
-  await page.locator(".session-rail").hover();
+  await runCommand(page, "Pin Session Panel");
   const parkedHeader = page.locator(".session-panel-parked");
   await expect(parkedHeader).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(1);
   await parkedHeader.click();
   await expect(page.locator(".session-panel-row.parked")).toHaveCount(0);
+  await runCommand(page, "Pin Session Panel");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
 });

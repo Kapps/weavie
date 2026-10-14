@@ -89,10 +89,7 @@
 .session-panel-row.offline {
   color: var(--dim);
 }
-.session-panel-row .session-status {
-  margin-top: 5px;
-}
-.session-panel-row .session-status.cloud {
+.session-panel-row .session-status-slot {
   margin-top: 2px;
 }
 .session-panel-num {

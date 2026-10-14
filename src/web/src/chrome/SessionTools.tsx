@@ -110,22 +110,24 @@ export function SessionText(props: { session: RailSession; now: number }): JSX.E
   );
 }
 
-/** A session's status dot; a remote session's status reads as a cloud in its place. */
+/** A session's status dot; a remote session's status reads as a cloud in its place. Both share one slot, so names align. */
 export function SessionStatus(props: { session: RailSession }): JSX.Element {
   return (
-    <Show
-      when={props.session.isLocal}
-      fallback={
-        <svg
-          class={`session-status cloud status-${statusDot(props.session)}`}
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path d={CLOUD_PATH} />
-        </svg>
-      }
-    >
-      <span class={`session-status status-${statusDot(props.session)}`} />
-    </Show>
+    <span class="session-status-slot">
+      <Show
+        when={props.session.isLocal}
+        fallback={
+          <svg
+            class={`session-status cloud status-${statusDot(props.session)}`}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path d={CLOUD_PATH} />
+          </svg>
+        }
+      >
+        <span class={`session-status status-${statusDot(props.session)}`} />
+      </Show>
+    </span>
   );
 }

@@ -151,6 +151,7 @@ function fixture() {
       scroller.scrollTop = top;
       for (const listener of listeners) listener(false);
     },
+    shift: vi.fn(),
     setContentHeight: vi.fn(),
     onScroll: (listener) => {
       listeners.add(listener);

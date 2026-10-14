@@ -1,3 +1,69 @@
+diff --git a/vscode/src/vs/base/common/scrollable.d.ts b/vscode/src/vs/base/common/scrollable.d.ts
+index 3594bc95c452a25990531180cccd893fe3602f7a..48d2cff8ac0dbb8ec8bd60d9c96e7ec49f977b40 100644
+--- a/vscode/src/vs/base/common/scrollable.d.ts
++++ b/vscode/src/vs/base/common/scrollable.d.ts
+@@ -108,6 +108,11 @@ export declare class Scrollable extends Disposable {
+      */
+     getCurrentScrollPosition(): IScrollPosition;
+     setScrollPositionNow(update: INewScrollPosition): void;
++    /**
++     * Weavie: content above the viewport resized the scroll height to `scrollHeight`; moves the position and any
++     * running animation by `delta`, measured from where they were before the resize clamped them.
++     */
++    shiftScrollTop(delta: number, scrollHeight: number): void;
+     setScrollPositionSmooth(update: INewScrollPosition, reuseAnimation?: boolean): void;
+     hasPendingScrollAnimation(): boolean;
+     private _performSmoothScrolling;
+diff --git a/vscode/src/vs/base/common/scrollable.js b/vscode/src/vs/base/common/scrollable.js
+index b402bdbffa7309074574aa3b5d8caa7c96fd4eda..cc6ce25b0b6c1fce81c1fe93a10cc4774e00bec1 100644
+--- a/vscode/src/vs/base/common/scrollable.js
++++ b/vscode/src/vs/base/common/scrollable.js
+@@ -151,6 +151,11 @@ class Scrollable extends Disposable {
+     getCurrentScrollPosition() {
+         return this._state;
+     }
++    shiftScrollTop(delta, scrollHeight) {
++        const resized = this._state.withScrollDimensions({ scrollHeight }, true);
++        this._smoothScrolling?.shiftScrollTop(delta, resized);
++        this._setState(resized.withScrollPosition({ scrollTop: this._state.scrollTop + delta }), Boolean(this._smoothScrolling));
++    }
+     setScrollPositionNow(update) {
+         const newState = this._state.withScrollPosition(update);
+         if (this._smoothScrolling) {
+@@ -287,6 +292,11 @@ class SmoothScrollingOperation {
+             this.animationFrameDisposable = null;
+         }
+     }
++    shiftScrollTop(delta, state) {
++        this.from = state.withScrollPosition({ scrollTop: this.from.scrollTop + delta });
++        this.to = state.withScrollPosition({ scrollTop: this.to.scrollTop + delta });
++        this._initAnimations();
++    }
+     acceptScrollDimensions(state) {
+         this.to = state.withScrollPosition(this.to);
+         this._initAnimations();
+@@ -304,7 +314,20 @@ class SmoothScrollingOperation {
+         return ( new SmoothScrollingUpdate(this.to.scrollLeft, this.to.scrollTop, true));
+     }
+     combine(from, to, duration) {
+-        return SmoothScrollingOperation.start(from, to, duration);
++        // Weavie: a notch landing mid-glide continues at the current speed instead of restarting the ease-out at
++        // its fastest; the new glide's length is chosen so its initial speed (3 x distance / length) matches.
++        const now = Date.now();
++        const distance = to.scrollTop - from.scrollTop;
++        // Speed along the new direction; a reversal or a finished glide starts fresh.
++        const speed = this._velocity(now) * Math.sign(distance);
++        const matched = speed > 0 ? 3 * Math.abs(distance) / speed : duration;
++        const length = Math.min(2 * duration, Math.max(duration / 2, matched));
++        return new SmoothScrollingOperation(from, to, now, length);
++    }
++    _velocity(now) {
++        const completion = Math.min(1, (now - this.startTime) / this.duration);
++        const step = 1e-3;
++        return (this.scrollTop(Math.min(1, completion + step)) - this.scrollTop(completion)) / (step * this.duration);
+     }
+     static start(from, to, duration) {
+         duration = duration + 10;
 diff --git a/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts b/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts
 index 9b19ddbaa64f625bd2667bd71344bfecfbdc4f23..73f388491a3e270b08659878858e6b6c46221270 100644
 --- a/vscode/src/vs/editor/browser/controller/mouseHandler.d.ts

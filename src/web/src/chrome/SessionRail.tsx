@@ -5,12 +5,13 @@ import {
   createSessionMenu,
   PanelControls,
   ParkedToggle,
+  SessionStatus,
   SessionText,
   SessionTools,
 } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
+import { sessionSubtitle, switchShortcut } from "./session-summary";
 
 /** The session panel's list behavior, applied to the rail while it stands in for the unpinned panel. */
 export interface SessionListHandlers {
@@ -83,20 +84,7 @@ export function SessionRail(props: {
                 >
                   <span class="session-chip-face">
                     {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
-                    <Show
-                      when={session.isLocal}
-                      fallback={
-                        <svg
-                          class={`session-status cloud status-${statusDot(session)}`}
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path d={CLOUD_PATH} />
-                        </svg>
-                      }
-                    >
-                      <span class={`session-status status-${statusDot(session)}`} />
-                    </Show>
+                    <SessionStatus session={session} />
                     <Show when={session.pending}>
                       <span class="session-chip-spinner" aria-hidden="true" />
                     </Show>

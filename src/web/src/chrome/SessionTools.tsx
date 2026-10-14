@@ -7,7 +7,7 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { panelPinned, parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, newSessionTitle, sessionSubtitle } from "./session-summary";
+import { CLOUD_PATH, newSessionTitle, sessionSubtitle, statusDot } from "./session-summary";
 
 /** The new-session and remote-agents buttons: at the rail's foot, or in the pinned session panel's header. */
 export function SessionTools(props: {
@@ -100,23 +100,32 @@ export function PanelControls(props: { onTogglePin: () => void }): JSX.Element {
   );
 }
 
-/** A session's full name, its machine when remote, and what its agent is doing: a panel row or an expanded chip. */
+/** A session's full name and what its agent is doing: a pinned panel row or an expanded chip. */
 export function SessionText(props: { session: RailSession; now: number }): JSX.Element {
   return (
     <span class="session-panel-text">
-      <span class="session-panel-name">
-        <span class="session-panel-title">{props.session.title}</span>
-        {/* Remote sessions name their machine, so same-named branches stay apart. */}
-        <Show when={!props.session.isLocal}>
-          <span class="session-panel-where">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d={CLOUD_PATH} />
-            </svg>
-            {props.session.locationName}
-          </span>
-        </Show>
-      </span>
+      <span class="session-panel-title">{props.session.title}</span>
       <span class="session-panel-activity">{sessionSubtitle(props.session, props.now)}</span>
     </span>
+  );
+}
+
+/** A session's status dot; a remote session's status reads as a cloud in its place. */
+export function SessionStatus(props: { session: RailSession }): JSX.Element {
+  return (
+    <Show
+      when={props.session.isLocal}
+      fallback={
+        <svg
+          class={`session-status cloud status-${statusDot(props.session)}`}
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d={CLOUD_PATH} />
+        </svg>
+      }
+    >
+      <span class={`session-status status-${statusDot(props.session)}`} />
+    </Show>
   );
 }

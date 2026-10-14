@@ -9,13 +9,14 @@ import {
   createSessionMenu,
   PanelControls,
   ParkedToggle,
+  SessionStatus,
   SessionText,
   SessionTools,
 } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
 import { createPanelResize } from "./session-panel-resize";
 import type { RailSession } from "./session-store";
-import { SESSION_GROUPS, sessionGroup, statusDot, switchShortcut } from "./session-summary";
+import { SESSION_GROUPS, sessionGroup, switchShortcut } from "./session-summary";
 
 // Keyboard-navigable session entries: the pinned panel's rows, or the expanded rail's chips.
 const ROWS = ".session-panel-row, .session-chip";
@@ -233,16 +234,14 @@ export function SessionPanel(props: {
                               offline: session().offline,
                             }}
                             data-session-slot={session().id}
-                            title={
-                              shortcut() === ""
-                                ? session().label
-                                : `${session().label} (${shortcut()})`
-                            }
+                            title={`${session().label}${session().isLocal ? "" : ` @ ${session().locationName}`}${
+                              shortcut() === "" ? "" : ` (${shortcut()})`
+                            }`}
                             onClick={() => choose(session())}
                             onContextMenu={(event) => menu.open(event, session())}
                           >
                             <span class="session-panel-num">{index() < 9 ? index() + 1 : ""}</span>
-                            <span class={`session-status status-${statusDot(session())}`} />
+                            <SessionStatus session={session()} />
                             <SessionText session={session()} now={now()} />
                           </button>
                         );

@@ -33,13 +33,11 @@ export function AgentPane(props: {
     }
   };
 
+  // WebKit reports a tap's click as pointerType "mouse" (bug 282988); only its pointerdown names the device.
+  let pressedWithMouse = false;
+
   const focusPrompt = (event: MouseEvent): void => {
-    if (
-      !(event instanceof PointerEvent) ||
-      event.pointerType !== "mouse" ||
-      event.button !== 0 ||
-      event.detail === 0
-    ) {
+    if (!pressedWithMouse || event.button !== 0 || event.detail === 0) {
       return;
     }
 
@@ -79,6 +77,9 @@ export function AgentPane(props: {
       data-kind="terminal:claude"
       data-agent-provider={props.providerId ?? "unknown"}
       data-surface="structured-agent"
+      on:pointerdown={(event) => {
+        pressedWithMouse = event.pointerType === "mouse";
+      }}
       onClick={focusPrompt}
       onPointerUp={focusPromptFromDisabled}
     >

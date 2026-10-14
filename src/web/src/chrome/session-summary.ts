@@ -30,6 +30,13 @@ export function sessionGroup(session: RailSession): SessionGroup {
   }
 }
 
+/** `sessions` in the session panel's display order: grouped by SESSION_GROUPS, rail order within a group. */
+export function panelOrder(sessions: RailSession[]): RailSession[] {
+  const rank = (session: RailSession): number =>
+    SESSION_GROUPS.findIndex((group) => group.id === sessionGroup(session));
+  return [...sessions].sort((a, b) => rank(a) - rank(b));
+}
+
 const STATUS_PHRASE: Record<RailSession["status"], string> = {
   starting: "starting",
   working: "working",

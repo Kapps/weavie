@@ -2,8 +2,9 @@ import { For, onCleanup, Show } from "solid-js";
 import { ModalShell } from "../chrome/ModalShell";
 import { keyHint } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
+import { currentThemeType } from "./controller";
 import { createThemePicker } from "./picker-model";
-import { type ThemeSearchOrder, themePickerOpen } from "./picker-state";
+import { type ThemePickerState, type ThemeSearchOrder, themePicker } from "./picker-state";
 import { ThemeAppearanceSelect } from "./ThemeAppearanceSelect";
 import { ThemeChoiceList } from "./ThemeChoiceList";
 import { ThemeExtensionDetails } from "./ThemeExtensionDetails";
@@ -12,16 +13,18 @@ import "./theme-picker.css";
 
 export function ThemePicker() {
   return (
-    <Show when={themePickerOpen()}>
-      <Picker />
+    <Show when={themePicker()} keyed>
+      {(opened) => <Picker opened={opened} />}
     </Show>
   );
 }
 
-function Picker() {
-  const m = createThemePicker();
+function Picker(props: { opened: ThemePickerState }) {
+  const m = createThemePicker(props.opened);
   const command = m.target === "editor" ? CommandIds.selectEditorTheme : CommandIds.selectTheme;
   const title = m.target === "editor" ? "Select Editor Theme" : "Select Color Theme";
+  // The editor theme is saved per polarity, so say which one Apply sets.
+  const mode = m.target === "editor" ? ` (${currentThemeType()} mode)` : "";
   const focusBefore = document.activeElement;
   let input!: HTMLInputElement;
   onCleanup(() => {
@@ -91,6 +94,9 @@ function Picker() {
       <div class="theme-picker-header">
         <strong id="theme-picker-title" title={`${title}${keyHint(command)}`}>
           {title}
+          <Show when={mode}>
+            <small>{mode}</small>
+          </Show>
         </strong>
         <span>{keyHint(command)}</span>
       </div>

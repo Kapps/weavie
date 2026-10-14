@@ -11,30 +11,33 @@ import {
   type ExtensionChoice,
   installTheme,
   type SearchResults,
-  selectEditorTheme,
-  selectTheme,
+  saveTheme,
   type ThemeChoice,
+  type ThemePickerState,
   type ThemePreview,
   type ThemeSearchOrder,
-  themePickerStartsInRegistry,
-  themePickerTarget,
   themeRequest,
 } from "./picker-state";
 
 export type ThemeFilter = "light" | "dark" | "all";
 
-export function createThemePicker() {
-  const target = themePickerTarget();
+export function createThemePicker(opened: ThemePickerState) {
+  const target = opened.target;
   const editorThemeId = currentEditorThemeId();
-  const savedId = target === "editor" ? (editorThemeId ?? currentThemeId()) : currentThemeId();
-  const save = target === "editor" ? selectEditorTheme : selectTheme;
-  const [mode, setMode] = createSignal<ThemeFilter>(currentThemeType());
+  // The editor picker marks only a set editor theme, but starts on the app theme the editor follows.
+  const savedId = target === "editor" ? (editorThemeId ?? "") : currentThemeId();
+  const initialId = target === "editor" ? (editorThemeId ?? currentThemeId()) : savedId;
+  const save = saveTheme[target];
+  // An editor theme may be either polarity, so the editor picker lists all of them.
+  const [mode, setMode] = createSignal<ThemeFilter>(
+    target === "editor" ? "all" : currentThemeType(),
+  );
   const preview = beginThemePreview(target);
   const lifetime = new AbortController();
   const [catalog, setCatalog] = createSignal<ThemeChoice[]>([]);
   const [query, setQuery] = createSignal("");
   const [sortBy, setSortBy] = createSignal<ThemeSearchOrder>("downloadCount");
-  const [registry, setRegistry] = createSignal(themePickerStartsInRegistry());
+  const [registry, setRegistry] = createSignal(opened.source === "registry");
   const [extensions, setExtensions] = createSignal<ExtensionChoice[]>([]);
   const [total, setTotal] = createSignal(0);
   const [selected, setSelected] = createSignal(0);
@@ -158,7 +161,7 @@ export function createThemePicker() {
         query() === ""
           ? Math.max(
               0,
-              items.findIndex((c) => c.id === savedId),
+              items.findIndex((c) => c.id === initialId),
             )
           : 0;
       void highlight(initial);

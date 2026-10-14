@@ -136,11 +136,12 @@
   margin: 1.5em 0;
 }
 
-.editor-preview-body img {
+.editor-preview-body img,
+.agent-markdown img {
   max-width: 100%;
 }
 
-.contains-task-list:has(> .task-list-item) {
+.contains-task-list {
   padding-left: 0.4em;
 }
 

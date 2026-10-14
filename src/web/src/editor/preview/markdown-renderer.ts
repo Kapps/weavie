@@ -2,10 +2,12 @@ import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import type StateCore from "markdown-it/lib/rules_core/state_core.mjs";
 import { isFileLineReference } from "../../content-links";
+import { sanitizeGithubHtml } from "./github-html";
 import { highlightFence } from "./highlight";
 
 export interface MarkdownProfile {
-  allowHtml: boolean;
+  /** Raw HTML: dropped, kept to GitHub's user-content allowlist, or kept to DOMPurify's broad defaults. */
+  html: "none" | "github" | "any";
   allowImages: boolean;
   allowMermaid: boolean;
   safeLinksOnly: boolean;
@@ -13,7 +15,7 @@ export interface MarkdownProfile {
 
 export function createMarkdownRenderer(profile: MarkdownProfile): (content: string) => HTMLElement {
   const markdown = new MarkdownIt({
-    html: profile.allowHtml,
+    html: profile.html !== "none",
     linkify: true,
     typographer: true,
   }).use(taskLists);
@@ -40,9 +42,13 @@ export function createMarkdownRenderer(profile: MarkdownProfile): (content: stri
     markdown.normalizeLink = (url) => normalize(isFileLineReference(url) ? `./${url}` : url);
   }
 
+  const sanitize =
+    profile.html === "github"
+      ? sanitizeGithubHtml
+      : (html: string) => DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
   return (content: string): HTMLElement => {
     const element = document.createElement("div");
-    element.innerHTML = DOMPurify.sanitize(markdown.render(content));
+    element.append(sanitize(markdown.render(content)));
     return element;
   };
 }
@@ -55,11 +61,12 @@ export function taskLists(markdown: MarkdownIt): void {
 function renderTaskLists(state: StateCore): void {
   const tokens = state.tokens;
   for (let index = 2; index < tokens.length; index += 1) {
-    const [item, paragraph, inline] = tokens.slice(index - 2, index + 1);
+    const item = tokens[index - 2];
+    const inline = tokens[index];
     const first = inline?.children?.[0];
     if (
       item?.type !== "list_item_open" ||
-      paragraph?.type !== "paragraph_open" ||
+      tokens[index - 1]?.type !== "paragraph_open" ||
       first?.type !== "text"
     ) {
       continue;
@@ -74,7 +81,7 @@ function renderTaskLists(state: StateCore): void {
     inline?.children?.unshift(checkbox);
     item.attrJoin("class", "task-list-item");
     let list = index - 3;
-    while (tokens[list]?.level !== item.level - 1) {
+    while (list > 0 && tokens[list]?.level !== item.level - 1) {
       list -= 1;
     }
     if (!tokens[list]?.attrGet("class")) {

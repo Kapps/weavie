@@ -9,18 +9,18 @@ import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { installAgentMermaid } from "./agent-mermaid";
 
-/** `agent` is model output; `github` is GitHub-authored prose, rendered with GitHub's sanitized HTML and images. */
+/** `agent` is model output; `github` is GitHub-authored prose, with GitHub's allowlisted HTML and https images. */
 export type MarkdownFlavor = "agent" | "github";
 
 const renderers: Record<MarkdownFlavor, (content: string) => HTMLElement> = {
   agent: createMarkdownRenderer({
-    allowHtml: false,
+    html: "none",
     allowImages: false,
     allowMermaid: true,
     safeLinksOnly: true,
   }),
   github: createMarkdownRenderer({
-    allowHtml: true,
+    html: "github",
     allowImages: true,
     allowMermaid: true,
     safeLinksOnly: true,

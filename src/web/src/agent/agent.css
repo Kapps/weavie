@@ -539,10 +539,6 @@ a:has(> .agent-path-dir) {
   margin-top: 0.2em;
 }
 
-.agent-markdown img {
-  max-width: 100%;
-}
-
 .agent-markdown summary {
   cursor: pointer;
 }

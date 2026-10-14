@@ -42,6 +42,11 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
   await expect(description).not.toContainText("template-comment");
   await expect(description.locator("input[type=checkbox]")).toHaveCount(2);
   await expect(description.locator("input[type=checkbox]").last()).toBeChecked();
+  const hostile = description.locator(".agent-markdown > div");
+  await expect(hostile).toHaveText("hostile");
+  await expect(hostile).not.toHaveAttribute("style");
+  await expect(hostile).not.toHaveAttribute("data-agent-kind");
+  await expect(description.locator("style")).toHaveCount(0);
   await expect(description.locator("details summary b")).toHaveText("More options");
   await expect(description.locator("details i")).toBeHidden();
   await description.locator("details summary").click();

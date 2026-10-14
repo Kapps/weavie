@@ -30,6 +30,7 @@ export default function PlanView(props: {
             <AgentMarkdown
               cacheKey={plan()}
               content={plan().markdown}
+              flavor="agent"
               renderMermaid={true}
               session={props.session}
             />

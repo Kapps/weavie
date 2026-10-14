@@ -1,10 +1,13 @@
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
+import type StateCore from "markdown-it/lib/rules_core/state_core.mjs";
 import { isFileLineReference } from "../../content-links";
+import { sanitizeGithubHtml } from "./github-html";
 import { highlightFence } from "./highlight";
 
 export interface MarkdownProfile {
-  allowHtml: boolean;
+  /** Raw HTML: dropped, kept to GitHub's user-content allowlist, or kept to DOMPurify's broad defaults. */
+  html: "none" | "github" | "any";
   allowImages: boolean;
   allowMermaid: boolean;
   safeLinksOnly: boolean;
@@ -12,10 +15,10 @@ export interface MarkdownProfile {
 
 export function createMarkdownRenderer(profile: MarkdownProfile): (content: string) => HTMLElement {
   const markdown = new MarkdownIt({
-    html: profile.allowHtml,
+    html: profile.html !== "none",
     linkify: true,
     typographer: true,
-  });
+  }).use(taskLists);
 
   markdown.set({
     highlight: (code, lang) =>
@@ -39,11 +42,52 @@ export function createMarkdownRenderer(profile: MarkdownProfile): (content: stri
     markdown.normalizeLink = (url) => normalize(isFileLineReference(url) ? `./${url}` : url);
   }
 
+  const sanitize =
+    profile.html === "github"
+      ? sanitizeGithubHtml
+      : (html: string) => DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
   return (content: string): HTMLElement => {
     const element = document.createElement("div");
-    element.innerHTML = DOMPurify.sanitize(markdown.render(content));
+    element.append(sanitize(markdown.render(content)));
     return element;
   };
+}
+
+// GFM task-list items: a list item whose first paragraph opens with `[ ]` or `[x]` renders a checkbox.
+export function taskLists(markdown: MarkdownIt): void {
+  markdown.core.ruler.after("inline", "task-lists", renderTaskLists);
+}
+
+function renderTaskLists(state: StateCore): void {
+  const tokens = state.tokens;
+  for (let index = 2; index < tokens.length; index += 1) {
+    const item = tokens[index - 2];
+    const inline = tokens[index];
+    const first = inline?.children?.[0];
+    if (
+      item?.type !== "list_item_open" ||
+      tokens[index - 1]?.type !== "paragraph_open" ||
+      first?.type !== "text"
+    ) {
+      continue;
+    }
+    const marker = /^\[([ xX])\](?=\s|$)/.exec(first.content);
+    if (marker === null) {
+      continue;
+    }
+    first.content = first.content.slice(marker[0].length);
+    const checkbox = new state.Token("html_inline", "", 0);
+    checkbox.content = `<input type="checkbox" class="task-list-item-checkbox" disabled${marker[1] === " " ? "" : " checked"}>`;
+    inline?.children?.unshift(checkbox);
+    item.attrJoin("class", "task-list-item");
+    let list = index - 3;
+    while (list > 0 && tokens[list]?.level !== item.level - 1) {
+      list -= 1;
+    }
+    if (!tokens[list]?.attrGet("class")) {
+      tokens[list]?.attrSet("class", "contains-task-list");
+    }
+  }
 }
 
 export function isSafeAgentLink(url: string): boolean {

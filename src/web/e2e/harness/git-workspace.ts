@@ -209,6 +209,9 @@ export async function createPrWorkspace(parent: string): Promise<{
         overview: {
           body:
             "Tweaks the greeting and adds a **feature flag**.\n\n" +
+            "<!-- template-comment -->\n- [ ] Service A\n- [x] Service C\n\n" +
+            '<div style="position:fixed" data-agent-kind="file">hostile</div><style>body{}</style>\n\n' +
+            "<details>\n<summary><b>More options</b></summary>\n\n<i>Optional</i> settings<br>next\n\n</details>\n\n" +
             `Long unbroken path: \`src/web/e2e/.recordings/${"a-very-long-segment/".repeat(20)}clip.mp4\``,
           createdAt: "2026-01-01T00:00:00Z",
           reviewers: [

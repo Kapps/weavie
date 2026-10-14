@@ -423,6 +423,10 @@ test.describe("across files", () => {
     await openFile(page, "notes.txt");
     const mark = page.locator(".editor-surface .weavie-hint-mark");
     await expect(mark).toHaveCount(1);
+    // FLAKE 2026-10-14 06:19Z https://github.com/Kapps/weavie/actions/runs/38519737341 (Windows shard 4/6): Next stayed
+    // on notes.txt because todo.txt's hint was still being reported by the fake, so only one hint existed to walk.
+    // Fixed by waiting for both reports to be acknowledged before walking.
+    await expect.poll(() => weavie.fakeLog().match(/^addReviewHint -> /gm)?.length ?? 0).toBe(2);
 
     await test.step("Next and Previous walk the hints across files", async () => {
       await runCommand(page, "Next Review Hint");

@@ -23,6 +23,10 @@ async function commentOnLine(
   await expect(card(page, body)).toBeVisible({ timeout: 10_000 });
 }
 
+// FLAKE 2026-10-14 06:13Z https://github.com/Kapps/weavie/actions/runs/38519737341 (macOS shard 4/6): the second
+// "Comment on Line" never showed a draft. The first post's reply arrived after the next draft opened and its
+// success handler closed that newer draft. Fixed in pr-comment-controller's submitDraft, which now closes only
+// the draft it submitted.
 test("comments queue as drafts in place and submit once with a verdict", async ({ page }) => {
   await openCommentedFile(page);
   await commentOnLine(page, 5, "Posted right away.", "Comment now");

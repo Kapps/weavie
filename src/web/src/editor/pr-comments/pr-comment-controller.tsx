@@ -182,6 +182,7 @@ export function createPrComments(
     const submitDraft = async (mode: PrCommentMode, body: string): Promise<string | null> => {
       const current = set();
       const line = draft();
+      const key = draftKey();
       const mapped = anchors();
       const headLine = line === null ? null : (mapped?.map.headLine(line) ?? null);
       if (current === null || mapped === null || line === null || headLine === null) {
@@ -195,7 +196,8 @@ export function createPrComments(
         body,
         mode,
       });
-      if (error === null) setDraft(null, null);
+      // The post's reply can land after the user opened a draft elsewhere, which it must not close.
+      if (error === null && draftKey() === key) setDraft(null, null);
       return error;
     };
 

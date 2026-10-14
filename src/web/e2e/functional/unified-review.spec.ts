@@ -181,6 +181,13 @@ test.describe("Review Changes tab", () => {
   });
 });
 
+// Review names files the way the host spells their path, so a Windows host separates with backslashes.
+const nestedNotes = join("docs", "notes.txt");
+const nestedNotesTitle = new RegExp(`^${nestedNotes.replace(/[\\.]/g, "\\$&")} `);
+
+// FLAKE 2026-10-14 06:21Z https://github.com/Kapps/weavie/actions/runs/38519737341 (Windows shard 6/6): the nested
+// file expectations hard-coded "docs/notes.txt" but the review shows "docs\notes.txt" on a Windows host. Fixed by
+// expecting the host's own separator.
 test.describe("Review Changes tab — file switcher", () => {
   test.use({
     fakeScript: {
@@ -202,7 +209,7 @@ test.describe("Review Changes tab — file switcher", () => {
     await page.locator(".editor-empty-review").click();
 
     const overview = page.locator(".unified-review");
-    const notes = overview.locator(".unified-review-file", { hasText: "docs/notes.txt" });
+    const notes = overview.locator(".unified-review-file", { hasText: nestedNotes });
     await expect(notes.locator(".unified-review-file-name")).toHaveAttribute(
       "title",
       /Go to file \(.+\)/,
@@ -233,7 +240,7 @@ test.describe("Review Changes tab — file switcher", () => {
     await expect(picker).toHaveCount(0);
     await expect(overview.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(
       "title",
-      /^docs\/notes\.txt /,
+      nestedNotesTitle,
     );
     await expect(notes.locator(".monaco-editor.focused")).toHaveCount(1);
 
@@ -244,6 +251,8 @@ test.describe("Review Changes tab — file switcher", () => {
   });
 });
 
+// FLAKE 2026-10-14 06:21Z https://github.com/Kapps/weavie/actions/runs/38519737341 (Windows shard 6/6): same
+// "docs\\notes.txt" separator expectation as the file switcher above; fixed the same way.
 test.describe("Review Changes tab — file tree", () => {
   test.use({
     fakeScript: {
@@ -301,7 +310,7 @@ test.describe("Review Changes tab — file tree", () => {
     await page.keyboard.press("Enter");
     await expect(page.locator('.unified-review-map-file[aria-current="true"]')).toHaveAttribute(
       "title",
-      /^docs\/notes\.txt /,
+      nestedNotesTitle,
     );
     await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
 

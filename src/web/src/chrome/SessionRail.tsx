@@ -1,9 +1,9 @@
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { panelPinned, parkedCollapsed } from "./rail-state";
-import { createSessionMenu, ParkedToggle, SessionTools } from "./SessionTools";
+import { createSessionMenu, ParkedToggle, SessionStatus, SessionTools } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, sessionSubtitle, statusDot, switchShortcut } from "./session-summary";
+import { sessionSubtitle, switchShortcut } from "./session-summary";
 
 // The left session rail: every session on every connected backend as a status dot (a cloud for remotes) over the first words of its
 // name, loaded first and parked (unloaded) ones folded behind a toggle. The full session panel opens on hover.
@@ -51,20 +51,7 @@ export function SessionRail(props: {
                     onContextMenu={(event) => menu.open(event, session)}
                   >
                     {/* A host op in flight (delete / load / unload) spins over the dot until it settles. */}
-                    <Show
-                      when={session.isLocal}
-                      fallback={
-                        <svg
-                          class={`session-status cloud status-${statusDot(session)}`}
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                        >
-                          <path d={CLOUD_PATH} />
-                        </svg>
-                      }
-                    >
-                      <span class={`session-status status-${statusDot(session)}`} />
-                    </Show>
+                    <SessionStatus session={session} />
                     <Show when={session.pending}>
                       <span class="session-chip-spinner" aria-hidden="true" />
                     </Show>

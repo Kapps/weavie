@@ -4,7 +4,8 @@ import type { ClientSession } from "../bridge";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import { gitStatus } from "../chrome/git-status-store";
 import { scrollWheelHorizontally } from "../chrome/horizontal-overflow";
-import { type PullRequestStatus, pullRequestStatus } from "../chrome/pull-request-store";
+import { currentPullRequestStatus, type PullRequest } from "../chrome/pull-request-store";
+import { reviewBranchTitle } from "../chrome/review-branch-title";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import {
@@ -33,26 +34,19 @@ export function AgentStatusLine(props: {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.session);
   const [commandsVersion, setCommandsVersion] = createSignal(0);
   onCleanup(onCommandsChanged(() => setCommandsVersion((version) => version + 1)));
-  const prStatus = () => pullRequestStatus(props.session);
-  const pullRequest = () => {
-    const status = prStatus();
-    return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
-  };
-  const prError = (): string | null => {
-    const status = prStatus();
-    return status !== null && status.branch === gitStatus()?.branch ? status.error : null;
-  };
-  const pullRequestTitle = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string => {
-    commandsVersion();
-    const state = pr.state === "open" ? "" : ` ${pr.state}`;
+  const prStatus = () => currentPullRequestStatus(props.session);
+  const pullRequest = () => prStatus()?.pullRequest ?? null;
+  const prError = (): string | null => prStatus()?.error ?? null;
+  const branch = (): string | null => gitStatus()?.branch ?? null;
+  const reviewTitle = (pr: PullRequest | null): string => {
     const refreshError = prError() === null ? "" : ` — last refresh failed: ${prError()}`;
     const commentError = comments()?.error;
     const commentNote =
       commentError == null ? "" : ` — review comments failed to load: ${commentError}`;
-    return `Open${state} PR #${pr.number} in browser${keyHint(CommandIds.openCurrentPr)}${refreshError}${commentNote}`;
+    return `${reviewBranchTitle(pr, branch() ?? "")}${refreshError}${commentNote}`;
   };
   const comments = () => prCommentsFor(props.session);
-  const pullRequestLabel = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string => {
+  const pullRequestLabel = (pr: PullRequest): string => {
     const threads = comments()?.set?.threads.length ?? 0;
     const state = pr.state === "open" ? "" : ` · ${pr.state === "merged" ? "Merged" : "Closed"}`;
     return `#${pr.number}${state}${threads === 0 ? "" : ` · ${threads} ${threads === 1 ? "thread" : "threads"}`}`;
@@ -107,7 +101,7 @@ export function AgentStatusLine(props: {
         state().axes.length > 0 ||
         hasDiff() ||
         diffError() !== null ||
-        pullRequest() !== null ||
+        branch() !== null ||
         prError() !== null
       }
     >
@@ -167,12 +161,22 @@ export function AgentStatusLine(props: {
                 type="button"
                 class="agent-status-segment agent-status-pr"
                 classList={{ "agent-status-warn": comments()?.error != null }}
-                title={pullRequestTitle(pr())}
-                onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
+                title={reviewTitle(pr())}
+                onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
               >
                 {pullRequestLabel(pr())}
               </button>
             )}
+          </Show>
+          <Show when={pullRequest() === null && branch() !== null}>
+            <button
+              type="button"
+              class="agent-status-segment agent-status-review-branch"
+              title={reviewTitle(null)}
+              onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstBranchBase)}
+            >
+              Review branch
+            </button>
           </Show>
           <Show when={pullRequest() === null ? prError() : null}>
             {(error) => (

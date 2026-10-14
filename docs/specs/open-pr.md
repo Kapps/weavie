@@ -19,7 +19,7 @@ or leave a new comment without leaving Weavie.
 > - **Phase 3 — comments.** Superseded by [pr-comments.md](pr-comments.md): comments load for any session whose
 >   branch has a PR, render as inline cards in every editor, and support reply, new comment, and edit. The
 >   comment sections below are historical.
-> - **Branch status.** Every loaded session owns a coalesced PR monitor that keeps the status-line chip current
+> - **Branch status.** Every loaded session owns a coalesced PR monitor that keeps the status-line chip (which reviews the PR in Weavie) current
 >   through long agent turns and retains open/merged/closed state.
 >
 > A Playwright spec (`open-pr.spec.ts`, against a stubbed provider + a local base/head workspace) drives the

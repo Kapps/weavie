@@ -460,6 +460,21 @@
 .footer-branch {
   flex: 0 1 auto;
   min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.footer-branch:hover {
+  color: var(--fg);
+}
+
+.footer-branch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .footer-branch-name {

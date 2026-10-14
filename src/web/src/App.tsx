@@ -49,7 +49,6 @@ import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSes
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
-import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -61,7 +60,7 @@ import {
 } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
-import { pullRequestStatus } from "./chrome/pull-request-store";
+import { currentPullRequestStatus } from "./chrome/pull-request-store";
 import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
@@ -540,10 +539,9 @@ export default function App(): JSX.Element {
       ? null
       : (sessions().find((session) => session.owner === selected) ?? null);
   });
-  const currentPullRequest = createMemo(() => {
-    const status = pullRequestStatus(activeTermSession());
-    return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
-  });
+  const currentPullRequest = createMemo(
+    () => currentPullRequestStatus(activeTermSession())?.pullRequest ?? null,
+  );
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
   const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
     return selectedCatalogSession()?.agentSurface ?? null;

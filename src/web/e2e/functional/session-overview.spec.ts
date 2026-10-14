@@ -162,7 +162,7 @@ test("clicking the status bar's diff totals offers the session's diffs, each ope
   await expect(section(page, "changes").locator(".unified-review-tree")).toContainText("README.md");
 });
 
-test("Review Branch opens the branch's diff on the overview with its commits", async ({
+test("the terminal footer's branch opens the branch's diff on the overview with its commits", async ({
   page,
   weavie,
 }) => {
@@ -172,7 +172,9 @@ test("Review Branch opens the branch's diff on the overview with its commits", a
   await writeFile(join(weavie.workspace, "branch.txt"), "on the branch\n");
   git("add", "branch.txt");
   git("commit", "-q", "-m", "Add the branch file");
-  await runCommand(page, "Review Branch");
+  const branch = page.locator('.terminal-surface[data-kind="terminal:shell"] .footer-branch');
+  await expect(branch).toContainText("feature/overview", { timeout: 20_000 });
+  await branch.click();
   await expect(section(page, "commits")).toContainText("Add the branch file", { timeout: 20_000 });
   await expect(section(page, "changes")).toContainText("vs origin/main");
   await expect(section(page, "changes").locator(".unified-review-tree")).toContainText(

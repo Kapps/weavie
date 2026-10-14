@@ -236,6 +236,7 @@ const catalog = {
       "$mod+shift+g",
     ]),
     agentCommand("weavie.diff.againstHead", "Diff Against HEAD", "", []),
+    agentCommand("weavie.diff.againstBranchBase", "Review Branch", "", []),
     agentCommand("weavie.review.open", "Review Changes", "", []),
   ],
   keybindings: [
@@ -1450,9 +1451,16 @@ test.describe("ACP composer", () => {
     ).toBeVisible();
   });
 
-  test("status line links the current branch's pull request", async ({ page }) => {
+  test("status line reviews the current branch's pull request in Weavie", async ({ page }) => {
     await mountAgent(page);
     const url = `${host.url}/pull/123`;
+    const reviewRequests = () =>
+      host.received.filter(
+        (message) =>
+          message.scope === "session" &&
+          message.feature === "review" &&
+          message.name === "diffAgainstBase",
+      ).length;
     publishCatalog();
     host.publishSession(agentSession.address, "git", "status", {
       branch: "feat/native-ui-pr",
@@ -1467,10 +1475,12 @@ test.describe("ACP composer", () => {
     const link = page.locator(".agent-status-pr");
     await expect(link).toHaveText("#123");
     const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
-    await expect(link).toHaveAttribute("title", new RegExp(`${modifier}\\+Shift\\+G`));
-    const popupPromise = page.waitForEvent("popup");
+    await expect(link).toHaveAttribute(
+      "title",
+      new RegExp(`Review PR #123 in Weavie — open it on GitHub \\(${modifier}\\+Shift\\+G\\)`),
+    );
     await link.click();
-    await expect(await popupPromise).toHaveURL(url);
+    await expect.poll(reviewRequests).toBe(1);
 
     host.publishSession(agentSession.address, "git", "pullRequest", {
       branch: "feat/native-ui-pr",

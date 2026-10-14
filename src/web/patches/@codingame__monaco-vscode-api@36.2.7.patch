@@ -364,6 +364,63 @@ index 9327b6ae5f6b11b57da2aaedde2198d21cb46421..00850e6ec17756ed475ec5f32bbfee9f
              const action = ( new DefinitionAction({
                  openToSide,
                  openInPeek: canPeek,
+diff --git a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/ghostText/ghostTextView.css b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/ghostText/ghostTextView.css
+index e46dca6d726d5ea0dc1c3ee0de97a98862c472c9..b6e17d317c8adae2a9bf409ae7c191948f13bb49 100644
+--- a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/ghostText/ghostTextView.css
++++ b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/ghostText/ghostTextView.css
+@@ -3,6 +3,12 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++.monaco-editor .ghost-text-decoration,
++.monaco-editor .ghost-text-decoration-preview,
++.monaco-editor .ghost-text {
++	font-family: var(--inline-suggest-font-family);
++}
++
+ .monaco-editor .suggest-preview-additional-widget {
+ 	white-space: nowrap;
+ }
+diff --git a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
+index dcef3ec8a197f0053369885dd00e12158ed71d51..209c0de7442f9f12f2556b7a0cc0411ec32e7add 100644
+--- a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
++++ b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
+@@ -1,6 +1,5 @@
+ 
+ import { __decorate, __param } from '../../../../../../../../external/tslib/tslib.es6.js';
+-import { createStyleSheetFromObservable } from '../../../../../base/browser/domStylesheets.js';
+ import { createHotClass } from '../../../../../base/common/hotReloadHelpers.js';
+ import { Disposable } from '../../../../../base/common/lifecycle.js';
+ import '../../../../../base/common/observableInternal/index.js';
+@@ -16,6 +15,7 @@ import { InlineEditsOnboardingExperience } from './inlineEdits/inlineEditsNewUse
+ import { InlineEditTabAction, InlineCompletionViewKind } from './inlineEdits/inlineEditsViewInterface.js';
+ import { InlineEditsViewAndDiffProducer } from './inlineEdits/inlineEditsViewProducer.js';
+ import { derived, derivedDisposable } from '../../../../../base/common/observableInternal/observables/derived.js';
++import { autorun } from '../../../../../base/common/observableInternal/reactions/autorun.js';
+ import { derivedObservableWithCache, mapObservableArrayCached } from '../../../../../base/common/observableInternal/utils/utils.js';
+ import { observableValue } from '../../../../../base/common/observableInternal/observables/observableValue.js';
+ import { constObservable } from '../../../../../base/common/observableInternal/observables/constObservable.js';
+@@ -114,15 +114,11 @@ let InlineSuggestionsView = class InlineSuggestionsView extends Disposable {
+         ).recomputeInitiallyAndOnChange(this._store);
+         this._inlineEditWidget.recomputeInitiallyAndOnChange(this._store);
+         this._fontFamily = ( this._editorObs.getOption(EditorOption.inlineSuggest).map(val => val.fontFamily));
+-        this._register(createStyleSheetFromObservable(derived(reader => {
+-            const fontFamily = this._fontFamily.read(reader);
+-            return `
+-.monaco-editor .ghost-text-decoration,
+-.monaco-editor .ghost-text-decoration-preview,
+-.monaco-editor .ghost-text {
+-    font-family: ${fontFamily};
+-}`;
+-        })));
++        // Weavie: a per-editor variable read by ghostTextView.css. A stylesheet per editor restyles the whole document
++        // whenever an editor is created or disposed, which WebKit pays for on every file of the unified review.
++        this._register(autorun(reader => {
++            this._editor.getDomNode()?.style.setProperty('--inline-suggest-font-family', this._fontFamily.read(reader));
++        }));
+         this._register(( new InlineCompletionsHintsWidget(this._editor, this._model, this._instantiationService)));
+         this._indicator = this._register(
+             this._instantiationService.createInstance(InlineEditsGutterIndicator, this._editorObs, derived(reader => {
 diff --git a/vscode/src/vs/editor/standalone/browser/standaloneServices.js b/vscode/src/vs/editor/standalone/browser/standaloneServices.js
 index c35586ed8afeb53322727e68e089158db9a41e39..45ea025f47671bb8c94cb864ef92b26a1be442c0 100644
 --- a/vscode/src/vs/editor/standalone/browser/standaloneServices.js

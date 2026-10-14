@@ -1,4 +1,4 @@
-const LINUX_NORMALIZATION = 5;
+const LINUX_NORMALIZATION = 3;
 
 /** The wheel options every Monaco scroller takes from Weavie's editor settings. */
 export function wheelOptions(options: {

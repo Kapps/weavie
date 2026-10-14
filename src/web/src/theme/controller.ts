@@ -1,5 +1,6 @@
 // Single source of truth for the active appearance (mode + theme per polarity + override ops), driving all
-// three render surfaces (spec §6) — Monaco, xterm, chrome — off one resolved palette. Holds both polarities
+// three render surfaces (spec §6) — Monaco, xterm, chrome. An optional editor theme per polarity recolors
+// Monaco and every `[data-editor-theme]` surface; unset, the editor follows the app palette. Holds both polarities
 // so a `system`-mode OS switch re-themes instantly with no host round-trip. Monaco-free (kept off the
 // editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
@@ -9,7 +10,7 @@ import { hostInjected, registerHostFeature } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
-import { deriveChromeVars } from "./chrome-vars";
+import { deriveChromeVars, paletteVars } from "./chrome-vars";
 import { type OverrideOp, type ResolvedTheme, resolveTheme } from "./overrides";
 import type { VsCodeColorTheme } from "./vscode-theme";
 import { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";
@@ -21,14 +22,16 @@ export interface MonacoThemeUpdate {
 }
 
 /**
- * Host-injected initial appearance: the active mode and the theme for each polarity. Each slot carries the
- * theme id, its override ops, and — for installed (non-built-in) themes — the converted VS Code theme JSON.
+ * Host-injected initial appearance: the active mode plus the app and optional editor theme per polarity.
+ * Each slot carries the theme id, its override ops, and — for installed (non-built-in) themes — the converted VS Code theme JSON.
  * Built-ins carry only the id; their JSON resolves here from the bundled registry.
  */
 interface InjectedTheme {
   mode: ThemeMode;
   light: ThemeSlot;
   dark: ThemeSlot;
+  editorLight?: ThemeSlot;
+  editorDark?: ThemeSlot;
 }
 
 declare global {
@@ -56,6 +59,8 @@ interface ThemeState {
   mode: ThemeMode;
   light: Slot;
   dark: Slot;
+  editorLight: Slot | undefined;
+  editorDark: Slot | undefined;
 }
 
 /** True when the OS currently prefers a dark color scheme (defaults to dark where matchMedia is absent). */
@@ -75,10 +80,14 @@ function resolveSlot(slot: ThemeSlot, fallback: VsCodeColorTheme): Slot {
 }
 
 function computeState(injected: InjectedTheme): ThemeState {
+  const light = resolveSlot(injected.light, WEAVIE_LIGHT);
+  const dark = resolveSlot(injected.dark, WEAVIE_DARK);
   return {
     mode: injected.mode,
-    light: resolveSlot(injected.light, WEAVIE_LIGHT),
-    dark: resolveSlot(injected.dark, WEAVIE_DARK),
+    light,
+    dark,
+    editorLight: injected.editorLight && resolveSlot(injected.editorLight, light.base),
+    editorDark: injected.editorDark && resolveSlot(injected.editorDark, dark.base),
   };
 }
 
@@ -115,6 +124,9 @@ export function savedPalette(type: "light" | "dark"): Readonly<Record<string, st
 
 let preview: Slot | null = null;
 const displayedSlot = (): Slot => preview ?? activeSlot(state);
+// The picker previews the app theme, so a set editor theme stays put while the app theme is previewed.
+const editorSlot = (): Slot =>
+  (isDark(state.mode) ? state.editorDark : state.editorLight) ?? displayedSlot();
 
 /** The resolved appearance mode, including the system preference. */
 export const currentThemeType = (): "light" | "dark" => (isDark(state.mode) ? "dark" : "light");
@@ -157,7 +169,7 @@ const previewSubscribers = new Set<() => void>();
 function monacoUpdate(): MonacoThemeUpdate {
   // Id bumped per change because a registered-extension theme can't be mutated in place; a fresh id forces
   // a clean re-register + setTheme.
-  const slot = displayedSlot();
+  const slot = editorSlot();
   return {
     // Monaco settingsId must be a clean token ('#', '/', '.', spaces break lookup) and unique per change.
     id: `weavie-theme-${slot.id.replace(/[^a-zA-Z0-9]+/g, "-")}-${version}`,
@@ -203,9 +215,31 @@ export function onPreviewThemeChanged(handler: () => void): () => void {
   };
 }
 
+const polarityOf = (slot: Slot): "light" | "dark" =>
+  slot.base.type === "light" || slot.base.type === "hcLight" ? "light" : "dark";
+
+let editorRule: CSSStyleDeclaration | undefined;
+
+/** Republishes the editor palette's CSS vars on the `[data-editor-theme]` rule, shadowing :root's. */
+function applyEditorTheme(): void {
+  if (editorRule === undefined) {
+    const element = document.createElement("style");
+    element.textContent = "[data-editor-theme] {}";
+    document.head.append(element);
+    editorRule = (element.sheet!.cssRules[0] as CSSStyleRule).style;
+  }
+  const slot = editorSlot();
+  editorRule.cssText = "";
+  editorRule.setProperty("color-scheme", polarityOf(slot));
+  for (const [name, value] of Object.entries(paletteVars(slot.resolved.colors))) {
+    editorRule.setProperty(name, value);
+  }
+}
+
 /** Applies the active theme to Weavie's chrome (CSS vars + color-scheme). Call once the DOM is mounted; idempotent. */
 export function applyChromeTheme(): void {
   const slot = displayedSlot();
+  applyEditorTheme();
   applyColorsToCssVars(slot.resolved.colors);
   deriveChromeVars(slot.resolved.colors);
   const background = slot.resolved.colors["editor.background"];
@@ -216,7 +250,7 @@ export function applyChromeTheme(): void {
   }
   // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
   // the active polarity; mirror it onto data-theme-type so polarity-specific CSS can target it.
-  const polarity = slot.base.type === "light" || slot.base.type === "hcLight" ? "light" : "dark";
+  const polarity = polarityOf(slot);
   document.documentElement.style.colorScheme = polarity;
   document.documentElement.dataset.themeType = polarity;
 }

@@ -1281,7 +1281,7 @@ export default function App(): JSX.Element {
             }
           />
           <div class="editor-pane">
-            <div class="editor" role="application" ref={editorContainer} />
+            <div class="editor" role="application" data-editor-theme ref={editorContainer} />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />

@@ -1,8 +1,9 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers theme settings: <c>theme.mode</c> (<c>system</c>/<c>light</c>/<c>dark</c>) and the per-polarity
-/// <c>theme.light</c> / <c>theme.dark</c> theme ids. Per-color OVERRIDES are deliberately not settings — they
+/// Registers theme settings: <c>theme.mode</c> (<c>system</c>/<c>light</c>/<c>dark</c>), the per-polarity
+/// <c>theme.light</c> / <c>theme.dark</c> theme ids, and the optional per-polarity code-editor themes
+/// <c>theme.editorLight</c> / <c>theme.editorDark</c> (empty follows the app theme). Per-color OVERRIDES are deliberately not settings — they
 /// live in <c>~/.weavie/theme-overrides.json</c> (see <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>).
 /// <para>
 /// The web layer is authoritative for rendering: it resolves <c>system</c> against the live
@@ -32,12 +33,18 @@ public static class ThemeSettings {
 	/// <summary>Setting key: the theme used in dark mode.</summary>
 	public const string DarkKey = "theme.dark";
 
+	/// <summary>Setting key: the code-editor theme used in light mode; empty follows <see cref="LightKey"/>.</summary>
+	public const string EditorLightKey = "theme.editorLight";
+
+	/// <summary>Setting key: the code-editor theme used in dark mode; empty follows <see cref="DarkKey"/>.</summary>
+	public const string EditorDarkKey = "theme.editorDark";
+
 	/// <summary>The theme setting keys whose change re-pushes the resolved theme pair to the web.</summary>
 	public static IReadOnlySet<string> Keys { get; } = new HashSet<string>(StringComparer.Ordinal) {
-		ModeKey, LightKey, DarkKey,
+		ModeKey, LightKey, DarkKey, EditorLightKey, EditorDarkKey,
 	};
 
-	/// <summary>Registers the theme settings (<c>theme.mode</c>/<c>theme.light</c>/<c>theme.dark</c>).</summary>
+	/// <summary>Registers the theme settings.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
@@ -74,7 +81,23 @@ public static class ThemeSettings {
 			Apply = ApplyMode.Live,
 			Default = DefaultDarkThemeId,
 		});
+
+		RegisterEditorTheme(registry, EditorLightKey, "light", ["editor light theme", "code light theme", "syntax light theme"]);
+		RegisterEditorTheme(registry, EditorDarkKey, "dark", ["editor dark theme", "code dark theme", "syntax dark theme"]);
 	}
+
+	private static void RegisterEditorTheme(SettingsRegistry registry, string key, string polarity, string[] aliases) =>
+		registry.Register(new SettingDefinition {
+			Key = key,
+			Kind = SettingKind.String,
+			Description = $"The color theme for the code editor and diff views in {polarity} mode, independent of the "
+				+ $"app theme (theme.{polarity}) used by chat, panels, and terminals. Empty (the default) makes the editor "
+				+ "follow the app theme. Accepts the same ids as theme.light/theme.dark; set both editor keys to one id "
+				+ "to keep the editor fixed across light/dark mode. Takes effect immediately.",
+			Aliases = ["editor theme", "code theme", "code editor theme", "syntax theme", .. aliases],
+			Apply = ApplyMode.Live,
+			Default = "",
+		});
 
 	/// <summary>The current appearance mode (<c>system</c>/<c>light</c>/<c>dark</c>), defaulting to <c>system</c>.</summary>
 	public static string Mode(SettingsStore settings) {
@@ -94,6 +117,18 @@ public static class ThemeSettings {
 		return settings.RequireString(DarkKey);
 	}
 
+	/// <summary>The code-editor theme id for light mode, or empty to follow the app theme.</summary>
+	public static string EditorLightThemeId(SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
+		return settings.RequireString(EditorLightKey);
+	}
+
+	/// <summary>The code-editor theme id for dark mode, or empty to follow the app theme.</summary>
+	public static string EditorDarkThemeId(SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
+		return settings.RequireString(EditorDarkKey);
+	}
+
 	/// <summary>
 	/// The concrete theme id Core treats as "active" for per-theme overrides. Core can't see
 	/// <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's default polarity).
@@ -103,10 +138,11 @@ public static class ThemeSettings {
 		return Mode(settings) == "light" ? LightThemeId(settings) : DarkThemeId(settings);
 	}
 
-	/// <summary>True if <paramref name="themeId"/> is one of the two selected (light/dark) theme ids — an
-	/// override on it could be live, so a change to it warrants re-pushing the theme pair.</summary>
+	/// <summary>True if <paramref name="themeId"/> is one of the selected app or editor theme ids — an
+	/// override on it could be live, so a change to it warrants re-pushing the theme payload.</summary>
 	public static bool IsSelectedThemeId(SettingsStore settings, string themeId) {
 		ArgumentNullException.ThrowIfNull(settings);
-		return themeId == LightThemeId(settings) || themeId == DarkThemeId(settings);
+		return themeId == LightThemeId(settings) || themeId == DarkThemeId(settings)
+			|| themeId == EditorLightThemeId(settings) || themeId == EditorDarkThemeId(settings);
 	}
 }

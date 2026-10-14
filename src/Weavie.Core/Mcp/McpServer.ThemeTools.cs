@@ -52,6 +52,8 @@ public sealed partial class McpServer {
 				writer.WriteString("mode", ThemeSettings.Mode(_settings));
 				writer.WriteString("lightTheme", ThemeSettings.LightThemeId(_settings));
 				writer.WriteString("darkTheme", ThemeSettings.DarkThemeId(_settings));
+				writer.WriteString("editorLightTheme", ThemeSettings.EditorLightThemeId(_settings));
+				writer.WriteString("editorDarkTheme", ThemeSettings.EditorDarkThemeId(_settings));
 			}
 
 			writer.WritePropertyName("overrides");

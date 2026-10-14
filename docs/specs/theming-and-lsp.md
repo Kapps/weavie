@@ -73,6 +73,10 @@ plus a theme **per polarity**. Three live settings drive it:
 - `theme.mode` — `system` (follow the OS `prefers-color-scheme`, the default), `light`, or `dark`.
 - `theme.light` — the theme shown when the active polarity is light (default `weavie-light`).
 - `theme.dark` — the theme shown when the active polarity is dark (default `weavie-dark`).
+- `theme.editorLight` / `theme.editorDark` — optional code-editor theme per polarity (default empty =
+  follow the app theme). It recolors Monaco plus every `[data-editor-theme]` surface (the code editor and
+  unified review), whose CSS vars the controller shadows on one scoped rule; chat, panels, terminals, and
+  chrome keep the app theme. Set both to one id to keep the editor fixed across modes.
 
 **Verb commands** (palette / keybinding / Claude `runCommand`):
 
@@ -82,7 +86,8 @@ plus a theme **per polarity**. Three live settings drive it:
 - `weavie.theme.cycleMode` steps `system → light → dark → system` (default `$mod+Shift+m`).
 
 **Who resolves what.** The host injects/pushes **both** themes as a pair —
-`{ mode, light: {id,ops,theme?}, dark: {id,ops,theme?} }` (see `ThemeJson.Build`). The **web** is
+`{ mode, light: {id,ops,theme?}, dark: {id,ops,theme?} }`, plus `editorLight`/`editorDark` slots when set
+(see `ThemeJson.Build`). The **web** is
 authoritative for *rendering*: the theme controller resolves `system` against the live
 `matchMedia('(prefers-color-scheme: dark)')` and renders the matching slot, re-theming all three
 surfaces in place on an OS flip with no host round-trip (both palettes are already resolved). It also

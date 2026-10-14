@@ -105,6 +105,7 @@ export const APPLICATION_MENUS: ApplicationMenuDefinition[] = [
       submenu("Git Blame", [command(CommandIds.toggleBlame), command(CommandIds.showBlame)]),
       submenu("Appearance", [
         command(CommandIds.selectTheme),
+        command(CommandIds.selectEditorTheme),
         command(CommandIds.cycleThemeMode),
         separator(),
         command(CommandIds.increaseFontSize),

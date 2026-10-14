@@ -97,6 +97,34 @@ public sealed class ThemeCommandsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Reset_WithTheme_ClearsOnlyThatTheme() {
+		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
+		_overrides.Append("weavie-light", new ThemeOverrideSet { Key = "editor.background", Value = "#ffffff" });
+
+		var cleared = await Run(CoreCommands.ResetTheme, "{\"theme\":\"weavie-light\"}");
+		Assert.True(cleared.Ok);
+		Assert.Empty(_overrides.Get("weavie-light"));
+		Assert.Single(_overrides.Get("weavie-dark"));
+	}
+
+	[Fact]
+	public void SelectEditorTheme_SetsThenResetsOnlyThatPolarity() {
+		Assert.True(ThemeCommands.SelectEditorTheme("weavie-light", "dark", _settings).Ok);
+		Assert.Equal("weavie-light", _settings.GetString(ThemeSettings.EditorDarkKey));
+		Assert.Equal("", _settings.GetString(ThemeSettings.EditorLightKey));
+
+		Assert.True(ThemeCommands.SelectEditorTheme("", "dark", _settings).Ok);
+		Assert.Equal("", _settings.GetString(ThemeSettings.EditorDarkKey));
+	}
+
+	[Fact]
+	public void SelectEditorTheme_RejectsUnknownThemeAndPolarity() {
+		Assert.False(ThemeCommands.SelectEditorTheme("no-such-theme", "dark", _settings).Ok);
+		Assert.False(ThemeCommands.SelectEditorTheme("weavie-light", "system", _settings).Ok);
+		Assert.Equal("", _settings.GetString(ThemeSettings.EditorDarkKey));
+	}
+
+	[Fact]
 	public async Task Undo_PopsLastOverride() {
 		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
 		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "focusBorder", Value = "#ffffff" });

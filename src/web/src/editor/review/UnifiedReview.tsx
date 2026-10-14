@@ -442,7 +442,7 @@ export function UnifiedReview(props: {
   };
 
   return (
-    <section class="unified-review" data-kind="editor" data-review-mode="unified">
+    <section class="unified-review" data-kind="editor" data-review-mode="unified" data-editor-theme>
       <UnifiedReviewHeader
         overview={props.overview}
         session={props.session}

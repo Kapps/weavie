@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { hostConnection, LOCAL_BACKEND_ID, type ThemeSlot } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds, type CommandResult } from "../commands/types";
+import { currentThemeType, type ThemeTarget } from "./controller";
 
 export interface ThemeChoice {
   id: string;
@@ -43,6 +44,13 @@ export async function selectTheme(id: string, signal: AbortSignal): Promise<void
   if (!result.ok) throw new Error(result.error);
 }
 
+/** Sets the editor theme for the current polarity; an empty id resets it to follow the app theme. */
+export async function selectEditorTheme(id: string, signal: AbortSignal): Promise<void> {
+  const polarity = currentThemeType();
+  const result = await themeRequest<CommandResult>("selectEditor", { id, polarity }, signal);
+  if (!result.ok) throw new Error(result.error);
+}
+
 export async function installTheme(choice: ThemeChoice): Promise<void> {
   const result = await themeRequest<CommandResult>(
     "install",
@@ -52,24 +60,36 @@ export async function installTheme(choice: ThemeChoice): Promise<void> {
   if (!result.ok) throw new Error(result.error);
 }
 
-// Which catalog the open picker starts on; null while it's closed.
-const [pickerSource, setPickerSource] = createSignal<"installed" | "registry" | null>(null);
-export const themePickerOpen = (): boolean => pickerSource() !== null;
-export const themePickerStartsInRegistry = (): boolean => pickerSource() === "registry";
-export const setThemePickerOpen = (open: boolean): void => {
-  setPickerSource(open ? "installed" : null);
+/** An open picker's target theme and starting catalog. */
+export interface ThemePickerState {
+  target: ThemeTarget;
+  source: "installed" | "registry";
+}
+const [picker, setPicker] = createSignal<ThemePickerState | null>(null);
+/** The open picker's state, null while closed; a new value (another target or source) remounts the picker. */
+export const themePicker = picker;
+export const themePickerOpen = (): boolean => picker() !== null;
+export const closeThemePicker = (): void => {
+  setPicker(null);
 };
 /** Opens the picker on the Open VSX catalog rather than the installed themes. */
 export const openThemeRegistry = (): void => {
-  setPickerSource("registry");
+  setPicker({ target: "app", source: "registry" });
 };
-registerCommand(CommandIds.selectTheme, async (args) => {
-  const id = (args as { id?: unknown } | undefined)?.id;
-  if (id !== undefined) {
-    if (typeof id !== "string" || id.length === 0)
+/** Each target's save: an app theme id must be nonempty; an empty editor id resets the editor theme. */
+export const saveTheme: Record<ThemeTarget, (id: string, signal: AbortSignal) => Promise<void>> = {
+  app: selectTheme,
+  editor: selectEditorTheme,
+};
+for (const [command, target] of [
+  [CommandIds.selectTheme, "app"],
+  [CommandIds.selectEditorTheme, "editor"],
+] as const) {
+  registerCommand(command, async (args) => {
+    const id = (args as { id?: unknown } | undefined)?.id;
+    if (id === undefined) setPicker({ target, source: "installed" });
+    else if (typeof id !== "string" || (target === "app" && id.length === 0))
       throw new Error("Theme id must be a nonempty string.");
-    await selectTheme(id, new AbortController().signal);
-  } else {
-    setThemePickerOpen(true);
-  }
-});
+    else await saveTheme[target](id, new AbortController().signal);
+  });
+}

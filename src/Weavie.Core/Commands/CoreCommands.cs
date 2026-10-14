@@ -435,6 +435,9 @@ public static partial class CoreCommands {
 	/// <summary>Pops the most recent color override on the active theme.</summary>
 	public const string UndoThemeOverride = "weavie.theme.undoOverride";
 
+	/// <summary>Opens the theme picker for the code-editor theme, or selects the given <c>id</c> as it.</summary>
+	public const string SelectEditorTheme = "weavie.theme.selectEditor";
+
 	/// <summary>Clears all color overrides on the active theme.</summary>
 	public const string ResetTheme = "weavie.theme.reset";
 
@@ -2225,6 +2228,17 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = SelectEditorTheme,
+			Title = "Select Editor Theme…",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Theme",
+			Description = "Pick a color theme for the code editor and diff views only, for the current light/dark mode, with live preview and a Reset back to the app theme. Pass a theme 'id' to select it directly, or an empty 'id' to reset.",
+			Aliases = ["select editor theme", "editor theme", "code theme", "syntax theme", "editor color theme"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = CycleThemeMode,
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Cycle Theme Mode",
@@ -2244,8 +2258,9 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
-			Description = "Undo the most recent color override on the active theme (pop the last set/transform).",
+			Description = "Undo the most recent color override on the active theme, or on the given 'theme' id (e.g. the editor theme).",
 			Aliases = ["undo theme override", "undo last color", "revert theme tweak", "undo color change"],
+			ArgsSchemaJson = "{\"theme\":{\"type\":\"string\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -2255,8 +2270,9 @@ public static partial class CoreCommands {
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
-			Description = "Clear ALL color overrides on the active theme, returning it to its authored colors.",
+			Description = "Clear ALL color overrides on the active theme, or on the given 'theme' id (e.g. the editor theme), returning it to its authored colors.",
 			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],
+			ArgsSchemaJson = "{\"theme\":{\"type\":\"string\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

@@ -72,6 +72,8 @@ internal sealed class GlobalHostFeatures : IDisposable {
 			Task.FromResult(CommandWireResult.From(ThemeCommands.SelectTheme(
 				JsonSerializer.Serialize(message, WireJson.Default.ThemeIdRequest),
 				_services.Settings)))));
+		_handlers.Add(themes.Handle("selectEditor", "Applying an editor theme", WireJson.Default.EditorThemeRequest, WireJson.Default.CommandWireResult, (message, _) =>
+			Task.FromResult(CommandWireResult.From(ThemeCommands.SelectEditorTheme(message.Id, message.Polarity, _services.Settings)))));
 		_handlers.Add(themes.HandleConcurrent("search", "Searching for themes", WireJson.Default.ThemeSearchRequest, WireJson.Default.JsonElement, async (message, ct) => {
 			using var http = new HttpClient();
 			return await new OpenVsxThemeInstaller(http, OpenVsxThemeInstaller.DefaultRegistry)
@@ -207,6 +209,7 @@ internal sealed class GlobalHostFeatures : IDisposable {
 	internal sealed record SettingWrite(string Key, JsonElement Value);
 	internal sealed record AgentProviderRequest(string ProviderId);
 	internal sealed record ThemeIdRequest(string Id);
+	internal sealed record EditorThemeRequest(string Id, string Polarity);
 	internal sealed record ThemeSearchRequest(string Query, int Offset, string SortBy);
 	internal sealed record ThemeExtensionRequest(string Namespace, string Name, string Version);
 }

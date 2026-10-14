@@ -73,6 +73,39 @@ test("Enter applies the highlighted theme after navigating from a focused option
   await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
 });
 
+test("editor theme picker previews, applies, reopens on, and resets only the editor theme", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  const bg = (selector: string) =>
+    page.locator(selector).evaluate((el) => getComputedStyle(el).getPropertyValue("--bg"));
+  const appBg = await bg("html");
+  await expect.poll(() => bg(".editor")).toBe(appBg);
+  await runCommand(page, "Select Editor Theme…");
+  const picker = page.getByRole("dialog", { name: /Select Editor Theme \(dark mode\)/ });
+  const reset = picker.getByRole("button", { name: "Reset", exact: true });
+  await expect(reset).toHaveCount(0);
+  await expect(picker.getByRole("option", { name: /Weavie Light/ })).not.toContainText("✓");
+  const filter = picker.getByRole("combobox", { name: "Filter themes", exact: true });
+  await filter.fill("Weavie Light");
+  await expect.poll(() => bg(".editor")).not.toBe(appBg);
+  expect(await bg("html")).toBe(appBg);
+  await filter.press("Enter");
+  await expect(picker).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
+  const editorBg = await bg(".editor");
+  expect(editorBg).not.toBe(appBg);
+
+  await runCommand(page, "Select Editor Theme…");
+  await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toContainText(
+    "Weavie Light ✓",
+  );
+  expect(await bg(".editor")).toBe(editorBg);
+  await reset.click();
+  await expect(picker).toBeHidden();
+  await expect.poll(() => bg(".editor")).toBe(appBg);
+});
+
 test.describe("pending registry search", () => {
   test.use({
     preNavigate: {

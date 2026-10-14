@@ -8,7 +8,7 @@ namespace Weavie.Core.Theming;
 
 /// <summary>
 /// Builds the theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes to the web. Shape is
-/// <c>{ mode, light: Slot, dark: Slot }</c>, each <c>Slot</c> = <c>{ id, ops, theme? }</c> (merged theme JSON only
+/// <c>{ mode, light: Slot, dark: Slot, editorLight?: Slot, editorDark?: Slot }</c> (editor slots only when set), each <c>Slot</c> = <c>{ id, ops, theme? }</c> (merged theme JSON only
 /// for installed themes; built-ins ship by id). Both polarities are sent so the web resolves <c>system</c> and
 /// switches light↔dark with no flash. Hand-written via <see cref="Utf8JsonWriter"/> for trim/AOT safety.
 /// </summary>
@@ -30,6 +30,8 @@ public static class ThemeJson {
 			writer.WriteString("mode", ThemeSettings.Mode(settings));
 			WriteSlot(writer, "light", ThemeSettings.LightThemeId(settings), overrides, log);
 			WriteSlot(writer, "dark", ThemeSettings.DarkThemeId(settings), overrides, log);
+			WriteEditorSlot(writer, "editorLight", ThemeSettings.EditorLightThemeId(settings), overrides, log);
+			WriteEditorSlot(writer, "editorDark", ThemeSettings.EditorDarkThemeId(settings), overrides, log);
 
 			writer.WriteEndObject();
 		}
@@ -77,6 +79,13 @@ public static class ThemeJson {
 		Utf8JsonWriter writer, string name, string id, ThemeOverridesStore overrides, Action<string>? log) {
 		writer.WritePropertyName(name);
 		BuildSlot(id, ResolveInstalledThemeJson(id, log), overrides).WriteTo(writer);
+	}
+
+	private static void WriteEditorSlot(
+		Utf8JsonWriter writer, string name, string id, ThemeOverridesStore overrides, Action<string>? log) {
+		if (id.Length > 0) {
+			WriteSlot(writer, name, id, overrides, log);
+		}
 	}
 
 	// Serializes the override op list to the web's OverrideOp shape (kind-discriminated), by hand for

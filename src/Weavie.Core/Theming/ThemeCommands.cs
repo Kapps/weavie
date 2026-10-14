@@ -37,10 +37,10 @@ public static class ThemeCommands {
 			InstallFromFileAsync(argsJson, settings, pickVsixFile, ct));
 		dispatcher.RegisterHandler(CoreCommands.CycleThemeMode, (_, _) =>
 			Task.FromResult(CycleMode(settings)));
-		dispatcher.RegisterHandler(CoreCommands.UndoThemeOverride, (_, _) =>
-			Task.FromResult(UndoOverride(settings, overrides)));
-		dispatcher.RegisterHandler(CoreCommands.ResetTheme, (_, _) =>
-			Task.FromResult(Reset(settings, overrides)));
+		dispatcher.RegisterHandler(CoreCommands.UndoThemeOverride, (argsJson, _) =>
+			Task.FromResult(UndoOverride(argsJson, settings, overrides)));
+		dispatcher.RegisterHandler(CoreCommands.ResetTheme, (argsJson, _) =>
+			Task.FromResult(Reset(argsJson, settings, overrides)));
 	}
 
 	/// <summary>Installs a theme extension from Open VSX; args carry its <c>namespace</c>, <c>name</c>, and optional <c>version</c>.</summary>
@@ -122,6 +122,34 @@ public static class ThemeCommands {
 		}
 	}
 
+	/// <summary>
+	/// Sets the code-editor theme for one <paramref name="polarity"/> (<c>light</c>/<c>dark</c>); an empty
+	/// <paramref name="id"/> resets it so the editor follows the app theme.
+	/// </summary>
+	public static CommandResult SelectEditorTheme(string id, string polarity, SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
+		if (polarity is not ("light" or "dark")) {
+			return CommandResult.Failure($"Editor theme polarity must be 'light' or 'dark', not '{polarity}'.");
+		}
+
+		if (id.Length > 0 && ThemePolarity(id) is null) {
+			return CommandResult.Failure($"Unknown theme '{id}'. Use the listThemes tool to see available themes.");
+		}
+
+		try {
+			string key = polarity == "light" ? ThemeSettings.EditorLightKey : ThemeSettings.EditorDarkKey;
+			if (id.Length == 0) {
+				settings.Clear(key);
+				return CommandResult.Success($"The {polarity}-mode editor now follows the app theme.");
+			}
+
+			SetString(settings, key, id);
+			return CommandResult.Success($"The {polarity}-mode editor theme is now '{id}'.");
+		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
+			return CommandResult.Failure(ex.Message);
+		}
+	}
+
 	// Steps the appearance mode system → light → dark → system.
 	private static CommandResult CycleMode(SettingsStore settings) {
 		string next = ThemeSettings.Mode(settings) switch {
@@ -160,15 +188,15 @@ public static class ThemeCommands {
 		return installed.UiTheme is "vs" or "hc-light" ? "light" : "dark";
 	}
 
-	private static CommandResult UndoOverride(SettingsStore settings, ThemeOverridesStore overrides) {
-		string active = ActiveThemeId(settings);
+	private static CommandResult UndoOverride(string? argsJson, SettingsStore settings, ThemeOverridesStore overrides) {
+		string active = TargetThemeId(argsJson, settings);
 		return CommandResult.Success(overrides.UndoLast(active)
 			? $"Undid the last override on theme '{active}'."
 			: $"Theme '{active}' has no overrides to undo.");
 	}
 
-	private static CommandResult Reset(SettingsStore settings, ThemeOverridesStore overrides) {
-		string active = ActiveThemeId(settings);
+	private static CommandResult Reset(string? argsJson, SettingsStore settings, ThemeOverridesStore overrides) {
+		string active = TargetThemeId(argsJson, settings);
 		return CommandResult.Success(overrides.Clear(active)
 			? $"Cleared all overrides on theme '{active}'."
 			: $"Theme '{active}' had no overrides.");
@@ -193,6 +221,12 @@ public static class ThemeCommands {
 		string ids = string.Join(", ", installed.Select(theme => $"'{theme.Id}'"));
 		return CommandResult.Success(
 			$"Installed {installed.Count} theme(s) from {source}: {ids}. Run weavie.theme.select to switch.");
+	}
+
+	// The theme an override command edits: the explicit 'theme' arg (e.g. the editor theme), else the active app theme.
+	private static string TargetThemeId(string? argsJson, SettingsStore settings) {
+		using var args = ParseArgs(argsJson);
+		return GetString(args, "theme") is { Length: > 0 } id ? id : ActiveThemeId(settings);
 	}
 
 	private static string ActiveThemeId(SettingsStore settings) =>

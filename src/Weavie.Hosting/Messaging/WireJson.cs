@@ -223,6 +223,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(TerminalMessageWiring.TerminalSizeMessage))]
 [JsonSerializable(typeof(GlobalHostFeatures.ThemeExtensionRequest))]
 [JsonSerializable(typeof(GlobalHostFeatures.ThemeIdRequest))]
+[JsonSerializable(typeof(GlobalHostFeatures.EditorThemeRequest))]
 [JsonSerializable(typeof(GlobalHostFeatures.ThemeSearchRequest))]
 [JsonSerializable(typeof(HostCore.ToolLayoutMessage))]
 [JsonSerializable(typeof(HostSession.UnwatchDirectoryMessage))]

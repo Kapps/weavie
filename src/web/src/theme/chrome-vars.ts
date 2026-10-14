@@ -2,6 +2,8 @@
 // palette, mapping each to the closest VS Code workbench color id (spec §5) so all chrome tracks the active
 // theme. Higher-level names complementing apply.ts, which publishes the raw --weavie-<key> vars.
 
+import { cssVarName } from "./apply";
+
 // Each chrome variable and the VS Code color ids it resolves from, first match wins.
 const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--bg": ["editor.background"],
@@ -48,6 +50,12 @@ export function chromeVars(colors: Readonly<Record<string, string>>): Record<str
     }
   }
   return vars;
+}
+
+/** Every CSS variable a palette publishes: the raw `--weavie-<key>` ids plus the chrome's semantic vars. */
+export function paletteVars(colors: Readonly<Record<string, string>>): Record<string, string> {
+  const raw = Object.entries(colors).map(([key, value]) => [cssVarName(key), value]);
+  return { ...Object.fromEntries(raw), ...chromeVars(colors) };
 }
 
 /** Sets the chrome's semantic CSS variables on :root from a resolved palette. */

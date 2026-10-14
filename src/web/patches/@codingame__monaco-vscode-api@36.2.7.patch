@@ -382,7 +382,7 @@ index e46dca6d726d5ea0dc1c3ee0de97a98862c472c9..b6e17d317c8adae2a9bf409ae7c19194
  	white-space: nowrap;
  }
 diff --git a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
-index dcef3ec8a197f0053369885dd00e12158ed71d51..209c0de7442f9f12f2556b7a0cc0411ec32e7add 100644
+index dcef3ec8a197f0053369885dd00e12158ed71d51..00d7730f017118c4b1ebc597c341646e18a5c531 100644
 --- a/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
 +++ b/vscode/src/vs/editor/contrib/inlineCompletions/browser/view/inlineSuggestionsView.js
 @@ -1,6 +1,5 @@
@@ -416,7 +416,7 @@ index dcef3ec8a197f0053369885dd00e12158ed71d51..209c0de7442f9f12f2556b7a0cc0411e
 +        // Weavie: a per-editor variable read by ghostTextView.css. A stylesheet per editor restyles the whole document
 +        // whenever an editor is created or disposed, which WebKit pays for on every file of the unified review.
 +        this._register(autorun(reader => {
-+            this._editor.getDomNode()?.style.setProperty('--inline-suggest-font-family', this._fontFamily.read(reader));
++            this._editor.getContainerDomNode().style.setProperty('--inline-suggest-font-family', this._fontFamily.read(reader));
 +        }));
          this._register(( new InlineCompletionsHintsWidget(this._editor, this._model, this._instantiationService)));
          this._indicator = this._register(

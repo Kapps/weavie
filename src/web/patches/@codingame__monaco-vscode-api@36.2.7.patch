@@ -1,32 +1,36 @@
 diff --git a/vscode/src/vs/base/common/scrollable.d.ts b/vscode/src/vs/base/common/scrollable.d.ts
-index 3594bc95c452a25990531180cccd893fe3602f7a..db1bef3a583407ae9c0d1b2252d1b09edf01f402 100644
+index 3594bc95c452a25990531180cccd893fe3602f7a..48d2cff8ac0dbb8ec8bd60d9c96e7ec49f977b40 100644
 --- a/vscode/src/vs/base/common/scrollable.d.ts
 +++ b/vscode/src/vs/base/common/scrollable.d.ts
-@@ -108,6 +108,8 @@ export declare class Scrollable extends Disposable {
+@@ -108,6 +108,11 @@ export declare class Scrollable extends Disposable {
       */
      getCurrentScrollPosition(): IScrollPosition;
      setScrollPositionNow(update: INewScrollPosition): void;
-+    /** Weavie: moves the position and any running animation by `delta`, for content resized above the viewport. */
-+    shiftScrollTop(delta: number): void;
++    /**
++     * Weavie: content above the viewport resized the scroll height to `scrollHeight`; moves the position and any
++     * running animation by `delta`, measured from where they were before the resize clamped them.
++     */
++    shiftScrollTop(delta: number, scrollHeight: number): void;
      setScrollPositionSmooth(update: INewScrollPosition, reuseAnimation?: boolean): void;
      hasPendingScrollAnimation(): boolean;
      private _performSmoothScrolling;
 diff --git a/vscode/src/vs/base/common/scrollable.js b/vscode/src/vs/base/common/scrollable.js
-index b402bdbffa7309074574aa3b5d8caa7c96fd4eda..b78ebd707eeabb7d96ca212f38ebc34fc633a9d6 100644
+index b402bdbffa7309074574aa3b5d8caa7c96fd4eda..cc6ce25b0b6c1fce81c1fe93a10cc4774e00bec1 100644
 --- a/vscode/src/vs/base/common/scrollable.js
 +++ b/vscode/src/vs/base/common/scrollable.js
-@@ -151,6 +151,10 @@ class Scrollable extends Disposable {
+@@ -151,6 +151,11 @@ class Scrollable extends Disposable {
      getCurrentScrollPosition() {
          return this._state;
      }
-+    shiftScrollTop(delta) {
-+        this._smoothScrolling?.shiftScrollTop(delta, this._state);
-+        this._setState(this._state.withScrollPosition({ scrollTop: this._state.scrollTop + delta }), Boolean(this._smoothScrolling));
++    shiftScrollTop(delta, scrollHeight) {
++        const resized = this._state.withScrollDimensions({ scrollHeight }, true);
++        this._smoothScrolling?.shiftScrollTop(delta, resized);
++        this._setState(resized.withScrollPosition({ scrollTop: this._state.scrollTop + delta }), Boolean(this._smoothScrolling));
 +    }
      setScrollPositionNow(update) {
          const newState = this._state.withScrollPosition(update);
          if (this._smoothScrolling) {
-@@ -287,6 +291,11 @@ class SmoothScrollingOperation {
+@@ -287,6 +292,11 @@ class SmoothScrollingOperation {
              this.animationFrameDisposable = null;
          }
      }
@@ -38,7 +42,7 @@ index b402bdbffa7309074574aa3b5d8caa7c96fd4eda..b78ebd707eeabb7d96ca212f38ebc34f
      acceptScrollDimensions(state) {
          this.to = state.withScrollPosition(this.to);
          this._initAnimations();
-@@ -304,7 +313,20 @@ class SmoothScrollingOperation {
+@@ -304,7 +314,20 @@ class SmoothScrollingOperation {
          return ( new SmoothScrollingUpdate(this.to.scrollLeft, this.to.scrollTop, true));
      }
      combine(from, to, duration) {

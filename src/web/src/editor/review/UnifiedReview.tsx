@@ -127,9 +127,9 @@ export function UnifiedReview(props: {
     const previous = overviewHeight();
     setOverviewHeight(height);
     measureTitle();
-    sizeVirtualList(virtualizer.getTotalSize());
     const owner = scroll()!;
-    if (owner.getScrollTop() > previous) owner.shift(height - previous);
+    if (owner.getScrollTop() > previous) owner.shift(height - previous, virtualizer.getTotalSize());
+    else sizeVirtualList(virtualizer.getTotalSize());
   };
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
@@ -195,10 +195,13 @@ export function UnifiedReview(props: {
     },
     scrollToFn: (offset, options, instance) => {
       const owner = scroll()!;
-      sizeVirtualList(instance.getTotalSize());
       // A size correction above the viewport carries any wheel glide along instead of cancelling it.
-      if (options.adjustments === undefined) owner.setScrollTop(offset);
-      else owner.shift(options.adjustments);
+      if (options.adjustments !== undefined) {
+        owner.shift(options.adjustments, instance.getTotalSize());
+        return;
+      }
+      sizeVirtualList(instance.getTotalSize());
+      owner.setScrollTop(offset);
     },
     // Observer snapshots must apply before navigation, not overwrite newer explicit sizes next frame.
     measureElement: (element, entry, instance) =>

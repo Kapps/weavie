@@ -39,11 +39,22 @@ describe("review wheel glide", () => {
   it("carries a glide through a size correction above the viewport", () => {
     glideBy(120);
     const before = frame();
-    scrollable.shiftScrollTop(300);
+    scrollable.shiftScrollTop(300, 100_300);
     expect(top()).toBe(before + 300);
     expect(scrollable.hasPendingScrollAnimation()).toBe(true);
     for (let i = 0; i < 40; i++) frame();
     expect(top()).toBe(1420);
+  });
+
+  it("keeps the bottom in place when a file above shrinks, mid-glide or not", () => {
+    scrollable.setScrollPositionNow({ scrollTop: 99_500 });
+    scrollable.shiftScrollTop(-200, 99_800);
+    expect(top()).toBe(99_300);
+    glideBy(-100);
+    frame();
+    scrollable.shiftScrollTop(-200, 99_600);
+    for (let i = 0; i < 40; i++) frame();
+    expect(top()).toBe(99_000);
   });
 
   it("continues a glide at its current speed when another notch lands", () => {

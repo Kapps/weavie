@@ -94,9 +94,11 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   await expect(pinned).toBeVisible();
   expect(await left()).toBeGreaterThan(unpinned + 200);
   // Pinned, a number key under the pointer doesn't switch sessions.
-  const activeRow = panel.locator(".session-panel-row.active");
+  // FLAKE 2026-10-14 05:51 UTC https://github.com/Kapps/weavie/actions/runs/38517590218 (main, shard 5/6): not a flake — #1068
+  // merged this block querying the unpinned rail (`panel`), which pinning removes; it now queries the pinned panel.
+  const activeRow = pinned.locator(".session-panel-row.active");
   const pinnedOn = await activeRow.getAttribute("data-session-slot");
-  await panel.hover();
+  await pinned.hover();
   await page.keyboard.press("2");
   await page.waitForTimeout(500);
   await expect(activeRow).toHaveAttribute("data-session-slot", pinnedOn ?? "");

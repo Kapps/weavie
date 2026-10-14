@@ -10,6 +10,7 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
 import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { wheelOptions } from "../wheel-scroll-sensitivity";
 
 // Match Monaco's ViewLayout animation duration.
 const SMOOTH_SCROLL_MS = 125;
@@ -43,9 +44,6 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     scheduleAtNextAnimationFrame: (callback) =>
       scheduleAtNextAnimationFrame(getWindow(element), callback),
   });
-  const offOptions = onEditorOptionsChanged((options) => {
-    state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
-  });
   // The logical extent stays fixed while the painted list moves inside it.
   const extent = document.createElement("div");
   extent.className = "unified-review-scroll-extent";
@@ -59,9 +57,14 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       useShadows: false,
       alwaysConsumeMouseWheel: true,
       mouseWheelSmoothScroll: true,
+      ...wheelOptions(currentEditorOptions()),
     },
     state,
   );
+  const offOptions = onEditorOptionsChanged((options) => {
+    state.setSmoothScrollDuration(options.smoothScrolling ? SMOOTH_SCROLL_MS : 0);
+    scrollable.updateOptions(wheelOptions(options));
+  });
   element.style.setProperty("--review-scrollbar-size", `${SCROLLBAR_SIZE}px`);
   const node = scrollable.getDomNode();
   node.style.overflow = "clip";

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -68,6 +69,43 @@ public sealed class HostCoreLogsTests {
 			restore!.Value.GetProperty("session").GetProperty("open").EnumerateArray(),
 			entry => entry.GetProperty("path").GetString() == "about:logs"
 				&& entry.GetProperty("kind").GetString() == "source");
+	}
+
+	[Fact]
+	public async Task ViewLogs_RestoredTabIsRefilledAfterARestart() {
+		await using var host = await TestHost.StartAsync();
+		host.LogBuffer.Append("before restart");
+		Assert.True((await host.InvokeClientCommandAsync("weavie.view.logs", new { })).Ok);
+
+		await host.RestartAsync();
+
+		await AssertLogsDocumentAsync(host, host.WorkspaceSession, "before restart");
+	}
+
+	[Fact]
+	public async Task ViewLogs_RestoredTabIsRefilledWhenTheSessionReloads() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		host.SelectSession("branch-a");
+		Assert.True((await host.InvokeClientCommandAsync("weavie.view.logs", new { })).Ok);
+		// The page's tabs, which the unload flushes into the slot.
+		host.SessionEvent(host.SelectedSession, "editor", "sessionChanged", new {
+			session = new { active = "about:logs", open = new[] { new { path = "about:logs", kind = "source" } } },
+		});
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
+		host.LogBuffer.Append("while unloaded");
+
+		Assert.True((await host.InvokeClientCommandAsync(SessionCommands.LoadSession, new { id = "branch-a" })).Ok);
+
+		await AssertLogsDocumentAsync(host, host.Session("branch-a"), "while unloaded");
+	}
+
+	private static async Task AssertLogsDocumentAsync(TestHost host, HostSession session, string expected) {
+		Assert.Contains(session.EditorSession.Open, entry => entry.Path == "about:logs");
+		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
+		var doc = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "sources", "document"));
+		Assert.Equal("about:logs", doc.GetProperty("target").GetString());
+		Assert.Contains(expected, doc.GetProperty("html").GetString()!);
 	}
 
 	private static int IndexOfEvent(

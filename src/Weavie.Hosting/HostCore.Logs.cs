@@ -21,22 +21,9 @@ public sealed partial class HostCore {
 	private const string LogsTitle = "Weavie Logs";
 
 	private CommandResult ShowLogs(HostSession session) {
-		var (lines, dropped) = _logBuffer.Snapshot();
-
-		// Human tab: fill the target's document state, then open the tab — the host owns tab opening, and the
-		// snapshot is already in hand, so the tab arrives titled and populated with no `loading` state to resolve.
-		// State (not a bare publish) so a reconnecting client replays it into the still-open tab. Claude's
+		// Content before the tab, so it arrives titled and populated with no `loading` state to resolve. Claude's
 		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		session.State.SetVersioned("sources", LogsTarget, "document", WireJson.Default.LogsDocument, revision => new(
-			LogsTarget,
-			revision,
-			string.Empty,
-			LogsTitle,
-			(_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
-				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Persistent logging error: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
-				+ LogsHtml(string.Join('\n', lines), dropped),
-			string.Empty,
-			LogsSourceId));
+		var (lines, dropped) = FillLogsDocument(session);
 		session.OpenEditorOverlay(LogsTarget, "source");
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
@@ -52,6 +39,23 @@ public sealed partial class HostCore {
 			WireJson.Default.LogsData);
 		string omittedNote = omitted > 0 ? $", {omitted} earlier omitted" : string.Empty;
 		return CommandResult.Success($"Opened the Weavie logs ({shown} most-recent line(s){omittedNote}).", dataJson);
+	}
+
+	// State (not a bare publish) so a reconnecting client replays it into the still-open tab; a restored session
+	// refills it the same way, since the tab outlives the session state that held its content.
+	private (IReadOnlyList<string> Lines, int Dropped) FillLogsDocument(HostSession session) {
+		var (lines, dropped) = _logBuffer.Snapshot();
+		session.State.SetVersioned("sources", LogsTarget, "document", WireJson.Default.LogsDocument, revision => new(
+			LogsTarget,
+			revision,
+			string.Empty,
+			LogsTitle,
+			(_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
+				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Persistent logging error: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
+				+ LogsHtml(string.Join('\n', lines), dropped),
+			string.Empty,
+			LogsSourceId));
+		return (lines, dropped);
 	}
 
 	// Wraps the escaped log text in a <pre> (both tags are in SourceView's DOMPurify allowlist), prefixed with a

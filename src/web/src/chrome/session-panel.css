@@ -1,27 +1,15 @@
-/* The session panel (SessionPanel.tsx) beside the rail. */
-
-/* Unpinned it overlays the panes from the rail's edge; pinned it docks in the body row and pushes them over. */
+/* The pinned session panel (SessionPanel.tsx): docked in the rail's place, it pushes the panes over. */
 .session-panel {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 56px;
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  width: clamp(220px, 24vw, 300px);
   padding: 6px;
   overflow-y: auto;
   box-sizing: border-box;
   background: var(--bar);
   border-right: 1px solid var(--border);
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
-}
-.session-panel.pinned {
-  position: relative;
-  left: 0;
-  flex: 0 0 auto;
-  box-shadow: none;
 }
 .session-panel-head {
   display: flex;

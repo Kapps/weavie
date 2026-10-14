@@ -93,6 +93,13 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   const pinned = page.locator(".session-panel");
   await expect(pinned).toBeVisible();
   expect(await left()).toBeGreaterThan(unpinned + 200);
+  // Pinned, a number key under the pointer doesn't switch sessions.
+  const activeRow = panel.locator(".session-panel-row.active");
+  const pinnedOn = await activeRow.getAttribute("data-session-slot");
+  await panel.hover();
+  await page.keyboard.press("2");
+  await page.waitForTimeout(500);
+  await expect(activeRow).toHaveAttribute("data-session-slot", pinnedOn ?? "");
   // Pinned, the panel replaces the rail and carries its own new-session button.
   await expect(page.locator(".session-rail")).toHaveCount(0);
   await expect(pinned.locator(".session-rail-add")).toBeVisible();

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RailSession } from "./session-store";
-import { sessionGroup, sessionSubtitle } from "./session-summary";
+import { panelOrder, sessionGroup, sessionSubtitle } from "./session-summary";
 
 vi.mock("../commands/registry", () => ({ getKeybindings: () => [] }));
 
@@ -34,6 +34,25 @@ describe("sessionGroup", () => {
     expect(sessionGroup(session({ status: "waiting" }))).toBe("working");
     expect(sessionGroup(session({ status: "idle" }))).toBe("idle");
     expect(sessionGroup(session({ loaded: false, status: "needsInput" }))).toBe("parked");
+  });
+});
+
+describe("panelOrder", () => {
+  it("groups like the panel, keeping rail order within a group", () => {
+    const sessions = [
+      session({ id: "idle-1" }),
+      session({ id: "parked", loaded: false }),
+      session({ id: "working", status: "working" }),
+      session({ id: "idle-2" }),
+      session({ id: "needs", status: "needsInput" }),
+    ];
+    expect(panelOrder(sessions).map((s) => s.id)).toEqual([
+      "needs",
+      "working",
+      "idle-1",
+      "idle-2",
+      "parked",
+    ]);
   });
 });
 

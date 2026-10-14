@@ -66,7 +66,7 @@ import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
-import { lastLocation, setLastLocation } from "./chrome/rail-state";
+import { lastLocation, panelPinned, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
@@ -88,6 +88,7 @@ import {
   sessionsReceived,
   stepRailTarget,
 } from "./chrome/session-store";
+import { panelOrder } from "./chrome/session-summary";
 import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
 import { UpdateOverlay } from "./chrome/UpdateOverlay";
@@ -1074,10 +1075,12 @@ export default function App(): JSX.Element {
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
-  // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant and unreachable chips skipped);
-  // false falls the keystroke through when there's nothing to move to.
+  // Switch to the next/prev LOADED chip in on-screen order (the pinned panel groups them) that stepRailTarget
+  // picks (dormant and unreachable chips skipped); false falls the keystroke through when there's nothing to move to.
   const stepSessionCandidates = (): RailSession[] =>
-    railSessions().filter((session) => session.loaded && !session.offline);
+    (panelPinned() ? panelOrder(railSessions()) : railSessions()).filter(
+      (session) => session.loaded && !session.offline,
+    );
   const stepSession = (delta: number): boolean => {
     const target = stepRailTarget(stepSessionCandidates(), delta);
     if (target === null) {

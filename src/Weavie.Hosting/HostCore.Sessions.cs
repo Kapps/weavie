@@ -578,9 +578,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private static void RestoreSlotEditor(HostSession session, SessionSlot slot) {
+	private void RestoreSlotEditor(HostSession session, SessionSlot slot) {
 		session.DisplayLabel = slot.Label;
 		session.SeedEditorSession(slot.EditorSession);
+		RestoreSourceDocuments(session);
 		session.Scratch.GarbageCollect(
 			slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 	}

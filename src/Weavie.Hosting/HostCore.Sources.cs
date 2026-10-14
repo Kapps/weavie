@@ -125,6 +125,23 @@ public sealed partial class HostCore {
 		PostSourceDoc(session, target, sourceId, doc, string.Empty);
 	}
 
+	// Saved source tabs reopen without their content, which lived in the prior session's state; refill each from its
+	// owner so no restored tab waits on a document nothing will send.
+	private void RestoreSourceDocuments(HostSession session) {
+		foreach (var entry in session.EditorSession.Open.Where(entry => entry.Kind == "source")) {
+			string target = entry.Path;
+			if (target == LogsTarget) {
+				FillLogsDocument(session);
+			} else if (_sources.IdFor(target) is { } sourceId && _sources.IsConnected(target)) {
+				_ = session.Background.Run(ct => FetchSourceForWebAsync(session, target, sourceId, ct));
+			} else {
+				session.State.Set("sources", target, "error", WireJson.Default.SourceLoadError, new(
+					target,
+					"This source isn't connected. Open the link again to connect it."));
+			}
+		}
+	}
+
 	// The one session event for a fetched/updated SourceDoc — fetch and save both land here, so the web's
 	// store always sees the same shape (including the loss flags its banner renders).
 	private static void PostSourceDoc(HostSession session, string target, string sourceId, SourceDoc doc, string editId) =>

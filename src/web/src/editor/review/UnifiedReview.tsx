@@ -23,6 +23,7 @@ import { ReviewFileMap } from "./ReviewFileMap";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileSwitcher } from "./ReviewFileSwitcher";
 import { estimatedEditorHeight } from "./review-context";
+import { keepFold } from "./review-fold";
 import { reviewHistoryHandlers } from "./review-history-handlers";
 import { createReviewScroll, type ReviewScroll } from "./review-scroll";
 import type {
@@ -373,7 +374,7 @@ export function UnifiedReview(props: {
     const index =
       path === undefined ? -1 : files().findIndex((file) => samePath(file.summary().path, path));
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-      index < 0 ? undefined : (item) => item.index < index;
+      index < 0 ? keepFold : (item) => item.index < index;
   });
   const followViewport = (): void => {
     setAnchorPath(undefined);

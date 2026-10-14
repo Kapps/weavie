@@ -111,16 +111,11 @@ export function SessionPanel(props: {
     event.preventDefault();
     focusRow(list[Math.max(0, Math.min(list.length - 1, target))]);
   };
-  // While the panel is in use (hover-opened, keyboard-opened, or pinned under the pointer or focus), 1–9 switch
-  // to that numbered session; a pinned panel the user isn't using leaves number keys alone.
+  // While the unpinned panel is open, 1–9 switch to that numbered session; a pinned panel leaves number keys alone.
   const onNumberKey = (event: KeyboardEvent): void => {
     if (event.ctrlKey || event.metaKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
-    const inUse =
-      !props.inert &&
-      (openMode() !== null ||
-        (panelPinned() && (panel?.matches(":hover") || panel?.contains(document.activeElement))));
     const session = props.sessions[Number(event.key) - 1];
-    if (!inUse || session === undefined) return;
+    if (props.inert || openMode() === null || panelPinned() || session === undefined) return;
     event.preventDefault();
     event.stopPropagation();
     choose(session);

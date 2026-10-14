@@ -81,6 +81,13 @@ test("hover and Ctrl+E open the panel; arrows switch; pinning docks it across a 
   await panel.getByRole("button", { name: /Pin session panel/ }).click();
   await expect(panel).toHaveClass(/\bpinned\b/);
   expect(await left()).toBeGreaterThan(unpinned + 200);
+  // Pinned, a number key under the pointer doesn't switch sessions.
+  const activeRow = panel.locator(".session-panel-row.active");
+  const pinnedOn = await activeRow.getAttribute("data-session-slot");
+  await panel.hover();
+  await page.keyboard.press("2");
+  await page.waitForTimeout(500);
+  await expect(activeRow).toHaveAttribute("data-session-slot", pinnedOn ?? "");
   // Pinned, the panel replaces the rail and carries its own new-session button.
   await expect(page.locator(".session-rail")).toHaveCount(0);
   await expect(panel.locator(".session-rail-add")).toBeVisible();

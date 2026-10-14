@@ -24,6 +24,8 @@ export interface ReviewScroll {
   /** The viewport's height from the owner's own scroll dimensions, so callers never measure the DOM. */
   getViewportHeight(): number;
   setScrollTop(top: number): void;
+  /** Moves the position, and any glide in progress, by `delta` — for content that resized above the viewport. */
+  shift(delta: number): void;
   setContentHeight(height: number): void;
   onScroll(listener: (userInitiated: boolean) => void): () => void;
   wheel(event: WheelEvent): void;
@@ -176,6 +178,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
     getScrollTop,
     getViewportHeight: () => scrollable.getScrollDimensions().height,
     setScrollTop,
+    shift: (delta) => update(() => state.shiftScrollTop(delta)),
     setContentHeight: (height) => {
       if (contentHeight === height) return;
       contentHeight = height;

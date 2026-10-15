@@ -56,7 +56,8 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;
   }
-  const state = session.loaded ? STATUS_PHRASE[session.status] : "not loaded";
+  const loaded = session.loaded ? STATUS_PHRASE[session.status] : "not loaded";
+  const state = session.external ? `outside Weavie · ${loaded}` : loaded;
   const quiet = !session.loaded || session.status === "idle";
   return quiet && session.lastActiveAt !== null
     ? `${state} · ${compactAge(session.lastActiveAt, now)}`

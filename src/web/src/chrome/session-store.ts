@@ -121,6 +121,7 @@ registerHostFeature((connection) =>
             activity: owner === null ? null : (activity.get(owner) ?? null),
             lastActiveAt: entry.lastActiveAt,
             workspaceCheckout: entry.workspaceCheckout,
+            external: entry.external,
           };
         }),
       );

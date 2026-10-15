@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace Weavie.Hosting.Messaging;
@@ -166,6 +167,11 @@ internal sealed record MessageEnvelope(
 		}
 	}
 
+	// The page parses frames with JSON.parse and never embeds them in HTML, so HTML-sensitive and non-ASCII
+	// characters go out literally — the default encoder's \uXXXX escapes inflated a file's text by up to 6x.
+	private static readonly WireJson Literal = new(
+		new JsonSerializerOptions(WireJson.Default.Options) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+
 	public string ToJson() => JsonSerializer.Serialize(
 		new WireEnvelope(
 			ScopeName(Scope),
@@ -176,7 +182,7 @@ internal sealed record MessageEnvelope(
 			Name,
 			Payload,
 			Error),
-		WireJson.Default.WireEnvelope);
+		Literal.WireEnvelope);
 
 	public WebTransportMessage ToTransportMessage() => new(
 		new WebMessageRoute(Session?.Slot ?? string.Empty, Session?.Incarnation ?? string.Empty, Feature),

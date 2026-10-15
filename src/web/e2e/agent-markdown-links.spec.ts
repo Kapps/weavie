@@ -230,9 +230,17 @@ test.describe("AgentMarkdown transcript links", () => {
     await expect(valid.locator(".agent-mermaid-toggle")).toHaveAttribute("aria-pressed", "true");
   });
 
+  // FLAKE 2026-10-15 ~04:50Z (macOS): the popup landed on chrome-error://chromewebdata/ because it loaded the real
+  // https://example.com from the runner. https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231770
+  // FIX: the popup's URL is served from the browser context, so the test never leaves the machine.
   test("linkifies inline-code paths (incl. @), leaves fenced code plain, and reveals on click", async ({
     page,
   }) => {
+    await page
+      .context()
+      .route("https://example.com/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "<title>Docs</title>" }),
+      );
     await mount(page);
 
     // Every inline-code path is an <a> nested inside its <code>.

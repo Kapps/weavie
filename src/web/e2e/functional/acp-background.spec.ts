@@ -8,6 +8,9 @@ async function signal(workspace: string, name: string): Promise<void> {
   await writeFile(join(sessionWorktrees(workspace)[0]!, name), "");
 }
 
+// FLAKE 2026-10-15 ~04:51Z (macOS): the card stayed running 30s without the child's "counting" message ever reaching the page.
+// https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231754
+// NOT FIXED: no root cause yet; 0/100 failures on Linux (5 workers), and the host and web paths for a child message are in-order and synchronous.
 test("a subagent renders as a live card that collapses when it finishes", async ({
   page,
   weavie,

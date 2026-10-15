@@ -33,7 +33,7 @@ public sealed class BlamePorcelainTests {
 
 	[Fact]
 	public void Parse_DeduplicatesCommitsAndMapsEveryLine() {
-		var blame = BlamePorcelain.Parse(Sample, 1);
+		var blame = BlamePorcelain.Parse(Sample);
 
 		Assert.Equal(2, blame.Commits.Count);
 		Assert.Equal(new[] { 0, 0, 1 }, blame.LineCommits);
@@ -61,7 +61,7 @@ public sealed class BlamePorcelainTests {
 			+ "filename AGENTS.md\n"
 			+ "\tjust typed\n";
 
-		var blame = BlamePorcelain.Parse(sample, 1);
+		var blame = BlamePorcelain.Parse(sample);
 
 		Assert.True(Assert.Single(blame.Commits).Uncommitted);
 	}
@@ -78,12 +78,12 @@ public sealed class BlamePorcelainTests {
 			+ "filename notes.txt\r\n"
 			+ $"\t{ShaB} 9 9 9\r\n";
 
-		var blame = BlamePorcelain.Parse(sample, 1);
+		var blame = BlamePorcelain.Parse(sample);
 
 		Assert.Equal(ShaA, Assert.Single(blame.Commits).Sha);
 		Assert.Equal(new[] { 0 }, blame.LineCommits);
 	}
 
 	[Fact]
-	public void Parse_EmptyOutput_IsEmpty() => Assert.Same(GitBlame.Empty, BlamePorcelain.Parse(string.Empty, 1));
+	public void Parse_EmptyOutput_IsEmpty() => Assert.Same(GitBlame.Empty, BlamePorcelain.Parse(string.Empty));
 }

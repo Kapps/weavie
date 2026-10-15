@@ -18,7 +18,7 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 		_repo.Write("notes.md", "alpha\nBRAVO\ncharlie\n");
 		string second = _repo.Commit("second");
 
-		var blame = await new GitService().BlameLinesAsync(_repo.Path, "notes.md", 1, 100);
+		var blame = await new GitService().BlameFileAsync(_repo.Path, "notes.md");
 
 		Assert.Equal(3, blame.LineCommits.Count);
 		Assert.Equal(first, ShaOf(blame, 1));
@@ -34,35 +34,10 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 		_repo.Commit("first");
 		_repo.Write("notes.md", "alpha\ntyped just now\n");
 
-		var blame = await new GitService().BlameLinesAsync(_repo.Path, "notes.md", 1, 100);
+		var blame = await new GitService().BlameFileAsync(_repo.Path, "notes.md");
 
 		Assert.False(blame.Commits[blame.LineCommits[0]].Uncommitted);
 		Assert.True(blame.Commits[blame.LineCommits[1]].Uncommitted);
-	}
-
-	[Fact]
-	public async Task Blame_AnswersOnlyTheRequestedLinesIndexedFromTheFirst() {
-		_repo.Write("notes.md", "alpha\nbravo\ncharlie\ndelta\n");
-		string first = _repo.Commit("first");
-		_repo.Write("notes.md", "alpha\nbravo\nCHARLIE\ndelta\n");
-		string second = _repo.Commit("second");
-
-		var blame = await new GitService().BlameLinesAsync(_repo.Path, "notes.md", 2, 3);
-
-		Assert.Equal(2, blame.LineCommits.Count);
-		Assert.Equal(first, ShaOf(blame, 1));
-		Assert.Equal(second, ShaOf(blame, 2));
-		Assert.Equal(3, blame.LineOriginalLines[1]);
-	}
-
-	[Fact]
-	public async Task Blame_StopsAtTheEndOfTheFile() {
-		_repo.Write("notes.md", "alpha\nbravo\n");
-		_repo.Commit("first");
-
-		var blame = await new GitService().BlameLinesAsync(_repo.Path, "notes.md", 2, 50);
-
-		Assert.Single(blame.LineCommits);
 	}
 
 	[Fact]
@@ -72,7 +47,7 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 		_repo.Write("notes.md", "one\ntwo\nTHREE\nfour\nfive\n");
 		string second = _repo.Commit("second");
 		var git = new GitService();
-		var blame = await git.BlameLinesAsync(_repo.Path, "notes.md", 1, 100);
+		var blame = await git.BlameFileAsync(_repo.Path, "notes.md");
 
 		// Blame gives the line's number inside the commit that wrote it; that is what selects the hunk.
 		var hunk = await git.CommitHunkAsync(_repo.Path, second, "notes.md", blame.LineOriginalLines[2]);
@@ -132,7 +107,7 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 		_repo.Write("notes.md", "new\nlines\nalpha\nBRAVO\ncharlie\n");
 
 		var git = new GitService();
-		var blame = await git.BlameLinesAsync(_repo.Path, "notes.md", 1, 100);
+		var blame = await git.BlameFileAsync(_repo.Path, "notes.md");
 		int bufferLine = 4;
 		var blamed = blame.Commits[blame.LineCommits[bufferLine - 1]];
 		int originalLine = blame.LineOriginalLines[bufferLine - 1];

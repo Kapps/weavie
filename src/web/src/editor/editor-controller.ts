@@ -2,7 +2,7 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import type * as monaco from "monaco-editor";
-import { createSignal, untrack } from "solid-js";
+import { createSignal } from "solid-js";
 import {
   type ClientSession,
   isBrowserHostedShell,
@@ -48,6 +48,8 @@ import {
   createReviewStore,
   FULL_CONTEXT,
   isFullContext,
+  isFullyAccepted,
+  isPending,
   type LineSpan,
   type ReviewFile,
   type ReviewFileDiff,
@@ -55,6 +57,7 @@ import {
   type ReviewHistory,
   type ReviewOverview,
 } from "./review/review-store";
+import { createReviewTexts, type ReviewDiffTexts } from "./review/review-texts";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
@@ -198,6 +201,7 @@ export interface EditorController {
       uri: string,
       diff: ReviewFileDiff,
       reveal: (file: ReviewFile, line: number) => void,
+      fail: (error: unknown) => void,
     ): void;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
@@ -245,6 +249,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
   const reviews = createReviewStore(captureReviewFor);
+  const reviewTexts = createReviewTexts((session, path, revision) =>
+    session
+      .feature("review")
+      .request<{ text: string | null }, { path: string; revision: string }>("text", {
+        path,
+        revision,
+      })
+      .then(({ text }) => text),
+  );
+  // The single point review texts reach rendering: a resolution for a diff a newer push replaced is dropped.
+  const withReviewTexts = (
+    session: ClientSession,
+    diff: ReviewFileDiff,
+    apply: (texts: ReviewDiffTexts) => void,
+    fail: (error: unknown) => void,
+  ): void => {
+    reviewTexts.resolve(session, diff).then((texts) => {
+      if (texts !== null && reviews.diffFor(session, diff.path) === diff) apply(texts);
+    }, fail);
+  };
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const reconcileOpenFiles = (session: ClientSession): void => {
     host?.reconcileSession(
@@ -883,10 +907,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         (candidate) => target !== undefined && samePath(candidate.summary().path, target),
       );
     const diff = file?.diff();
-    return file === undefined ||
-      diff === null ||
-      diff === undefined ||
-      (diff.baseline === diff.current && diff.baselineExists === diff.currentExists)
+    return file === undefined || diff === null || diff === undefined || !isPending(diff)
       ? null
       : file.summary();
   };
@@ -1012,6 +1033,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const appliedReviewOptions = (
     session: ClientSession,
     message: ReviewFileDiff,
+    texts: ReviewDiffTexts,
     reveal: (file: ReviewFile, line: number) => void,
   ): InlineDiffOptions => {
     const state = reviews.board(session);
@@ -1033,8 +1055,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           }
         : {};
     return {
-      original: message.baseline,
-      acceptedBaseline: message.acceptedBaseline,
+      original: texts.original,
+      acceptedBaseline: texts.acceptedBaseline,
       mode: "applied",
       onKeepHunk: (hunk) => keepHunk(session, message.path, hunk),
       onKeepFile: () => keepFile(session, message.path),
@@ -1051,10 +1073,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
-    if (
-      message.acceptedBaseline === message.current &&
-      message.acceptedBaselineExists === message.currentExists
-    ) {
+    if (isFullyAccepted(message)) {
       inlineDiff?.clear(session, message.path);
       const active = activePathFor(session);
       if (active !== null && samePath(active, message.path)) {
@@ -1065,10 +1084,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
 
-    inlineDiff?.set(
+    withReviewTexts(
       session,
-      message.path,
-      appliedReviewOptions(session, message, (file, line) => openReviewFile(session, file, line)),
+      message,
+      (texts) => {
+        if (selectedSession() !== session) return;
+        inlineDiff?.set(
+          session,
+          message.path,
+          appliedReviewOptions(session, message, texts, (file, line) =>
+            openReviewFile(session, file, line),
+          ),
+        );
+      },
+      (error) => {
+        if (!session.signal.aborted)
+          deps.onOpenError(`Couldn't load the review of ${message.name}: ${String(error)}`);
+      },
     );
   };
 
@@ -1106,7 +1138,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
     if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
       void tabs.capture(session, REVIEW_TAB_KEY).close();
-    reviews.setFiles(session, files, label);
+    const state = reviews.setFiles(session, files, label);
+    reviewTexts.retain(
+      session,
+      state.files.flatMap((file) => file.diff() ?? []),
+    );
     renderReviewState(session);
   };
 
@@ -1123,6 +1159,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       resetPresentedReview(session);
     }
     reviews.reset(session);
+    reviewTexts.retain(session, []);
     reviewProposals.delete(session);
     renderReviewState(session);
   };
@@ -1469,33 +1506,37 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canClose: () => canCloseReview(reviews.overview()),
       overview: reviews.overview,
       overviewFor: reviews.overviewFor,
-      configureDiff: (tab, inline, uri, message, reveal) => {
+      configureDiff: (tab, inline, uri, message, reveal, fail) => {
         const session = tab.session;
         reviews.overviewFor(session);
-        const history = reviews.board(session).history;
-        const options = appliedReviewOptions(session, message, reveal);
-        // Review data drives rendering; reads during painting must not subscribe it to navigation.
-        untrack(() => {
-          inline.bindHistory(
-            reviewHistoryHandlers(session, () => {
-              const presentation = tab.presentation;
-              return ({ path, line }) => {
-                if (
-                  presentation?.signal.aborted ||
-                  selectedSession() !== session ||
-                  activeTabFor(session) !== tab
-                )
-                  return;
-                const file = reviews
-                  .board(session)
-                  .files.find((file) => samePath(file.summary().path, path));
-                if (file !== undefined) reveal(file.summary(), line);
-              };
-            }),
-          );
-          inline.setReviewHistory(history);
-          inline.setByUri(uri, options);
-        });
+        withReviewTexts(
+          session,
+          message,
+          (texts) => {
+            const history = reviews.board(session).history;
+            const options = appliedReviewOptions(session, message, texts, reveal);
+            inline.bindHistory(
+              reviewHistoryHandlers(session, () => {
+                const presentation = tab.presentation;
+                return ({ path, line }) => {
+                  if (
+                    presentation?.signal.aborted ||
+                    selectedSession() !== session ||
+                    activeTabFor(session) !== tab
+                  )
+                    return;
+                  const file = reviews
+                    .board(session)
+                    .files.find((file) => samePath(file.summary().path, path));
+                  if (file !== undefined) reveal(file.summary(), line);
+                };
+              }),
+            );
+            inline.setReviewHistory(history);
+            inline.setByUri(uri, options);
+          },
+          fail,
+        );
       },
       toggleFileCollapsed: (session, path) => {
         const target = reviewFileView(session, path);

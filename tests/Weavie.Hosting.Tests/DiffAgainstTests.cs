@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Changes;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -28,14 +29,22 @@ public sealed class DiffAgainstTests {
 		Assert.Equal(path, file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 
-		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current), reviewed
-		// through the applied engine (acceptedBaseline == baseline until a hunk is kept).
+		// The per-file diff names the merge-base content (baseline) and the worktree file (current) by revision,
+		// reviewed through the applied engine (accepted anchor == baseline until a hunk is kept).
 		host.SessionEvent(session, "review", "showFile", new { path });
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
-		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
-		Assert.Equal("hello\nworld\n", diff.GetProperty("current").GetString());
-		Assert.Equal("hello\n", diff.GetProperty("acceptedBaseline").GetString());
+		string? baselineRevision = diff.GetProperty("baselineRevision").GetString();
+		Assert.Equal(TextRevision.Of("hello\n"), baselineRevision);
+		Assert.Equal(TextRevision.Of("hello\nworld\n"), diff.GetProperty("revision").GetString());
+		Assert.Equal(baselineRevision, diff.GetProperty("acceptedBaselineRevision").GetString());
+
+		var baseline = await host.SessionRequestAsync<JsonElement>(
+			session, "review", "text", new { path, revision = baselineRevision });
+		Assert.Equal("hello\n", baseline.GetProperty("text").GetString());
+		var superseded = await host.SessionRequestAsync<JsonElement>(
+			session, "review", "text", new { path, revision = TextRevision.Of("an earlier baseline") });
+		Assert.Equal(JsonValueKind.Null, superseded.GetProperty("text").ValueKind);
 	}
 
 	[Fact]
@@ -120,8 +129,8 @@ public sealed class DiffAgainstTests {
 		host.SessionEvent(session, "review", "showFile", new { path });
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
-		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
-		Assert.Equal(string.Empty, diff.GetProperty("current").GetString());
+		Assert.Equal(TextRevision.Of("hello\n"), diff.GetProperty("baselineRevision").GetString());
+		Assert.Equal(TextRevision.Of(string.Empty), diff.GetProperty("revision").GetString());
 		Assert.False(diff.GetProperty("currentExists").GetBoolean());
 
 		host.Bridge.Clear();

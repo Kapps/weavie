@@ -16,17 +16,17 @@ export interface ReviewFile {
   currentExists: boolean;
 }
 
-/** The three authoritative text boundaries needed by both review presentations. */
+/** The revisions of the three authoritative text boundaries; baseline texts resolve through review-texts. */
 export interface ReviewFileDiff {
-  revision: string;
   rejected: { text: string; stale: boolean }[];
   path: string;
   name: string;
-  acceptedBaseline: string;
+  acceptedBaselineRevision: string;
   acceptedBaselineExists: boolean;
-  baseline: string;
+  baselineRevision: string;
   baselineExists: boolean;
-  current: string;
+  /** The current text's revision. */
+  revision: string;
   currentExists: boolean;
 }
 
@@ -128,6 +128,8 @@ export interface ReviewStore {
   select(session: ClientSession | null): void;
   setFiles(session: ClientSession, files: ReviewFile[], label: string): SessionReviewBoard;
   setDiff(session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard;
+  /** The diff last pushed for `path`, or null when the file shows no review. */
+  diffFor(session: ClientSession, path: string): ReviewFileDiff | null;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   setFileContext(session: ClientSession, path: string, context: readonly LineSpan[]): void;
@@ -312,13 +314,8 @@ export function createReviewStore(
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
     const entry = ensureEntry(state, diff.path, !diff.currentExists);
-    const pending = diff.baseline !== diff.current || diff.baselineExists !== diff.currentExists;
-    entry.diff =
-      diff.acceptedBaseline === diff.current &&
-      diff.acceptedBaselineExists === diff.currentExists &&
-      diff.rejected.length === 0
-        ? null
-        : diff;
+    const pending = isPending(diff);
+    entry.diff = isFullyAccepted(diff) && diff.rejected.length === 0 ? null : diff;
     // "Reviewed" is a claim about one exact state: anything new in the file un-reviews it, because there is now
     // something the user hasn't seen. A file with nothing left pending is reviewed at whatever it now holds.
     const signature = reviewSignature(diff, pending);
@@ -339,6 +336,9 @@ export function createReviewStore(
     save(session, state);
     return state;
   };
+
+  const diffFor = (session: ClientSession, path: string): ReviewFileDiff | null =>
+    board(session).entries.get(normalizePath(path))?.diff ?? null;
 
   const setHistory = (session: ClientSession, history: ReviewHistory): SessionReviewBoard => {
     const state = board(session);
@@ -415,6 +415,7 @@ export function createReviewStore(
     select,
     setFiles,
     setDiff,
+    diffFor,
     setHistory,
     setFileCollapsed,
     setFileContext,
@@ -423,12 +424,24 @@ export function createReviewStore(
   };
 }
 
+/** Whether anything in the file is not yet kept: its review baseline differs from current. */
+export function isPending(diff: ReviewFileDiff): boolean {
+  return diff.baselineRevision !== diff.revision || diff.baselineExists !== diff.currentExists;
+}
+
+/** Whether the file shows no markers at all: its accepted anchor equals current. */
+export function isFullyAccepted(diff: ReviewFileDiff): boolean {
+  return (
+    diff.acceptedBaselineRevision === diff.revision &&
+    diff.acceptedBaselineExists === diff.currentExists
+  );
+}
+
 /** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
 export function hasReviewChanges(diff: ReviewFileDiff): boolean {
   return (
-    diff.baseline !== diff.current ||
-    diff.baselineExists !== diff.currentExists ||
-    diff.acceptedBaseline !== diff.baseline ||
+    isPending(diff) ||
+    diff.acceptedBaselineRevision !== diff.baselineRevision ||
     diff.acceptedBaselineExists !== diff.baselineExists
   );
 }

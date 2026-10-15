@@ -33,13 +33,13 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
-	public void TurnDiff_CarriesTheAcceptedReviewCurrentTriple() {
+	public void TurnDiff_CarriesTheAcceptedReviewCurrentTripleAsRevisions() {
 		var change = new FileChange {
 			Path = "/w/dir/a.cs",
 			AcceptedBaselineText = "anchor",
 			AcceptedBaselineExists = true,
 			BaselineText = "before",
-			BaselineExists = true,
+			BaselineExists = false,
 			CurrentText = "after",
 			CurrentExists = true,
 		};
@@ -48,12 +48,48 @@ public sealed class ChangeMessagesTests {
 
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
-		Assert.Equal("anchor", root.GetProperty("acceptedBaseline").GetString()); // faded band origin
+		Assert.Equal(TextRevision.Of("anchor"), root.GetProperty("acceptedBaselineRevision").GetString()); // faded band origin
 		Assert.True(root.GetProperty("acceptedBaselineExists").GetBoolean());
-		Assert.Equal("before", root.GetProperty("baseline").GetString());         // bright band origin (review baseline)
-		Assert.True(root.GetProperty("baselineExists").GetBoolean());
-		Assert.Equal("after", root.GetProperty("current").GetString());
+		Assert.Equal(TextRevision.Of("before"), root.GetProperty("baselineRevision").GetString());         // bright band origin
+		Assert.False(root.GetProperty("baselineExists").GetBoolean());
+		Assert.Equal(TextRevision.Of("after"), root.GetProperty("revision").GetString());
 		Assert.True(root.GetProperty("currentExists").GetBoolean());
+	}
+
+	[Fact]
+	public void TurnDiff_OfAMegabyteFile_CarriesNoText() {
+		string text = new('x', 1024 * 1024);
+		var change = new FileChange {
+			Path = "/w/big.txt",
+			AcceptedBaselineText = text,
+			BaselineText = text + "y",
+			CurrentText = text + "z",
+			BaselineExists = true,
+			CurrentExists = true,
+		};
+
+		Assert.True(ChangeMessages.TurnDiff(change).Length < 1024);
+	}
+
+	[Fact]
+	public void ReviewText_ServesBothBaselinesUntilSuperseded() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\n");
+		var tracker = new SessionChangeTracker(fileSystem, NoopFileActivitySink.Instance, "/w", _ => true);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\n");
+		tracker.RecordChange("/w/a.txt");
+		string anchor = TextRevision.Of("a\nb\nc\nd\n");
+		Assert.Equal("a\nb\nc\nd\n", tracker.ReviewText("/w/a.txt", anchor));
+
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+		string kept = TextRevision.Of("a\nB\nc\nd\n");
+		Assert.Equal("a\nb\nc\nd\n", tracker.ReviewText("/w/a.txt", anchor));
+		Assert.Equal("a\nB\nc\nd\n", tracker.ReviewText("/w/a.txt", kept));
+
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+		Assert.Null(tracker.ReviewText("/w/a.txt", kept));
+		Assert.Null(tracker.ReviewText("/w/other.txt", anchor));
 	}
 
 	[Fact]

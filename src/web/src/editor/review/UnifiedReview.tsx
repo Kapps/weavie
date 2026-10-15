@@ -57,6 +57,7 @@ export function UnifiedReview(props: {
     uri: string,
     diff: ReviewFileDiff,
     reveal: (file: ReviewFile, line: number) => void,
+    fail: (error: unknown) => void,
   ) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
@@ -540,14 +541,17 @@ export function UnifiedReview(props: {
                           register={surface.sections}
                           active={() => visibleFile() === item().index}
                           toolbarHost={() => toolbarHost ?? null}
-                          configureDiff={(inline, uri, diff) =>
-                            props.configureDiff(props.tab, inline, uri, diff, (file, line) =>
-                              surface.reveal(file.path, line),
+                          configureDiff={(inline, uri, diff, fail) =>
+                            props.configureDiff(
+                              props.tab,
+                              inline,
+                              uri,
+                              diff,
+                              (file, line) => surface.reveal(file.path, line),
+                              fail,
                             )
                           }
-                          openCopy={(diff) =>
-                            copies.open(diff.path, diff.current, diff.currentExists)
-                          }
+                          openCopy={(diff) => copies.open(diff.path, diff.currentExists)}
                           revealContext={(span) =>
                             props.onRevealContext(props.session, view().summary().path, span)
                           }

@@ -775,6 +775,24 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// The review baseline or accepted anchor text of <paramref name="path"/> whose <see cref="TextRevision"/> is
+	/// <paramref name="revision"/>, or <see langword="null"/> once neither holds it (a newer turn diff supersedes it).
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	/// <param name="revision">The revision a <see cref="ChangeMessages.TurnDiff"/> named.</param>
+	public string? ReviewText(string path, string revision) {
+		path = NormalizePath(path);
+		ArgumentNullException.ThrowIfNull(revision);
+		lock (_gate) {
+			if (_nonText.ContainsKey(path) || !_reviewBaseline.TryGetValue(path, out string? baseline)) return null;
+			string accepted = _acceptedAnchor.GetValueOrDefault(path, baseline);
+			return TextRevision.Of(baseline) == revision ? baseline
+				: TextRevision.Of(accepted) == revision ? accepted
+				: null;
+		}
+	}
+
 	private static void SetMissing(TrackedSet missing, string path, bool value) {
 		if (value) {
 			missing.Add(path);

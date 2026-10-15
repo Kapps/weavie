@@ -549,6 +549,9 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		public Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
+		public Task<IReadOnlySet<string>> FindIgnoredAsync(string directory, IReadOnlyList<string> paths, CancellationToken ct = default) =>
+			throw new NotSupportedException();
+
 		public Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<DiffFileChange>>([]);
 

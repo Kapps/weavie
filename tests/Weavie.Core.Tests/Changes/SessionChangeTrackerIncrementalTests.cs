@@ -11,7 +11,7 @@ public sealed class SessionChangeTrackerIncrementalTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string Target = Path.Combine(Root, "target.txt");
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
-		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, persistence);
+		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	[Theory]
 	[InlineData(0)]

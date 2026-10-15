@@ -49,6 +49,29 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void Observe_IgnoredPath_IsNeverTrackedAndTrackedPathsSkipTheQuery() {
+		var fileSystem = new InMemoryFileSystem();
+		var queries = new List<string[]>();
+		var tracker = new SessionChangeTracker(fileSystem, NoopFileActivitySink.Instance, "/w", path => path.StartsWith("/w", StringComparison.Ordinal),
+			paths => {
+				queries.Add([.. paths]);
+				return paths.Where(path => path.Contains("/.claude/worktrees/", StringComparison.Ordinal)).ToHashSet();
+			},
+			new MemoryReviewPersistence());
+
+		foreach (string path in new[] { "/w/a.txt", "/w/.claude/worktrees/agent/a.txt" }) {
+			tracker.Observe(Edit(HookEventKind.PreToolUse, path));
+			fileSystem.WriteAllText(path, "new\n");
+			tracker.Observe(Edit(HookEventKind.PostToolUse, path));
+		}
+		fileSystem.DeleteFile("/w/.claude/worktrees/agent/a.txt");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
+
+		Assert.Equal("/w/a.txt", Assert.Single(tracker.Changes()).Path);
+		Assert.Equal([["/w/a.txt"], ["/w/.claude/worktrees/agent/a.txt"], ["/w/.claude/worktrees/agent/a.txt"]], queries);
+	}
+
+	[Fact]
 	public void Observe_CreatedFile_BaselineIsEmpty() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Tracker(fileSystem);

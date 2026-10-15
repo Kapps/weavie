@@ -8,6 +8,7 @@ using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Git;
 using Weavie.Core.Hooks;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
@@ -45,6 +46,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
+	private int _ignoreCheckFailed;
 	private string? _workspaceRootGoneCause;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
@@ -128,6 +130,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		try {
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
+				new IgnoredPathCache(FindIgnored, TimeProvider.System).IgnoredAmong,
 				reviewPersistence);
 			ReviewHints = new ReviewHintStore(
 				fileSystem,
@@ -485,6 +488,18 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private void ReportObservedPathsFailure(string message) {
 		if (!EndIfWorkspaceRootIsGone(message)) {
 			PublishCondition(ref _observedPathsFailure, message);
+		}
+	}
+
+	// Runs inside agent hook handling: a git failure keeps tracking the edit and tells the user once, rather than
+	// aborting the event for every other consumer.
+	private IReadOnlySet<string> FindIgnored(IReadOnlyList<string> paths) {
+		try {
+			return new GitService().FindIgnoredAsync(WorkspaceRoot, paths).GetAwaiter().GetResult();
+		} catch (GitException ex) {
+			if (Interlocked.Exchange(ref _ignoreCheckFailed, 1) == 0)
+				Notify("error", $"Couldn't check .gitignore for agent edits, so ignored files may appear in review: {ex.Message}");
+			return new HashSet<string>();
 		}
 	}
 

@@ -12,7 +12,7 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
-		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, persistence);
+		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	private static void Edit(SessionChangeTracker tracker, InMemoryFileSystem files, string content) {
 		tracker.CaptureBaseline(File);

@@ -67,6 +67,17 @@ public sealed class LineHunkerTests {
 	}
 
 	[Fact]
+	public void LargeFileWithoutUniqueLines_AlignsQuickly() {
+		string[] before = [.. Enumerable.Range(0, 60_000).SelectMany(_ => new[] { "type {", "  a: A", "  b: B", "}", "" })];
+		string[] after = [.. Enumerable.Range(0, 60_000).SelectMany(_ => new[] { "type {", "  b: B", "  a: A", "}", "" })];
+
+		var ops = LineHunker.Align(before, after);
+
+		Assert.Equal(after, ops.Where(op => op.Kind != LineHunker.LineOpKind.Delete).Select(op => op.Text));
+		Assert.Equal(before, ops.Where(op => op.Kind != LineHunker.LineOpKind.Insert).Select(op => op.Text));
+	}
+
+	[Fact]
 	public void Align_IsAValidAlignment_AndExactWithoutRepeatedLines() {
 		var random = new Random(1090);
 		for (int run = 0; run < 500; run++) {

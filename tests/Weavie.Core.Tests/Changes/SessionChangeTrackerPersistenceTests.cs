@@ -159,20 +159,22 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
-	public void LargeAgentWrittenFile_StoresItsTextOnceAndEachPromptOnce() {
+	public void LargeFileWithManyAgentHunks_StoresEachTextAndPromptOnce() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		string original = string.Join("\n", Enumerable.Range(0, 100_000).Select(i => $"generated {i}"));
-		string generated = original.Replace("generated", "regenerated", StringComparison.Ordinal);
+		string generated = string.Join("\n", Enumerable.Range(0, 100_000).Select(i => i % 10 == 0 ? $"regenerated {i}" : $"generated {i}"));
 		files.WriteAllText(File, original);
 		var tracker = Tracker(files, persistence);
 		string prompt = new('p', 1_000);
 		tracker.Observe(new AgentPromptSubmitted(null, prompt));
 		Edit(tracker, files, generated);
 
-		string record = persistence.Read().Single(pair => pair.Key.StartsWith("file:", StringComparison.Ordinal)).Value;
-		Assert.Equal(2, JsonNode.Parse(record)!["Texts"]!.AsArray().Count);
-		Assert.Single(System.Text.RegularExpressions.Regex.Matches(record, prompt));
+		var records = persistence.Read();
+		Assert.Equal([original, generated], records.Where(pair => pair.Key.StartsWith("text:", StringComparison.Ordinal))
+			.Select(pair => pair.Value).Order(StringComparer.Ordinal));
+		string file = records.Single(pair => pair.Key.StartsWith("file:", StringComparison.Ordinal)).Value;
+		Assert.Single(System.Text.RegularExpressions.Regex.Matches(file, prompt));
 		var change = Assert.Single(Tracker(files, persistence).TurnChanges());
 		Assert.Equal(original, change.BaselineText);
 		Assert.Equal(generated, change.CurrentText);

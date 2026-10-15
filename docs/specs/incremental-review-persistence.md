@@ -28,9 +28,11 @@ Each worktree owns `review/review.db` in its private workspace state directory.
 transaction. Records are:
 
 - `metadata`: worktree identity, review source, and identity counters.
-- `file:<canonical path>`: one tracked file's complete current review state. Its review boundaries
-  reference a list of distinct texts, and per-line provenance is stored as origin runs, so a large
-  generated file costs one copy per distinct text and one prompt per run, not one per line.
+- `file:<canonical path>`: one tracked file's current review state. Its boundaries reference text
+  records by hash; per-line provenance is stored as origin runs, and each origin's prompt is written once
+  per record.
+- `text:<sha256>`: one distinct file text, stored raw and shared by every boundary that holds it. It is
+  written when first referenced and deleted with its last reference, so a save writes only changed texts.
 - `history:<entry id>`: stack membership and small action metadata.
 - `history-patches:<entry id>:file:<canonical path>`: one action's patches for one file.
 - `prompt:<conversation id>`: that conversation's prompt.

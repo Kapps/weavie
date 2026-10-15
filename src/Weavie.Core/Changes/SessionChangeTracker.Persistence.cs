@@ -1,7 +1,4 @@
-using System.Collections.Immutable;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Review;
 
@@ -28,18 +25,21 @@ public sealed partial class SessionChangeTracker {
 		if (_restoring) return;
 		SynchronizeHistory(external: true, except: null);
 		var changes = new Dictionary<string, string?>(StringComparer.Ordinal);
+		var texts = new TextChanges(_storedTexts);
 		foreach (string path in _dirtyFiles)
-			changes[FileKey(path)] = _baseline.ContainsKey(path) ? JsonSerializer.Serialize(Store(path), ChangeTrackerJson.Default.StoredFile) : null;
+			changes[FileKey(path)] = _baseline.ContainsKey(path) ? _json.Serialize(Store(path, texts), _json.Types.StoredFile) : texts.Release(path);
+		texts.Collect(changes);
 		foreach (var (id, entry) in _dirtyHistory)
-			changes["history:" + id] = entry is null ? null : JsonSerializer.Serialize(new StoredHistory(id, entry.Undo, entry.Action.Id, entry.Action.Kind, entry.Action.TouchesDisk, entry.Action.Line), ChangeTrackerJson.Default.StoredHistory);
+			changes["history:" + id] = entry is null ? null : _json.Serialize(new StoredHistory(id, entry.Undo, entry.Action.Id, entry.Action.Kind, entry.Action.TouchesDisk, entry.Action.Line), _json.Types.StoredHistory);
 		foreach (var (key, patches) in _dirtyHistoryPatches)
-			changes[key] = patches is null ? null : JsonSerializer.Serialize(patches, ChangeTrackerJson.Default.StoredPatches);
+			changes[key] = patches is null ? null : _json.Serialize(patches, _json.Types.StoredPatches);
 		foreach (string key in _dirtyPrompts)
-			changes["prompt:" + key] = _conversationPrompts.TryGetValue(key, out string? prompt) ? JsonSerializer.Serialize(prompt, ChangeTrackerJson.Default.String) : null;
-		string metadata = JsonSerializer.Serialize(new ReviewMetadata(_workspaceRoot, _review, _nextOriginId, _nextActionId, _nextHistoryId), ChangeTrackerJson.Default.ReviewMetadata);
+			changes["prompt:" + key] = _conversationPrompts.TryGetValue(key, out string? prompt) ? _json.Serialize(prompt, _json.Types.String) : null;
+		string metadata = _json.Serialize(new ReviewMetadata(_workspaceRoot, _review, _nextOriginId, _nextActionId, _nextHistoryId), _json.Types.ReviewMetadata);
 		if (metadata != _savedMetadata) changes["metadata"] = metadata;
 		if (changes.Count == 0) return;
 		_persistence.Save(changes);
+		texts.Commit();
 		_savedMetadata = metadata;
 		_dirtyFiles.Clear();
 		_dirtyHistory.Clear();
@@ -52,33 +52,38 @@ public sealed partial class SessionChangeTracker {
 		var records = _persistence.Read();
 		if (records.Count == 0) return;
 		try {
-			var metadata = Deserialize(records["metadata"], ChangeTrackerJson.Default.ReviewMetadata);
+			var metadata = _json.Deserialize(records["metadata"], _json.Types.ReviewMetadata);
+			var storedTexts = records.Where(pair => pair.Key.StartsWith(TextPrefix, StringComparison.Ordinal))
+				.ToDictionary(pair => pair.Key[TextPrefix.Length..], pair => pair.Value, StringComparer.Ordinal);
 			var files = new List<PathState>();
 			var history = new List<StoredHistory>();
 			var patchGroups = new List<StoredPatches>();
 			var prompts = new Dictionary<string, string?>(StringComparer.Ordinal);
 			foreach (var (key, value) in records) {
-				if (key == "metadata") continue;
+				if (key == "metadata" || key.StartsWith(TextPrefix, StringComparison.Ordinal)) continue;
 				if (key.StartsWith("file:", StringComparison.Ordinal)) {
-					var file = Deserialize(value, ChangeTrackerJson.Default.StoredFile).Restore();
+					var stored = _json.Deserialize(value, _json.Types.StoredFile);
+					var file = stored.Restore(storedTexts);
 					if (file.Path is null || key != FileKey(file.Path)) throw new JsonException("Invalid review file identity.");
+					_storedTexts.Reference(file.Path, stored.Hashes(), storedTexts);
 					files.Add(file);
 				} else if (key.StartsWith("history:", StringComparison.Ordinal)) {
-					var entry = Deserialize(value, ChangeTrackerJson.Default.StoredHistory);
+					var entry = _json.Deserialize(value, _json.Types.StoredHistory);
 					if (entry.Id <= 0 || entry.Id > metadata.NextHistoryId || key != "history:" + entry.Id)
 						throw new JsonException("Invalid history entry identity.");
 					history.Add(entry);
 				} else if (key.StartsWith("history-patches:", StringComparison.Ordinal)) {
-					var group = Deserialize(value, ChangeTrackerJson.Default.StoredPatches);
+					var group = _json.Deserialize(value, _json.Types.StoredPatches);
 					if (group.Path is null || key != PatchesKey(group.HistoryId, group.Path) || group.Patches is null
 						|| group.Patches.Count == 0 || group.Patches.Any(patch => patch is null || !PathIdentity.Equals(patch.Path, group.Path)))
 						throw new JsonException("Invalid history patch group.");
 					patchGroups.Add(group);
-				} else if (key.StartsWith("prompt:", StringComparison.Ordinal)) prompts.Add(key[7..], JsonSerializer.Deserialize(value, ChangeTrackerJson.Default.String));
+				} else if (key.StartsWith("prompt:", StringComparison.Ordinal)) prompts.Add(key[7..], _json.DeserializeNullable(value, _json.Types.String));
 				else throw new JsonException("Unknown review record.");
 			}
 			var groupsByEntry = patchGroups.ToLookup(group => group.HistoryId);
 			if (patchGroups.Any(group => !history.Any(entry => entry.Id == group.HistoryId))) throw new JsonException("Orphan history patches.");
+			if (storedTexts.Keys.Any(hash => !_storedTexts.Referenced(hash))) throw new JsonException("Orphan review text.");
 			var actions = history.ToDictionary(entry => entry.Id, entry => new ReviewAction(entry.ActionId, entry.Kind,
 				entry.TouchesDisk, entry.Line, [.. groupsByEntry[entry.Id].SelectMany(group => group.Patches)]));
 			var saved = new ReviewSnapshot(metadata.Root, [.. files],
@@ -159,75 +164,7 @@ public sealed partial class SessionChangeTracker {
 		SynchronizeHistory(external: true, except: null);
 	}
 
-	private StoredFile Store(string path) {
-		var state = Capture(path, withDisk: false);
-		List<string> texts = [];
-		int Text(string text) {
-			int index = texts.IndexOf(text);
-			if (index < 0) {
-				index = texts.Count;
-				texts.Add(text);
-			}
-			return index;
-		}
-		return new(path, texts, Text(state.Baseline), state.BaselineExists, Text(state.Current), state.CurrentExists,
-			Text(state.ReviewBaseline), state.ReviewBaselineExists, Text(state.AcceptedAnchor), state.AcceptedAnchorExists,
-			Text(state.PreEdit), state.Provenance is { } provenance
-				? new StoredProvenance(Text(provenance.Text), provenance.Lines, provenance.DeletedAtGap) : null);
-	}
-
-	// A file's review boundaries usually share content, so each distinct text is stored once and referenced by index.
-	private sealed record StoredFile(string Path, List<string> Texts, int Baseline, bool BaselineExists, int Current, bool CurrentExists,
-		int ReviewBaseline, bool ReviewBaselineExists, int AcceptedAnchor, bool AcceptedAnchorExists, int PreEdit, StoredProvenance? Provenance) {
-		public PathState Restore() => new(Path, true, Text(Baseline), BaselineExists, Text(Current), CurrentExists,
-			Text(ReviewBaseline), ReviewBaselineExists, Text(AcceptedAnchor), AcceptedAnchorExists, Text(PreEdit),
-			Provenance is { } provenance ? new ProvenanceFile {
-				Text = Text(provenance.Text),
-				Lines = provenance.Lines,
-				DeletedAtGap = provenance.DeletedAtGap
-			} : null,
-			false, string.Empty);
-		private string Text(int index) => Texts is not null && index >= 0 && index < Texts.Count && Texts[index] is { } text
-			? text : throw new JsonException("Invalid review text reference.");
-	}
-
-	private sealed record StoredProvenance(int Text, [property: JsonConverter(typeof(OriginRunsConverter))] ImmutableArray<AgentOrigin?> Lines,
-		ImmutableDictionary<int, ImmutableList<DeletedSegment>> DeletedAtGap);
-
-	// Consecutive lines share an origin, so each run stores its origin (and prompt) once rather than once per line.
-	private sealed class OriginRunsConverter : JsonConverter<ImmutableArray<AgentOrigin?>> {
-		public override ImmutableArray<AgentOrigin?> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
-			var lines = ImmutableArray.CreateBuilder<AgentOrigin?>();
-			foreach (var run in JsonSerializer.Deserialize(ref reader, ChangeTrackerJson.Default.ListOriginRun) ?? throw new JsonException("Missing origin runs.")) {
-				if (run is null || run.Count <= 0 || run.Count > Array.MaxLength - lines.Count) throw new JsonException("Invalid origin run.");
-				lines.AddRange(Enumerable.Repeat(run.Origin, run.Count));
-			}
-			return lines.ToImmutable();
-		}
-
-		public override void Write(Utf8JsonWriter writer, ImmutableArray<AgentOrigin?> value, JsonSerializerOptions options) {
-			List<OriginRun> runs = [];
-			foreach (var origin in value) {
-				if (runs.Count > 0 && Equals(runs[^1].Origin, origin)) runs[^1] = runs[^1] with { Count = runs[^1].Count + 1 };
-				else runs.Add(new(origin, 1));
-			}
-			JsonSerializer.Serialize(writer, runs, ChangeTrackerJson.Default.ListOriginRun);
-		}
-	}
-
-	private sealed record OriginRun(AgentOrigin? Origin, int Count);
-
-	private static T Deserialize<T>(string value, JsonTypeInfo<T> type) => JsonSerializer.Deserialize(value, type) ?? throw new JsonException("Empty review record.");
-	private sealed record ReviewMetadata(string Root, ReviewContext? Review, long NextOriginId, long NextActionId, long NextHistoryId);
 
 	private sealed record ReviewSnapshot(string Root, PathState[] Files, List<ReviewAction> Undo,
 		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, Dictionary<string, string?> Prompts);
-
-	[JsonSerializable(typeof(StoredFile))]
-	[JsonSerializable(typeof(List<OriginRun>))]
-	[JsonSerializable(typeof(StoredHistory))]
-	[JsonSerializable(typeof(StoredPatches))]
-	[JsonSerializable(typeof(ReviewMetadata))]
-	[JsonSerializable(typeof(string))]
-	private sealed partial class ChangeTrackerJson : JsonSerializerContext;
 }

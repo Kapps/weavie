@@ -236,14 +236,16 @@ public static class LineHunker {
 		return anchors;
 	}
 
-	// Finds where the forward and reverse D-paths meet (the "middle snake"); false when the ranges share no line.
+	// Finds where the forward and reverse D-paths meet (the "middle snake"); false when the ranges share no line. Past
+	// git xdiff's cost bound it splits at the furthest forward point instead: still a valid diff, no longer minimal.
 	private static bool TrySplit(int[] a, int[] b, int aLo, int aHi, int bLo, int bHi, out int x, out int y) {
 		int n = aHi - aLo;
 		int m = bHi - bLo;
 		int maxD = (n + m + 1) / 2;
-		int offset = maxD;
-		int[] forward = new int[2 * maxD];
-		int[] reverse = new int[2 * maxD];
+		int limit = Math.Min(maxD, Math.Max(256, (int)Math.Sqrt(n + m)));
+		int offset = limit;
+		int[] forward = new int[2 * limit];
+		int[] reverse = new int[2 * limit];
 		Array.Fill(forward, -1);
 		Array.Fill(reverse, -1);
 		forward[offset + 1] = 0;
@@ -251,7 +253,7 @@ public static class LineHunker {
 		int delta = n - m;
 		bool front = delta % 2 != 0;
 		int k1Start = 0, k1End = 0, k2Start = 0, k2End = 0;
-		for (int d = 0; d < maxD; d++) {
+		for (int d = 0; d < limit; d++) {
 			for (int k1 = -d + k1Start; k1 <= d - k1End; k1 += 2) {
 				int k1Offset = offset + k1;
 				int x1 = k1 == -d || (k1 != d && forward[k1Offset - 1] < forward[k1Offset + 1])
@@ -298,7 +300,12 @@ public static class LineHunker {
 				}
 			}
 		}
-		(x, y) = (0, 0);
-		return false;
+		(x, y) = (aLo, bLo);
+		for (int k = 1 - limit; limit < maxD && k < limit; k++) {
+			int fx = forward[offset + k];
+			if (fx >= 0 && fx <= n && fx - k >= 0 && fx - k <= m && 2 * fx - k > x + y - aLo - bLo && 2 * fx - k < n + m)
+				(x, y) = (aLo + fx, bLo + fx - k);
+		}
+		return x + y > aLo + bLo;
 	}
 }

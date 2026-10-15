@@ -46,13 +46,14 @@ public sealed partial class SessionChangeTracker {
 					if (actions.Length == 0) continue;
 					var lines = TextLines(before);
 					var hunks = LineHunker.Hunks(lines, TextLines(after));
+					var transport = new TransportIndex(lines, hunks);
 					foreach (var action in actions) {
 						action.ReplacePatches(path, [.. action.PatchesFor(path).Select(patch => {
 							if (!PathIdentity.Equals(patch.Path, path) || patch.Part != part) return patch;
 							return patch with {
 								Stale = patch.Stale || external && (before.Exists != after.Exists
 									|| hunks.Any(hunk => Touches(patch.Range, hunk.BeforeRange))
-									|| AmbiguousTransport(lines, patch.Range, hunks)),
+									|| transport.Ambiguous(patch.Range)),
 								Range = MapRange(patch.Range, hunks),
 							};
 						})]);
@@ -84,15 +85,19 @@ public sealed partial class SessionChangeTracker {
 		: Length(edit) == 0 ? edit.Start > decision.Start && edit.Start < decision.EndExclusive
 		: decision.Start < edit.EndExclusive && edit.Start < decision.EndExclusive;
 
-	// Repeated equal text cannot identify which occurrence survived a snapshot-only edit.
-	private static bool AmbiguousTransport(IReadOnlyList<string> lines, LineRange range, IReadOnlyList<LineHunk> hunks) {
-		var target = Lines(lines, range);
-		if (target.Count == 0) return false;
-		int matches = 0;
-		for (int i = 0; i + target.Count <= lines.Count; i++) {
-			if (lines.Skip(i).Take(target.Count).SequenceEqual(target)) matches++;
+	// Repeated equal text cannot identify which occurrence survived a snapshot-only edit. Indexed lazily, once per alignment.
+	private sealed class TransportIndex(List<string> lines, IReadOnlyList<LineHunk> hunks) {
+		private HashSet<string>? _edited;
+		private ILookup<string, int>? _starts;
+
+		public bool Ambiguous(LineRange range) {
+			var target = Lines(lines, range);
+			_edited ??= [.. hunks.SelectMany(hunk => Lines(lines, hunk.BeforeRange))];
+			if (!target.Exists(_edited.Contains)) return false;
+			_starts ??= lines.Select((line, index) => (line, index)).ToLookup(pair => pair.line, pair => pair.index);
+			return _starts[target[0]].Where(start => start + target.Count <= lines.Count
+				&& lines.Skip(start).Take(target.Count).SequenceEqual(target)).Take(2).Count() > 1;
 		}
-		return matches > 1 && hunks.Any(hunk => Lines(lines, hunk.BeforeRange).Intersect(target).Any());
 	}
 
 	private static OriginSlice? CaptureOrigins(ProvenanceFile? provenance, LineRange range) => provenance is null ? null : new(
@@ -123,9 +128,7 @@ public sealed partial class SessionChangeTracker {
 		}
 		_provenance[path] = provenance with { Lines = lines.ToImmutable(), DeletedAtGap = gaps.ToImmutable() };
 		SetAllPending(path, false);
-		foreach (var hunk in LineHunker.Hunks(SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty)),
-			SplitLines(_current.GetValueOrDefault(path, string.Empty))))
-			SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
+		MarkReviewPending(path);
 	}
 
 	private sealed record OriginSlice([property: JsonConverter(typeof(OriginRunsConverter))] ImmutableArray<AgentOrigin?> Lines, Dictionary<int, List<DeletedSegment>> Gaps);

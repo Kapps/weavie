@@ -1415,6 +1415,8 @@ label.agent-input-choice:hover {
 
 /* Hints that the totals open a menu of the session's other diffs. */
 .agent-status-diff-more {
+  /* An SVG's baseline is its bottom edge, so baseline alignment would seat it on the text's baseline. */
+  align-self: center;
   opacity: 0.6;
 }
 

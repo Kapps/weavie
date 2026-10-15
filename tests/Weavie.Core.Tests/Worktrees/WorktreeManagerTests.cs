@@ -554,7 +554,7 @@ public sealed class WorktreeManagerTests : IDisposable {
 
 		public Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(new GitFileSnapshot(false, string.Empty));
 
-		public Task<GitBlame> BlameLinesAsync(string worktreeDirectory, string path, int startLine, int endLine, CancellationToken ct = default) =>
+		public Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default) =>
 			Task.FromResult(GitBlame.Empty);
 
 		public Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default) =>

@@ -37,12 +37,13 @@ public sealed partial class SessionChangeTracker {
 	private ReviewHistoryResult ApplyHistory(HistoryStack source, HistoryStack destination, ReviewActionKind? kind, bool undo) {
 		ReconcileReviewDisk();
 		bool found = false;
+		var live = new Dictionary<(string Path, ReviewPart Part), (bool Exists, List<string> Lines)>();
 		foreach (var action in source.AsEnumerable().Reverse().ToArray()) {
 			if (kind is { } wanted && action.Kind != wanted) continue;
 			found = true;
-			if (action.Patches.Any(patch => patch.Stale || !PatchHolds(patch, undo)
-				|| _undoStack.Where(other => !ReferenceEquals(other, action)).SelectMany(other => other.Patches)
-					.Any(cover => cover.Boundaries.Any(boundary => boundary.PatchId == patch.Id && boundary.Covered)))) continue;
+			var covered = _undoStack.Where(other => !ReferenceEquals(other, action)).SelectMany(other => other.Patches)
+				.SelectMany(cover => cover.Boundaries).Where(boundary => boundary.Covered).Select(boundary => boundary.PatchId).ToHashSet();
+			if (action.Patches.Any(patch => patch.Stale || covered.Contains(patch.Id) || !PatchHolds(patch, undo, live))) continue;
 			string[] paths = [.. action.Patches.Select(patch => patch.Path).Distinct(PathIdentity.Comparer)];
 			var reversed = new ReviewAction(action.Id, action.Kind, action.TouchesDisk, action.Line, []);
 			try {
@@ -64,15 +65,12 @@ public sealed partial class SessionChangeTracker {
 						SetMissing(_missingReviewBaseline, path, !review.Exists);
 					}
 					RestorePatchOrigins(path, patches, undo);
-					foreach (var group in patches.GroupBy(patch => patch.Part)) {
+					foreach (var group in patches.Select((patch, index) => (patch, index)).GroupBy(item => item.patch.Part).ToArray()) {
 						int shift = 0;
-						foreach (var patch in group.OrderBy(patch => patch.Range.Start)) {
+						foreach (var (patch, index) in group.OrderBy(item => item.patch.Range.Start)) {
 							int length = (undo ? patch.Before : patch.After).Length;
-							int oldLength = Length(patch.Range);
-							var range = new LineRange(patch.Range.Start + shift, patch.Range.Start + shift + length);
-							int index = patches.IndexOf(patch);
-							patches[index] = patch with { Range = range };
-							shift += length - oldLength;
+							patches[index] = patch with { Range = new(patch.Range.Start + shift, patch.Range.Start + shift + length) };
+							shift += length - Length(patch.Range);
 						}
 					}
 					SynchronizeHistory(external: false, except: action);
@@ -102,21 +100,30 @@ public sealed partial class SessionChangeTracker {
 		return ReviewHistoryResult.Blocked(found);
 	}
 
-	private bool PatchHolds(ReviewPatch patch, bool undo) {
-		var live = Value(Capture(patch.Path, withDisk: true), patch.Part);
-		return live.Exists == (undo ? patch.AfterExists : patch.BeforeExists)
-			&& TryGetSlice(TextLines(live), patch.Range, out var slice)
+	// Each live part is read and split once per history pass, however many of its patches are checked.
+	private bool PatchHolds(ReviewPatch patch, bool undo, Dictionary<(string Path, ReviewPart Part), (bool Exists, List<string> Lines)> live) {
+		if (!live.TryGetValue((patch.Path, patch.Part), out var value)) {
+			var text = Value(Capture(patch.Path, withDisk: true), patch.Part);
+			live[(patch.Path, patch.Part)] = value = (text.Exists, TextLines(text));
+		}
+		return value.Exists == (undo ? patch.AfterExists : patch.BeforeExists)
+			&& TryGetSlice(value.Lines, patch.Range, out var slice)
 			&& slice.SequenceEqual(undo ? patch.After : patch.Before);
 	}
 
 	private static TextValue ApplyPatches(TextValue live, List<ReviewPatch> patches, bool undo) {
 		var lines = TextLines(live);
-		foreach (var patch in patches.OrderByDescending(patch => patch.Range.Start)) {
-			lines.RemoveRange(patch.Range.Start - 1, Length(patch.Range));
-			lines.InsertRange(patch.Range.Start - 1, undo ? patch.Before : patch.After);
+		var result = new List<string>(lines.Count);
+		int next = 1;
+		foreach (var patch in patches.Select((patch, index) => (patch, index)).OrderBy(item => item.patch.Range.Start)
+			.ThenByDescending(item => item.index).Select(item => item.patch)) {
+			result.AddRange(lines.GetRange(next - 1, patch.Range.Start - next));
+			result.AddRange(undo ? patch.Before : patch.After);
+			next = patch.Range.EndExclusive;
 		}
+		result.AddRange(lines.GetRange(next - 1, lines.Count - next + 1));
 		string eol = live.Text.Length > 0 ? live.Text : undo ? patches[0].BeforeEol : patches[0].AfterEol;
-		return new(JoinLines(lines, eol), undo ? patches[0].BeforeExists : patches[0].AfterExists);
+		return new(JoinLines(result, eol), undo ? patches[0].BeforeExists : patches[0].AfterExists);
 	}
 
 	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before) {
@@ -131,26 +138,32 @@ public sealed partial class SessionChangeTracker {
 				if (part == ReviewPart.Disk && !touchesDisk) continue;
 				var from = Value(previous, part);
 				var to = Value(current, part);
-				var hunks = from.Exists == to.Exists ? LineHunker.Hunks(TextLines(from), TextLines(to))
-					: [new LineHunk(new(1, TextLines(from).Count + 1), new(1, TextLines(to).Count + 1))];
+				var fromLines = TextLines(from);
+				var toLines = TextLines(to);
+				string beforeEol = from.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+				string afterEol = to.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+				var hunks = from.Exists == to.Exists ? LineHunker.Hunks(fromLines, toLines)
+					: [new LineHunk(new(1, fromLines.Count + 1), new(1, toLines.Count + 1))];
 				foreach (var hunk in hunks) {
 					patches.Add(new(previous.Path, part, hunk.AfterRange,
-						[.. Lines(TextLines(from), hunk.BeforeRange)], [.. Lines(TextLines(to), hunk.AfterRange)],
+						[.. Lines(fromLines, hunk.BeforeRange)], [.. Lines(toLines, hunk.AfterRange)],
 						from.Exists, to.Exists,
 						part == ReviewPart.Disk ? CaptureOrigins(previous.Provenance, hunk.BeforeRange) : null,
 						part == ReviewPart.Disk ? CaptureOrigins(current.Provenance, hunk.AfterRange) : null) {
 						Id = ++_nextActionId,
 						Boundaries = CaptureBoundaries(previous.Path, part, hunk.BeforeRange),
-						BeforeEol = from.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n",
-						AfterEol = to.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n",
+						BeforeEol = beforeEol,
+						AfterEol = afterEol,
 					});
 				}
 			}
 			// Keeping touches no disk, but its decision still belongs to the exact proposed region.
 			if (!touchesDisk) {
+				var diskLines = SplitLines(current.Disk);
+				var reviewToDisk = LineHunker.Hunks(SplitLines(current.ReviewBaseline), diskLines);
 				foreach (var patch in patches.Where(patch => patch.Path == previous.Path && patch.Part == ReviewPart.Review).ToArray()) {
-					var range = MapRange(patch.Range, LineHunker.Hunks(SplitLines(current.ReviewBaseline), SplitLines(current.Disk)));
-					string[] text = [.. Lines(SplitLines(current.Disk), range)];
+					var range = MapRange(patch.Range, reviewToDisk);
+					string[] text = [.. Lines(diskLines, range)];
 					patches.Add(new(previous.Path, ReviewPart.Disk, range, text, text, current.OnDisk, current.OnDisk, null, null) { Id = ++_nextActionId });
 				}
 			}

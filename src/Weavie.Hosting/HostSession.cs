@@ -110,7 +110,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		var fileSystem = new LocalFileSystem();
 		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
 		SecureFile.CreateDirectory(reviewDirectory);
-		var reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "state.db"));
+		// state.db held the superseded uncompacted format, hundreds of MB for large generated files; it cannot load.
+		File.Delete(Path.Combine(reviewDirectory, "state.db"));
+		var reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "review.db"));
 
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));

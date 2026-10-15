@@ -23,12 +23,16 @@ other files' patch groups.
 
 ## Storage and restoration
 
-Each worktree owns `review/state.db` in its private workspace state directory.
+Each worktree owns `review/review.db` in its private workspace state directory.
 `ReviewPersistence` applies upserts and deletions to a keyed record table within a
 transaction. Records are:
 
 - `metadata`: worktree identity, review source, and identity counters.
-- `file:<canonical path>`: one tracked file's complete current review state.
+- `file:<canonical path>`: one tracked file's current review state. Its boundaries reference text
+  records by hash; per-line provenance is stored as origin runs, and each origin's prompt is written once
+  per record.
+- `text:<sha256>`: one distinct file text, stored raw and shared by every boundary that holds it. It is
+  written when first referenced and deleted with its last reference, so a save writes only changed texts.
 - `history:<entry id>`: stack membership and small action metadata.
 - `history-patches:<entry id>:file:<canonical path>`: one action's patches for one file.
 - `prompt:<conversation id>`: that conversation's prompt.

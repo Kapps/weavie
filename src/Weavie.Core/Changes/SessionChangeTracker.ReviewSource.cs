@@ -121,11 +121,12 @@ public sealed partial class SessionChangeTracker {
 		TextValue Extend(TextValue target) {
 			if (target == from) return to;
 			var mapping = LineHunker.Hunks(TextLines(from), TextLines(target));
+			var transport = new TransportIndex(TextLines(from), mapping);
 			var patches = new List<ReviewPatch>();
 			foreach (var hunk in hunks) {
 				var range = MapRange(hunk.BeforeRange, mapping);
 				if (mapping.Any(edit => Touches(hunk.BeforeRange, edit.BeforeRange))
-					|| AmbiguousTransport(TextLines(from), hunk.BeforeRange, mapping)
+					|| transport.Ambiguous(hunk.BeforeRange)
 					|| !TryGetSlice(TextLines(target), range, out var actual)
 					|| !actual.SequenceEqual(Lines(TextLines(from), hunk.BeforeRange)))
 					throw new InvalidOperationException("The requested base overlaps kept changes. Your existing review was preserved.");

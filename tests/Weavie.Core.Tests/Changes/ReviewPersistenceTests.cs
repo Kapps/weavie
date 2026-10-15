@@ -6,7 +6,7 @@ namespace Weavie.Core.Tests;
 
 public sealed class ReviewPersistenceTests : IDisposable {
 	private readonly string _directory = Path.Combine(Path.GetTempPath(), "weavie-review-" + Guid.NewGuid().ToString("N"));
-	private string Database => Path.Combine(_directory, "state.db");
+	private string Database => Path.Combine(_directory, "review.db");
 
 	[Fact]
 	public void FailedBatch_RollsBackEveryRecord_AndReopenPreservesTheCommittedState() {

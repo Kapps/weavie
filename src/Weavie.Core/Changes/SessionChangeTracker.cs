@@ -497,7 +497,7 @@ public sealed partial class SessionChangeTracker {
 			if (string.Equals(_reviewBaseline[path], _current.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
 				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
 			}
-			SetPending(path, currentRange, false);
+			SetPending(path, [currentRange], false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before]);
 			return true;
 		}
@@ -579,11 +579,7 @@ public sealed partial class SessionChangeTracker {
 			if (string.Equals(_reviewBaseline[path], _acceptedAnchor.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
 				SetMissing(_missingReviewBaseline, path, _missingAcceptedAnchor.Contains(path));
 			}
-			foreach (var hunk in LineHunker.Hunks(
-				LineDiff.SplitLines(_reviewBaseline[path]),
-				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
-				SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
-			}
+			MarkReviewPending(path);
 			SynchronizeHistory(external: false, except: null);
 			Checkpoint();
 			return true;

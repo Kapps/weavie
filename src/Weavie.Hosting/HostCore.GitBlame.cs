@@ -2,7 +2,7 @@ using Weavie.Core.Git;
 
 namespace Weavie.Hosting;
 
-// Answers the editor's blame surface for one session's worktree: who last changed each line, the hunk a blamed
+// Answers the editor's blame surface for one session's worktree: who last changed a range of lines, the hunk a blamed
 // line came from, the other commits behind a line or a file, and the forge links for a commit. Every request
 // names a file, so each resolves its path against the OWNING session's worktree — never the window's.
 public sealed partial class HostCore {
@@ -10,16 +10,22 @@ public sealed partial class HostCore {
 	// the list is cut rather than presenting a truncated history as the whole one.
 	private const int BlameHistoryLimit = 25;
 
-	private static async Task<BlameResult> BlameFileAsync(
+	private static async Task<BlameResult> BlameLinesAsync(
 		HostSession session,
-		FilePathRequest request,
+		BlameRequest request,
 		CancellationToken ct) {
 		if (WorktreeRelativePath(session, request.Path) is not { } relative) {
 			return new BlameResult([], [], [], NotInWorktree(session, request.Path));
 		}
 
+		if (request.StartLine <= 0 || request.EndLine < request.StartLine) {
+			return new BlameResult([], [], [], $"Lines {request.StartLine}–{request.EndLine} aren't a range in this file.");
+		}
+
 		try {
-			var blame = await new GitService().BlameFileAsync(session.WorkspaceRoot, relative, ct).ConfigureAwait(false);
+			var blame = await new GitService()
+				.BlameLinesAsync(session.WorkspaceRoot, relative, request.StartLine, request.EndLine, ct)
+				.ConfigureAwait(false);
 			return new BlameResult(
 				[.. blame.Commits.Select(c => new BlameCommitWire(
 					c.Sha,
@@ -120,6 +126,9 @@ public sealed partial class HostCore {
 	}
 
 	internal sealed record FilePathRequest(string Path);
+
+	// The blame window: only the lines the editor is showing, since a whole-file blame of a huge file stalls.
+	internal sealed record BlameRequest(string Path, int StartLine, int EndLine);
 
 	internal sealed record CommitHunkRequest(string Path, string Sha, int Line);
 

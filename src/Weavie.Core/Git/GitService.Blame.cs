@@ -13,14 +13,22 @@ public sealed partial class GitService {
 	private const string LogFormat = "--format=%H%x1f%an%x1f%at%x1f%s";
 
 	/// <inheritdoc/>
-	public async Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default) {
+	public async Task<GitBlame> BlameLinesAsync(
+		string worktreeDirectory,
+		string path,
+		int startLine,
+		int endLine,
+		CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startLine);
+		ArgumentOutOfRangeException.ThrowIfLessThan(endLine, startLine);
+		string range = string.Create(CultureInfo.InvariantCulture, $"-L{startLine},{endLine}");
 		var result = await RunCheckedAsync(
 			worktreeDirectory,
-			["--no-optional-locks", "blame", "--porcelain", "--", path],
+			["--no-optional-locks", "blame", "--porcelain", range, "--", path],
 			ct).ConfigureAwait(false);
-		return BlamePorcelain.Parse(result.StdOut);
+		return BlamePorcelain.Parse(result.StdOut, startLine);
 	}
 
 	/// <inheritdoc/>

@@ -1,9 +1,9 @@
 // Renders who last changed each line as faded text at the end of it, and opens the blame popover when one is
-// clicked. Blame is a property of the file on disk, so it is fetched per model and re-fetched when the file
-// changes there; in between, buffer edits re-align it line-by-line (blame-model.ts) rather than leaving stale
-// annotations sitting beside lines they no longer describe.
+// clicked. Blame is a property of the file on disk, so it is dropped and re-fetched when the file changes there;
+// in between, buffer edits re-align it line-by-line (blame-model.ts) rather than leaving stale annotations
+// sitting beside lines they no longer describe.
 //
-// Only the visible lines are decorated, re-run on scroll: a long file's blame is thousands of lines, and
+// Only the visible lines are fetched and decorated, re-run on scroll: blaming a whole huge file stalls, and
 // injected text costs per rendered line.
 
 import { type GitBlameMode, registerSessionFeature } from "../bridge";
@@ -11,11 +11,16 @@ import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options"
 import { notify } from "../notify/notify";
 import {
   applyEdit,
+  type BlameRange,
   type BlameSnapshot,
   blameAt,
   blameLabel,
   EMPTY_BLAME,
   labelsRun,
+  mergeBlame,
+  missingRange,
+  refetchBlame,
+  unloadedBlame,
 } from "./blame-model";
 import { closeBlame, openBlame } from "./blame-store";
 import { normalizePath } from "./fs-path";
@@ -38,10 +43,7 @@ const OVERSCAN = 20;
 // describe where the writes settled, so a burst collapses into one probe instead of one per write.
 const RELOAD_DEBOUNCE_MS = 150;
 
-interface BlameResponse {
-  commits: BlameSnapshot["commits"];
-  lineCommits: number[];
-  lineOriginals: number[];
+interface BlameResponse extends BlameRange {
   error: string | null;
 }
 
@@ -64,10 +66,13 @@ export interface GitBlameController {
 export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): GitBlameController {
   let mode: GitBlameMode = currentEditorOptions().gitBlame;
   let snapshot: BlameSnapshot = EMPTY_BLAME;
-  // The model the loaded snapshot belongs to; a stale response for a since-swapped model is dropped on arrival.
+  // The model the snapshot belongs to.
   let loadedUri: string | null = null;
-  // Why the loaded file has no blame, when Git gave a reason. Reported only when the user explicitly asks.
+  // Why the file has no blame, when Git gave a reason: nothing more is fetched for it, and an explicit Show
+  // Blame answers with it.
   let blameError: string | null = null;
+  // One fetch at a time; its response is dropped when the snapshot it was for has been reset since.
+  let pending: Promise<void> | null = null;
   let loadToken = 0;
   let frame: number | undefined;
   // What the last applied decoration set was, so an identical render is skipped outright.
@@ -83,6 +88,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
   };
 
   const clear = (): void => {
+    loadToken++;
+    pending = null;
     snapshot = EMPTY_BLAME;
     blameError = null;
     loadedUri = null;
@@ -93,59 +100,78 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     optionsByLabel.clear();
   };
 
+  // Starts the active model's blame afresh, nothing fetched yet — so an explicit Show Blame works with
+  // annotations off too.
+  const reset = (): void => {
+    clear();
+    const model = fileModel();
+    if (model === null) return;
+    const lines = model.getLineCount();
+    snapshot = unloadedBlame(lines, model.getLineLength(lines) === 0);
+    loadedUri = model.uri.toString();
+  };
+
   // The automatic path: annotations off means no probe at all, so turning blame off costs nothing per file.
   const load = (): void => {
     if (mode === "off") {
       clear();
       return;
     }
-    void fetchBlame();
+    reset();
+    render();
   };
 
-  // Loads the active model's blame regardless of mode, so an explicit Show Blame answers even with
-  // annotations off. Resolves once the snapshot is in place (or known unavailable).
-  const fetchBlame = (): Promise<void> => {
+  // The file changed on disk: every line is fetched again, but keeps its last-known attribution on screen until
+  // the new one lands — so an autosave mid-typing doesn't blank and repaint every annotation.
+  const refresh = (): void => {
     const model = fileModel();
-    if (model === null) {
-      clear();
-      return Promise.resolve();
+    if (mode === "off" || model === null || model.uri.toString() !== loadedUri) {
+      load();
+      return;
     }
-    const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      clear();
-      return Promise.resolve();
+    loadToken++;
+    pending = null;
+    blameError = null;
+    snapshot = refetchBlame(snapshot, model.getLineLength(model.getLineCount()) === 0);
+    render();
+  };
+
+  // Fetches the not-yet-loaded lines among `from`–`to`. A fetch already in flight wins; the render its
+  // completion schedules asks again for whatever is still missing.
+  const fetchLines = (from: number, to: number): Promise<void> => {
+    const model = fileModel();
+    const session = model === null ? undefined : sessionForUri(model.uri);
+    const range = blameError === null ? missingRange(snapshot, from, to) : null;
+    if (pending !== null || model === null || session === undefined || range === null) {
+      return pending ?? Promise.resolve();
     }
-    const uri = model.uri.toString();
-    const token = ++loadToken;
-    return session
+    const token = loadToken;
+    const current = (): boolean => token === loadToken;
+    pending = session
       .feature("git")
-      .request<BlameResponse, { path: string }>("blame", { path: sessionUriHostPath(model.uri) })
-      .then((response) => {
-        if (token !== loadToken) {
-          return;
-        }
-        // A file Git won't blame — untracked, binary, ignored — has no annotations, which is the honest
-        // rendering of "Git has nothing to say about these lines". The reason is kept so an explicit Show
-        // Blame can answer with it rather than declining a keystroke for no visible reason.
-        snapshot =
-          response.error === null
-            ? {
-                commits: response.commits,
-                lineCommits: response.lineCommits,
-                lineOriginals: response.lineOriginals,
-              }
-            : EMPTY_BLAME;
-        blameError = response.error;
-        loadedUri = uri;
-        render();
+      .request<BlameResponse, { path: string; startLine: number; endLine: number }>("blame", {
+        path: sessionUriHostPath(model.uri),
+        startLine: range.start,
+        endLine: range.end,
       })
-      .catch((error: unknown) => {
-        if (token === loadToken) {
-          clear();
-          blameError = error instanceof Error ? error.message : String(error);
-          loadedUri = uri;
-        }
+      .then(
+        (response) => {
+          if (!current()) return;
+          // A file Git won't blame — untracked, binary, ignored — has no annotations, which is the honest
+          // rendering of "Git has nothing to say about these lines".
+          if (response.error === null) snapshot = mergeBlame(snapshot, range, response);
+          else blameError = response.error;
+        },
+        (error: unknown) => {
+          if (current()) blameError = error instanceof Error ? error.message : String(error);
+        },
+      )
+      .finally(() => {
+        if (!current()) return;
+        pending = null;
+        scheduleRender();
       });
+    return pending;
   };
 
   const optionsFor = (label: string): monaco.editor.IModelDecorationOptions => {
@@ -184,19 +210,26 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     return created;
   };
 
+  // The visible stretches widened by the overscan. Each is its own window: a collapsed region (folding, a diff's
+  // unchanged context) can put lines thousands apart on one screen, and blame never spans the lines between.
+  const windows = (model: monaco.editor.ITextModel): [number, number][] =>
+    editor
+      .getVisibleRanges()
+      .map((range) => [
+        Math.max(range.startLineNumber - OVERSCAN, 1),
+        Math.min(range.endLineNumber + OVERSCAN, model.getLineCount()),
+      ]);
+
   // The lines to annotate: every visible one in `all`, only the cursor's in `currentLine`.
   const annotatedLines = (model: monaco.editor.ITextModel): number[] => {
     if (mode === "currentLine") {
       const line = editor.getPosition()?.lineNumber;
       return line === undefined || line > model.getLineCount() ? [] : [line];
     }
-    // A set, not a list: a collapsed region (comment prose, folding) splits the viewport into several ranges,
-    // and widening each by the overscan makes neighbouring ones overlap — so a line lands in two windows and
-    // would otherwise be decorated, and painted, twice.
+    // A set, not a list: widening neighbouring windows by the overscan makes them overlap — so a line lands in
+    // two windows and would otherwise be decorated, and painted, twice.
     const lines = new Set<number>();
-    for (const range of editor.getVisibleRanges()) {
-      const from = Math.max(range.startLineNumber - OVERSCAN, 1);
-      const to = Math.min(range.endLineNumber + OVERSCAN, model.getLineCount());
+    for (const [from, to] of windows(model)) {
       for (let line = from; line <= to; line++) {
         lines.add(line);
       }
@@ -210,6 +243,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       decorations.clear();
       return;
     }
+    const missing = windows(model).find(([from, to]) => missingRange(snapshot, from, to) !== null);
+    if (missing !== undefined) void fetchLines(...missing);
     const now = Date.now() / 1000;
     // An annotation on a blank line has nothing to sit beside — it reads as the line's own content, and the
     // line it describes is the code below it anyway.
@@ -358,7 +393,7 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       const active = normalizePath(sessionUriHostPath(model.uri));
       if (message.changes.some((change) => normalizePath(change.path) === active)) {
         clearTimeout(reloadTimer);
-        reloadTimer = setTimeout(load, RELOAD_DEBOUNCE_MS);
+        reloadTimer = setTimeout(refresh, RELOAD_DEBOUNCE_MS);
       }
     }),
   );
@@ -389,6 +424,12 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     }
   };
 
+  // Waits out a fetch already in flight — it may be for another window — before asking for this line.
+  const fetchCursorLine = async (line: number): Promise<void> => {
+    while (pending !== null) await pending;
+    await fetchLines(line, line);
+  };
+
   return {
     showAtCursor: () => {
       const line = editor.getPosition()?.lineNumber;
@@ -398,15 +439,12 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       }
       // Asking for a line's blame is a question about the file, not about whether annotations are painted —
       // so with them off (nothing loaded) fetch on demand rather than answering from an empty snapshot.
-      if (loadedUri === model.uri.toString()) {
-        openCursorOrExplain(line);
-      } else {
-        void fetchBlame().then(() => openCursorOrExplain(line));
-      }
+      if (loadedUri !== model.uri.toString()) reset();
+      void fetchCursorLine(line).then(() => openCursorOrExplain(line));
       return true;
     },
     dispose: () => {
-      loadToken++;
+      clear();
       // Leaving it open would strand the panel on a torn-down session, whose bus rejects every request.
       closeBlame();
       clearTimeout(reloadTimer);

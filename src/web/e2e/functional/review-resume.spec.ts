@@ -67,6 +67,9 @@ test.describe("durable applied review", () => {
     },
   });
 
+  // FLAKE 2026-10-15 ~05:00Z (macOS): notes.txt never showed its added-line decoration after the restart (30s).
+  // https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231850
+  // NOT FIXED: no root cause yet; see also #953.
   test("new turns, unloads, and host restarts resume decisions and the review view", async ({
     page,
     weavie,

@@ -274,13 +274,11 @@ public static partial class CoreCommands {
 	/// <summary>Opens the blame popover for the editor cursor's line; palette-only, no default keybinding.</summary>
 	public const string ShowBlame = "weavie.git.showBlame";
 
-	/// <summary>Opens the unified review overview, or an explicitly addressed file and line.</summary>
+	/// <summary>Opens the unified review or switches between unified and file review; bound to <c>$mod+Shift+u</c>.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
 	/// <summary>Opens the session overview at the top of the review tab, for any session.</summary>
 	public const string ReviewOverview = "weavie.review.overview";
-
-	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 
 	/// <summary>Accepts the remaining changes and finishes the diff review.</summary>
 	public const string ReviewClose = "weavie.review.close";
@@ -290,9 +288,6 @@ public static partial class CoreCommands {
 
 	/// <summary>Shows or re-collapses the current unified-review file's unchanged lines; bound to <c>alt+]</c>.</summary>
 	public const string ReviewToggleContext = "weavie.review.toggleContext";
-
-	/// <summary>Opens the unified-review cursor line in file review; bound to <c>$mod+alt+o</c>.</summary>
-	public const string ReviewOpenLine = "weavie.review.openLine";
 
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
@@ -1624,11 +1619,13 @@ public static partial class CoreCommands {
 			Title = "Review Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Open the unified overview of every pending review file and its diff. Pass path and line "
-				+ "to open that exact change in the file-focused review instead.",
-			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			Description = "Open the unified overview of every pending review file and its diff. While a review is "
+				+ "showing, switch between the unified and file-focused review, keeping the current file and change. "
+				+ "Pass path and line to open that exact change in the file-focused review instead.",
+			Aliases = ["review changes", "review turn", "turn review", "review", "changed files", "switch review view",
+				"file review", "unified review", "open line in file"],
 			When = "reviewAvailable",
-			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit to open the unified overview or, while reviewing, switch between unified and file review\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1675,17 +1672,6 @@ public static partial class CoreCommands {
 			Aliases = ["show full file", "expand diff", "expand context", "show unchanged lines", "collapse context"],
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to expand; omit for the current file\"}}",
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+]" }],
-		});
-
-		registry.Register(new CommandDefinition {
-			Id = ReviewOpenLine,
-			Title = "Open Line in File (Review)",
-			RunsIn = CommandLocation.Web,
-			Category = "Review",
-			When = "unifiedReviewActive && editorFocused",
-			Description = "Open the file under the unified-review cursor in file review, at the cursor's line.",
-			Aliases = ["go to file", "open file at line", "jump to file", "open line in file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+o" }],
 		});
 
 		registry.Register(new CommandDefinition {

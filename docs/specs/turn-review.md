@@ -23,12 +23,14 @@ Both review presentations are projections over one Core-owned review board:
   deleted current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working
   copy exists. Each collapsed unchanged stretch is a clickable band that reveals its lines, and the section's
   `alt+]` toggle shows the whole file or collapses it back; revealed lines are web-only presentation state on the
-  file's view. Clicking a line number (or `$mod+alt+o` at the cursor) opens that file in file review at that line.
+  file's view. Clicking a line number, or the file header's open-in-file-view button, opens that file in file review at that line.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
 The tab-strip button and `weavie.review.open` (`$mod+Shift+u` by default) open a persistent
-**Review Changes** tab (`kind: "review"`, resource `weavie:review`). Ordinary file reviews and pending
+**Review Changes** tab (`kind: "review"`, resource `weavie:review`). While a review view is active the button
+becomes an `All files | This file` switch, and the same command flips between the two views at the current
+file and change. Ordinary file reviews and pending
 Keep/Reject proposals belong to their normal file tabs. Passive changes update the review board without
 opening or selecting a tab. Opening a file selects its file tab and retains Review Changes for Back or
 later tab selection.
@@ -142,8 +144,8 @@ editor is **never** auto-moved (mid-turn or at turn-end). Stepping in is always 
 pushes the review set live (after completed buffer saves and tracker-reported changes/deletions); the page decides to park or expand it
 purely from whether a changed file is in view — so there's no host-side `open` flag or auto-arm bookkeeping,
 and it's race-free across a session switch by construction (parking never touches the editor). The
-`weavie.review.open` command opens the unified overview; an invocation with `path` and `line` opens that
-exact location in file review.
+`weavie.review.open` command opens the unified overview, or switches views while one is showing; an
+invocation with `path` and `line` opens that exact location in file review.
 
 ## What already exists (reused, not rebuilt)
 
@@ -314,11 +316,9 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
 | `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
-| `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
-| `weavie.review.open` | `$mod+Shift+u` | open the Review Changes tab |
+| `weavie.review.open` | `$mod+Shift+u` | open the Review Changes tab; while reviewing, switch unified ⇄ file review at the current change; `path` + `line` opens file review |
 | `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
 | `weavie.review.toggleContext` | `alt+]` | show the current unified-review file's unchanged lines, or collapse them back |
-| `weavie.review.openLine` | `$mod+alt+o` | open the unified-review cursor line in file review |
 
 Every step of the walk — Next/Previous Change and Next/Previous File — is routed by the mode the session is
 reviewing on, so it acts on the surface the user is looking at. In file review it drives the inline toolbar; in

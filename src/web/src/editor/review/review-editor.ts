@@ -283,7 +283,7 @@ export function createReviewEditor(options: {
     editor.onMouseMove((event) => {
       hover(gaps.get(clickTarget(event)));
       if (options.diff.currentExists && isLineNumber(event.target))
-        event.target.element!.title = `Open file at this line${keyHint(CommandIds.reviewOpenLine)}`;
+        event.target.element!.title = "Open file at this line";
     }),
     // A plain click on a band or line number acts; a drag or modified click keeps Monaco's selection.
     editor.onMouseDown((event) => {

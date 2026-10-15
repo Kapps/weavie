@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Maximize2,
 } from "lucide-solid";
 import {
   type Accessor,
@@ -176,6 +177,21 @@ export function ReviewFileSection(props: {
             <ChevronsDownUp />
           </Show>
         </button>
+        <Show when={summary().currentExists}>
+          <button
+            type="button"
+            class="unified-review-file-open"
+            title="Open in file review"
+            onClick={() =>
+              void runCommandWithFeedback(CommandIds.reviewOpen, {
+                path: summary().path,
+                line: summary().line,
+              })
+            }
+          >
+            <Maximize2 />
+          </button>
+        </Show>
         <DiffStats added={summary().added} removed={summary().removed} />
         <span class="unified-review-file-step">
           <button

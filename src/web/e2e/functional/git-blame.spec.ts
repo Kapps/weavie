@@ -120,6 +120,26 @@ test("blame toggles off and on while Show Blame remains available", async ({ pag
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
 });
 
+// Git's cost scales with file size times history, so a long file isn't blamed at all — and asking says why.
+test.describe("a file over the blame line limit", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "mcp", tool: "setSetting", args: { key: "editor.gitBlameMaxLines", value: 1 } },
+      ],
+    },
+  });
+
+  test("carries no annotations, and Show Blame says why", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await runCommand(page, "Show Blame for This Line");
+
+    await expect(page.getByText(/Blame is off for files over 1 lines/)).toBeVisible();
+    await expect(page.locator(".weavie-blame")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Git blame" })).toHaveCount(0);
+  });
+});
+
 // `all` is not the default, so these drive the setting the way a user would — over the capability registry.
 test.describe("annotating every run", () => {
   test.use({
@@ -193,22 +213,6 @@ test.describe("annotating every run", () => {
     expect(lines.filter((line) => line.text === "").every((line) => line.labels === 0)).toBe(true);
     expect(lines.find((line) => line.text.includes("added"))?.labels).toBe(1);
   });
-});
-
-test("a huge file is blamed where the user is looking, end to end", async ({ page, weavie }) => {
-  // A generated file far too long to blame whole: only the lines on screen are fetched, so jumping to its end
-  // still answers for the line there.
-  const name = "generated.ts";
-  const lines = Array.from({ length: 20_000 }, (_, index) => `export const v${index} = ${index};`);
-  await commitFile(weavie.workspace, name, lines.join("\n"), "generate");
-  lines[lines.length - 1] = "export const tail = true;";
-  await commitFile(weavie.workspace, name, lines.join("\n"), "touch the tail");
-
-  await openFile(page, name);
-  await expect(page.locator(".weavie-blame")).toContainText("generate", { timeout: 15_000 });
-
-  await pressDocumentEnd(page);
-  await expect(page.locator(".weavie-blame")).toContainText("touch the tail", { timeout: 15_000 });
 });
 
 test("the cursor on a blank line is left unannotated", async ({ page }) => {

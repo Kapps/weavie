@@ -6,11 +6,7 @@ import {
   blameAt,
   blameLabel,
   labelsRun,
-  mergeBlame,
-  missingRange,
-  refetchBlame,
   relativeTime,
-  unloadedBlame,
 } from "./blame-model";
 
 function commit(sha: string, over: Partial<BlameCommit> = {}): BlameCommit {
@@ -32,7 +28,6 @@ function snapshot(): BlameSnapshot {
     commits: [commit("aaa"), commit("bbb"), commit("ccc")],
     lineCommits: [0, 1, 2],
     lineOriginals: [1, 2, 3],
-    unfetched: [1, 2, 3],
   };
 }
 
@@ -120,7 +115,6 @@ describe("labelsRun", () => {
     commits: [commit("aaa"), commit("bbb")],
     lineCommits: [0, 0, 0, 1, 1],
     lineOriginals: [1, 2, 3, 4, 5],
-    unfetched: [1, 2, 3, 4, 5],
   };
   const filled = (): boolean => true;
   // Lines given as text, so a case reads as the file it describes.
@@ -144,7 +138,6 @@ describe("labelsRun", () => {
       commits: [commit("aaa")],
       lineCommits: [0, -1, 0],
       lineOriginals: [1, 0, 2],
-      unfetched: [1, 0, 2],
     };
 
     // The line below the insert opens a new run: its neighbour above belongs to no commit.
@@ -156,7 +149,6 @@ describe("labelsRun", () => {
     commits: [commit("aaa"), commit("bbb")],
     lineCommits: [0, 1, 1, 1],
     lineOriginals: [1, 2, 3, 4],
-    unfetched: [1, 2, 3, 4],
   };
 
   it("hands the label down to the run's first line with code on it", () => {
@@ -182,109 +174,9 @@ describe("labelsRun", () => {
     ]);
   });
 
-  it("leaves a run unlabelled while the lines above it aren't fetched", () => {
-    const partial = mergeBlame(
-      unloadedBlame(4, false),
-      { start: 3, end: 4 },
-      { commits: [commit("aaa")], lineCommits: [0, 0], lineOriginals: [3, 4] },
-    );
-
-    // Line 3 may continue a run that starts above it; labelling it would move the label once line 2 loads.
-    expect(labelsRun(partial, 3, filled)).toBe(false);
-  });
-
   it("is false for a line with no attribution or past the end", () => {
     expect(labelsRun(runs, 6, filled)).toBe(false);
     expect(labelsRun(runs, 0, filled)).toBe(false);
-  });
-});
-
-describe("fetching by range", () => {
-  it("asks for nothing past the file's final newline", () => {
-    const fresh = unloadedBlame(4, true);
-
-    expect(missingRange(fresh, 1, 4)).toEqual({ start: 1, end: 3 });
-    expect(missingRange(fresh, 4, 4)).toBeNull();
-  });
-
-  it("fills only the fetched lines, sharing commits the snapshot already has", () => {
-    const first = mergeBlame(
-      unloadedBlame(5, false),
-      { start: 1, end: 2 },
-      { commits: [commit("aaa")], lineCommits: [0, 0], lineOriginals: [1, 2] },
-    );
-    const second = mergeBlame(
-      first,
-      { start: 4, end: 5 },
-      { commits: [commit("bbb"), commit("aaa")], lineCommits: [1, 0], lineOriginals: [4, 7] },
-    );
-
-    expect(shas(second)).toEqual(["aaa", "aaa", null, "aaa", "bbb"]);
-    expect(second.commits.map((c) => c.sha)).toEqual(["aaa", "bbb"]);
-    expect(blameAt(second, 5)?.originalLine).toBe(7);
-    expect(missingRange(second, 1, 5)).toEqual({ start: 3, end: 3 });
-  });
-
-  it("lands a fetch on the lines it addressed even after edits moved them", () => {
-    const requested = missingRange(unloadedBlame(3, false), 1, 3)!;
-    // Two lines typed above the file's first line while the fetch was in flight.
-    const edited = applyEdit(unloadedBlame(3, false), {
-      startLine: 1,
-      removedLines: 0,
-      addedLines: 2,
-      fromLineStart: true,
-    });
-
-    const merged = mergeBlame(edited, requested, {
-      commits: [commit("aaa")],
-      lineCommits: [0, 0, 0],
-      lineOriginals: [1, 2, 3],
-    });
-
-    expect(shas(merged)).toEqual([null, null, "aaa", "aaa", "aaa"]);
-    expect(missingRange(merged, 1, 5)).toBeNull();
-  });
-
-  it("stops a fetch where a deleted block left a gap in the disk lines", () => {
-    // Lines 2-4 deleted unsaved: the buffer runs disk lines 1, 5, 6 — one fetch must not span what was deleted.
-    const edited = applyEdit(unloadedBlame(6, false), {
-      startLine: 2,
-      removedLines: 3,
-      addedLines: 0,
-      fromLineStart: true,
-    });
-
-    expect(missingRange(edited, 1, 3)).toEqual({ start: 1, end: 1 });
-  });
-
-  it("keeps showing a line's last attribution while the file is fetched again", () => {
-    const loaded = mergeBlame(
-      unloadedBlame(2, false),
-      { start: 1, end: 2 },
-      { commits: [commit("aaa")], lineCommits: [0, 0], lineOriginals: [1, 2] },
-    );
-
-    const stale = refetchBlame(loaded, false);
-
-    expect(shas(stale)).toEqual(["aaa", "aaa"]);
-    expect(missingRange(stale, 1, 2)).toEqual({ start: 1, end: 2 });
-    const fresh = mergeBlame(
-      stale,
-      { start: 1, end: 2 },
-      { commits: [commit("bbb")], lineCommits: [0, 0], lineOriginals: [1, 2] },
-    );
-    expect(shas(fresh)).toEqual(["bbb", "bbb"]);
-  });
-
-  it("treats lines the response stops short of as past the file's end", () => {
-    const merged = mergeBlame(
-      unloadedBlame(3, false),
-      { start: 1, end: 3 },
-      { commits: [commit("aaa")], lineCommits: [0], lineOriginals: [1] },
-    );
-
-    expect(shas(merged)).toEqual(["aaa", null, null]);
-    expect(missingRange(merged, 1, 3)).toBeNull();
   });
 });
 

@@ -22,7 +22,7 @@ public sealed class HostCoreGitBlameTests {
 		string path = Path.Combine(host.RepoRoot, "notes.md");
 
 		var blame = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "blame", new { path, startLine = 1, endLine = 100 });
+			host.WorkspaceSession, "git", "blame", new { path });
 
 		Assert.Equal(JsonValueKind.Null, blame.GetProperty("error").ValueKind);
 		var commits = blame.GetProperty("commits").EnumerateArray().ToList();
@@ -92,7 +92,7 @@ public sealed class HostCoreGitBlameTests {
 		string path = Path.Combine(host.RepoRoot, "notes.md");
 
 		var blame = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "blame", new { path, startLine = 1, endLine = 100 });
+			host.WorkspaceSession, "git", "blame", new { path });
 		var commits = blame.GetProperty("commits").EnumerateArray().ToList();
 		int index = blame.GetProperty("lineCommits").EnumerateArray().ElementAt(3).GetInt32();
 		string sha = commits[index].GetProperty("sha").GetString() ?? string.Empty;
@@ -144,29 +144,12 @@ public sealed class HostCoreGitBlameTests {
 	}
 
 	[Fact]
-	public async Task BlameAnswersOnlyTheRequestedLines() {
-		await using var host = await TestHost.StartAsync(repo => {
-			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nbravo\ncharlie\n");
-			Commit(repo, "seed notes");
-		});
-		string path = Path.Combine(host.RepoRoot, "notes.md");
-
-		var blame = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "blame", new { path, startLine = 2, endLine = 2 });
-		var backwards = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "blame", new { path, startLine = 3, endLine = 2 });
-
-		Assert.Equal([2], blame.GetProperty("lineOriginals").EnumerateArray().Select(l => l.GetInt32()));
-		Assert.Contains("aren't a range", backwards.GetProperty("error").GetString());
-	}
-
-	[Fact]
 	public async Task APathOutsideTheWorktreeIsRefusedRatherThanReachingGit() {
 		await using var host = await TestHost.StartAsync(_ => { });
 		string outside = Path.Combine(Path.GetTempPath(), "elsewhere", "secret.md");
 
 		var blame = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "blame", new { path = outside, startLine = 1, endLine = 100 });
+			host.WorkspaceSession, "git", "blame", new { path = outside });
 
 		Assert.Contains("isn't inside", blame.GetProperty("error").GetString());
 		Assert.Empty(blame.GetProperty("commits").EnumerateArray());

@@ -166,6 +166,7 @@ function deliverCatalog(backendId: string, slots: string[], parked: readonly str
         agentInputProtocol: 0,
         lastActiveAt: null,
         workspaceCheckout: false,
+        external: false,
       }) as SessionCatalogEntry,
   );
   for (const handler of connection(backendId).catalogs) {
@@ -237,6 +238,7 @@ const chip = (id: string, active: boolean): RailSession => ({
   activity: null,
   lastActiveAt: null,
   workspaceCheckout: false,
+  external: false,
   backendId: "local",
   locationName: "default",
   isLocal: true,

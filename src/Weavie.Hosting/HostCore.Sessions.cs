@@ -443,7 +443,8 @@ public sealed partial class HostCore {
 					structured ? 2 : 0,
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
-					IsWorkspaceCheckout(slot));
+					IsWorkspaceCheckout(slot),
+					!IsWorkspaceCheckout(slot) && _worktrees?.Owns(slot.WorktreePath) == false);
 			})
 			.ToArray()
 		?? [];
@@ -459,7 +460,8 @@ public sealed partial class HostCore {
 		int AgentInputProtocol,
 		string Status,
 		long? LastActiveAt,
-		bool WorkspaceCheckout);
+		bool WorkspaceCheckout,
+		bool External);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
 		try {

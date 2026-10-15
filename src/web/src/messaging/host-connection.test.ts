@@ -21,6 +21,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   title: id,
   lastActiveAt: null,
   workspaceCheckout: false,
+  external: false,
 });
 
 const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHello => ({

@@ -16,6 +16,7 @@ export interface SessionCatalogEntry {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   lastActiveAt: number | null;
   workspaceCheckout: boolean;
+  external: boolean;
 }
 
 export interface HostHello {

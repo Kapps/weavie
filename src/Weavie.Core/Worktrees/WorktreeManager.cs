@@ -111,7 +111,7 @@ public sealed class WorktreeManager {
 			seen.Add(normalized);
 			var record = Registry.FindByPath(normalized);
 			bool isPrimary = PathIdentity.Comparer.Equals(normalized, normalizedRoot);
-			bool isManaged = record is not null || (!isPrimary && IsWithinWorktreesDir(normalized));
+			bool isManaged = !isPrimary && Owns(normalized);
 			bool exists = !worktree.IsPrunable;
 
 			result.Add(new WorktreeStatus {
@@ -189,7 +189,7 @@ public sealed class WorktreeManager {
 
 			// Teardown while the tree still exists; best-effort (a non-zero exit is surfaced, not aborting), past the
 			// dirty guard. Only where setup ran: a discovered checkout Weavie never provisioned gets no teardown.
-			if (record is not null || IsWithinWorktreesDir(normalized)) {
+			if (Owns(normalized)) {
 				await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
 			}
 
@@ -337,6 +337,12 @@ public sealed class WorktreeManager {
 	// LinkTarget catches symlinks/junctions on every OS; the ReparsePoint attribute is the Windows belt-and-suspenders.
 	private static bool IsLink(FileSystemInfo entry) =>
 		entry.LinkTarget is not null || entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
+
+	/// <summary>True when Weavie created the checkout at <paramref name="path"/>: it has a record or sits in the managed dir.</summary>
+	public bool Owns(string path) {
+		string normalized = PathIdentity.Normalize(path);
+		return Registry.FindByPath(normalized) is not null || IsWithinWorktreesDir(normalized);
+	}
 
 	// True when the path sits strictly inside the managed worktrees dir. The containment guard for manual deletion:
 	// Weavie only places worktrees here, so a path inside it that git can't remove is safe to delete directly.

@@ -694,6 +694,19 @@ public sealed class HostCoreSessionDeleteTests {
 		return checkout;
 	}
 
+	// The catalog flags only the checkout Weavie didn't create, so the rail can tell it apart from its own worktrees.
+	[Fact]
+	public async Task CatalogMarksOnlyDiscoveredCheckoutsExternal() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		await DiscoverCheckoutAsync(host, static _ => { });
+
+		var external = host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray()
+			.Where(entry => entry.GetProperty("external").GetBoolean())
+			.Select(entry => entry.GetProperty("id").GetString());
+		Assert.Equal(["manual"], external);
+	}
+
 	// A checkout Weavie did not create — another workspace's worktree, an agent's, a hand-made one — is
 	// discovered onto the rail, so deleting it has to remove it; otherwise git keeps reporting it and the next
 	// open rediscovers the session forever.

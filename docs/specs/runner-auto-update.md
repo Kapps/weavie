@@ -58,8 +58,8 @@ GitHub Releases, and channel promotion. The runner supports `--auto-update [stab
 - Omitted flag: updates off. Bare flag: stable.
 - Stable resolves the `stable` annotated-version pointer and downloads that immutable `vX.Y.Z`
   release's runner bundle. Only manual releases advance stable after all platform checks pass.
-- Latest downloads the rolling `main-latest` prerelease, which contains Linux desktop and runner
-  archives after green main CI. It also supports manually selected main-history sources.
+- Latest downloads the rolling `main-latest` prerelease, which contains every desktop archive and the
+  runner bundle after green main CI. It advances only when every platform packages. It also supports manually selected main-history sources.
 - Both channels use `release.yml`'s run number as one shared build sequence. Selecting a channel
   with an older build does not downgrade; status explains that it is waiting for a newer release.
 - `.github/workflows/release.yml` publishes `Weavie.Runner` with `Weavie.Headless` staged into

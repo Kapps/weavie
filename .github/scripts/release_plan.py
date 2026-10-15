@@ -27,15 +27,6 @@ def next_version(current, bump):
     return ".".join(map(str, parts))
 
 
-def tag_commit(api, name):
-    target = api.get(f"git/ref/tags/{name}")["object"]
-    while target["type"] == "tag":
-        target = api.get(f"git/tags/{target['sha']}")["object"]
-    if target["type"] != "commit" or SHA.fullmatch(target["sha"]) is None:
-        raise ValueError(f"{name} does not identify a commit")
-    return target["sha"]
-
-
 def build_plan(api, number):
     name = f"build-{number}"
     reference = api.get(f"git/ref/tags/{name}")["object"]
@@ -51,7 +42,7 @@ def build_plan(api, number):
 
 def source_commit(api, source):
     if not source:
-        return tag_commit(api, "main-latest")
+        return api.get("git/ref/heads/main")["object"]["sha"]
     if re.fullmatch(r"[1-9][0-9]*", source):
         return build_plan(api, source)["commit"]
     if SHA.fullmatch(source):
@@ -99,15 +90,17 @@ def main():
                      os.environ["RELEASE_BUMP"], os.environ["RELEASE_SOURCE"],
                      int(os.environ["GITHUB_RUN_NUMBER"]), baseline)
     Path("release-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
-    platforms = json.loads(Path(".github/platforms.json").read_text())
-    matrix = {"platform": [p for p in platforms if plan["channel"] == "stable" or p["name"] == "linux"]}
+    matrix = {"platform": json.loads(Path(".github/platforms.json").read_text())}
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"matrix={json.dumps(matrix)}\n")
         for key in ("commit", "build", "version", "channel"):
             output.write(f"{key}={plan[key]}\n")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+        subject = api.get(f"commits/{plan['commit']}")["commit"]["message"].splitlines()[0]
+        url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/commit/{plan['commit']}"
         summary.write(f"## {plan['channel']} {plan['version']}.{plan['build']}\n\n"
-                      f"Source commit: `{plan['commit']}`\n\n"
+                      f"Builds [`{plan['commit'][:8]}`]({url}): {subject}\n\n"
+                      "This run's own commit only supplies the release scripts.\n\n"
                       "Publication requires complete packages. Release check failures remain visible "
                       "but do not block publication.\n")
 

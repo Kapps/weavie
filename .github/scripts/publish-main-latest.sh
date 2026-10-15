@@ -2,8 +2,8 @@
 set -euo pipefail
 
 publish_main_latest() {
-  if [ "$#" -ne 7 ]; then
-    echo "usage: publish-main-latest.sh BUILT STAGING API_URL REPOSITORY RUN_NUMBER ASSET_DIR AUTOMATIC" >&2
+  if [ "$#" -lt 7 ]; then
+    echo "usage: publish-main-latest.sh BUILT STAGING API_URL REPOSITORY RUN_NUMBER AUTOMATIC ASSET..." >&2
     return 2
   fi
 
@@ -12,8 +12,9 @@ publish_main_latest() {
   local api_url=$3
   local repository=$4
   local run_number=$5
-  local asset_dir=$6
-  local automatic=$7
+  local automatic=$6
+  shift 6
+  local assets=("$@")
   [[ "$automatic" == true || "$automatic" == false ]] || return 2
   local response
   local api="$api_url/repos/$repository"
@@ -115,10 +116,8 @@ publish_main_latest() {
   gh release create "$staging" --draft --prerelease \
     --target "$built" \
     --title "main latest (build $run_number)" \
-    --notes "Rolling prerelease of green main ($built), build $run_number. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update latest (extract into ~/.weavie/runner and launch current/Weavie.Runner); weavie-linux-x64.tar.gz is the Linux desktop app. Stable releases include Windows and macOS. See docs/specs/runner-auto-update.md." \
-    "$asset_dir/weavie-runner-linux-x64.tar.gz" \
-    "$asset_dir/weavie-linux-x64.tar.gz" \
-    "$asset_dir/release-plan.json"
+    --notes "Rolling prerelease of green main: build $run_number from commit $built. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update latest (see docs/specs/runner-auto-update.md); the other archives are the desktop apps." \
+    "${assets[@]}"
 
   local main
   local main_relation

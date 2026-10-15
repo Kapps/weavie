@@ -222,8 +222,8 @@ run_case() {
       https://api.github.test \
       acme/weavie \
       77 \
-      release-assets \
-      "$automatic"
+      "$automatic" \
+      release-assets/weavie-linux-x64.tar.gz
   ) >"$output" 2>&1
   local actual_status=$?
   set -e

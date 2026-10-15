@@ -18,7 +18,7 @@ The repository owner opens **Actions → release → Run workflow** on `main`:
 | --- | --- |
 | `channel` | `stable` (default) or `latest` |
 | `bump` | `patch` (default), `minor`, or `major`; applies only to stable |
-| `source` | Published build number or full 40-character commit SHA; blank pins `main-latest` |
+| `source` | Published build number or full 40-character commit SHA; blank pins `main`'s current tip, even if its CI has not finished |
 
 For stable `0.2.1`, patch selects `0.2.2`, minor selects `0.3.0`, and major selects `1.0.0`.
 Before the first stable release, the same arithmetic applies to the baseline: minor selects `0.2.0`.
@@ -26,7 +26,7 @@ Starting the workflow authorizes publication once packages succeed, even if rele
 there is no additional approval click.
 
 ```bash
-# Release the current main-latest source as the next minor version.
+# Release main's current tip as the next minor version.
 gh workflow run release.yml --ref main -f channel=stable -f bump=minor
 
 # Release a specific recorded build's source as the next patch version.
@@ -44,7 +44,8 @@ or identical build numbers, so retrying a superseded run cannot rewind the feed.
 
 Every publication records an immutable annotated `build-<number>` tag containing its
 source commit, public version, build number, and channel. Numbered selection uses that provenance,
-not the workflow run's `head_sha` (which can identify the workflow code rather than the build source).
+not the workflow run's `head_sha`, which identifies only the trusted release scripts. The run summary,
+release notes, and `release-plan.json` name the source commit that was built.
 Build-number selection is available for builds recorded by this release system. Commit selection
 requires source that supports the current release contract.
 
@@ -56,7 +57,8 @@ formatting for macOS source. Full macOS semantic formatting runs on stable relea
 The project list comes from `weavie.slnx`; the platform catalog lives in `.github/platforms.json`.
 
 Automatic latest builds start only after successful push CI for this repository's `main`. They
-publish the Linux desktop archive and runner bundle to the rolling `main-latest` GitHub prerelease.
+publish every desktop archive (Linux, macOS, Windows) and the runner bundle to the rolling
+`main-latest` GitHub prerelease. PR CI never packages releases.
 A manual latest build runs Linux CI against its pinned source before publishing. Manual release
 checks are advisory: failures remain visible in the workflow but do not block publication.
 

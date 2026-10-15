@@ -13,7 +13,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	private static readonly ReviewContext Review = new(101, "#101", "topic", "base", "head",
 		new("github.com", "test", "repo"), Root);
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
-		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, persistence);
+		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	[Fact]
 	public void FirstPrOpenAndReopen_PreserveKeptRejectedAndPendingChanges() {

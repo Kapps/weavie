@@ -8,6 +8,7 @@ using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Git;
 using Weavie.Core.Hooks;
 using Weavie.Core.Inference;
 using Weavie.Core.Layout;
@@ -128,6 +129,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		try {
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
+				paths => new GitService().FindIgnoredAsync(workspaceRoot, paths).GetAwaiter().GetResult(),
 				reviewPersistence);
 			ReviewHints = new ReviewHintStore(
 				fileSystem,

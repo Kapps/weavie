@@ -13,9 +13,9 @@ class FakeGitHub:
     def __init__(self):
         self.responses = {
             "git/ref/heads/main": {"object": {"sha": MAIN}},
-            "git/ref/tags/main-latest": {"object": {"sha": COMMIT, "type": "commit"}},
             f"commits/{COMMIT}": {"sha": COMMIT},
             f"compare/{COMMIT}...{MAIN}": {"status": "ahead"},
+            f"compare/{MAIN}...{MAIN}": {"status": "identical"},
         }
         self.releases = []
 
@@ -43,7 +43,7 @@ class ReleasePlanTests(unittest.TestCase):
         ]
         plan = make_plan(api, {}, "workflow_dispatch", "stable", "patch", "", 1507, "0.1.0")
         self.assertEqual("0.10.1", plan["version"])
-        self.assertEqual(COMMIT, plan["commit"])
+        self.assertEqual(MAIN, plan["commit"])
         self.assertEqual(1507, plan["build"])
 
     def test_first_release_uses_the_declared_baseline(self):

@@ -1,5 +1,5 @@
 name: release
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release {0} ({1}) from {2}', inputs.channel, inputs.bump, inputs.source || 'main-latest') || 'Build latest from green main' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release {0} ({1}) from {2}', inputs.channel, inputs.bump, inputs.source || 'main') || 'Build latest from green main' }}
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
         default: patch
         options: [patch, minor, major]
       source:
-        description: Published build number or full commit SHA (blank uses main-latest)
+        description: Published build number or full commit SHA (blank uses main's tip)
         required: false
         type: string
   workflow_run:

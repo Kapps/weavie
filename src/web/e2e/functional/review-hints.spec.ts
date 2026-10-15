@@ -377,6 +377,9 @@ test.describe("PR review", () => {
       // FLAKE 2026-10-13 16:00Z https://github.com/Kapps/weavie/actions/runs/38424452181 (Windows shard 4/6): the fake
       // logged the paste as one line with neither ESC[200~ nor its newlines, i.e. ConPTY parsed the bytes as
       // keystrokes. Not fixed yet: the fake's console input mode when the paste lands is still unexplained.
+      // FLAKE 2026-10-15 15:05Z https://github.com/Kapps/weavie/actions/runs/38754356075/job/116492219739 (Windows shard 4/6):
+      // the same single-line, marker-less paste (`input Fix this review finding at ...:```...```bob: ...`). Not fixed
+      // yet: no Windows machine to reproduce on, and the host log shows nothing about the fake's console mode.
       await expect.poll(() => weavie.fakeLog()).toMatch(fixPrompt("hello.ts:2"));
       await expect.poll(() => weavie.fakeLog()).toMatch(/^input bob: Why change this greeting\?/m);
     });
@@ -426,7 +429,14 @@ test.describe("across files", () => {
     // FLAKE 2026-10-14 06:19Z https://github.com/Kapps/weavie/actions/runs/38519737341 (Windows shard 4/6): Next stayed
     // on notes.txt because todo.txt's hint was still being reported by the fake, so only one hint existed to walk.
     // Fixed by waiting for both reports to be acknowledged before walking.
-    await expect.poll(() => weavie.fakeLog().match(/^addReviewHint -> /gm)?.length ?? 0).toBe(2);
+    // FLAKE 2026-10-15 15:05Z https://github.com/Kapps/weavie/actions/runs/38754356075/job/116492219739 (Windows shard 4/6):
+    // the host had acknowledged both reports, yet Next still stayed on notes.txt: the walk reads the client's hint list,
+    // which trails the host's acknowledgement. Fixed by waiting on the client instead: each file's hint mark is drawn
+    // from that list, so seeing both marks proves the walk has both hints to step through.
+    await openFile(page, "todo.txt");
+    await expect(mark).toHaveCount(1);
+    await openFile(page, "notes.txt");
+    await expect(mark).toHaveCount(1);
 
     await test.step("Next and Previous walk the hints across files", async () => {
       await runCommand(page, "Next Review Hint");

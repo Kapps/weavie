@@ -129,7 +129,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		try {
 			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
 				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
-				paths => new GitService().FindIgnoredAsync(workspaceRoot, paths).GetAwaiter().GetResult(),
+				new IgnoredPathCache(
+					paths => new GitService().FindIgnoredAsync(workspaceRoot, paths).GetAwaiter().GetResult(),
+					TimeProvider.System).IgnoredAmong,
 				reviewPersistence);
 			ReviewHints = new ReviewHintStore(
 				fileSystem,

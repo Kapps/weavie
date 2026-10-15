@@ -75,19 +75,19 @@ public sealed partial class HostMessageBusTests {
 
 	[Fact]
 	public void EnvelopesCarryTextLiterallyRatherThanEscapedForHtml() {
-		const string Text = "if (a < b && c > d) { say('café'); }";
+		const string text = "if (a < b && c > d) { say('café'); }";
 
 		string json = MessageEnvelope.Event(
 			MessageScope.Host,
 			null,
 			"native",
 			"text",
-			JsonSerializer.SerializeToElement(Text)).ToJson();
+			JsonSerializer.SerializeToElement(text)).ToJson();
 
 		// A file's text is the bulk of the largest frames; \u003C-style escapes multiplied its size on the wire.
-		Assert.Contains(Text, json, StringComparison.Ordinal);
+		Assert.Contains(text, json, StringComparison.Ordinal);
 		Assert.True(MessageEnvelope.TryParse(json, out var parsed));
-		Assert.Equal(Text, parsed!.Payload.GetString());
+		Assert.Equal(text, parsed!.Payload.GetString());
 	}
 
 	private static string HostEvent(string name, Increment payload) =>

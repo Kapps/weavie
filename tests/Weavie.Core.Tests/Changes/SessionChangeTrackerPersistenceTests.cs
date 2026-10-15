@@ -159,6 +159,46 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
+	public void LargeAgentWrittenFile_StoresItsTextOnceAndEachPromptOnce() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		string original = string.Join("\n", Enumerable.Range(0, 100_000).Select(i => $"generated {i}"));
+		string generated = original.Replace("generated", "regenerated", StringComparison.Ordinal);
+		files.WriteAllText(File, original);
+		var tracker = Tracker(files, persistence);
+		string prompt = new('p', 1_000);
+		tracker.Observe(new AgentPromptSubmitted(null, prompt));
+		Edit(tracker, files, generated);
+
+		string record = persistence.Read().Single(pair => pair.Key.StartsWith("file:", StringComparison.Ordinal)).Value;
+		Assert.Equal(2, JsonNode.Parse(record)!["Texts"]!.AsArray().Count);
+		Assert.Single(System.Text.RegularExpressions.Regex.Matches(record, prompt));
+		var change = Assert.Single(Tracker(files, persistence).TurnChanges());
+		Assert.Equal(original, change.BaselineText);
+		Assert.Equal(generated, change.CurrentText);
+	}
+
+	[Fact]
+	public void HugeFileWithScatteredEdits_RestoresAndClosesReview() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		string[] lines = [.. Enumerable.Range(0, 300_000).Select(i => $"field{i}: String")];
+		files.WriteAllText(File, string.Join("\n", lines));
+		var tracker = Tracker(files, persistence);
+		lines[3] = "agent top";
+		lines[^3] = "agent bottom";
+		Edit(tracker, files, string.Join("\n", lines));
+		lines[150_000] = "user middle";
+		files.WriteAllText(File, string.Join("\n", lines));
+
+		var resumed = Tracker(files, persistence);
+		resumed.RecordHandEdit(File, files.ReadAllText(File));
+		resumed.CloseReview();
+
+		Assert.Empty(Tracker(files, persistence).TurnChanges());
+	}
+
+	[Fact]
 	public void InvalidCheckpoint_FailsWithoutChangingItsDocumentOrFiles() {
 		var files = new InMemoryFileSystem();
 		files.WriteAllText(File, "user text\n");

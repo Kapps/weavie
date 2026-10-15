@@ -14,6 +14,8 @@
 # inline-suggest font that adds no stylesheet per editor (WebKit restyles the document for each one).
 # Its Scrollable moves a running glide with content resized above the viewport, and a wheel notch landing
 # mid-glide continues at the current speed instead of restarting the ease-out at full speed.
+# Models past the large-file threshold stay unwrapped but honour hidden areas (collapsed review context), and
+# warn that tokenization is off once per model rather than once per editor.
 # The TextMate worker stops tokenizing a model disposed while its first tokenize pass awaits a lazy import.
 # vscode-languageclient converts nested LSP commands through Weavie's exact-client aliases;
 # see docs/specs/lsp-over-bridge.md.

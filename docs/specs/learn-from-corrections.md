@@ -56,7 +56,7 @@ All in `Weavie.Core.Corrections` unless noted:
   distinct correction.
 - **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
   `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from completed hand-edit captures and reverts.
-- **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
+- **`LineHunker`** (`Weavie.Core.Changes`) — the line alignment (patience-anchored Myers diff, near-linear on large files): `Hunks(before, after)` returns each
   changed region's range on both sides. Its exact linear-memory alignment backs both provenance tracking and
   `CorrectionDiff` (one alignment, no coarse large-file fallback).
 

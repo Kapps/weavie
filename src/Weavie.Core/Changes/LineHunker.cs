@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Weavie.Core.Changes;
 
 /// <summary>A changed region between two texts: its line range on each side (1-based, end-exclusive).</summary>
@@ -7,7 +9,7 @@ public readonly record struct LineHunk(LineRange BeforeRange, LineRange AfterRan
 
 /// <summary>
 /// The line-level alignment of two texts. <see cref="Hunks"/> groups their differences into hunks that carry
-/// each side's range; <see cref="Align"/> is the shared LCS the correction diff also builds on. Callers split
+/// each side's range; <see cref="Align"/> is the shared alignment the correction diff also builds on. Callers split
 /// into lines themselves so the ranges line up with whatever slicing they do next.
 /// </summary>
 public static class LineHunker {
@@ -63,7 +65,7 @@ public static class LineHunker {
 		return hunks;
 	}
 
-	// The ordered Equal/Delete/Insert alignment: trim the common prefix/suffix, then LCS-backtrack the middle,
+	// The ordered Equal/Delete/Insert alignment: trim the common prefix/suffix, then align the middle by patience-anchored Myers,
 	// preferring deletes before inserts at ties so each change block reads -old then +new. Shared with CorrectionDiff.
 	internal static List<LineOp> Align(IReadOnlyList<string> a, IReadOnlyList<string> b) {
 		int prefix = 0;
@@ -99,11 +101,9 @@ public static class LineHunker {
 		int aCount,
 		int bStart,
 		int bCount) {
-		var matches = new List<(int A, int B)>();
-		FindMatches(matches, a, b, aStart, aCount, bStart, bCount);
 		int ai = aStart;
 		int bi = bStart;
-		foreach (var (matchA, matchB) in matches) {
+		foreach (var (matchA, matchB) in Matches(a, b, aStart, aCount, bStart, bCount)) {
 			while (ai < matchA) {
 				ops.Add(new LineOp(LineOpKind.Delete, a[ai++]));
 			}
@@ -122,63 +122,183 @@ public static class LineHunker {
 		}
 	}
 
-	// Hirschberg's exact LCS uses linear memory, so large files never broaden provenance through a coarse fallback.
-	private static void FindMatches(
-		List<(int A, int B)> matches,
+	// Patience-anchored Myers diff: unique lines anchor the alignment and Myers' O((N+M)·D) fills the gaps, so huge
+	// files stay cheap under scattered edits, reorders, and rewrites. Lines absent from the other side never match.
+	private static List<(int A, int B)> Matches(
 		IReadOnlyList<string> a,
 		IReadOnlyList<string> b,
 		int aStart,
 		int aCount,
 		int bStart,
 		int bCount) {
-		if (aCount == 0 || bCount == 0) {
-			return;
-		}
-		if (aCount == 1) {
-			for (int j = 0; j < bCount; j++) {
-				if (string.Equals(a[aStart], b[bStart + j], StringComparison.Ordinal)) {
-					matches.Add((aStart, bStart + j));
-					return;
-				}
-			}
-			return;
-		}
-
-		int leftCount = aCount / 2;
-		int[] left = LcsLengths(a, b, aStart, leftCount, bStart, bCount, reverse: false);
-		int[] right = LcsLengths(a, b, aStart + leftCount, aCount - leftCount, bStart, bCount, reverse: true);
-		int split = 0;
-		for (int j = 1; j <= bCount; j++) {
-			if (left[j] + right[bCount - j] > left[split] + right[bCount - split]) {
-				split = j;
-			}
-		}
-
-		FindMatches(matches, a, b, aStart, leftCount, bStart, split);
-		FindMatches(matches, a, b, aStart + leftCount, aCount - leftCount, bStart + split, bCount - split);
+		var ids = new Dictionary<string, int>(StringComparer.Ordinal);
+		int[] aIds = Intern(ids, a, aStart, aCount);
+		int[] bIds = Intern(ids, b, bStart, bCount);
+		var inA = aIds.ToHashSet();
+		var inB = bIds.ToHashSet();
+		int[] aKept = [.. Enumerable.Range(0, aCount).Where(i => inB.Contains(aIds[i]))];
+		int[] bKept = [.. Enumerable.Range(0, bCount).Where(j => inA.Contains(bIds[j]))];
+		int[] x = [.. aKept.Select(i => aIds[i])];
+		int[] y = [.. bKept.Select(j => bIds[j])];
+		var matches = new List<(int A, int B)>();
+		Diff(matches, x, y, 0, x.Length, 0, y.Length);
+		return matches.ConvertAll(match => (aStart + aKept[match.A], bStart + bKept[match.B]));
 	}
 
-	private static int[] LcsLengths(
-		IReadOnlyList<string> a,
-		IReadOnlyList<string> b,
-		int aStart,
-		int aCount,
-		int bStart,
-		int bCount,
-		bool reverse) {
-		int[] previous = new int[bCount + 1];
-		int[] current = new int[bCount + 1];
-		for (int i = 0; i < aCount; i++) {
-			string aLine = a[reverse ? aStart + aCount - 1 - i : aStart + i];
-			for (int j = 0; j < bCount; j++) {
-				string bLine = b[reverse ? bStart + bCount - 1 - j : bStart + j];
-				current[j + 1] = string.Equals(aLine, bLine, StringComparison.Ordinal)
-					? previous[j] + 1
-					: Math.Max(previous[j + 1], current[j]);
+	private static int[] Intern(Dictionary<string, int> ids, IReadOnlyList<string> lines, int start, int count) {
+		int[] result = new int[count];
+		for (int i = 0; i < count; i++) {
+			ref int id = ref CollectionsMarshal.GetValueRefOrAddDefault(ids, lines[start + i], out bool exists);
+			if (!exists) {
+				id = ids.Count;
 			}
-			(previous, current) = (current, previous);
-			Array.Clear(current);
+			result[i] = id;
 		}
-		return previous;
+		return result;
+	}
+
+	private static void Diff(List<(int A, int B)> matches, int[] a, int[] b, int aLo, int aHi, int bLo, int bHi) {
+		while (aLo < aHi && bLo < bHi && a[aLo] == b[bLo]) {
+			matches.Add((aLo++, bLo++));
+		}
+		int suffix = 0;
+		while (aLo < aHi - suffix && bLo < bHi - suffix && a[aHi - 1 - suffix] == b[bHi - 1 - suffix]) {
+			suffix++;
+		}
+		aHi -= suffix;
+		bHi -= suffix;
+		if (aHi - aLo == 1 || bHi - bLo == 1) {
+			for (int i = aLo; i < aHi; i++) {
+				for (int j = bLo; j < bHi; j++) {
+					if (a[i] == b[j]) {
+						matches.Add((i, j));
+						i = aHi;
+						break;
+					}
+				}
+			}
+		} else if (aLo < aHi && bLo < bHi) {
+			var anchors = Anchors(a, b, aLo, aHi, bLo, bHi);
+			if (anchors.Count > 0) {
+				foreach (var (x, y) in anchors) {
+					Diff(matches, a, b, aLo, x, bLo, y);
+					matches.Add((x, y));
+					(aLo, bLo) = (x + 1, y + 1);
+				}
+				Diff(matches, a, b, aLo, aHi, bLo, bHi);
+			} else if (TrySplit(a, b, aLo, aHi, bLo, bHi, out int x, out int y)) {
+				Diff(matches, a, b, aLo, x, bLo, y);
+				Diff(matches, a, b, x, aHi, y, bHi);
+			}
+		}
+		for (int i = 0; i < suffix; i++) {
+			matches.Add((aHi + i, bHi + i));
+		}
+	}
+
+	// Patience anchors: the longest in-order run of lines occurring exactly once on each side. Aligning on them first keeps
+	// reordered generated code near-linear, where Myers alone degrades as repeated lines like "}" inflate D.
+	private static List<(int A, int B)> Anchors(int[] a, int[] b, int aLo, int aHi, int bLo, int bHi) {
+		var counts = new Dictionary<int, (int A, int B, int BIndex)>();
+		for (int i = aLo; i < aHi; i++) {
+			CollectionsMarshal.GetValueRefOrAddDefault(counts, a[i], out _).A++;
+		}
+		for (int j = bLo; j < bHi; j++) {
+			ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(counts, b[j], out _);
+			count.B++;
+			count.BIndex = j;
+		}
+		var unique = new List<(int A, int B)>();
+		for (int i = aLo; i < aHi; i++) {
+			if (counts[a[i]] is (1, 1, int j)) {
+				unique.Add((i, j));
+			}
+		}
+		var tails = new List<int>();
+		int[] previous = new int[unique.Count];
+		for (int k = 0; k < unique.Count; k++) {
+			int lo = 0;
+			int hi = tails.Count;
+			while (lo < hi) {
+				int mid = (lo + hi) / 2;
+				if (unique[tails[mid]].B < unique[k].B) lo = mid + 1;
+				else hi = mid;
+			}
+			previous[k] = lo > 0 ? tails[lo - 1] : -1;
+			if (lo == tails.Count) tails.Add(k);
+			else tails[lo] = k;
+		}
+		var anchors = new List<(int A, int B)>(tails.Count);
+		for (int k = tails.Count > 0 ? tails[^1] : -1; k >= 0; k = previous[k]) {
+			anchors.Add(unique[k]);
+		}
+		anchors.Reverse();
+		return anchors;
+	}
+
+	// Finds where the forward and reverse D-paths meet (the "middle snake"); false when the ranges share no line.
+	private static bool TrySplit(int[] a, int[] b, int aLo, int aHi, int bLo, int bHi, out int x, out int y) {
+		int n = aHi - aLo;
+		int m = bHi - bLo;
+		int maxD = (n + m + 1) / 2;
+		int offset = maxD;
+		int[] forward = new int[2 * maxD];
+		int[] reverse = new int[2 * maxD];
+		Array.Fill(forward, -1);
+		Array.Fill(reverse, -1);
+		forward[offset + 1] = 0;
+		reverse[offset + 1] = 0;
+		int delta = n - m;
+		bool front = delta % 2 != 0;
+		int k1Start = 0, k1End = 0, k2Start = 0, k2End = 0;
+		for (int d = 0; d < maxD; d++) {
+			for (int k1 = -d + k1Start; k1 <= d - k1End; k1 += 2) {
+				int k1Offset = offset + k1;
+				int x1 = k1 == -d || (k1 != d && forward[k1Offset - 1] < forward[k1Offset + 1])
+					? forward[k1Offset + 1] : forward[k1Offset - 1] + 1;
+				int y1 = x1 - k1;
+				while (x1 < n && y1 < m && a[aLo + x1] == b[bLo + y1]) {
+					x1++;
+					y1++;
+				}
+				forward[k1Offset] = x1;
+				if (x1 > n) {
+					k1End += 2;
+				} else if (y1 > m) {
+					k1Start += 2;
+				} else if (front) {
+					int k2Offset = offset + delta - k1;
+					if (k2Offset >= 0 && k2Offset < reverse.Length && reverse[k2Offset] != -1 && x1 >= n - reverse[k2Offset]) {
+						(x, y) = (aLo + x1, bLo + y1);
+						return true;
+					}
+				}
+			}
+			for (int k2 = -d + k2Start; k2 <= d - k2End; k2 += 2) {
+				int k2Offset = offset + k2;
+				int x2 = k2 == -d || (k2 != d && reverse[k2Offset - 1] < reverse[k2Offset + 1])
+					? reverse[k2Offset + 1] : reverse[k2Offset - 1] + 1;
+				int y2 = x2 - k2;
+				while (x2 < n && y2 < m && a[aHi - 1 - x2] == b[bHi - 1 - y2]) {
+					x2++;
+					y2++;
+				}
+				reverse[k2Offset] = x2;
+				if (x2 > n) {
+					k2End += 2;
+				} else if (y2 > m) {
+					k2Start += 2;
+				} else if (!front) {
+					int k1Offset = offset + delta - k2;
+					if (k1Offset >= 0 && k1Offset < forward.Length && forward[k1Offset] != -1 && forward[k1Offset] >= n - x2) {
+						int x1 = forward[k1Offset];
+						(x, y) = (aLo + x1, bLo + offset + x1 - k1Offset);
+						return true;
+					}
+				}
+			}
+		}
+		(x, y) = (0, 0);
+		return false;
 	}
 }

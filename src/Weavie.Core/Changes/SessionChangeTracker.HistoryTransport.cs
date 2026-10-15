@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Changes;
@@ -95,7 +96,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private static OriginSlice? CaptureOrigins(ProvenanceFile? provenance, LineRange range) => provenance is null ? null : new(
-		provenance.Lines.Skip(range.Start - 1).Take(Length(range)).ToArray(),
+		[.. provenance.Lines.Skip(range.Start - 1).Take(Length(range))],
 		provenance.DeletedAtGap.Where(pair => ContainsBoundary(range, pair.Key + 1))
 			.ToDictionary(pair => pair.Key - range.Start + 1, pair => pair.Value.ToList()));
 
@@ -127,5 +128,5 @@ public sealed partial class SessionChangeTracker {
 			SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
 	}
 
-	private sealed record OriginSlice(AgentOrigin?[] Lines, Dictionary<int, List<DeletedSegment>> Gaps);
+	private sealed record OriginSlice([property: JsonConverter(typeof(OriginRunsConverter))] ImmutableArray<AgentOrigin?> Lines, Dictionary<int, List<DeletedSegment>> Gaps);
 }

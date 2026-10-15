@@ -184,6 +184,100 @@ index ac5c67b3e7fa818d9d87bdd17078a186313c4727..544e38acfc6c13a0fac03f132d949e9e
              overflowWidgetsDomNode: parentEditor.getOverflowWidgetsDomNode()
          }, codeEditorWidgetOptions, instantiationService, codeEditorService, commandService, contextKeyService, themeService, notificationService, accessibilityService, languageConfigurationService, languageFeaturesService, userInteractionService, keybindingService);
          this._parentEditor = parentEditor;
+diff --git a/vscode/src/vs/editor/common/viewModel/viewModelImpl.d.ts b/vscode/src/vs/editor/common/viewModel/viewModelImpl.d.ts
+index 9518e50bb4f1d1432ab277fd6d6e54d8bade0eae..90ddd4bd6b08effcd896dfbcdfcb7b5898c3503a 100644
+--- a/vscode/src/vs/editor/common/viewModel/viewModelImpl.d.ts
++++ b/vscode/src/vs/editor/common/viewModel/viewModelImpl.d.ts
+@@ -59,6 +59,7 @@ export declare class ViewModel extends Disposable implements IViewModel {
+     onCompositionStart(): void;
+     onCompositionEnd(): void;
+     private _captureStableViewport;
++    private _wrappingColumn;
+     private _onConfigurationChanged;
+     /**
+      * Gets called directly by the text model.
+diff --git a/vscode/src/vs/editor/common/viewModel/viewModelImpl.js b/vscode/src/vs/editor/common/viewModel/viewModelImpl.js
+index 50256db957e0d1a25f2946be6ca0ffd6628a8e26..7af798e5b2028d99778fb2e01a0c97f05fa31752 100644
+--- a/vscode/src/vs/editor/common/viewModel/viewModelImpl.js
++++ b/vscode/src/vs/editor/common/viewModel/viewModelImpl.js
+@@ -25,7 +25,7 @@ import { MinimapTokensColorTracker } from './minimapTokensColorTracker.js';
+ import { ViewLineRenderingData, MinimapLinesRenderingData, OverviewRulerDecorationsGroup } from '../viewModel.js';
+ import { ViewModelDecorations } from './viewModelDecorations.js';
+ import { ViewModelEventDispatcher, ScrollChangedEvent, FocusChangedEvent, WidgetFocusChangedEvent, ModelContentChangedEvent, ModelLineHeightChangedEvent as ModelLineHeightChangedEvent$1, ModelFontChangedEvent as ModelFontChangedEvent$1, ModelTokensChangedEvent, ModelLanguageConfigurationChangedEvent, ModelLanguageChangedEvent, ModelOptionsChangedEvent, ModelDecorationsChangedEvent, HiddenAreasChangedEvent, ReadOnlyEditAttemptEvent, ViewZonesChangedEvent as ViewZonesChangedEvent$1 } from '../viewModelEventDispatcher.js';
+-import { ViewModelLinesFromModelAsIs, ViewModelLinesFromProjectedModel } from './viewModelLines.js';
++import { ViewModelLinesFromProjectedModel } from './viewModelLines.js';
+ import { GlyphMarginLanesModel } from './glyphLanesModel.js';
+ import { CustomLineHeightData } from '../viewLayout/lineHeights.js';
+ 
+@@ -64,30 +64,21 @@ class ViewModel extends Disposable {
+         this._hasFocus = false;
+         this._viewportStart = ViewportStart.create(this.model);
+         this.glyphLanes = ( new GlyphMarginLanesModel(0));
+-        if (this.model.isTooLargeForTokenization()) {
+-            this._lines = ( new ViewModelLinesFromModelAsIs(this.model));
+-        } else {
+-            const options = this._configuration.options;
+-            const fontInfo = options.get(EditorOption.fontInfo);
+-            const wrappingStrategy = options.get(EditorOption.wrappingStrategy);
+-            const wrappingInfo = options.get(EditorOption.wrappingInfo);
+-            const wrappingIndent = options.get(EditorOption.wrappingIndent);
+-            const wordBreak = options.get(EditorOption.wordBreak);
+-            const wrapOnEscapedLineFeeds = options.get(EditorOption.wrapOnEscapedLineFeeds);
+-            this._lines = ( new ViewModelLinesFromProjectedModel(
+-                this._editorId,
+-                this.model,
+-                domLineBreaksComputerFactory,
+-                monospaceLineBreaksComputerFactory,
+-                fontInfo,
+-                this.model.getOptions().tabSize,
+-                wrappingStrategy,
+-                wrappingInfo.wrappingColumn,
+-                wrappingIndent,
+-                wordBreak,
+-                wrapOnEscapedLineFeeds
+-            ));
+-        }
++        // Large models keep their lines unwrapped but still project them, so hidden areas collapse them.
++        const options = this._configuration.options;
++        this._lines = ( new ViewModelLinesFromProjectedModel(
++            this._editorId,
++            this.model,
++            domLineBreaksComputerFactory,
++            monospaceLineBreaksComputerFactory,
++            options.get(EditorOption.fontInfo),
++            this.model.getOptions().tabSize,
++            options.get(EditorOption.wrappingStrategy),
++            this._wrappingColumn(),
++            options.get(EditorOption.wrappingIndent),
++            options.get(EditorOption.wordBreak),
++            options.get(EditorOption.wrapOnEscapedLineFeeds)
++        ));
+         this.coordinatesConverter = this._lines.createCoordinatesConverter();
+         this._cursor = this._register(( new CursorsController(model, this, this.coordinatesConverter, this.cursorConfig)));
+         this.viewLayout = this._register(( new ViewLayout(
+@@ -229,18 +220,20 @@ class ViewModel extends Disposable {
+         }
+         return ( new StableViewport(null, 0));
+     }
++    _wrappingColumn() {
++        return this.model.isTooLargeForTokenization() ? -1 : this._configuration.options.get(EditorOption.wrappingInfo).wrappingColumn;
++    }
+     _onConfigurationChanged(eventsCollector, e) {
+         const stableViewport = this._captureStableViewport();
+         const options = this._configuration.options;
+         const fontInfo = options.get(EditorOption.fontInfo);
+         const wrappingStrategy = options.get(EditorOption.wrappingStrategy);
+-        const wrappingInfo = options.get(EditorOption.wrappingInfo);
+         const wrappingIndent = options.get(EditorOption.wrappingIndent);
+         const wordBreak = options.get(EditorOption.wordBreak);
+         if (this._lines.setWrappingSettings(
+             fontInfo,
+             wrappingStrategy,
+-            wrappingInfo.wrappingColumn,
++            this._wrappingColumn(),
+             wrappingIndent,
+             wordBreak
+         )) {
 diff --git a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts b/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts
 index 521974461ba0061365dd63a2da0b2b78c3a23fef..c01ae6e0d999ff15a97a1addfd94f1549228ccb3 100644
 --- a/vscode/src/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.d.ts
@@ -530,3 +624,26 @@ index c35586ed8afeb53322727e68e089158db9a41e39..45ea025f47671bb8c94cb864ef92b26a
              changedKeys.push(key);
          }
          if (changedKeys.length > 0) {
+diff --git a/vscode/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.js b/vscode/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.js
+index 8d5a30d649a56807286d119eefe1a141b0020c37..f94bae2e372da675cb16f397be2f87b80d8c2bf7 100644
+--- a/vscode/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.js
++++ b/vscode/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.js
+@@ -9,6 +9,8 @@ import '../../../../platform/notification/common/notification.js';
+ import { INotificationService } from '../../../../platform/notification/common/notification.service.js';
+ import Severity$1 from '../../../../base/common/severity.js';
+ 
++// A model is warned about once, however many editors show it.
++const warnedModels = new WeakSet();
+ let LargeFileOptimizationsWarner = class LargeFileOptimizationsWarner extends Disposable {
+     static {
+         this.ID = "editor.contrib.largeFileOptimizationsWarner";
+@@ -26,7 +28,8 @@ let LargeFileOptimizationsWarner = class LargeFileOptimizationsWarner extends Di
+         if (!model) {
+             return;
+         }
+-        if (model.isTooLargeForTokenization()) {
++        if (model.isTooLargeForTokenization() && !warnedModels.has(model)) {
++            warnedModels.add(model);
+             const message = ( localize(
+                 9078,
+                 "{0}: tokenization, wrapping, folding, codelens, word highlighting and sticky scroll have been turned off for this large file in order to reduce memory usage and avoid freezing or crashing.",

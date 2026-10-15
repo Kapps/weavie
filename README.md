@@ -20,7 +20,7 @@ The goal is to support the workflow that a software engineer is likely to use in
 
 At this point, weavie is my daily driver for both professional and personal projects.
 There are limitations though:
-- C#, JS/TS, and Go have built-in editor, LSP, workspace-setup, and test support. Python and Rust are supported but untested.
+- C#, JS/TS, Go, Python, and Rust have built-in editor, LSP, workspace-setup, and test support.
 - No plugin support — you can install vsix themes from a file or the registry, as well as add an ACP provider from the registry, but no general plugins are supported yet.
 - Most Git features only support Github currently.
 - There's still more polish to be added.

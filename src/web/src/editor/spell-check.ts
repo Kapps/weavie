@@ -3,6 +3,7 @@ import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
+import { isCancellation } from "../lsp/lsp-errors";
 import { notify } from "../notify/notify";
 import { monaco } from "./monaco-setup";
 import { SESSION_FILE_SCHEME, sessionForUri } from "./session-uri-owner";
@@ -90,7 +91,7 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
       }
       setWords(result);
     } catch (error) {
-      if (!pending.signal.aborted) {
+      if (!pending.signal.aborted && !isCancellation(error)) {
         notify("error", `Spell check failed: ${String(error)}`, "spell-check");
       }
     }

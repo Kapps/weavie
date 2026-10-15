@@ -19,11 +19,11 @@ public sealed record BlameCommit(
 	bool Uncommitted);
 
 /// <summary>
-/// A file's blame, deduplicated: <see cref="Commits"/> holds each attributed commit once and the per-line arrays
-/// index into it, so a long file's blame stays small on the wire.
+/// A range of a file's blame, deduplicated: <see cref="Commits"/> holds each attributed commit once and the per-line
+/// arrays index into it, so the blame stays small on the wire.
 /// </summary>
-/// <param name="Commits">Every commit the file's lines are attributed to, in first-seen order.</param>
-/// <param name="LineCommits">Per line (index 0 = line 1), the index into <see cref="Commits"/>.</param>
+/// <param name="Commits">Every commit the range's lines are attributed to, in first-seen order.</param>
+/// <param name="LineCommits">Per line (index 0 = the range's first line), the index into <see cref="Commits"/>.</param>
 /// <param name="LineOriginalLines">
 /// Per line, that line's number inside its attributed commit — the anchor for pulling the hunk that introduced it.
 /// </param>

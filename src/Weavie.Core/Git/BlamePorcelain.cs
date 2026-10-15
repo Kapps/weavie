@@ -12,9 +12,13 @@ public static class BlamePorcelain {
 	/// <summary>The sha Git reports for a line that exists only in the working tree.</summary>
 	public const string UncommittedSha = "0000000000000000000000000000000000000000";
 
-	/// <summary>Parses porcelain <paramref name="output"/> into a blame; empty output yields <see cref="GitBlame.Empty"/>.</summary>
-	public static GitBlame Parse(string output) {
+	/// <summary>
+	/// Parses porcelain <paramref name="output"/> for a blame starting at <paramref name="firstLine"/> into a blame
+	/// indexed from that line; empty output yields <see cref="GitBlame.Empty"/>.
+	/// </summary>
+	public static GitBlame Parse(string output, int firstLine) {
 		ArgumentNullException.ThrowIfNull(output);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(firstLine);
 		var commits = new List<BlameCommit>();
 		var indexBySha = new Dictionary<string, int>(StringComparer.Ordinal);
 		var lineCommits = new List<int>();
@@ -42,7 +46,7 @@ public static class BlamePorcelain {
 					commits.Add(pending.ToCommit(sha));
 				}
 
-				Assign(lineCommits, lineOriginals, finalLine, index, originalLine);
+				Assign(lineCommits, lineOriginals, finalLine - firstLine, index, originalLine);
 				sha = null;
 				continue;
 			}
@@ -110,15 +114,15 @@ public static class BlamePorcelain {
 		return true;
 	}
 
-	// Git walks the file in group order, not line order, so grow to `finalLine` and write at its index.
-	private static void Assign(List<int> lineCommits, List<int> lineOriginals, int finalLine, int commitIndex, int originalLine) {
-		while (lineCommits.Count < finalLine) {
+	// Git walks the file in group order, not line order, so grow to `offset` and write there.
+	private static void Assign(List<int> lineCommits, List<int> lineOriginals, int offset, int commitIndex, int originalLine) {
+		while (lineCommits.Count <= offset) {
 			lineCommits.Add(-1);
 			lineOriginals.Add(0);
 		}
 
-		lineCommits[finalLine - 1] = commitIndex;
-		lineOriginals[finalLine - 1] = originalLine;
+		lineCommits[offset] = commitIndex;
+		lineOriginals[offset] = originalLine;
 	}
 
 	private sealed class PendingCommit {

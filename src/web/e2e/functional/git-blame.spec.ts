@@ -195,6 +195,22 @@ test.describe("annotating every run", () => {
   });
 });
 
+test("a huge file is blamed where the user is looking, end to end", async ({ page, weavie }) => {
+  // A generated file far too long to blame whole: only the lines on screen are fetched, so jumping to its end
+  // still answers for the line there.
+  const name = "generated.ts";
+  const lines = Array.from({ length: 20_000 }, (_, index) => `export const v${index} = ${index};`);
+  await commitFile(weavie.workspace, name, lines.join("\n"), "generate");
+  lines[lines.length - 1] = "export const tail = true;";
+  await commitFile(weavie.workspace, name, lines.join("\n"), "touch the tail");
+
+  await openFile(page, name);
+  await expect(page.locator(".weavie-blame")).toContainText("generate", { timeout: 15_000 });
+
+  await pressDocumentEnd(page);
+  await expect(page.locator(".weavie-blame")).toContainText("touch the tail", { timeout: 15_000 });
+});
+
 test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame")).toHaveCount(1);

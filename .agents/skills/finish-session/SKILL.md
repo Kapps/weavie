@@ -1,7 +1,6 @@
 ---
 name: finish-session
 description: Ship this Weavie session's work — commit, open a PR, watch CI to green (fixing any reds), merge, then delete the session. Use only when the user indicates the work should be merged or landed on main; do not invoke for requests limited to creating, opening, or making a PR.
-disable-model-invocation: true
 ---
 
 # Finish session

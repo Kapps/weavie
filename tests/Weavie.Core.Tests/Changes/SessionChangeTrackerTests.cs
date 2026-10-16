@@ -571,6 +571,29 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void HunkActionsAgainstAnOlderBaseline_AreRefused() {
+		// Two hunks: b → B1/B2 and d → D. Keeping the first grows the baseline by a line, so the second hunk's
+		// baseline range as the page computed it before that keep now names "c" — splicing it in would write
+		// the wrong line into the user's file even though the current side still matches.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB1\nB2\nc\nD\ne\n");
+		tracker.RecordChange("/w/a.txt");
+		string? before = ReviewTestChanges.BaselineRevision(tracker, "/w/a.txt");
+		Assert.True(tracker.KeepHunk("/w/a.txt", before, new LineRange(2, 3), new LineRange(2, 4), "B1\nB2"));
+
+		var reverted = tracker.RevertHunk("/w/a.txt", before, new LineRange(4, 5), new LineRange(5, 6), "D");
+		bool kept = tracker.KeepHunk("/w/a.txt", before, new LineRange(4, 5), new LineRange(5, 6), "D");
+
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, reverted);
+		Assert.False(kept);
+		Assert.Equal("a\nB1\nB2\nc\nD\ne\n", fileSystem.ReadAllText("/w/a.txt"));
+		Assert.Equal("a\nB1\nB2\nc\nd\ne\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+	}
+
+	[Fact]
 	public void RevertHunk_CreatedFile_DeletesIt() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Tracker(fileSystem);

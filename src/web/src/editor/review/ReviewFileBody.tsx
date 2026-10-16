@@ -31,7 +31,12 @@ export function ReviewFileBody(props: {
   scope: ReviewScopeState;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
-  configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
+  configureDiff: (
+    inline: InlineDiff,
+    uri: string,
+    diff: ReviewFileDiff,
+    fail: (error: unknown) => void,
+  ) => void;
   onCursor: (line: number) => void;
   revealContext: (span: LineSpan) => void;
   file: Accessor<ReviewFileView>;
@@ -45,6 +50,11 @@ export function ReviewFileBody(props: {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
   const [openError, setOpenError] = createSignal("");
+  const fail = (error: unknown): void => {
+    if (dropped) return;
+    setOpenError(String(error));
+    props.register.failed(path, error);
+  };
 
   let mount: HTMLDivElement | undefined;
   let live: ReviewEditor | undefined;
@@ -56,7 +66,9 @@ export function ReviewFileBody(props: {
   // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
+  // A paint means the section rendered, so an earlier failure (a fetch cut off by a reconnect) no longer applies.
   const publish = (): void => {
+    setOpenError("");
     if (live !== undefined) props.register.set(path, live);
   };
   const disposeEditor = (): void => {
@@ -105,7 +117,7 @@ export function ReviewFileBody(props: {
       }
       return;
     }
-    if (live !== undefined && liveExists !== value.currentExists) {
+    if (live !== undefined && liveExists !== (value.revision !== null)) {
       resolution += 1;
       disposeEditor();
       if (mount !== undefined) {
@@ -123,7 +135,7 @@ export function ReviewFileBody(props: {
         if (latest === null || !hasReviewChanges(latest)) return;
         const container = mount;
         batch(() => {
-          liveExists = latest.currentExists;
+          liveExists = latest.revision !== null;
           live = createReviewEditor({
             session: props.session,
             tab: props.tab,
@@ -140,7 +152,7 @@ export function ReviewFileBody(props: {
             onPainted: publish,
             active: props.active,
             toolbarHost: () => (props.active() ? props.toolbarHost() : null),
-            configure: props.configureDiff,
+            configure: (inline, uri, value) => props.configureDiff(inline, uri, value, fail),
             context: props.file().context,
             revealContext: props.revealContext,
             onCursor: props.onCursor,
@@ -150,10 +162,7 @@ export function ReviewFileBody(props: {
         });
       },
       (error: unknown) => {
-        if (!dropped && token === resolution) {
-          setOpenError(String(error));
-          props.register.failed(path, error);
-        }
+        if (token === resolution) fail(error);
       },
     );
   });

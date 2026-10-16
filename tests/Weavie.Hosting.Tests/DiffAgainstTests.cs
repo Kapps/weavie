@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Changes;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -28,14 +29,48 @@ public sealed class DiffAgainstTests {
 		Assert.Equal(path, file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 
-		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current), reviewed
-		// through the applied engine (acceptedBaseline == baseline until a hunk is kept).
+		// The per-file diff names the merge-base content (baseline) and the worktree file (current) by revision,
+		// reviewed through the applied engine (accepted anchor == baseline until a hunk is kept).
 		host.SessionEvent(session, "review", "showFile", new { path });
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
-		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
-		Assert.Equal("hello\nworld\n", diff.GetProperty("current").GetString());
-		Assert.Equal("hello\n", diff.GetProperty("acceptedBaseline").GetString());
+		string? baselineRevision = diff.GetProperty("baselineRevision").GetString();
+		Assert.Equal(TextRevision.Of("hello\n"), baselineRevision);
+		Assert.Equal(TextRevision.Of("hello\nworld\n"), diff.GetProperty("revision").GetString());
+		Assert.Equal(baselineRevision, diff.GetProperty("acceptedBaselineRevision").GetString());
+
+		var baseline = await host.SessionRequestAsync<JsonElement>(
+			session, "review", "text", new { path, revision = baselineRevision });
+		Assert.Equal("hello\n", baseline.GetProperty("text").GetString());
+		var superseded = await host.SessionRequestAsync<JsonElement>(
+			session, "review", "text", new { path, revision = TextRevision.Of("an earlier baseline") });
+		Assert.Equal(JsonValueKind.Null, superseded.GetProperty("text").ValueKind);
+	}
+
+	[Fact]
+	public async Task AFailedReviewActionResendsTheReviewState() {
+		// The page fetches review texts by revision and waits on the next push for a superseded one, so an action
+		// that fails partway must push the review state again rather than leave a file calculating forever.
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.WriteAllText(path, "hello\nworld\n");
+		var session = host.SelectedSession;
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+		await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		int changesBefore = host.Bridge.PostedEvents(session.Address, "review", "changes").Count;
+		int diffsBefore = host.Bridge.PostedEvents(session.Address, "review", "diff").Count;
+		File.SetAttributes(path, FileAttributes.ReadOnly);
+		try {
+			host.SessionEvent(session, "review", "revertFile", new { path });
+
+			await Wait.UntilAsync(() => host.Bridge.PostedEvents(session.Address, "review", "diff").Count > diffsBefore);
+			Assert.True(host.Bridge.PostedEvents(session.Address, "review", "changes").Count > changesBefore);
+			Assert.Contains(
+				host.Bridge.PostedEvents("notifications", "show"),
+				toast => toast.GetProperty("message").GetString()!.StartsWith("Couldn't revert readme.txt", StringComparison.Ordinal));
+		} finally {
+			File.SetAttributes(path, FileAttributes.Normal);
+		}
 	}
 
 	[Fact]
@@ -120,9 +155,8 @@ public sealed class DiffAgainstTests {
 		host.SessionEvent(session, "review", "showFile", new { path });
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
-		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
-		Assert.Equal(string.Empty, diff.GetProperty("current").GetString());
-		Assert.False(diff.GetProperty("currentExists").GetBoolean());
+		Assert.Equal(TextRevision.Of("hello\n"), diff.GetProperty("baselineRevision").GetString());
+		Assert.Equal(JsonValueKind.Null, diff.GetProperty("revision").ValueKind);
 
 		host.Bridge.Clear();
 		host.SessionEvent(session, "review", "revertFile", new { path });
@@ -156,6 +190,14 @@ public sealed class DiffAgainstTests {
 			.GetProperty("currentExists").GetBoolean());
 		Assert.True(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-added.txt")
 			.GetProperty("currentExists").GetBoolean());
+
+		// An empty file differs from no file only by existence, which a null revision carries on its own.
+		host.SessionEvent(session, "review", "showFile", new { path = added });
+		var addedDiff = await Wait.ForAsync(() => host.Bridge.PostedEvents(session.Address, "review", "diff")
+			.Select(diff => (JsonElement?)diff)
+			.LastOrDefault(diff => diff!.Value.GetProperty("path").GetString() == added));
+		Assert.Equal(JsonValueKind.Null, addedDiff.GetProperty("baselineRevision").ValueKind);
+		Assert.Equal(TextRevision.Of(string.Empty), addedDiff.GetProperty("revision").GetString());
 
 		host.SessionEvent(session, "review", "revertAll", new { });
 		await session.FileActivity.DrainAsync(CancellationToken.None);

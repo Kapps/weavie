@@ -32,15 +32,11 @@ const secondFile: ReviewFile = {
 function diff(file: ReviewFile, baseline = "before", current = "after"): ReviewFileDiff {
   return {
     rejected: [],
-    revision: current,
     path: file.path,
     name: file.name,
-    acceptedBaseline: baseline,
-    acceptedBaselineExists: true,
-    baseline,
-    baselineExists: true,
-    current,
-    currentExists: file.currentExists,
+    acceptedBaselineRevision: baseline,
+    baselineRevision: baseline,
+    revision: file.currentExists ? current : null,
   };
 }
 
@@ -135,7 +131,6 @@ describe("review store", () => {
       expect(restored.board(freshClient).files[0]!.collapsed()).toBe(true);
       restored.setDiff(freshClient, {
         ...content,
-        current: "new proposal",
         revision: "new-fingerprint",
       });
       expect(restored.board(freshClient).files[0]!.collapsed()).toBe(false);
@@ -156,7 +151,7 @@ describe("review store", () => {
 
       expect(store.overview().files[0]).toBe(firstView);
       expect(store.overview().files[1]).toBe(secondView);
-      expect(firstView.diff()?.current).toBe("after");
+      expect(firstView.diff()?.revision).toBe("after");
       expect(firstView.collapsed()).toBe(false);
       expect(secondView.diff()).toBeNull();
       expect(store.overview().fullyLoaded()).toBe(false);
@@ -189,17 +184,17 @@ describe("review store", () => {
 
       store.setDiff(client, {
         ...diff(firstFile),
-        acceptedBaseline: "before",
-        baseline: "kept",
-        current: "kept",
+        acceptedBaselineRevision: "before",
+        baselineRevision: "kept",
+        revision: "kept",
       });
       expect(view.collapsed()).toBe(true);
 
       store.setDiff(client, {
         ...diff(firstFile),
-        acceptedBaseline: "before",
-        baseline: "kept",
-        current: "pending again",
+        acceptedBaselineRevision: "before",
+        baselineRevision: "kept",
+        revision: "pending again",
       });
       expect(view.collapsed()).toBe(false);
       dispose();
@@ -212,9 +207,9 @@ describe("review store", () => {
       const client = session();
       store.setDiff(client, {
         ...diff(firstFile),
-        acceptedBaseline: "before",
-        baseline: "kept",
-        current: "kept",
+        acceptedBaselineRevision: "before",
+        baselineRevision: "kept",
+        revision: "kept",
       });
       store.setFiles(client, [firstFile], "turn");
 
@@ -223,9 +218,9 @@ describe("review store", () => {
       store.setFileCollapsed(client, firstFile.path, false);
       store.setDiff(client, {
         ...diff(firstFile),
-        acceptedBaseline: "before",
-        baseline: "kept",
-        current: "kept",
+        acceptedBaselineRevision: "before",
+        baselineRevision: "kept",
+        revision: "kept",
       });
       expect(store.board(client).files[0]?.collapsed()).toBe(false);
       dispose();
@@ -245,9 +240,9 @@ describe("review store", () => {
 
       store.setDiff(client, {
         ...diff(firstFile),
-        acceptedBaseline: "kept",
-        baseline: "kept",
-        current: "kept",
+        acceptedBaselineRevision: "kept",
+        baselineRevision: "kept",
+        revision: "kept",
       });
 
       expect(view.diff()).toBeNull();
@@ -275,6 +270,29 @@ describe("review store", () => {
     });
   });
 
+  it("derives pending, markers, and reviewed signatures from revisions alone", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore(() => {});
+      const client = session();
+      store.setFiles(client, [firstFile], "turn");
+      const kept = { ...diff(firstFile, "anchor", "same"), baselineRevision: "same" };
+      store.setDiff(client, kept);
+      const view = store.board(client).files[0]!;
+
+      expect(view.pending()).toBe(false);
+      expect(store.diffFor(client, firstFile.path)).toBe(kept);
+      expect(view.collapsed()).toBe(true);
+
+      store.setDiff(client, { ...kept, revision: "edited" });
+      expect(view.pending()).toBe(true);
+      expect(view.collapsed()).toBe(false);
+
+      store.setDiff(client, diff(firstFile, "same", "same"));
+      expect(store.diffFor(client, firstFile.path)).toBeNull();
+      dispose();
+    });
+  });
+
   it("retains an empty-file diff whose existence changed", () => {
     createRoot((dispose) => {
       const store = createReviewStore(() => {});
@@ -282,11 +300,8 @@ describe("review store", () => {
       const deleted = { ...firstFile, added: 0, removed: 0, currentExists: false };
       store.select(client);
       store.setFiles(client, [deleted], "vs HEAD");
-      store.setDiff(client, {
-        ...diff(deleted, "", ""),
-        acceptedBaselineExists: true,
-        baselineExists: true,
-      });
+      // An empty baseline still exists, so a deleted empty file stays pending.
+      store.setDiff(client, diff(deleted, "", ""));
 
       expect(store.overview().files[0]?.diff()).not.toBeNull();
       expect(store.overview().hasPending()).toBe(true);

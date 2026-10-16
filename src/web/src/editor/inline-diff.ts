@@ -1308,6 +1308,7 @@ export function createInlineDiff(
   // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
   // to its file:// URI; the review path passes the transient model's URI).
   const setByUri = (key: string, options: InlineDiffOptions): void => {
+    if (disposed) return;
     if (!diffs.has(key) && options.mode === "review") {
       initialProposalReveals.add(key);
     }

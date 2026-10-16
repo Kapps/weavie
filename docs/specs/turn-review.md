@@ -20,9 +20,9 @@ Both review presentations are projections over one Core-owned review board:
   change coming back to pending, un-reviews the file and expands it again, because there is now something the
   user hasn't seen. A re-push of the same state leaves the user's own fold alone. The section disclosure
   advertises the rebindable `alt+[` fold command, and the file tree supports standard arrow-key navigation. A
-  deleted current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working
-  copy exists. Each collapsed unchanged stretch is a clickable band that reveals its lines, and the section's
-  `alt+]` toggle shows the whole file or collapses it back; revealed lines are web-only presentation state on the
+  deleted current-side file uses a read-only, empty Monaco snapshot because no working copy exists. Each
+  collapsed unchanged stretch is a clickable band that reveals its lines, and the section's `alt+]` toggle shows
+  the whole file or collapses it back; revealed lines are web-only presentation state on the
   file's view. Clicking a line number (or `$mod+alt+o` at the cursor) opens that file in file review at that line.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
@@ -346,7 +346,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | type | when | payload |
 |---|---|---|
 | `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line, currentExists }] }` (a file stays in the set while only faded hunks remain, across turns and restarts) |
-| `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaseline, acceptedBaselineExists, baseline, baselineExists, current, currentExists }` — the three text-and-existence boundaries |
+| `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaselineRevision, baselineRevision, revision, rejected }` — SHA-256 revisions of the three boundaries, `null` where that version of the file doesn't exist, so one comparison covers content and existence. No text: current is the live model, and the page fetches each baseline once by revision |
 | `turn-reset` | the whole set was committed (`accept-turn`) | `{}` |
 | `review-history` | after every review op + switch-in | `{ canUndo, canUndoKeep, canUndoRevert, canRedo }` |
 
@@ -355,9 +355,10 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | type | when | payload |
 |---|---|---|
 | `get-turn-diff` | the walk opens a file | `{ path }` → host replies `turn-diff` |
-| `keep-hunk` | user keeps a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; the hunk goes faded; reuses `SessionChangeTracker.KeepHunk`) |
+| `review.text` | rendering needs a baseline revision the page hasn't cached | `{ path, revision }` → `{ text }`, or `{ text: null }` once superseded (a newer `turn-diff` follows) |
+| `keep-hunk` | user keeps a hunk | `{ path, baselineRevision, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; the hunk goes faded; reuses `SessionChangeTracker.KeepHunk`) |
 | `unkeep-hunk` | user un-keeps a faded hunk (inline ↶ undo) | `{ path, acceptedStart, acceptedEndExclusive, reviewStart, reviewEndExclusive, acceptedGuardText, guardText }` → host splices the accepted anchor's lines back into `_reviewBaseline` (no disk write; the hunk goes bright; `SessionChangeTracker.UnkeepHunk`). Both sides are guarded: a moved review baseline OR a moved anchor (a turn boundary committed it mid-flight) aborts. |
-| `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
+| `reject-hunk` | user reverts a hunk | `{ path, baselineRevision, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` — `baselineRevision` names the review baseline the ranges were diffed against; keep and revert refuse once it has moved on, since a baseline range means nothing in another baseline |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |
 | `accept-turn` | Keep-all and close review | `{}` |

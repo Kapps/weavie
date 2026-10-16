@@ -52,6 +52,7 @@ public sealed class TurnKeepTests {
 			"keepHunk",
 			new {
 				path,
+				baselineRevision = Weavie.Core.Changes.TextRevision.Of("hello\n"),
 				baselineStart = 2,
 				baselineEndExclusive = 2,
 				currentStart = 2,
@@ -92,6 +93,7 @@ public sealed class TurnKeepTests {
 			"keepHunk",
 			new {
 				path,
+				baselineRevision = Weavie.Core.Changes.TextRevision.Of("hello\n"),
 				baselineStart = 2,
 				baselineEndExclusive = 2,
 				currentStart = 3,
@@ -115,7 +117,13 @@ public sealed class TurnKeepTests {
 		session.Changes.CaptureBaseline(path); // accepted anchor = "hello\n"
 		File.WriteAllText(path, "hello\nworld\n"); // one added hunk: line 2
 		session.Changes.RecordChange(path);
-		Assert.True(session.Changes.KeepHunk(path, new Weavie.Core.Changes.LineRange(2, 2), new Weavie.Core.Changes.LineRange(2, 3), "world"));
+		var reviewed = session.Changes.GetTurn(path)!;
+		Assert.True(session.Changes.KeepHunk(
+			path,
+			Weavie.Core.Changes.TextRevision.Of(reviewed.BaselineText, reviewed.BaselineExists),
+			new Weavie.Core.Changes.LineRange(2, 2),
+			new Weavie.Core.Changes.LineRange(2, 3),
+			"world"));
 		Assert.Equal(session.Changes.GetTurn(path)!.BaselineText, session.Changes.GetTurn(path)!.CurrentText); // faded only
 
 		host.Bridge.Clear();
@@ -194,6 +202,7 @@ public sealed class TurnKeepTests {
 			"keepHunk",
 			new {
 				path,
+				baselineRevision = Weavie.Core.Changes.TextRevision.Of("hello\n"),
 				baselineStart = 2,
 				baselineEndExclusive = 2,
 				currentStart = 2,

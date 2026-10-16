@@ -2,7 +2,7 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import type * as monaco from "monaco-editor";
-import { createSignal, untrack } from "solid-js";
+import { createSignal } from "solid-js";
 import {
   type ClientSession,
   isBrowserHostedShell,
@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import { LinkDroppedError } from "../messaging/message-bus";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -48,6 +49,8 @@ import {
   createReviewStore,
   FULL_CONTEXT,
   isFullContext,
+  isFullyAccepted,
+  isPending,
   type LineSpan,
   type ReviewFile,
   type ReviewFileDiff,
@@ -55,6 +58,7 @@ import {
   type ReviewHistory,
   type ReviewOverview,
 } from "./review/review-store";
+import { createReviewTexts, type ReviewDiffTexts } from "./review/review-texts";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
@@ -198,6 +202,7 @@ export interface EditorController {
       uri: string,
       diff: ReviewFileDiff,
       reveal: (file: ReviewFile, line: number) => void,
+      fail: (error: unknown) => void,
     ): void;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
@@ -245,6 +250,32 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
   const reviews = createReviewStore(captureReviewFor);
+  const reviewTexts = createReviewTexts((session, path, revision) =>
+    session
+      .feature("review")
+      .request<{ text: string | null }, { path: string; revision: string }>("text", {
+        path,
+        revision,
+      })
+      .then(({ text }) => text),
+  );
+  // The single point review texts reach rendering: a resolution for a diff a newer push replaced is dropped, and so
+  // is a fetch a dropped link cut off, since the reconnect re-sends the review state.
+  const withReviewTexts = (
+    session: ClientSession,
+    diff: ReviewFileDiff,
+    apply: (texts: ReviewDiffTexts) => void,
+    fail: (error: unknown) => void,
+  ): void => {
+    reviewTexts.resolve(session, diff).then(
+      (texts) => {
+        if (texts !== null && reviews.diffFor(session, diff.path) === diff) apply(texts);
+      },
+      (error: unknown) => {
+        if (!(error instanceof LinkDroppedError)) fail(error);
+      },
+    );
+  };
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const reconcileOpenFiles = (session: ClientSession): void => {
     host?.reconcileSession(
@@ -844,19 +875,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  // Ask the host to revert just this hunk on disk. The host re-emits the file's diff (or an fs-change removal
-  // for a created file emptied by the revert), which re-renders without the reverted hunk.
-  const revertHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("revertHunk", { path, ...hunk }),
-    );
-  };
-
-  // Keep just this hunk: the host advances its review baseline over it (no disk write) so it drops from the
-  // pending diff for good. Flush first so the host's guardText check sees the same disk content the web does.
-  const keepHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("keepHunk", { path, ...hunk }),
+  // Keep just this hunk (the host advances its review baseline over it, no disk write) or revert it on disk; the
+  // host re-emits the file's diff either way. Flush first so the host's guardText check sees the disk content the
+  // web does, and name the baseline the hunk was diffed against: its range means nothing in any other, so the
+  // host refuses the action once that baseline has moved on.
+  const hunkAction = (
+    session: ClientSession,
+    diff: ReviewFileDiff,
+    action: "keepHunk" | "revertHunk",
+    hunk: HunkRevert,
+  ): void => {
+    afterFlush(session, diff.path, () =>
+      session.feature("review").publish(action, {
+        path: diff.path,
+        baselineRevision: diff.baselineRevision,
+        ...hunk,
+      }),
     );
   };
 
@@ -883,10 +917,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         (candidate) => target !== undefined && samePath(candidate.summary().path, target),
       );
     const diff = file?.diff();
-    return file === undefined ||
-      diff === null ||
-      diff === undefined ||
-      (diff.baseline === diff.current && diff.baselineExists === diff.currentExists)
+    return file === undefined || diff === null || diff === undefined || !isPending(diff)
       ? null
       : file.summary();
   };
@@ -1012,6 +1043,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const appliedReviewOptions = (
     session: ClientSession,
     message: ReviewFileDiff,
+    texts: ReviewDiffTexts,
     reveal: (file: ReviewFile, line: number) => void,
   ): InlineDiffOptions => {
     const state = reviews.board(session);
@@ -1033,12 +1065,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           }
         : {};
     return {
-      original: message.baseline,
-      acceptedBaseline: message.acceptedBaseline,
+      original: texts.original,
+      acceptedBaseline: texts.acceptedBaseline,
       mode: "applied",
-      onKeepHunk: (hunk) => keepHunk(session, message.path, hunk),
+      onKeepHunk: (hunk) => hunkAction(session, message, "keepHunk", hunk),
       onKeepFile: () => keepFile(session, message.path),
-      onRevertHunk: (hunk) => revertHunk(session, message.path, hunk),
+      onRevertHunk: (hunk) => hunkAction(session, message, "revertHunk", hunk),
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
       onKeepAll: () => session.feature("review").publish("accept", {}),
@@ -1051,10 +1083,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
-    if (
-      message.acceptedBaseline === message.current &&
-      message.acceptedBaselineExists === message.currentExists
-    ) {
+    if (isFullyAccepted(message)) {
       inlineDiff?.clear(session, message.path);
       const active = activePathFor(session);
       if (active !== null && samePath(active, message.path)) {
@@ -1065,10 +1094,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
 
-    inlineDiff?.set(
+    withReviewTexts(
       session,
-      message.path,
-      appliedReviewOptions(session, message, (file, line) => openReviewFile(session, file, line)),
+      message,
+      (texts) => {
+        if (selectedSession() !== session) return;
+        inlineDiff?.set(
+          session,
+          message.path,
+          appliedReviewOptions(session, message, texts, (file, line) =>
+            openReviewFile(session, file, line),
+          ),
+        );
+      },
+      (error) => {
+        if (!session.signal.aborted)
+          deps.onOpenError(`Couldn't load the review of ${message.name}: ${String(error)}`);
+      },
     );
   };
 
@@ -1106,7 +1148,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
     if (canCloseReview(reviews.board(session)) && !canCloseReview({ files, label }))
       void tabs.capture(session, REVIEW_TAB_KEY).close();
-    reviews.setFiles(session, files, label);
+    const state = reviews.setFiles(session, files, label);
+    reviewTexts.retain(
+      session,
+      state.files.flatMap((file) => file.diff() ?? []),
+    );
     renderReviewState(session);
   };
 
@@ -1123,6 +1169,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       resetPresentedReview(session);
     }
     reviews.reset(session);
+    reviewTexts.retain(session, []);
     reviewProposals.delete(session);
     renderReviewState(session);
   };
@@ -1469,33 +1516,37 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canClose: () => canCloseReview(reviews.overview()),
       overview: reviews.overview,
       overviewFor: reviews.overviewFor,
-      configureDiff: (tab, inline, uri, message, reveal) => {
+      configureDiff: (tab, inline, uri, message, reveal, fail) => {
         const session = tab.session;
         reviews.overviewFor(session);
-        const history = reviews.board(session).history;
-        const options = appliedReviewOptions(session, message, reveal);
-        // Review data drives rendering; reads during painting must not subscribe it to navigation.
-        untrack(() => {
-          inline.bindHistory(
-            reviewHistoryHandlers(session, () => {
-              const presentation = tab.presentation;
-              return ({ path, line }) => {
-                if (
-                  presentation?.signal.aborted ||
-                  selectedSession() !== session ||
-                  activeTabFor(session) !== tab
-                )
-                  return;
-                const file = reviews
-                  .board(session)
-                  .files.find((file) => samePath(file.summary().path, path));
-                if (file !== undefined) reveal(file.summary(), line);
-              };
-            }),
-          );
-          inline.setReviewHistory(history);
-          inline.setByUri(uri, options);
-        });
+        withReviewTexts(
+          session,
+          message,
+          (texts) => {
+            const history = reviews.board(session).history;
+            const options = appliedReviewOptions(session, message, texts, reveal);
+            inline.bindHistory(
+              reviewHistoryHandlers(session, () => {
+                const presentation = tab.presentation;
+                return ({ path, line }) => {
+                  if (
+                    presentation?.signal.aborted ||
+                    selectedSession() !== session ||
+                    activeTabFor(session) !== tab
+                  )
+                    return;
+                  const file = reviews
+                    .board(session)
+                    .files.find((file) => samePath(file.summary().path, path));
+                  if (file !== undefined) reveal(file.summary(), line);
+                };
+              }),
+            );
+            inline.setReviewHistory(history);
+            inline.setByUri(uri, options);
+          },
+          fail,
+        );
       },
       toggleFileCollapsed: (session, path) => {
         const target = reviewFileView(session, path);

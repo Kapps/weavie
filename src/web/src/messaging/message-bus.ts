@@ -34,6 +34,9 @@ const addressEquals = (left: SessionAddress | null, right: SessionAddress | null
 const keyOf = (feature: string, name: string): string => `${feature}\0${name}`;
 let busSequence = 0;
 
+/** A request cut off by the transport dropping; the reconnect resyncs state, so it isn't the request's failure. */
+export class LinkDroppedError extends Error {}
+
 export class MessageBus {
   private readonly events = new Map<string, Set<EventHandler<unknown>>>();
   private readonly requests = new Map<string, RegisteredRequest>();
@@ -121,7 +124,7 @@ export class MessageBus {
   linkDropped(reason: string): void {
     for (const request of this.pending.values()) {
       request.cleanup();
-      request.reject(new Error(reason));
+      request.reject(new LinkDroppedError(reason));
     }
     this.pending.clear();
     for (const request of this.incoming.values()) {

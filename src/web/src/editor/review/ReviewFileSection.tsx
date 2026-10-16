@@ -56,7 +56,12 @@ export function ReviewFileSection(props: {
   revealContext: (span: LineSpan) => void;
   active: () => boolean;
   toolbarHost: () => HTMLElement | null;
-  configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
+  configureDiff: (
+    inline: InlineDiff,
+    uri: string,
+    diff: ReviewFileDiff,
+    fail: (error: unknown) => void,
+  ) => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
   top: number;

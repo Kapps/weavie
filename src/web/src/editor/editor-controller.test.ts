@@ -1,11 +1,15 @@
 import { expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { LinkDroppedError } from "../messaging/message-bus";
 import type { EditorControllerDeps } from "./editor-controller";
+import type { InlineDiff } from "./inline-diff";
+import type { TabOwner } from "./tab-owner";
 
 const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
   installers: [] as Array<(session: ClientSession) => undefined | (() => void)>,
   reviewHistoryBinds: 0,
+  inlineSets: [] as Array<{ original: string }>,
 }));
 
 vi.mock("../bridge", () => ({
@@ -39,7 +43,12 @@ vi.mock("./editor-host", () => ({
   createEditorHost: () => Promise.resolve(stub({ editor: stub({ getModel: () => null }) })),
 }));
 vi.mock("./inline-diff", () => ({
-  createInlineDiff: () => stub({ bindHistory: () => env.reviewHistoryBinds++ }),
+  createInlineDiff: () =>
+    stub({
+      bindHistory: () => env.reviewHistoryBinds++,
+      set: (_session: unknown, _path: unknown, options: { original: string }) =>
+        env.inlineSets.push(options),
+    }),
   inlineReviewLine: stub,
 }));
 vi.mock("./comment-prose", () => ({ createCommentProse: stub }));
@@ -54,10 +63,12 @@ const { createEditorController } = await import("./editor-controller");
 interface FakeFeature {
   handlers: Map<string, Array<(message: unknown) => void>>;
   published: Array<{ name: string; payload: unknown }>;
+  requests: Array<{ name: string; payload: unknown; resolve: (value: unknown) => void }>;
   emit(name: string, message: unknown): void;
   handle(name: string, handler: (message: unknown) => unknown): () => void;
   on(name: string, handler: (message: unknown) => void): () => void;
   publish(name: string, payload: unknown): void;
+  request(name: string, payload: unknown): Promise<unknown>;
 }
 
 function fakeSession(slot: string): ClientSession {
@@ -71,6 +82,7 @@ function fakeSession(slot: string): ClientSession {
     current = {
       handlers,
       published: [],
+      requests: [],
       emit(event, message) {
         for (const handler of handlers.get(event) ?? []) {
           handler(message);
@@ -85,6 +97,9 @@ function fakeSession(slot: string): ClientSession {
       },
       publish(event, payload) {
         current?.published.push({ name: event, payload });
+      },
+      request(event, payload) {
+        return new Promise((resolve) => current?.requests.push({ name: event, payload, resolve }));
       },
     };
     features.set(name, current);
@@ -206,12 +221,10 @@ it("reverts an unfocused review board through its exact session", async () => {
   review.emit("diff", {
     path: file.path,
     name: file.name,
-    acceptedBaseline: "before",
-    acceptedBaselineExists: true,
-    baseline: "before",
-    baselineExists: true,
-    current: "after",
-    currentExists: true,
+    rejected: [],
+    acceptedBaselineRevision: "before",
+    baselineRevision: "before",
+    revision: "after",
   });
 
   expect(controller.review.revert(owner)).toBe(true);
@@ -291,4 +304,99 @@ it("opens unified review explicitly as a tab while files and proposals use norma
   // Explicit navigation follows the same selection path.
   editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "navigation" });
   expect(activePathFor(session)).toBe("/work/other.ts");
+});
+
+it("never applies review texts resolved for a diff a newer push replaced", async () => {
+  const session = fakeSession("stale-texts");
+  env.selected = session;
+  env.inlineSets.length = 0;
+  const controller = createEditorController(dependencies(() => Promise.resolve(true)));
+  for (const install of env.installers) install(session);
+  const container = { setAttribute: vi.fn() } as unknown as HTMLElement;
+  controller.start(container);
+  await vi.waitFor(() => expect(container.setAttribute).toHaveBeenCalledWith("data-ready", "true"));
+  const review = session.feature("review") as unknown as FakeFeature;
+  const file = {
+    path: "/work/a.ts",
+    name: "a.ts",
+    added: 1,
+    removed: 0,
+    line: 1,
+    currentExists: true,
+  };
+  const diff = (baselineRevision: string) => ({
+    path: file.path,
+    name: file.name,
+    rejected: [],
+    acceptedBaselineRevision: baselineRevision,
+    baselineRevision,
+    revision: "current",
+  });
+  review.emit("diff", diff("old"));
+  review.emit("changes", { label: "turn", files: [file] });
+  review.emit("diff", diff("new"));
+  const answer = (revision: string, text: string): void => {
+    for (const request of review.requests)
+      if ((request.payload as { revision: string }).revision === revision)
+        request.resolve({ text });
+  };
+
+  answer("old", "old text");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(env.inlineSets).toEqual([]);
+
+  answer("new", "new text");
+  await vi.waitFor(() => expect(env.inlineSets.length).toBeGreaterThan(0));
+  expect(env.inlineSets.map((options) => options.original)).toEqual(
+    env.inlineSets.map(() => "new text"),
+  );
+  controller.dispose();
+});
+
+it.each([
+  ["reports a review text that fails to load", new Error("the host went away"), true],
+  // The reconnect re-sends the review state, so a fetch the drop cut off is not a failure.
+  [
+    "leaves a fetch cut off by a dropped link to the resync",
+    new LinkDroppedError("link dropped"),
+    false,
+  ],
+])("%s to the unified review section", async (_name, failure, reported) => {
+  const session = fakeSession("failed-texts");
+  env.selected = session;
+  const onOpenError = vi.fn();
+  const controller = createEditorController({
+    ...dependencies(() => Promise.resolve(true)),
+    onOpenError,
+  });
+  for (const install of env.installers) install(session);
+  const review = session.feature("review") as unknown as FakeFeature;
+  let requested = false;
+  review.request = () => {
+    requested = true;
+    return Promise.reject(failure);
+  };
+  const fail = vi.fn();
+
+  controller.review.configureDiff(
+    { session } as TabOwner,
+    {} as InlineDiff,
+    "file:///work/a.ts",
+    {
+      path: "/work/a.ts",
+      name: "a.ts",
+      rejected: [],
+      acceptedBaselineRevision: "base",
+      baselineRevision: "base",
+      revision: "current",
+    },
+    () => {},
+    fail,
+  );
+
+  await vi.waitFor(() => expect(requested).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (reported) expect(fail).toHaveBeenCalledWith(failure);
+  else expect(fail).not.toHaveBeenCalled();
+  expect(onOpenError).not.toHaveBeenCalled();
 });

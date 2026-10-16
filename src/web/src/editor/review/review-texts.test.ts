@@ -10,11 +10,8 @@ const diff = (baselineRevision: string, acceptedBaselineRevision: string): Revie
   path: "/work/a.ts",
   name: "a.ts",
   acceptedBaselineRevision,
-  acceptedBaselineExists: true,
   baselineRevision,
-  baselineExists: true,
   revision: "current",
-  currentExists: true,
 });
 
 function deferredFetch() {

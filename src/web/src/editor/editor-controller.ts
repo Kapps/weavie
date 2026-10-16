@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import { LinkDroppedError } from "../messaging/message-bus";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -258,16 +259,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       })
       .then(({ text }) => text),
   );
-  // The single point review texts reach rendering: a resolution for a diff a newer push replaced is dropped.
+  // The single point review texts reach rendering: a resolution for a diff a newer push replaced is dropped, and so
+  // is a fetch a dropped link cut off, since the reconnect re-sends the review state.
   const withReviewTexts = (
     session: ClientSession,
     diff: ReviewFileDiff,
     apply: (texts: ReviewDiffTexts) => void,
     fail: (error: unknown) => void,
   ): void => {
-    reviewTexts.resolve(session, diff).then((texts) => {
-      if (texts !== null && reviews.diffFor(session, diff.path) === diff) apply(texts);
-    }, fail);
+    reviewTexts.resolve(session, diff).then(
+      (texts) => {
+        if (texts !== null && reviews.diffFor(session, diff.path) === diff) apply(texts);
+      },
+      (error: unknown) => {
+        if (!(error instanceof LinkDroppedError)) fail(error);
+      },
+    );
   };
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const reconcileOpenFiles = (session: ClientSession): void => {
@@ -868,19 +875,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  // Ask the host to revert just this hunk on disk. The host re-emits the file's diff (or an fs-change removal
-  // for a created file emptied by the revert), which re-renders without the reverted hunk.
-  const revertHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("revertHunk", { path, ...hunk }),
-    );
-  };
-
-  // Keep just this hunk: the host advances its review baseline over it (no disk write) so it drops from the
-  // pending diff for good. Flush first so the host's guardText check sees the same disk content the web does.
-  const keepHunk = (session: ClientSession, path: string, hunk: HunkRevert): void => {
-    afterFlush(session, path, () =>
-      session.feature("review").publish("keepHunk", { path, ...hunk }),
+  // Keep just this hunk (the host advances its review baseline over it, no disk write) or revert it on disk; the
+  // host re-emits the file's diff either way. Flush first so the host's guardText check sees the disk content the
+  // web does, and name the baseline the hunk was diffed against: its range means nothing in any other, so the
+  // host refuses the action once that baseline has moved on.
+  const hunkAction = (
+    session: ClientSession,
+    diff: ReviewFileDiff,
+    action: "keepHunk" | "revertHunk",
+    hunk: HunkRevert,
+  ): void => {
+    afterFlush(session, diff.path, () =>
+      session.feature("review").publish(action, {
+        path: diff.path,
+        baselineRevision: diff.baselineRevision,
+        ...hunk,
+      }),
     );
   };
 
@@ -1058,9 +1068,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       original: texts.original,
       acceptedBaseline: texts.acceptedBaseline,
       mode: "applied",
-      onKeepHunk: (hunk) => keepHunk(session, message.path, hunk),
+      onKeepHunk: (hunk) => hunkAction(session, message, "keepHunk", hunk),
       onKeepFile: () => keepFile(session, message.path),
-      onRevertHunk: (hunk) => revertHunk(session, message.path, hunk),
+      onRevertHunk: (hunk) => hunkAction(session, message, "revertHunk", hunk),
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
       onKeepAll: () => session.feature("review").publish("accept", {}),

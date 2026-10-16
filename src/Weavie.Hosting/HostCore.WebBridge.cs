@@ -442,7 +442,8 @@ public sealed partial class HostCore {
 		RunReviewAction(
 			session,
 			() => {
-				if (session.Changes.RevertHunk(path, baselineRange, currentRange, guardText) == RevertHunkOutcome.GuardMismatch) {
+				if (session.Changes.RevertHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)
+					== RevertHunkOutcome.GuardMismatch) {
 					Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 					PushTurnDiffToWeb(session, path);
 				}
@@ -482,7 +483,7 @@ public sealed partial class HostCore {
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
+		if (!session.Changes.KeepHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)) {
 			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(session, path);
 			return;

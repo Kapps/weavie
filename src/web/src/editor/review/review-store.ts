@@ -16,18 +16,18 @@ export interface ReviewFile {
   currentExists: boolean;
 }
 
-/** The revisions of the three authoritative text boundaries; baseline texts resolve through review-texts. */
+/**
+ * The revisions of the three authoritative text boundaries, null where that version of the file doesn't exist, so
+ * one comparison covers content and existence. Baseline texts resolve through review-texts.
+ */
 export interface ReviewFileDiff {
   rejected: { text: string; stale: boolean }[];
   path: string;
   name: string;
-  acceptedBaselineRevision: string;
-  acceptedBaselineExists: boolean;
-  baselineRevision: string;
-  baselineExists: boolean;
+  acceptedBaselineRevision: string | null;
+  baselineRevision: string | null;
   /** The current text's revision. */
-  revision: string;
-  currentExists: boolean;
+  revision: string | null;
 }
 
 /** A 1-based inclusive line range of a file's live model. */
@@ -97,7 +97,7 @@ interface ReviewEntry {
 
 /** Identifies exactly what a file presents for review: its content, its existence, and whether it's pending. */
 function reviewSignature(diff: ReviewFileDiff, pending: boolean): string {
-  return `${pending ? "1" : "0"}\0${diff.currentExists ? "1" : "0"}\0${diff.revision}`;
+  return `${pending ? "1" : "0"}\0${diff.revision ?? ""}`;
 }
 
 export interface SessionReviewBoard {
@@ -313,7 +313,7 @@ export function createReviewStore(
 
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
-    const entry = ensureEntry(state, diff.path, !diff.currentExists);
+    const entry = ensureEntry(state, diff.path, diff.revision === null);
     const pending = isPending(diff);
     entry.diff = isFullyAccepted(diff) && diff.rejected.length === 0 ? null : diff;
     // "Reviewed" is a claim about one exact state: anything new in the file un-reviews it, because there is now
@@ -426,24 +426,17 @@ export function createReviewStore(
 
 /** Whether anything in the file is not yet kept: its review baseline differs from current. */
 export function isPending(diff: ReviewFileDiff): boolean {
-  return diff.baselineRevision !== diff.revision || diff.baselineExists !== diff.currentExists;
+  return diff.baselineRevision !== diff.revision;
 }
 
 /** Whether the file shows no markers at all: its accepted anchor equals current. */
 export function isFullyAccepted(diff: ReviewFileDiff): boolean {
-  return (
-    diff.acceptedBaselineRevision === diff.revision &&
-    diff.acceptedBaselineExists === diff.currentExists
-  );
+  return diff.acceptedBaselineRevision === diff.revision;
 }
 
 /** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
 export function hasReviewChanges(diff: ReviewFileDiff): boolean {
-  return (
-    isPending(diff) ||
-    diff.acceptedBaselineRevision !== diff.baselineRevision ||
-    diff.acceptedBaselineExists !== diff.baselineExists
-  );
+  return isPending(diff) || diff.acceptedBaselineRevision !== diff.baselineRevision;
 }
 
 /** How much of a file's diff has been kept, as the review strip and file picker show it. */

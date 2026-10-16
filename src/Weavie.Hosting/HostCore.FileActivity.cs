@@ -57,32 +57,15 @@ public sealed partial class HostCore {
 			OnFailure);
 	}
 
-	private Task RefreshReviewAsync(HostSession session, string path) {
-		// Built on this consumer's own thread, never the dispatcher's: these payloads carry whole-file diffs, and
-		// the dispatcher is the thread the desktop hosts deliver the user's keystrokes on.
-		var payloads = ReviewPayloads.Build(session, path, ActiveReview(session)?.Label ?? string.Empty);
-		return InvokeForSessionAsync(() => payloads.PublishTo(session.Bus.BroadcastTarget));
-	}
-
-	// One save's review projection: the undo/redo state, the saved file's diff (absent when it was deleted or
-	// isn't in the turn), and the changed-file list. History before diff/changes — see
+	// Built as it is published, on the dispatcher, so it can never land after a newer push a review action made there
+	// — the page fetches baselines by the revisions in the last diff it saw. History before diff/changes: see
 	// HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
-	private readonly record struct ReviewPayloads(string History, string? Diff, string Changes) {
-		public static ReviewPayloads Build(HostSession session, string path, string label) => new(
-			ChangeMessages.ReviewHistory(session.Changes),
-			session.Changes.GetTurn(path) is not { } turn ? null : ChangeMessages.TurnDiff(turn),
-			ChangeMessages.TurnChanges(session.Changes, label));
-
-		public void PublishTo(MessageTarget target) {
-			var review = target.Feature("review");
-			review.PublishJson("history", History);
-			if (Diff is not null) {
-				review.PublishJson("diff", Diff);
-			}
-
-			review.PublishJson("changes", Changes);
-		}
-	}
+	private Task RefreshReviewAsync(HostSession session, string path) =>
+		InvokeForSessionAsync(() => {
+			PushReviewHistoryToWeb(session);
+			PushTurnDiffToWeb(session, path);
+			PushTurnChangesToWeb(session);
+		});
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>
 		InvokeForSessionAsync(() => {

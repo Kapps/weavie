@@ -66,7 +66,9 @@ export function ReviewFileBody(props: {
   // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
   // of the virtualized <Show> during teardown would be a stale read.
   const path = summary().path;
+  // A paint means the section rendered, so an earlier failure (a fetch cut off by a reconnect) no longer applies.
   const publish = (): void => {
+    setOpenError("");
     if (live !== undefined) props.register.set(path, live);
   };
   const disposeEditor = (): void => {
@@ -115,7 +117,7 @@ export function ReviewFileBody(props: {
       }
       return;
     }
-    if (live !== undefined && liveExists !== value.currentExists) {
+    if (live !== undefined && liveExists !== (value.revision !== null)) {
       resolution += 1;
       disposeEditor();
       if (mount !== undefined) {
@@ -133,7 +135,7 @@ export function ReviewFileBody(props: {
         if (latest === null || !hasReviewChanges(latest)) return;
         const container = mount;
         batch(() => {
-          liveExists = latest.currentExists;
+          liveExists = latest.revision !== null;
           live = createReviewEditor({
             session: props.session,
             tab: props.tab,

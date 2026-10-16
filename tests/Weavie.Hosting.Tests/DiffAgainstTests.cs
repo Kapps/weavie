@@ -156,8 +156,7 @@ public sealed class DiffAgainstTests {
 		var diff = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "diff"));
 		Assert.Equal(TextRevision.Of("hello\n"), diff.GetProperty("baselineRevision").GetString());
-		Assert.Equal(TextRevision.Of(string.Empty), diff.GetProperty("revision").GetString());
-		Assert.False(diff.GetProperty("currentExists").GetBoolean());
+		Assert.Equal(JsonValueKind.Null, diff.GetProperty("revision").ValueKind);
 
 		host.Bridge.Clear();
 		host.SessionEvent(session, "review", "revertFile", new { path });
@@ -191,6 +190,14 @@ public sealed class DiffAgainstTests {
 			.GetProperty("currentExists").GetBoolean());
 		Assert.True(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-added.txt")
 			.GetProperty("currentExists").GetBoolean());
+
+		// An empty file differs from no file only by existence, which a null revision carries on its own.
+		host.SessionEvent(session, "review", "showFile", new { path = added });
+		var addedDiff = await Wait.ForAsync(() => host.Bridge.PostedEvents(session.Address, "review", "diff")
+			.Select(diff => (JsonElement?)diff)
+			.LastOrDefault(diff => diff!.Value.GetProperty("path").GetString() == added));
+		Assert.Equal(JsonValueKind.Null, addedDiff.GetProperty("baselineRevision").ValueKind);
+		Assert.Equal(TextRevision.Of(string.Empty), addedDiff.GetProperty("revision").GetString());
 
 		host.SessionEvent(session, "review", "revertAll", new { });
 		await session.FileActivity.DrainAsync(CancellationToken.None);

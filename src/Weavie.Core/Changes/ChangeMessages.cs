@@ -31,7 +31,7 @@ public static class ChangeMessages {
 	/// One file's turn diff as the revisions of its (accepted anchor, review baseline, current) triple: review
 	/// baseline → current is the bright pending band, accepted anchor → review baseline the faded accepted band.
 	/// The page fetches the two baseline texts by revision through <see cref="SessionChangeTracker.ReviewText"/>;
-	/// current is the file itself.
+	/// current is the file itself. An absent file has a null revision.
 	/// </summary>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
@@ -39,12 +39,9 @@ public static class ChangeMessages {
 			new TurnDiffWire(
 				change.Path,
 				Path.GetFileName(change.Path),
-				TextRevision.Of(change.AcceptedBaselineText),
-				change.AcceptedBaselineExists,
-				TextRevision.Of(change.BaselineText),
-				change.BaselineExists,
-				TextRevision.Of(change.CurrentText),
-				change.CurrentExists,
+				TextRevision.Of(change.AcceptedBaselineText, change.AcceptedBaselineExists),
+				TextRevision.Of(change.BaselineText, change.BaselineExists),
+				TextRevision.Of(change.CurrentText, change.CurrentExists),
 				change.Rejected),
 			PageJson.Default.TurnDiffWire);
 	}
@@ -71,12 +68,9 @@ internal sealed record TurnChangeWire(string Path, string Name, int Added, int R
 internal sealed record TurnDiffWire(
 	string Path,
 	string Name,
-	string AcceptedBaselineRevision,
-	bool AcceptedBaselineExists,
-	string BaselineRevision,
-	bool BaselineExists,
-	string Revision,
-	bool CurrentExists,
+	string? AcceptedBaselineRevision,
+	string? BaselineRevision,
+	string? Revision,
 	IReadOnlyList<RejectedChange> Rejected);
 
 internal sealed record ReviewHistoryWire(bool CanUndo, bool CanUndoKeep, bool CanUndoRevert, bool CanRedo);

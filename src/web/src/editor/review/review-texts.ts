@@ -48,8 +48,10 @@ export function createReviewTexts(fetch: FetchReviewText): ReviewTexts {
     return fetched;
   };
 
-  // A shared request may predate this diff, so its null proves nothing about this diff: ask once more.
-  const text = async (session: ClientSession, path: string, revision: string) => {
+  // An absent file reads as empty text. A shared request may predate this diff, so its null proves nothing
+  // about this diff: ask once more.
+  const text = async (session: ClientSession, path: string, revision: string | null) => {
+    if (revision === null) return "";
     const shared = cacheFor(session).has(revision);
     const result = await request(session, path, revision);
     return result === null && shared ? request(session, path, revision) : result;

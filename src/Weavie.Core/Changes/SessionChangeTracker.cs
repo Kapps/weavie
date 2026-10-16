@@ -307,10 +307,16 @@ public sealed partial class SessionChangeTracker {
 	/// A created-since-baseline file the revert empties is deleted (<see cref="RevertHunkOutcome.Deleted"/>), not truncated.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
+	/// <param name="baselineRevision">The review baseline revision the web's ranges were computed against.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public RevertHunkOutcome RevertHunk(
+		string path,
+		string? baselineRevision,
+		LineRange baselineRange,
+		LineRange currentRange,
+		string guardText) {
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return RevertHunkOutcome.GuardMismatch;
@@ -321,7 +327,8 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			ReconcileReviewDisk();
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
-			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)
+			if (!ReviewBaselineIs(path, baselineRevision)
+				|| !TryGetSlice(baselineLines, baselineRange, out var replacement)
 				|| TrySplice(path, currentRange, guardText, replacement) is not { } spliced) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
@@ -463,10 +470,16 @@ public sealed partial class SessionChangeTracker {
 	/// optimistic-concurrency check as <see cref="RevertHunk"/>; a mismatch aborts and returns <see langword="false"/>.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
+	/// <param name="baselineRevision">The review baseline revision the web's ranges were computed against.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public bool KeepHunk(
+		string path,
+		string? baselineRevision,
+		LineRange baselineRange,
+		LineRange currentRange,
+		string guardText) {
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return false;
@@ -476,7 +489,7 @@ public sealed partial class SessionChangeTracker {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
 			ReconcileReviewDisk();
-			if (_nonText.ContainsKey(path)) return false;
+			if (_nonText.ContainsKey(path) || !ReviewBaselineIs(path, baselineRevision)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
 			if (!TryGetSlice(diskLines, currentRange, out var currentSlice)
@@ -788,6 +801,11 @@ public sealed partial class SessionChangeTracker {
 				: null;
 		}
 	}
+
+	// Whether the review baseline is still the one the web diffed: guarding only the current side would let ranges
+	// computed against an older baseline splice the wrong lines. Caller holds _gate.
+	private bool ReviewBaselineIs(string path, string? revision) =>
+		TextRevision.Of(_reviewBaseline.GetValueOrDefault(path, string.Empty), !_missingReviewBaseline.Contains(path)) == revision;
 
 	private static void SetMissing(TrackedSet missing, string path, bool value) {
 		if (value) {

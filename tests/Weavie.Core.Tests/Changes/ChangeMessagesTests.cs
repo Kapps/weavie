@@ -49,11 +49,9 @@ public sealed class ChangeMessagesTests {
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
 		Assert.Equal(TextRevision.Of("anchor"), root.GetProperty("acceptedBaselineRevision").GetString()); // faded band origin
-		Assert.True(root.GetProperty("acceptedBaselineExists").GetBoolean());
-		Assert.Equal(TextRevision.Of("before"), root.GetProperty("baselineRevision").GetString());         // bright band origin
-		Assert.False(root.GetProperty("baselineExists").GetBoolean());
+																										   // An absent baseline has no revision, so it can never compare equal to an existing empty file.
+		Assert.Equal(JsonValueKind.Null, root.GetProperty("baselineRevision").ValueKind);                 // bright band origin
 		Assert.Equal(TextRevision.Of("after"), root.GetProperty("revision").GetString());
-		Assert.True(root.GetProperty("currentExists").GetBoolean());
 	}
 
 	[Fact]

@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
+import { LinkDroppedError } from "../messaging/message-bus";
 import type { EditorControllerDeps } from "./editor-controller";
 import type { InlineDiff } from "./inline-diff";
 import type { TabOwner } from "./tab-owner";
@@ -222,11 +223,8 @@ it("reverts an unfocused review board through its exact session", async () => {
     name: file.name,
     rejected: [],
     acceptedBaselineRevision: "before",
-    acceptedBaselineExists: true,
     baselineRevision: "before",
-    baselineExists: true,
     revision: "after",
-    currentExists: true,
   });
 
   expect(controller.review.revert(owner)).toBe(true);
@@ -331,11 +329,8 @@ it("never applies review texts resolved for a diff a newer push replaced", async
     name: file.name,
     rejected: [],
     acceptedBaselineRevision: baselineRevision,
-    acceptedBaselineExists: true,
     baselineRevision,
-    baselineExists: true,
     revision: "current",
-    currentExists: true,
   });
   review.emit("diff", diff("old"));
   review.emit("changes", { label: "turn", files: [file] });
@@ -358,7 +353,15 @@ it("never applies review texts resolved for a diff a newer push replaced", async
   controller.dispose();
 });
 
-it("reports a review text that fails to load to the unified review section", async () => {
+it.each([
+  ["reports a review text that fails to load", new Error("the host went away"), true],
+  // The reconnect re-sends the review state, so a fetch the drop cut off is not a failure.
+  [
+    "leaves a fetch cut off by a dropped link to the resync",
+    new LinkDroppedError("link dropped"),
+    false,
+  ],
+])("%s to the unified review section", async (_name, failure, reported) => {
   const session = fakeSession("failed-texts");
   env.selected = session;
   const onOpenError = vi.fn();
@@ -368,8 +371,11 @@ it("reports a review text that fails to load to the unified review section", asy
   });
   for (const install of env.installers) install(session);
   const review = session.feature("review") as unknown as FakeFeature;
-  const failure = new Error("the host went away");
-  review.request = () => Promise.reject(failure);
+  let requested = false;
+  review.request = () => {
+    requested = true;
+    return Promise.reject(failure);
+  };
   const fail = vi.fn();
 
   controller.review.configureDiff(
@@ -381,16 +387,16 @@ it("reports a review text that fails to load to the unified review section", asy
       name: "a.ts",
       rejected: [],
       acceptedBaselineRevision: "base",
-      acceptedBaselineExists: true,
       baselineRevision: "base",
-      baselineExists: true,
       revision: "current",
-      currentExists: true,
     },
     () => {},
     fail,
   );
 
-  await vi.waitFor(() => expect(fail).toHaveBeenCalledWith(failure));
+  await vi.waitFor(() => expect(requested).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (reported) expect(fail).toHaveBeenCalledWith(failure);
+  else expect(fail).not.toHaveBeenCalled();
   expect(onOpenError).not.toHaveBeenCalled();
 });

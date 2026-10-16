@@ -35,11 +35,8 @@ function diff(file: ReviewFile, baseline = "before", current = "after"): ReviewF
     path: file.path,
     name: file.name,
     acceptedBaselineRevision: baseline,
-    acceptedBaselineExists: true,
     baselineRevision: baseline,
-    baselineExists: true,
-    revision: current,
-    currentExists: file.currentExists,
+    revision: file.currentExists ? current : null,
   };
 }
 
@@ -303,11 +300,8 @@ describe("review store", () => {
       const deleted = { ...firstFile, added: 0, removed: 0, currentExists: false };
       store.select(client);
       store.setFiles(client, [deleted], "vs HEAD");
-      store.setDiff(client, {
-        ...diff(deleted, "", ""),
-        acceptedBaselineExists: true,
-        baselineExists: true,
-      });
+      // An empty baseline still exists, so a deleted empty file stays pending.
+      store.setDiff(client, diff(deleted, "", ""));
 
       expect(store.overview().files[0]?.diff()).not.toBeNull();
       expect(store.overview().hasPending()).toBe(true);

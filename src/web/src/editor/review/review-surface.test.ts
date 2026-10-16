@@ -26,11 +26,8 @@ function fixture() {
       path: `/work/${index}.ts`,
       name: `${index}.ts`,
       acceptedBaselineRevision: "",
-      acceptedBaselineExists: true,
       baselineRevision: "",
-      baselineExists: true,
       revision: "changed",
-      currentExists: true,
     }),
     comments: () => null,
   }));

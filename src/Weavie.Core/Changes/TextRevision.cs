@@ -14,4 +14,10 @@ public static class TextRevision {
 		ArgumentNullException.ThrowIfNull(text);
 		return Revisions.GetValue(text, static value => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))));
 	}
+
+	/// <summary>
+	/// The revision of a version of a file: <see langword="null"/> when that version doesn't exist, so one comparison
+	/// covers both content and existence.
+	/// </summary>
+	public static string? Of(string text, bool exists) => exists ? Of(text) : null;
 }

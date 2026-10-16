@@ -305,7 +305,7 @@ public sealed partial class HostCore {
 
 	private T? RunReviewAction<T>(HostSession session, Func<T?> action) where T : class {
 		T? result = null;
-		RunReviewAction(session, () => result = action());
+		RunReviewAction(session, () => { result = action(); });
 		return result;
 	}
 

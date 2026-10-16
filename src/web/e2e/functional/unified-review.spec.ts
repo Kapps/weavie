@@ -253,6 +253,9 @@ test.describe("Review Changes tab — file switcher", () => {
 
 // FLAKE 2026-10-14 06:21Z https://github.com/Kapps/weavie/actions/runs/38519737341 (Windows shard 6/6): same
 // "docs\\notes.txt" separator expectation as the file switcher above; fixed the same way.
+// FLAKE 2026-10-16 18:41Z https://github.com/Kapps/weavie/actions/runs/38946848505 (Windows shard 6/6; also failed in
+// the 2026-10-14 and 2026-10-15 release runs): the last step still located the file section by "src/long.txt", which a
+// Windows host spells "src\long.txt", so the Keep click waited out the 60s test timeout. Fixed by using the host's separator.
 test.describe("Review Changes tab — file tree", () => {
   test.use({
     fakeScript: {
@@ -314,7 +317,7 @@ test.describe("Review Changes tab — file tree", () => {
     );
     await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
 
-    const hello = page.locator(".unified-review-file", { hasText: "src/long.txt" });
+    const hello = page.locator(".unified-review-file", { hasText: join("src", "long.txt") });
     await hello.locator(".unified-review-file-action.keep").click();
     await expect(rows.filter({ hasText: /^long\.txt/ }).getByRole("img")).toHaveAccessibleName(
       "Reviewed",

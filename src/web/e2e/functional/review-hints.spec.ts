@@ -376,7 +376,10 @@ test.describe("PR review", () => {
       // Fixed by polling every line of the prompt instead of only the first.
       // FLAKE 2026-10-13 16:00Z https://github.com/Kapps/weavie/actions/runs/38424452181 (Windows shard 4/6): the fake
       // logged the paste as one line with neither ESC[200~ nor its newlines, i.e. ConPTY parsed the bytes as
-      // keystrokes. Not fixed yet: the fake's console input mode when the paste lands is still unexplained.
+      // keystrokes. The fake never set its console input mode, so Windows left it in cooked line mode.
+      // FLAKE 2026-10-16 18:42Z https://github.com/Kapps/weavie/actions/runs/38946848505 (Windows shard 4/6; it also failed
+      // in both 2026-10-15 release runs): same single-line paste. Fixed in Weavie.FakeClaude, which now takes raw VT input
+      // before printing "ready", as a real TUI does, so the paste arrives with its markers and newlines.
       await expect.poll(() => weavie.fakeLog()).toMatch(fixPrompt("hello.ts:2"));
       await expect.poll(() => weavie.fakeLog()).toMatch(/^input bob: Why change this greeting\?/m);
     });

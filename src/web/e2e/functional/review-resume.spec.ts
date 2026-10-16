@@ -95,6 +95,11 @@ test.describe("durable applied review", () => {
     await expect(hello.locator(".unified-review-rejection pre")).toHaveText(
       "console.warn(message);",
     );
+    // Sections away from the viewport are passive (no decorations), so scroll to each before reading it.
+    // FLAKE 2026-10-16 18:40Z https://github.com/Kapps/weavie/actions/runs/38946848505 (macOS shard 4/6; it also failed
+    // in both 2026-10-15 release runs): the expanded hello.ts pushed notes.txt below the viewport on macOS, where it
+    // stayed a passive 5px editor with no `.weavie-inline-added`. Fixed by jumping to the file before asserting.
+    await jumpToReviewFile(page, "notes.txt");
     const notes = section(page, "notes.txt");
     await expect(notes.locator(".weavie-inline-added")).toBeVisible();
     await notes.locator(".unified-review-file-toggle").click();
@@ -102,6 +107,7 @@ test.describe("durable applied review", () => {
       "aria-expanded",
       "false",
     );
+    await jumpToReviewFile(page, "README.md");
     await expect(section(page, "README.md").locator(".weavie-inline-added").first()).toBeVisible();
 
     // The next process must not replay the scripted edits: restoration is the only source of this review.

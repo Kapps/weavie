@@ -17,7 +17,7 @@ export function estimatedEditorHeight(added: number, removed: number): number {
 
 /**
  * The stretches hidden because they lie more than `CONTEXT_LINES` from every change (bright or accepted) and
- * outside every `revealed` span. A timed-out diff (null markers) collapses nothing.
+ * outside every `revealed` span. A failed diff (null markers) collapses nothing.
  */
 export function collapseUnchanged(
   markers: DiffMarkers | null,

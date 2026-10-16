@@ -272,7 +272,7 @@ test.describe("Review Changes tab — file tree", () => {
 
   // FLAKE 2026-10-15 ~04:54Z (Windows): src/long.txt's keep action never appeared and the test hit its 60s timeout.
   // https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250345835
-  // Same cause as the 2026-10-16 entry above ("src/long.txt" is "src\\long.txt" on a Windows host); fixed the same way.
+  // Same cause as the 2026-10-16 entry above ("src/long.txt" is "src\long.txt" on a Windows host); fixed the same way.
   test("the file tree above the diffs folds folders and jumps to a file", async ({
     page,
     weavie,

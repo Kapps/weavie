@@ -3,6 +3,10 @@ import { IEditorWorkerService } from "@codingame/monaco-vscode-api/services";
 import { monaco } from "../monaco-setup";
 import { DIFF_ALGORITHM, DIFF_OPTIONS, type DiffLineChange } from "./diff-computation";
 
+// The worker runs off the UI thread, so a long diff costs no responsiveness — and giving up showed nothing at all
+// (10k changed lines of a 260k-line file take the worker ~1.7s). 0 means no time limit.
+const WORKER_DIFF_OPTIONS = { ...DIFF_OPTIONS, maxComputationTimeMs: 0 };
+
 export interface DiffSources {
   original: string;
   claudeVersion: string | undefined;
@@ -16,10 +20,7 @@ export type DiffCalculation =
       userChanges: DiffLineChange[];
       fadedChanges: DiffLineChange[];
     }
-  | { status: "timed-out" }
   | { status: "failed"; error: unknown };
-
-type PairCalculation = { status: "ready"; changes: DiffLineChange[] } | { status: "timed-out" };
 
 interface ActiveSources {
   uri: string;
@@ -29,7 +30,7 @@ interface ActiveSources {
   acceptedBaseline: monaco.editor.ITextModel | undefined;
   pending: number;
   retired: boolean;
-  faded: Promise<PairCalculation> | undefined;
+  faded: Promise<DiffLineChange[]> | undefined;
   live:
     | {
         model: monaco.editor.ITextModel;
@@ -152,11 +153,11 @@ export class DiffComputer {
       const primary = this.computePair(active.original, liveModel);
       const user =
         active.claudeVersion === undefined
-          ? Promise.resolve<PairCalculation>({ status: "ready", changes: [] })
+          ? Promise.resolve<DiffLineChange[]>([])
           : this.computePair(active.claudeVersion, liveModel);
       active.faded ??=
         active.acceptedBaseline === undefined
-          ? Promise.resolve<PairCalculation>({ status: "ready", changes: [] })
+          ? Promise.resolve<DiffLineChange[]>([])
           : this.computePair(active.acceptedBaseline, active.original);
       const [changesResult, userChangesResult, fadedChangesResult] = await Promise.allSettled([
         primary,
@@ -172,21 +173,11 @@ export class DiffComputer {
       if (fadedChangesResult.status === "rejected") {
         return { status: "failed", error: fadedChangesResult.reason };
       }
-      const changes = changesResult.value;
-      const userChanges = userChangesResult.value;
-      const fadedChanges = fadedChangesResult.value;
-      if (
-        changes.status === "timed-out" ||
-        userChanges.status === "timed-out" ||
-        fadedChanges.status === "timed-out"
-      ) {
-        return { status: "timed-out" };
-      }
       return {
         status: "ready",
-        changes: changes.changes,
-        userChanges: userChanges.changes,
-        fadedChanges: fadedChanges.changes,
+        changes: changesResult.value,
+        userChanges: userChangesResult.value,
+        fadedChanges: fadedChangesResult.value,
       };
     } catch (error) {
       return { status: "failed", error };
@@ -196,19 +187,17 @@ export class DiffComputer {
   private async computePair(
     original: monaco.editor.ITextModel,
     modified: monaco.editor.ITextModel,
-  ): Promise<PairCalculation> {
+  ): Promise<DiffLineChange[]> {
     const result = await this.worker.computeDiff(
       original.uri,
       modified.uri,
-      DIFF_OPTIONS,
+      WORKER_DIFF_OPTIONS,
       DIFF_ALGORITHM,
     );
     if (result === null) {
       throw new Error("The editor worker could not calculate the diff");
     }
-    return result.quitEarly
-      ? { status: "timed-out" }
-      : { status: "ready", changes: result.changes as DiffLineChange[] };
+    return result.changes as DiffLineChange[];
   }
 
   private disposeActive(): void {

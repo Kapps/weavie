@@ -106,7 +106,7 @@ export function createReviewEditor(options: {
       ),
   );
   const editor = viewport.editor as CollapsingEditor;
-  // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
+  // Undefined until InlineDiff first lays out the diff; null for a failed diff.
   let markers: DiffMarkers | null | undefined;
   let hidden: monaco.IRange[] = [];
   // Each band's zone id → the stretch it reveals; Monaco's text layer owns clicks on zones.

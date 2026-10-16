@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { pressDocumentStart, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { prCard as card, openCommentedFile } from "../harness/pull-request";
 
@@ -14,7 +14,7 @@ async function commentOnLine(
   button: string,
 ): Promise<void> {
   await page.locator(".monaco-editor .view-lines").first().click();
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   for (let i = 1; i < line; i++) await page.keyboard.press("ArrowDown");
   await runCommand(page, "Comment on Line (Pull Request)");
   const draft = page.locator(".weavie-pr-card-draft");
@@ -27,6 +27,13 @@ async function commentOnLine(
 // "Comment on Line" never showed a draft. The first post's reply arrived after the next draft opened and its
 // success handler closed that newer draft. Fixed in pr-comment-controller's submitDraft, which now closes only
 // the draft it submitted.
+// FLAKE 2026-10-16 18:36Z https://github.com/Kapps/weavie/actions/runs/38946848505 (macOS shard 4/6; it also failed
+// in the 2026-10-15 release runs, so the fix above was not the cause): `commentOnLine` jumped to the document start
+// with ControlOrMeta+Home, which Monaco leaves unbound on macOS, so the second comment was placed from wherever the
+// click landed and no draft opened. Fixed by using the platform-aware pressDocumentStart.
+// FLAKE 2026-10-15 ~05:00Z (macOS): the draft composer never appeared after "Comment on Line" and the test hit its 60s timeout.
+// https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231850
+// Same cause as the 2026-10-16 entry above (ControlOrMeta+Home is a no-op on macOS); fixed the same way.
 test("comments queue as drafts in place and submit once with a verdict", async ({ page }) => {
   await openCommentedFile(page);
   await commentOnLine(page, 5, "Posted right away.", "Comment now");

@@ -156,7 +156,7 @@ public sealed partial class SessionChangeTracker {
 		if (hunk.BeforeRange.Start == hunk.BeforeRange.EndExclusive) {
 			int gap = hunk.BeforeRange.Start - 1;
 			if (gap > 0 && gap < provenance.Lines.Length
-				&& !(gap == provenance.Lines.Length - 1 && LineDiff.SplitLines(provenance.Text)[^1].Length == 0)
+				&& !(gap == provenance.Lines.Length - 1 && provenance.Text is [.., '\n' or '\r' or '\f' or '\u0085' or '\u2028' or '\u2029'])
 				&& provenance.Lines[gap - 1] is { Pending: true } left
 				&& provenance.Lines[gap] is { Pending: true } right
 				&& left.Id == right.Id) {
@@ -413,28 +413,31 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	// <paramref name="actual"/> is in provenance.Text (== disk) space, which is how provenance.Lines is indexed.
-	// Callers holding a _current-space range map it through MapCurrentRangeToActual first.
-	private void SetPending(string path, LineRange actual, bool pending) {
-		if (!_provenance.TryGetValue(path, out var provenance)) return;
+	// Callers holding _current-space ranges map them to disk space first, as MarkReviewPending does.
+	private void SetPending(string path, IReadOnlyList<LineRange> ranges, bool pending) {
+		if (ranges.Count == 0 || !_provenance.TryGetValue(path, out var provenance)) return;
 		var lines = provenance.Lines.ToBuilder();
-		for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < lines.Count; i++)
-			if (lines[i] is { } origin) lines[i] = origin with { Pending = pending };
 		var gaps = provenance.DeletedAtGap.ToBuilder();
-		foreach (var (gap, segments) in provenance.DeletedAtGap)
-			if (actual.Start - 1 <= gap && gap <= actual.EndExclusive - 1)
-				gaps[gap] = [.. segments.Select(segment => segment with { Origin = segment.Origin with { Pending = pending } })];
+		foreach (var actual in ranges) {
+			for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < lines.Count; i++)
+				if (lines[i] is { } origin) lines[i] = origin with { Pending = pending };
+			foreach (var (gap, segments) in provenance.DeletedAtGap)
+				if (actual.Start - 1 <= gap && gap <= actual.EndExclusive - 1)
+					gaps[gap] = [.. segments.Select(segment => segment with { Origin = segment.Origin with { Pending = pending } })];
+		}
 		_provenance[path] = provenance with { Lines = lines.ToImmutable(), DeletedAtGap = gaps.ToImmutable() };
 	}
 
-	private LineRange MapCurrentRangeToActual(string path, LineRange currentRange) {
-		if (!_provenance.TryGetValue(path, out var provenance)
-			|| !_current.TryGetValue(path, out string? current)) {
-			return currentRange;
-		}
-		return MapRange(currentRange, LineHunker.Hunks(LineDiff.SplitLines(current), LineDiff.SplitLines(provenance.Text)));
+	// Marks every unreviewed region pending, mapping all review hunks through one current-to-disk alignment.
+	private void MarkReviewPending(string path) {
+		string[] currentLines = LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty));
+		var toActual = _provenance.TryGetValue(path, out var provenance)
+			? LineHunker.Hunks(currentLines, LineDiff.SplitLines(provenance.Text)) : [];
+		SetPending(path, [.. LineHunker.Hunks(LineDiff.SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty)), currentLines)
+			.Select(hunk => MapRange(hunk.AfterRange, toActual))], true);
 	}
 
-	// The inverse of MapCurrentRangeToActual: a live-model (== provenance.Text / disk) range → its position in
+	// Maps a live-model (== provenance.Text / disk) range → its position in
 	// _current (which omits the user's non-agent edits). Identity when the two coincide, so a clean review is untouched.
 	private LineRange MapActualRangeToCurrent(string path, LineRange actualRange) {
 		if (!_provenance.TryGetValue(path, out var provenance)
@@ -446,7 +449,7 @@ public sealed partial class SessionChangeTracker {
 
 	private void SetAllPending(string path, bool pending) {
 		if (_provenance.TryGetValue(path, out var provenance))
-			SetPending(path, new(1, provenance.Lines.Length + 1), pending);
+			SetPending(path, [new(1, provenance.Lines.Length + 1)], pending);
 	}
 
 	private void RestoreProvenance(string path, ProvenanceFile? provenance) {

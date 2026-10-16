@@ -12,7 +12,7 @@ import {
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit, jumpToReviewFile, reviewFileSegment } from "../harness/review";
-import type { HeadlessHost } from "../harness/weavie-host";
+import { type HeadlessHost, restartAndReconnect } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
@@ -118,14 +118,7 @@ test.describe("durable applied review", () => {
     );
 
     // This is a new host process, not a browser reload or reconnect to a live tracker.
-    await page.goto("about:blank");
-    await (weavie as HeadlessHost).restart();
-    const connect = await page.request.post(weavie.url, {
-      form: { token: weavie.token },
-      maxRedirects: 0,
-    });
-    expect(connect.status()).toBe(302);
-    await page.goto(weavie.url);
+    await restartAndReconnect(page, weavie as HeadlessHost);
     await expect(page.locator("#splash")).toHaveCount(0);
     // The harness terminates the previous process, so acknowledge its recovered exit evidence.
     const restartNotice = page.getByRole("alert").filter({

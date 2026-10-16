@@ -193,12 +193,10 @@ public interface IGitService {
 	Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
 
 	/// <summary>
-	/// Blames lines <paramref name="startLine"/>–<paramref name="endLine"/> of <paramref name="path"/>
-	/// (worktree-relative) against the working tree, so lines edited but not yet committed come back as
-	/// <see cref="BlameCommit.Uncommitted"/> rather than attributed to whoever wrote them last. Git stops at the
-	/// file's end, so the result is shorter when <paramref name="endLine"/> is past it; a start past it throws.
+	/// Blames <paramref name="path"/> (worktree-relative) against the working tree, so lines edited but not yet
+	/// committed come back as <see cref="BlameCommit.Uncommitted"/> rather than attributed to whoever wrote them last.
 	/// </summary>
-	Task<GitBlame> BlameLinesAsync(string worktreeDirectory, string path, int startLine, int endLine, CancellationToken ct = default);
+	Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default);
 
 	/// <summary>
 	/// Up to <paramref name="limit"/> commits that changed <paramref name="path"/>, newest first, following the
@@ -216,7 +214,7 @@ public interface IGitService {
 	/// commit, which is what <see cref="CommitHunkAsync"/> needs to show the change around it.
 	/// <para>
 	/// The traversal starts at <paramref name="startCommit"/> and the line numbers must be that commit's, as
-	/// <see cref="BlameLinesAsync"/> reports them. Line numbers from the working tree do not address the same line
+	/// <see cref="BlameFileAsync"/> reports them. Line numbers from the working tree do not address the same line
 	/// in <c>HEAD</c> once a file has uncommitted line-count changes. Throws when it isn't a full commit sha.
 	/// </para>
 	/// </summary>

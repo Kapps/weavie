@@ -130,7 +130,6 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(ApplicationMenuState))]
 [JsonSerializable(typeof(HostSession.AttachmentMessage))]
 [JsonSerializable(typeof(HostSession.AttachmentUploadMessage))]
-[JsonSerializable(typeof(HostCore.BlameRequest))]
 [JsonSerializable(typeof(HostCore.BlameResult))]
 [JsonSerializable(typeof(HostCore.BranchPreviewResult))]
 [JsonSerializable(typeof(HostSession.ChannelMessage))]

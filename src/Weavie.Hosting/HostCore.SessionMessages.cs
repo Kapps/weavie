@@ -135,8 +135,8 @@ public sealed partial class HostCore {
 
 		var git = session.Bus.Feature("git");
 		git.HandleConcurrent(
-			"blame", "Loading blame", WireJson.Default.BlameRequest, WireJson.Default.BlameResult,
-			(message, ct) => BlameLinesAsync(session, message, ct));
+			"blame", "Loading blame", WireJson.Default.FilePathRequest, WireJson.Default.BlameResult,
+			(message, ct) => BlameFileAsync(session, message, ct));
 		git.HandleConcurrent(
 			"commitHunk", "Loading a commit hunk", WireJson.Default.CommitHunkRequest, WireJson.Default.CommitHunkResult,
 			(message, ct) => CommitHunkAsync(session, message, ct));

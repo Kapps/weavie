@@ -159,6 +159,48 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
+	public void LargeFileWithManyAgentHunks_StoresEachTextAndPromptOnce() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		string original = string.Join("\n", Enumerable.Range(0, 100_000).Select(i => $"generated {i}"));
+		string generated = string.Join("\n", Enumerable.Range(0, 100_000).Select(i => i % 10 == 0 ? $"regenerated {i}" : $"generated {i}"));
+		files.WriteAllText(File, original);
+		var tracker = Tracker(files, persistence);
+		string prompt = new('p', 1_000);
+		tracker.Observe(new AgentPromptSubmitted(null, prompt));
+		Edit(tracker, files, generated);
+
+		var records = persistence.Read();
+		Assert.Equal([original, generated], records.Where(pair => pair.Key.StartsWith("text:", StringComparison.Ordinal))
+			.Select(pair => pair.Value).Order(StringComparer.Ordinal));
+		string file = records.Single(pair => pair.Key.StartsWith("file:", StringComparison.Ordinal)).Value;
+		Assert.Single(System.Text.RegularExpressions.Regex.Matches(file, prompt));
+		var change = Assert.Single(Tracker(files, persistence).TurnChanges());
+		Assert.Equal(original, change.BaselineText);
+		Assert.Equal(generated, change.CurrentText);
+	}
+
+	[Fact]
+	public void HugeFileWithScatteredEdits_RestoresAndClosesReview() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		string[] lines = [.. Enumerable.Range(0, 300_000).Select(i => $"field{i}: String")];
+		files.WriteAllText(File, string.Join("\n", lines));
+		var tracker = Tracker(files, persistence);
+		lines[3] = "agent top";
+		lines[^3] = "agent bottom";
+		Edit(tracker, files, string.Join("\n", lines));
+		lines[150_000] = "user middle";
+		files.WriteAllText(File, string.Join("\n", lines));
+
+		var resumed = Tracker(files, persistence);
+		resumed.RecordHandEdit(File, files.ReadAllText(File));
+		resumed.CloseReview();
+
+		Assert.Empty(Tracker(files, persistence).TurnChanges());
+	}
+
+	[Fact]
 	public void InvalidCheckpoint_FailsWithoutChangingItsDocumentOrFiles() {
 		var files = new InMemoryFileSystem();
 		files.WriteAllText(File, "user text\n");

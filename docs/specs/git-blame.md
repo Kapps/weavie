@@ -29,6 +29,7 @@ height is content-driven up to its maximum.
 | id | kind | behavior |
 |----|------|----------|
 | `editor.gitBlame` | setting, `off` \| `currentLine` \| `all`, default `currentLine` | Which lines are annotated |
+| `editor.gitBlameMaxLines` | setting, lines, default `5000` | Longer files aren't blamed at all |
 | `weavie.git.toggleBlame` | Core command | Flips the setting: any showing mode → `off`, `off` → `currentLine` |
 | `weavie.git.showBlame` | Web command, `editorFocused` | Opens the popover on the cursor's line, or says why that line has no commit behind it |
 
@@ -84,17 +85,13 @@ implementation:
   (`blame-model.ts`). The line an edit starts on keeps its attribution; inserted lines become unattributed,
   which is exactly what they are — the commit that will carry them doesn't exist yet.
 
-Only the visible lines (plus overscan) are **fetched** and decorated, re-run on scroll. Blaming a whole file
-stalls on a huge generated one — and a unified diff mounts an editor per file, each of which used to blame its
-file whole — while injected text costs per rendered line. Each visible stretch is its own window, since a diff's
-collapsed context can put lines thousands apart on one screen.
+Only the visible lines (plus overscan) are decorated, re-run on scroll: a long file's blame is thousands of
+lines and injected text costs per rendered line.
 
-The snapshot therefore records, per buffer line still to be fetched, its **disk line** — the address blame is
-fetched by. A fetched range lands on the buffer lines carrying those addresses, so a response stays correct even
-when edits moved lines while it was in flight; a fetch stops where deleted lines left a gap in the addresses. A
-disk change drops whatever was in flight and marks every line to be fetched again, but each keeps its last
-attribution on screen until the new one lands — an autosave mid-typing never blanks the annotations. A run that reaches up into unfetched lines stays unlabelled until they load, so a
-label never jumps once the lines above it arrive.
+A file longer than `editor.gitBlameMaxLines` isn't blamed at all. Git's cost scales with the file's size times
+its history, not with the lines asked for — `-L` still diffs the whole blob at every commit — so a 260k-line
+generated file with 100 commits takes Git about 6s per request whether it is asked for 25 lines or all of them.
+Show Blame on such a file names the limit and the setting rather than opening nothing.
 
 A file Git won't blame — untracked, binary, ignored — simply has no annotations, which is the honest
 rendering of "Git has nothing to say about these lines" and is not worth a toast every time one is opened.
@@ -113,8 +110,8 @@ sequenceDiagram
     participant P as popover (BlamePopover.tsx)
     participant H as HostCore.GitBlame
     participant G as git
-    E->>H: blame { path, startLine, endLine }
-    H->>G: blame --porcelain -L start,end
+    E->>H: blame { path }
+    H->>G: blame --porcelain
     G-->>H: commits + per-line attribution
     H-->>E: { commits, lineCommits, lineOriginals }
     Note over E: annotate the visible lines
@@ -128,8 +125,7 @@ sequenceDiagram
 ```
 
 `blame` is deduplicated on the wire: `commits` holds each commit once, and `lineCommits[i]` /
-`lineOriginals[i]` (for the range's `i`th line) index into it. Git stops at the file's end, so a shorter answer
-means the rest of the asked range is past it. `git blame --porcelain` already emits this shape — a commit's headers appear
+`lineOriginals[i]` index into it. `git blame --porcelain` already emits this shape — a commit's headers appear
 only on its first line — so the parser carries them forward rather than rebuilding them per line.
 
 ### Why `lineOriginals` matters

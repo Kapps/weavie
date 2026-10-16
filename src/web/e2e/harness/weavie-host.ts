@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { delimiter, join } from "node:path";
+import { expect, type Page } from "@playwright/test";
 import { waitForWorkspace } from "../capture-workspace.mjs";
 import {
   type FakeInference,
@@ -35,6 +36,18 @@ export interface WeavieHost {
 export interface HeadlessHost extends WeavieHost {
   /** Restart the actual host process while retaining its isolated HOME and workspace. */
   restart(): Promise<void>;
+}
+
+/** Restarts the host as a new process and signs the page back in to it. */
+export async function restartAndReconnect(page: Page, weavie: HeadlessHost): Promise<void> {
+  await page.goto("about:blank");
+  await weavie.restart();
+  const connect = await page.request.post(weavie.url, {
+    form: { token: weavie.token },
+    maxRedirects: 0,
+  });
+  expect(connect.status()).toBe(302);
+  await page.goto(weavie.url);
 }
 
 export interface WorkspaceSeed {

@@ -483,6 +483,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "consultAgent":
 				await HandleConsultAgentAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "awaitConsult":
+				await HandleAwaitConsultAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			case "addReviewHint":
 				await HandleAddReviewHintAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
@@ -932,11 +935,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		_editor?.Changed -= OnActiveEditorChanged;
-
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
 			_cts.Dispose();
 		}
+
+		await _consultsLifetime.CancelAsync().ConfigureAwait(false);
+		_consultsLifetime.Dispose();
 
 		_listener?.Stop();
 		_sendLock.Dispose();

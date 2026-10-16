@@ -642,7 +642,7 @@ export function createInlineDiff(
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
-      return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
+      return keepFile(); // no geometry was rendered (failed): only whole-file Keep is meaningful
     }
     const scope = presentation.scope.current;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -1073,10 +1073,6 @@ export function createInlineDiff(
       model.getVersionId() !== version ||
       diffs.get(uriString) !== options
     ) {
-      return;
-    }
-    if (calculation.status === "timed-out") {
-      renderUnavailable(uriString, options, "Diff calculation timed out");
       return;
     }
     if (calculation.status === "failed") {

@@ -444,11 +444,17 @@ public sealed partial class HostCore {
 			() => {
 				if (session.Changes.RevertHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)
 					== RevertHunkOutcome.GuardMismatch) {
-					Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-					PushTurnDiffToWeb(session, path);
+					RefuseStaleHunkAction(session, path);
 				}
 			},
 			ex => $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+	}
+
+	// The hunk was drawn from a diff the file has since moved past — an outside edit, or the user's own keep a moment
+	// earlier. Nothing was written; re-sending the current diff redraws it, so trying again acts on what's shown.
+	private void RefuseStaleHunkAction(HostSession session, string path) {
+		Notify(session, "warn", $"{Path.GetFileName(path)} changed since its diff was drawn. The diff has refreshed — try again.");
+		PushTurnDiffToWeb(session, path);
 	}
 
 	/// <summary>
@@ -484,8 +490,7 @@ public sealed partial class HostCore {
 		string guardText = root.GetStringOrEmpty("guardText");
 
 		if (!session.Changes.KeepHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)) {
-			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			PushTurnDiffToWeb(session, path);
+			RefuseStaleHunkAction(session, path);
 			return;
 		}
 
@@ -525,8 +530,7 @@ public sealed partial class HostCore {
 		string guardText = root.GetStringOrEmpty("guardText");
 
 		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
-			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			PushTurnDiffToWeb(session, path);
+			RefuseStaleHunkAction(session, path);
 			return;
 		}
 

@@ -11,6 +11,9 @@ public static class AgentSettings {
 	/// <summary>How long (ms) to batch a structured pane's live messages into one bridge frame; 0 sends each inline.</summary>
 	public const string PaneCoalesceMs = "agent.paneCoalesceMs";
 
+	/// <summary>How long (seconds) one consultAgent/awaitConsult call waits before returning the consult id to wait again.</summary>
+	public const string ConsultWaitSeconds = "agent.consultWaitSeconds";
+
 	/// <summary>Automatically allows ACP tool permissions, excluding mode changes such as plan approval.</summary>
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 

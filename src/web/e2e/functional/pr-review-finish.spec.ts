@@ -31,6 +31,9 @@ async function commentOnLine(
 // in the 2026-10-15 release runs, so the fix above was not the cause): `commentOnLine` jumped to the document start
 // with ControlOrMeta+Home, which Monaco leaves unbound on macOS, so the second comment was placed from wherever the
 // click landed and no draft opened. Fixed by using the platform-aware pressDocumentStart.
+// FLAKE 2026-10-15 ~05:00Z (macOS): the draft composer never appeared after "Comment on Line" and the test hit its 60s timeout.
+// https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231850
+// Same cause as the 2026-10-16 entry above (ControlOrMeta+Home is a no-op on macOS); fixed the same way.
 test("comments queue as drafts in place and submit once with a verdict", async ({ page }) => {
   await openCommentedFile(page);
   await commentOnLine(page, 5, "Posted right away.", "Comment now");

@@ -89,9 +89,9 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		review.Handle("undo", "Undoing a review action", WireJson.Default.JsonElement, WireJson.Default.ReviewHistoryLocation, (message, _) =>
-			Task.FromResult(ReviewUndo(session, message)));
+			Task.FromResult(RunReviewAction(session, () => ReviewUndo(session, message))));
 		review.Handle("redo", "Redoing a review action", WireJson.Default.EmptyPayload, WireJson.Default.ReviewHistoryLocation, (_, _) =>
-			Task.FromResult(ReviewRedo(session)));
+			Task.FromResult(RunReviewAction(session, () => ReviewRedo(session))));
 		review.Handle("showFile", "Showing a reviewed file", WireJson.Default.FilePathMessage, (message, _) => {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;

@@ -48,6 +48,32 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task AFailedReviewActionResendsTheReviewState() {
+		// The page fetches review texts by revision and waits on the next push for a superseded one, so an action
+		// that fails partway must push the review state again rather than leave a file calculating forever.
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.WriteAllText(path, "hello\nworld\n");
+		var session = host.SelectedSession;
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+		await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		int changesBefore = host.Bridge.PostedEvents(session.Address, "review", "changes").Count;
+		int diffsBefore = host.Bridge.PostedEvents(session.Address, "review", "diff").Count;
+		File.SetAttributes(path, FileAttributes.ReadOnly);
+		try {
+			host.SessionEvent(session, "review", "revertFile", new { path });
+
+			await Wait.UntilAsync(() => host.Bridge.PostedEvents(session.Address, "review", "diff").Count > diffsBefore);
+			Assert.True(host.Bridge.PostedEvents(session.Address, "review", "changes").Count > changesBefore);
+			Assert.Contains(
+				host.Bridge.PostedEvents("notifications", "show"),
+				toast => toast.GetProperty("message").GetString()!.StartsWith("Couldn't revert readme.txt", StringComparison.Ordinal));
+		} finally {
+			File.SetAttributes(path, FileAttributes.Normal);
+		}
+	}
+
+	[Fact]
 	public async Task DiffAgainstHead_RevertFile_RestoresRefContentOnDisk() {
 		// Diff Against is no longer read-only: a Reject writes the ref (baseline) back over the worktree file — an
 		// uncommitted backout — through the same tracker a turn revert uses.

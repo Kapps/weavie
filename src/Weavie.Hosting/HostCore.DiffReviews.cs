@@ -141,7 +141,18 @@ public sealed partial class HostCore {
 			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
 			ReviewSeed[] armed = [.. seeds.Select(seed => new ReviewSeed(seed.Absolute,
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists))];
-			if (!(replaces is null ? session.Changes.ArmReview(review, armed, request) : session.Changes.ReplaceReview(review, armed, request, replaces)))
+			bool armedReview;
+			try {
+				armedReview = replaces is null
+					? session.Changes.ArmReview(review, armed, request)
+					: session.Changes.ReplaceReview(review, armed, request, replaces);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				// Arming may have replaced what the page holds revisions of before it failed.
+				PushReviewStateToWeb(session, session.Bus.BroadcastTarget);
+				throw;
+			}
+
+			if (!armedReview)
 				return Task.FromResult(false);
 
 			PushTurnChangesToWeb(session);

@@ -157,3 +157,36 @@ test("tab switches restore the exact hunk and history actions update the shared 
   await expect(counter).toContainText("change 2/2");
   await expect(overview).toBeVisible();
 });
+
+test("the tab-strip switch and its shortcut flip views at the current change", async ({ page }) => {
+  await awaitReviewSet(page, ["notes.txt", "review.txt"]);
+  await page.locator(".editor-review-open").click();
+  const overview = page.locator(".unified-review");
+  const allFiles = page.locator(".editor-review-segment", { hasText: "All files" });
+  const thisFile = page.locator(".editor-review-segment", { hasText: "This file" });
+  await expect(allFiles).toHaveAttribute("aria-pressed", "true");
+  await reviewFileSegment(overview, "review.txt").click();
+  const counter = page.locator(".weavie-inline-toolbar .weavie-inline-stack-sub");
+  await page.locator(".weavie-inline-toolbar button[title^='Next change']").click();
+  await expect(counter).toContainText("change 2/2");
+
+  await thisFile.click();
+  await expect(page.locator(".editor-tab.active")).toContainText("review.txt");
+  await expect(thisFile).toHaveAttribute("aria-pressed", "true");
+  await expect(counter).toContainText("change 2/2");
+
+  await page.keyboard.press("ControlOrMeta+Shift+U");
+  await expect(page.locator(".editor-tab.active")).toContainText("Review Changes");
+  await expect(allFiles).toHaveAttribute("aria-pressed", "true");
+  await expect(overview.locator(".weavie-inline-stack-name")).toHaveText("review.txt");
+  await expect(counter).toContainText("change 2/2");
+
+  await reviewFileSegment(overview, "notes.txt").click();
+  await overview
+    .locator(".unified-review-file", {
+      has: page.locator(".unified-review-file-name", { hasText: "notes.txt" }),
+    })
+    .locator(".unified-review-file-open")
+    .click();
+  await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
+});

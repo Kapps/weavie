@@ -11,7 +11,7 @@ public sealed class SessionChangeTrackerIncrementalTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string Target = Path.Combine(Root, "target.txt");
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
-		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, persistence);
+		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
 	[Theory]
 	[InlineData(0)]
@@ -37,7 +37,8 @@ public sealed class SessionChangeTrackerIncrementalTests {
 		tracker.RecordChange(Target);
 
 		var write = Assert.Single(persistence.Writes);
-		Assert.Equal(2, write.Count);
+		Assert.Single(write, pair => pair.Key.StartsWith("text:", StringComparison.Ordinal) && pair.Value is not null);
+		Assert.Equal(3, write.Count);
 		Assert.True(write.ContainsKey("metadata"));
 		var file = Assert.Single(write, pair => pair.Key.StartsWith("file:", StringComparison.Ordinal));
 		Assert.Equal(Target, JsonNode.Parse(file.Value!)!["Path"]!.GetValue<string>());
@@ -64,7 +65,8 @@ public sealed class SessionChangeTrackerIncrementalTests {
 		tracker.RecordHandEdit(paths[0], files.ReadAllText(paths[0]));
 
 		var write = Assert.Single(persistence.Writes);
-		Assert.Equal(2, write.Count);
+		Assert.Single(write, pair => pair.Key.StartsWith("text:", StringComparison.Ordinal) && pair.Value is not null);
+		Assert.Equal(3, write.Count);
 		var group = Assert.Single(write, pair => pair.Key.StartsWith("history-patches:", StringComparison.Ordinal));
 		Assert.Equal(paths[0], JsonNode.Parse(group.Value!)!["Path"]!.GetValue<string>());
 		Assert.True(Tracker(files, persistence).UndoLastRevert().Acted);

@@ -167,6 +167,13 @@ public interface IGitService {
 	Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default);
 
 	/// <summary>
+	/// Which of <paramref name="paths"/> (absolute, inside <paramref name="directory"/>'s worktree) git ignores
+	/// (<c>git check-ignore</c>): tracked files never are, and a path beneath a symlink or nested repository follows
+	/// that entry. Empty outside a repository.
+	/// </summary>
+	Task<IReadOnlySet<string>> FindIgnoredAsync(string directory, IReadOnlyList<string> paths, CancellationToken ct = default);
+
+	/// <summary>
 	/// The files that differ between <paramref name="baseRef"/> and the working tree — <c>git diff &lt;base&gt;</c>
 	/// plus untracked-but-not-ignored files (all-added) — with added/removed line counts, path-ordered. The
 	/// changed-file list for a "diff against" review.

@@ -106,7 +106,7 @@ export function createReviewEditor(options: {
       ),
   );
   const editor = viewport.editor as CollapsingEditor;
-  // Undefined until InlineDiff first lays out the diff; null for a timed-out diff.
+  // Undefined until InlineDiff first lays out the diff; null for a failed diff.
   let markers: DiffMarkers | null | undefined;
   let hidden: monaco.IRange[] = [];
   // Each band's zone id → the stretch it reveals; Monaco's text layer owns clicks on zones.
@@ -264,7 +264,7 @@ export function createReviewEditor(options: {
   options.configure(inline, model.uri.toString(), options.diff);
   measure();
   constructing = false;
-  container.classList.toggle("navigable", options.diff.currentExists);
+  container.classList.toggle("navigable", options.diff.revision !== null);
   let pressed = "";
   let bandAnchor: number | undefined;
   const clickTarget = (event: monaco.editor.IEditorMouseEvent): string => {
@@ -282,7 +282,7 @@ export function createReviewEditor(options: {
     editor.onMouseLeave(() => hover(undefined)),
     editor.onMouseMove((event) => {
       hover(gaps.get(clickTarget(event)));
-      if (options.diff.currentExists && isLineNumber(event.target))
+      if (options.diff.revision !== null && isLineNumber(event.target))
         event.target.element!.title = "Open file at this line";
     }),
     // A plain click on a band or line number acts; a drag or modified click keeps Monaco's selection.
@@ -302,7 +302,7 @@ export function createReviewEditor(options: {
         bandAnchor = start === 1 ? end + 1 : start - 1;
         options.revealContext(gap.span);
         bandAnchor = undefined;
-      } else if (options.diff.currentExists)
+      } else if (options.diff.revision !== null)
         void runCommandWithFeedback(CommandIds.reviewOpen, {
           path: options.diff.path,
           line: event.target.position!.lineNumber,

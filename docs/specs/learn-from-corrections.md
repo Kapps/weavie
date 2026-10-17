@@ -56,9 +56,9 @@ All in `Weavie.Core.Corrections` unless noted:
   distinct correction.
 - **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
   `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from completed hand-edit captures and reverts.
-- **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
-  changed region's range on both sides. Its exact linear-memory alignment backs both provenance tracking and
-  `CorrectionDiff` (one alignment, no coarse large-file fallback).
+- **`LineHunker`** (`Weavie.Core.Changes`) — the line alignment (patience-anchored Myers diff with git xdiff's cost bound, so large files stay fast): `Hunks(before, after)` returns each
+  changed region's range on both sides. Its linear-memory alignment, minimal below the cost bound, backs both
+  provenance tracking and `CorrectionDiff` (one alignment for both).
 
 The corpus is **per-workspace** (rules about "how the agent codes in this repo" are repo-level, pooled
 across every session/worktree), which is why it is a standalone store owned by `HostCore` and **not** part

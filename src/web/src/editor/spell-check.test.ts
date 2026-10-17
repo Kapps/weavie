@@ -33,6 +33,7 @@ vi.mock("./monaco-setup", () => ({
   },
 }));
 
+import { notify } from "../notify/notify";
 import type { monaco } from "./monaco-setup";
 import { createSpellCheck } from "./spell-check";
 
@@ -194,5 +195,29 @@ it("clears retained markers for an empty viewport and on model changes", async (
   set.mockClear();
   switchModel();
   expect(set).toHaveBeenCalledExactlyOnceWith([]);
+  spelling.dispose();
+});
+
+it("keeps markers without an error when the language server cancels its token request", async () => {
+  const { spelling, set, scroll } = fixture("teh", 1, 4);
+  bridge.request.mockResolvedValue([{ line: 1, offset: 0, word: "teh" }]);
+  await vi.advanceTimersByTimeAsync(100);
+  set.mockClear();
+  vi.mocked(notify).mockClear();
+  tokenization.load.mockRejectedValueOnce(
+    Object.assign(new Error("Canceled"), { name: "Canceled" }),
+  );
+  scroll();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(notify).not.toHaveBeenCalled();
+  expect(set).not.toHaveBeenCalled();
+  tokenization.load.mockRejectedValueOnce(new Error("boom"));
+  scroll();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(notify).toHaveBeenCalledExactlyOnceWith(
+    "error",
+    "Spell check failed: Error: boom",
+    "spell-check",
+  );
   spelling.dispose();
 });

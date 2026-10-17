@@ -7,7 +7,7 @@ import { openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { type FakeStep, writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit, openPullRequestFile } from "../harness/review";
-import type { HeadlessHost } from "../harness/weavie-host";
+import { type HeadlessHost, restartAndReconnect } from "../harness/weavie-host";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 // Inline review hints: agent findings captured from Claude's ReportFindings hook or the addReviewHint tool render as
@@ -492,14 +492,7 @@ test.describe("persistence", () => {
 
     await test.step("host restart", async () => {
       await writeFakeScript(weavie.home, []);
-      await page.goto("about:blank");
-      await (weavie as HeadlessHost).restart();
-      const connect = await page.request.post(weavie.url, {
-        form: { token: weavie.token },
-        maxRedirects: 0,
-      });
-      expect(connect.status()).toBe(302);
-      await page.goto(weavie.url);
+      await restartAndReconnect(page, weavie as HeadlessHost);
       await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
       await openFile(page, "hello.ts");
       await expect(pill).toHaveText("✦ Warning Persisted hint");

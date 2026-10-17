@@ -149,6 +149,8 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostSession.DirectoryListingMessage))]
 [JsonSerializable(typeof(HostCore.EditorFlushResult))]
 [JsonSerializable(typeof(HostCore.FilePathMessage))]
+[JsonSerializable(typeof(HostCore.ReviewTextRequest))]
+[JsonSerializable(typeof(HostCore.ReviewTextResult))]
 [JsonSerializable(typeof(HostCore.FilePathRequest))]
 [JsonSerializable(typeof(HostCore.PreviewGrant))]
 [JsonSerializable(typeof(HostCore.PreviewRelease))]

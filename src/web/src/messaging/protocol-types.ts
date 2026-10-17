@@ -35,6 +35,8 @@ export interface SessionChip {
   lastActiveAt: number | null;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
+  /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
+  external: boolean;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";
@@ -277,6 +279,7 @@ export interface EditorOptionsSpec {
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;
+  gitBlameMaxLines: number;
   reviewOverviewCollapse: "global" | "session";
   spellCheck: boolean;
 }

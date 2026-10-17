@@ -43,7 +43,9 @@ def publish_stable(api, plan, assets, run_command):
         if existing is None or existing["draft"]:
             if existing is not None:
                 api.request("DELETE", f"releases/{existing['id']}", None)
+            # gh prepends --notes to the generated notes.
             run_command(["gh", "release", "create", tag, "--draft", "--verify-tag", "--generate-notes",
+                         "--notes", f"Build {plan['version']}.{plan['build']} from commit {plan['commit']}.",
                          "--title", f"Weavie {plan['version']} (build {plan['build']})", *map(str, assets)])
             run_command(["gh", "release", "edit", tag, "--draft=false", "--latest=false"])
         else:
@@ -95,8 +97,7 @@ def main():
     plan = json.loads(Path("release-assets/release-plan.json").read_text())
     api = GitHub()
     platforms = json.loads(Path(".github/platforms.json").read_text())
-    names = ["weavie-runner-linux-x64.tar.gz", *[p["asset"] for p in platforms
-             if plan["channel"] == "stable" or p["name"] == "linux"]]
+    names = ["weavie-runner-linux-x64.tar.gz", *[p["asset"] for p in platforms]]
     assets = [Path("release-assets") / name for name in (*names, "release-plan.json")]
     for asset in assets:
         if not asset.is_file():
@@ -111,7 +112,7 @@ def main():
         subprocess.run(["bash", ".github/scripts/publish-main-latest.sh", plan["commit"],
                         f"main-latest-{os.environ['GITHUB_RUN_ID']}", os.environ["GITHUB_API_URL"],
                         os.environ["GITHUB_REPOSITORY"], f"{plan['version']}.{plan['build']}",
-                        "release-assets", str(plan["automatic"]).lower()], check=True)
+                        str(plan["automatic"]).lower(), *map(str, assets)], check=True)
         link = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/main-latest"
     else:
         raise ValueError("Unknown release channel")

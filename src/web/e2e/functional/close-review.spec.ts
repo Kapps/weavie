@@ -7,7 +7,7 @@ import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet } from "../harness/navigator";
 import { appliedEdit, reviewFileSegment } from "../harness/review";
-import type { HeadlessHost } from "../harness/weavie-host";
+import { type HeadlessHost, restartAndReconnect } from "../harness/weavie-host";
 
 const ORIGINAL = "just plain text\n";
 const CHANGED = `${ORIGINAL}keep this addition\n`;
@@ -53,14 +53,7 @@ test.describe("close diff", () => {
       await openFile(page, "notes.txt");
       await expectClosed(page);
 
-      await page.goto("about:blank");
-      await (weavie as HeadlessHost).restart();
-      const connect = await page.request.post(weavie.url, {
-        form: { token: weavie.token },
-        maxRedirects: 0,
-      });
-      expect(connect.status()).toBe(302);
-      await page.goto(weavie.url);
+      await restartAndReconnect(page, weavie as HeadlessHost);
       await expect(page.locator("#splash")).toHaveCount(0);
       await openFile(page, "notes.txt");
       await expectClosed(page);

@@ -89,13 +89,16 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		review.Handle("undo", "Undoing a review action", WireJson.Default.JsonElement, WireJson.Default.ReviewHistoryLocation, (message, _) =>
-			Task.FromResult(ReviewUndo(session, message)));
+			Task.FromResult(RunReviewAction(session, () => ReviewUndo(session, message))));
 		review.Handle("redo", "Redoing a review action", WireJson.Default.EmptyPayload, WireJson.Default.ReviewHistoryLocation, (_, _) =>
-			Task.FromResult(ReviewRedo(session)));
+			Task.FromResult(RunReviewAction(session, () => ReviewRedo(session))));
 		review.Handle("showFile", "Showing a reviewed file", WireJson.Default.FilePathMessage, (message, _) => {
 			PushTurnDiffToWeb(session, message.Path);
 			return Task.CompletedTask;
 		});
+		review.HandleConcurrent(
+			"text", "Loading a review baseline", WireJson.Default.ReviewTextRequest, WireJson.Default.ReviewTextResult,
+			(message, _) => Task.FromResult(new ReviewTextResult(session.Changes.ReviewText(message.Path, message.Revision))));
 		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewOpened, (message, ct) =>
 			DiffAgainstFromWebAsync(session, message.Reference, message.Replaces, ct));
 		review.Handle("diffAgainstBase", "Reviewing the branch", WireJson.Default.DiffAgainstBaseMessage, WireJson.Default.ReviewOpened, (message, ct) =>
@@ -230,6 +233,11 @@ public sealed partial class HostCore {
 	internal sealed record EditorFlushResult(JsonElement Session, long Basis);
 
 	internal sealed record FilePathMessage(string Path);
+
+	internal sealed record ReviewTextRequest(string Path, string Revision);
+
+	/// <summary>A review baseline's text, or null once its revision is superseded by a newer turn diff.</summary>
+	internal sealed record ReviewTextResult(string? Text);
 
 	internal sealed record PreviewGrant(string Grant, string Base);
 

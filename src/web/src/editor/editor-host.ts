@@ -44,7 +44,7 @@ export interface ReviewCopy {
 
 /** Owns every model reference acquired by one mounted unified-review surface. */
 export interface ReviewCopyScope {
-  open(path: string, current: string, currentExists: boolean): Promise<ReviewCopy>;
+  open(path: string, currentExists: boolean): Promise<ReviewCopy>;
   dispose(): void;
 }
 
@@ -540,7 +540,7 @@ export async function createEditorHost(
     reviewScopes.add(dispose);
 
     return {
-      open: async (path, current, currentExists) => {
+      open: async (path, currentExists) => {
         if (disposed || session.signal.aborted) {
           throw new Error("the review closed while this file was loading");
         }
@@ -552,7 +552,7 @@ export async function createEditorHost(
             return { model: held, editable: false };
           }
           const uri = fileUri.with({ scheme: REVIEW_SCHEME, query: `deleted=${scope}` });
-          const model = monaco.editor.createModel(current, undefined, uri);
+          const model = monaco.editor.createModel("", undefined, uri);
           if (disposed || session.signal.aborted) {
             model.dispose();
             throw new Error("the review closed while this file was loading");

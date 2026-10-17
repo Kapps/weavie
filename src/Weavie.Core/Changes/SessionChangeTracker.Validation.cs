@@ -12,7 +12,7 @@ public sealed partial class SessionChangeTracker {
 		&& patch.Boundaries is not null && patch.Boundaries.All(boundary => boundary is not null && boundary.PatchId > 0 && boundary.Offset >= 0);
 
 	private static bool ValidOrigins(OriginSlice? origins, int length) => origins is null
-		|| origins.Lines is not null && origins.Lines.Length <= length && ValidGaps(origins.Gaps, length);
+		|| !origins.Lines.IsDefault && origins.Lines.Length <= length && ValidGaps(origins.Gaps, length);
 
 	private static bool ValidGaps<T>(IReadOnlyDictionary<int, T>? gaps, int length) where T : class, IReadOnlyList<DeletedSegment> => gaps is not null
 		&& gaps.All(pair => pair.Key >= 0 && pair.Key <= length && pair.Value is not null

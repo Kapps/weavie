@@ -19,6 +19,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   activity: null,
   lastActiveAt: null,
   workspaceCheckout: false,
+  external: false,
   backendId: "local",
   locationName: "default",
   isLocal: true,
@@ -71,5 +72,11 @@ describe("sessionSubtitle", () => {
     );
     expect(sessionSubtitle(session({ loaded: false, activity: "stale" }), NOW)).toBe("not loaded");
     expect(sessionSubtitle(session({ offline: true }), NOW)).toBe("connection lost");
+  });
+
+  it("marks a worktree Weavie didn't create", () => {
+    expect(sessionSubtitle(session({ loaded: false, external: true }), NOW)).toBe(
+      "outside Weavie · not loaded",
+    );
   });
 });

@@ -18,6 +18,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     activity: null,
     lastActiveAt: null,
     workspaceCheckout: false,
+    external: false,
     backendId: "local",
     locationName: "default",
     isLocal: true,

@@ -444,6 +444,42 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<IReadOnlySet<string>> FindIgnoredAsync(string directory, IReadOnlyList<string> paths, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentNullException.ThrowIfNull(paths);
+		if (paths.Count == 0) return new HashSet<string>();
+		string root = Path.GetFullPath(directory);
+		var queries = paths.Select(path => (Path: path, Query: IgnoreQueryPath(root, path))).ToList();
+		// Exit 1 means nothing matched; -z with --stdin keeps any path name intact both ways.
+		var result = await RunAsync(directory, ["check-ignore", "-z", "--stdin"],
+			string.Join('\0', queries.Select(query => query.Query).Distinct(StringComparer.Ordinal)), ct).ConfigureAwait(false);
+		if (result.ExitCode is not (0 or 1)) {
+			if (IsNotRepository(result)) return new HashSet<string>();
+			throw new GitException($"git check-ignore failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+		}
+
+		var ignored = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+		return queries.Where(query => ignored.Contains(query.Query)).Select(query => query.Path).ToHashSet(StringComparer.Ordinal);
+	}
+
+	// Git refuses pathspecs past a symlink or inside a nested repository; the entry at that boundary decides for
+	// everything beneath it.
+	private static string IgnoreQueryPath(string root, string path) {
+		string relative = Path.GetRelativePath(root, Path.GetFullPath(path));
+		if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)) {
+			throw new ArgumentException($"'{path}' is outside '{root}'.", nameof(path));
+		}
+
+		string current = root;
+		foreach (string segment in relative.Split(Path.DirectorySeparatorChar)[..^1]) {
+			current = Path.Combine(current, segment);
+			if (new DirectoryInfo(current).LinkTarget is not null || Path.Exists(Path.Combine(current, ".git"))) return current;
+		}
+
+		return path;
+	}
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(fromRef);
@@ -492,7 +528,7 @@ public sealed partial class GitService : IGitService {
 			return [.. paths];
 		}
 
-		if (result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) {
+		if (IsNotRepository(result)) {
 			return null;
 		}
 
@@ -682,6 +718,9 @@ public sealed partial class GitService : IGitService {
 		}
 	}
 
+	private static bool IsNotRepository(ProcessCaptureResult result) =>
+		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase);
+
 	private static async Task<ProcessCaptureResult> RunCheckedAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
 		var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
@@ -692,8 +731,12 @@ public sealed partial class GitService : IGitService {
 		return result;
 	}
 
+	private static Task<ProcessCaptureResult> RunAsync(
+		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>
+		RunAsync(workingDirectory, args, string.Empty, ct);
+
 	private static async Task<ProcessCaptureResult> RunAsync(
-		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
+		string workingDirectory, IReadOnlyList<string> args, string standardInput, CancellationToken ct) {
 		if (!Directory.Exists(workingDirectory)) {
 			throw new GitException($"Git working directory does not exist: {workingDirectory}");
 		}
@@ -703,6 +746,7 @@ public sealed partial class GitService : IGitService {
 				FileName = "git",
 				Arguments = args,
 				WorkingDirectory = workingDirectory,
+				StandardInput = standardInput,
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
 					["LC_ALL"] = "C",
 					["GIT_TERMINAL_PROMPT"] = "0", // Weavie owns no terminal to answer a prompt on.

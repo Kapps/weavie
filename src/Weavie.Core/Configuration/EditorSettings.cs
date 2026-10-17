@@ -87,6 +87,9 @@ public static class EditorSettings {
 	/// <summary>Which lines carry the faded Git blame annotation — none/the cursor's/every line (custom behavior).</summary>
 	public const string GitBlame = "editor.gitBlame";
 
+	/// <summary>The longest file, in lines, that is blamed — Git's cost scales with file size times history.</summary>
+	public const string GitBlameMaxLines = "editor.gitBlameMaxLines";
+
 	/// <summary>Whether the session overview remembers collapsed sections for all sessions or per session.</summary>
 	public const string ReviewOverviewCollapse = "editor.reviewOverviewCollapse";
 
@@ -97,7 +100,7 @@ public static class EditorSettings {
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay, GitBlame, ReviewOverviewCollapse,
+		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -115,6 +118,10 @@ public static class EditorSettings {
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
 	private const long DefaultHoverDelay = 300;
 	private const long MaxHoverDelay = 5000;
+
+	// A long file with real history takes Git seconds to blame (6s for 260k lines over 100 commits).
+	private const long DefaultGitBlameMaxLines = 5000;
+	private const long MaxGitBlameMaxLines = 10_000_000;
 
 	private const long DefaultMouseWheelScrollSensitivity = 1;
 	private const long DefaultFastScrollSensitivity = 5;
@@ -244,6 +251,13 @@ public static class EditorSettings {
 				"inline blame", "commit annotations"],
 			[GitBlameOff, GitBlameCurrentLine, GitBlameAll], GitBlameCurrentLine));
 
+		registry.Register(Ranged(GitBlameMaxLines,
+			"The longest file, in lines, that Git blame runs for. Blaming a long file with real history takes Git "
+				+ "seconds, so longer files (often generated ones) carry no blame annotations, and Show Blame says why. "
+				+ "Defaults to 5000.",
+			["git blame limit", "blame max lines", "blame large files", "blame size limit", "skip blame"],
+			DefaultGitBlameMaxLines, 1, MaxGitBlameMaxLines, "lines"));
+
 		registry.Register(Choice(ReviewOverviewCollapse,
 			"What remembers the session overview's collapsed sections (Commits, Checks, …) at the top of the review "
 				+ "tab: 'global' (the default) collapses a section in every session at once; 'session' remembers each "
@@ -289,6 +303,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));
+		writer.WriteNumber("gitBlameMaxLines", store.RequireInt(GitBlameMaxLines));
 		writer.WriteString("reviewOverviewCollapse", store.RequireString(ReviewOverviewCollapse));
 		writer.WriteEndObject();
 	}

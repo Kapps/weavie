@@ -176,9 +176,8 @@ describe("DiffComputer", () => {
     remounted.dispose();
   });
 
-  it.each(["failed", "timed-out"])("does not reuse %s calculations on remount", async (status) => {
-    if (status === "failed") worker.computeDiff.mockRejectedValueOnce(new Error("worker failed"));
-    else worker.computeDiff.mockResolvedValueOnce({ quitEarly: true, changes: [] });
+  it("does not reuse failed calculations on remount", async () => {
+    worker.computeDiff.mockRejectedValueOnce(new Error("worker failed"));
     const model = liveModel("file:///reviewed") as never;
     const sources = { original: "before", claudeVersion: undefined, acceptedBaseline: undefined };
     const first = new DiffComputer();
@@ -191,5 +190,17 @@ describe("DiffComputer", () => {
     });
     expect(worker.computeDiff).toHaveBeenCalledTimes(2);
     remounted.dispose();
+  });
+
+  it("lets the worker take as long as the diff needs", async () => {
+    worker.computeDiff.mockResolvedValue({ quitEarly: false, changes: [] });
+    const computer = new DiffComputer();
+    await computer.compute(
+      "file:///reviewed",
+      { original: "before", claudeVersion: undefined, acceptedBaseline: undefined },
+      liveModel("file:///reviewed") as never,
+    );
+    expect(worker.computeDiff.mock.calls[0]![2]).toMatchObject({ maxComputationTimeMs: 0 });
+    computer.dispose();
   });
 });

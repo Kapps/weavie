@@ -1,7 +1,7 @@
 # Git blame annotations
 
 Status: implemented
-Last updated: 2026-08-21
+Last updated: 2026-10-15
 
 Who last changed each line, shown as faded text at the end of it, and a popover behind each one that answers
 the question the annotation raises: **what was the change that produced this line?** The popover's subject is
@@ -29,6 +29,7 @@ height is content-driven up to its maximum.
 | id | kind | behavior |
 |----|------|----------|
 | `editor.gitBlame` | setting, `off` \| `currentLine` \| `all`, default `currentLine` | Which lines are annotated |
+| `editor.gitBlameMaxLines` | setting, lines, default `5000` | Longer files aren't blamed at all |
 | `weavie.git.toggleBlame` | Core command | Flips the setting: any showing mode → `off`, `off` → `currentLine` |
 | `weavie.git.showBlame` | Web command, `editorFocused` | Opens the popover on the cursor's line, or says why that line has no commit behind it |
 
@@ -86,6 +87,11 @@ implementation:
 
 Only the visible lines (plus overscan) are decorated, re-run on scroll: a long file's blame is thousands of
 lines and injected text costs per rendered line.
+
+A file longer than `editor.gitBlameMaxLines` isn't blamed at all. Git's cost scales with the file's size times
+its history, not with the lines asked for — `-L` still diffs the whole blob at every commit — so a 260k-line
+generated file with 100 commits takes Git about 6s per request whether it is asked for 25 lines or all of them.
+Show Blame on such a file names the limit and the setting rather than opening nothing.
 
 A file Git won't blame — untracked, binary, ignored — simply has no annotations, which is the honest
 rendering of "Git has nothing to say about these lines" and is not worth a toast every time one is opened.

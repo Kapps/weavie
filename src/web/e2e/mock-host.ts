@@ -28,6 +28,7 @@ export interface MockSession {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   lastActiveAt: number | null;
   workspaceCheckout: boolean;
+  external: boolean;
   shellTerminals: string[];
 }
 
@@ -76,6 +77,7 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     status: "idle",
     lastActiveAt: null,
     workspaceCheckout: false,
+    external: false,
     shellTerminals: [`${id}-shell`],
   };
 }

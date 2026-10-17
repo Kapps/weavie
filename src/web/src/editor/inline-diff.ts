@@ -642,7 +642,7 @@ export function createInlineDiff(
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
-      return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
+      return keepFile(); // no geometry was rendered (failed): only whole-file Keep is meaningful
     }
     const scope = presentation.scope.current;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -1075,10 +1075,6 @@ export function createInlineDiff(
     ) {
       return;
     }
-    if (calculation.status === "timed-out") {
-      renderUnavailable(uriString, options, "Diff calculation timed out");
-      return;
-    }
     if (calculation.status === "failed") {
       log("error", `inline diff calculation failed: ${String(calculation.error)}`);
       renderUnavailable(uriString, options, "Diff calculation failed");
@@ -1312,6 +1308,7 @@ export function createInlineDiff(
   // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
   // to its file:// URI; the review path passes the transient model's URI).
   const setByUri = (key: string, options: InlineDiffOptions): void => {
+    if (disposed) return;
     if (!diffs.has(key) && options.mode === "review") {
       initialProposalReveals.add(key);
     }

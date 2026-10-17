@@ -120,6 +120,26 @@ test("blame toggles off and on while Show Blame remains available", async ({ pag
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
 });
 
+// Git's cost scales with file size times history, so a long file isn't blamed at all — and asking says why.
+test.describe("a file over the blame line limit", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "mcp", tool: "setSetting", args: { key: "editor.gitBlameMaxLines", value: 1 } },
+      ],
+    },
+  });
+
+  test("carries no annotations, and Show Blame says why", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await runCommand(page, "Show Blame for This Line");
+
+    await expect(page.getByText(/Blame is off for files over 1 lines/)).toBeVisible();
+    await expect(page.locator(".weavie-blame")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Git blame" })).toHaveCount(0);
+  });
+});
+
 // `all` is not the default, so these drive the setting the way a user would — over the capability registry.
 test.describe("annotating every run", () => {
   test.use({

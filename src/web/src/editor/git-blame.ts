@@ -63,6 +63,7 @@ export interface GitBlameController {
 /** Creates the blame controller bound to `editor`. */
 export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): GitBlameController {
   let mode: GitBlameMode = currentEditorOptions().gitBlame;
+  let maxLines = currentEditorOptions().gitBlameMaxLines;
   let snapshot: BlameSnapshot = EMPTY_BLAME;
   // The model the loaded snapshot belongs to; a stale response for a since-swapped model is dropped on arrival.
   let loadedUri: string | null = null;
@@ -117,6 +118,14 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     }
     const uri = model.uri.toString();
     const token = ++loadToken;
+    // Git's cost scales with file size times history, not with the lines asked for: a long generated file takes
+    // it seconds. Such a file isn't blamed, and an explicit Show Blame says why.
+    if (model.getLineCount() > maxLines) {
+      clear();
+      blameError = `Blame is off for files over ${maxLines.toLocaleString()} lines (editor.gitBlameMaxLines).`;
+      loadedUri = uri;
+      return Promise.resolve();
+    }
     return session
       .feature("git")
       .request<BlameResponse, { path: string }>("blame", { path: sessionUriHostPath(model.uri) })
@@ -329,6 +338,12 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
   ];
 
   const offOptions = onEditorOptionsChanged((options) => {
+    if (options.gitBlameMaxLines !== maxLines) {
+      maxLines = options.gitBlameMaxLines;
+      mode = options.gitBlame;
+      load();
+      return;
+    }
     if (options.gitBlame === mode) {
       return;
     }

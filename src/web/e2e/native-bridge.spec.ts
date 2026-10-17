@@ -121,6 +121,7 @@ test.describe("native in-process bridge contract", () => {
                 status: "idle",
                 lastActiveAt: null,
                 workspaceCheckout: false,
+                external: false,
               },
             ],
             layout: {

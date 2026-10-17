@@ -42,7 +42,7 @@ findings keeps the earlier ones. A hint whose worktree-relative path, line, and 
 captured against identical file text, is not added again — the existing one stays. Hints leave only through
 Dismiss (one hint) or Clear Review Hints (all).
 
-Hints persist in `review/hints.db` (the existing keyed-record store; separate from `state.db`, whose validator
+Hints persist in `review/hints.db` (the existing keyed-record store; separate from `review.db`, whose validator
 owns its own record types). Each hint keeps the file text it was captured against, deduplicated by hash, so it
 anchors after reloads.
 

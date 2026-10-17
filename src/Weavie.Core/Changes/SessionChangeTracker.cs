@@ -18,6 +18,7 @@ public sealed partial class SessionChangeTracker {
 	private readonly IFileActivitySink _fileActivity;
 	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
+	private readonly Func<IReadOnlyList<string>, IReadOnlySet<string>> _ignoredAmong;
 	private readonly object _gate = new();
 	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
 	private Dictionary<string, TurnChangeSummary> _summaries = new(PathIdentity.Comparer);
@@ -51,23 +52,33 @@ public sealed partial class SessionChangeTracker {
 		IFileSystem fileSystem,
 		IFileActivitySink fileActivity,
 		string workspaceRoot,
-		Func<string, bool> isInScope) : this(fileSystem, fileActivity, workspaceRoot, isInScope, new MemoryReviewPersistence()) { }
+		Func<string, bool> isInScope) : this(fileSystem, fileActivity, workspaceRoot, isInScope,
+			NothingIgnored, new MemoryReviewPersistence()) { }
 
-	/// <summary>Creates and restores a worktree's durable review before admitting agent edits.</summary>
+	/// <summary>The ignore query for a worktree with no ignore rules.</summary>
+	public static IReadOnlySet<string> NothingIgnored(IReadOnlyList<string> paths) => new HashSet<string>();
+
+	/// <summary>
+	/// Creates and restores a worktree's durable review before admitting agent edits; <c>ignoredAmong</c> answers which
+	/// of the given worktree paths git ignores, and agent edits to those are never tracked.
+	/// </summary>
 	public SessionChangeTracker(
 		IFileSystem fileSystem,
 		IFileActivitySink fileActivity,
 		string workspaceRoot,
 		Func<string, bool> isInScope,
+		Func<IReadOnlyList<string>, IReadOnlySet<string>> ignoredAmong,
 		IReviewPersistence persistence) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(fileActivity);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(isInScope);
+		ArgumentNullException.ThrowIfNull(ignoredAmong);
 		_fileSystem = fileSystem;
 		_fileActivity = fileActivity;
 		_workspaceRoot = NormalizePath(workspaceRoot);
 		_isInScope = isInScope;
+		_ignoredAmong = ignoredAmong;
 		_baseline = new(PathIdentity.Comparer, FileChanged);
 		_current = new(PathIdentity.Comparer, FileChanged);
 		_reviewBaseline = new(PathIdentity.Comparer, FileChanged);
@@ -121,7 +132,7 @@ public sealed partial class SessionChangeTracker {
 			AgentToolCompleted completed => completed.Mutation,
 			_ => new AgentMutation.None(),
 		};
-		var paths = ExtractEditPaths(mutation).Where(_isInScope).ToList();
+		var paths = AdmitEditPaths(ExtractEditPaths(mutation));
 		if (paths.Count == 0) {
 			return;
 		}
@@ -296,10 +307,16 @@ public sealed partial class SessionChangeTracker {
 	/// A created-since-baseline file the revert empties is deleted (<see cref="RevertHunkOutcome.Deleted"/>), not truncated.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
+	/// <param name="baselineRevision">The review baseline revision the web's ranges were computed against.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public RevertHunkOutcome RevertHunk(
+		string path,
+		string? baselineRevision,
+		LineRange baselineRange,
+		LineRange currentRange,
+		string guardText) {
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return RevertHunkOutcome.GuardMismatch;
@@ -310,7 +327,8 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			ReconcileReviewDisk();
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
-			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)
+			if (!ReviewBaselineIs(path, baselineRevision)
+				|| !TryGetSlice(baselineLines, baselineRange, out var replacement)
 				|| TrySplice(path, currentRange, guardText, replacement) is not { } spliced) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
@@ -452,10 +470,16 @@ public sealed partial class SessionChangeTracker {
 	/// optimistic-concurrency check as <see cref="RevertHunk"/>; a mismatch aborts and returns <see langword="false"/>.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
+	/// <param name="baselineRevision">The review baseline revision the web's ranges were computed against.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
-	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+	public bool KeepHunk(
+		string path,
+		string? baselineRevision,
+		LineRange baselineRange,
+		LineRange currentRange,
+		string guardText) {
 		ArgumentNullException.ThrowIfNull(guardText);
 		if (!TryScope(path, out path)) {
 			return false;
@@ -465,7 +489,7 @@ public sealed partial class SessionChangeTracker {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
 			ReconcileReviewDisk();
-			if (_nonText.ContainsKey(path)) return false;
+			if (_nonText.ContainsKey(path) || !ReviewBaselineIs(path, baselineRevision)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
 			if (!TryGetSlice(diskLines, currentRange, out var currentSlice)
@@ -486,7 +510,7 @@ public sealed partial class SessionChangeTracker {
 			if (string.Equals(_reviewBaseline[path], _current.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
 				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
 			}
-			SetPending(path, currentRange, false);
+			SetPending(path, [currentRange], false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before]);
 			return true;
 		}
@@ -568,11 +592,7 @@ public sealed partial class SessionChangeTracker {
 			if (string.Equals(_reviewBaseline[path], _acceptedAnchor.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
 				SetMissing(_missingReviewBaseline, path, _missingAcceptedAnchor.Contains(path));
 			}
-			foreach (var hunk in LineHunker.Hunks(
-				LineDiff.SplitLines(_reviewBaseline[path]),
-				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
-				SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
-			}
+			MarkReviewPending(path);
 			SynchronizeHistory(external: false, except: null);
 			Checkpoint();
 			return true;
@@ -764,6 +784,29 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// The review baseline or accepted anchor text of <paramref name="path"/> whose <see cref="TextRevision"/> is
+	/// <paramref name="revision"/>, or <see langword="null"/> once neither holds it (a newer turn diff supersedes it).
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	/// <param name="revision">The revision a <see cref="ChangeMessages.TurnDiff"/> named.</param>
+	public string? ReviewText(string path, string revision) {
+		path = NormalizePath(path);
+		ArgumentNullException.ThrowIfNull(revision);
+		lock (_gate) {
+			if (_nonText.ContainsKey(path) || !_reviewBaseline.TryGetValue(path, out string? baseline)) return null;
+			string accepted = _acceptedAnchor.GetValueOrDefault(path, baseline);
+			return TextRevision.Of(baseline) == revision ? baseline
+				: TextRevision.Of(accepted) == revision ? accepted
+				: null;
+		}
+	}
+
+	// Whether the review baseline is still the one the web diffed: guarding only the current side would let ranges
+	// computed against an older baseline splice the wrong lines. Caller holds _gate.
+	private bool ReviewBaselineIs(string path, string? revision) =>
+		TextRevision.Of(_reviewBaseline.GetValueOrDefault(path, string.Empty), !_missingReviewBaseline.Contains(path)) == revision;
+
 	private static void SetMissing(TrackedSet missing, string path, bool value) {
 		if (value) {
 			missing.Add(path);
@@ -836,6 +879,21 @@ public sealed partial class SessionChangeTracker {
 
 	// A guarded splice's inputs and result: the pre-change content, the spliced content, and the range in _current space.
 	private readonly record struct SplicedContent(string CurrentRaw, string NewContent, LineRange CurrentRange);
+
+	// In-scope paths, minus untracked ones git ignores (e.g. Claude's own .claude/worktrees/): an already-tracked
+	// path stays admitted, so only a file's first edit asks git.
+	private List<string> AdmitEditPaths(IReadOnlyList<string> reported) {
+		var paths = reported.Where(_isInScope).Select(NormalizePath).Distinct(PathIdentity.Comparer).ToList();
+		List<string> candidates;
+		lock (_gate) {
+			candidates = [.. paths.Where(path => !_current.ContainsKey(path) && !_nonText.ContainsKey(path)
+				&& PathBoundary.Contains(_workspaceRoot, path))];
+		}
+
+		if (candidates.Count == 0) return paths;
+		var ignored = _ignoredAmong(candidates);
+		return ignored.Count == 0 ? paths : [.. paths.Where(path => !ignored.Contains(path))];
+	}
 
 	private IReadOnlyList<string> ExtractEditPaths(AgentMutation mutation) {
 		var paths = new List<string>();

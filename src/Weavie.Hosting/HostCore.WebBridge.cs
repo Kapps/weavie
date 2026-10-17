@@ -300,9 +300,21 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private void RunReviewAction(HostSession session, Action action) {
+	private void RunReviewAction(HostSession session, Action action) =>
+		RunReviewAction(session, action, ex => $"Couldn't save your review: {ex.Message}");
+
+	private T? RunReviewAction<T>(HostSession session, Func<T?> action) where T : class {
+		T? result = null;
+		RunReviewAction(session, () => { result = action(); });
+		return result;
+	}
+
+	// A review action failing partway can leave the page holding revisions no push will follow, so it gets the
+	// whole review state again rather than waiting on a "Calculating diff…" that never resolves.
+	private void RunReviewAction(HostSession session, Action action, Func<Exception, string> failure) {
 		try { action(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "error", $"Couldn't save your review: {ex.Message}");
+			Notify(session, "error", failure(ex));
+			PushReviewStateToWeb(session, session.Bus.BroadcastTarget);
 		}
 	}
 
@@ -316,13 +328,11 @@ public sealed partial class HostCore {
 	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by
 	/// per-hunk/per-file/whole-set reverts); the host only owns the editor pushes.
 	/// </summary>
-	private void UndoTurn(HostSession session) {
-		try {
-			ApplyHistoryResult(session, session.Changes.RevertAll());
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't revert all changes: {ex.Message}");
-		}
-	}
+	private void UndoTurn(HostSession session) =>
+		RunReviewAction(
+			session,
+			() => ApplyHistoryResult(session, session.Changes.RevertAll()),
+			ex => $"Couldn't revert all changes: {ex.Message}");
 
 	/// <summary>
 	/// Undoes a review action: <c>kind</c> "keep"/"revert" drives the type-split chords, an absent kind the
@@ -429,17 +439,22 @@ public sealed partial class HostCore {
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
 
-		try {
-			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
-			if (outcome == RevertHunkOutcome.GuardMismatch) {
-				Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-				PushTurnDiffToWeb(session, path);
-				return;
-			}
+		RunReviewAction(
+			session,
+			() => {
+				if (session.Changes.RevertHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)
+					== RevertHunkOutcome.GuardMismatch) {
+					RefuseStaleHunkAction(session, path);
+				}
+			},
+			ex => $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+	}
 
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
-		}
+	// The hunk was drawn from a diff the file has since moved past — an outside edit, or the user's own keep a moment
+	// earlier. Nothing was written; re-sending the current diff redraws it, so trying again acts on what's shown.
+	private void RefuseStaleHunkAction(HostSession session, string path) {
+		Notify(session, "warn", $"{Path.GetFileName(path)} changed since its diff was drawn. The diff has refreshed — try again.");
+		PushTurnDiffToWeb(session, path);
 	}
 
 	/// <summary>
@@ -453,11 +468,10 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		try {
-			session.Changes.RevertFile(path);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
-		}
+		RunReviewAction(
+			session,
+			() => session.Changes.RevertFile(path),
+			ex => $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 	}
 
 	/// <summary>
@@ -475,9 +489,8 @@ public sealed partial class HostCore {
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
-			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			PushTurnDiffToWeb(session, path);
+		if (!session.Changes.KeepHunk(path, root.GetStringOrNull("baselineRevision"), baselineRange, currentRange, guardText)) {
+			RefuseStaleHunkAction(session, path);
 			return;
 		}
 
@@ -517,8 +530,7 @@ public sealed partial class HostCore {
 		string guardText = root.GetStringOrEmpty("guardText");
 
 		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
-			Notify(session, "warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-			PushTurnDiffToWeb(session, path);
+			RefuseStaleHunkAction(session, path);
 			return;
 		}
 

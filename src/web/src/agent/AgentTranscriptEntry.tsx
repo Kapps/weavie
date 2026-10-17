@@ -82,7 +82,10 @@ export function TranscriptEntry(props: {
       </Show>
       <div class="agent-entry-main">
         <Show when={props.entry.summary !== null}>
-          <div class="agent-entry-summary">
+          <div
+            class="agent-entry-summary"
+            title={props.entry.kind === "activity" ? (props.entry.summary ?? undefined) : undefined}
+          >
             <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
           </div>
         </Show>

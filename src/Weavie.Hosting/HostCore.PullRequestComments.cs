@@ -9,31 +9,33 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void HandlePullRequestComments(HostSession session, MessageFeatureChannel pullRequests) {
 		var comments = session.PullRequestComments;
+		// A thread or review write can change the overview too: a submitted review joins the PR's conversation.
+		async Task<CommandWireResult> Write(Task<CommandResult> write, CancellationToken ct) {
+			var result = await write.ConfigureAwait(false);
+			await session.PullRequestOverview.RefreshAsync(ct).ConfigureAwait(false);
+			return CommandWireResult.From(result);
+		}
+
 		pullRequests.Handle(
 			"comment", "Posting a pull request comment", WireJson.Default.PullRequestCommentRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(WorktreeRelativePath(session, message.Path) is { } path
-				? await comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, message.Mode, ct).ConfigureAwait(false)
-				: CommandResult.Failure(NotInWorktree(session, message.Path))));
+			(message, ct) => WorktreeRelativePath(session, message.Path) is { } path
+				? Write(comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, message.Mode, ct), ct)
+				: Task.FromResult(CommandWireResult.From(CommandResult.Failure(NotInWorktree(session, message.Path)))));
 		pullRequests.Handle(
 			"reply", "Posting a pull request reply", WireJson.Default.PullRequestReplyRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(
-				await comments.ReplyAsync(message.Number, message.ThreadId, message.Body, message.Mode, ct).ConfigureAwait(false)));
+			(message, ct) => Write(comments.ReplyAsync(message.Number, message.ThreadId, message.Body, message.Mode, ct), ct));
 		pullRequests.Handle(
 			"editComment", "Editing a pull request comment", WireJson.Default.PullRequestEditRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(
-				await comments.EditAsync(message.Number, message.Id, message.Body, ct).ConfigureAwait(false)));
+			(message, ct) => Write(comments.EditAsync(message.Number, message.Id, message.Body, ct), ct));
 		pullRequests.Handle(
 			"discardComment", "Discarding a pending comment", WireJson.Default.PullRequestCommentIdRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(
-				await comments.DiscardCommentAsync(message.Number, message.Id, ct).ConfigureAwait(false)));
+			(message, ct) => Write(comments.DiscardCommentAsync(message.Number, message.Id, ct), ct));
 		pullRequests.Handle(
 			"submitReview", "Submitting a pull request review", WireJson.Default.PullRequestSubmitRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(
-				await comments.SubmitReviewAsync(message.Number, message.HeadSha, message.Verdict, message.Body, ct).ConfigureAwait(false)));
+			(message, ct) => Write(comments.SubmitReviewAsync(message.Number, message.HeadSha, message.Verdict, message.Body, ct), ct));
 		pullRequests.Handle(
 			"discardReview", "Discarding a pending review", WireJson.Default.PullRequestNumberRequest, WireJson.Default.CommandWireResult,
-			async (message, ct) => CommandWireResult.From(
-				await comments.DiscardReviewAsync(message.Number, ct).ConfigureAwait(false)));
+			(message, ct) => Write(comments.DiscardReviewAsync(message.Number, ct), ct));
 		// The web asks while the user can see the PR; its comments and checks aren't tied to the agent's activity.
 		pullRequests.Handle("refresh", "Refreshing the pull request", WireJson.Default.EmptyPayload, (_, ct) =>
 			Task.WhenAll(comments.RefreshAsync(ct), session.PullRequestOverview.RefreshAsync(ct)));

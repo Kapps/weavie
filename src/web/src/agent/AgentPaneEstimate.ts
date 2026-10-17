@@ -35,7 +35,11 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
   }
   const size =
     (prose ? 12 : 34) +
-    (entry.summary === null ? 0 : wrappedHeight(entry.summary)) +
+    (entry.summary === null
+      ? 0
+      : entry.kind === "activity"
+        ? proseLineHeight
+        : wrappedHeight(entry.summary)) +
     (entry.text === null
       ? 0
       : prose

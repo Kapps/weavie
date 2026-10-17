@@ -28,7 +28,9 @@ export function ActivityDetails(props: {
           {(step) => (
             <div class={`agent-activity-step agent-step-${step.tone}`}>
               <span class="agent-step-status">{step.status ?? "done"}</span>
-              <span class="agent-step-label">{step.label}</span>
+              <span class="agent-step-label" title={step.label}>
+                {step.label}
+              </span>
               <Show when={hasReviewTarget(step)}>
                 <span class="agent-step-actions">
                   <Show when={step.actionMessage}>

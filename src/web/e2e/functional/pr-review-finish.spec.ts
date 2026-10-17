@@ -71,6 +71,8 @@ test("comments queue as drafts in place and submit once with a verdict", async (
 
   await expect(panel).toHaveCount(0, { timeout: 10_000 });
   await expect(button).toHaveText("Review");
+  const review = page.locator(".session-overview-comment", { hasText: "One thing inline." });
+  await expect(review).toContainText("requested changes");
 });
 
 test("discarding the pending review asks first and deletes every draft", async ({ page }) => {

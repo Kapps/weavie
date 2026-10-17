@@ -49,6 +49,11 @@ describe("estimateEntrySize", () => {
     expect(estimateEntrySize(output)).toBe(OTHER_CHROME + MONO_LINE * 3);
   });
 
+  it("keeps an activity summary to one line however long the running command is", () => {
+    const running = entry({ kind: "activity", tone: "activity", summary: "z".repeat(500) });
+    expect(estimateEntrySize(running)).toBe(OTHER_CHROME + PROSE_LINE);
+  });
+
   it("leaves room for a collapsed history toggle", () => {
     const plain = entry({ kind: "activity", tone: "activity", summary: "ran a command" });
     const withDetails = entry({

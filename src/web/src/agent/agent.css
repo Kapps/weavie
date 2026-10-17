@@ -761,7 +761,10 @@ a:has(> .agent-path-dir) {
 }
 
 .agent-entry-activity .agent-entry-summary {
+  overflow: hidden;
   color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-entry-request {

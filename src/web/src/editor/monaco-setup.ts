@@ -88,7 +88,7 @@ function buildEditor(
     // real, explicitly-selected completion still commits on Enter.
     acceptSuggestionOnEnter: "smart",
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
-    ...toMonacoOptions(editorOptions),
+    ...toMonacoOptions(editorOptions, model),
     ...overrides,
     ...construction,
   });
@@ -121,17 +121,40 @@ function buildEditor(
 
   // Apply live editor-option changes the same way fonts do.
   const offEditorOptions = onEditorOptionsChanged((next) => {
-    editor.updateOptions({ ...toMonacoOptions(next), ...overrides });
+    editor.updateOptions({ ...toMonacoOptions(next, editor.getModel()), ...overrides });
     applySuggestExpandDocs(next.suggestExpandDocs);
   });
   editor.onDidDispose(offEditorOptions);
 
+  // Sticky scroll follows the file's length, so a model swap or an edit crossing the limit flips it.
+  const syncStickyScroll = (): void => {
+    if (overrides.stickyScroll !== undefined) return;
+    const enabled = stickyScrollEnabled(currentEditorOptions(), editor.getModel());
+    if (editor.getOption(monaco.editor.EditorOption.stickyScroll).enabled !== enabled) {
+      editor.updateOptions({ stickyScroll: { enabled } });
+    }
+  };
+  editor.onDidChangeModel(syncStickyScroll);
+  editor.onDidChangeModelContent(syncStickyScroll);
+
   return editor;
+}
+
+// Sticky scroll re-requests the whole file's symbol tree after every pause in typing — seconds of language-server
+// work on a long generated file — so it's off past the configured length.
+function stickyScrollEnabled(
+  o: EditorOptionsSpec,
+  model: monaco.editor.ITextModel | null,
+): boolean {
+  return o.stickyScroll && (model === null || model.getLineCount() <= o.stickyScrollMaxLines);
 }
 
 // Maps Weavie's flat editor-option settings onto Monaco's nested IEditorOptions shape. The string-union
 // values match Monaco's option types exactly, so this is a straight structural mapping.
-function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
+function toMonacoOptions(
+  o: EditorOptionsSpec,
+  model: monaco.editor.ITextModel | null,
+): monaco.editor.IEditorOptions {
   return {
     inlayHints: { enabled: o.inlayHints },
     minimap: { enabled: o.minimap },
@@ -152,7 +175,7 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
     lineNumbers: o.lineNumbers,
     cursorBlinking: o.cursorBlinking,
     renderLineHighlight: o.renderLineHighlight,
-    stickyScroll: { enabled: o.stickyScroll },
+    stickyScroll: { enabled: stickyScrollEnabled(o, model) },
     fontLigatures: o.fontLigatures,
     guides: { indentation: o.indentGuides },
     hover: { delay: o.hoverDelay },

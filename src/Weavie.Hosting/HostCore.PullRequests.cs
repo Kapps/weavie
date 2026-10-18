@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -44,6 +45,10 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("A pull request number is required.");
 		}
 
+		long started = Stopwatch.GetTimestamp();
+		void Step(string step) =>
+			Console.WriteLine($"[pr-open] #{request.Number} {step} +{Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0}ms");
+
 		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
 		if (repo is null) {
 			return CommandResult.Failure(
@@ -70,6 +75,7 @@ public sealed partial class HostCore {
 				$"PR #{request.Number} wasn't found in {repo.Owner}/{repo.Name}.");
 		}
 
+		Step("found on GitHub");
 		string headRef = pullRequest.HeadRef;
 		if (!GitService.IsValidBranchName(headRef)) {
 			return CommandResult.Failure(
@@ -87,6 +93,7 @@ public sealed partial class HostCore {
 				$"Couldn't fetch PR #{request.Number} ('{headRef}'): {ex.Message}");
 		}
 
+		Step("branch ready");
 		var created = await NewSessionAsync(
 			source.Address,
 			new NewSessionRequest {
@@ -106,12 +113,14 @@ public sealed partial class HostCore {
 				$"Opened PR #{request.Number}, but its session failed to load.");
 		}
 
+		Step("session created");
 		string? reviewError = await ArmPrReviewAsync(
 			target,
 			request.Number,
 			headRef,
 			pullRequest.BaseSha,
 			ct).ConfigureAwait(false);
+		Step("review armed");
 		return reviewError is null
 			? created
 			: CommandResult.Failure(reviewError, created.DataJson);

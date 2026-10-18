@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Diagnostics;
 
 namespace Weavie.Core.Review;
 
@@ -21,7 +23,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	/// <param name="tokenSource">Resolves the API token.</param>
 	public GitHubReviewProvider(HttpClient? http, IGitHubTokenSource tokenSource) {
 		ArgumentNullException.ThrowIfNull(tokenSource);
-		_http = http ?? new HttpClient();
+		_http = http ?? new HttpClient(new SlowRequestHandler());
 		_tokenSource = tokenSource;
 	}
 
@@ -114,7 +116,9 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	}
 
 	private async Task<string> ResolveTokenAsync(CancellationToken ct) {
+		long started = Stopwatch.GetTimestamp();
 		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
+		SlowOperationLog.Report("resolving the GitHub token", started);
 		return !string.IsNullOrWhiteSpace(token)
 			? token
 			: throw new InvalidOperationException(

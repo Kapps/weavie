@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.Processes;
 
 namespace Weavie.Core.Git;
@@ -741,6 +743,7 @@ public sealed partial class GitService : IGitService {
 			throw new GitException($"Git working directory does not exist: {workingDirectory}");
 		}
 
+		long started = Stopwatch.GetTimestamp();
 		var result = await ProcessCapture.RunAsync(
 			new ProcessCaptureRequest {
 				FileName = "git",
@@ -753,6 +756,7 @@ public sealed partial class GitService : IGitService {
 				},
 			},
 			ct).ConfigureAwait(false);
+		SlowOperationLog.Report($"git {string.Join(' ', args)} (in {workingDirectory})", started);
 		// Weavie cannot work without git, so a missing or unrunnable one is fatal wherever it is asked for.
 		if (result.StartFailure is { } failure) {
 			throw new GitException($"Unable to start 'git' from '{workingDirectory}': {failure.Message}", failure);

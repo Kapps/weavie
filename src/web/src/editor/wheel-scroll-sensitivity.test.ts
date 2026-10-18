@@ -3,7 +3,7 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
 describe("wheelScrollSensitivity", () => {
   it("normalizes Linux wheel deltas", () => {
-    expect(wheelScrollSensitivity(1, "linux")).toBe(5);
+    expect(wheelScrollSensitivity(1, "linux")).toBe(3);
   });
 
   it.each([

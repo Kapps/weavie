@@ -13,7 +13,7 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
-import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
+import { wheelOptions } from "./wheel-scroll-sensitivity";
 
 type EditorConstruction = Pick<
   monaco.editor.IStandaloneEditorConstructionOptions,
@@ -163,11 +163,7 @@ function toMonacoOptions(
     cursorSmoothCaretAnimation: o.cursorSmoothCaretAnimation,
     renderWhitespace: o.renderWhitespace,
     scrollBeyondLastLine: o.scrollBeyondLastLine,
-    mouseWheelScrollSensitivity: wheelScrollSensitivity(
-      o.mouseWheelScrollSensitivity,
-      window.__WEAVIE_SHELL__?.platform,
-    ),
-    fastScrollSensitivity: o.fastScrollSensitivity,
+    ...wheelOptions(o),
     scrollOnMiddleClick: o.middleClickAutoscroll,
     // Linux's primary-selection gesture takes precedence over Monaco's middle-click scrolling.
     selectionClipboard: !o.middleClickAutoscroll,

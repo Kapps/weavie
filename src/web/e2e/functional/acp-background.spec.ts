@@ -8,6 +8,11 @@ async function signal(workspace: string, name: string): Promise<void> {
   await writeFile(join(sessionWorktrees(workspace)[0]!, name), "");
 }
 
+// FLAKE 2026-10-19 ~16:21Z (macOS shard 2/6, the live card): the child's "counting" message never showed in the card.
+// https://github.com/Kapps/weavie/actions/runs/39283401373/job/118165293632
+// FIX: the host sent it (the trace's WebSocket frames carry it in the first paneBatch). A batch landing on an empty
+// transcript skipped the accumulator's per-index bookkeeping, so its unfinished stream was never materialized and kept
+// its empty placeholder text. Linux splits the turn into several batches and never hit it; a slow runner does not.
 test("a subagent renders as a live card that collapses when it finishes", async ({
   page,
   weavie,

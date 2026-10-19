@@ -288,7 +288,9 @@ export class AgentPaneAccumulator {
       return;
     }
     state.scheduled = false;
-    this.materializeIndexes(state, state.changedIndexes);
+    // A forced projection tracks no indexes, so every open stream is materialized.
+    if (state.forceProject) this.materialize(state);
+    else this.materializeIndexes(state, state.changedIndexes);
     const changes = state.forceProject
       ? []
       : [...state.changedIndexes].map((index) => state.messages[index]!);

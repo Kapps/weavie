@@ -62,6 +62,9 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	return 7;
 }
 
+// Like a real TUI, take raw VT input before announcing readiness, so the host's bracketed paste arrives byte for byte.
+ConsoleInput.EnableRawVirtualTerminal();
+
 // The banner doubles as the startup marker a test can wait for in the claude pane.
 Emit("ready");
 

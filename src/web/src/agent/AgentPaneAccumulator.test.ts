@@ -187,6 +187,25 @@ describe("AgentPaneAccumulator", () => {
     expect(changes).toEqual([]);
   });
 
+  it("publishes the text of a stream an initial batch leaves unfinished", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    accumulator.ingestBatch(
+      "slot-1",
+      [
+        update("turn-started", ""),
+        { ...update("agent-message-delta", "counting"), itemId: "stream" },
+      ],
+      (value) => {
+        messages = value;
+      },
+    );
+    scheduled[0]?.();
+
+    expect(messages.map((message) => message.text)).toEqual(["", "counting"]);
+  });
+
   it("makes an approval request visible after the next flush", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));

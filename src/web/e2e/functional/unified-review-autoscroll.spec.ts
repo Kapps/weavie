@@ -44,6 +44,9 @@ async function arm(page: Page, target: Locator): Promise<{ x: number; y: number 
   return origin;
 }
 
+// Flake 2026-09-29 03:34 UTC (main, https://github.com/Kapps/weavie/actions/runs/36517057959, shard 5/6):
+// scrollLeft stayed 0. The observed editor came from getEditors() (creation order) while the armed one was the
+// DOM-first editor, so they could differ. The observation now resolves the exact armed DOM node.
 test("middle scrolling crosses files after its starting editor unmounts, without editing text", async ({
   page,
 }) => {

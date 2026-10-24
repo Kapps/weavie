@@ -27,6 +27,9 @@ async function commentOnLine(
 // "Comment on Line" never showed a draft. The first post's reply arrived after the next draft opened and its
 // success handler closed that newer draft. Fixed in pr-comment-controller's submitDraft, which now closes only
 // the draft it submitted.
+// FLAKE 2026-10-15 ~05:00Z (macOS): the draft composer never appeared after "Comment on Line" and the test hit its 60s timeout.
+// https://github.com/Kapps/weavie/actions/runs/38681930881/job/116250231850
+// NOT FIXED: no root cause yet; the failing run's trace has no host-side error.
 test("comments queue as drafts in place and submit once with a verdict", async ({ page }) => {
   await openCommentedFile(page);
   await commentOnLine(page, 5, "Posted right away.", "Comment now");

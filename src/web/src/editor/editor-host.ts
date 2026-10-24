@@ -67,6 +67,23 @@ function nextPaint(): Promise<void> {
   });
 }
 
+// Flake, 2026-09-14 (https://github.com/Kapps/weavie/actions/runs/34811783304/job/103874812999): a browser-
+// native scroll of an internal Monaco DOM node (e.g. Playwright's reveal-before-click) gets folded straight
+// into Monaco's own scroll position (`editorScrollbar.ts`'s `onBrowserDesperateReveal`), landing exactly at
+// the `scrollBeyondLastLine`-inflated maximum — legal, but past the file's real content, so the viewport shows
+// nothing. Persisting that as "where the user left off" reopens the file scrolled past its own text forever.
+// A scroll is only worth remembering if it actually reveals content a `scrollBeyondLastLine: false` editor
+// couldn't already show without scrolling.
+function scrollShowsRealContent(editor: monaco.editor.IStandaloneCodeEditor): boolean {
+  const model = editor.getModel();
+  if (model === null) return true;
+  const naturalMaxScrollTop = Math.max(
+    0,
+    editor.getBottomForLineNumber(model.getLineCount()) - editor.getLayoutInfo().height,
+  );
+  return editor.getScrollTop() <= naturalMaxScrollTop;
+}
+
 export type EditorShowResult =
   | { kind: "shown"; connection: TextEditorConnection }
   | { kind: "superseded" }
@@ -205,7 +222,7 @@ export async function createEditorHost(
           : {
               path: sessionUriHostPath(model.uri),
               line: editor.getPosition()?.lineNumber ?? 1,
-              viewState: editor.saveViewState(),
+              ...(scrollShowsRealContent(editor) ? { viewState: editor.saveViewState() } : {}),
             },
       restore: (location) => {
         if (location.viewState != null) editor.restoreViewState(location.viewState);

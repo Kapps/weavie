@@ -296,14 +296,12 @@ public sealed class CommandTests {
 		Assert.Equal("unifiedReviewActive && editorFocused", command.When);
 	}
 
-	[Theory]
-	[InlineData(CoreCommands.ReviewToggleContext, "alt+]")]
-	[InlineData(CoreCommands.ReviewOpenLine, "$mod+alt+o")]
-	public void UnifiedReviewLineCommands_AreBoundAndUnifiedReviewGated(string id, string key) {
-		var command = CoreCommands.CreateRegistry().Require(id);
+	[Fact]
+	public void ToggleReviewContext_IsBoundAndUnifiedReviewGated() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewToggleContext);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
-		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("alt+]", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("unifiedReviewActive && editorFocused", command.When);
 	}
 

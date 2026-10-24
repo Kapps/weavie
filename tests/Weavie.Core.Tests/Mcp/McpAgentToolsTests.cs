@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
@@ -85,6 +86,65 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 
 		Assert.True(response.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 		Assert.Contains("listAgents", Text(response), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task ConsultOutlivingTheWaitIsCollectedWithAwaitConsult() {
+		_settings.Set(AgentSettings.ConsultWaitSeconds, JsonSerializer.SerializeToElement(1));
+		var reply = new TaskCompletionSource<AgentConsultOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_codex.Consult = (_, _) => reply.Task;
+		using var ws = await ConnectAsync();
+
+		using var pending = await CallAsync(ws, 1, "consultAgent", """{"provider":"codex","prompt":"Review it."}""");
+		string id = Regex.Match(Text(pending), "consult '([0-9a-f]+)'").Groups[1].Value;
+		using var stillPending = await CallAsync(ws, 2, "awaitConsult", $$"""{"consult":"{{id}}"}""");
+		Assert.Contains($"consult '{id}'", Text(stillPending), StringComparison.Ordinal);
+
+		reply.SetResult(new AgentConsultSuccess { ModelId = "astra", Controls = [], Reply = "Looks right.", Denied = [] });
+		using var done = await CallAsync(ws, 3, "awaitConsult", $$"""{"consult":"{{id}}"}""");
+		Assert.Equal("codex (astra) replied:\n\nLooks right.", Text(done));
+
+		using var gone = await CallAsync(ws, 4, "awaitConsult", $$"""{"consult":"{{id}}"}""");
+		Assert.True(gone.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+	}
+
+	[Fact]
+	public async Task CancellingAwaitConsultStopsTheConsult() {
+		_settings.Set(AgentSettings.ConsultWaitSeconds, JsonSerializer.SerializeToElement(1));
+		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_codex.Consult = async (_, ct) => {
+			started.TrySetResult(ct);
+			await Task.Delay(Timeout.Infinite, ct);
+			throw new InvalidOperationException("unreachable");
+		};
+		using var ws = await ConnectAsync();
+		using var pending = await CallAsync(ws, 1, "consultAgent", """{"provider":"codex","prompt":"x"}""");
+		string id = Regex.Match(Text(pending), "consult '([0-9a-f]+)'").Groups[1].Value;
+		var token = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		_settings.Set(AgentSettings.ConsultWaitSeconds, JsonSerializer.SerializeToElement(3600));
+
+		await SendAsync(ws, Request(2, "tools/call", $$$"""{"name":"awaitConsult","arguments":{"consult":"{{{id}}}"}}"""));
+		await SendAsync(ws, """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}""");
+
+		await WaitCancelledAsync(token);
+	}
+
+	[Fact]
+	public async Task DisposingTheServerStopsABackgroundConsult() {
+		_settings.Set(AgentSettings.ConsultWaitSeconds, JsonSerializer.SerializeToElement(1));
+		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_codex.Consult = async (_, ct) => {
+			started.TrySetResult(ct);
+			await Task.Delay(Timeout.Infinite, ct);
+			throw new InvalidOperationException("unreachable");
+		};
+		using var ws = await ConnectAsync();
+		using (await CallAsync(ws, 1, "consultAgent", """{"provider":"codex","prompt":"x"}""")) { }
+		var token = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+		await _server.DisposeAsync();
+
+		await WaitCancelledAsync(token);
 	}
 
 	[Fact]

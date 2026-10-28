@@ -1043,14 +1043,15 @@ public sealed class AcpAgentSessionTests {
 
 		fixture.Submit("prompt-failure");
 		var failed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
-		await fixture.WaitForMessageAsync(message => message.Type == "error");
 
 		Assert.Equal("failed", failed.Status);
+		Assert.Contains("Synthetic prompt failure.", failed.Summary, StringComparison.Ordinal);
 		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:foreground-failure"
 			&& message.Type == "item-completed" && message.Status == "failed");
 		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:subagent"
 			&& message.Type == "item-completed" && message.Status == "failed");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 	}
 
 	[Fact]

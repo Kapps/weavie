@@ -44,9 +44,10 @@ public sealed class AcpSideCommandTests {
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
 		fixture.Session.AskAside(Submission(AgentTurnSubmissionKind.ProviderCommand, "review", "/review tests"));
-		var error = await fixture.WaitForMessageAsync(message => message.Type == "error" && message.ConversationId is not null);
+		var failed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is not null);
 
-		Assert.Contains("no longer advertises", error.Text);
+		Assert.Equal("failed", failed.Status);
+		Assert.Contains("no longer advertises", failed.Summary);
 		Assert.Single(AcpPromptAssertions.Read(fixture));
 		fixture.Submit("main still works");
 		await fixture.WaitForMessageAsync(message => message.Text == "echo: main still works" && message.ConversationId is null);

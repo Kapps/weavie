@@ -121,7 +121,7 @@ internal sealed partial class AcpConversation {
 						Status = cancelled ? "cancelled" : "failed",
 						Summary = ex.Message,
 					});
-					if (!cancelled) EmitFailure(ex);
+					if (!cancelled) _log($"[acp:{Definition.Id}] {ex}");
 					if (!background) SignalSettled();
 				}
 			}

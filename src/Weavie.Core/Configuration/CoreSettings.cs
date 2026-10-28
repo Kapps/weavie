@@ -148,6 +148,16 @@ public static class CoreSettings {
 			Default = true,
 		});
 
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.PlanReviewAutoOpen,
+			Kind = SettingKind.Bool,
+			Description = "Open an agent's plan in the editor as soon as it asks you to review it. When off, use the "
+				+ "plan card's Open plan button.",
+			Aliases = ["open plan automatically", "plan review", "auto open plan"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
 		InferenceSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

@@ -24,6 +24,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 	public const string PlanMarkdown = "# Plan\n\n- Inspect the code\n- Implement the fix";
 
+	/// <summary>A prompt prefix asking to review the plan file named after it; without a file, the plan's text.</summary>
+	public const string PlanReviewPrompt = "review-plan:";
+
 	/// <summary>A prompt that leaves one stoppable background task running.</summary>
 	public const string BackgroundPrompt = "start-background";
 
@@ -173,6 +176,27 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				});
 				return;
 			}
+			if (submission.Text.StartsWith(PlanReviewPrompt, StringComparison.Ordinal)) {
+				string file = submission.Text[PlanReviewPrompt.Length..];
+				_turns++;
+				Emit(new AgentPaneMessage {
+					Type = "approval-requested",
+					ProviderId = "structured",
+					ThreadId = "thread-fake",
+					TurnId = $"turn-{_turns}",
+					ItemId = $"request:review-{_turns}",
+					RequestId = $"review-{_turns}",
+					ItemType = "plan-review",
+					Text = file.Length == 0 ? PlanMarkdown : null,
+					PlanPath = file.Length == 0 ? null : file,
+					Actions = [
+						new AgentActionOption { Id = "allow", Label = "Yes", Kind = "allow_once" },
+						new AgentActionOption { Id = "reject", Label = "No", Kind = "reject_once" },
+					],
+					Status = "pending",
+				});
+				return;
+			}
 			if (submission.Text is PlanReplayPrompt or PlanRemovedReplayPrompt) {
 				if (submission.Text == PlanRemovedReplayPrompt) transcript.RemoveAll(message => message.ItemType == "plan");
 				PaneSnapshot?.Invoke([.. transcript]);
@@ -216,6 +240,8 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		}
 
 		public void ResolvePermission(string requestId, string optionId) {
+			var request = transcript.Last(message => message.RequestId == requestId);
+			Emit(request with { Type = "approval-resolved", ItemType = null, Text = null, PlanPath = null, Actions = null, Status = optionId });
 		}
 
 		public void ResolveInput(

@@ -253,7 +253,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("terminal.agent"),
 				settings,
 			ptyLauncher);
-		Agent.PlanDocumentsChanged += UpdateAgentPlans;
+		Agent.PlansChanged += plans => UpdateAgentPlans(plans, settings.RequireBool(AgentSettings.PlanReviewAutoOpen));
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor

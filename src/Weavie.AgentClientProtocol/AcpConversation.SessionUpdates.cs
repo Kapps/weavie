@@ -95,16 +95,17 @@ internal sealed partial class AcpConversation {
 		"items" => plan.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array
 			? FormatPlanEntries(entries, "plan document")
 			: throw new AcpProtocolException("An item plan document is missing entries."),
-		"file" => ReadPlanFile(RequiredString(plan, "uri", "file plan document")),
+		"file" => ReadPlanFile(FilePlanPath(RequiredString(plan, "uri", "file plan document"))),
 		var type => throw new AcpProtocolException($"Unsupported ACP plan document type '{type}'."),
 	};
 
-	private string ReadPlanFile(string value) {
-		if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile) {
-			throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
-		}
+	private static string FilePlanPath(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile
+		? uri.LocalPath
+		: throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
+
+	private string ReadPlanFile(string path) {
 		try {
-			return _context.FileSystem.ReadAllText(Path.GetFullPath(uri.LocalPath));
+			return _context.FileSystem.ReadAllText(Path.GetFullPath(path));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
 			throw new AcpProtocolException($"ACP file plan could not be read: {ex.Message}", ex);
 		}

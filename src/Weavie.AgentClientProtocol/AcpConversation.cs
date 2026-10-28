@@ -254,7 +254,10 @@ internal sealed partial class AcpConversation {
 		string Kind,
 		JsonElement Data,
 		string? ThreadId,
-		string TurnId);
+		string TurnId) {
+		/// <summary>The editable plan file a mode switch asks to approve, and the AIR plan id its snapshot takes.</summary>
+		public (string Path, string PlanId)? PlanFile { get; init; }
+	}
 
 	private sealed record AcpControlMutation(string Axis, string Value);
 

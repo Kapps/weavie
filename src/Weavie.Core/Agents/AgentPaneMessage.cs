@@ -92,6 +92,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>A linked resource URI associated with the content.</summary>
 	public string? ResourceUri { get; init; }
 
+	/// <summary>The editable plan file a plan review asks the user to approve.</summary>
+	public string? PlanPath { get; init; }
+
 }
 
 /// <summary>One ordered rich-content block rendered from an agent tool result.</summary>

@@ -6,27 +6,25 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row.
+	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row. A failed mode
+	// switch withdraws the plan snapshot its approval took.
 	private void PublishTool(AcpToolState tool) {
-		PublishModeSwitchPlan(tool);
+		if (tool.PlanReleased) return;
+		if (tool.Kind == "switch_mode" && tool.Status is "failed" or "cancelled") RetractPlan(PlanModeId(tool.Id));
 		if (!tool.Subagent) Emit(ToolMessage(tool));
 		else if (tool.Shown) Emit(ToolMessage(tool) with { Type = "item-retracted", Status = "retracted" });
 		tool.Shown = !tool.Subagent;
 	}
 
-	// A mode switch's text is the plan it asks to approve, withdrawn if the switch fails. The AIR plan id lets the
-	// agent's approved revision replace it.
-	private void PublishModeSwitchPlan(AcpToolState tool) {
-		if (tool.Plan is not null && tool.Status is "failed" or "cancelled") {
-			RetractPlan("plan-mode:" + tool.Id);
-			return;
-		}
-		string? plan = tool.Kind == "switch_mode" && tool.Content is { } content
+	// The AIR id claude-agent-acp gives an approved plan, so its own plan_update revises Weavie's snapshot.
+	private static string PlanModeId(string toolCallId) => "plan-mode:" + toolCallId;
+
+	// A mode switch's plan text: Codex sends it as rawInput.plan, Claude without planFile as the tool's text content.
+	private static string? PlanText(AcpToolState tool) {
+		string? text = tool.PlanText ?? (tool.Content is { } content
 			? string.Join("\n\n", content.Where(block => block.Type == "text").Select(block => block.Text))
-			: null;
-		if (string.IsNullOrWhiteSpace(plan) || plan == tool.Plan) return;
-		tool.Plan = plan;
-		PublishPlan("plan-mode:" + tool.Id, plan, tool.TurnId);
+			: null);
+		return string.IsNullOrWhiteSpace(text) ? null : text;
 	}
 
 	/// <summary>The transcript item id of the tool call <paramref name="toolCallId"/>.</summary>
@@ -47,7 +45,7 @@ internal sealed partial class AcpConversation {
 		Status = tool.Status,
 		Locations = tool.Locations,
 		Diffs = tool.Diffs,
-		Content = tool.Plan is null ? tool.Content : null,
+		Content = tool.Kind == "switch_mode" ? null : tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
 		Background = tool.Backgrounded ? true : null,

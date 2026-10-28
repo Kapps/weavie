@@ -192,6 +192,6 @@ test("a completed package keeps focus in results when the user has moved on", as
   await page.keyboard.press("ArrowDown");
   await release("ocean-0");
   await expect(filter).toBeVisible();
-  await expect(results.getByRole("option").first()).toBeFocused();
+  await expect(results.getByRole("option").nth(1)).toBeFocused();
   await expect(results.getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
 });

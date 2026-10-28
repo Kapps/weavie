@@ -26,6 +26,7 @@ test("theme picker previews with the keyboard, cancels, and persists acceptance"
   await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(appearance).toHaveAttribute("data-theme-type", "dark");
+  await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toBeFocused();
   await filter.press("ArrowDown");
   await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toContainText(
     "Weavie Light",

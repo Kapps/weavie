@@ -50,17 +50,23 @@ function Picker(props: { opened: ThemePickerState }) {
     const target = event.target instanceof HTMLElement ? event.target : null;
     const inVariants = target?.closest('[data-theme-pane="variants"]') !== null && target !== null;
     const count = inVariants ? m.variantChoices().length : m.count();
+    const option = target?.getAttribute("role") === "option";
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
       if (count === 0) return;
       const selected = inVariants ? m.variantSelected() : m.selected();
       const index = (selected + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
-      if (inVariants) m.highlightVariant(index);
-      else void m.highlight(index);
-      document
-        .getElementById(`${inVariants ? "theme-variants" : "theme-options"}-${index}`)
-        ?.scrollIntoView({ block: "nearest" });
+      const next = document.getElementById(
+        `${inVariants ? "theme-variants" : "theme-options"}-${index}`,
+      );
+      // A focused option previews on focus, so focus follows the highlight.
+      if (option) next?.focus();
+      else {
+        if (inVariants) m.highlightVariant(index);
+        else void m.highlight(index);
+        next?.scrollIntoView({ block: "nearest" });
+      }
     }
     if (
       event.key === "ArrowLeft" &&
@@ -72,7 +78,6 @@ function Picker(props: { opened: ThemePickerState }) {
       event.stopPropagation();
       focusResult();
     }
-    const option = target?.getAttribute("role") === "option";
     if (
       (event.key === "Enter" && (target instanceof HTMLInputElement || option)) ||
       (event.key === "ArrowRight" && !inVariants && m.registry() && option)

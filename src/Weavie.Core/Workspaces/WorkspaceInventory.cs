@@ -120,13 +120,16 @@ public sealed partial class WorkspaceInventory {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
 			var previous = LastSnapshot!;
+			var files = previous.Files.ToHashSet(PathIdentity.CanonicalComparer);
+			var directories = previous.Directories.ToHashSet(PathIdentity.CanonicalComparer);
+			// Listing an unknown path's highest unknown ancestor covers it, so a burst inside one new or ignored
+			// directory (an install's node_modules) becomes a single query.
+			scope = scope.Select(path => HighestUnknownAncestor(directories, path)).ToHashSet(PathIdentity.CanonicalComparer);
 			var listed = await _loadScope(scope, ct).ConfigureAwait(false);
 			if (listed is null) {
 				return await ReloadAsync(ct).ConfigureAwait(false);
 			}
 
-			var files = previous.Files.ToHashSet(PathIdentity.CanonicalComparer);
-			var directories = previous.Directories.ToHashSet(PathIdentity.CanonicalComparer);
 			// Every known entry beneath a scope path implies that path is known, so unknown scope paths drop nothing.
 			scope.RemoveWhere(path => !files.Contains(path) && !directories.Contains(path));
 			if (listed.Count == 0 && scope.Count == 0) {
@@ -146,6 +149,16 @@ public sealed partial class WorkspaceInventory {
 		} finally {
 			_refreshGate.Release();
 		}
+	}
+
+	private static string HighestUnknownAncestor(HashSet<string> directories, string path) {
+		for (string? parent = Path.GetDirectoryName(path);
+			parent is not null && !directories.Contains(parent);
+			parent = Path.GetDirectoryName(parent)) {
+			path = parent;
+		}
+
+		return path;
 	}
 
 	private bool IsWithin(HashSet<string> scope, string path) {

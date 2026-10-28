@@ -19,13 +19,12 @@ internal sealed partial class AcpConversation {
 	// The AIR id claude-agent-acp gives an approved plan, so its own plan_update revises Weavie's snapshot.
 	private static string PlanModeId(string toolCallId) => "plan-mode:" + toolCallId;
 
-	// A mode switch's plan text: Codex sends it as rawInput.plan, Claude without planFile as the tool's text content.
-	private static string? PlanText(AcpToolState tool) {
-		string? text = tool.PlanText ?? (tool.Content is { } content
-			? string.Join("\n\n", content.Where(block => block.Type == "text").Select(block => block.Text))
-			: null);
-		return string.IsNullOrWhiteSpace(text) ? null : text;
-	}
+	// A mode switch's plan text is its rawInput.plan; agents' text content may be any notice.
+	private static string? ModeSwitchPlanText(AcpToolState tool) =>
+		tool.Kind == "switch_mode" && !string.IsNullOrWhiteSpace(tool.InputPlan) ? tool.InputPlan : null;
+
+	private static bool CarriesPlan(AcpToolState tool) =>
+		tool.Kind == "switch_mode" && (tool.PlanFile is not null || ModeSwitchPlanText(tool) is not null);
 
 	/// <summary>The transcript item id of the tool call <paramref name="toolCallId"/>.</summary>
 	internal static string ToolItemId(string toolCallId) => "tool:" + toolCallId;
@@ -45,7 +44,7 @@ internal sealed partial class AcpConversation {
 		Status = tool.Status,
 		Locations = tool.Locations,
 		Diffs = tool.Diffs,
-		Content = tool.Kind == "switch_mode" ? null : tool.Content,
+		Content = CarriesPlan(tool) ? null : tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
 		Background = tool.Backgrounded ? true : null,

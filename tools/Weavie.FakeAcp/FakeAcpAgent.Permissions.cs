@@ -125,6 +125,16 @@ internal sealed partial class FakeAcpAgent {
 		Message("approved plan: " + approvedPlan);
 	}
 
+	// A mode switch whose content is a notice, not a plan to approve.
+	private void ModeSwitch() => Update(new JsonObject {
+		["sessionUpdate"] = "tool_call",
+		["toolCallId"] = "mode-switch",
+		["title"] = "Switch mode",
+		["kind"] = "switch_mode",
+		["status"] = "completed",
+		["content"] = new JsonArray(new JsonObject { ["type"] = "content", ["content"] = Text("Switched to code mode.") }),
+	});
+
 	private static JsonObject PlanFile(string path) => new() { ["planFilePath"] = path };
 
 	private void PermissionToolUpdate(string id, string status) => Update(new JsonObject {

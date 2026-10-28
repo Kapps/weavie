@@ -106,6 +106,7 @@ public sealed partial class AcpAgentSession {
 			side.Conversation.TerminalizeForRestart(clearSubmissions: true, reason);
 			side.Conversation.Save([]);
 			lock (_gate) _sides.Remove(side.Side.ConversationId);
+			side.Conversation.SettleInteractions();
 			side.Conversation.Retire();
 			if (side.Conversation.ThreadId is null) PublishSideTerminal(side.Side);
 			DisposeSide(side);

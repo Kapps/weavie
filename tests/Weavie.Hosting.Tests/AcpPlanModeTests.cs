@@ -66,6 +66,16 @@ public sealed class AcpPlanModeTests {
 	}
 
 	[Fact]
+	public async Task ModeSwitchWithoutAPlan_KeepsItsContent() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("mode-switch");
+
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:mode-switch");
+		Assert.Equal("Switched to code mode.", Assert.Single(tool.Content!).Text);
+	}
+
+	[Fact]
 	public async Task ModeSwitchWithPlanText_IsAReadOnlyReview() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
@@ -94,6 +104,25 @@ public sealed class AcpPlanModeTests {
 		Assert.Equal(approval.ConversationId, plan.ConversationId);
 		await fixture.WaitForMessageAsync(message => message.Text?.StartsWith("approved plan:", StringComparison.Ordinal) == true);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
+
+	// Rewind waits for a side's pending review, so only a restart can interrupt it.
+	[Fact]
+	public async Task AsideReview_IsSettledWhenTheAgentRestarts() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		foreach (string prompt in new[] { "alpha", "bravo" }) {
+			fixture.Submit(prompt);
+			await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: " + prompt);
+		}
+		fixture.AskAside("exit-plan-mode");
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Session.RewindBeforeAsync("2"));
+		fixture.Session.Restart();
+
+		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "approval-resolved");
+		Assert.Equal((approval.RequestId, "cancelled"), (resolved.RequestId, resolved.Status));
 	}
 
 	[Fact]

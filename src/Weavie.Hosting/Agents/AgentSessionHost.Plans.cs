@@ -7,15 +7,28 @@ public sealed partial class AgentSessionHost {
 
 	internal bool WithCompletedPlan(string threadId, string turnId, string itemId, Action<AgentPlan> publish) {
 		ArgumentNullException.ThrowIfNull(publish);
-		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) return false;
-		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
 		lock (_paneGate) {
-			if (!_paneItemIndexes.TryGetValue(key, out int index)
-				|| CompletedPlanLocked(_paneMessages[index]) is not { } plan) return false;
+			if (MessageLocked(threadId, turnId, itemId) is not { } message || CompletedPlanLocked(message) is not { } plan) return false;
 			publish(plan);
 			return true;
 		}
 	}
+
+	/// <summary>Runs <paramref name="open"/> with the plan file the identified review asks about.</summary>
+	internal bool WithPlanFile(string threadId, string turnId, string itemId, Action<string> open) {
+		ArgumentNullException.ThrowIfNull(open);
+		lock (_paneGate) {
+			if (MessageLocked(threadId, turnId, itemId) is not { ItemType: "plan-review", PlanPath: { } path }) return false;
+			open(path);
+			return true;
+		}
+	}
+
+	private AgentPaneMessage? MessageLocked(string threadId, string turnId, string itemId) =>
+		string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)
+			|| !_paneItemIndexes.TryGetValue(AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!, out int index)
+			? null
+			: _paneMessages[index];
 
 	// A text plan review is a document of its own; a file review's document is the file.
 	private AgentPlan? CompletedPlanLocked(AgentPaneMessage message) {
@@ -37,13 +50,12 @@ public sealed partial class AgentSessionHost {
 		var documents = new List<AgentPlan>();
 		var reviews = new Dictionary<string, AgentPlanReview>(StringComparer.Ordinal);
 		foreach (var message in _paneMessages) {
-			var plan = CompletedPlanLocked(message);
-			if (plan is { } document) documents.Add(document);
+			if (CompletedPlanLocked(message) is { } document) documents.Add(document);
 			if (AgentPaneIdentity.ItemKey(message) is not { } key) continue;
 			if (message is { Type: "approval-requested", ItemType: "plan-review" }) {
 				reviews[key] = new AgentPlanReview(
 					message.RequestId!,
-					message.PlanPath ?? AgentPlanProtocol.Path(plan!.Value),
+					message.PlanPath ?? AgentPlanProtocol.Path(key),
 					message.PlanPath is not null,
 					message.Actions ?? []);
 			} else if (message.Type == "approval-resolved") {

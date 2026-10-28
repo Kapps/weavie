@@ -111,7 +111,7 @@ public sealed partial class AgentSessionHostTests {
 		Assert.Equal(["file", "text"], reviews.Select(review => review.RequestId));
 		Assert.Equal(("/plans/claude.md", true), (reviews[0].Path, reviews[0].Editable));
 		var document = Assert.Single(snapshots[^1].Documents);
-		Assert.Equal((AgentPlanProtocol.Path(document), false, "# Codex plan"), (reviews[1].Path, reviews[1].Editable, document.Markdown));
+		Assert.Equal((AgentPlanProtocol.Path(document.Id), false, "# Codex plan"), (reviews[1].Path, reviews[1].Editable, document.Markdown));
 		Assert.True(host.WithCompletedPlan(text.ThreadId!, text.TurnId!, text.ItemId!, _ => { }));
 
 		session.Emit(file with { Type = "approval-resolved", ItemType = null, PlanPath = null, Status = "allowed once" });

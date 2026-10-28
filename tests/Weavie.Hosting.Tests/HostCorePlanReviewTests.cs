@@ -32,6 +32,10 @@ public sealed class HostCorePlanReviewTests {
 		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "openFile"));
 		Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openOverlay"));
 
+		host.Bridge.Clear();
+		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "request:review-1"));
+		Assert.Equal("navigation", Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile")).GetProperty("intent").GetString());
+
 		host.SessionEvent(session, "agent", "permission", new { requestId = review.GetProperty("requestId").GetString(), optionId = "allow" });
 		Assert.False(Assert.Single(Reviews(host, session)).GetProperty("editable").GetBoolean());
 	}

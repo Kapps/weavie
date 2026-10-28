@@ -131,9 +131,9 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 				Interlocked.Increment(ref fullLoads);
 				return git.ListWorkspacePathsAsync(_dir.Path, ct);
 			},
-			(scope, ct) => {
-				scopes.Enqueue([.. scope]);
-				return git.ListWorkspacePathsAsync(_dir.Path, scope, ct);
+			(known, discovered, ct) => {
+				scopes.Enqueue([.. known, .. discovered]);
+				return git.ListWorkspacePathsAsync(_dir.Path, known, discovered, ct);
 			});
 		await using var watcher = await StartAsync(inventory);
 		int afterStart = Volatile.Read(ref fullLoads);
@@ -190,6 +190,34 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			requested >= held,
 			$"expected the cooldown to cover the {held.TotalMilliseconds}ms pass, got {requested.TotalMilliseconds}ms");
 
+		await watcher.StopAsync();
+		await run;
+	}
+
+	[Fact]
+	public async Task DiscoversFileWrittenIntoNewDirectoryBeforeItsWatch() {
+		Track("root.ts");
+		string late = _dir.Combine("fresh", "late.ts");
+		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var inventory = new WorkspaceInventory(_dir.Path, _ => Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]));
+		using var watcher = new WorkspaceInvalidationWatcher(inventory,
+			batch => {
+				if (batch.Any(change => change.Path == late && change.Kind == FileInvalidationKind.Created)) reported.TrySetResult();
+			},
+			_ => { }, 1, Task.Delay,
+			path => {
+				if (path == _dir.Combine("fresh")) {
+					File.WriteAllText(late, "");
+					Track(Path.Combine("fresh", "late.ts"));
+				}
+				return new FileSystemWatcher(path);
+			});
+		var run = watcher.RunAsync(CancellationToken.None);
+		await watcher.Ready;
+
+		Track(Path.Combine("fresh", "first.ts"));
+		_dir.WriteFile("fresh/first.ts", "");
+		await reported.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		await watcher.StopAsync();
 		await run;
 	}

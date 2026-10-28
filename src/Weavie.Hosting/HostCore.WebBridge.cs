@@ -177,24 +177,6 @@ public sealed partial class HostCore {
 		files,
 		pending);
 
-	/// <summary>
-	/// Publishes one session's file index from the inventory's already-current Git snapshot instead of forcing
-	/// another reload — used only by a consumer of the watcher's own invalidation fact, which fired *because*
-	/// that watcher just refreshed this same inventory via Git. A non-repository snapshot skips the seeding
-	/// dance <see cref="PushFileIndexToWeb(HostSession, bool)"/> does, so that path still reloads through it.
-	/// </summary>
-	private void PushCachedFileIndexToWeb(HostSession session) {
-		if (session.Inventory.LastSnapshot is not { IsRepository: true } inventory) {
-			PushFileIndexToWeb(session, false);
-			return;
-		}
-
-		session.Bus.BroadcastTarget.Feature("files").Publish(
-			"index",
-			WireJson.Default.FileIndexWire,
-			FileIndexPayload(session, inventory.Files, pending: false));
-	}
-
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
 	// omnibar renders the top few as its Recent section.
 	private const int RecentFilesPushCount = 50;

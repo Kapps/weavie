@@ -517,20 +517,25 @@ public sealed partial class GitService : IGitService {
 
 	/// <summary>
 	/// <see cref="ListWorkspacePathsAsync(string, CancellationToken)"/> restricted to the entries at or beneath
-	/// <paramref name="scope"/> (absolute paths inside <paramref name="directory"/>). Ignored scope paths cost one
-	/// <c>git check-ignore</c> and are never listed; a scope too long for one command line lists everything.
+	/// <paramref name="scope"/> and <paramref name="ignorableScope"/> (absolute paths inside
+	/// <paramref name="directory"/>). Ignorable paths git ignores cost one <c>git check-ignore</c> and are never
+	/// listed; a scope too long for one command line lists everything.
 	/// </summary>
 	public async Task<IReadOnlyList<string>?> ListWorkspacePathsAsync(
 		string directory,
 		IReadOnlyCollection<string> scope,
+		IReadOnlyCollection<string> ignorableScope,
 		CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		ArgumentNullException.ThrowIfNull(scope);
+		ArgumentNullException.ThrowIfNull(ignorableScope);
 		string root = Path.GetFullPath(directory);
-		string[] queries = [.. scope.Select(path => IgnoreQueryPath(root, path)).Distinct(PathIdentity.Comparer)];
+		string[] queries = [.. ignorableScope.Select(path => IgnoreQueryPath(root, path)).Distinct(PathIdentity.Comparer)];
 		var ignored = await FindIgnoredAsync(directory, queries, ct).ConfigureAwait(false);
 		string[] pathspecs = [.. queries
 			.Where(query => !ignored.Contains(query))
+			.Concat(scope)
+			.Distinct(PathIdentity.Comparer)
 			.Select(query => Path.GetRelativePath(root, query).Replace(Path.DirectorySeparatorChar, '/'))
 			// Git never lists its own directory, so changes inside it need no listing at all.
 			.Where(relative => relative != ".git" && !relative.StartsWith(".git/", StringComparison.Ordinal))

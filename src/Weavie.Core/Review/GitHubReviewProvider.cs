@@ -144,7 +144,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		string? token;
 		try {
 			token = await lookup.WaitAsync(ct).ConfigureAwait(false);
-		} catch (Exception) when (lookup.IsFaulted) {
+		} catch (Exception) when (lookup.IsFaulted || ct.IsCancellationRequested) {
+			// A caller that gave up on a still-running lookup leaves the next one to start afresh.
 			_ = Interlocked.CompareExchange(ref _token, null, lookup);
 			throw;
 		}

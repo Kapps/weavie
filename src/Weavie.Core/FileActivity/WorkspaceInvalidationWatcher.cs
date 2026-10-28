@@ -227,6 +227,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 	// A null scope re-lists the whole workspace; otherwise only the changed paths are re-listed.
 	private async Task RefreshAsync(bool initial, IReadOnlyCollection<string>? scope, CancellationToken ct) {
+		scope = scope is null ? null : _inventory.CoveringScope(scope);
 		bool watchesChanged;
 		do {
 			var previous = _inventory.LastSnapshot;

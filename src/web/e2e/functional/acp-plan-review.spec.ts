@@ -11,7 +11,7 @@ test.describe("ACP plan review with automatic tool approval", () => {
     },
   });
 
-  test("Claude's plan file opens for editing and an unsaved edit is accepted with the keyboard", async ({
+  test("Claude's plan file opens for editing and an unsaved edit is accepted with the keyboard @cross", async ({
     page,
   }) => {
     const surface = await createAcpSession(page, "acp-plan-file");

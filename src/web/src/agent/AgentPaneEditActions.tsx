@@ -41,21 +41,26 @@ export function EditLocationActions(props: {
   );
 }
 
+// A plan file under review opens as itself; any other plan opens as a read-only document.
 export function PlanActions(props: {
   message: AgentPaneUpdate;
   session: ClientSession | null;
 }): JSX.Element {
   const identity = (): ReturnType<typeof planIdentity> => planIdentity(props.message);
-  const key = (): string => liveKeyLabel(CommandIds.openAgentPlan);
+  const file = (): string | null => props.message.planPath ?? null;
+  const key = (): string => (file() === null ? liveKeyLabel(CommandIds.openAgentPlan) : "");
   const open = (): void => {
+    const path = file();
     const plan = identity();
-    if (props.session !== null && plan !== null) {
+    if (path !== null) {
+      revealFileIn(props.session, path, undefined, false);
+    } else if (props.session !== null && plan !== null) {
       void props.session.feature("agent").request("openPlan", plan);
     }
   };
 
   return (
-    <Show when={identity()}>
+    <Show when={file() !== null || identity() !== null}>
       <div class="agent-approval-actions">
         <button
           type="button"

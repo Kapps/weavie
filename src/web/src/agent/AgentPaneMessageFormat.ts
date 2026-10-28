@@ -57,7 +57,7 @@ export function isResolutionMessage(message: AgentPaneUpdate): boolean {
   );
 }
 
-export type RequestKind = "approval" | "authentication" | "input";
+export type RequestKind = "approval" | "authentication" | "input" | "plan-review";
 
 /** How a request ended: its normalized status and the answers the user submitted, when any. */
 export interface RequestResolution {
@@ -100,7 +100,11 @@ export function requestLifecycles(messages: readonly AgentPaneUpdate[]): Request
     if (key === null) {
       continue;
     }
-    const kind = REQUEST_KIND.get(message.type);
+    // A plan review is answered from its editor tab, never by the approval chords.
+    const kind =
+      message.type === "approval-requested" && message.itemType === "plan-review"
+        ? "plan-review"
+        : REQUEST_KIND.get(message.type);
     if (kind !== undefined) {
       if (!byKey.has(key)) {
         if (message.requestId === null || message.requestId === undefined) {

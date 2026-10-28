@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import { evaluateWhen } from "../commands/context";
 import { LinkDroppedError } from "../messaging/message-bus";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
@@ -113,7 +114,7 @@ export interface EditorControllerDeps {
  * Why the editor pane is being given a destination — the wire value the host stamps on every open it pushes.
  * Navigation focuses the editor pane; passive reveal and restoration preserve the current pane.
  */
-type EditorOpenIntent = "navigation" | "reveal" | "restore";
+type EditorOpenIntent = "navigation" | "reveal" | "restore" | "background";
 
 interface DiffProposal {
   id: string;
@@ -176,6 +177,8 @@ export interface EditorController {
   flushDirty(): Promise<void>;
   /** Flushes one exact session's editor state and dirty working copies before its backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
+  /** Saves one file's pending edits and resolves once the host has written them. */
+  flush(session: ClientSession, path: string): Promise<void>;
   /** Open the review overview, or a specific file when a path is supplied. */
   openReview(session: ClientSession, path: string | undefined, line: number | undefined): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
@@ -454,8 +457,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (tab !== undefined) tab.presentation?.focus();
   };
 
+  // A background open never takes the keyboard: it shows its tab unfocused, or only adds it beside an editor the
+  // user is typing in.
+  const backgroundOpen = (session: ClientSession, intent: EditorOpenIntent) =>
+    intent !== "background"
+      ? {}
+      : selectedSession() === session && evaluateWhen("editorFocused")
+        ? { activate: false }
+        : { focus: false };
+
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) return false;
+    if (intent === "background") return !evaluateWhen("editorFocused");
     if (intent !== "restore") navigation.depart(session);
     deps.onDestinationActivated();
     return true;
@@ -469,9 +482,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     scratch: boolean,
     intent: EditorOpenIntent,
   ): void => {
+    const options = backgroundOpen(session, intent);
     const foreground = activateDestinationFor(session, intent);
     const result = openTabFor(session, path, {
       ...(line === undefined ? {} : { line }),
+      ...options,
       preview,
       scratch,
     });
@@ -1288,12 +1303,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
+      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan"; intent: EditorOpenIntent }>(
         session,
         "openOverlay",
-        ({ path, kind }) => {
-          const result = openTabFor(session, path, { kind });
-          if (activateDestinationFor(session, "navigation")) {
+        ({ path, kind, intent }) => {
+          const result = openTabFor(session, path, { kind, ...backgroundOpen(session, intent) });
+          if (activateDestinationFor(session, intent)) {
             presentTab(session, result);
           }
         },
@@ -1488,6 +1503,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     flushSession: (session) => host?.flushSession(session) ?? Promise.resolve(),
+    flush: (session, path) => host?.flush(session, path) ?? Promise.resolve(),
     openReview: (session, path, line) => {
       if (selectedSession() !== session) {
         return false;

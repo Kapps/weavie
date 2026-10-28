@@ -664,6 +664,32 @@ video.editor-media-content {
   text-align: center;
 }
 
+.plan-review-bar {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  max-width: calc(100% - 32px);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bar);
+  box-shadow: 0 4px 16px color-mix(in srgb, black 30%, transparent);
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+}
+
+.plan-review-label {
+  margin-right: 4px;
+  color: var(--dim);
+}
+
+.plan-review-bar button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .editor-tab-content {
   position: absolute;
   inset: 0;

@@ -1,4 +1,5 @@
-import { createAcpSession } from "../harness/acp-session";
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { clickIntoEditor, pressDocumentEnd, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 test.describe("ACP plan review with automatic tool approval", () => {
@@ -10,78 +11,72 @@ test.describe("ACP plan review with automatic tool approval", () => {
     },
   });
 
-  for (const scenario of [
-    { prompt: "plan", choice: "Yes, implement this plan", result: "allow" },
-    { prompt: "plan-existing", choice: "No, revise this plan", result: "reject" },
-  ]) {
-    test(`plan review waits for ${scenario.result} and accepts its terminal update`, async ({
-      page,
-    }) => {
-      const surface = await createAcpSession(page, `acp-plan-${scenario.result}`);
-      const composer = surface.locator("[data-agent-composer] textarea");
+  test("Claude's plan file opens for editing and an unsaved edit is accepted with the keyboard", async ({
+    page,
+  }) => {
+    const surface = await createAcpSession(page, "acp-plan-file");
+    const composer = surface.locator("[data-agent-composer] textarea");
+    await composer.fill("exit-plan-mode");
+    await composer.press("Enter");
 
-      await composer.fill("permission-lifecycle:immediate");
-      await composer.press("Enter");
-      await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
-        "permission lifecycle: allow",
-      );
-      await expect(
-        surface.locator(".agent-entry-request .agent-approval-actions button"),
-      ).toHaveCount(0);
+    await expect(page.locator(".editor-tab.active")).toContainText("fake-plan.md");
+    await expect(composer).toBeFocused();
+    const card = surface.locator(".agent-entry-request");
+    await expect(card).toContainText("Ready to review in the editor");
+    await expect(card.getByRole("button")).toHaveText(["Open plan"]);
+    const bar = page.locator(".plan-review-bar");
+    const accept = bar.getByRole("button", { name: /Yes, manually approve edits/ });
+    await expect(accept).toHaveAttribute("title", /\((Ctrl|⌘)\+Enter\)/);
 
-      await composer.fill(`permission-lifecycle:${scenario.prompt}`);
-      await composer.press("Enter");
-      const approval = surface.locator(".agent-entry-request");
-      await expect(approval).toContainText("Implement this plan?");
-      const implement = approval.getByRole("button", { name: "Yes, implement this plan" });
-      const revise = approval.getByRole("button", { name: "No, revise this plan" });
-      await expect(implement).toBeInViewport({ ratio: 1 });
-      await expect(revise).toBeInViewport({ ratio: 1 });
-      const payload = approval.locator(".agent-entry-text");
-      await expect
-        .poll(() => payload.evaluate((element) => element.scrollHeight > element.clientHeight))
-        .toBe(true);
-      await payload.hover();
-      await page.mouse.wheel(0, 6500);
-      await expect
-        .poll(() =>
-          payload.evaluate(
-            (element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
-          ),
-        )
-        .toBe(true);
-      await expect(implement).toBeInViewport({ ratio: 1 });
-      await expect(revise).toBeInViewport({ ratio: 1 });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(accept).toBeVisible();
+    await clickIntoEditor(page);
+    await pressDocumentEnd(page);
+    await typeInEditor(page, "Edited in the editor.");
+    await page.keyboard.press("ControlOrMeta+Enter");
 
-      await surface.getByRole("button", { name: "Open plan" }).click();
-      const document = page.locator(".editor-plan .agent-markdown");
-      await expect(document).toContainText("Detailed work plan");
-      await expect(document).toContainText("Implementation step 12");
-      await expect(document).toContainText("End of the complete work plan.");
-      const body = surface.locator(".agent-body");
-      await body.hover({ position: { x: 4, y: 20 } });
-      await page.mouse.wheel(0, -1000);
-      const latest = surface.getByRole("button", { name: "Jump to latest", exact: true });
-      await expect(latest).toHaveCount(1);
-      await body.hover({
-        position: { x: (await body.evaluate((element) => element.clientWidth)) - 20, y: 20 },
-      });
-      await latest.click();
-      await expect(implement).toBeInViewport({ ratio: 1 });
-      await expect(revise).toBeInViewport({ ratio: 1 });
+    await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
+      "Edited in the editor.",
+    );
+    await expect(bar).toHaveCount(0);
+    await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
+  });
 
-      await approval.getByRole("button", { name: scenario.choice }).click();
-      await expect(
-        surface.locator(".agent-entry-message.agent-tone-assistant").last(),
-      ).toContainText(`permission lifecycle: ${scenario.result}`);
-      await expect(
-        surface.locator(".agent-entry-request .agent-approval-actions button"),
-      ).toHaveCount(0);
-      await expect(surface.locator(".agent-working")).toHaveCount(0);
-      await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
-      await expect(surface).not.toContainText("unknown tool call");
-    });
-  }
+  test("a plan sent as text is a read-only review that can keep planning", async ({ page }) => {
+    const surface = await createAcpSession(page, "acp-plan-text");
+    const composer = surface.locator("[data-agent-composer] textarea");
+    await composer.fill("permission-lifecycle:plan");
+    await composer.press("Enter");
+
+    const document = page.locator(".editor-plan .agent-markdown");
+    await expect(document).toContainText("End of the complete work plan.");
+    await expect(composer).toBeFocused();
+    await expect(surface.getByRole("button", { name: "No, revise this plan" })).toHaveCount(0);
+    await page
+      .locator(".plan-review-bar")
+      .getByRole("button", { name: "No, revise this plan" })
+      .click();
+
+    await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
+      "permission lifecycle: reject",
+    );
+    await expect(page.locator(".plan-review-bar")).toHaveCount(0);
+    await surface.getByRole("button", { name: "Open plan" }).first().click();
+    await expect(document).toContainText("End of the complete work plan.");
+  });
+
+  test("a side conversation's plan review answers only that conversation", async ({ page }) => {
+    const surface = await createAcpSession(page, "acp-plan-btw");
+    await submitAcpDraft(surface, "/btw exit-plan-mode");
+    await expect(page.locator(".editor-tab.active")).toContainText("fake-plan.md");
+    await page
+      .locator(".plan-review-bar")
+      .getByRole("button", { name: /Yes, manually approve edits/ })
+      .click();
+    await expect(surface.locator(".agent-aside")).toContainText("approved plan:");
+    await expect(page.locator(".plan-review-bar")).toHaveCount(0);
+    await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
+  });
 });
 
 test("an open ACP plan shows full revisions and remains removed after reconnect", async ({

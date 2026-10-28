@@ -108,6 +108,8 @@ export const CommandIds = {
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
   copyAgentCodeBlock: "weavie.agent.copyCodeBlock",
   openAgentPlan: "weavie.agent.openPlan",
+  acceptAgentPlan: "weavie.agent.acceptPlan",
+  rejectAgentPlan: "weavie.agent.rejectPlan",
   togglePlanMode: "weavie.agent.togglePlanMode",
   selectModel: "weavie.agent.selectModel",
   selectApprovalPolicy: "weavie.agent.selectApprovalPolicy",

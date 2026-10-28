@@ -52,7 +52,12 @@ export function latestCompletedPlan(
 ): AgentPlanIdentity | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.type === "item-completed" && message.itemType === "plan") {
+    if (
+      (message?.type === "item-completed" && message.itemType === "plan") ||
+      (message?.type === "approval-requested" &&
+        message.itemType === "plan-review" &&
+        !message.planPath)
+    ) {
       const plan = planIdentity(message);
       if (plan !== null) {
         return plan;

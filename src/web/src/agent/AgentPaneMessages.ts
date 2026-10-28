@@ -235,7 +235,14 @@ function durableEntry(
   }
   switch (message.type) {
     case "approval-requested":
-      return entry(message, sequence, "request", "pending", "Permission", status);
+      return message.itemType === "plan-review"
+        ? {
+            ...entry(message, sequence, "request", "pending", "Plan", status),
+            summary:
+              status === "pending" ? "Ready to review in the editor" : "Reviewed in the editor",
+            text: null,
+          }
+        : entry(message, sequence, "request", "pending", "Permission", status);
     case "authentication-requested":
       return entry(message, sequence, "request", "pending", "Sign in", status);
     case "edit-location":

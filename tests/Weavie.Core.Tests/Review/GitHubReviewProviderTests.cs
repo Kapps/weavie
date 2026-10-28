@@ -22,7 +22,7 @@ public sealed class GitHubReviewProviderTests {
 	}
 
 	[Fact]
-	public async Task FindForBranchAsync_ReusesTheEtagWithTheCurrentCredential() {
+	public async Task FindForBranchAsync_ReusesTheEtagAndTheResolvedCredential() {
 		var handler = new ConditionalHandler();
 		var tokens = new CountingTokenSource();
 		var provider = new GitHubReviewProvider(new HttpClient(handler), tokens);
@@ -35,8 +35,38 @@ public sealed class GitHubReviewProviderTests {
 		Assert.Equal(first, second);
 		Assert.Equal(2, handler.Calls);
 		Assert.Equal("\"branch-v1\"", handler.SecondIfNoneMatch);
-		Assert.Equal(["token-1", "token-2"], handler.Tokens);
+		Assert.Equal(["token-1", "token-1"], handler.Tokens);
+		Assert.Equal(1, tokens.Calls);
+	}
+
+	[Fact]
+	public async Task RejectedCredentialIsResolvedAgain() {
+		var tokens = new CountingTokenSource();
+		var provider = new GitHubReviewProvider(new HttpClient(new StatusHandler(HttpStatusCode.Unauthorized)), tokens);
+		var repo = new RepoRef("github.com", "Kapps", "weavie");
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => provider.ListOpenAsync(repo));
+		await Assert.ThrowsAsync<InvalidOperationException>(() => provider.ListOpenAsync(repo));
+
 		Assert.Equal(2, tokens.Calls);
+	}
+
+	[Fact]
+	public async Task GetAsync_SharesAnInFlightFetchOfTheSamePullRequest() {
+		var handler = new GatedHandler("""{"number":7,"head":{"ref":"feature","sha":"abc"}}""");
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new StaticTokenSource());
+		var repo = new RepoRef("github.com", "Kapps", "weavie");
+
+		var preview = provider.GetAsync(repo, 7);
+		var open = provider.GetAsync(new RepoRef("github.com", "kapps", "Weavie"), 7);
+		await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		handler.Release.SetResult();
+
+		Assert.Equal(7, (await preview)?.Number);
+		Assert.Equal(7, (await open)?.Number);
+		Assert.Equal(1, handler.Calls);
+		Assert.Equal(7, (await provider.GetAsync(repo, 7))?.Number);
+		Assert.Equal(2, handler.Calls);
 	}
 
 	[Fact]
@@ -161,6 +191,28 @@ public sealed class GitHubReviewProviderTests {
 			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
 				Content = new StringContent(_responses.Dequeue()),
 			});
+		}
+	}
+
+	private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler {
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+			Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("{}") });
+	}
+
+	private sealed class GatedHandler(string body) : HttpMessageHandler {
+		private int _calls;
+
+		public int Calls => Volatile.Read(ref _calls);
+		public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
+			if (Interlocked.Increment(ref _calls) == 1) {
+				Started.SetResult();
+				await Release.Task;
+			}
+
+			return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
 		}
 	}
 

@@ -120,6 +120,22 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	public Task Ready => _ready.Task;
 
 	/// <summary>
+	/// The inventory this watcher keeps current, once its initial load completes; a fresh listing when
+	/// observation failed or ended, since nothing then keeps the snapshot current.
+	/// </summary>
+	public async Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) {
+		try {
+			await _ready.Task.WaitAsync(ct).ConfigureAwait(false);
+		} catch (Exception) when (!ct.IsCancellationRequested) {
+			// The observation failure reaches the user through the run loop; the listing below reports its own.
+		}
+
+		return !_finished.Task.IsCompleted && _inventory.LastSnapshot is { } snapshot
+			? snapshot
+			: await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+	}
+
+	/// <summary>
 	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Only an
 	/// event that can change which paths the workspace contains re-enumerates it. Throws when the authoritative
 	/// inventory or platform watcher fails.
@@ -195,6 +211,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 
 		timer?.Dispose();
+		_ready.TrySetCanceled();
 		_stopping.Cancel();
 		_directoryWatchers.Dispose();
 		_refreshSignals.Writer.TryComplete();

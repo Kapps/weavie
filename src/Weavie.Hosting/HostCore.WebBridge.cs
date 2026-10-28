@@ -106,7 +106,7 @@ public sealed partial class HostCore {
 		target.Feature("lsp").PublishJson("config", session.LspConfigJson);
 
 	/// <summary>
-	/// Re-walks one session's worktree and publishes its file index. An invalidating refresh first clears only
+	/// Publishes one session's file index from the inventory its watcher keeps current. An invalidating refresh first clears only
 	/// that session's prior index; a slow result remains addressed to the same owner.
 	/// </summary>
 	private void PushFileIndexToWeb(HostSession session, bool invalidate) =>
@@ -125,7 +125,7 @@ public sealed partial class HostCore {
 			try {
 				IReadOnlyList<string> files;
 				try {
-					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+					var inventory = await session.FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false);
 					// A refresh during deletion can lose Git metadata before the root disappears.
 					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
 						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -17,6 +18,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	private const string DefaultHost = "github.com";
 	private readonly HttpClient _http;
 	private readonly IGitHubTokenSource _tokenSource;
+	private readonly ConcurrentDictionary<(string Host, string Owner, string Repo, int Number), Lazy<Task<PullRequestSummary?>>> _pullRequestFetches = new();
+	private Task<string?>? _token;
 
 	/// <summary>Creates the provider. Pass an <see cref="HttpClient"/> to share/mock; one is created otherwise.</summary>
 	/// <param name="http">HTTP client for API calls; a default is created if null.</param>
@@ -56,10 +59,25 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	}
 
 	/// <inheritdoc/>
-	public async Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default) {
+	public Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
-		string? body = await SendOrNullAsync(repo, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}", ct).ConfigureAwait(false);
-		return body is null ? null : ParsePullRequest(JsonDocument.Parse(body).RootElement);
+		// Callers asking for the same PR while a fetch is in flight (a preview, then its open) share that response.
+		var key = (repo.Host.ToUpperInvariant(), repo.Owner.ToUpperInvariant(), repo.Name.ToUpperInvariant(), number);
+		var fetch = _pullRequestFetches.GetOrAdd(key, _ => new Lazy<Task<PullRequestSummary?>>(() => FetchPullRequestAsync(repo, number, key)));
+		return fetch.Value.WaitAsync(ct);
+	}
+
+	private async Task<PullRequestSummary?> FetchPullRequestAsync(
+		RepoRef repo,
+		int number,
+		(string, string, string, int) key) {
+		await Task.Yield();
+		try {
+			string? body = await SendOrNullAsync(repo, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}", CancellationToken.None).ConfigureAwait(false);
+			return body is null ? null : ParsePullRequest(JsonDocument.Parse(body).RootElement);
+		} finally {
+			_pullRequestFetches.TryRemove(key, out _);
+		}
 	}
 
 	/// <inheritdoc/>
@@ -115,14 +133,37 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		return BuildRequest(method, url, jsonBody, token);
 	}
 
+	// The token is resolved once and reused until GitHub rejects it; a missing or failed lookup is retried next call.
 	private async Task<string> ResolveTokenAsync(CancellationToken ct) {
-		long started = Stopwatch.GetTimestamp();
-		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
-		SlowOperationLog.Report("resolving the GitHub token", started);
-		return !string.IsNullOrWhiteSpace(token)
-			? token
-			: throw new InvalidOperationException(
+		var lookup = Volatile.Read(ref _token);
+		if (lookup is null) {
+			var created = LookUpTokenAsync();
+			lookup = Interlocked.CompareExchange(ref _token, created, null) ?? created;
+		}
+
+		string? token;
+		try {
+			token = await lookup.WaitAsync(ct).ConfigureAwait(false);
+		} catch (Exception) when (lookup.IsFaulted) {
+			_ = Interlocked.CompareExchange(ref _token, null, lookup);
+			throw;
+		}
+
+		if (string.IsNullOrWhiteSpace(token)) {
+			_ = Interlocked.CompareExchange(ref _token, null, lookup);
+			throw new InvalidOperationException(
 				"No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
+		}
+
+		return token;
+	}
+
+	private async Task<string?> LookUpTokenAsync() {
+		await Task.Yield();
+		long started = Stopwatch.GetTimestamp();
+		string? token = await _tokenSource.GetTokenAsync(CancellationToken.None).ConfigureAwait(false);
+		SlowOperationLog.Report("resolving the GitHub token", started);
+		return token;
 	}
 
 	private static HttpRequestMessage BuildRequest(
@@ -142,9 +183,13 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		return request;
 	}
 
-	private static void ThrowForFailure(HttpResponseMessage response, RepoRef repo, string body) {
+	private void ThrowForFailure(HttpResponseMessage response, RepoRef repo, string body) {
 		if (response.IsSuccessStatusCode) {
 			return;
+		}
+
+		if (response.StatusCode == HttpStatusCode.Unauthorized) {
+			Volatile.Write(ref _token, null);
 		}
 
 		string detail = ErrorMessage(body) is { Length: > 0 } message ? $": {message}" : ".";

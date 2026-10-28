@@ -481,6 +481,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		} else if (text == "plan-document") PlanDocument("live-plan", "# Implementation plan");
 		else if (text == "full-plan") PlanDocument("live-plan", FullPlanMarkdown);
 		else if (text == "full-plan-revision") PlanDocument("live-plan", FullPlanMarkdown + "\n\n## Final revision\n\nPreserve the complete revised document.");
+		else if (text == "exit-plan-mode") await ExitPlanModeAsync(ct).ConfigureAwait(false);
 		else if (text.StartsWith("permission-lifecycle:", StringComparison.Ordinal)) {
 			await PermissionLifecycleAsync(text["permission-lifecycle:".Length..], ct).ConfigureAwait(false);
 		} else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");

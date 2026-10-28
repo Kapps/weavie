@@ -183,6 +183,7 @@ internal sealed partial class AcpConversation {
 		public string? Status { get; set; }
 		public string? Text { get; set; }
 		public string? Input { get; set; }
+		public string? Plan { get; set; }
 		public bool InitialReported { get; set; }
 		public bool NotificationReported { get; set; }
 		public bool LocallyTerminalized { get; set; }

@@ -141,9 +141,19 @@ internal sealed partial class AcpConversation {
 	private void UpdateConfig(JsonElement update) {
 		var config = AcpConfigurationOptions.ReadRequired(
 			update, "An ACP config update is missing configOptions.");
+		ApplyReportedControls(() => ReplaceConfigOptionsLocked(config));
+	}
+
+	// A mode the agent switches itself, such as on an approved plan, is the user's latest choice to restore.
+	private void ApplyReportedControls(Action updateLocked) {
+		string? mode;
 		lock (_gate) {
-			ReplaceConfigOptionsLocked(config);
+			string? before = _controls.GetValueOrDefault("mode")?.Value;
+			updateLocked();
+			mode = _controls.GetValueOrDefault("mode")?.Value;
+			if (_loadingTranscript || mode == before) mode = null;
 		}
+		if (mode is not null) _port.RememberControl("mode", mode);
 		RaiseControls();
 	}
 
@@ -157,15 +167,14 @@ internal sealed partial class AcpConversation {
 
 	private void UpdateMode(JsonElement update) {
 		string value = RequiredString(update, "currentModeId", "current mode update");
-		lock (_gate) {
+		ApplyReportedControls(() => {
 			if (_controls.TryGetValue("mode", out var mode)) {
 				if (mode.Options.All(option => option.Id != value)) {
 					throw new AcpProtocolException($"ACP current mode update selected unadvertised mode '{value}'.");
 				}
 				_controls["mode"] = WithValue(mode, value);
 			}
-		}
-		RaiseControls();
+		});
 	}
 
 	private void UpdateCommands(JsonElement update) {

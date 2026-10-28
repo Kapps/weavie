@@ -51,6 +51,14 @@ public sealed partial class AcpAgentSession {
 		protected override void OnSettled(bool terminal) {
 			if (terminal) Owner.CompleteSideTurn(ConversationId);
 		}
+
+		// A side question runs with the primary's live controls, and its own mode switches stay its own.
+		protected override IReadOnlyDictionary<string, string> OnControlDefaults() =>
+			Owner.Primary.Snapshot.Axes.ToDictionary(axis => axis.Id, axis => axis.Value, StringComparer.Ordinal);
+
+		protected override void OnRememberControl(string axis, string value) { }
+
+		protected override void OnForgetControl(string axis, string value) { }
 	}
 
 	// A subagent persists only its display; it has no continuation to resume.

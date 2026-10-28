@@ -59,6 +59,40 @@ internal sealed partial class FakeAcpAgent {
 		Message("permission lifecycle: " + decision);
 	}
 
+	// Mirrors claude-agent-acp: the plan is the switch_mode tool's text, and approval publishes it as an AIR plan.
+	private async Task ExitPlanModeAsync(CancellationToken ct) {
+		string id = $"toolu_plan_{++_permissionSequence}";
+		const string plan = "# Claude plan\n\nCreate b.txt.";
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = id,
+			["title"] = "Approve Plan",
+			["kind"] = "switch_mode",
+			["status"] = "pending",
+			["content"] = new JsonArray(),
+		});
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = id,
+			["rawInput"] = new JsonObject { ["plan"] = plan },
+			["content"] = new JsonArray(new JsonObject { ["type"] = "content", ["content"] = Text(plan) }),
+		});
+		var result = await Connection().RequestAsync("session/request_permission", new JsonObject {
+			["sessionId"] = _sessionId,
+			["toolCall"] = new JsonObject { ["toolCallId"] = id, ["title"] = "Approve Plan", ["rawInput"] = new JsonObject { ["plan"] = plan } },
+			["options"] = new JsonArray(
+				new JsonObject { ["optionId"] = "exit-plan-default", ["name"] = "Yes, manually approve edits", ["kind"] = "allow_once" },
+				new JsonObject { ["optionId"] = "reject", ["name"] = "No, keep planning", ["kind"] = "reject_once" }),
+		}, ct).ConfigureAwait(false);
+		bool approved = result.GetProperty("outcome").GetProperty("optionId").GetString() == "exit-plan-default";
+		if (approved) {
+			_mode = "default";
+			Update(new JsonObject { ["sessionUpdate"] = "current_mode_update", ["currentModeId"] = _mode });
+		}
+		PermissionToolUpdate(id, approved ? "completed" : "failed");
+		if (approved) PlanDocument("plan-mode:" + id, plan + "\n\nEdited on approval.");
+	}
+
 	private void PermissionToolUpdate(string id, string status) => Update(new JsonObject {
 		["sessionUpdate"] = "tool_call_update",
 		["toolCallId"] = id,

@@ -47,13 +47,14 @@ internal sealed partial class AcpConversation {
 		if (!update.TryGetProperty("plan", out var plan) || plan.ValueKind != JsonValueKind.Object) {
 			throw new AcpProtocolException("An ACP plan document update is missing its plan.");
 		}
-		string planId = RequiredString(plan, "planId", "plan document");
-		string turnId;
+		PublishPlan(RequiredString(plan, "planId", "plan document"), PlanText(plan), turnId: null);
+	}
+
+	// A plan keeps the turn it first appeared in, so its revisions update the same transcript item.
+	private void PublishPlan(string planId, string text, string? turnId) {
 		lock (_gate) {
-			if (!_planTurns.TryGetValue(planId, out turnId!)) {
-				turnId = TurnId();
-				_planTurns.Add(planId, turnId);
-			}
+			if (_planTurns.TryGetValue(planId, out string? known)) turnId = known;
+			else _planTurns.Add(planId, turnId ??= TurnId());
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
@@ -64,7 +65,7 @@ internal sealed partial class AcpConversation {
 			ItemType = "plan",
 			Category = "plan",
 			Summary = "Plan",
-			Text = PlanText(plan),
+			Text = text,
 			Status = "updated",
 		});
 	}

@@ -8,9 +8,20 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row.
 	private void PublishTool(AcpToolState tool) {
+		PublishModeSwitchPlan(tool);
 		if (!tool.Subagent) Emit(ToolMessage(tool));
 		else if (tool.Shown) Emit(ToolMessage(tool) with { Type = "item-retracted", Status = "retracted" });
 		tool.Shown = !tool.Subagent;
+	}
+
+	// A mode switch's text is the plan it asks to approve. The AIR plan id lets the agent's approved revision replace it.
+	private void PublishModeSwitchPlan(AcpToolState tool) {
+		string? plan = tool.Kind == "switch_mode" && tool.Content is { } content
+			? string.Join("\n\n", content.Where(block => block.Type == "text").Select(block => block.Text))
+			: null;
+		if (string.IsNullOrWhiteSpace(plan) || plan == tool.Plan) return;
+		tool.Plan = plan;
+		PublishPlan("plan-mode:" + tool.Id, plan, tool.TurnId);
 	}
 
 	/// <summary>The transcript item id of the tool call <paramref name="toolCallId"/>.</summary>
@@ -31,7 +42,7 @@ internal sealed partial class AcpConversation {
 		Status = tool.Status,
 		Locations = tool.Locations,
 		Diffs = tool.Diffs,
-		Content = tool.Content,
+		Content = tool.Plan is null ? tool.Content : null,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
 		Background = tool.Backgrounded ? true : null,

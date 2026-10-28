@@ -70,6 +70,52 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ScopedGitRefreshMatchesFullRefresh() {
+		TempGitRepo.Init(_root.Path);
+		_root.WriteFile(".gitignore", "node_modules/\n");
+		_root.WriteFile("tracked/gone.cs", "");
+		_root.WriteFile("tracked/kept.cs", "");
+		TempGitRepo.Run(_root.Path, "add", ".");
+		var inventory = new WorkspaceInventory(_root.Path);
+		await inventory.RefreshAsync();
+
+		Directory.Delete(_root.Combine("tracked"), recursive: true);
+		_root.WriteFile("fresh/[x] file.cs", "");
+		string empty = _root.CreateDirectory("fresh", "empty", "nested");
+		_root.WriteFile("node_modules/pkg/index.js", "");
+		var scoped = await inventory.RefreshAsync([_root.Combine("tracked"), _root.Combine("fresh"), _root.Combine("node_modules")]);
+		var full = await new WorkspaceInventory(_root.Path).RefreshAsync();
+
+		Assert.Equal(full.Files, scoped.Files);
+		Assert.Equal(full.Directories, scoped.Directories);
+		Assert.Contains(empty, scoped.Directories);
+	}
+
+	[Fact]
+	public async Task ScopedRefreshOfIgnoredPathsKeepsTheSnapshotWithoutListing() {
+		TempGitRepo.Init(_root.Path);
+		_root.WriteFile(".gitignore", "node_modules/\n");
+		_root.WriteFile("src/a.cs", "");
+		int listings = 0;
+		var git = new GitService();
+		var inventory = new WorkspaceInventory(
+			_root.Path,
+			ct => git.ListWorkspacePathsAsync(_root.Path, ct),
+			(scope, ct) => {
+				Interlocked.Increment(ref listings);
+				return git.ListWorkspacePathsAsync(_root.Path, scope, ct);
+			});
+		var before = await inventory.RefreshAsync();
+
+		_root.WriteFile("node_modules/pkg/index.js", "");
+		var after = await inventory.RefreshAsync([_root.Combine("node_modules"), _root.Combine("node_modules", "pkg", "index.js")]);
+
+		Assert.Same(before, after);
+		Assert.Equal(1, listings);
+		Assert.Empty((await git.ListWorkspacePathsAsync(_root.Path, [_root.Combine("node_modules", "pkg")]))!);
+	}
+
+	[Fact]
 	public void BuildSnapshot_DeduplicatesDirectorySpellings() {
 		var inventory = new WorkspaceInventory(_root.Path);
 		var snapshot = inventory.BuildSnapshot(false, [], ["src", "src/", "src/.", "./"]);

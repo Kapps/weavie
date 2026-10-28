@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using Weavie.Core.Diagnostics;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Processes;
 
 namespace Weavie.Core.Git;
@@ -509,18 +510,50 @@ public sealed partial class GitService : IGitService {
 	/// Returns <c>null</c> only when <paramref name="directory"/> isn't a git repository. Git launch failures
 	/// throw <see cref="GitException"/> so callers never mistake a broken inventory for a non-repository.
 	/// </summary>
-	public async Task<IReadOnlyList<string>?> ListWorkspacePathsAsync(string directory, CancellationToken ct = default) {
+	public Task<IReadOnlyList<string>?> ListWorkspacePathsAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
+		return ListPathspecsAsync(directory, [], ct);
+	}
+
+	/// <summary>
+	/// <see cref="ListWorkspacePathsAsync(string, CancellationToken)"/> restricted to the entries at or beneath
+	/// <paramref name="scope"/> (absolute paths inside <paramref name="directory"/>). Ignored scope paths cost one
+	/// <c>git check-ignore</c> and are never listed; a scope too long for one command line lists everything.
+	/// </summary>
+	public async Task<IReadOnlyList<string>?> ListWorkspacePathsAsync(
+		string directory,
+		IReadOnlyCollection<string> scope,
+		CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentNullException.ThrowIfNull(scope);
+		string root = Path.GetFullPath(directory);
+		string[] queries = [.. scope.Select(path => IgnoreQueryPath(root, path)).Distinct(PathIdentity.Comparer)];
+		var ignored = await FindIgnoredAsync(directory, queries, ct).ConfigureAwait(false);
+		string[] pathspecs = [.. queries
+			.Where(query => !ignored.Contains(query))
+			.Select(query => Path.GetRelativePath(root, query).Replace(Path.DirectorySeparatorChar, '/'))
+			// Git never lists its own directory, so changes inside it need no listing at all.
+			.Where(relative => relative != ".git" && !relative.StartsWith(".git/", StringComparison.Ordinal))
+			.Select(relative => ":(literal)" + relative)];
+		if (pathspecs.Length == 0) return [];
+		return await ListPathspecsAsync(directory, pathspecs.Sum(spec => spec.Length) > MaxScopedPathspecChars ? [] : pathspecs, ct)
+			.ConfigureAwait(false);
+	}
+
+	// Windows caps a command line at 32K characters; a larger scope is cheaper as one full listing anyway.
+	private const int MaxScopedPathspecChars = 16_000;
+
+	private async Task<IReadOnlyList<string>?> ListPathspecsAsync(string directory, string[] scope, CancellationToken ct) {
 		// -z keeps names with newlines safe; --exclude-standard applies the ignore rules; --cached is the
 		// tracked set and --others adds untracked-but-not-ignored files (so a brand-new file still opens).
-		var result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
+		var result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", .. scope], ct).ConfigureAwait(false);
 		if (result.ExitCode == 0) {
 			var paths = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
 			// Empty non-ignored directories carry no files, so the listing above can't reveal them; git only
 			// exposes them via `--directory`, which collapses each fully-untracked subtree to its shallowest
 			// root. One level is peeled off per pass, scoped to just the roots found so far (never a repo-wide
 			// rescan) and batched into a single `git` call per pass regardless of how many roots are pending.
-			var frontier = await ListUntrackedDirectoriesAsync(directory, pathspecs: null, ct).ConfigureAwait(false);
+			var frontier = await ListUntrackedDirectoriesAsync(directory, scope, ct).ConfigureAwait(false);
 			foreach (string root in frontier) paths.Add(root);
 			while (frontier.Count > 0) {
 				string[] pathspecs = [.. frontier.Select(root => ":(glob)" + EscapeGlobPathspec(root) + "*/")];
@@ -537,16 +570,10 @@ public sealed partial class GitService : IGitService {
 		throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 	}
 
-	// One level of untracked, non-ignored directories: unscoped (the whole worktree) when pathspecs is null/empty,
-	// or scoped to exactly the given roots' immediate children when not — never both at once.
-	private async Task<HashSet<string>> ListUntrackedDirectoriesAsync(string directory, string[]? pathspecs, CancellationToken ct) {
-		List<string> args = ["ls-files", "--others", "--directory", "--exclude-standard", "-z"];
-		if (pathspecs is { Length: > 0 }) {
-			args.Add("--");
-			args.AddRange(pathspecs);
-		}
-
-		var result = await RunAsync(directory, args, ct).ConfigureAwait(false);
+	// One level of untracked, non-ignored directories: unscoped (the whole worktree) when pathspecs is empty,
+	// or scoped to exactly the given pathspecs when not.
+	private async Task<HashSet<string>> ListUntrackedDirectoriesAsync(string directory, string[] pathspecs, CancellationToken ct) {
+		var result = await RunAsync(directory, ["ls-files", "--others", "--directory", "--exclude-standard", "-z", "--", .. pathspecs], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 		}

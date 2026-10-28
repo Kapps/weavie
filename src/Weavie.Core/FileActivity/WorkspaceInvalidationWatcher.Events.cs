@@ -21,7 +21,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 			RecordKnown(e.FullPath, FileInvalidationKind.Created);
 		}
 
-		SignalRefresh();
+		SignalRefresh(e.FullPath);
 	}
 
 	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-enumerates;
@@ -39,7 +39,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 
 		RecordKnown(e.FullPath, FileInvalidationKind.Changed);
 		if (WorkspacePaths.IsIgnoreRuleFile(e.FullPath)) {
-			SignalRefresh();
+			SignalFullRefresh();
 		}
 	}
 
@@ -61,7 +61,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 			Record(e.FullPath, FileInvalidationKind.Deleted);
 		}
 
-		SignalRefresh();
+		SignalRefresh(e.FullPath);
 	}
 
 	private void OnRenamed(string oldPath, string newPath) {
@@ -79,7 +79,8 @@ public sealed partial class WorkspaceInvalidationWatcher {
 				RecordKnown(newPath, FileInvalidationKind.Created);
 			}
 
-			SignalRefresh();
+			SignalRefresh(oldPath);
+			SignalRefresh(newPath);
 			return;
 		}
 
@@ -99,7 +100,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 				_directoryWatchers.EnsureWatching(newPath);
 			}
 
-			SignalRefresh();
+			SignalFullRefresh();
 			return;
 		}
 
@@ -115,12 +116,12 @@ public sealed partial class WorkspaceInvalidationWatcher {
 			Record(newPath, FileInvalidationKind.Created);
 		}
 
-		SignalRefresh();
+		SignalFullRefresh();
 	}
 
 	private void OnError(Exception error) {
 		Interlocked.CompareExchange(ref _watcherFailure, error, null);
-		SignalRefresh();
+		SignalFullRefresh();
 	}
 
 	private bool RecordKnown(string fullPath, FileInvalidationKind kind) {

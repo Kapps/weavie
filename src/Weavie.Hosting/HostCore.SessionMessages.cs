@@ -148,14 +148,16 @@ public sealed partial class HostCore {
 			(message, ct) => CommitRefAsync(message, ct));
 
 		var pullRequests = session.Bus.Feature("pullRequests");
-		pullRequests.Handle(
+		// Lookups are read-only and the dialog keeps only its latest answer, so they never queue behind an open.
+		pullRequests.HandleConcurrent(
 			"list", "Listing pull requests", WireJson.Default.PullRequestQuery, WireJson.Default.PullRequestWireArray,
 			(message, ct) => ListPullRequestsAsync(message.Query, ct));
-		pullRequests.Handle(
+		pullRequests.HandleConcurrent(
 			"resolve", "Looking up a pull request", WireJson.Default.PullRequestReference, WireJson.Default.PullRequestWire,
 			(message, ct) => GetPullRequestAsync(message, ct));
-		pullRequests.Handle(
-			"open", "Opening a pull request", WireJson.Default.PullRequestReference, WireJson.Default.CommandWireResult,
+		pullRequests.HandleKeyed(
+			"open", _ => "Opening a pull request", WireJson.Default.PullRequestReference, WireJson.Default.CommandWireResult,
+			message => $"open:{message.Owner}/{message.Repo}#{message.Number}",
 			async (message, ct) => CommandWireResult.From(
 				await OpenPullRequestAsync(session, message, ct).ConfigureAwait(false)));
 		HandlePullRequestComments(session, pullRequests);

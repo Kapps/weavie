@@ -24,6 +24,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		SingleWriter = false,
 	});
 	private readonly Lock _flushLock = new();
+	private readonly Lock _dirtyLock = new();
+	private HashSet<string> _dirtyPaths = new(PathIdentity.Comparer);
+	private bool _dirtyAll;
 	private readonly CancellationTokenSource _stopping = new();
 	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -117,6 +120,22 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	public Task Ready => _ready.Task;
 
 	/// <summary>
+	/// The inventory this watcher keeps current, once its initial load completes; a fresh listing when
+	/// observation failed or ended, since nothing then keeps the snapshot current.
+	/// </summary>
+	public async Task<WorkspaceInventorySnapshot> SnapshotAsync(CancellationToken ct) {
+		try {
+			await _ready.Task.WaitAsync(ct).ConfigureAwait(false);
+		} catch (Exception) when (!ct.IsCancellationRequested) {
+			// The observation failure reaches the user through the run loop; the listing below reports its own.
+		}
+
+		return !_finished.Task.IsCompleted && _inventory.LastSnapshot is { } snapshot
+			? snapshot
+			: await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+	}
+
+	/// <summary>
 	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Only an
 	/// event that can change which paths the workspace contains re-enumerates it. Throws when the authoritative
 	/// inventory or platform watcher fails.
@@ -142,10 +161,10 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
 			}
 
-			_inventory.Changed += SignalRefresh;
+			_inventory.Changed += SignalFullRefresh;
 			try {
 				var cooldown = Task.CompletedTask;
-				await RefreshAsync(initial: true, runCt).ConfigureAwait(false);
+				await RefreshAsync(initial: true, scope: null, runCt).ConfigureAwait(false);
 				_ready.TrySetResult();
 				while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
 					// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
@@ -156,11 +175,11 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 					await cooldown.ConfigureAwait(false);
 					while (_refreshSignals.Reader.TryRead(out _)) { }
 					long started = Stopwatch.GetTimestamp();
-					await RefreshAsync(initial: false, runCt).ConfigureAwait(false);
+					await RefreshAsync(initial: false, TakeDirtyScope(), runCt).ConfigureAwait(false);
 					cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 				}
 			} finally {
-				_inventory.Changed -= SignalRefresh;
+				_inventory.Changed -= SignalFullRefresh;
 			}
 		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
 			_ready.TrySetCanceled(_stopping.Token);
@@ -192,6 +211,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 
 		timer?.Dispose();
+		_ready.TrySetCanceled();
 		_stopping.Cancel();
 		_directoryWatchers.Dispose();
 		_refreshSignals.Writer.TryComplete();
@@ -205,10 +225,19 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	// Spacing re-enumerations by the previous pass keeps a burst (a checkout, an install) under half this loop.
 	private TimeSpan CooldownAfter(TimeSpan lastRefresh) => lastRefresh > _debounce ? lastRefresh : _debounce;
 
-	private async Task RefreshAsync(bool initial, CancellationToken ct) {
+	// A null scope re-lists the whole workspace; otherwise only the changed paths are re-listed.
+	private async Task RefreshAsync(bool initial, IReadOnlyCollection<string>? scope, CancellationToken ct) {
+		scope = scope is null ? null : _inventory.CoveringScope(scope);
 		bool watchesChanged;
 		do {
-			var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+			var previous = _inventory.LastSnapshot;
+			var snapshot = scope is null
+				? await _inventory.RefreshAsync(ct).ConfigureAwait(false)
+				: await _inventory.RefreshAsync(scope, ct).ConfigureAwait(false);
+			if (!initial && ReferenceEquals(snapshot, previous)) {
+				return;
+			}
+
 			Volatile.Write(ref _isRepository, snapshot.IsRepository);
 			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 			if (!initial) {
@@ -231,7 +260,28 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		} while (watchesChanged);
 	}
 
-	private void SignalRefresh() => _refreshSignals.Writer.TryWrite(true);
+	private void SignalRefresh(string path) {
+		lock (_dirtyLock) {
+			_dirtyPaths.Add(path);
+		}
+		_refreshSignals.Writer.TryWrite(true);
+	}
+
+	private void SignalFullRefresh() {
+		lock (_dirtyLock) {
+			_dirtyAll = true;
+		}
+		_refreshSignals.Writer.TryWrite(true);
+	}
+
+	private IReadOnlyCollection<string>? TakeDirtyScope() {
+		lock (_dirtyLock) {
+			var scope = _dirtyAll || !Volatile.Read(ref _isRepository) ? null : _dirtyPaths;
+			_dirtyPaths = new HashSet<string>(PathIdentity.Comparer);
+			_dirtyAll = false;
+			return scope;
+		}
+	}
 
 	/// <inheritdoc/>
 	public void Dispose() => StopAsync().GetAwaiter().GetResult();

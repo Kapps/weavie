@@ -89,6 +89,12 @@ public interface IAgentProvider {
 	/// <summary>Forgets the saved conversation for this provider and checkout before creating a fresh session.</summary>
 	void ClearConversation(string workspace);
 
+	/// <summary>Reads this provider's saved primary conversation for <paramref name="workspace"/>, loaded or not.</summary>
+	/// <exception cref="InvalidOperationException">The provider cannot read conversations; the message says why.</exception>
+	/// <exception cref="IOException">The saved conversation could not be read.</exception>
+	/// <exception cref="InvalidDataException">The saved conversation is malformed.</exception>
+	IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace);
+
 	/// <summary>Creates one live provider session.</summary>
 	IAgentSession CreateSession(AgentSessionContext context);
 }

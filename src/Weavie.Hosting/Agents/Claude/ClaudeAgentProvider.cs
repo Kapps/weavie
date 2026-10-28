@@ -1,6 +1,7 @@
 using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Hosting.Inference;
@@ -12,6 +13,7 @@ namespace Weavie.Hosting.Agents.Claude;
 public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 	private readonly SettingsStore _settings;
 	private readonly ClaudeSessionStore _sessions;
+	private readonly ClaudeTranscripts _transcripts;
 	private readonly IInferenceProvider _inference;
 
 	/// <summary>Creates the provider over the app-global Claude conversation store.</summary>
@@ -19,17 +21,24 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 		: this(
 			settings,
 			sessions,
+			new ClaudeTranscripts(new LocalFileSystem(), ClaudeConfigPaths.ProjectsDirectory),
 			new ClaudeCliInference(
 				settings,
 				new AgentCliProcessRunner(),
 				WeaviePaths.Internal("inference-images"))) { }
 
-	internal ClaudeAgentProvider(SettingsStore settings, ClaudeSessionStore sessions, IInferenceProvider inference) {
+	internal ClaudeAgentProvider(
+		SettingsStore settings,
+		ClaudeSessionStore sessions,
+		ClaudeTranscripts transcripts,
+		IInferenceProvider inference) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(sessions);
+		ArgumentNullException.ThrowIfNull(transcripts);
 		ArgumentNullException.ThrowIfNull(inference);
 		_settings = settings;
 		_sessions = sessions;
+		_transcripts = transcripts;
 		_inference = inference;
 	}
 
@@ -68,6 +77,17 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 
 	/// <inheritdoc/>
 	public void ClearConversation(string workspace) => _sessions.Clear(workspace);
+
+	/// <inheritdoc/>
+	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) {
+		if (!_settings.RequireBool(CoreSettings.ClaudeResumeSession)) {
+			throw new InvalidOperationException(
+				$"Weavie tracks Claude Code conversations only while the '{CoreSettings.ClaudeResumeSession}' setting is on.");
+		}
+		return _sessions.Tracked(workspace) is { } id && _transcripts.ReadText(workspace, id) is { } text
+			? ClaudeTranscriptReader.Read(text)
+			: [];
+	}
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) {

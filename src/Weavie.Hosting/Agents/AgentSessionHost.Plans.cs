@@ -10,8 +10,8 @@ public sealed partial class AgentSessionHost {
 		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) return false;
 		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
 		lock (_paneGate) {
-			if (!_paneItemIndexes.TryGetValue(key, out int index)
-				|| CompletedPlanLocked(_paneMessages[index]) is not { } plan) return false;
+			if (!_pane.TryItemIndex(key, out int index)
+				|| CompletedPlanLocked(_pane.Stored[index]) is not { } plan) return false;
 			publish(plan);
 			return true;
 		}
@@ -21,10 +21,10 @@ public sealed partial class AgentSessionHost {
 		if (message.Type != "item-completed" || message.ItemType != "plan"
 			|| string.IsNullOrWhiteSpace(message.Text)
 			|| AgentPaneIdentity.ItemKey(message) is not { } key
-			|| _paneActiveItems.Contains(key)) return null;
+			|| _pane.IsActive(key)) return null;
 		return new AgentPlan(key, "Plan", message.Text);
 	}
 
 	private void PublishPlanDocumentsLocked() => PlanDocumentsChanged?.Invoke(
-		[.. _paneMessages.Select(CompletedPlanLocked).OfType<AgentPlan>()]);
+		[.. _pane.Stored.Select(CompletedPlanLocked).OfType<AgentPlan>()]);
 }

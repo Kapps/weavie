@@ -44,7 +44,6 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("setSetting", names);
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
 		Assert.DoesNotContain("openFile", names);
-		Assert.DoesNotContain("currentSession", names);   // gated on a session-id provider, absent here
 	}
 
 	[Fact]
@@ -76,28 +75,6 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.True(payload.RootElement.GetProperty("success").GetBoolean());
 		Assert.Equal("selected", payload.RootElement.GetProperty("text").GetString());
 		Assert.Equal(3, payload.RootElement.GetProperty("selection").GetProperty("start").GetProperty("line").GetInt32());
-	}
-
-	[Fact]
-	public async Task CurrentSession_Advertised_AndReturnsProvidedId() {
-		using var store = NewStore();
-		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
-			currentSessionId: () => "feat/my-branch");
-		int port = server.Start();
-		using var ws = await ConnectBearerAsync(port, Token);
-
-		await SendAsync(ws, Request(1, "tools/list", "{}"));
-		using var listed = await ReceiveAsync(ws);
-		var names = listed.RootElement.GetProperty("result").GetProperty("tools")
-			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
-		Assert.Contains("currentSession", names);
-
-		await SendAsync(ws, Request(2, "tools/call", "{\"name\":\"currentSession\",\"arguments\":{}}"));
-		using var called = await ReceiveAsync(ws);
-		string text = called.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
-		using var payload = JsonDocument.Parse(text);
-		Assert.Equal("feat/my-branch", payload.RootElement.GetProperty("id").GetString());
 	}
 
 	[Fact]

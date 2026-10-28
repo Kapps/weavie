@@ -120,6 +120,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
 			AgentConsultation.None,
+			NoSessionPeers.Instance,
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
@@ -139,6 +140,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		};
 
 		public void ClearConversation(string workspace) { }
+
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
 
 		public IAgentSession CreateSession(AgentSessionContext context) => session;
 	}

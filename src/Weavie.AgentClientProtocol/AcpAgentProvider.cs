@@ -59,6 +59,10 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider, 
 	public void ClearConversation(string workspace) => _sessions.Replace(Info.Id, workspace, [], []);
 
 	/// <inheritdoc/>
+	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
+		AgentTranscript.FromPaneJournal(_sessions.ReadMessages(Info.Id, workspace));
+
+	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) =>
 		new AcpAgentSession(context, _currentDefinition, _sessions, _controls, _log);
 

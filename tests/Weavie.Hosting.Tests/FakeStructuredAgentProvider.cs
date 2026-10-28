@@ -39,6 +39,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 	public void ClearConversation(string workspace) => Transcripts.TryRemove(workspace, out _);
 
+	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
+		AgentTranscript.FromPaneJournal([.. Transcripts.GetOrAdd(workspace, static _ => [])]);
+
 	public Action<AgentSessionContext> CreatingSession { get; set; } = _ => { };
 
 	// Probes report nothing, so any model in the catalog was harvested from a live session.

@@ -79,9 +79,9 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Reviews the whole branch: a diff against <see cref="DefaultDiffRefAsync"/> from their merge-base.</summary>
+	/// <summary>Reviews the whole branch: a diff against <see cref="BranchBaseRefAsync"/> from their merge-base.</summary>
 	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
-		if (await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } reference) {
+		if (await BranchBaseRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } reference) {
 			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
 			return ReviewOpened.No;
 		}
@@ -90,17 +90,19 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// The ref a whole-branch review compares against: the remote's default branch, else the local one. The remote's
-	/// copy wins because a local default branch is often far behind and would fold others' merged work into the diff.
+	/// The ref a whole-branch review compares against: the branch this one was created from when it is stacked on
+	/// another unmerged branch, else the remote's default branch, else the local one. The remote's copy wins because a
+	/// local default branch is often far behind and would fold others' merged work into the diff.
 	/// </summary>
-	private static async Task<string?> DefaultDiffRefAsync(string worktree, CancellationToken ct) {
+	private static async Task<string?> BranchBaseRefAsync(string worktree, CancellationToken ct) {
 		var git = new GitService();
 		if (await git.ResolveDefaultBranchAsync(worktree, ct).ConfigureAwait(false) is not { } branch) {
 			return null;
 		}
 
 		string remote = $"origin/{branch}";
-		return await git.ResolveCommitAsync(worktree, remote, ct).ConfigureAwait(false) is null ? branch : remote;
+		string preferred = await git.ResolveCommitAsync(worktree, remote, ct).ConfigureAwait(false) is null ? branch : remote;
+		return await git.ResolveParentBranchAsync(worktree, preferred, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>

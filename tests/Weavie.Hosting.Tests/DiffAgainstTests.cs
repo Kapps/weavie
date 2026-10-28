@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Changes;
+using Weavie.Core.Sessions;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -327,6 +328,42 @@ public sealed class DiffAgainstTests {
 
 		Assert.False(answer.GetProperty("opened").GetBoolean());
 		Assert.Equal(JsonValueKind.Null, answer.GetProperty("replaces").ValueKind);
+	}
+
+	[Fact]
+	public async Task ReviewBranch_OnAStackedBranch_ComparesWithItsParent() {
+		await using var host = await TestHost.StartAsync(repo => {
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "a.txt"), "parent\n");
+			Commit(repo, "feature-a work");
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-b", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "b.txt"), "own\n");
+			Commit(repo, "feature-b work");
+		});
+		var session = host.SelectedSession;
+
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+
+		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
+		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(["b.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+	}
+
+	[Fact]
+	public async Task ReviewBranch_OnASessionBranchedFromAnotherSession_ComparesWithThatSessionsBranch() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature-a")).Ok);
+		File.WriteAllText(Path.Combine(host.Session("feature-a").WorkspaceRoot, "a.txt"), "parent\n");
+		Commit(host.Session("feature-a").WorkspaceRoot, "feature-a work");
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "feature-b", Base = "source" })).Ok);
+		var session = host.Session("feature-b");
+		File.WriteAllText(Path.Combine(session.WorkspaceRoot, "b.txt"), "own\n");
+
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+
+		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
+		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(["b.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
 	}
 
 	private static void Commit(string cwd, string message) {

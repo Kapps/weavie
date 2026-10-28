@@ -142,7 +142,7 @@ function Picker(props: { opened: ThemePickerState }) {
             aria-activedescendant={m.count() ? `theme-options-${m.selected()}` : undefined}
           />
           <Show when={!m.registry()}>
-            <ThemeAppearanceSelect model={m} />
+            <ThemeAppearanceSelect model={m} onChosen={focusResult} />
           </Show>
           <Show when={m.registry()}>
             <label class="theme-picker-sort">

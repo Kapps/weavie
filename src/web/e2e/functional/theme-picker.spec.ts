@@ -23,7 +23,8 @@ test("theme picker previews with the keyboard, cancels, and persists acceptance"
     "Weavie Light",
   );
   await picker.getByLabel("Theme appearance").selectOption("all");
-  await filter.press("ArrowUp");
+  await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
   await expect(appearance).toHaveAttribute("data-theme-type", "dark");
   await filter.press("ArrowDown");
   await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toContainText(
@@ -85,6 +86,8 @@ test("editor theme picker previews, applies, reopens on, and resets only the edi
   const picker = page.getByRole("dialog", { name: /Select Editor Theme \(dark mode\)/ });
   const reset = picker.getByRole("button", { name: "Reset", exact: true });
   await expect(reset).toHaveCount(0);
+  await expect(picker.getByLabel("Theme appearance")).toHaveValue("dark");
+  await picker.getByLabel("Theme appearance").selectOption("light");
   await expect(picker.getByRole("option", { name: /Weavie Light/ })).not.toContainText("✓");
   const filter = picker.getByRole("combobox", { name: "Filter themes", exact: true });
   await filter.fill("Weavie Light");
@@ -97,6 +100,7 @@ test("editor theme picker previews, applies, reopens on, and resets only the edi
   expect(editorBg).not.toBe(appBg);
 
   await runCommand(page, "Select Editor Theme…");
+  await expect(picker.getByLabel("Theme appearance")).toHaveValue("light");
   await expect(picker.getByRole("listbox").getByRole("option", { selected: true })).toContainText(
     "Weavie Light ✓",
   );

@@ -1374,7 +1374,9 @@ public sealed partial class HostCore {
 				throw new InvalidOperationException("There is no source session to branch from.");
 			}
 
-			return await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false);
+			// By name when on a branch, so git records the new branch's parent for Review Branch to compare with.
+			return await git.GetCurrentBranchAsync(source.WorktreePath, ct).ConfigureAwait(false)
+				?? await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false);
 		}
 
 		if (string.IsNullOrWhiteSpace(baseSpec)

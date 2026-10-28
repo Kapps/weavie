@@ -1,11 +1,12 @@
-import { For, type JSX, Show } from "solid-js";
+import { For, type JSX, onCleanup, Show } from "solid-js";
+import { KeyedButton } from "../../agent/AgentPaneActions";
 import type { AgentActionOption, ClientSession } from "../../bridge";
 import { liveKeyLabel } from "../../commands/keys-live";
 import { CommandIds } from "../../commands/types";
 import {
+  type AfterFlush,
   acceptOption,
   answerPlanReview,
-  type FlushFile,
   type PlanReview,
   planReviewAnswering,
   planReviewsFor,
@@ -16,7 +17,7 @@ import {
 export function PlanReviewBar(props: {
   session: ClientSession;
   path: string;
-  flush: FlushFile;
+  afterFlush: AfterFlush;
 }): JSX.Element {
   const reviews = (): PlanReview[] => planReviewsFor(props.session, props.path);
   // The commands answer the tab's newest review, so only it advertises their keys.
@@ -27,7 +28,7 @@ export function PlanReviewBar(props: {
   };
   return (
     <Show when={reviews().length > 0}>
-      <div class="plan-review-bar" role="toolbar" aria-label="Plan review">
+      <div class="plan-review-bar" role="toolbar" aria-label="Plan review" ref={reserveSpace}>
         <For each={reviews()}>
           {(review) => (
             <div class="agent-approval-actions">
@@ -38,23 +39,14 @@ export function PlanReviewBar(props: {
               </span>
               <For each={review.actions}>
                 {(action) => (
-                  <button
-                    type="button"
+                  <KeyedButton
+                    label={action.label}
+                    keyLabel={key(review, action)}
                     disabled={planReviewAnswering(props.session, review)}
-                    title={
-                      key(review, action) === ""
-                        ? action.label
-                        : `${action.label} (${key(review, action)})`
-                    }
                     onClick={() =>
-                      void answerPlanReview(props.session, review, action.id, props.flush)
+                      void answerPlanReview(props.session, review, action.id, props.afterFlush)
                     }
-                  >
-                    {action.label}
-                    <Show when={key(review, action) !== ""}>
-                      <kbd class="agent-key-chip">{key(review, action)}</kbd>
-                    </Show>
-                  </button>
+                  />
                 )}
               </For>
             </div>
@@ -63,4 +55,18 @@ export function PlanReviewBar(props: {
       </div>
     </Show>
   );
+}
+
+// The pane lays the editor out above the bar, so no plan line can sit underneath it.
+function reserveSpace(bar: HTMLElement): void {
+  let pane: HTMLElement | null = null;
+  const observer = new ResizeObserver(() => {
+    pane = bar.closest<HTMLElement>(".editor-pane");
+    pane?.style.setProperty("--plan-review-height", `${bar.offsetHeight}px`);
+  });
+  observer.observe(bar);
+  onCleanup(() => {
+    observer.disconnect();
+    pane?.style.removeProperty("--plan-review-height");
+  });
 }

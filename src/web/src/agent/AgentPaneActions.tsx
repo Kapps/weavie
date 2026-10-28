@@ -59,30 +59,46 @@ export function ApprovalActions(props: {
     onCleanup(() => off.forEach((dispose) => void dispose()));
   });
 
-  const decision = (label: string, value: string, kind: string): JSX.Element => {
+  const key = (kind: string): string => {
     const commandId = commandFor(kind);
-    const key = (): string =>
-      props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
-    return (
-      <button
-        type="button"
-        title={key() === "" ? label : `${label} (${key()})`}
-        onClick={() => choose(value)}
-      >
-        {label}
-        <Show when={key() !== ""}>
-          <kbd class="agent-key-chip">{key()}</kbd>
-        </Show>
-      </button>
-    );
+    return props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
   };
 
   return (
     <div class="agent-approval-actions">
       <For each={props.message.actions ?? []}>
-        {(action) => decision(action.label, action.id, action.kind)}
+        {(action) => (
+          <KeyedButton
+            label={action.label}
+            keyLabel={key(action.kind)}
+            disabled={false}
+            onClick={() => choose(action.id)}
+          />
+        )}
       </For>
     </div>
+  );
+}
+
+/** An action button that advertises its live shortcut, when it has one, in its tooltip and a chip. */
+export function KeyedButton(props: {
+  label: string;
+  keyLabel: string;
+  disabled: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      disabled={props.disabled}
+      title={props.keyLabel === "" ? props.label : `${props.label} (${props.keyLabel})`}
+      onClick={() => props.onClick()}
+    >
+      {props.label}
+      <Show when={props.keyLabel !== ""}>
+        <kbd class="agent-key-chip">{props.keyLabel}</kbd>
+      </Show>
+    </button>
   );
 }
 

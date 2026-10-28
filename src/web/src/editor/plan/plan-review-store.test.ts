@@ -1,14 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../../bridge";
 
-const mocks = vi.hoisted(() => ({ notify: vi.fn() }));
 vi.mock("../../bridge", () => ({ selectedSession: () => null }));
 vi.mock("../session-store", () => ({ activeTabFor: () => undefined }));
 vi.mock("../../commands/registry", () => ({ registerCommand: () => () => {} }));
 vi.mock("../../messaging/session-feature-value", () => ({
   createSessionFeatureValue: () => () => null,
 }));
-vi.mock("../../notify/notify", () => ({ notify: mocks.notify }));
 
 const { acceptOption, answerPlanReview, planReviewAnswering, rejectOption } = await import(
   "./plan-review-store"
@@ -44,15 +42,23 @@ describe("plan review answers", () => {
   it("saves an edited plan before answering it, once", async () => {
     const events: string[] = [];
     let saved!: () => void;
-    const flush = vi.fn((_session: ClientSession, path: string) => {
+    const afterFlush = (
+      _session: ClientSession,
+      path: string,
+      _action: string,
+      send: () => void,
+    ) => {
       events.push(`flush:${path}`);
       return new Promise<void>((resolve) => {
-        saved = resolve;
+        saved = () => {
+          send();
+          resolve();
+        };
       });
-    });
+    };
     const owner = session(events);
-    const first = answerPlanReview(owner, review, "default", flush);
-    await answerPlanReview(owner, review, "default", flush);
+    const first = answerPlanReview(owner, review, "default", afterFlush);
+    await answerPlanReview(owner, review, "default", afterFlush);
     expect(planReviewAnswering(session(events), review)).toBe(false);
     expect(planReviewAnswering(owner, review)).toBe(true);
     expect(events).toEqual(["flush:/plans/claude.md"]);
@@ -63,20 +69,19 @@ describe("plan review answers", () => {
     expect(planReviewAnswering(owner, review)).toBe(false);
   });
 
-  it("does not answer when the plan cannot be saved", async () => {
+  it("does not answer when the plan cannot be saved, and can be retried", async () => {
     const events: string[] = [];
-    await answerPlanReview(session(events), review, "default", () =>
-      Promise.reject(new Error("disk full")),
-    );
+    const owner = session(events);
+    await answerPlanReview(owner, review, "default", () => Promise.resolve());
     expect(events).toEqual([]);
-    expect(mocks.notify).toHaveBeenCalledWith("error", expect.stringContaining("disk full"));
+    expect(planReviewAnswering(owner, review)).toBe(false);
   });
 
   it("answers a read-only plan without saving", async () => {
     const events: string[] = [];
-    const flush = vi.fn();
-    await answerPlanReview(session(events), { ...review, editable: false }, "reject", flush);
-    expect(flush).not.toHaveBeenCalled();
+    const afterFlush = vi.fn();
+    await answerPlanReview(session(events), { ...review, editable: false }, "reject", afterFlush);
+    expect(afterFlush).not.toHaveBeenCalled();
     expect(events).toEqual(["permission:reject"]);
   });
 });

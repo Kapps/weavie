@@ -4,7 +4,6 @@ import { setContext } from "../../commands/context";
 import { registerCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { createSessionFeatureValue } from "../../messaging/session-feature-value";
-import { notify } from "../../notify/notify";
 import { activeTabFor } from "../session-store";
 
 /** A pending agent plan approval, answered from the editor tab showing `path`. */
@@ -15,7 +14,12 @@ export interface PlanReview {
   actions: AgentActionOption[];
 }
 
-export type FlushFile = (session: ClientSession, path: string) => Promise<void>;
+export type AfterFlush = (
+  session: ClientSession,
+  path: string,
+  action: string,
+  send: () => void,
+) => Promise<void>;
 
 const reviewsFor = createSessionFeatureValue<{ reviews: PlanReview[] }, PlanReview[]>(
   "planReview",
@@ -28,7 +32,7 @@ export function planReviewsFor(session: ClientSession | null, path: string): Pla
 }
 
 /** The review the plan commands answer: the active tab's newest, else the session's newest. */
-export function targetPlanReview(session: ClientSession | null): PlanReview | null {
+function targetPlanReview(session: ClientSession | null): PlanReview | null {
   const path = session === null ? undefined : activeTabFor(session)?.entry.path;
   const reviews = reviewsFor(session) ?? [];
   return (
@@ -59,23 +63,24 @@ export async function answerPlanReview(
   session: ClientSession,
   review: PlanReview,
   optionId: string,
-  flush: FlushFile,
+  afterFlush: AfterFlush,
 ): Promise<void> {
   if (planReviewAnswering(session, review)) return;
   const entry = [session, review.requestId] as const;
   setAnswering((current) => [...current, entry]);
-  try {
-    if (review.editable) await flush(session, review.path);
+  const publish = (): void =>
     session.feature("agent").publish("permission", { requestId: review.requestId, optionId });
-  } catch (error) {
-    notify("error", `Couldn't save the plan, so it wasn't answered: ${String(error)}`);
+  try {
+    await (review.editable
+      ? afterFlush(session, review.path, "answering the plan", publish)
+      : publish());
   } finally {
     setAnswering((current) => current.filter((candidate) => candidate !== entry));
   }
 }
 
 /** Owns the plan review commands and their context keys for the selected session. */
-export function usePlanReviewCommands(flush: FlushFile): void {
+export function usePlanReviewCommands(afterFlush: AfterFlush): void {
   createEffect(() => {
     const session = selectedSession();
     const path = session === null ? undefined : activeTabFor(session)?.entry.path;
@@ -91,7 +96,7 @@ export function usePlanReviewCommands(flush: FlushFile): void {
       const optionId =
         typeof supplied === "string" ? supplied : review === null ? null : choose(review);
       if (session === null || review === null || optionId === null) return false;
-      void answerPlanReview(session, review, optionId, flush);
+      void answerPlanReview(session, review, optionId, afterFlush);
       return true;
     };
   const offAccept = registerCommand(CommandIds.acceptAgentPlan, answer(acceptOption));

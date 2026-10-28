@@ -405,7 +405,7 @@
 
 .editor {
   position: absolute;
-  inset: 0;
+  inset: 0 0 var(--plan-review-height, 0px);
 }
 
 /* Per-pane status footer: a thin info strip pinned to the bottom of the editor / terminal surfaces. Fixed

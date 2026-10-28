@@ -149,7 +149,11 @@ function ActiveTabContent(props: {
           </Match>
         </Switch>
       </Suspense>
-      <PlanReviewBar session={tab.session} path={tab.entry.path} flush={controller.flush} />
+      <PlanReviewBar
+        session={tab.session}
+        path={tab.entry.path}
+        afterFlush={controller.afterFlush}
+      />
     </div>
   );
 }
@@ -166,7 +170,7 @@ export default function TabContent(props: {
   createEffect(() => {
     if (active() === undefined) setContext("diffActive", false);
   });
-  usePlanReviewCommands(props.controller.flush);
+  usePlanReviewCommands(props.controller.afterFlush);
   const mounted = createMemo<TabOwner[]>((previous) => {
     const live = new Set(
       props

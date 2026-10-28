@@ -3,6 +3,7 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { revealFileIn } from "../files/reveal";
+import { KeyedButton } from "./AgentPaneActions";
 import { planIdentity } from "./agent-plan";
 
 export function EditLocationActions(props: {
@@ -41,37 +42,27 @@ export function EditLocationActions(props: {
   );
 }
 
-// A plan file under review opens as itself; any other plan opens as a read-only document.
 export function PlanActions(props: {
   message: AgentPaneUpdate;
   session: ClientSession | null;
 }): JSX.Element {
   const identity = (): ReturnType<typeof planIdentity> => planIdentity(props.message);
-  const file = (): string | null => props.message.planPath ?? null;
-  const key = (): string => (file() === null ? liveKeyLabel(CommandIds.openAgentPlan) : "");
   const open = (): void => {
-    const path = file();
     const plan = identity();
-    if (path !== null) {
-      revealFileIn(props.session, path, undefined, false);
-    } else if (props.session !== null && plan !== null) {
+    if (props.session !== null && plan !== null) {
       void props.session.feature("agent").request("openPlan", plan);
     }
   };
 
   return (
-    <Show when={file() !== null || identity() !== null}>
+    <Show when={identity()}>
       <div class="agent-approval-actions">
-        <button
-          type="button"
-          title={key() === "" ? "Open plan in editor" : `Open plan in editor (${key()})`}
+        <KeyedButton
+          label="Open plan"
+          keyLabel={liveKeyLabel(CommandIds.openAgentPlan)}
+          disabled={false}
           onClick={open}
-        >
-          Open plan
-          <Show when={key() !== ""}>
-            <kbd class="agent-key-chip">{key()}</kbd>
-          </Show>
-        </button>
+        />
       </div>
     </Show>
   );

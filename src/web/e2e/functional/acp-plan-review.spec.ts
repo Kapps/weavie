@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { clickIntoEditor, pressDocumentEnd, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -23,8 +24,10 @@ test.describe("ACP plan review with automatic tool approval", () => {
     await expect(composer).toBeFocused();
     const card = surface.locator(".agent-entry-request");
     await expect(card).toContainText("Ready to review in the editor");
-    await expect(card.getByRole("button")).toHaveText(["Open plan"]);
+    await expect(card.getByRole("button")).toHaveCount(1);
+    await expect(card.getByRole("button", { name: /Open plan/ }).locator("kbd")).toBeVisible();
     const bar = page.locator(".plan-review-bar");
+    await expectBelow(bar, page.locator(".editor"));
     const accept = bar.getByRole("button", { name: /Yes, manually approve edits/ });
     await expect(accept).toHaveAttribute("title", /\((Ctrl|⌘)\+Enter\)/);
 
@@ -51,6 +54,7 @@ test.describe("ACP plan review with automatic tool approval", () => {
     const document = page.locator(".editor-plan .agent-markdown");
     await expect(document).toContainText("End of the complete work plan.");
     await expect(composer).toBeFocused();
+    await expectBelow(page.locator(".plan-review-bar"), page.locator(".editor-plan"));
     await expect(surface.getByRole("button", { name: "No, revise this plan" })).toHaveCount(0);
     await page
       .locator(".plan-review-bar")
@@ -119,3 +123,16 @@ test("an open ACP plan shows full revisions and remains removed after reconnect"
   await expect(surface.getByRole("button", { name: "Open plan" })).toHaveCount(0);
   await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
 });
+
+// The review bar takes its own strip, so no line of the plan can sit underneath it.
+async function expectBelow(bar: Locator, content: Locator): Promise<void> {
+  await expect(bar).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [barBox, contentBox] = await Promise.all([bar.boundingBox(), content.boundingBox()]);
+      return (
+        barBox !== null && contentBox !== null && barBox.y >= contentBox.y + contentBox.height - 1
+      );
+    })
+    .toBe(true);
+}

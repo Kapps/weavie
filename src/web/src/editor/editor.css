@@ -664,19 +664,17 @@ video.editor-media-content {
   text-align: center;
 }
 
+/* Docked in the strip the pane reserves below the editor (--plan-review-height), so it never covers content. */
 .plan-review-bar {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 5;
+  top: 100%;
+  right: 0;
+  left: 0;
   display: grid;
   gap: 6px;
-  max-width: calc(100% - 32px);
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
   background: var(--bar);
-  box-shadow: 0 4px 16px color-mix(in srgb, black 30%, transparent);
   font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
 }
 
@@ -692,7 +690,7 @@ video.editor-media-content {
 
 .editor-tab-content {
   position: absolute;
-  inset: 0;
+  inset: 0 0 var(--plan-review-height, 0px);
   pointer-events: none;
   outline: none;
 }

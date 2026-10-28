@@ -11,8 +11,7 @@ export function planIdentity(message: AgentPaneUpdate): AgentPlanIdentity | null
     !isIdentifier(message.threadId) ||
     !isIdentifier(message.turnId) ||
     !isIdentifier(message.itemId) ||
-    typeof message.text !== "string" ||
-    message.text.trim().length === 0
+    ((typeof message.text !== "string" || message.text.trim().length === 0) && !message.planPath)
   ) {
     return null;
   }
@@ -54,9 +53,7 @@ export function latestCompletedPlan(
     const message = messages[index];
     if (
       (message?.type === "item-completed" && message.itemType === "plan") ||
-      (message?.type === "approval-requested" &&
-        message.itemType === "plan-review" &&
-        !message.planPath)
+      (message?.type === "approval-requested" && message.itemType === "plan-review")
     ) {
       const plan = planIdentity(message);
       if (plan !== null) {

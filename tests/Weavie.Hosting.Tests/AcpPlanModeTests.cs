@@ -29,6 +29,21 @@ public sealed class AcpPlanModeTests {
 	}
 
 	[Fact]
+	public async Task ExitPlanMode_RejectedReviewWithdrawsItsPlan() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("exit-plan-mode");
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+
+		fixture.Session.ResolvePermission(approval.RequestId!, "reject");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		var retracted = Assert.Single(fixture.Messages, message => message.Type == "item-retracted");
+		Assert.Equal("plan:plan-mode:toolu_plan_1", retracted.ItemId);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
+
+	[Fact]
 	public async Task Aside_StartsInThePrimarysLiveModeRatherThanTheProviderDefault() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

@@ -109,7 +109,8 @@ activity rather than an openable document. Weavie advertises the separate plan-d
 retracts them. File-backed plans are snapshotted when received and must resolve to a local file. Open editor
 tabs follow the complete document's revisions; removed plans show an unavailable notice, including after reconnect.
 A `switch_mode` tool's text content is the plan it asks to approve, so it becomes a plan document under the AIR
-id `plan-mode:<tool call id>`; an agent's approved `plan_update` with that id revises the same document.
+id `plan-mode:<tool call id>`; an agent's approved `plan_update` with that id revises the same document, and a
+failed or cancelled switch retracts it.
 
 Permission requests can introduce a tool identity before its execution notifications. The same tool state merges
 both sources in receive order, while only execution notifications establish background activity. Mode-change

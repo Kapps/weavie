@@ -70,8 +70,9 @@ internal sealed partial class AcpConversation {
 		});
 	}
 
-	private void RemovePlan(JsonElement update) {
-		string planId = RequiredString(update, "planId", "removed plan");
+	private void RemovePlan(JsonElement update) => RetractPlan(RequiredString(update, "planId", "removed plan"));
+
+	private void RetractPlan(string planId) {
 		string? turnId;
 		lock (_gate) {
 			_planTurns.Remove(planId, out turnId);

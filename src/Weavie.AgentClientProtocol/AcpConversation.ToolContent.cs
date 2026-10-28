@@ -14,8 +14,13 @@ internal sealed partial class AcpConversation {
 		tool.Shown = !tool.Subagent;
 	}
 
-	// A mode switch's text is the plan it asks to approve. The AIR plan id lets the agent's approved revision replace it.
+	// A mode switch's text is the plan it asks to approve, withdrawn if the switch fails. The AIR plan id lets the
+	// agent's approved revision replace it.
 	private void PublishModeSwitchPlan(AcpToolState tool) {
+		if (tool.Plan is not null && tool.Status is "failed" or "cancelled") {
+			RetractPlan("plan-mode:" + tool.Id);
+			return;
+		}
 		string? plan = tool.Kind == "switch_mode" && tool.Content is { } content
 			? string.Join("\n\n", content.Where(block => block.Type == "text").Select(block => block.Text))
 			: null;

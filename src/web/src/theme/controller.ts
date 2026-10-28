@@ -143,6 +143,10 @@ export const currentThemeId = (): string => activeSlot(state).id;
 /** The saved editor theme for the current polarity, or undefined when the editor follows the app theme. */
 export const currentEditorThemeId = (): string | undefined => savedEditorSlot()?.id;
 
+/** The polarity of the theme the editor shows: its set editor theme, else the app theme. */
+export const currentEditorThemeType = (): "light" | "dark" =>
+  polarityOf(savedEditorSlot() ?? activeSlot(state));
+
 /** Owns one transient preview of `target`'s theme; disposing restores the latest host appearance. */
 export function beginThemePreview(target: ThemeTarget): {
   show: (slot: ThemeSlot) => void;

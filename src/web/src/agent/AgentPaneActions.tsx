@@ -70,6 +70,7 @@ export function ApprovalActions(props: {
         {(action) => (
           <KeyedButton
             label={action.label}
+            title={action.label}
             keyLabel={key(action.kind)}
             disabled={false}
             onClick={() => choose(action.id)}
@@ -83,6 +84,7 @@ export function ApprovalActions(props: {
 /** An action button that advertises its live shortcut, when it has one, in its tooltip and a chip. */
 export function KeyedButton(props: {
   label: string;
+  title: string;
   keyLabel: string;
   disabled: boolean;
   onClick: () => void;
@@ -91,7 +93,7 @@ export function KeyedButton(props: {
     <button
       type="button"
       disabled={props.disabled}
-      title={props.keyLabel === "" ? props.label : `${props.label} (${props.keyLabel})`}
+      title={props.keyLabel === "" ? props.title : `${props.title} (${props.keyLabel})`}
       onClick={() => props.onClick()}
     >
       {props.label}

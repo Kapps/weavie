@@ -41,6 +41,7 @@ export function PlanReviewBar(props: {
                 {(action) => (
                   <KeyedButton
                     label={action.label}
+                    title={action.label}
                     keyLabel={key(review, action)}
                     disabled={planReviewAnswering(props.session, review)}
                     onClick={() =>

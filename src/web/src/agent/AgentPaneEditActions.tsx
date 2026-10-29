@@ -59,6 +59,7 @@ export function PlanActions(props: {
       <div class="agent-approval-actions">
         <KeyedButton
           label="Open plan"
+          title="Open plan in editor"
           keyLabel={liveKeyLabel(CommandIds.openAgentPlan)}
           disabled={false}
           onClick={open}

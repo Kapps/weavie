@@ -37,6 +37,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		KeybindingStore keybindings,
 		EditorStore editor,
 		AcpSessionStore sessions,
+		AcpControlStore controlDefaults,
 		AcpAgentSession session,
 		RecordingAgentEventSink events,
 		IAgentAuthenticationTerminal authenticationTerminal,
@@ -47,6 +48,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		_keybindings = keybindings;
 		Editor = editor;
 		Sessions = sessions;
+		ControlDefaults = controlDefaults;
 		Session = session;
 		Events = events;
 		_authenticationTerminal = authenticationTerminal;
@@ -61,6 +63,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
+	public AcpControlStore ControlDefaults { get; }
 	public ReviewHintStore ReviewHints { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
@@ -448,6 +451,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			keybindings,
 			editor,
 			store,
+			controls,
 			session,
 			events,
 			authenticationTerminal,

@@ -112,12 +112,28 @@ internal sealed partial class AcpConversation {
 					: rawOutput.GetRawText();
 			}
 			tool.Input = ToolRequestText(update) ?? tool.Input;
+			if (tool.Kind == "switch_mode" && update.TryGetProperty("rawInput", out var rawInput)
+				&& rawInput.ValueKind == JsonValueKind.Object) ReadPlanInput(rawInput, tool);
 			// AIR markers are sticky: adapters send them once and drop repeats.
 			tool.Backgrounded |= Air(update, "asyncTasks") is { ValueKind: JsonValueKind.Object } tasks
 				&& tasks.TryGetProperty("backgrounded", out var backgrounded) && backgrounded.ValueKind == JsonValueKind.True;
 			tool.Subagent |= Air(update, "subagent").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null);
 		}
 		return tool;
+	}
+
+	// With AIR planFile a mode switch names its plan file, and an empty name marks the file released after approval.
+	private static void ReadPlanInput(JsonElement rawInput, AcpToolState tool) {
+		if (rawInput.TryGetProperty("planFilePath", out var file)) {
+			string path = file.ValueKind == JsonValueKind.String
+				? file.GetString()!
+				: throw new AcpProtocolException("An ACP plan file path must be a string.");
+			if (path.Length == 0) tool.PlanReleased = true;
+			else tool.PlanFile = Path.IsPathFullyQualified(path)
+				? Path.GetFullPath(path)
+				: throw new AcpProtocolException($"An ACP plan file path must be absolute: {path}");
+		}
+		tool.InputPlan = OptionalString(rawInput, "plan") ?? tool.InputPlan;
 	}
 
 	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) => TerminalizeToolsLocked(status, static _ => true);
@@ -183,6 +199,9 @@ internal sealed partial class AcpConversation {
 		public string? Status { get; set; }
 		public string? Text { get; set; }
 		public string? Input { get; set; }
+		public string? PlanFile { get; set; }
+		public string? InputPlan { get; set; }
+		public bool PlanReleased { get; set; }
 		public bool InitialReported { get; set; }
 		public bool NotificationReported { get; set; }
 		public bool LocallyTerminalized { get; set; }

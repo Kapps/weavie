@@ -57,7 +57,9 @@ mode updates.
 Accepted control values are stored as opaque provider defaults in `~/.weavie/acp-controls.json`. On every
 `session/new`, `session/load`, or `session/resume`, the ACP client reapplies advertised saved values in catalog
 order and consumes each authoritative response before the session becomes ready. This preserves selections
-across process and conversation lifetimes without teaching Weavie any provider-specific model or value catalog.
+across process and conversation lifetimes without teaching Weavie any provider-specific model or value catalog. A mode the
+agent switches itself outside transcript replay, such as on an approved plan, is saved the same way. A `/btw` side
+conversation instead applies the primary conversation's live control values and never saves its own.
 
 The ACP agent advertises models, reasoning levels, fast mode, modes, commands, skills, and plugins. A provider
 command is validated against the latest complete command snapshot, queued until the primary prompt is idle, and

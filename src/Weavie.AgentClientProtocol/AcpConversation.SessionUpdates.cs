@@ -47,13 +47,14 @@ internal sealed partial class AcpConversation {
 		if (!update.TryGetProperty("plan", out var plan) || plan.ValueKind != JsonValueKind.Object) {
 			throw new AcpProtocolException("An ACP plan document update is missing its plan.");
 		}
-		string planId = RequiredString(plan, "planId", "plan document");
-		string turnId;
+		PublishPlan(RequiredString(plan, "planId", "plan document"), PlanText(plan), turnId: null);
+	}
+
+	// A plan keeps the turn it first appeared in, so its revisions update the same transcript item.
+	private void PublishPlan(string planId, string text, string? turnId) {
 		lock (_gate) {
-			if (!_planTurns.TryGetValue(planId, out turnId!)) {
-				turnId = TurnId();
-				_planTurns.Add(planId, turnId);
-			}
+			if (_planTurns.TryGetValue(planId, out string? known)) turnId = known;
+			else _planTurns.Add(planId, turnId ??= TurnId());
 		}
 		Emit(new AgentPaneMessage {
 			Type = "item-completed",
@@ -64,13 +65,14 @@ internal sealed partial class AcpConversation {
 			ItemType = "plan",
 			Category = "plan",
 			Summary = "Plan",
-			Text = PlanText(plan),
+			Text = text,
 			Status = "updated",
 		});
 	}
 
-	private void RemovePlan(JsonElement update) {
-		string planId = RequiredString(update, "planId", "removed plan");
+	private void RemovePlan(JsonElement update) => RetractPlan(RequiredString(update, "planId", "removed plan"));
+
+	private void RetractPlan(string planId) {
 		string? turnId;
 		lock (_gate) {
 			_planTurns.Remove(planId, out turnId);
@@ -93,16 +95,17 @@ internal sealed partial class AcpConversation {
 		"items" => plan.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array
 			? FormatPlanEntries(entries, "plan document")
 			: throw new AcpProtocolException("An item plan document is missing entries."),
-		"file" => ReadPlanFile(RequiredString(plan, "uri", "file plan document")),
+		"file" => ReadPlanFile(FilePlanPath(RequiredString(plan, "uri", "file plan document"))),
 		var type => throw new AcpProtocolException($"Unsupported ACP plan document type '{type}'."),
 	};
 
-	private string ReadPlanFile(string value) {
-		if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile) {
-			throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
-		}
+	private static string FilePlanPath(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile
+		? uri.LocalPath
+		: throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
+
+	private string ReadPlanFile(string path) {
 		try {
-			return _context.FileSystem.ReadAllText(Path.GetFullPath(uri.LocalPath));
+			return _context.FileSystem.ReadAllText(Path.GetFullPath(path));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
 			throw new AcpProtocolException($"ACP file plan could not be read: {ex.Message}", ex);
 		}

@@ -93,6 +93,7 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+  planPath?: string | null;
 }
 
 export interface AgentPaneContent {

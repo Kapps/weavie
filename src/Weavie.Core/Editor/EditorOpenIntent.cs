@@ -7,4 +7,7 @@ public enum EditorOpenIntent {
 
 	/// <summary>Something revealed the file on the user's behalf: it opens behind a review they are in.</summary>
 	Reveal,
+
+	/// <summary>Opened for the user while they work elsewhere: it neither takes focus nor switches their view.</summary>
+	Background,
 }

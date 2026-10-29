@@ -4,9 +4,9 @@ internal readonly record struct AgentPlan(string Id, string Title, string Markdo
 
 /// <summary>Serializes the read-only editor document for one completed agent plan.</summary>
 internal static class AgentPlanProtocol {
-	public static string Path(AgentPlan plan) {
-		ArgumentException.ThrowIfNullOrEmpty(plan.Id);
-		return $"agent-plan:{plan.Id}";
+	public static string Path(string planId) {
+		ArgumentException.ThrowIfNullOrEmpty(planId);
+		return $"agent-plan:{planId}";
 	}
 
 	public static AgentPlanShown Show(AgentPlan plan, string path) {
@@ -21,3 +21,5 @@ internal static class AgentPlanProtocol {
 internal sealed record AgentPlanShown(string Id, string Path, string Title, string Markdown);
 
 internal sealed record AgentPlanRemoved(string Path);
+
+internal sealed record AgentPlanReviewsWire(IReadOnlyList<AgentPlanReview> Reviews);

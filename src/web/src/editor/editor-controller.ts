@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import { evaluateWhen } from "../commands/context";
 import { LinkDroppedError } from "../messaging/message-bus";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
@@ -113,7 +114,7 @@ export interface EditorControllerDeps {
  * Why the editor pane is being given a destination — the wire value the host stamps on every open it pushes.
  * Navigation focuses the editor pane; passive reveal and restoration preserve the current pane.
  */
-type EditorOpenIntent = "navigation" | "reveal" | "restore";
+type EditorOpenIntent = "navigation" | "reveal" | "restore" | "background";
 
 interface DiffProposal {
   id: string;
@@ -176,6 +177,8 @@ export interface EditorController {
   flushDirty(): Promise<void>;
   /** Flushes one exact session's editor state and dirty working copies before its backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
+  /** Saves one file's pending edits, then runs `send`; a failed save is reported as blocking `action`. */
+  afterFlush(session: ClientSession, path: string, action: string, send: () => void): Promise<void>;
   /** Open the review overview, or a specific file when a path is supplied. */
   openReview(session: ClientSession, path: string | undefined, line: number | undefined): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
@@ -454,8 +457,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (tab !== undefined) tab.presentation?.focus();
   };
 
+  // A background open never takes the keyboard: it shows its tab unfocused, or only adds it beside an editor the
+  // user is typing in.
+  const backgroundOpen = (session: ClientSession, intent: EditorOpenIntent) =>
+    intent !== "background"
+      ? {}
+      : selectedSession() === session && evaluateWhen("editorFocused")
+        ? { activate: false }
+        : { focus: false };
+
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) return false;
+    if (intent === "background") return !evaluateWhen("editorFocused");
     if (intent !== "restore") navigation.depart(session);
     deps.onDestinationActivated();
     return true;
@@ -469,9 +482,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     scratch: boolean,
     intent: EditorOpenIntent,
   ): void => {
+    const options = backgroundOpen(session, intent);
     const foreground = activateDestinationFor(session, intent);
     const result = openTabFor(session, path, {
       ...(line === undefined ? {} : { line }),
+      ...options,
       preview,
       scratch,
     });
@@ -859,19 +874,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return false;
   };
 
-  // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
-  // per-hunk and whole-file reverts go through this so the host never races a debounced write. A failed flush
-  // means the revert would act against stale disk content, so surface it and abort rather than misapply silently.
-  const afterFlush = (session: ClientSession, path: string, send: () => void): void => {
+  // Flush the file's pending save, then run `send`, so a host action that reads the file never races a debounced
+  // write. A failed flush means `send` would act on stale disk content, so it reports and aborts instead.
+  const afterFlush = (
+    session: ClientSession,
+    path: string,
+    action: string,
+    send: () => void,
+  ): Promise<void> => {
     const flushed = host?.flush(session, path);
     if (flushed === undefined) {
       send();
-      return;
+      return Promise.resolve();
     }
-    flushed.then(send, (error: unknown) => {
-      deps.onSaveError(
-        `Couldn't save ${basename(path)} before reverting — revert aborted: ${String(error)}`,
-      );
+    return flushed.then(send, (error: unknown) => {
+      deps.onSaveError(`Couldn't save ${basename(path)} before ${action}: ${String(error)}`);
     });
   };
 
@@ -885,7 +902,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     action: "keepHunk" | "revertHunk",
     hunk: HunkRevert,
   ): void => {
-    afterFlush(session, diff.path, () =>
+    void afterFlush(session, diff.path, "changing the hunk", () =>
       session.feature("review").publish(action, {
         path: diff.path,
         baselineRevision: diff.baselineRevision,
@@ -903,7 +920,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Keep every change in one file: the host advances its review baseline to current, so the file leaves the
   // review set for good. No confirm — keeping is non-destructive.
   const keepFile = (session: ClientSession, path: string): void => {
-    afterFlush(session, path, () => session.feature("review").publish("keepFile", { path }));
+    void afterFlush(session, path, "keeping it", () =>
+      session.feature("review").publish("keepFile", { path }),
+    );
   };
 
   const pendingReviewFile = (
@@ -933,7 +952,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       })
       .then((ok) => {
         if (ok) {
-          afterFlush(session, path, () =>
+          void afterFlush(session, path, "reverting it", () =>
             session.feature("review").publish("revertFile", { path }),
           );
         }
@@ -1288,12 +1307,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
+      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan"; intent: EditorOpenIntent }>(
         session,
         "openOverlay",
-        ({ path, kind }) => {
-          const result = openTabFor(session, path, { kind });
-          if (activateDestinationFor(session, "navigation")) {
+        ({ path, kind, intent }) => {
+          const result = openTabFor(session, path, { kind, ...backgroundOpen(session, intent) });
+          if (activateDestinationFor(session, intent)) {
             presentTab(session, result);
           }
         },
@@ -1462,7 +1481,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           return;
         }
         // Flush the pending save first, so the host's guard reads the same content the editor shows.
-        afterFlush(session, path, () =>
+        void afterFlush(session, path, "revising it", () =>
           session.feature("revise").publish("start", {
             path,
             startLine,
@@ -1488,6 +1507,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     flushSession: (session) => host?.flushSession(session) ?? Promise.resolve(),
+    afterFlush,
     openReview: (session, path, line) => {
       if (selectedSession() !== session) {
         return false;

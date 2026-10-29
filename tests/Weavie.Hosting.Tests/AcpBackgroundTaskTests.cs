@@ -16,7 +16,7 @@ public sealed class AcpBackgroundTaskTests {
 		var initialize = JsonNode.Parse(File.ReadAllText(Path.Combine(fixture.FakeAcpStateDirectory, "initialize.json")))!;
 
 		Assert.Equal(
-			"""{"auth":{"terminal":true},"fs":{"readTextFile":true,"writeTextFile":true},"plan":{},"subagents":{},"terminal":true,"session":{"configOptions":{"boolean":{}},"notices":{}},"elicitation":{"form":{},"url":{}},"_meta":{"jetbrains":{"air":{"version":1,"capabilities":["nativeSubagentSessions","asyncTasks"]}}}}""",
+			"""{"auth":{"terminal":true},"fs":{"readTextFile":true,"writeTextFile":true},"plan":{},"subagents":{},"terminal":true,"session":{"configOptions":{"boolean":{}},"notices":{}},"elicitation":{"form":{},"url":{}},"_meta":{"jetbrains":{"air":{"version":1,"capabilities":["nativeSubagentSessions","asyncTasks","planFile"]}}}}""",
 			initialize["clientCapabilities"]!.ToJsonString());
 	}
 

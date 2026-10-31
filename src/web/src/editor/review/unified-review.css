@@ -128,8 +128,7 @@
 }
 
 .unified-review-file-toggle:focus-visible,
-.unified-review-file-context:focus-visible,
-.unified-review-file-open:focus-visible {
+.unified-review-file-context:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -293,8 +292,7 @@
 }
 
 .unified-review-file-toggle,
-.unified-review-file-context,
-.unified-review-file-open {
+.unified-review-file-context {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -310,15 +308,13 @@
 }
 
 .unified-review-file-toggle:hover,
-.unified-review-file-context:hover,
-.unified-review-file-open:hover {
+.unified-review-file-context:hover {
   background: var(--list-active-bg);
   color: var(--fg);
 }
 
 .unified-review-file-toggle svg,
-.unified-review-file-context svg,
-.unified-review-file-open svg {
+.unified-review-file-context svg {
   width: 1em;
   height: 1em;
 }

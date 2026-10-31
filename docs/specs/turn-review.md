@@ -23,13 +23,13 @@ Both review presentations are projections over one Core-owned review board:
   deleted current-side file uses a read-only, empty Monaco snapshot because no working copy exists. Each
   collapsed unchanged stretch is a clickable band that reveals its lines, and the section's `alt+]` toggle shows
   the whole file or collapses it back; revealed lines are web-only presentation state on the
-  file's view. Clicking a line number, or the file header's open-in-file-view button, opens that file in file review at that line.
+  file's view. Clicking a line number opens that file in file review at that line.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
 The tab-strip button and `weavie.review.open` (`$mod+Shift+u` by default) open a persistent
 **Review Changes** tab (`kind: "review"`, resource `weavie:review`). While a review view is active the button
-becomes an `All files | This file` switch, and the same command flips between the two views at the current
+becomes a two-icon switch (all changed files | single file), and the same command flips between the two views at the current
 file and change. Ordinary file reviews and pending
 Keep/Reject proposals belong to their normal file tabs. Passive changes update the review board without
 opening or selecting a tab. Opening a file selects its file tab and retains Review Changes for Back or

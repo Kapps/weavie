@@ -298,7 +298,8 @@ button.editor-review-action:not(:disabled):hover {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.editor-review-action:focus-visible {
+.editor-review-action:focus-visible,
+.editor-review-segment:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -306,22 +307,17 @@ button.editor-review-action:not(:disabled):hover {
 /* While reviewing, the entry is a two-way switch: the pressed half is the view on screen. */
 .editor-review-switch {
   min-inline-size: 0;
-  gap: 0;
   padding: 0;
   overflow: hidden;
   background: transparent;
-  cursor: default;
 }
 
 .editor-review-segment {
   display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  padding: 0.2em 0.7em;
+  padding: 0.25em 0.5em;
   border: 0;
   background: transparent;
   color: var(--dim);
-  font: inherit;
   cursor: pointer;
 }
 
@@ -337,16 +333,6 @@ button.editor-review-action:not(:disabled):hover {
 
 .editor-review-segment[aria-pressed="false"]:hover {
   color: var(--fg);
-}
-
-.editor-review-segment:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.editor-review-count {
-  font-size: var(--font-hint-size);
-  color: var(--dim);
 }
 
 /* Recent-files control in the editor status bar (bottom-right): a compact button that opens the recent-files

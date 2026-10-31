@@ -1258,7 +1258,7 @@ export default function App(): JSX.Element {
             trailing={
               <>
                 <Show when={editor.parkedReviewCount() > 0}>
-                  <ReviewViewSwitch view={reviewView()} count={editor.parkedReviewCount()} />
+                  <ReviewViewSwitch view={reviewView()} />
                 </Show>
                 <Show when={editor.review.canClose()}>
                   <button

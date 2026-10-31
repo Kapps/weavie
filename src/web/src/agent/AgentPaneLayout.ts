@@ -15,6 +15,7 @@ import {
 } from "solid-js";
 import { estimateEntrySize, invalidateEntrySize } from "./AgentPaneEstimate";
 import type { AgentPaneModel } from "./AgentPaneModel";
+import type { PremeasuredRow } from "./AgentPanePremeasure";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 interface Layout {
@@ -27,6 +28,7 @@ interface Layout {
 export function createAgentPaneLayout(
   model: AgentPaneModel,
   body: Accessor<HTMLDivElement | undefined>,
+  premeasured: Accessor<PremeasuredRow[]>,
 ) {
   const [layout, setLayout] = createSignal<Layout>({
     generation: model.generation(),
@@ -53,12 +55,12 @@ export function createAgentPaneLayout(
     return (index: number) => keys[index]!;
   });
   const rangeExtractor = createMemo(() => {
-    const pending = [...layout().pendingRows.values()];
+    const { keys, pendingRows } = layout();
     // Pending forms own live command handlers and focus even while outside the viewport.
+    const extra = [...pendingRows.values()];
+    for (const row of premeasured()) if (keys[row.index] === row.key) extra.push(row.index);
     return (range: Range) =>
-      [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
-        (left, right) => left - right,
-      );
+      [...new Set([...defaultRangeExtractor(range), ...extra])].sort((left, right) => left - right);
   });
 
   return {

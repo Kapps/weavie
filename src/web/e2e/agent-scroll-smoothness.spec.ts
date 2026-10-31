@@ -74,61 +74,7 @@ test("scrolling back through never-measured history stays smooth", async ({ page
 
     // Scroll up one exact step per frame. Every tracked row must move by exactly that step: the pane owes
     // the reader the motion it was given, whatever it is re-measuring underneath.
-    const measured = await body.evaluate(async (element: HTMLElement) => {
-      const rate = 8;
-      const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
-      if (descriptor?.get === undefined || descriptor.set === undefined) {
-        throw new Error("scrollTop is not an accessor");
-      }
-      const read = descriptor.get;
-      const write = descriptor.set;
-      let corrections = 0;
-      let stepping = false;
-      // Count every way the pane can move the scroll position, so the guard below stays about whether
-      // corrections happened at all rather than which API applies them.
-      Object.defineProperty(element, "scrollTop", {
-        configurable: true,
-        get(): number {
-          return read.call(this) as number;
-        },
-        set(value: number) {
-          if (!stepping) {
-            corrections += 1;
-          }
-          write.call(this, value);
-        },
-      });
-      const scrollTo = element.scrollTo.bind(element);
-      element.scrollTo = ((options: ScrollToOptions) => {
-        corrections += 1;
-        scrollTo(options);
-      }) as typeof element.scrollTo;
-      const deviations: number[] = [];
-      let previous: { id: string; top: number } | null = null;
-      for (let frame = 0; frame < 500; frame++) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        const viewportTop = element.getBoundingClientRect().top;
-        let highest: { id: string; top: number } | null = null;
-        for (const row of document.querySelectorAll<HTMLElement>(".agent-virtual-row")) {
-          const id = row.dataset.transcriptEntry;
-          const top = row.getBoundingClientRect().top - viewportTop;
-          if (id !== undefined && top >= 0 && (highest === null || top < highest.top)) {
-            highest = { id, top };
-          }
-        }
-        if (highest !== null && previous?.id === highest.id) {
-          deviations.push(highest.top - previous.top - rate);
-        }
-        previous = highest;
-        stepping = true;
-        element.scrollTop -= rate;
-        stepping = false;
-      }
-      return {
-        corrections,
-        stutters: deviations.filter((deviation) => Math.abs(deviation) > 2).length,
-      };
-    });
+    const measured = await body.evaluate(scrollUpSteadily, { touch: false });
 
     // The corrections have to be real, or a pane that simply stopped compensating would pass.
     expect(measured.corrections).toBeGreaterThan(10);
@@ -371,4 +317,123 @@ for (const preciseDelta of [-0.25, 0.25]) {
       await host.close();
     }
   });
+}
+
+// iOS WebKit cancels momentum when scrollTop is written, so the virtualizer defers its corrections for the
+// whole touch gesture and replays them after it settles. Every row first measured under a finger therefore
+// shoves the content the reader is looking at, and the replay shoves it again.
+test.describe("touch scrolling on iOS", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  });
+
+  test("scrolling back through history under a touch keeps content still", async ({ page }) => {
+    const session = mockSession("touch-scroll", "touch-scroll", "acp");
+    const host = await MockHost.start({ distDir, sessions: [session] });
+    host.setAgentHistory(session.address, { generation: 1, batchSize: 5000, messages: transcript });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      await page.getByRole("button", { name: "Agent", exact: true }).click();
+      const body = page.locator(".agent-body");
+      await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+      // Idle touch devices measure the history above; it is done once the content stops growing.
+      let height = 0;
+      await expect
+        .poll(
+          async () => {
+            const previous = height;
+            height = await body.evaluate((element) => element.scrollHeight);
+            return height === previous;
+          },
+          { intervals: [1000] },
+        )
+        .toBe(true);
+      const measured = await body.evaluate(scrollUpSteadily, { touch: true });
+      expect(measured.stutters).toBe(0);
+    } finally {
+      await host.close();
+    }
+  });
+});
+
+async function scrollUpSteadily(
+  element: HTMLElement,
+  options: { touch: boolean },
+): Promise<{ corrections: number; stutters: number }> {
+  const rate = 8;
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+  if (descriptor?.get === undefined || descriptor.set === undefined) {
+    throw new Error("scrollTop is not an accessor");
+  }
+  const read = descriptor.get;
+  const write = descriptor.set;
+  let corrections = 0;
+  let stepping = false;
+  // Count every way the pane can move the scroll position, so the guard below stays about whether
+  // corrections happened at all rather than which API applies them.
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get(): number {
+      return read.call(this) as number;
+    },
+    set(value: number) {
+      if (!stepping) {
+        corrections += 1;
+      }
+      write.call(this, value);
+    },
+  });
+  const scrollTo = element.scrollTo.bind(element);
+  element.scrollTo = ((scrollOptions: ScrollToOptions) => {
+    corrections += 1;
+    scrollTo(scrollOptions);
+  }) as typeof element.scrollTo;
+  const deviations: number[] = [];
+  if (options.touch) {
+    element.dispatchEvent(new Event("touchstart"));
+  }
+  let previous: { id: string; top: number } | null = null;
+  for (let frame = 0; frame < 500; frame++) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const viewportTop = element.getBoundingClientRect().top;
+    let highest: { id: string; top: number } | null = null;
+    for (const row of document.querySelectorAll<HTMLElement>(".agent-virtual-row")) {
+      const id = row.dataset.transcriptEntry;
+      const top = row.getBoundingClientRect().top - viewportTop;
+      if (id !== undefined && top >= 0 && (highest === null || top < highest.top)) {
+        highest = { id, top };
+      }
+    }
+    if (highest !== null && previous?.id === highest.id) {
+      deviations.push(highest.top - previous.top - rate);
+    }
+    previous = highest;
+    stepping = true;
+    element.scrollTop -= rate;
+    stepping = false;
+  }
+  if (options.touch) {
+    // The gesture ends: whatever the pane deferred must not move the content either.
+    const before = previous;
+    element.dispatchEvent(new Event("touchend"));
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    const row =
+      before === null
+        ? null
+        : element.querySelector<HTMLElement>(`[data-transcript-entry="${CSS.escape(before.id)}"]`);
+    if (before !== null && row !== null) {
+      deviations.push(
+        row.getBoundingClientRect().top - element.getBoundingClientRect().top - before.top - rate,
+      );
+    }
+  }
+  return {
+    corrections,
+    stutters: deviations.filter((deviation) => Math.abs(deviation) > 2).length,
+  };
 }

@@ -27,6 +27,7 @@ interface Layout {
 export function createAgentPaneLayout(
   model: AgentPaneModel,
   body: Accessor<HTMLDivElement | undefined>,
+  premeasured: Accessor<number[]>,
 ) {
   const [layout, setLayout] = createSignal<Layout>({
     generation: model.generation(),
@@ -53,12 +54,10 @@ export function createAgentPaneLayout(
     return (index: number) => keys[index]!;
   });
   const rangeExtractor = createMemo(() => {
-    const pending = [...layout().pendingRows.values()];
     // Pending forms own live command handlers and focus even while outside the viewport.
+    const extra = [...layout().pendingRows.values(), ...premeasured()];
     return (range: Range) =>
-      [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
-        (left, right) => left - right,
-      );
+      [...new Set([...defaultRangeExtractor(range), ...extra])].sort((left, right) => left - right);
   });
 
   return {

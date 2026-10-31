@@ -18,6 +18,7 @@ import { AgentBackgroundTray } from "./AgentBackgroundTray";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneLayout } from "./AgentPaneLayout";
+import { createAgentPanePremeasure } from "./AgentPanePremeasure";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
@@ -105,7 +106,11 @@ export function AgentPaneBody(props: {
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
   const liveResultIndex = createMemo(props.model.liveResultIndex);
-  const layout = createAgentPaneLayout(props.model, () => body);
+  const premeasure = createAgentPanePremeasure(
+    () => body,
+    () => virtualizer,
+  );
+  const layout = createAgentPaneLayout(props.model, () => body, premeasure.rows);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
       return layout.count();
@@ -148,7 +153,10 @@ export function AgentPaneBody(props: {
     saved?.followingLatest ?? true,
     wheel,
   );
-  virtualizerChanged = scroll.onVirtualizerChange;
+  virtualizerChanged = (sync) => {
+    scroll.onVirtualizerChange(sync);
+    premeasure.schedule();
+  };
   virtualizerScroll = scroll.noteControllerScroll;
   layout.observe(virtualizer, scroll);
 

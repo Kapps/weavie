@@ -19,9 +19,9 @@ public sealed class ClaudeTranscriptReaderTests {
 			"""{"type":"last-prompt","lastPrompt":"Fix the bug"}""");
 
 		Assert.Equal([
-			new(AgentTranscriptRole.User, "Fix the bug", null),
-			new(AgentTranscriptRole.Tool, "Bash: List files", null),
-			new AgentTranscriptEntry(AgentTranscriptRole.Agent, "Fixed.", null),
+			new(AgentTranscriptRole.User, "Fix the bug", null, null),
+			new(AgentTranscriptRole.Tool, "Bash: List files", null, null),
+			new AgentTranscriptEntry(AgentTranscriptRole.Agent, "Fixed.", null, null),
 		], ClaudeTranscriptReader.Read(jsonl));
 	}
 

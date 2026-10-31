@@ -190,6 +190,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				ThreadId = "thread-fake",
 				TurnId = $"turn-{_turns}",
 				Text = submission.Text,
+				Sender = submission.Sender,
 			});
 			Emit(new AgentPaneMessage {
 				Type = "item-completed",

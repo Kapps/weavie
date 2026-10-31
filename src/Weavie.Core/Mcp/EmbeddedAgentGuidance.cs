@@ -1,3 +1,5 @@
+using Weavie.Core.Agents;
+
 namespace Weavie.Core.Mcp;
 
 /// <summary>
@@ -25,12 +27,11 @@ public static class EmbeddedAgentGuidance {
 		returned verbatim to the agent that consulted you, so make it a complete, self-contained answer.
 		""";
 
-	/// <summary>Frames a message one session's agent sends another, so the receiver knows who sent it and how to reply.</summary>
-	public static string SessionMessage(string senderId, string senderTitle, string body) =>
-		$"[Message from Weavie session \"{senderTitle}\" (id \"{senderId}\"), sent by that session's agent, not typed by "
-		+ $"the user. Reply with mcp__weavie__messageSession to id \"{senderId}\" only if it asks you something or you "
-		+ "have results to report; never reply to an acknowledgement.]\n\n"
-		+ body;
+	/// <summary>Tells the receiver of another session's message who sent it and how to reply.</summary>
+	public static string SessionMessage(AgentMessageSender sender) =>
+		$"This prompt is a message from Weavie session \"{sender.Title}\" (id \"{sender.Id}\"), sent by that session's "
+		+ $"agent, not typed by the user. Reply with mcp__weavie__messageSession to id \"{sender.Id}\" only if it asks "
+		+ "you something or you have results to report; never reply to an acknowledgement.";
 
 	/// <summary>The instruction text shared by embedded providers.</summary>
 	public const string Instructions =

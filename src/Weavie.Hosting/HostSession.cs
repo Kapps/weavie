@@ -601,13 +601,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
-		SendAgentInput(new AgentTurnSubmission {
-			Id = Guid.NewGuid().ToString("n"),
-			Text = text,
-			Kind = AgentTurnSubmissionKind.Prompt,
-			CommandName = string.Empty,
-			Attachments = [],
-		});
+		SendAgentInput(AgentTurnSubmission.Prompt(text));
 	}
 
 	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>

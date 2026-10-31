@@ -78,7 +78,9 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		Assert.Equal(3, payload.RootElement.GetProperty("total").GetInt32());
 		var entries = payload.RootElement.GetProperty("entries").EnumerateArray()
 			.Select(entry => (entry.GetProperty("role").GetString(), entry.GetProperty("text").GetString())).ToList();
-		Assert.Equal([("tool", "grep"), ("agent", "done")], entries);
+		Assert.Equal([("tool", "grep"), ("user", "ping"), ("agent", "done")], entries);
+		Assert.Equal("feat/self", payload.RootElement.GetProperty("entries")[1].GetProperty("from").GetString());
+		Assert.False(payload.RootElement.GetProperty("entries")[0].TryGetProperty("from", out _));
 	}
 
 	[Theory]
@@ -154,8 +156,9 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		public Task<SessionPeerTranscript> ReadAsync(string sessionId, int count, CancellationToken ct) {
 			Read = (sessionId, count);
 			return Task.FromResult(new SessionPeerTranscript(sessionId, "Other", 3, [
-				new(AgentTranscriptRole.Tool, "grep", "completed"),
-				new(AgentTranscriptRole.Agent, "done", null),
+				new(AgentTranscriptRole.Tool, "grep", "completed", null),
+				new(AgentTranscriptRole.User, "ping", null, "feat/self"),
+				new(AgentTranscriptRole.Agent, "done", null, null),
 			]));
 		}
 

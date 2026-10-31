@@ -1,5 +1,4 @@
 using Weavie.Core.Agents;
-using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Hosting.Messaging;
 
@@ -47,12 +46,14 @@ public sealed partial class HostCore {
 				throw new SessionPeerException(
 					$"Session '{slot.Id}' isn't loaded. Load it with weavie.session.load (id '{slot.Id}') first.");
 			}
-			if (target.Agent.Structured is null) {
+			if (target.Agent.Structured is not { } structured) {
 				throw new SessionPeerException(
 					$"Session '{slot.Id}' runs {target.Agent.Provider.Name} in a terminal, which can't take messages from other sessions.");
 			}
 			if (_drainInputFrozen) throw new SessionPeerException("Agent input is paused while Weavie restarts.");
-			target.SendAgentPrompt(EmbeddedAgentGuidance.SessionMessage(sender.Id, SessionName.Title(sender.Label), message));
+			structured.Submit(AgentTurnSubmission.Prompt(message) with {
+				Sender = new(sender.Id, SessionName.Title(sender.Label)),
+			});
 			return Task.FromResult(new SessionPeerDelivery(slot.Id, StatusName(target.Status.Status)));
 		}, ct), ct).ConfigureAwait(false);
 	}

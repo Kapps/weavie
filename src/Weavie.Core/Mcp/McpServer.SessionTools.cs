@@ -51,6 +51,7 @@ public sealed partial class McpServer {
 				writer.WriteString("role", JsonNamingPolicy.CamelCase.ConvertName(entry.Role.ToString()));
 				writer.WriteString("text", entry.Text);
 				if (entry.Status is { } status) writer.WriteString("status", status);
+				if (entry.From is { } from) writer.WriteString("from", from);
 				writer.WriteEndObject();
 			}
 			writer.WriteEndArray();

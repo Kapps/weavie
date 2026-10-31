@@ -62,16 +62,11 @@ A message is submitted to the target exactly like a prompt the user typed there.
 running turn when it supports steering, otherwise queues it in the target's queue chip; an agent still starting
 queues it until ready. Weavie adds no second queue.
 
-The text is framed by `EmbeddedAgentGuidance.SessionMessage`, so the target pane shows who sent it and the target
-model knows how to reply:
-
-```text
-[Message from Weavie session "<title>" (id "<id>"), sent by that session's agent, not typed by the user. Reply with
-mcp__weavie__messageSession to id "<id>" only if it asks you something or you have results to report; never reply
-to an acknowledgement.]
-
-<message>
-```
+The submission carries its sender (`AgentTurnSubmission.Sender`) as data, not text. The ACP client adds
+`EmbeddedAgentGuidance.SessionMessage` as an assistant-audience block — the agent learns who sent it and how to
+reply, the user never sees it — and the submitted pane message carries the sender, so the target pane heads the plain
+message with **From &lt;session&gt;** instead of **Prompt**. `readSession` reports the sender's id as `from` on that
+entry.
 
 A send is refused, with a tool error naming the cause, when the target is the caller, the id is unknown, the target
 is not loaded, the target runs in a terminal, or Weavie is draining for a restart. The send runs under the target
@@ -82,11 +77,10 @@ submit it joined to whatever the user has half-typed, and on an open permission 
 highlighted option. Weavie can't see either state. Claude Code channels are the right delivery mechanism once they
 work without a development flag and its startup warning.
 
-Two agents could keep acknowledging each other. The framing tells the receiver not to reply to acknowledgements,
+Two agents could keep acknowledging each other. The guidance tells the receiver not to reply to acknowledgements,
 and every message is visible in the target's pane and status; there is no hop limit.
 
 ## Deferred
 
 - Delivery into terminal Claude through Claude Code channels.
-- A "from session" chip in the pane in place of the text framing.
 - Sessions on other connected backends.

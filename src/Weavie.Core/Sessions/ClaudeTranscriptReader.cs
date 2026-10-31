@@ -45,17 +45,17 @@ public static class ClaudeTranscriptReader {
 			|| !message.TryGetProperty("content", out var content)) yield break;
 		var role = type == "user" ? AgentTranscriptRole.User : AgentTranscriptRole.Agent;
 		if (content.ValueKind == JsonValueKind.String) {
-			yield return new(role, content.GetString()!, null);
+			yield return new(role, content.GetString()!, null, null);
 			yield break;
 		}
 		if (content.ValueKind != JsonValueKind.Array) yield break;
 		foreach (var block in content.EnumerateArray()) {
 			switch (block.GetStringOrEmpty("type")) {
 				case "text" when block.GetStringOrEmpty("text") is { Length: > 0 } text:
-					yield return new(role, text, null);
+					yield return new(role, text, null, null);
 					break;
 				case "tool_use":
-					yield return new(AgentTranscriptRole.Tool, ToolSummary(block), null);
+					yield return new(AgentTranscriptRole.Tool, ToolSummary(block), null, null);
 					break;
 			}
 		}

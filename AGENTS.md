@@ -64,8 +64,8 @@ load it only when you need it.
   read-only ACP turn with no Weavie MCP answers it. See [docs/specs/agent-consultation.md](docs/specs/agent-consultation.md).
 - **Session messaging** — agents list, read, and message the other sessions on their host through registry tools
   (`listSessions`/`readSession`/`messageSession`), bound to the calling session by construction. Reads come from each
-  provider's own saved conversation (ACP journal, Claude `.jsonl`); a message is a framed prompt queued into a loaded
-  ACP session. Terminal Claude can be read but not messaged. See
+  provider's own saved conversation (ACP journal, Claude `.jsonl`); a message is a prompt, headed with its sender,
+  queued into a loaded ACP session. Terminal Claude can be read but not messaged. See
   [docs/specs/session-messaging.md](docs/specs/session-messaging.md).
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom
   commands launch external ACP agents directly, with no private provider protocol inside Weavie. See

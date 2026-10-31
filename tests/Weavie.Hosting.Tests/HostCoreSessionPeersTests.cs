@@ -2,7 +2,6 @@ using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
-using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Xunit;
 
@@ -21,18 +20,20 @@ public sealed class HostCoreSessionPeersTests {
 		await target.Agent.DrainPaneAsync(CancellationToken.None);
 
 		Assert.Equal("peer-target", delivery.Id);
-		string framed = EmbeddedAgentGuidanceText("peer-sender", "ping");
-		Assert.Contains(
+		var shown = Assert.Single(
 			host.Bridge.PostedEvents(target.Address, "agent", "pane"),
-			message => message.GetProperty("type").GetString() == "item-completed"
-				&& message.GetProperty("text").GetString() == $"echo: {framed}");
+			message => message.GetProperty("type").GetString() == "user-message");
+		Assert.Equal("ping", shown.GetProperty("text").GetString());
+		Assert.Equal(
+			("peer-sender", "peer sender"),
+			(shown.GetProperty("sender").GetProperty("id").GetString(), shown.GetProperty("sender").GetProperty("title").GetString()));
 		Assert.DoesNotContain(
 			host.Bridge.PostedEvents(sender.Address, "agent", "pane"),
 			message => message.GetProperty("text").GetString()?.Contains("ping", StringComparison.Ordinal) == true);
 
 		var transcript = await sender.Peers.ReadAsync(target.SlotId, 2, CancellationToken.None);
 		Assert.Equal(
-			[new(AgentTranscriptRole.User, framed, null), new AgentTranscriptEntry(AgentTranscriptRole.Agent, $"echo: {framed}", "completed")],
+			[new(AgentTranscriptRole.User, "ping", null, "peer-sender"), new AgentTranscriptEntry(AgentTranscriptRole.Agent, "echo: ping", "completed", null)],
 			transcript.Entries);
 	}
 
@@ -78,9 +79,6 @@ public sealed class HostCoreSessionPeersTests {
 		Assert.Equal(2, transcript.Total);
 		Assert.Equal("echo: remember me", Assert.Single(transcript.Entries).Text);
 	}
-
-	private static string EmbeddedAgentGuidanceText(string sender, string body) =>
-		EmbeddedAgentGuidance.SessionMessage(sender, SessionName.Title(sender), body);
 
 	private static async Task AssertRefusedAsync(HostSession sender, string target, string reason) {
 		var refused = await Assert.ThrowsAsync<SessionPeerException>(

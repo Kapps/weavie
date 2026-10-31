@@ -16,6 +16,7 @@ internal sealed partial class AcpConversation {
 
 		var blocks = new List<JsonNode>();
 		var images = new List<SubmittedImage>();
+		if (submission.Sender is { } sender) blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SessionMessage(sender)));
 		bool includesGuidance = false;
 		if (submission.Kind == AgentTurnSubmissionKind.McpPrompt) {
 			var prompt = McpPromptCatalog.Require(submission.CommandName);
@@ -73,6 +74,7 @@ internal sealed partial class AcpConversation {
 				TurnId = TurnId(),
 				ItemId = submission.Id,
 				Text = submission.Text,
+				Sender = submission.Sender,
 			});
 		}
 		foreach (var image in images) {

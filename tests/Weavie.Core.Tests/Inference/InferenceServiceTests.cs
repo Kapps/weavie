@@ -457,6 +457,8 @@ public sealed class InferenceServiceTests : IDisposable {
 
 		public void ClearConversation(string workspace) { }
 
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
+
 		public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();
 	}
 }

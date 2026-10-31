@@ -24,8 +24,20 @@ public enum AgentTurnSubmissionKind {
 	McpPrompt,
 }
 
+/// <summary>The Weavie session whose agent sent a message to another session.</summary>
+public sealed record AgentMessageSender(string Id, string Title);
+
 /// <summary>An atomic structured-agent input: text and the exact staged images for the turn.</summary>
 public sealed record AgentTurnSubmission {
+	/// <summary>An ordinary text prompt with a fresh id.</summary>
+	public static AgentTurnSubmission Prompt(string text) => new() {
+		Id = Guid.NewGuid().ToString("n"),
+		Text = text,
+		Kind = AgentTurnSubmissionKind.Prompt,
+		CommandName = string.Empty,
+		Attachments = [],
+	};
+
 	/// <summary>The client-generated submission id.</summary>
 	public required string Id { get; init; }
 
@@ -40,4 +52,7 @@ public sealed record AgentTurnSubmission {
 
 	/// <summary>The staged images submitted with the text.</summary>
 	public required IReadOnlyList<AgentInputAttachment> Attachments { get; init; }
+
+	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
+	public AgentMessageSender? Sender { get; init; }
 }

@@ -1,3 +1,5 @@
+using Weavie.Core.Agents;
+
 namespace Weavie.Core.Mcp;
 
 /// <summary>
@@ -25,6 +27,12 @@ public static class EmbeddedAgentGuidance {
 		returned verbatim to the agent that consulted you, so make it a complete, self-contained answer.
 		""";
 
+	/// <summary>Tells the receiver of another session's message who sent it and how to reply.</summary>
+	public static string SessionMessage(AgentMessageSender sender) =>
+		$"This prompt is a message from Weavie session \"{sender.Title}\" (id \"{sender.Id}\"), sent by that session's "
+		+ $"agent, not typed by the user. Reply with mcp__weavie__messageSession to id \"{sender.Id}\" only if it asks "
+		+ "you something or you have results to report; never reply to an acknowledgement.";
+
 	/// <summary>The instruction text shared by embedded providers.</summary>
 	public const string Instructions =
 		"""
@@ -47,6 +55,11 @@ public static class EmbeddedAgentGuidance {
 		session - e.g. deleting or unloading it when you're done - first call `mcp__weavie__currentSession` to
 		get your session's id, then pass that id explicitly, rather than assuming the focused session is yours.
 		Deleting a session (weavie.session.delete) requires an explicit id for exactly this reason.
+
+		Other Weavie sessions on this host are separate agents, each in its own worktree. When the user asks you to
+		check on, read, coordinate with, or tell something to another session, resolve it with
+		`mcp__weavie__listSessions`, read its conversation with `mcp__weavie__readSession`, and send it a message
+		with `mcp__weavie__messageSession`. Messages are asynchronous: don't wait for a reply.
 
 		When the user asks you to check with, ask, or get a second opinion from another agent or model by name
 		(e.g. "check with Astra"), call `mcp__weavie__listAgents` to resolve that name to an exact provider id and

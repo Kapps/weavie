@@ -12,6 +12,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Review.Hints;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
@@ -34,7 +35,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
 	private readonly ThemeOverridesStore? _themeOverrides;
-	private readonly Func<string>? _currentSessionId;
+	private readonly ISessionPeers _sessions;
 	private readonly AgentConsultation _agents;
 	private readonly IReviewHintSink _reviewHints;
 	private readonly string _toolsListJson;
@@ -67,10 +68,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 		CommandDispatcher? commands,
 		KeybindingStore? keybindings,
 		ThemeOverridesStore? themeOverrides,
-		Func<string>? currentSessionId,
+		ISessionPeers sessions,
 		AgentConsultation agents,
 		IReviewHintSink reviewHints) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
+		ArgumentNullException.ThrowIfNull(sessions);
 		ArgumentNullException.ThrowIfNull(agents);
 		ArgumentNullException.ThrowIfNull(reviewHints);
 		ArgumentNullException.ThrowIfNull(presenter);
@@ -91,7 +93,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_commands = commands;
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
-		_currentSessionId = currentSessionId;
+		_sessions = sessions;
 		_agents = agents;
 		_reviewHints = reviewHints;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
@@ -106,13 +108,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, ReviewHintToolEntries, BuildWorkflowToolEntry() };
+			var parts = new List<string> {
+				SettingsToolEntries, SessionToolEntries, AgentToolEntries, ReviewHintToolEntries, BuildWorkflowToolEntry(),
+			};
 			if (exposeIdeTools) {
 				parts.Add(IdeToolEntries);
-			}
-
-			if (currentSessionId is not null) {
-				parts.Add(CurrentSessionToolEntries);
 			}
 
 			if (layout is not null) {
@@ -451,7 +451,16 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendToolTextAsync(responder, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
 			case "currentSession":
-				await HandleCurrentSessionAsync(responder, idRaw, ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, $"{{\"id\":{JsonString(_sessions.SelfId)}}}", ct).ConfigureAwait(false);
+				break;
+			case "listSessions":
+				await HandleListSessionsAsync(responder, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "readSession":
+				await HandleReadSessionAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "messageSession":
+				await HandleMessageSessionAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listSettings":
 				await HandleListSettingsAsync(responder, idRaw, ct).ConfigureAwait(false);
@@ -508,11 +517,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await responder.SendErrorAsync(idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
 		}
-	}
-
-	private async Task HandleCurrentSessionAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
-		var currentSessionId = Require(_currentSessionId, "Current session");
-		await SendToolTextAsync(responder, idRaw, $"{{\"id\":{JsonString(currentSessionId())}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {

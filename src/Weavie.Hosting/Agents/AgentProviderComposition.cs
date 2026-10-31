@@ -90,6 +90,9 @@ public static class AgentProviderComposition {
 		public void ClearConversation(string workspace) =>
 			throw new InvalidOperationException(Info.UnavailableReason);
 
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
+			throw new InvalidOperationException(Info.UnavailableReason);
+
 		public IAgentSession CreateSession(AgentSessionContext context) =>
 			throw new InvalidOperationException(Info.UnavailableReason);
 	}

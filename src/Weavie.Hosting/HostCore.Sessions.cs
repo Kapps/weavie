@@ -534,6 +534,7 @@ public sealed partial class HostCore {
 				_corrections,
 				_inference,
 				_agentConsultation,
+				new BoundSessionPeers(this, address),
 				_platform.PtyLauncher,
 				provider,
 				_runtime,

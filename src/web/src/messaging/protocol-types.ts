@@ -93,6 +93,8 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+  /** The session that sent a submitted prompt, when another session's agent sent it. */
+  sender?: { id: string; title: string } | null;
 }
 
 export interface AgentPaneContent {

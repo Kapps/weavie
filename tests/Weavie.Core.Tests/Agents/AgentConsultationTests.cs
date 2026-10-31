@@ -115,6 +115,8 @@ public sealed class AgentConsultationTests : IDisposable {
 
 		public void ClearConversation(string workspace) { }
 
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
+
 		public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();
 	}
 }

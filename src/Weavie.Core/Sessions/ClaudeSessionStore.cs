@@ -54,6 +54,12 @@ public sealed partial class ClaudeSessionStore : JsonDocumentStore {
 		}
 	}
 
+	/// <summary>The id tracked for <paramref name="workingDirectory"/>, without minting one.</summary>
+	public string? Tracked(string workingDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		lock (Gate) return Find(PathIdentity.Normalize(workingDirectory))?.Id;
+	}
+
 	/// <summary>
 	/// Abandons <paramref name="workingDirectory"/>'s assigned id entirely (next <see cref="Resolve"/>
 	/// cold-starts a new one). Used when a launch could not bring the id up at all — its transcript is pruned or

@@ -36,6 +36,21 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
   });
 
+  it("heads a message from another session with its sender", () => {
+    const sender = { id: "feat/auth", title: "auth refactor" };
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "ping", sender },
+      { type: "user-steer", providerId: "acp", turnId: "1", text: "also", sender },
+      { type: "user-message", providerId: "acp", turnId: "2", text: "mine" },
+    ]);
+
+    expect(transcript.map((entry) => [entry.label, entry.text])).toEqual([
+      ["From auth refactor", "ping"],
+      ["From auth refactor", "also"],
+      ["You", "mine"],
+    ]);
+  });
+
   it("marks only primary prompts as rewind points", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "acp", turnId: "1", text: "alpha" },

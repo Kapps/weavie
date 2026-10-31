@@ -400,7 +400,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new CommandDispatcher(commandRegistry),
 			keybindings,
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
-			static () => "test-session",
+			NoSessionPeers.Instance,
 			AgentConsultation.None,
 			reviewHints);
 		IFileSystem sessionFileSystem = failSessionPersistence
@@ -504,13 +504,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public void ReplyAside(string conversationId, string text) => Session.ReplyAside(conversationId, Prompt(text));
 
-	private static AgentTurnSubmission Prompt(string text) => new() {
-		Id = Guid.NewGuid().ToString("N"),
-		Text = text,
-		Kind = AgentTurnSubmissionKind.Prompt,
-		CommandName = string.Empty,
-		Attachments = [],
-	};
+	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),

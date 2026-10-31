@@ -63,6 +63,9 @@ public static class EditorSettings {
 	/// <summary>Pin enclosing scopes to the top while scrolling.</summary>
 	public const string StickyScroll = "editor.stickyScroll";
 
+	/// <summary>The longest file, in lines, that shows sticky scroll — it re-requests the file's whole symbol tree.</summary>
+	public const string StickyScrollMaxLines = "editor.stickyScrollMaxLines";
+
 	/// <summary>Enable font ligatures.</summary>
 	public const string FontLigatures = "editor.fontLigatures";
 
@@ -99,7 +102,7 @@ public static class EditorSettings {
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
-		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
+		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse,
 	];
 
@@ -121,7 +124,11 @@ public static class EditorSettings {
 
 	// A long file with real history takes Git seconds to blame (6s for 260k lines over 100 commits).
 	private const long DefaultGitBlameMaxLines = 5000;
-	private const long MaxGitBlameMaxLines = 10_000_000;
+
+	// Sticky scroll asks the language server for every symbol in the file after each typing pause: 151 MB and ~8s for
+	// a 260k-line generated file.
+	private const long DefaultStickyScrollMaxLines = 5000;
+	private const long MaxFileLineLimit = 10_000_000;
 
 	private const long DefaultMouseWheelScrollSensitivity = 1;
 	private const long DefaultFastScrollSensitivity = 5;
@@ -201,6 +208,12 @@ public static class EditorSettings {
 		registry.Register(Toggle(StickyScroll,
 			"Pin the enclosing scopes (namespace/class/method) to the top of the editor as you scroll.",
 			["sticky scroll", "sticky headers", "pinned scopes"], true));
+		registry.Register(Ranged(StickyScrollMaxLines,
+			"The longest file, in lines, that shows sticky scroll. Sticky scroll asks the language server for every "
+				+ "symbol in the file after each pause in typing, which takes seconds on a long (often generated) file, so "
+				+ "longer files don't show it. Defaults to 5000.",
+			["sticky scroll limit", "sticky scroll max lines", "sticky scroll large files", "sticky headers large files"],
+			DefaultStickyScrollMaxLines, 1, MaxFileLineLimit, "lines"));
 		registry.Register(Toggle(FontLigatures, "Enable font ligatures (for fonts that provide them).",
 			["font ligatures", "ligatures", "coding ligatures"], false));
 		registry.Register(Toggle(IndentGuides, "Show indentation guide lines.",
@@ -256,7 +269,7 @@ public static class EditorSettings {
 				+ "seconds, so longer files (often generated ones) carry no blame annotations, and Show Blame says why. "
 				+ "Defaults to 5000.",
 			["git blame limit", "blame max lines", "blame large files", "blame size limit", "skip blame"],
-			DefaultGitBlameMaxLines, 1, MaxGitBlameMaxLines, "lines"));
+			DefaultGitBlameMaxLines, 1, MaxFileLineLimit, "lines"));
 
 		registry.Register(Choice(ReviewOverviewCollapse,
 			"What remembers the session overview's collapsed sections (Commits, Checks, …) at the top of the review "
@@ -295,6 +308,7 @@ public static class EditorSettings {
 		writer.WriteString("cursorBlinking", store.RequireString(CursorBlinking));
 		writer.WriteString("renderLineHighlight", store.RequireString(RenderLineHighlight));
 		writer.WriteBoolean("stickyScroll", store.RequireBool(StickyScroll));
+		writer.WriteNumber("stickyScrollMaxLines", store.RequireInt(StickyScrollMaxLines));
 		writer.WriteBoolean("fontLigatures", store.RequireBool(FontLigatures));
 		writer.WriteBoolean("indentGuides", store.RequireBool(IndentGuides));
 		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));

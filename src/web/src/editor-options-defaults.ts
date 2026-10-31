@@ -18,6 +18,7 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   cursorBlinking: "blink",
   renderLineHighlight: "line",
   stickyScroll: true,
+  stickyScrollMaxLines: 5000,
   fontLigatures: false,
   indentGuides: true,
   hoverDelay: 300,

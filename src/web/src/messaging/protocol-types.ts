@@ -271,6 +271,7 @@ export interface EditorOptionsSpec {
   cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
   renderLineHighlight: "none" | "gutter" | "line" | "all";
   stickyScroll: boolean;
+  stickyScrollMaxLines: number;
   fontLigatures: boolean;
   indentGuides: boolean;
   hoverDelay: number;

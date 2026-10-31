@@ -48,7 +48,7 @@ public sealed partial class StaticPullRequestProvider {
 
 			if (verdict is { } submitted) {
 				RequireVerdict(number, submitted, body, threads.Count);
-				SubmittedReviews.Add((number, submitted, body));
+				RecordReview(number, submitted, body);
 			} else {
 				PendingReviews[number] = new PendingReview($"review-{++_nextId}", body);
 			}
@@ -112,7 +112,7 @@ public sealed partial class StaticPullRequestProvider {
 			RequireVerdict(number, verdict, body, Drafts(number).Count());
 			PendingReviews.Remove(number);
 			MapDrafts(number, c => c with { Pending = false });
-			SubmittedReviews.Add((number, verdict, body));
+			RecordReview(number, verdict, body);
 			return Task.CompletedTask;
 		}
 	}

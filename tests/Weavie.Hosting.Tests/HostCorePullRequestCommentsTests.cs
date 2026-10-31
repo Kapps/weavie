@@ -76,10 +76,22 @@ public sealed class HostCorePullRequestCommentsTests {
 		await CommentsAsync(host, set => set.GetProperty("pending").ValueKind == JsonValueKind.Null
 			&& !set.GetProperty("threads")[1].GetProperty("comments")[0].GetProperty("pending").GetBoolean());
 		Assert.Equal([(42, ReviewVerdict.RequestChanges, "fix it")], provider.SubmittedReviews);
+		var review = (await OverviewAsync(host, detail => detail.GetProperty("conversation").GetArrayLength() == 1))
+			.GetProperty("conversation")[0];
+		Assert.Equal("fix it", review.GetProperty("body").GetString());
+		Assert.Equal("changesRequested", review.GetProperty("review").GetString());
 	}
 
 	private static Task<JsonElement> RequestAsync(TestHost host, string type, object payload) =>
 		host.SessionRequestAsync<JsonElement>(host.WorkspaceSession, "pullRequests", type, payload);
+
+	// Reads the overview as published, without asking for a refresh, so it proves the write itself republished it.
+	private static Task<JsonElement> OverviewAsync(TestHost host, Func<JsonElement, bool> ready) =>
+		Wait.ForAsync(() => host.Bridge.LastEvent(host.WorkspaceSession.Address, "pullRequests", "overview") is { } message
+			&& message.GetProperty("detail") is { ValueKind: JsonValueKind.Object } detail
+			&& ready(detail)
+				? detail
+				: (JsonElement?)null);
 
 	private static Task<JsonElement> CommentsAsync(TestHost host, Func<JsonElement, bool> ready) =>
 		Wait.ForAsync(() => host.Bridge.LastEvent(host.WorkspaceSession.Address, "pullRequests", "comments") is { } message

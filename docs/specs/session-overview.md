@@ -28,11 +28,24 @@ Finish review reaches its control. Finishing a review still closes the tab and r
 ## Opening a diff
 
 Every new diff opens on the overview: Open Pull Request, Diff Against…, and **Review Branch**
-(`weavie.diff.againstBranchBase`, unbound), which compares the branch with its base: the branch it was created from
-(as git's reflog records it) when that is another unmerged branch, else the remote's default branch (`origin/main`
-over a local `main` that may be far behind). Clicking the status bar's diff totals offers Current review, Uncommitted,
-Last commit, and Branch. A session holds one review, so switching to a different comparison asks
+(`weavie.diff.againstBranchBase`, unbound), which compares the branch with its base. Clicking the status bar's diff
+totals offers Current review, Uncommitted, Last commit, and Branch. A session holds one review, so switching to a different comparison asks
 first: it closes the current review the way Close Diff does.
+
+## Branch base
+
+Git has no notion of a parent branch, so the base layers what is known, first match wins:
+
+1. The branch the user last diffed against (Diff Against…), kept in git config as `branch.<b>.weavie-review-base`;
+   choosing the base Weavie would detect anyway clears it, so the detected base keeps tracking.
+2. The open pull request's base branch.
+3. The branch it was created from, when that is another branch it forked from off the default branch: as Weavie
+   recorded it (`branch.<b>.weavie-parent`, written when a session branches from another session), else as git's
+   reflog does (`branch: Created from X`, or for a branch created from `HEAD`, the branch HEAD then left).
+4. The remote's default branch (`origin/main` over a local `main` that may be far behind).
+
+Git config sections follow the branch through `git branch -m` and go with it on delete. VS Code and GitLens layer the
+same sources under their own keys (`vscode-merge-base`, `gk-merge-target-user`).
 
 ## Collapsing
 

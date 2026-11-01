@@ -366,6 +366,36 @@ public sealed class DiffAgainstTests {
 		Assert.Equal(["b.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
 	}
 
+	[Fact]
+	public async Task DiffAgainstABranch_BecomesTheBranchsReviewBaseOnceItsReviewOpens() {
+		await using var host = await TestHost.StartAsync(repo => {
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "a.txt"), "parent\n");
+			Commit(repo, "feature-a work");
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-b", "main");
+			File.WriteAllText(Path.Combine(repo, "b.txt"), "own\n");
+			Commit(repo, "feature-b work");
+		});
+		var session = host.SelectedSession;
+
+		File.WriteAllText(Path.Combine(host.RepoRoot, "b.txt"), "edited\n");
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+
+		// Refused while another review is open: declining to replace it changes nothing.
+		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = (string?)null });
+		Assert.False(refused.GetProperty("opened").GetBoolean());
+		Assert.Equal("main", await DefaultRefAsync(host, session));
+
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = "vs HEAD" });
+		Assert.Equal("feature-a", await DefaultRefAsync(host, session));
+		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "notifications", "show"));
+		Assert.Contains("Review Branch now compares with 'feature-a'", toast.GetProperty("message").GetString());
+	}
+
+	private static async Task<string?> DefaultRefAsync(TestHost host, HostSession session) =>
+		(await host.SessionRequestAsync<JsonElement>(session, "files", "refs", new { })).GetProperty("defaultRef").GetString();
+
 	private static void Commit(string cwd, string message) {
 		TempGitRepo.Run(cwd, "add", "-A");
 		TempGitRepo.Run(cwd, "commit", "-m", message);

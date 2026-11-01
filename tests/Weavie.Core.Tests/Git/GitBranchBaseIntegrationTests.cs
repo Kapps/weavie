@@ -3,12 +3,12 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Proves a whole-branch review compares a stacked branch with the branch it was created from.</summary>
-public sealed class GitParentBranchIntegrationTests : IDisposable {
-	private readonly TempGitRepo _repo = new("weavie-git-parent");
+/// <summary>Proves which ref a whole-branch review compares with: chosen, PR base, recorded parent, reflog, default.</summary>
+public sealed class GitBranchBaseIntegrationTests : IDisposable {
+	private readonly TempGitRepo _repo = new("weavie-git-base");
 	private readonly GitService _git = new();
 
-	public GitParentBranchIntegrationTests() {
+	public GitBranchBaseIntegrationTests() {
 		_repo.Write("base.txt", "base\n");
 		_repo.Commit("initial");
 	}
@@ -115,7 +115,52 @@ public sealed class GitParentBranchIntegrationTests : IDisposable {
 		Assert.Equal("feature-a", await ParentAsync());
 	}
 
-	private Task<string> ParentAsync() => _git.ResolveParentBranchAsync(_repo.Path, "main");
+	[Fact]
+	public async Task RecordedParent_OutranksTheReflog() {
+		Branch("feature-a", "main");
+		Branch("feature-b", "main");
+		await _git.RecordParentBranchAsync(_repo.Path, "feature-b", "feature-a");
+
+		// Recorded but not forked from: feature-a holds nothing of feature-b's history off main.
+		Assert.Equal("main", await ParentAsync());
+
+		_repo.Git("rebase", "--quiet", "feature-a");
+		Assert.Equal("feature-a", await ParentAsync());
+	}
+
+	[Fact]
+	public async Task PullRequestBase_OutranksTheRecordedParentUnlessItIsMissing() {
+		Branch("feature-a", "main");
+		Branch("feature-b", "feature-a");
+		_repo.Git("update-ref", "refs/remotes/origin/release", "main");
+
+		Assert.Equal("origin/release", await BaseAsync("origin/release"));
+		Assert.Equal("feature-a", await BaseAsync("origin/unfetched"));
+	}
+
+	[Fact]
+	public async Task ChosenBase_OutranksEverythingUntilTheDetectedBaseIsChosenAgain() {
+		Branch("feature-a", "main");
+		Branch("other", "main");
+		Branch("feature-b", "feature-a");
+
+		await _git.ChooseBranchBaseAsync(_repo.Path, "other", "main", "origin/none");
+		Assert.Equal("other", await BaseAsync(null));
+		Assert.Equal("other", await BaseAsync("main"));
+
+		// Neither a commit nor the branch itself is a base; neither clears the choice.
+		await _git.ChooseBranchBaseAsync(_repo.Path, "HEAD~1", "main", null);
+		await _git.ChooseBranchBaseAsync(_repo.Path, "feature-b", "main", null);
+		Assert.Equal("other", await ParentAsync());
+
+		await _git.ChooseBranchBaseAsync(_repo.Path, "feature-a", "main", null);
+		Assert.Equal("feature-a", await ParentAsync());
+		Assert.Equal("main", await BaseAsync("main"));
+	}
+
+	private Task<string> ParentAsync() => BaseAsync(null);
+
+	private Task<string> BaseAsync(string? pullRequestBase) => _git.ResolveBranchBaseAsync(_repo.Path, "main", pullRequestBase);
 
 	private void Branch(string name, string from) {
 		_repo.Git("switch", "--quiet", "-c", name, from);

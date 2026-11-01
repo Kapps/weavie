@@ -10,7 +10,7 @@ public sealed partial class HostCore {
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot> AttachReviewCommits(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewCommitsSnapshot>(
 			session.Background,
-			ct => ResolveReviewCommitsAsync(session.WorkspaceRoot, ActiveReview(session), ct),
+			ct => ResolveReviewCommitsAsync(session, ActiveReview(session), ct),
 			commits => session.Bus.BroadcastTarget.Feature("review").Publish("commits", WireJson.Default.ReviewCommitsSnapshot, commits));
 		session.AttachReviewCommits(monitor);
 		session.Changes.ReviewChanged += monitor.RefreshNow;
@@ -26,11 +26,12 @@ public sealed partial class HostCore {
 
 	// The branch starts at its PR's merge-base, else where it left its base branch (or, with none, at the review's
 	// base); the review spans the commits after its own base. Range logs over the branch only, never a history walk.
-	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(string worktree, ReviewContext? review, CancellationToken ct) {
+	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(HostSession session, ReviewContext? review, CancellationToken ct) {
+		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		try {
 			bool pullRequest = review is { PrNumber: > 0 };
-			string? baseRef = pullRequest ? null : await BranchBaseRefAsync(worktree, ct).ConfigureAwait(false);
+			string? baseRef = pullRequest ? null : await BranchBaseRefAsync(session, ct).ConfigureAwait(false);
 			string? branchBase = baseRef is null ? review?.MergeBase
 				: await git.MergeBaseAsync(worktree, baseRef, "HEAD", ct).ConfigureAwait(false);
 			if (branchBase is null) {

@@ -79,9 +79,37 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>
+	/// Diffs against a ref the user named; once that review is open, a branch becomes the branch's review base (see
+	/// <see cref="GitService.ChooseBranchBaseAsync"/>), so Review Branch keeps comparing with it.
+	/// </summary>
+	private async Task<ReviewOpened> ChooseDiffAgainstFromWebAsync(
+		HostSession session,
+		string reference,
+		string? replaces,
+		CancellationToken ct) {
+		var result = await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
+		string chosen = reference.Trim();
+		if (result.Replaces is not null || session.Changes.Review?.Label != result.Label
+			|| await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } preferred) {
+			return result;
+		}
+
+		try {
+			if (await new GitService().ChooseBranchBaseAsync(
+				session.WorkspaceRoot, chosen, preferred, PullRequestBase(session), ct).ConfigureAwait(false)) {
+				Notify(session, "info", $"Review Branch now compares with '{chosen}'.");
+			}
+		} catch (GitException ex) {
+			Notify(session, "warn", $"Couldn't remember '{chosen}' as this branch's review base: {ex.Message}");
+		}
+
+		return result;
+	}
+
 	/// <summary>Reviews the whole branch: a diff against <see cref="BranchBaseRefAsync"/> from their merge-base.</summary>
 	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
-		if (await BranchBaseRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } reference) {
+		if (await BranchBaseRefAsync(session, ct).ConfigureAwait(false) is not { } reference) {
 			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
 			return ReviewOpened.No;
 		}
@@ -89,21 +117,32 @@ public sealed partial class HostCore {
 		return await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
 	}
 
+	/// <summary>The ref a whole-branch review compares against (see <see cref="GitService.ResolveBranchBaseAsync"/>).</summary>
+	private static async Task<string?> BranchBaseRefAsync(HostSession session, CancellationToken ct) =>
+		await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is { } preferred
+			? await new GitService().ResolveBranchBaseAsync(
+				session.WorkspaceRoot, preferred, PullRequestBase(session), ct).ConfigureAwait(false)
+			: null;
+
 	/// <summary>
-	/// The ref a whole-branch review compares against: the branch this one was created from when it is stacked on
-	/// another unmerged branch, else the remote's default branch, else the local one. The remote's copy wins because a
-	/// local default branch is often far behind and would fold others' merged work into the diff.
+	/// The remote's default branch, else the local one. The remote's copy wins because a local default branch is often
+	/// far behind and would fold others' merged work into the diff.
 	/// </summary>
-	private static async Task<string?> BranchBaseRefAsync(string worktree, CancellationToken ct) {
+	private static async Task<string?> DefaultBranchRefAsync(string worktree, CancellationToken ct) {
 		var git = new GitService();
 		if (await git.ResolveDefaultBranchAsync(worktree, ct).ConfigureAwait(false) is not { } branch) {
 			return null;
 		}
 
 		string remote = $"origin/{branch}";
-		string preferred = await git.ResolveCommitAsync(worktree, remote, ct).ConfigureAwait(false) is null ? branch : remote;
-		return await git.ResolveParentBranchAsync(worktree, preferred, ct).ConfigureAwait(false);
+		return await git.ResolveCommitAsync(worktree, remote, ct).ConfigureAwait(false) is null ? branch : remote;
 	}
+
+	/// <summary>The remote-tracking ref of the branch the session's open pull request targets, if it has one.</summary>
+	private static string? PullRequestBase(HostSession session) =>
+		session.PullRequestStatus.Latest is { PullRequest.State: "open", Target: { } target }
+			? $"{target.Remote}/{target.BaseRef}"
+			: null;
 
 	/// <summary>
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR

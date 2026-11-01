@@ -28,6 +28,15 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
+	public void Tracked_ReportsTheResolvedIdWithoutMintingOne() {
+		var store = new ClaudeSessionStore(new InMemoryFileSystem(), StorePath);
+
+		Assert.Null(store.Tracked(Cwd));
+		Assert.Null(store.Tracked(Cwd));
+		Assert.Equal(store.Resolve(Cwd), store.Tracked(Cwd));
+	}
+
+	[Fact]
 	public void Resolve_SecondTime_ReturnsTheSameId() {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);

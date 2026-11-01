@@ -4,6 +4,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Review.Hints;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
@@ -23,7 +24,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		CommandDispatcher commands,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
-		Func<string> currentSessionId,
+		ISessionPeers sessions,
 		AgentConsultation agents,
 		IReviewHintSink reviewHints) {
 		ArgumentNullException.ThrowIfNull(credential);
@@ -36,11 +37,11 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(commands);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
-		ArgumentNullException.ThrowIfNull(currentSessionId);
+		ArgumentNullException.ThrowIfNull(sessions);
 		Credential = credential;
 		Server = new McpServer(
 			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, exposeIdeTools,
-			layout, editor, commands, keybindings, themeOverrides, currentSessionId, agents, reviewHints);
+			layout, editor, commands, keybindings, themeOverrides, sessions, agents, reviewHints);
 		Port = Server.Start();
 	}
 

@@ -55,5 +55,7 @@ internal sealed class FakeConsultProvider(string id) : IAgentConsultProvider {
 
 	public void ClearConversation(string workspace) => throw new NotSupportedException();
 
+	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
+
 	public IAgentSession CreateSession(AgentSessionContext context) => throw new NotSupportedException();
 }

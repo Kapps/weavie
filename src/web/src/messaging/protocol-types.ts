@@ -63,6 +63,12 @@ export interface AgentProviderInfo {
   surface: "terminal" | "structured";
 }
 
+/** The session whose agent sent a prompt to another session. */
+export interface AgentMessageSender {
+  id: string;
+  title: string;
+}
+
 export interface AgentPaneUpdate {
   type: string;
   providerId: string;
@@ -93,6 +99,8 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+  /** The session that sent a submitted prompt, when another session's agent sent it. */
+  sender?: AgentMessageSender | null;
 }
 
 export interface AgentPaneContent {
@@ -206,6 +214,7 @@ export interface AgentControlState {
 export interface AgentQueuedSubmission {
   text: string;
   attachments: number;
+  sender?: AgentMessageSender | null;
 }
 
 export interface AgentContextWindowUsage {

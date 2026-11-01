@@ -269,11 +269,14 @@ function durableEntry(
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
     case "user-message":
-      return promptEntry(message, entry(message, sequence, "message", "user", "You", null));
+      return promptEntry(
+        message,
+        entry(message, sequence, "message", "user", promptLabel(message, "You"), null),
+      );
     case "user-command":
       return promptEntry(message, entry(message, sequence, "message", "user", "Command", null));
     case "user-steer":
-      return entry(message, sequence, "message", "user", "Steer", null);
+      return entry(message, sequence, "message", "user", promptLabel(message, "Steer"), null);
     case "warning":
       return entry(message, sequence, "notice", "warning", "Warning", status);
     case "notice":
@@ -305,6 +308,10 @@ function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): Ag
   return message.conversationId || !message.turnId
     ? prompt
     : { ...prompt, promptTurnId: message.turnId };
+}
+
+function promptLabel(message: AgentPaneUpdate, label: string): string {
+  return message.sender ? `From ${message.sender.title}` : label;
 }
 
 function entry(

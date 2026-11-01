@@ -37,6 +37,12 @@ public sealed class ClaudeTranscripts : IClaudeTranscripts {
 		return _fileSystem.FileExists(TranscriptPath(workingDirectory, sessionId));
 	}
 
+	/// <summary>The transcript text for <paramref name="sessionId"/>, or null when Claude has not written one.</summary>
+	public string? ReadText(string workingDirectory, string sessionId) {
+		string path = TranscriptPath(workingDirectory, sessionId);
+		return _fileSystem.FileExists(path) ? _fileSystem.ReadAllText(path) : null;
+	}
+
 	/// <summary>The on-disk path Claude would store <paramref name="sessionId"/>'s transcript at for <paramref name="workingDirectory"/>.</summary>
 	public string TranscriptPath(string workingDirectory, string sessionId) =>
 		Path.Combine(_projectsDirectory, EncodeCwd(workingDirectory), sessionId + ".jsonl");

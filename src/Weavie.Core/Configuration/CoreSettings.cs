@@ -232,6 +232,7 @@ public static class CoreSettings {
 		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
 		MessageSettings.Register(registry);
+		DeveloperSettings.Register(registry);
 
 	}
 

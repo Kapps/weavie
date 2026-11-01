@@ -51,6 +51,32 @@ public sealed class AcpPlanModeTests {
 	}
 
 	[Fact]
+	public async Task UnreadablePlanFile_IsReportedAndNotApproved() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("exit-plan-mode");
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+		File.Delete(approval.PlanPath!);
+
+		fixture.Session.ResolvePermission(approval.RequestId!, "exit-plan-default");
+		await fixture.WaitForMessageAsync(message => message.Type == "error");
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "approval-resolved");
+
+		fixture.Session.ResolvePermission(approval.RequestId!, "reject");
+		await fixture.WaitForMessageAsync(message => message.Text == "kept planning");
+	}
+
+	[Fact]
+	public async Task ModeSwitchWithPlanText_StaysAnApprovalInThePane() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("permission-lifecycle:plan");
+
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+		Assert.Equal(("switch_mode", null), (approval.ItemType, approval.PlanPath));
+	}
+
+	[Fact]
 	public async Task InterruptedReview_IgnoresALateAcceptance() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
@@ -63,28 +89,6 @@ public sealed class AcpPlanModeTests {
 
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "plan");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
-	}
-
-	[Fact]
-	public async Task ModeSwitchWithoutAPlan_KeepsItsContent() {
-		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
-		await fixture.StartAsync();
-		fixture.Submit("mode-switch");
-
-		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:mode-switch");
-		Assert.Equal("Switched to code mode.", Assert.Single(tool.Content!).Text);
-	}
-
-	[Fact]
-	public async Task ModeSwitchWithPlanText_IsAReadOnlyReview() {
-		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
-		await fixture.StartAsync();
-		fixture.Submit("permission-lifecycle:plan");
-
-		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
-		Assert.Equal(("plan-review", null), (approval.ItemType, approval.PlanPath));
-		Assert.StartsWith("# Detailed work plan", approval.Text, StringComparison.Ordinal);
-		Assert.Equal(["allow", "reject"], approval.Actions!.Select(action => action.Id));
 	}
 
 	[Fact]

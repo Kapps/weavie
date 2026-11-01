@@ -108,15 +108,16 @@ activity rather than an openable document. Weavie advertises the separate plan-d
 `plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
 retracts them. File-backed plans are snapshotted when received and must resolve to a local file. Open editor
 tabs follow the complete document's revisions; removed plans show an unavailable notice, including after reconnect.
-A `switch_mode` permission that carries a plan is a plan review, answered from the editor rather than the pane.
+A `switch_mode` permission that names a plan file is a plan review, answered from the editor rather than the pane.
 Weavie advertises AIR `planFile`, so Claude names its plan file in `rawInput.planFilePath`: that real file opens as
-an editable buffer, and accepting from the tab saves it before answering, so the agent reads the user's edit. An
-approval snapshots the file as the plan document `plan-mode:<tool call id>` (the id claude-agent-acp's own
-`plan_update` revises), and the adapter's synthetic "plan file released" call is not rendered. A plan sent as
-text (`rawInput.plan`, as Codex does) opens as a read-only plan document instead. Pending reviews are durable
-session state; the host opens each once (setting `agent.planReview.autoOpen`), the tab shows the agent's options
-with **Accept Agent Plan** / **Keep Planning**, and the pane card only offers **Open plan**. A failed or cancelled
-switch retracts its snapshot.
+an editable buffer, and approving from the tab saves it before answering, so the agent reads the user's edit; a plan
+file that can't be read is reported and the permission stays pending. An approval snapshots the file as the plan
+document `plan-mode:<tool call id>` (the id claude-agent-acp's own `plan_update` revises), and the adapter's
+synthetic "plan file released" call is not rendered. Pending reviews are durable session state; the host opens each
+once (setting `agent.planReview.autoOpen`), the tab shows the agent's options with **Accept Agent Plan** / **Keep
+Planning**, which act only on the review in the active tab, and the pane card only offers **Open plan**. A mode
+switch without a plan file (Codex's plan approval) stays an ordinary approval card. A failed or cancelled switch
+retracts its snapshot.
 
 Permission requests can introduce a tool identity before its execution notifications. The same tool state merges
 both sources in receive order, while only execution notifications establish background activity. Mode-change

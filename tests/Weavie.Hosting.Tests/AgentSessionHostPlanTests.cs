@@ -97,30 +97,27 @@ public sealed partial class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task PlanReviews_ArePendingPlanApprovalsAndATextReviewIsADocument() {
+	public async Task PlanReviews_ArePendingPlanFileApprovals() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		var snapshots = new List<AgentPlansSnapshot>();
 		host.PlansChanged += snapshots.Add;
-		var file = Review("file", planPath: "/plans/claude.md", text: null);
-		var text = Review("text", planPath: null, text: "# Codex plan");
+		var first = Review("first", "/plans/first.md");
+		var second = Review("second", "/plans/second.md");
 
-		session.Emit(file);
-		session.Emit(text);
-		var reviews = snapshots[^1].Reviews;
-		Assert.Equal(["file", "text"], reviews.Select(review => review.RequestId));
-		Assert.Equal(("/plans/claude.md", true), (reviews[0].Path, reviews[0].Editable));
-		var document = Assert.Single(snapshots[^1].Documents);
-		Assert.Equal((AgentPlanProtocol.Path(document.Id), false, "# Codex plan"), (reviews[1].Path, reviews[1].Editable, document.Markdown));
-		Assert.True(host.WithCompletedPlan(text.ThreadId!, text.TurnId!, text.ItemId!, _ => { }));
+		session.Emit(first);
+		session.Emit(second);
+		Assert.Equal([("first", "/plans/first.md"), ("second", "/plans/second.md")],
+			snapshots[^1].Reviews.Select(review => (review.RequestId, review.Path)));
+		Assert.Empty(snapshots[^1].Documents);
 
-		session.Emit(file with { Type = "approval-resolved", ItemType = null, PlanPath = null, Status = "allowed once" });
-		Assert.Equal("text", Assert.Single(snapshots[^1].Reviews).RequestId);
+		session.Emit(first with { Type = "approval-resolved", ItemType = null, PlanPath = null, Status = "allowed once" });
+		Assert.Equal("second", Assert.Single(snapshots[^1].Reviews).RequestId);
 		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
 		Assert.Empty(snapshots[^1].Reviews);
 	}
 
-	private static AgentPaneMessage Review(string requestId, string? planPath, string? text) => new() {
+	private static AgentPaneMessage Review(string requestId, string planPath) => new() {
 		Type = "approval-requested",
 		ProviderId = "structured",
 		ThreadId = "thread",
@@ -128,7 +125,6 @@ public sealed partial class AgentSessionHostTests {
 		ItemId = "request:" + requestId,
 		RequestId = requestId,
 		ItemType = "plan-review",
-		Text = text,
 		PlanPath = planPath,
 		Actions = [new AgentActionOption { Id = "allow", Label = "Yes", Kind = "allow_once" }],
 		Status = "pending",

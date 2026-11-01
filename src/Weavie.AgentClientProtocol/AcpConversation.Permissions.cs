@@ -43,8 +43,7 @@ internal sealed partial class AcpConversation {
 
 		string? threadId = SessionId();
 		string turnId = tool.TurnId;
-		// A mode switch carrying a plan is reviewed in the editor: its file when named, else its text.
-		bool review = CarriesPlan(tool);
+		// A mode switch that names its plan file is reviewed in the editor.
 		var pending = new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId) {
 			PlanFile = tool.PlanFile is { } file ? (file, PlanModeId(tool.Id)) : null,
 		};
@@ -64,10 +63,10 @@ internal sealed partial class AcpConversation {
 					TurnId = turnId,
 					ItemId = $"request:{request.Id}",
 					RequestId = request.Id,
-					ItemType = review ? "plan-review" : tool.Kind ?? "tool",
+					ItemType = tool.PlanFile is null ? tool.Kind ?? "tool" : "plan-review",
 					Category = tool.Kind,
 					Summary = tool.Title ?? "Permission requested",
-					Text = review ? (tool.PlanFile is null ? ModeSwitchPlanText(tool) : null) : tool.Input,
+					Text = tool.PlanFile is null ? tool.Input : null,
 					PlanPath = pending.PlanFile?.Path,
 					Actions = actions,
 					Status = "pending",

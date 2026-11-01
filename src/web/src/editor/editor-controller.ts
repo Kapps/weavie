@@ -1307,12 +1307,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editor.on<{ path: string }>("agentPlanRemoved", (message) => {
         removeAgentPlan(session, message.path);
       }),
-      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan"; intent: EditorOpenIntent }>(
+      onHostEditorEdit<{ path: string; kind: "web" | "source" | "plan" }>(
         session,
         "openOverlay",
-        ({ path, kind, intent }) => {
-          const result = openTabFor(session, path, { kind, ...backgroundOpen(session, intent) });
-          if (activateDestinationFor(session, intent)) {
+        ({ path, kind }) => {
+          const result = openTabFor(session, path, { kind });
+          if (activateDestinationFor(session, "navigation")) {
             presentTab(session, result);
           }
         },

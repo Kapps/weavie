@@ -10,49 +10,33 @@ public sealed class HostCorePlanReviewTests {
 	public async Task FileReview_OpensItsPlanOnceAndPublishesItUntilAnswered() {
 		await using var host = await TestHost.StartAsync();
 		var session = await CreateAsync(host, "plan-review");
-		string plan = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "plans", "claude.md");
-		Directory.CreateDirectory(Path.GetDirectoryName(plan)!);
-		File.WriteAllText(plan, "# Plan\n");
+		string first = PlanFile(host, "first.md");
+		string second = PlanFile(host, "second.md");
 		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 
-		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt + plan);
+		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt + first);
 		var open = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile"));
-		Assert.Equal((plan, "background"), (open.GetProperty("path").GetString(), open.GetProperty("intent").GetString()));
+		Assert.Equal((first, "background"), (open.GetProperty("path").GetString(), open.GetProperty("intent").GetString()));
 		var review = Assert.Single(Reviews(host, session));
-		Assert.Equal((plan, true), (review.GetProperty("path").GetString(), review.GetProperty("editable").GetBoolean()));
+		Assert.Equal(first, review.GetProperty("path").GetString());
 		Assert.Equal(["allow", "reject"], review.GetProperty("actions").EnumerateArray().Select(action => action.GetProperty("id").GetString()));
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 
 		host.Bridge.Clear();
 		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
 		Assert.Single(Reviews(host, session));
-		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt);
+		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt + second);
 		Assert.Equal(2, Reviews(host, session).Length);
-		Assert.Empty(host.Bridge.PostedEvents(session.Address, "editor", "openFile"));
-		Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openOverlay"));
+		Assert.Equal(second, Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile")).GetProperty("path").GetString());
 
 		host.Bridge.Clear();
 		Assert.True(session.OpenAgentPlan("thread-fake", "turn-1", "request:review-1"));
-		Assert.Equal("navigation", Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile")).GetProperty("intent").GetString());
+		var reopened = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openFile"));
+		Assert.Equal((first, "navigation"), (reopened.GetProperty("path").GetString(), reopened.GetProperty("intent").GetString()));
 
 		host.SessionEvent(session, "agent", "permission", new { requestId = review.GetProperty("requestId").GetString(), optionId = "allow" });
-		Assert.False(Assert.Single(Reviews(host, session)).GetProperty("editable").GetBoolean());
-	}
-
-	[Fact]
-	public async Task TextReview_OpensItsPlanAsAReadOnlyDocument() {
-		await using var host = await TestHost.StartAsync();
-		var session = await CreateAsync(host, "text-plan-review");
-		host.Bridge.Clear();
-
-		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt);
-		var shown = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
-		Assert.Equal("background", Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "openOverlay")).GetProperty("intent").GetString());
-		var review = Assert.Single(Reviews(host, session));
-		Assert.Equal((shown.GetProperty("path").GetString(), false),
-			(review.GetProperty("path").GetString(), review.GetProperty("editable").GetBoolean()));
-		Assert.Equal(FakeStructuredAgentProvider.PlanMarkdown, shown.GetProperty("markdown").GetString());
+		Assert.Equal(second, Assert.Single(Reviews(host, session)).GetProperty("path").GetString());
 	}
 
 	[Fact]
@@ -62,10 +46,16 @@ public sealed class HostCorePlanReviewTests {
 		var session = await CreateAsync(host, "closed-plan-review");
 		host.Bridge.Clear();
 
-		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt);
+		Submit(host, session, FakeStructuredAgentProvider.PlanReviewPrompt + PlanFile(host, "plan.md"));
 		Assert.Single(Reviews(host, session));
-		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "agentPlan"));
-		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openOverlay"));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openFile"));
+	}
+
+	private static string PlanFile(TestHost host, string name) {
+		string path = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "plans", name);
+		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+		File.WriteAllText(path, "# Plan\n");
+		return path;
 	}
 
 	private static async Task<HostSession> CreateAsync(TestHost host, string branch) {

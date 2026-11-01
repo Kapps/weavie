@@ -133,7 +133,6 @@ internal sealed partial class AcpConversation {
 				? Path.GetFullPath(path)
 				: throw new AcpProtocolException($"An ACP plan file path must be absolute: {path}");
 		}
-		tool.InputPlan = OptionalString(rawInput, "plan") ?? tool.InputPlan;
 	}
 
 	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) => TerminalizeToolsLocked(status, static _ => true);
@@ -200,7 +199,6 @@ internal sealed partial class AcpConversation {
 		public string? Text { get; set; }
 		public string? Input { get; set; }
 		public string? PlanFile { get; set; }
-		public string? InputPlan { get; set; }
 		public bool PlanReleased { get; set; }
 		public bool InitialReported { get; set; }
 		public bool NotificationReported { get; set; }

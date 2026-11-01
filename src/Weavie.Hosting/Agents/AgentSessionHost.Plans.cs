@@ -30,11 +30,9 @@ public sealed partial class AgentSessionHost {
 			? null
 			: _paneMessages[index];
 
-	// A text plan review is a document of its own; a file review's document is the file.
 	private AgentPlan? CompletedPlanLocked(AgentPaneMessage message) {
-		bool document = message is { Type: "item-completed", ItemType: "plan" }
-			or { Type: "approval-requested", ItemType: "plan-review", PlanPath: null };
-		if (!document || string.IsNullOrWhiteSpace(message.Text)
+		if (message.Type != "item-completed" || message.ItemType != "plan"
+			|| string.IsNullOrWhiteSpace(message.Text)
 			|| AgentPaneIdentity.ItemKey(message) is not { } key
 			|| _paneActiveItems.Contains(key)) return null;
 		return new AgentPlan(key, "Plan", message.Text);
@@ -52,12 +50,8 @@ public sealed partial class AgentSessionHost {
 		foreach (var message in _paneMessages) {
 			if (CompletedPlanLocked(message) is { } document) documents.Add(document);
 			if (AgentPaneIdentity.ItemKey(message) is not { } key) continue;
-			if (message is { Type: "approval-requested", ItemType: "plan-review" }) {
-				reviews[key] = new AgentPlanReview(
-					message.RequestId!,
-					message.PlanPath ?? AgentPlanProtocol.Path(key),
-					message.PlanPath is not null,
-					message.Actions ?? []);
+			if (message is { Type: "approval-requested", ItemType: "plan-review", PlanPath: { } path }) {
+				reviews[key] = new AgentPlanReview(message.RequestId!, path, message.Actions ?? []);
 			} else if (message.Type == "approval-resolved") {
 				reviews.Remove(key);
 			}
@@ -68,5 +62,5 @@ public sealed partial class AgentSessionHost {
 
 internal sealed record AgentPlansSnapshot(IReadOnlyList<AgentPlan> Documents, IReadOnlyList<AgentPlanReview> Reviews);
 
-/// <summary>A pending plan approval, answered from the editor tab at <paramref name="Path"/>.</summary>
-internal sealed record AgentPlanReview(string RequestId, string Path, bool Editable, IReadOnlyList<AgentActionOption> Actions);
+/// <summary>A pending plan approval, answered from the editor tab of its plan file <paramref name="Path"/>.</summary>
+internal sealed record AgentPlanReview(string RequestId, string Path, IReadOnlyList<AgentActionOption> Actions);

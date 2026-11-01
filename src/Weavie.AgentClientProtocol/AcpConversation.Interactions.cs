@@ -16,14 +16,14 @@ internal sealed partial class AcpConversation {
 			EmitFailure(new AcpProtocolException($"'{optionId}' was not advertised for permission {requestId}."));
 			return;
 		}
-		// An approved plan file is snapshotted as the agent will read it, since the agent reuses the file.
+		// An approved plan file is snapshotted as the agent will read it; one that can't be read isn't approved.
 		(string Id, string Markdown)? approvedPlan = null;
-		AcpProtocolException? unreadablePlan = null;
 		if (pending.PlanFile is { } planFile && OptionalString(option, "kind") is "allow_once" or "allow_always") {
 			try {
 				approvedPlan = (planFile.PlanId, ReadPlanFile(planFile.Path));
 			} catch (AcpProtocolException ex) {
-				unreadablePlan = ex;
+				EmitFailure(ex);
+				return;
 			}
 		}
 		if (!CompleteDeferredClientRequest(
@@ -33,7 +33,6 @@ internal sealed partial class AcpConversation {
 			return;
 		}
 		if (approvedPlan is { } plan) PublishPlan(plan.Id, plan.Markdown, pending.TurnId);
-		if (unreadablePlan is not null) EmitFailure(unreadablePlan);
 		ResolveInteraction(
 			requestId,
 			"approval-resolved",

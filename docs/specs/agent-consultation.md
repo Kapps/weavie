@@ -16,8 +16,9 @@ terminal Claude and every native ACP agent — can consult. Skills were rejected
 - `listAgents` returns every registered provider with whether it can be consulted (and why not) and its cached model
   catalog: state (`ready`, `probing`, `failed`), the advertised model options, when and how the
   catalog was observed, and the failure detail when the last refresh failed.
-- `consultAgent({provider, model, prompt})` runs one consult turn in the session's worktree and returns the consulted
-  agent's final message. `model` may be omitted to keep the provider's default.
+- `consultAgent({provider, model, prompt})` starts one consult turn in the session's worktree and returns the consulted
+  agent's final message, or a consult id while it is still working. `model` may be omitted to keep the provider's default.
+- `awaitConsult({consult})` keeps waiting for a consult that outlived its call (see [Waiting](#waiting)).
 
 The embedded-agent instructions tell agents to call `listAgents` whenever the user names an agent or model they do
 not recognize, then consult with the exact ids. Weavie never matches labels or guesses ids.
@@ -55,8 +56,8 @@ flowchart LR
 ## Consult runtime
 
 A consult is one transient ACP process, one session, and one prompt turn — the same transport as ad-hoc inference,
-answering in free text instead of JSON. Its lifetime is the MCP call: caller cancellation, the caller's disconnect,
-or session unload kills the process tree. It is a transient one-shot and therefore not `ProcessSupervisor`-owned.
+answering in free text instead of JSON. Its lifetime is owned by the session's registry server, not by one MCP call:
+cancelling the call that is waiting on it, that caller's disconnect, or session unload kills the process tree. It is a transient one-shot and therefore not `ProcessSupervisor`-owned.
 
 The consulted agent is read-only by construction as far as the protocol allows:
 
@@ -77,6 +78,18 @@ unavailable, or not consultable; the agent could not start; it requires authenti
 
 Terminal Claude is listed but not consultable. Consulting Claude goes through the Claude ACP agent.
 
+## Waiting
+
+Callers enforce hard wall-clock tool timeouts that progress notifications do not extend, and some cannot be raised
+by Weavie: codex-acp configures client-supplied MCP servers with Codex's 60-second default. A review by a slow model
+routinely takes longer, so a consult runs in the background and each call waits one slice, `agent.consultWaitSeconds`
+(45 by default):
+
+- the reply (or failure) arrives within the slice → the call returns it and the consult is forgotten;
+- the slice ends first → the call returns a consult id, and the caller calls `awaitConsult` with it for another slice.
+
+A consult whose caller stops asking still runs to completion and holds its reply until the session unloads.
+
 ## MCP call cancellation
 
 Long tool calls own a per-call cancellation source, cancelled by:
@@ -87,10 +100,6 @@ Long tool calls own a per-call cancellation source, cancelled by:
 - server disposal on session unload.
 
 The stdio MCP proxy has no client-side request timeout: the caller's cancellation owns a tool call's lifetime.
-
-The calling agent's own tool timeout still applies. Codex defaults MCP tool calls to 60 seconds, and codex-acp
-configures client-supplied MCP servers without a timeout, so a Codex caller gives up on a longer consult. Codex
-reaches the registry over HTTP, so abandoning the request closes the connection and cancels the consult.
 
 ## Deferred
 

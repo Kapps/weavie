@@ -129,6 +129,20 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.ConsultWaitSeconds,
+			Kind = SettingKind.Int,
+			Description = "How long (seconds) one consultAgent or awaitConsult tool call waits for the consulted agent "
+				+ "before returning its consult id so the caller waits again with awaitConsult. Keep it under the "
+				+ "calling agent's tool timeout (Codex allows 60 seconds). 45 by default.",
+			Aliases = ["consult timeout", "check with agent timeout", "consult wait", "second opinion timeout"],
+			Apply = ApplyMode.Live,
+			Default = 45L,
+			Validate = static value => value is long seconds && seconds >= 1
+				? ValidationResult.Success
+				: ValidationResult.Failure("agent.consultWaitSeconds must be at least 1 second."),
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider.",

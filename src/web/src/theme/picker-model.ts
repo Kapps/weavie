@@ -3,6 +3,7 @@ import type { ThemeSlot } from "../bridge";
 import {
   beginThemePreview,
   currentEditorThemeId,
+  currentEditorThemeType,
   currentThemeId,
   currentThemeType,
 } from "./controller";
@@ -28,9 +29,8 @@ export function createThemePicker(opened: ThemePickerState) {
   const savedId = target === "editor" ? (editorThemeId ?? "") : currentThemeId();
   const initialId = target === "editor" ? (editorThemeId ?? currentThemeId()) : savedId;
   const save = saveTheme[target];
-  // An editor theme may be either polarity, so the editor picker lists all of them.
   const [mode, setMode] = createSignal<ThemeFilter>(
-    target === "editor" ? "all" : currentThemeType(),
+    target === "editor" ? currentEditorThemeType() : currentThemeType(),
   );
   const preview = beginThemePreview(target);
   const lifetime = new AbortController();

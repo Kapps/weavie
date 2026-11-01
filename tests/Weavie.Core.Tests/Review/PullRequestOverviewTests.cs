@@ -9,7 +9,7 @@ public sealed class PullRequestOverviewTests {
 	private readonly List<PullRequestOverviewSnapshot> _published = [];
 
 	private static PullRequestTarget Target(int number, string head) =>
-		new(Repo, "origin", number, head, "base", $"https://github.com/Kapps/weavie/pull/{number}");
+		new(Repo, "origin", number, head, "main", "base", $"https://github.com/Kapps/weavie/pull/{number}");
 
 	[Fact]
 	public async Task Track_LoadsOnceForTheSameTargetAndAgainWhenTheHeadMoves() {

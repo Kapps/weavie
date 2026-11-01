@@ -95,7 +95,7 @@ public sealed class PullRequestStatusMonitorTests {
 	}
 
 	private static readonly PullRequestTarget Target = new(
-		new RepoRef("github.com", "Kapps", "weavie"), "origin", 123, new string('a', 40), "main", "https://example.test/pull/123");
+		new RepoRef("github.com", "Kapps", "weavie"), "origin", 123, new string('a', 40), "main", new string('b', 40), "https://example.test/pull/123");
 
 	private static PullRequestStatusSnapshot Snapshot(int number) =>
 		new(

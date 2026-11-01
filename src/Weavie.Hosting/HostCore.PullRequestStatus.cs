@@ -21,12 +21,12 @@ public sealed partial class HostCore {
 			ct => ResolvePullRequestStatusAsync(session, ct),
 			(status, ct) => {
 				session.Bus.BroadcastTarget.Feature("git").Publish("pullRequest", WireJson.Default.PullRequestStatusSnapshot, status);
+				session.ReviewCommits.RequestRefresh();
 				return Task.WhenAll(comments.TrackAsync(status.Target, ct), overview.TrackAsync(status.Target, ct));
 			},
 			Task.Delay,
 			PullRequestPollInterval);
 		session.AttachPullRequestStatus(monitor, comments, overview);
-		monitor.UpdateStatus(session.Status.Status);
 	}
 
 	private void PushPullRequestStatus(HostSession session) =>
@@ -80,7 +80,7 @@ public sealed partial class HostCore {
 				branch,
 				new PullRequestStatusInfo(found.Number, url, StateName(found.State)),
 				null,
-				new PullRequestTarget(baseRepo, baseRemote, found.Number, found.HeadSha, found.BaseSha, url));
+				new PullRequestTarget(baseRepo, baseRemote, found.Number, found.HeadSha, found.BaseRef, found.BaseSha, url));
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {

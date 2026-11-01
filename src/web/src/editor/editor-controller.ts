@@ -12,6 +12,7 @@ import {
   selectedSession,
 } from "../bridge";
 import { LinkDroppedError } from "../messaging/message-bus";
+import { notifyReloadRequired } from "../notify/notify";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -742,7 +743,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         log("error", `editor init failed: ${String(error)}`);
         // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
         // rather than leave a blank editor that swallows clicks.
-        deps.onOpenError("The editor failed to load. Reload the window to try again.");
+        notifyReloadRequired("The editor failed to load. Reload to try again.");
       })
       .finally(() => {
         window.clearTimeout(initTimer);

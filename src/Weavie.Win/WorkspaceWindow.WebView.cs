@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Weavie.Core;
+using Weavie.Core.Configuration;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
 
@@ -61,7 +62,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 #if DEBUG
 		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
 #else
-		core.Settings.AreDevToolsEnabled = false;
+		core.Settings.AreDevToolsEnabled = _app.Services.Settings.RequireBool(DeveloperSettings.WebInspector);
 #endif
 		core.Settings.IsStatusBarEnabled = false;
 		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then handles

@@ -47,18 +47,23 @@ export function ApprovalActions(props: {
     }
   };
 
+  // Each chord answers the first option of its kind; only that option advertises it.
+  const bound = createMemo(() => {
+    const commands = new Map<string, string>();
+    for (const action of props.message.actions ?? []) {
+      const command = commandFor(action.kind);
+      if (command !== null && ![...commands.values()].includes(command)) {
+        commands.set(action.id, command);
+      }
+    }
+    return commands;
+  });
+
   createEffect(() => {
     if (!props.answersToKeys) {
       return;
     }
-    const registrations = new Map<string, string>();
-    for (const action of props.message.actions ?? []) {
-      const command = commandFor(action.kind);
-      if (command !== null && !registrations.has(command)) {
-        registrations.set(command, action.id);
-      }
-    }
-    const off = [...registrations].map(([command, optionId]) =>
+    const off = [...bound()].map(([optionId, command]) =>
       registerCommand(command, () => {
         choose(optionId);
         return true;
@@ -67,10 +72,11 @@ export function ApprovalActions(props: {
     onCleanup(() => off.forEach((dispose) => void dispose()));
   });
 
-  const decision = (label: string, value: string, kind: string): JSX.Element => {
-    const commandId = commandFor(kind);
-    const key = (): string =>
-      props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
+  const decision = (label: string, value: string): JSX.Element => {
+    const key = (): string => {
+      const command = bound().get(value);
+      return props.answersToKeys && command !== undefined ? liveKeyLabel(command) : "";
+    };
     return (
       <button
         type="button"
@@ -87,9 +93,7 @@ export function ApprovalActions(props: {
 
   return (
     <div class="agent-approval-actions">
-      <For each={props.message.actions ?? []}>
-        {(action) => decision(action.label, action.id, action.kind)}
-      </For>
+      <For each={props.message.actions ?? []}>{(action) => decision(action.label, action.id)}</For>
     </div>
   );
 }

@@ -115,6 +115,10 @@ test.describe("ACP plan review with automatic tool approval", () => {
       "Edited in the editor.",
     );
     await expect(bar).toHaveCount(0);
+    const plan = surface.locator(".agent-entry-plan");
+    await expect(plan).toHaveCount(1);
+    await expect(plan).toContainText("Approved · Yes, manually approve edits");
+    await expect(surface.locator(".agent-entry-request")).toHaveCount(0);
     await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
   });
 

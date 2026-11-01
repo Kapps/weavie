@@ -21,6 +21,26 @@ function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
 }
 
 describe("toAgentTranscript", () => {
+  it("shows a plan review and the plan it became as one entry carrying the outcome", () => {
+    const item = { providerId: "fake", threadId: "t", turnId: "1", itemId: "plan:plan-mode:x" };
+    const review = { ...item, type: "approval-requested", itemType: "plan-review", requestId: "0" };
+    const resolved = {
+      ...item,
+      type: "approval-resolved",
+      requestId: "0",
+      status: "Approved · Yes",
+    };
+    const plan = { ...item, type: "item-completed", itemType: "plan", text: "# Plan" };
+
+    const [pending] = toAgentTranscript([{ ...review, status: "pending" }]);
+    expect(pending).toMatchObject({ tone: "pending", summary: "Ready to review in the editor" });
+    expect(toAgentTranscript([plan, resolved])).toEqual([
+      expect.objectContaining({ kind: "plan", status: "Approved · Yes", summary: null }),
+    ]);
+    const [declined] = toAgentTranscript([review, { ...resolved, status: "Declined · No" }]);
+    expect(declined).toMatchObject({ tone: "system", status: "Declined · No", summary: null });
+  });
+
   it("renders provider commands as command turns", () => {
     const transcript = toAgentTranscript([
       { type: "user-command", providerId: "acp", turnId: "1", text: "/compact" },

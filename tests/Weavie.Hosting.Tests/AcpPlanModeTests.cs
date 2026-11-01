@@ -15,6 +15,7 @@ public sealed class AcpPlanModeTests {
 		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
 		string planFile = Path.Combine(fixture.FakeAcpStateDirectory, "plans", "fake-plan.md");
 		Assert.Equal(("plan-review", planFile, null), (approval.ItemType, approval.PlanPath, approval.Text));
+		Assert.Equal("plan:plan-mode:toolu_plan_1", approval.ItemId);
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "plan");
 		File.AppendAllText(planFile, "Edited in the editor.\n");
 
@@ -23,6 +24,8 @@ public sealed class AcpPlanModeTests {
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
 		Assert.EndsWith("Edited in the editor.\n", echo.Text, StringComparison.Ordinal);
+		var resolved = Assert.Single(fixture.Messages, message => message.Type == "approval-resolved");
+		Assert.Equal((approval.ItemId, "Approved · Yes, manually approve edits"), (resolved.ItemId, resolved.Status));
 		var plans = fixture.Messages.Where(message => message.ItemType == "plan").ToArray();
 		Assert.NotEmpty(plans);
 		Assert.All(plans, plan => {

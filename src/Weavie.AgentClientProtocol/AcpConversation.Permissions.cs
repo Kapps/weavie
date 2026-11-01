@@ -43,9 +43,11 @@ internal sealed partial class AcpConversation {
 
 		string? threadId = SessionId();
 		string turnId = tool.TurnId;
+		// A plan review shares the item of the plan the agent publishes on approval, so the two are one entry.
+		string itemId = tool.PlanFile is null ? $"request:{request.Id}" : PlanItemId("plan-mode:" + tool.Id);
 		if (!_pendingRequests.TryAdd(
 			request.Id,
-			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
+			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId, itemId))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
 		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
@@ -59,9 +61,8 @@ internal sealed partial class AcpConversation {
 					ProviderId = Definition.Id,
 					ThreadId = threadId,
 					TurnId = turnId,
-					ItemId = $"request:{request.Id}",
+					ItemId = itemId,
 					RequestId = request.Id,
-					// A mode switch that names its plan file is reviewed in the editor.
 					ItemType = tool.PlanFile is null ? tool.Kind ?? "tool" : "plan-review",
 					Category = tool.Kind,
 					Summary = tool.Title ?? "Permission requested",

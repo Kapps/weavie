@@ -82,50 +82,53 @@ const REQUEST_KIND = new Map<string, RequestKind>([
   ["input-requested", "input"],
 ]);
 
+/** How each request item ended, by pane identity — including a plan review whose item became the approved plan. */
+export function requestResolutions(
+  messages: readonly AgentPaneUpdate[],
+): Map<string, RequestResolution> {
+  const resolutions = new Map<string, RequestResolution>();
+  for (const message of messages) {
+    const key =
+      isResolutionMessage(message) && hasItemId(message) ? paneItemIdentity(message) : null;
+    // A decision status ("accepted", "denied", …) wins over a bare "resolved" mirror.
+    if (key !== null && (resolutions.get(key)?.status ?? "resolved") === "resolved") {
+      resolutions.set(key, {
+        status: normalizeStatus(message.status) ?? "resolved",
+        answers: message.answers ?? null,
+      });
+    }
+  }
+  return resolutions;
+}
+
 /**
  * Every user request folded to its lifecycle, in first-requested order — the one source of truth for "is
  * this request still open, and how did it resolve." The card's resolved-status lookup and the keyboard's
  * newest-open approval both derive from this, so the two can never drift apart.
  */
 export function requestLifecycles(messages: readonly AgentPaneUpdate[]): RequestLifecycle[] {
-  const byKey = new Map<
-    string,
-    { requestId: string; kind: RequestKind; resolution: RequestResolution | null }
-  >();
+  const byKey = new Map<string, { requestId: string; kind: RequestKind }>();
   for (const message of messages) {
     if (!hasItemId(message)) {
       continue;
     }
     const key = paneItemIdentity(message);
-    if (key === null) {
-      continue;
-    }
     // A plan review is answered from its editor tab, never by the approval chords.
     const kind =
       message.type === "approval-requested" && message.itemType === "plan-review"
         ? "plan-review"
         : REQUEST_KIND.get(message.type);
-    if (kind !== undefined) {
-      if (!byKey.has(key)) {
-        if (message.requestId === null || message.requestId === undefined) {
-          throw new Error(`${message.type} is missing its provider request id.`);
-        }
-        byKey.set(key, { requestId: message.requestId, kind, resolution: null });
+    if (key !== null && kind !== undefined && !byKey.has(key)) {
+      if (message.requestId === null || message.requestId === undefined) {
+        throw new Error(`${message.type} is missing its provider request id.`);
       }
-    } else if (isResolutionMessage(message)) {
-      const record = byKey.get(key);
-      // A decision status ("accepted", "denied", …) wins over a bare "resolved" mirror; a resolution with
-      // no matching request is inert — no card carries its key, so nothing looks it up.
-      if (
-        record !== undefined &&
-        (record.resolution === null || record.resolution.status === "resolved")
-      ) {
-        record.resolution = {
-          status: normalizeStatus(message.status) ?? "resolved",
-          answers: message.answers ?? null,
-        };
-      }
+      byKey.set(key, { requestId: message.requestId, kind });
     }
   }
-  return [...byKey.entries()].map(([key, record]) => ({ key, ...record }));
+  const resolutions = requestResolutions(messages);
+  return [...byKey.entries()].map(([key, record]) => ({
+    key,
+    ...record,
+    resolution: resolutions.get(key) ?? null,
+  }));
 }

@@ -388,9 +388,9 @@ public sealed class DiffAgainstTests {
 
 		host.Bridge.Clear();
 		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = "vs HEAD" });
-		Assert.Equal("feature-a", await DefaultRefAsync(host, session));
 		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "notifications", "show"));
 		Assert.Contains("Review Branch now compares with 'feature-a'", toast.GetProperty("message").GetString());
+		Assert.Equal("feature-a", await DefaultRefAsync(host, session));
 	}
 
 	private static async Task<string?> DefaultRefAsync(TestHost host, HostSession session) =>

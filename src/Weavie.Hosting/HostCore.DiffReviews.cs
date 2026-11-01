@@ -81,7 +81,8 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Diffs against a ref the user named; once that review is open, a branch becomes the branch's review base (see
-	/// <see cref="GitService.ChooseBranchBaseAsync"/>), so Review Branch keeps comparing with it.
+	/// <see cref="GitService.ChooseBranchBaseAsync"/>), so Review Branch keeps comparing with it. That runs after the
+	/// answer: the page reveals the review only if the user hasn't navigated, so a late answer would override them.
 	/// </summary>
 	private async Task<ReviewOpened> ChooseDiffAgainstFromWebAsync(
 		HostSession session,
@@ -89,22 +90,23 @@ public sealed partial class HostCore {
 		string? replaces,
 		CancellationToken ct) {
 		var result = await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
-		string chosen = reference.Trim();
-		if (result.Replaces is not null || session.Changes.Review?.Label != result.Label
-			|| await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is not { } preferred) {
-			return result;
+		if (result.Replaces is null && session.Changes.Review?.Label == result.Label) {
+			_ = session.Background.Run(stopping => ChooseBranchBaseAsync(session, reference.Trim(), stopping));
 		}
 
+		return result;
+	}
+
+	private async Task ChooseBranchBaseAsync(HostSession session, string chosen, CancellationToken ct) {
 		try {
-			if (await new GitService().ChooseBranchBaseAsync(
-				session.WorkspaceRoot, chosen, preferred, PullRequestBase(session), ct).ConfigureAwait(false)) {
+			if (await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is { } preferred
+				&& await new GitService().ChooseBranchBaseAsync(
+					session.WorkspaceRoot, chosen, preferred, PullRequestBase(session), ct).ConfigureAwait(false)) {
 				Notify(session, "info", $"Review Branch now compares with '{chosen}'.");
 			}
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't remember '{chosen}' as this branch's review base: {ex.Message}");
 		}
-
-		return result;
 	}
 
 	/// <summary>Reviews the whole branch: a diff against <see cref="BranchBaseRefAsync"/> from their merge-base.</summary>

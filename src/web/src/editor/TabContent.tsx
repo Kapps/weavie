@@ -152,6 +152,7 @@ function ActiveTabContent(props: {
       <PlanReviewBar
         session={tab.session}
         path={tab.entry.path}
+        active={props.active}
         afterFlush={controller.afterFlush}
       />
     </div>

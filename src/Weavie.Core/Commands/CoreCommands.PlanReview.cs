@@ -15,12 +15,12 @@ public static partial class CoreCommands {
 			Title = "Accept Agent Plan",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Save the plan under review and approve it with the agent's first allow option, or pass "
-				+ "'optionId' to choose another. Targets the open plan tab, else the newest plan review.",
+			Description = "Save the plan shown in the editor and approve it with the agent's first allow option. Pass "
+				+ "'requestId' to answer a named plan review instead, and 'optionId' to choose another option.",
 			Aliases = ["accept plan", "approve plan", "implement plan", "start coding"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "editorFocused && planReviewShown" }],
-			When = "planReviewPending",
-			ArgsSchemaJson = "{\"optionId\":{\"type\":\"string\",\"description\":\"Permission option to answer with; omit for the first allow option\"}}",
+			ArgsSchemaJson = "{\"requestId\":{\"type\":\"string\",\"description\":\"Plan review to answer; omit for the one shown in the editor\"},"
+				+ "\"optionId\":{\"type\":\"string\",\"description\":\"Permission option to answer with; omit for the first allow option\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -28,10 +28,10 @@ public static partial class CoreCommands {
 			Title = "Keep Planning",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Decline the plan under review so the agent keeps planning. Targets the open plan tab, else "
-				+ "the newest plan review.",
+			Description = "Decline the plan shown in the editor so the agent keeps planning. Pass 'requestId' to "
+				+ "decline a named plan review instead.",
 			Aliases = ["reject plan", "keep planning", "revise plan", "decline plan"],
-			When = "planReviewPending",
+			ArgsSchemaJson = "{\"requestId\":{\"type\":\"string\",\"description\":\"Plan review to decline; omit for the one shown in the editor\"}}",
 		});
 	}
 }

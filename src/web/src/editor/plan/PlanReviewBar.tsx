@@ -1,4 +1,4 @@
-import { For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, For, type JSX, onCleanup, Show } from "solid-js";
 import { KeyedButton } from "../../agent/AgentPaneActions";
 import type { AgentActionOption, ClientSession } from "../../bridge";
 import { liveKeyLabel } from "../../commands/keys-live";
@@ -11,16 +11,22 @@ import {
   planReviewAnswering,
   planReviewsFor,
   rejectOption,
+  showPlanReview,
 } from "./plan-review-store";
 
 /** Answers the agent's pending plan reviews for the tab showing `path`, saving an edited plan first. */
 export function PlanReviewBar(props: {
   session: ClientSession;
   path: string;
+  active: () => boolean;
   afterFlush: AfterFlush;
 }): JSX.Element {
   const reviews = (): PlanReview[] => planReviewsFor(props.session, props.path);
-  // The commands answer the tab's newest review, so only it advertises their keys.
+  // The row advertising the plan keys owns them for its review while its tab is active.
+  createEffect(() => {
+    const review = reviews().at(-1);
+    if (review !== undefined && props.active()) onCleanup(showPlanReview(props.session, review));
+  });
   const key = (review: PlanReview, action: AgentActionOption): string => {
     if (review.requestId !== reviews().at(-1)?.requestId) return "";
     if (action.id === acceptOption(review)) return liveKeyLabel(CommandIds.acceptAgentPlan);
@@ -32,11 +38,7 @@ export function PlanReviewBar(props: {
         <For each={reviews()}>
           {(review) => (
             <div class="agent-approval-actions">
-              <span class="plan-review-label">
-                {review.editable
-                  ? "Edit the plan, then answer the agent"
-                  : "Answer the agent's plan"}
-              </span>
+              <span class="plan-review-label">Edit the plan, then answer the agent</span>
               <For each={review.actions}>
                 {(action) => (
                   <KeyedButton

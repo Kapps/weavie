@@ -1,21 +1,38 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../../bridge";
 
-vi.mock("../../bridge", () => ({ selectedSession: () => null }));
-vi.mock("../session-store", () => ({ activeTabFor: () => undefined }));
-vi.mock("../../commands/registry", () => ({ registerCommand: () => () => {} }));
+const mocks = vi.hoisted(() => ({
+  commands: new Map<string, (args: unknown, context: { session: unknown }) => boolean>(),
+  reviews: [] as unknown[],
+}));
+vi.mock("../../commands/registry", () => ({
+  registerCommand: (
+    id: string,
+    handler: (args: unknown, context: { session: unknown }) => boolean,
+  ) => {
+    mocks.commands.set(id, handler);
+    return () => mocks.commands.delete(id);
+  },
+}));
 vi.mock("../../messaging/session-feature-value", () => ({
-  createSessionFeatureValue: () => () => null,
+  createSessionFeatureValue: () => () => mocks.reviews,
 }));
 
-const { acceptOption, answerPlanReview, planReviewAnswering, rejectOption } = await import(
-  "./plan-review-store"
-);
+const { createRoot } = await import("solid-js");
+const { evaluateWhen } = await import("../../commands/context");
+const { CommandIds } = await import("../../commands/types");
+const {
+  acceptOption,
+  answerPlanReview,
+  planReviewAnswering,
+  rejectOption,
+  showPlanReview,
+  usePlanReviewCommands,
+} = await import("./plan-review-store");
 
 const review = {
   requestId: "7",
   path: "/plans/claude.md",
-  editable: true,
   actions: [
     { id: "bypass", label: "Yes, and bypass permissions", kind: "allow_always" },
     { id: "default", label: "Yes, manually approve edits", kind: "allow_once" },
@@ -77,11 +94,42 @@ describe("plan review answers", () => {
     expect(planReviewAnswering(owner, review)).toBe(false);
   });
 
-  it("answers a read-only plan without saving", async () => {
+  it("keeps planning without saving", async () => {
     const events: string[] = [];
     const afterFlush = vi.fn();
-    await answerPlanReview(session(events), { ...review, editable: false }, "reject", afterFlush);
+    await answerPlanReview(session(events), review, "reject", afterFlush);
     expect(afterFlush).not.toHaveBeenCalled();
     expect(events).toEqual(["permission:reject"]);
+  });
+
+  it("answers only the review whose bar owns the keys, else only a named review", async () => {
+    const events: string[] = [];
+    const owner = session(events);
+    const aside = { ...review, requestId: "aside:3", path: "/plans/aside.md" };
+    mocks.reviews = [review, aside];
+    const send = (_session: ClientSession, _path: string, _action: string, publish: () => void) => {
+      publish();
+      return Promise.resolve();
+    };
+    createRoot(() => usePlanReviewCommands(send));
+    const accept = mocks.commands.get(CommandIds.acceptAgentPlan)!;
+
+    const hideAside = showPlanReview(owner, aside);
+    const hidePrimary = showPlanReview(owner, review);
+    hideAside();
+    expect(evaluateWhen("planReviewShown")).toBe(true);
+    accept(undefined, { session: owner });
+    await Promise.resolve();
+    expect(events).toEqual(["permission:default"]);
+
+    hidePrimary();
+    expect(evaluateWhen("planReviewShown")).toBe(false);
+    expect(() => accept(undefined, { session: owner })).toThrow("No plan review is shown");
+    expect(() => accept({ requestId: "9" }, { session: owner })).toThrow(
+      "No pending plan review '9'",
+    );
+    mocks.commands.get(CommandIds.rejectAgentPlan)!({ requestId: "aside:3" }, { session: owner });
+    await Promise.resolve();
+    expect(events).toEqual(["permission:default", "permission:reject"]);
   });
 });

@@ -124,9 +124,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_editorMessages = Bus.Feature("editor");
 		_notificationMessages = Bus.Feature("notifications");
 
+		Peers = peers;
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and this bus's
 		// commands.invoke requests both route here. Core wires the WebInvoker + Core handlers once the session exists.
-		Peers = peers;
 		Commands = new CommandDispatcher(commandRegistry);
 
 		FileSystem = fileSystem;

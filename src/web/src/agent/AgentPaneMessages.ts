@@ -304,14 +304,14 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
 }
 
 // A primary prompt carries its turn so the pane can rewind to just before it.
-function promptLabel(message: AgentPaneUpdate, label: string): string {
-  return message.sender ? `From ${message.sender.title}` : label;
-}
-
 function promptEntry(message: AgentPaneUpdate, prompt: AgentTranscriptEntry): AgentTranscriptEntry {
   return message.conversationId || !message.turnId
     ? prompt
     : { ...prompt, promptTurnId: message.turnId };
+}
+
+function promptLabel(message: AgentPaneUpdate, label: string): string {
+  return message.sender ? `From ${message.sender.title}` : label;
 }
 
 function entry(

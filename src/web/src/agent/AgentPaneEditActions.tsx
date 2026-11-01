@@ -3,7 +3,6 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { revealFileIn } from "../files/reveal";
-import { KeyedButton } from "./AgentPaneActions";
 import { planIdentity } from "./agent-plan";
 
 export function EditLocationActions(props: {
@@ -47,6 +46,7 @@ export function PlanActions(props: {
   session: ClientSession | null;
 }): JSX.Element {
   const identity = (): ReturnType<typeof planIdentity> => planIdentity(props.message);
+  const key = (): string => liveKeyLabel(CommandIds.openAgentPlan);
   const open = (): void => {
     const plan = identity();
     if (props.session !== null && plan !== null) {
@@ -57,13 +57,16 @@ export function PlanActions(props: {
   return (
     <Show when={identity()}>
       <div class="agent-approval-actions">
-        <KeyedButton
-          label="Open plan"
-          title="Open plan in editor"
-          keyLabel={liveKeyLabel(CommandIds.openAgentPlan)}
-          disabled={false}
+        <button
+          type="button"
+          title={key() === "" ? "Open plan in editor" : `Open plan in editor (${key()})`}
           onClick={open}
-        />
+        >
+          Open plan
+          <Show when={key() !== ""}>
+            <kbd class="agent-key-chip">{key()}</kbd>
+          </Show>
+        </button>
       </div>
     </Show>
   );

@@ -1,75 +1,60 @@
-import { createEffect, For, type JSX, onCleanup, Show } from "solid-js";
-import { KeyedButton } from "../../agent/AgentPaneActions";
-import type { AgentActionOption, ClientSession } from "../../bridge";
-import { liveKeyLabel } from "../../commands/keys-live";
-import { CommandIds } from "../../commands/types";
-import {
-  type AfterFlush,
-  acceptOption,
-  answerPlanReview,
-  type PlanReview,
-  planReviewAnswering,
-  planReviewsFor,
-  rejectOption,
-  showPlanReview,
-} from "./plan-review-store";
+import { For, type JSX, onCleanup, Show } from "solid-js";
+import { ApprovalActions } from "../../agent/AgentPaneActions";
+import { type AgentActionOption, type ClientSession, selectedSession } from "../../bridge";
+import { setContext } from "../../commands/context";
+import { createSessionFeatureValue } from "../../messaging/session-feature-value";
+import { activeTabFor } from "../session-store";
 
-/** Answers the agent's pending plan reviews for the tab showing `path`, saving an edited plan first. */
-export function PlanReviewBar(props: {
-  session: ClientSession;
+/** A pending agent plan approval, answered from the editor tab of its plan file `path`. */
+interface PlanReview {
+  requestId: string;
   path: string;
-  active: () => boolean;
-  afterFlush: AfterFlush;
+  actions: AgentActionOption[];
+}
+
+const reviewsFor = createSessionFeatureValue<{ reviews: PlanReview[] }, PlanReview[]>(
+  "planReview",
+  "reviews",
+  ({ reviews }) => reviews,
+);
+
+/** Answers the pending plan reviews of the active tab's plan file; approving saves the edited plan first. */
+export function PlanReviewBar(props: {
+  afterFlush: (session: ClientSession, path: string, action: string, send: () => void) => void;
 }): JSX.Element {
-  const reviews = (): PlanReview[] => planReviewsFor(props.session, props.path);
-  // The row advertising the plan keys owns them for its review while its tab is active.
-  createEffect(() => {
-    const review = reviews().at(-1);
-    if (review !== undefined && props.active()) onCleanup(showPlanReview(props.session, review));
-  });
-  const key = (review: PlanReview, action: AgentActionOption): string => {
-    if (review.requestId !== reviews().at(-1)?.requestId) return "";
-    if (action.id === acceptOption(review)) return liveKeyLabel(CommandIds.acceptAgentPlan);
-    return action.id === rejectOption(review) ? liveKeyLabel(CommandIds.rejectAgentPlan) : "";
+  const reviews = (session: ClientSession): PlanReview[] => {
+    const path = activeTabFor(session)?.entry.path;
+    return (reviewsFor(session) ?? []).filter((review) => review.path === path);
   };
   return (
-    <Show when={reviews().length > 0}>
-      <div class="plan-review-bar" role="toolbar" aria-label="Plan review" ref={reserveSpace}>
-        <For each={reviews()}>
-          {(review) => (
-            <div class="agent-approval-actions">
-              <span class="plan-review-label">Edit the plan, then answer the agent</span>
-              <For each={review.actions}>
-                {(action) => (
-                  <KeyedButton
-                    label={action.label}
-                    title={action.label}
-                    keyLabel={key(review, action)}
-                    disabled={planReviewAnswering(props.session, review)}
-                    onClick={() =>
-                      void answerPlanReview(props.session, review, action.id, props.afterFlush)
+    <Show when={selectedSession()} keyed>
+      {(session) => (
+        <Show when={reviews(session).length > 0}>
+          <div class="plan-review-bar" role="toolbar" aria-label="Plan review" ref={showKeys}>
+            <For each={reviews(session)}>
+              {(review) => (
+                <div class="plan-review-row">
+                  <span class="plan-review-label">Edit the plan, then answer the agent</span>
+                  <ApprovalActions
+                    session={session}
+                    message={review}
+                    answersToKeys={review.requestId === reviews(session).at(-1)?.requestId}
+                    beforeAllow={(send) =>
+                      props.afterFlush(session, review.path, "approving the plan", send)
                     }
                   />
-                )}
-              </For>
-            </div>
-          )}
-        </For>
-      </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      )}
     </Show>
   );
 }
 
-// The pane lays the editor out above the bar, so no plan line can sit underneath it.
-function reserveSpace(bar: HTMLElement): void {
-  let pane: HTMLElement | null = null;
-  const observer = new ResizeObserver(() => {
-    pane = bar.closest<HTMLElement>(".editor-pane");
-    pane?.style.setProperty("--plan-review-height", `${bar.offsetHeight}px`);
-  });
-  observer.observe(bar);
-  onCleanup(() => {
-    observer.disconnect();
-    pane?.style.removeProperty("--plan-review-height");
-  });
+// The approval chords reach the bar's newest review from the editor while the bar is shown.
+function showKeys(): void {
+  setContext("planReviewShown", true);
+  onCleanup(() => setContext("planReviewShown", false));
 }

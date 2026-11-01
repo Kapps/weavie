@@ -13,7 +13,7 @@ public sealed partial class AgentSessionHost {
 			}
 
 			_paneOutput.Live(StorePaneMessageLocked(message));
-			if (AffectsPlansLocked(message)) PublishPlansLocked();
+			if (AffectsPlans(message)) PublishPlansLocked();
 		}
 	}
 

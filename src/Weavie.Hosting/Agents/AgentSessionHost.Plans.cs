@@ -38,11 +38,8 @@ public sealed partial class AgentSessionHost {
 		return new AgentPlan(key, "Plan", message.Text);
 	}
 
-	// Only plan items and the resolution of a plan review change the projection.
-	private bool AffectsPlansLocked(AgentPaneMessage message) =>
-		message.ItemType is "plan" or "plan-review" || message.Type == "item-retracted"
-		|| message.Type == "approval-resolved" && AgentPaneIdentity.ItemKey(message) is { } key
-			&& _pane.TryItemIndex(key, out int index) && _pane.Stored[index].ItemType == "plan-review";
+	private static bool AffectsPlans(AgentPaneMessage message) =>
+		message.ItemType is "plan" or "plan-review" || message.Type is "item-retracted" or "approval-resolved";
 
 	private void PublishPlansLocked() {
 		var documents = new List<AgentPlan>();

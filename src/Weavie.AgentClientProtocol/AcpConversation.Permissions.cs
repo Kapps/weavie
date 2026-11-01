@@ -43,11 +43,9 @@ internal sealed partial class AcpConversation {
 
 		string? threadId = SessionId();
 		string turnId = tool.TurnId;
-		// A mode switch that names its plan file is reviewed in the editor.
-		var pending = new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId) {
-			PlanFile = tool.PlanFile is { } file ? (file, PlanModeId(tool.Id)) : null,
-		};
-		if (!_pendingRequests.TryAdd(request.Id, pending)) {
+		if (!_pendingRequests.TryAdd(
+			request.Id,
+			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
 		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.
@@ -63,11 +61,12 @@ internal sealed partial class AcpConversation {
 					TurnId = turnId,
 					ItemId = $"request:{request.Id}",
 					RequestId = request.Id,
+					// A mode switch that names its plan file is reviewed in the editor.
 					ItemType = tool.PlanFile is null ? tool.Kind ?? "tool" : "plan-review",
 					Category = tool.Kind,
 					Summary = tool.Title ?? "Permission requested",
 					Text = tool.PlanFile is null ? tool.Input : null,
-					PlanPath = pending.PlanFile?.Path,
+					PlanPath = tool.PlanFile,
 					Actions = actions,
 					Status = "pending",
 				});

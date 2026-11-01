@@ -119,7 +119,6 @@ export function TranscriptEntry(props: {
         <Show
           when={
             props.entry.actionMessage?.type === "approval-requested" &&
-            props.entry.actionMessage.itemType !== "plan-review" &&
             formattedToolInput(props.entry.actionMessage.text ?? null)
           }
         >
@@ -212,6 +211,7 @@ function EntryActions(props: {
               session={props.session}
               message={message()}
               answersToKeys={props.entry.id === props.keyboardRequestKey}
+              beforeAllow={(send) => send()}
             />
           </Match>
           <Match

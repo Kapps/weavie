@@ -6,18 +6,13 @@ using static Weavie.AgentClientProtocol.AcpJson;
 namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
-	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row. A failed mode
-	// switch withdraws the plan snapshot its approval took.
+	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row.
 	private void PublishTool(AcpToolState tool) {
 		if (tool.PlanReleased) return;
-		if (tool.Kind == "switch_mode" && tool.Status is "failed" or "cancelled") RetractPlan(PlanModeId(tool.Id));
 		if (!tool.Subagent) Emit(ToolMessage(tool));
 		else if (tool.Shown) Emit(ToolMessage(tool) with { Type = "item-retracted", Status = "retracted" });
 		tool.Shown = !tool.Subagent;
 	}
-
-	// The AIR id claude-agent-acp gives an approved plan, so its own plan_update revises Weavie's snapshot.
-	private static string PlanModeId(string toolCallId) => "plan-mode:" + toolCallId;
 
 	/// <summary>The transcript item id of the tool call <paramref name="toolCallId"/>.</summary>
 	internal static string ToolItemId(string toolCallId) => "tool:" + toolCallId;

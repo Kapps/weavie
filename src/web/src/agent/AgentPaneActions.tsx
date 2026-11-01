@@ -9,20 +9,28 @@ import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
   session: ClientSession | null;
-  message: AgentPaneUpdate;
+  message: Pick<AgentPaneUpdate, "requestId" | "actions">;
   // The chords answer only the newest pending approval; older cards must not advertise them.
   answersToKeys: boolean;
+  // Runs before an allow answer is sent, e.g. to save the plan being approved.
+  beforeAllow: (send: () => void) => void;
 }): JSX.Element {
   const choose = (optionId: string): void => {
     const requestId = props.message.requestId;
+    const session = props.session;
     if (
-      props.session !== null &&
-      requestId !== null &&
-      requestId !== undefined &&
-      requestId.length > 0
+      session === null ||
+      requestId === null ||
+      requestId === undefined ||
+      requestId.length === 0
     ) {
-      props.session.feature("agent").publish("permission", { requestId, optionId });
+      return;
     }
+    const send = (): void =>
+      session.feature("agent").publish("permission", { requestId, optionId });
+    const kind = props.message.actions?.find((action) => action.id === optionId)?.kind;
+    if (kind?.startsWith("allow_")) props.beforeAllow(send);
+    else send();
   };
 
   const commandFor = (kind: string): string | null => {
@@ -59,48 +67,30 @@ export function ApprovalActions(props: {
     onCleanup(() => off.forEach((dispose) => void dispose()));
   });
 
-  const key = (kind: string): string => {
+  const decision = (label: string, value: string, kind: string): JSX.Element => {
     const commandId = commandFor(kind);
-    return props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
+    const key = (): string =>
+      props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
+    return (
+      <button
+        type="button"
+        title={key() === "" ? label : `${label} (${key()})`}
+        onClick={() => choose(value)}
+      >
+        {label}
+        <Show when={key() !== ""}>
+          <kbd class="agent-key-chip">{key()}</kbd>
+        </Show>
+      </button>
+    );
   };
 
   return (
     <div class="agent-approval-actions">
       <For each={props.message.actions ?? []}>
-        {(action) => (
-          <KeyedButton
-            label={action.label}
-            title={action.label}
-            keyLabel={key(action.kind)}
-            disabled={false}
-            onClick={() => choose(action.id)}
-          />
-        )}
+        {(action) => decision(action.label, action.id, action.kind)}
       </For>
     </div>
-  );
-}
-
-/** An action button that advertises its live shortcut, when it has one, in its tooltip and a chip. */
-export function KeyedButton(props: {
-  label: string;
-  title: string;
-  keyLabel: string;
-  disabled: boolean;
-  onClick: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      disabled={props.disabled}
-      title={props.keyLabel === "" ? props.title : `${props.title} (${props.keyLabel})`}
-      onClick={() => props.onClick()}
-    >
-      {props.label}
-      <Show when={props.keyLabel !== ""}>
-        <kbd class="agent-key-chip">{props.keyLabel}</kbd>
-      </Show>
-    </button>
   );
 }
 

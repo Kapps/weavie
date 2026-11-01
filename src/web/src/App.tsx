@@ -126,6 +126,7 @@ import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
 import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
+import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
@@ -1285,6 +1286,7 @@ export default function App(): JSX.Element {
             </Show>
             <TabContent sessions={editorSessions} controller={editor} />
           </div>
+          <PlanReviewBar afterFlush={editor.afterFlush} />
           <EditorFooter
             onOpenRecent={(path) => editor.openFile(path, undefined)}
             root={() => indexRoot() ?? ""}

@@ -30,7 +30,6 @@ public sealed class AcpPlanModeTests {
 			Assert.EndsWith("Edited in the editor.\n", plan.Text, StringComparison.Ordinal);
 		});
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemId?.EndsWith(":plan-file-clear", StringComparison.Ordinal) == true);
-		Assert.All(fixture.Messages.Where(message => message.Category == "switch_mode"), tool => Assert.Null(tool.Content));
 		await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "mode" && axis.Value == "default"));
 		Assert.Equal("default", fixture.ControlDefaults.Resolve("fake")["mode"]);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
@@ -48,22 +47,6 @@ public sealed class AcpPlanModeTests {
 
 		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "plan");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
-	}
-
-	[Fact]
-	public async Task UnreadablePlanFile_IsReportedAndNotApproved() {
-		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
-		await fixture.StartAsync();
-		fixture.Submit("exit-plan-mode");
-		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
-		File.Delete(approval.PlanPath!);
-
-		fixture.Session.ResolvePermission(approval.RequestId!, "exit-plan-default");
-		await fixture.WaitForMessageAsync(message => message.Type == "error");
-		Assert.DoesNotContain(fixture.Messages, message => message.Type == "approval-resolved");
-
-		fixture.Session.ResolvePermission(approval.RequestId!, "reject");
-		await fixture.WaitForMessageAsync(message => message.Text == "kept planning");
 	}
 
 	[Fact]

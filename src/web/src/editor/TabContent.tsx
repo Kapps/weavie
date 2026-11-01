@@ -18,8 +18,6 @@ import { setContext } from "../commands/context";
 import type { EditorController } from "./editor-controller";
 import MediaPane from "./media/MediaPane";
 import { mediaTypeOf } from "./media/media-types";
-import { PlanReviewBar } from "./plan/PlanReviewBar";
-import { usePlanReviewCommands } from "./plan/plan-review-store";
 import { canPreview } from "./preview/preview-registry";
 import { activeTabFor, openTabsFor, tabOwnerFor } from "./session-store";
 import { sourceDoc } from "./source/source-store";
@@ -149,12 +147,6 @@ function ActiveTabContent(props: {
           </Match>
         </Switch>
       </Suspense>
-      <PlanReviewBar
-        session={tab.session}
-        path={tab.entry.path}
-        active={props.active}
-        afterFlush={controller.afterFlush}
-      />
     </div>
   );
 }
@@ -171,7 +163,6 @@ export default function TabContent(props: {
   createEffect(() => {
     if (active() === undefined) setContext("diffActive", false);
   });
-  usePlanReviewCommands(props.controller.afterFlush);
   const mounted = createMemo<TabOwner[]>((previous) => {
     const live = new Set(
       props

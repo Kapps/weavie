@@ -102,14 +102,14 @@ test.describe("ACP plan review with automatic tool approval", () => {
     const bar = page.locator(".plan-review-bar");
     await expectBelow(bar, page.locator(".editor"));
     const accept = bar.getByRole("button", { name: /Yes, manually approve edits/ });
-    await expect(accept).toHaveAttribute("title", /\((Ctrl|⌘)\+Enter\)/);
+    await expect(accept).toHaveAttribute("title", /\((Alt|⌥)\+Y\)/);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(accept).toBeVisible();
     await clickIntoEditor(page);
     await pressDocumentEnd(page);
     await typeInEditor(page, "Edited in the editor.");
-    await page.keyboard.press("ControlOrMeta+Enter");
+    await page.keyboard.press("Alt+y");
 
     await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
       "Edited in the editor.",

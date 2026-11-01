@@ -696,12 +696,9 @@ video.editor-media-content {
   text-align: center;
 }
 
-/* Docked in the strip the pane reserves below the editor (--plan-review-height), so it never covers content. */
+/* Below the editor pane in the surface's flow, so it never covers the plan. */
 .plan-review-bar {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  left: 0;
+  flex: 0 0 auto;
   display: grid;
   gap: 6px;
   padding: 6px 10px;
@@ -710,19 +707,20 @@ video.editor-media-content {
   font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
 }
 
-.plan-review-label {
-  margin-right: 4px;
-  color: var(--dim);
+.plan-review-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
-.plan-review-bar button:disabled {
-  cursor: default;
-  opacity: 0.5;
+.plan-review-label {
+  color: var(--dim);
 }
 
 .editor-tab-content {
   position: absolute;
-  inset: 0 0 var(--plan-review-height, 0px);
+  inset: 0;
   pointer-events: none;
   outline: none;
 }

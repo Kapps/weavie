@@ -122,17 +122,13 @@ internal sealed partial class AcpConversation {
 		return tool;
 	}
 
-	// With AIR planFile a mode switch names its plan file, and an empty name marks the file released after approval.
+	// With AIR planFile a mode switch names its plan file; an empty name marks the file released after approval.
 	private static void ReadPlanInput(JsonElement rawInput, AcpToolState tool) {
-		if (rawInput.TryGetProperty("planFilePath", out var file)) {
-			string path = file.ValueKind == JsonValueKind.String
-				? file.GetString()!
-				: throw new AcpProtocolException("An ACP plan file path must be a string.");
-			if (path.Length == 0) tool.PlanReleased = true;
-			else tool.PlanFile = Path.IsPathFullyQualified(path)
-				? Path.GetFullPath(path)
-				: throw new AcpProtocolException($"An ACP plan file path must be absolute: {path}");
-		}
+		if (OptionalString(rawInput, "planFilePath") is not { } path) return;
+		if (path.Length == 0) tool.PlanReleased = true;
+		else tool.PlanFile = Path.IsPathFullyQualified(path)
+			? path
+			: throw new AcpProtocolException($"An ACP plan file path must be absolute: {path}");
 	}
 
 	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) => TerminalizeToolsLocked(status, static _ => true);

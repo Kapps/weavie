@@ -26,15 +26,15 @@ public sealed partial class AgentSessionHost {
 
 	private AgentPaneMessage? MessageLocked(string threadId, string turnId, string itemId) =>
 		string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)
-			|| !_paneItemIndexes.TryGetValue(AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!, out int index)
+			|| !_pane.TryItemIndex(AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!, out int index)
 			? null
-			: _paneMessages[index];
+			: _pane.Stored[index];
 
 	private AgentPlan? CompletedPlanLocked(AgentPaneMessage message) {
 		if (message.Type != "item-completed" || message.ItemType != "plan"
 			|| string.IsNullOrWhiteSpace(message.Text)
 			|| AgentPaneIdentity.ItemKey(message) is not { } key
-			|| _paneActiveItems.Contains(key)) return null;
+			|| _pane.IsActive(key)) return null;
 		return new AgentPlan(key, "Plan", message.Text);
 	}
 
@@ -42,12 +42,12 @@ public sealed partial class AgentSessionHost {
 	private bool AffectsPlansLocked(AgentPaneMessage message) =>
 		message.ItemType is "plan" or "plan-review" || message.Type == "item-retracted"
 		|| message.Type == "approval-resolved" && AgentPaneIdentity.ItemKey(message) is { } key
-			&& _paneItemIndexes.TryGetValue(key, out int index) && _paneMessages[index].ItemType == "plan-review";
+			&& _pane.TryItemIndex(key, out int index) && _pane.Stored[index].ItemType == "plan-review";
 
 	private void PublishPlansLocked() {
 		var documents = new List<AgentPlan>();
 		var reviews = new Dictionary<string, AgentPlanReview>(StringComparer.Ordinal);
-		foreach (var message in _paneMessages) {
+		foreach (var message in _pane.Stored) {
 			if (CompletedPlanLocked(message) is { } document) documents.Add(document);
 			if (AgentPaneIdentity.ItemKey(message) is not { } key) continue;
 			if (message is { Type: "approval-requested", ItemType: "plan-review", PlanPath: { } path }) {

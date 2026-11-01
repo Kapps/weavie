@@ -19,6 +19,7 @@ public sealed class SessionStoreTests {
 		Id = new SessionId(id),
 		Label = label,
 		LastActiveAt = null,
+		Unseen = false,
 		WorktreePath = "/wt/" + label,
 		Loaded = loaded,
 		AgentProviderId = "claude",
@@ -34,7 +35,7 @@ public sealed class SessionStoreTests {
 		var store = new SessionStore(fs, StorePath);
 
 		store.Save([
-			Descriptor("aaaa", "a", loaded: true) with { LastActiveAt = ActiveAt },
+			Descriptor("aaaa", "a", loaded: true) with { LastActiveAt = ActiveAt, Unseen = true },
 			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp" },
 		]);
 
@@ -45,6 +46,8 @@ public sealed class SessionStoreTests {
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
 		Assert.Equal(ActiveAt, reloaded.Items.Single(i => i.Id.Value == "aaaa").LastActiveAt);
 		Assert.Null(reloaded.Items.Single(i => i.Id.Value == "bbbb").LastActiveAt);
+		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Unseen);
+		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Unseen);
 		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals));
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}

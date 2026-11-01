@@ -31,7 +31,15 @@ const harness = vi.hoisted(() => ({
   >(),
   selectionListeners: [] as Array<(session: ClientSession | null) => void>,
   setSelected: (_session: ClientSession | null): void => {},
+  published: [] as string[],
+  setFocused: (_focused: boolean): void => {},
 }));
+
+vi.mock("./window-state", () => {
+  const [focused, setFocused] = createSignal(true);
+  harness.setFocused = setFocused;
+  return { windowFocused: focused };
+});
 
 vi.mock("../bridge", () => {
   const [selectedSession, setSelected] = createSignal<ClientSession | null>(null);
@@ -142,6 +150,7 @@ function session(
         }
         return () => {};
       },
+      publish: (name: string) => harness.published.push(`${slot}:${feature}.${name}`),
     }),
   } as unknown as ClientSession;
   harness.sessions.set(key, created);
@@ -151,7 +160,12 @@ function session(
   return created;
 }
 
-function deliverCatalog(backendId: string, slots: string[], parked: readonly string[] = []): void {
+function deliverCatalog(
+  backendId: string,
+  slots: string[],
+  parked: readonly string[] = [],
+  unseen: readonly string[] = [],
+): void {
   const catalog = slots.map(
     (slot) =>
       ({
@@ -165,6 +179,7 @@ function deliverCatalog(backendId: string, slots: string[], parked: readonly str
         agentSurface: "terminal",
         agentInputProtocol: 0,
         lastActiveAt: null,
+        unseen: unseen.includes(slot),
         workspaceCheckout: false,
         external: false,
       }) as SessionCatalogEntry,
@@ -204,6 +219,29 @@ describe("session activity", () => {
   });
 });
 
+describe("unseen finished turns", () => {
+  const unseenOf = (id: string) => store.sessions().find((s) => s.id === id)?.unseen;
+
+  it("marks the watched session seen and never shows it unseen, leaving background ones flagged", () => {
+    harness.published.length = 0;
+    session("local", "bg");
+    deliverCatalog("local", ["main", "bg"], [], ["main", "bg"]);
+    expect(harness.published).toEqual(["main:attention.seen"]);
+    expect(unseenOf("main")).toBe(false);
+    expect(unseenOf("bg")).toBe(true);
+  });
+
+  it("waits until the window is focused to mark the selected session seen", () => {
+    harness.published.length = 0;
+    harness.setFocused(false);
+    deliverCatalog("local", ["main"], [], ["main"]);
+    expect(unseenOf("main")).toBe(true);
+    expect(harness.published).toEqual([]);
+    harness.setFocused(true);
+    expect(harness.published).toEqual(["main:attention.seen"]);
+  });
+});
+
 describe("selected session status", () => {
   it("adopts the selected session's status", () => {
     deliverStatus("local", "main", "working");
@@ -237,6 +275,7 @@ const chip = (id: string, active: boolean): RailSession => ({
   title: id,
   activity: null,
   lastActiveAt: null,
+  unseen: false,
   workspaceCheckout: false,
   external: false,
   backendId: "local",

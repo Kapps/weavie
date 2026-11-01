@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import App from "./App";
 import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./bridge";
 import { installNavigationGuard } from "./navigation";
+import { notifyReloadRequired } from "./notify/notify";
 import { onSplashDismissed } from "./splash";
 import { mark } from "./startup-timing";
 import { openUrlExternal } from "./terminal/terminal-links";
@@ -60,6 +61,10 @@ window.addEventListener("unhandledrejection", (e) => {
   const r = e.reason;
   const message = r instanceof Error ? (r.stack ?? r.message) : String(r);
   log("error", `unhandledrejection: ${message}`);
+});
+// A chunk that fails to download (e.g. cut off by a suspended phone tab) stays failed until the page reloads.
+window.addEventListener("vite:preloadError", () => {
+  notifyReloadRequired("Part of Weavie failed to download. Reload to finish loading.");
 });
 window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__?.();
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,

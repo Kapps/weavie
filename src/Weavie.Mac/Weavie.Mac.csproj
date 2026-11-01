@@ -63,7 +63,8 @@
   -->
   <Target Name="CopyWebAssets" AfterTargets="Build">
     <ItemGroup Condition="Exists('$(WebRoot)/dist/index.html')">
-      <WebDist Include="$(WebRoot)/dist/**/*" />
+      <!-- Desktop loads over loopback http, which never negotiates the .br siblings Headless serves. -->
+      <WebDist Include="$(WebRoot)/dist/**/*" Exclude="$(WebRoot)/dist/**/*.br" />
     </ItemGroup>
     <Copy Condition="Exists('$(WebRoot)/dist/index.html')"
           SourceFiles="@(WebDist)"

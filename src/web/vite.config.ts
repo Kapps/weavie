@@ -1,9 +1,36 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { brotliCompress, constants } from "node:zlib";
 import importMetaUrlPlugin from "@codingame/esbuild-import-meta-url-plugin";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
 const MONACO_MODULE =
   /[\\/]node_modules[\\/](monaco-editor|vscode-languageclient|@codingame[\\/]monaco-vscode)/;
+
+const BROTLI_ASSET = /^assets\/.+\.(css|js|json|svg|wasm)$/;
+const compress = promisify(brotliCompress);
+
+// Writes a `.br` sibling for each hashed asset; the host serves it to clients that accept Brotli.
+function brotliAssets(): Plugin {
+  return {
+    name: "weavie-brotli-assets",
+    apply: "build",
+    async writeBundle(options, bundle) {
+      const dir = options.dir!;
+      await Promise.all(
+        Object.values(bundle)
+          .filter((output) => BROTLI_ASSET.test(output.fileName))
+          .map(async (output) => {
+            const source = output.type === "chunk" ? output.code : output.source;
+            const params = { [constants.BROTLI_PARAM_QUALITY]: 9 };
+            await writeFile(join(dir, `${output.fileName}.br`), await compress(source, { params }));
+          }),
+      );
+    },
+  };
+}
 
 function rejectEagerMonaco(): Plugin {
   return {
@@ -84,7 +111,7 @@ function fixTextmateLazyImport(): Plugin {
 // code-splitting build, which Rollup cannot emit as iife/umd. Module workers are fine under a secure
 // context (both schemes qualify, as does http://localhost — see the dev server below).
 export default defineConfig(({ command }) => ({
-  plugins: [fixTextmateLazyImport(), rejectEagerMonaco(), solid()],
+  plugins: [fixTextmateLazyImport(), rejectEagerMonaco(), brotliAssets(), solid()],
   // Build: relative base so assets resolve under the custom scheme/virtual-host (no web root).
   // Dev (`serve`): the server hosts from the origin root, where a relative base breaks the HMR
   // client and module URLs — so use an absolute base.

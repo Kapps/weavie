@@ -13,6 +13,7 @@ import {
 } from "../bridge";
 import { evaluateWhen } from "../commands/context";
 import { LinkDroppedError } from "../messaging/message-bus";
+import { notifyReloadRequired } from "../notify/notify";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -222,6 +223,10 @@ export interface EditorController {
     undoKeep(session: ClientSession): boolean;
     undoRevert(session: ClientSession): boolean;
     redo(session: ClientSession): boolean;
+    /** Which review view the session's active tab shows (reactive). */
+    view(session: ClientSession): ReviewView | undefined;
+    /** Opens the unified review, or flips between it and file review at the current change. */
+    switchView(session: ClientSession): boolean;
   };
   readonly tabs: TabActions;
   readonly nav: NavActions;
@@ -229,6 +234,9 @@ export interface EditorController {
   readonly symbols: () => SymbolActions;
   dispose(): void;
 }
+
+/** The unified review of every file, or file review of one review file. */
+export type ReviewView = "all" | "file";
 
 export function createEditorController(deps: EditorControllerDeps): EditorController {
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
@@ -757,7 +765,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         log("error", `editor init failed: ${String(error)}`);
         // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
         // rather than leave a blank editor that swallows clicks.
-        deps.onOpenError("The editor failed to load. Reload the window to try again.");
+        notifyReloadRequired("The editor failed to load. Reload to try again.");
       })
       .finally(() => {
         window.clearTimeout(initTimer);
@@ -772,7 +780,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     if (!file.currentExists) {
-      showUnifiedReview(session);
+      showUnifiedReview(session, { path: file.path, line });
       return;
     }
     navigation.depart(session);
@@ -785,14 +793,58 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     path: string | undefined,
   ): ReviewFileView | undefined =>
     reviews
-      .board(session)
+      .overviewFor(session)
       .files.find((candidate) => path !== undefined && samePath(candidate.summary().path, path));
 
-  const showUnifiedReview = (session: ClientSession): boolean => {
+  const showUnifiedReview = (session: ClientSession, location: TextLocation | null): boolean => {
     if (!activateDestinationFor(session, "navigation")) return false;
     const result = openTabFor(session, REVIEW_TAB_KEY, { kind: "review" });
+    if (location !== null) result.placement = { viewState: { location, scrollTop: 0 } };
     presentTab(session, result);
     return true;
+  };
+
+  const openReview = (
+    session: ClientSession,
+    path: string | undefined,
+    line: number | undefined,
+  ): boolean => {
+    if (selectedSession() !== session) {
+      return false;
+    }
+    if (path === undefined) {
+      return showUnifiedReview(session, null);
+    }
+    const view = reviewFileView(session, path);
+    if (view === undefined) {
+      return false;
+    }
+    const file = view.summary();
+    openReviewFile(session, file, line ?? file.line);
+    return true;
+  };
+
+  const reviewView = (session: ClientSession): ReviewView | undefined => {
+    const tab = activeTabFor(session);
+    if (tab === undefined) return undefined;
+    if (tabKind(tab.entry) === "review") return "all";
+    return isFileTab(tab.entry) && reviewFileView(session, tab.entry.path) !== undefined
+      ? "file"
+      : undefined;
+  };
+
+  const switchReviewView = (session: ClientSession): boolean => {
+    const view = reviewView(session);
+    const text = activeTabFor(session)?.presentation?.capture().text;
+    const here = text == null ? null : { path: text.path, line: text.line };
+    if (view !== "all") return showUnifiedReview(session, view === "file" ? here : null);
+    const target = here ?? reviews.board(session).files[0]?.summary();
+    if (target === undefined) return false;
+    if (reviewFileView(session, target.path)?.summary().currentExists === false) {
+      deps.onOpenError(`${target.path} was deleted, so it has no file review.`);
+      return false;
+    }
+    return openReview(session, target.path, target.line);
   };
 
   // Monotonic revision of the published review set.
@@ -1508,21 +1560,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     flushSession: (session) => host?.flushSession(session) ?? Promise.resolve(),
     afterFlush,
-    openReview: (session, path, line) => {
-      if (selectedSession() !== session) {
-        return false;
-      }
-      if (path === undefined) {
-        return showUnifiedReview(session);
-      }
-      const view = reviewFileView(session, path);
-      if (view === undefined) {
-        return false;
-      }
-      const file = view.summary();
-      openReviewFile(session, file, line ?? file.line);
-      return true;
-    },
+    openReview,
     hostReady: editorHostReady,
     filePresenter,
     captureTab: (tab) => {
@@ -1630,6 +1668,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       undoKeep: (session) => runReviewHistory(session, "onUndoKeep"),
       undoRevert: (session) => runReviewHistory(session, "onUndoRevert"),
       redo: (session) => runReviewHistory(session, "onRedo"),
+      view: reviewView,
+      switchView: switchReviewView,
     },
     tabs,
     nav: {

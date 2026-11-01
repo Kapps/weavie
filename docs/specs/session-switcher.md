@@ -15,8 +15,8 @@ carries the full names and what each agent is doing; the cloud button only adds 
   full branch is in the tooltip), and one line of activity. Unpinned, it is the rail expanded in place: resting the
   pointer on the rail or `weavie.session.panel` (`$mod+e`, everywhere including terminals) widens it over the panes,
   each chip gaining its details without moving, so it stays in rail order. `weavie.session.panelPin` (or the pin
-  button) docks it in the rail's place, pushing the panes and grouping sessions as Needs you / Finished /
-  Working / Idle / Parked; the pin persists in `rail-state.json`. Arrows, Enter, and Escape drive it, and while it's in use
+  button) docks it in the rail's place, pushing the panes and grouping sessions as Needs you / Working /
+  Finished / Idle / Parked; the pin persists in `rail-state.json`. Arrows, Enter, and Escape drive it, and while it's in use
   (hover- or keyboard-opened, or pinned under the pointer or focus) 1–9 switch straight to that numbered session.
 - **Mobile** keeps the full list in the Sessions surface (no rail there); on desktop that modal is new-session only.
 

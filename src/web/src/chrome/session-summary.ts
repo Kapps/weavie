@@ -6,12 +6,12 @@ import { compactAge } from "../compact-age";
 import type { RailSession } from "./session-store";
 
 /** The session panel's sections, in display order. */
-export type SessionGroup = "needs" | "finished" | "working" | "idle" | "parked";
+export type SessionGroup = "needs" | "working" | "finished" | "idle" | "parked";
 
 export const SESSION_GROUPS: { id: SessionGroup; title: string }[] = [
   { id: "needs", title: "Needs you" },
-  { id: "finished", title: "Finished" },
   { id: "working", title: "Working" },
+  { id: "finished", title: "Finished" },
   { id: "idle", title: "Idle" },
   { id: "parked", title: "Parked" },
 ];

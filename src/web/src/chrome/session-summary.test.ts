@@ -53,8 +53,8 @@ describe("panelOrder", () => {
     ];
     expect(panelOrder(sessions).map((s) => s.id)).toEqual([
       "needs",
-      "finished",
       "working",
+      "finished",
       "idle-1",
       "idle-2",
       "parked",

@@ -91,6 +91,7 @@ internal sealed partial class FakeAcpAgent {
 			["toolCall"] = new JsonObject { ["toolCallId"] = id, ["title"] = "Approve Plan", ["rawInput"] = PlanFile(path) },
 			["options"] = new JsonArray(
 				new JsonObject { ["optionId"] = "exit-plan-default", ["name"] = "Yes, manually approve edits", ["kind"] = "allow_once" },
+				new JsonObject { ["optionId"] = "exit-plan-clear-bypass", ["name"] = "Yes, clear context and bypass permissions", ["kind"] = "allow_always" },
 				new JsonObject { ["optionId"] = "exit-plan-bypass", ["name"] = "Yes, and bypass permissions", ["kind"] = "allow_always" },
 				new JsonObject { ["optionId"] = "reject", ["name"] = "No, keep planning", ["kind"] = "reject_once" }),
 		}, ct).ConfigureAwait(false);

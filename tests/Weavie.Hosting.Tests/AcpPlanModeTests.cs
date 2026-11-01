@@ -38,6 +38,26 @@ public sealed class AcpPlanModeTests {
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 	}
 
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task ClearContext_IsRefusedOnlyForAnEditedPlan(bool edited) {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("exit-plan-mode");
+		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
+		if (edited) File.AppendAllText(approval.PlanPath!, "Edited in the editor.\n");
+
+		fixture.Session.ResolvePermission(approval.RequestId!, "exit-plan-clear-bypass");
+		if (edited) {
+			var failure = await fixture.WaitForMessageAsync(message => message.Type == "error");
+			Assert.StartsWith("Clear context would discard your plan edits.", failure.Text, StringComparison.Ordinal);
+			Assert.DoesNotContain(fixture.Messages, message => message.Type == "approval-resolved");
+			fixture.Session.ResolvePermission(approval.RequestId!, "exit-plan-default");
+		}
+		await fixture.WaitForMessageAsync(message => message.Text?.StartsWith("approved plan:", StringComparison.Ordinal) == true);
+	}
+
 	[Fact]
 	public async Task ExitPlanMode_KeepPlanningPublishesNoPlan() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);

@@ -255,7 +255,9 @@ internal sealed partial class AcpConversation {
 		JsonElement Data,
 		string? ThreadId,
 		string TurnId,
-		string ItemId);
+		string ItemId) {
+		public (string Path, string Text)? Plan { get; init; }
+	}
 
 	private sealed record AcpControlMutation(string Axis, string Value);
 

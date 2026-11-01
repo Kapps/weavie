@@ -47,7 +47,9 @@ internal sealed partial class AcpConversation {
 		string itemId = tool.PlanFile is null ? $"request:{request.Id}" : PlanItemId("plan-mode:" + tool.Id);
 		if (!_pendingRequests.TryAdd(
 			request.Id,
-			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId, itemId))) {
+			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId, itemId) {
+				Plan = tool.PlanFile is { } file ? (file, PlanFileText(file)) : null,
+			})) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
 		// A completion's resolution is emitted under the transition gate too, so it can only follow this card.

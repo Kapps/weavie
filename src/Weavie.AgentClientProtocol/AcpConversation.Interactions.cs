@@ -16,6 +16,17 @@ internal sealed partial class AcpConversation {
 			EmitFailure(new AcpProtocolException($"'{optionId}' was not advertised for permission {requestId}."));
 			return;
 		}
+		// Claude's clear-context options (no protocol marker names them) restart from the plan as requested.
+		if (pending.Plan is { } plan && optionId.StartsWith("exit-plan-clear", StringComparison.Ordinal)) {
+			try {
+				if (PlanFileText(plan.Path) != plan.Text) {
+					throw new AcpProtocolException("Clear context would discard your plan edits. Choose another option, or undo your edits.");
+				}
+			} catch (AcpProtocolException ex) {
+				EmitFailure(ex);
+				return;
+			}
+		}
 		if (!CompleteDeferredClientRequest(
 			requestId,
 			AcpContent.Selected(optionId))) {
@@ -150,6 +161,15 @@ internal sealed partial class AcpConversation {
 			"reject_once" or "reject_always" => "Declined · " + name,
 			_ => name,
 		};
+	}
+
+	// Compared as the adapter reads a plan: trimmed.
+	private string PlanFileText(string path) {
+		try {
+			return _context.FileSystem.ReadAllText(path).Trim();
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			throw new AcpProtocolException($"The plan file could not be read: {ex.Message}", ex);
+		}
 	}
 
 	private bool HasPendingInteractionLocked() => !_pendingRequests.IsEmpty || _authenticationPending;

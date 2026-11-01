@@ -87,7 +87,7 @@ A `turnComplete` also sets the slot's host-owned `unseen` flag, carried in the s
 in `sessions.json` so it survives restarts and auto-updates. The panel shows an idle, unseen session in its
 **Finished** section with a haloed dot. A page clears the flag by publishing `attention.seen` on the owning
 session while that session is selected and the window is focused; the host persists and re-pushes the catalog,
-so every client clears it together. The watched session renders seen immediately rather than flashing
+so every client clears it together. The selected session renders seen immediately rather than flashing
 Finished for the round-trip.
 
 ## Notifications

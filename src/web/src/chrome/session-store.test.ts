@@ -235,7 +235,6 @@ describe("unseen finished turns", () => {
     harness.published.length = 0;
     harness.setFocused(false);
     deliverCatalog("local", ["main"], [], ["main"]);
-    expect(unseenOf("main")).toBe(true);
     expect(harness.published).toEqual([]);
     harness.setFocused(true);
     expect(harness.published).toEqual(["main:attention.seen"]);

@@ -199,7 +199,6 @@ createRoot(() => {
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
   const selected = selectedSession();
-  const focused = windowFocused();
   const pending = pendingSessions();
   // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
@@ -219,8 +218,8 @@ const merged = createMemo<RailSession[]>(() => {
         isLocal,
         locationName: backendName(backendId),
         active,
-        // The watched session reads seen at once rather than flashing Finished until the host clears it.
-        unseen: chip.unseen && !(active && focused),
+        // The selected session reads seen at once rather than flashing Finished until the host clears it.
+        unseen: chip.unseen && !active,
         pending: pending.has(pendingKey(backendId, chip.id)),
         offline,
       });

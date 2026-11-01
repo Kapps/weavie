@@ -19,6 +19,7 @@ public sealed partial class HostCore {
 				Id = new SessionId(slot.Id),
 				Label = slot.Label,
 				LastActiveAt = slot.LastActiveAt,
+				Unseen = slot.Unseen,
 				WorktreePath = slot.WorktreePath,
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
@@ -56,6 +57,7 @@ public sealed partial class HostCore {
 
 			if (slot is { }) {
 				slot.LastActiveAt = item.LastActiveAt;
+				slot.Unseen = item.Unseen;
 			}
 
 			if (item.Loaded && slot is { }) {

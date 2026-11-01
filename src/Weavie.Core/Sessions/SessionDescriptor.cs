@@ -16,6 +16,9 @@ public sealed record SessionDescriptor {
 	/// <summary>When the agent last started or finished work in this session, or <c>null</c> if it never has.</summary>
 	public required DateTimeOffset? LastActiveAt { get; init; }
 
+	/// <summary>Whether a turn finished in this session that the user hasn't viewed since.</summary>
+	public required bool Unseen { get; init; }
+
 	/// <summary>The session's working directory.</summary>
 	public required string WorktreePath { get; init; }
 

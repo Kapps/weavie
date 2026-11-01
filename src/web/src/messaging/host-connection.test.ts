@@ -20,6 +20,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   status: "idle",
   title: id,
   lastActiveAt: null,
+  unseen: false,
   workspaceCheckout: false,
   external: false,
 });

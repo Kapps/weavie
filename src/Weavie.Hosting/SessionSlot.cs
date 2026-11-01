@@ -18,6 +18,9 @@ public sealed class SessionSlot {
 	/// <summary>When the agent last started or finished work here, or <c>null</c> if it never has.</summary>
 	public DateTimeOffset? LastActiveAt { get; set; }
 
+	/// <summary>A turn finished here that no client has viewed since.</summary>
+	public bool Unseen { get; set; }
+
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }
 

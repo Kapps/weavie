@@ -32,6 +32,16 @@ public sealed partial class HostCore {
 
 	/// <summary>Subscribes a session's status transitions and publishes each attention-worthy event on its bus.</summary>
 	private void WireAttention(HostSession session) {
+		session.Bus.Feature("attention").Handle("seen", "Marking the session seen", WireJson.Default.EmptyPayload, (_, _) => {
+			PostForSession(session, () => {
+				if (OwnedSlot(session) is { Unseen: true } slot) {
+					slot.Unseen = false;
+					PersistSessionState();
+					PushSessionList();
+				}
+			});
+			return Task.CompletedTask;
+		});
 		// The machine delivers Changed serially (its delivery gate), so this closure-tracked previous status
 		// can't race its own handler.
 		var previous = session.Status.Status;

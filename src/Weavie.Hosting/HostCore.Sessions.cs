@@ -117,10 +117,12 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			session.PullRequestStatus.UpdateStatus(status);
 			bool marksActive = SessionStatusMachine.MarksLastActive(previous, status);
+			bool finished = AttentionRules.Classify(previous, status) == AttentionKind.TurnComplete;
 			previous = status;
 			PostForSession(session, () => {
-				if (marksActive && _sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session)) {
+				if (marksActive && OwnedSlot(session) is { } slot) {
 					slot.LastActiveAt = _time.GetUtcNow();
+					slot.Unseen |= finished;
 					PersistSessionState();
 				}
 
@@ -148,6 +150,10 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		}, ct));
 	}
+
+	/// <summary>The slot <paramref name="session"/> is still the live backend of, or <c>null</c> once it was replaced.</summary>
+	private SessionSlot? OwnedSlot(HostSession session) =>
+		_sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session) ? slot : null;
 
 	/// <summary>Test seam for one exact logical slot.</summary>
 	internal HostSession? SessionForTest(string slot) =>
@@ -443,6 +449,7 @@ public sealed partial class HostCore {
 					structured ? 2 : 0,
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
+					slot.Unseen,
 					IsWorkspaceCheckout(slot),
 					!IsWorkspaceCheckout(slot) && _worktrees?.Owns(slot.WorktreePath) == false);
 			})
@@ -460,6 +467,7 @@ public sealed partial class HostCore {
 		int AgentInputProtocol,
 		string Status,
 		long? LastActiveAt,
+		bool Unseen,
 		bool WorkspaceCheckout,
 		bool External);
 

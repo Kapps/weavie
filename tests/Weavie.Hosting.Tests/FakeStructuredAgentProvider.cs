@@ -216,7 +216,10 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		public void Interrupt() {
 		}
 
+		// Restarting stops running work, as a real agent's process restart does.
 		public void Restart() {
+			BackgroundWork = [.. BackgroundWork.Select(item => item with { State = AgentBackgroundState.Stopped, CanStop = false })];
+			BackgroundWorkChanged?.Invoke(BackgroundWork);
 		}
 
 		public void ResolvePermission(string requestId, string optionId) {

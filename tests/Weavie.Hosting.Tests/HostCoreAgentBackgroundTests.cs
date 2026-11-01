@@ -39,6 +39,23 @@ public sealed class HostCoreAgentBackgroundTests {
 		Assert.False((await host.InvokeCommandAsync(session.SlotId, CoreCommands.StopBackgroundTask, new { }, CancellationToken.None)).Ok);
 	}
 
+	[Fact]
+	public async Task RestartReportsSuccessOnlyOnceTheAgentHasRestarted() {
+		var ui = new ManualUiDispatcher(paused: false);
+		await using var host = await TestHost.StartAsync(NoopSystemNotificationChannel.Instance, ui);
+		var session = await StartBackgroundAsync(host, "restarted");
+		ui.Pause();
+
+		var restart = host.InvokeCommandAsync(session.SlotId, CoreCommands.RestartAgent,
+			new { stopBackgroundWork = true }, CancellationToken.None);
+		await ui.WaitForPostAsync();
+
+		Assert.False(restart.IsCompleted);
+		ui.RunPending();
+		Assert.True((await restart).Ok);
+		Assert.False(session.Agent.Background!.BackgroundWork.Single().Running);
+	}
+
 	private static async Task<HostSession> StartBackgroundAsync(TestHost host, string branch) {
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = branch, Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session(branch);

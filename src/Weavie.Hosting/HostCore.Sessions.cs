@@ -38,11 +38,18 @@ public sealed partial class HostCore {
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		RegisterShellTerminalHandlers(session);
-		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, _) => {
-			if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
-			_ui.Post(session.RestartAgent);
-			return Task.FromResult(CommandResult.Success("Restarted the agent."));
-		});
+		// Succeeds only once the restart has happened, so the caller never acts on the agent it replaced.
+		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, ct) =>
+			BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal
+				? Task.FromResult(refusal)
+				: _ui.InvokeAsync(() => {
+					try {
+						session.RestartAgent();
+						return Task.FromResult(CommandResult.Success("Restarted the agent."));
+					} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
+						return Task.FromResult(CommandResult.Failure(ex.Message));
+					}
+				}, ct));
 		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (argsJson, _) => {
 			try {
 				if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);

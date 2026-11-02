@@ -77,6 +77,12 @@ export interface LaunchOptions {
   };
 }
 
+// Removes a directory a now-dead host tree used. Windows releases a dead process's file handles asynchronously,
+// so an immediate rm can race them with EBUSY; the bounded retry covers that.
+export function removeHostTree(path: string): Promise<void> {
+  return rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}
+
 // POSIX hosts dispose their owned children on SIGINT; Windows uses taskkill /T.
 // Completion requires the root to exit and its inherited output pipes to close before deleting its files.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
@@ -275,9 +281,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     workspace,
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
-    // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's
-    // file handles asynchronously, so an immediate rm can race them with EBUSY; the bounded retry covers that.
-    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    cleanup: () => removeHostTree(root),
   };
   try {
     if (options.workspaceSeed !== null) await options.workspaceSeed.run(workspace);

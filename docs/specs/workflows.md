@@ -32,8 +32,9 @@ iteration, typed outputs, gates, checks — is held by Weavie. The agent only pr
 | Personal | `~/.weavie/workflows/*.yaml` | |
 | Repository | `<repo>/.weavie/workflows/*.yaml` | |
 
-A matching `id` overrides the scope below it (repository > personal > built-in). Forking is the agent copying a file
-into a higher scope. Weavie treats every opened folder as trusted, so repository workflows run like any repository
+A matching `id` in a more specific scope overrides a less specific one: a repository applies to one project, personal
+to every project, built-in to everyone (repository > personal > built-in). Forking is the agent copying a file into a
+more specific scope. A shadowed workflow stays visible in `listWorkflows` and the picker, labelled with what shadows it. Weavie treats every opened folder as trusted, so repository workflows run like any repository
 file; a trust flag for repositories is deferred.
 
 ### Authoring
@@ -165,7 +166,10 @@ flowchart LR
 
 - Checks run **only** on `completeStage`, never on turn end.
 - A check is a step that returns `pass` or `fail` with a reason. What it can verify depends on what runs it: the
-  default (a fork of the session's agent) can run tests; a tool-less model can only judge text.
+  default (a fork of the session's agent) can inspect the worktree; a tool-less model can only judge text.
+- A check confirms state, it doesn't redo work: "the tests the agent ran are green and everything is pushed", not
+  "run the full suite". Long work belongs in `do`. A check that runs long is a defect in the workflow, and run
+  history shows its duration.
 - Rejections count toward `workflow.maxStageAttempts`; hitting it pauses the run and notifies the user.
 - `failStage` pauses the run with the reason.
 - **Finish Stage** asks the agent to wrap up and call `completeStage`; the check still runs. **Skip Stage** advances
@@ -213,8 +217,24 @@ All unbound by default and reachable from the palette, user keybindings, and age
 Workflow**, **Approve Stage**, **Reject Stage** (with feedback), **Finish Stage**, **Skip Stage**, **Retry Stage**,
 **Jump to Stage**, **Pause Run**, **Resume Run**, **Cancel Run**, **Improve This Workflow**.
 
-The session's stage strip shows the run chain (`spec-driven › implement (3/7) › quick-fix › implement`), its state,
-outputs (links, videos, PR), and Approve/Reject with their shortcuts.
+Every run command takes an explicit run id; a card or strip that shows a run registers the handler for it, so a
+shortcut never acts on whichever run happens to be newest.
+
+## Visualizing a run
+
+The run's live state is shown at three depths, each in a surface the session already has:
+
+- **Session rail and session panel** — one line under the session: workflow, current stage, state
+  (`ship-task · review · waiting on you`). A parent with `new-session` children shows progress (`build 3/7`).
+- **Run strip** — a slim bar above the session's agent pane: the run chain as breadcrumbs
+  (`spec-driven › implement (3/7) › quick-fix › implement`), the state, and links to outputs (spec, videos, PR).
+  Activating it opens the run panel.
+- **Run panel** — on demand: every stage with status, attempts, and check reasons; outputs; `foreach` items with their
+  child sessions (each one jumps to its session); the run commands with their shortcuts.
+
+Decisions that need the user appear where they're already looking — in the agent pane, as conversation cards like
+permission requests: approve / reject-with-feedback for a gate, and pick-a-choice for an `unsure` decision. Forked and
+fresh steps appear as background-work cards. The workflow *definition* is viewed as its YAML in the editor.
 
 ## Run history and suggestions
 
@@ -429,5 +449,6 @@ can already ask the agent to use one.
 ## Open questions
 
 - YAML parsing under Native AOT: the repo has no YAML dependency yet.
-- Long checks (a multi-minute suite) may exceed an MCP call; the result may need to arrive as the agent's next prompt.
+- `completeStage` waits for its check. Claude over ACP aborts an HTTP MCP call that sends no response headers within
+  60s, so the response must stream (SSE) rather than return headers only when the check finishes.
 - Fork support for terminal Claude: `--fork-session` starts a separate process outside the PTY pane.

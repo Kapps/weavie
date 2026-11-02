@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientSession, HostConnection } from "../bridge";
+import type { ClientSession, HostConnection, SessionRun } from "../bridge";
 import type { SessionCatalogEntry } from "../messaging/host-connection";
 import type { RailSession } from "./session-store";
 
@@ -27,6 +27,7 @@ const harness = vi.hoisted(() => ({
       client: ClientSession;
       status?: (payload: { status: string }) => void;
       activity?: (payload: { activity: string | null }) => void;
+      run?: (payload: { run: SessionRun | null }) => void;
     }
   >(),
   selectionListeners: [] as Array<(session: ClientSession | null) => void>,
@@ -119,6 +120,7 @@ function session(
   client: ClientSession;
   status?: (payload: { status: string }) => void;
   activity?: (payload: { activity: string | null }) => void;
+  run?: (payload: { run: SessionRun | null }) => void;
 } {
   const key = `${backendId}\u0000${slot}`;
   const existing = harness.sessions.get(key);
@@ -129,6 +131,7 @@ function session(
     client: ClientSession;
     status?: (payload: { status: string }) => void;
     activity?: (payload: { activity: string | null }) => void;
+    run?: (payload: { run: SessionRun | null }) => void;
   };
   created.client = {
     connection: connection(backendId).connection,
@@ -139,6 +142,8 @@ function session(
           created.status = handler as (payload: { status: string }) => void;
         } else if (feature === "status" && name === "activity") {
           created.activity = handler as (payload: { activity: string | null }) => void;
+        } else if (feature === "status" && name === "run") {
+          created.run = handler as (payload: { run: SessionRun | null }) => void;
         }
         return () => {};
       },
@@ -204,6 +209,17 @@ describe("session activity", () => {
   });
 });
 
+describe("session run", () => {
+  it("patches the owning chip, survives a catalog re-push, and clears when the run ends", () => {
+    const run: SessionRun = { id: "r-1", workflow: "quick-fix", stage: "pr", state: "approval" };
+    session("local", "main").run?.({ run });
+    deliverCatalog("local", ["main"]);
+    expect(store.sessions().find((s) => s.id === "main")?.run).toEqual(run);
+    session("local", "main").run?.({ run: null });
+    expect(store.sessions().find((s) => s.id === "main")?.run).toBeNull();
+  });
+});
+
 describe("selected session status", () => {
   it("adopts the selected session's status", () => {
     deliverStatus("local", "main", "working");
@@ -236,6 +252,7 @@ const chip = (id: string, active: boolean): RailSession => ({
   status: "idle",
   title: id,
   activity: null,
+  run: null,
   lastActiveAt: null,
   workspaceCheckout: false,
   external: false,

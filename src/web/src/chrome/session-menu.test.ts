@@ -16,6 +16,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     status: "idle",
     title: "x",
     activity: null,
+    run: null,
     lastActiveAt: null,
     workspaceCheckout: false,
     external: false,

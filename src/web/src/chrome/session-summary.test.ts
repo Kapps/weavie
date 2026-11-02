@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionRun } from "../bridge";
 import type { RailSession } from "./session-store";
 import { panelOrder, sessionGroup, sessionSubtitle } from "./session-summary";
 
@@ -17,6 +18,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   agentInputProtocol: 0,
   status: "idle",
   activity: null,
+  run: null,
   lastActiveAt: null,
   workspaceCheckout: false,
   external: false,
@@ -35,6 +37,20 @@ describe("sessionGroup", () => {
     expect(sessionGroup(session({ status: "waiting" }))).toBe("working");
     expect(sessionGroup(session({ status: "idle" }))).toBe("idle");
     expect(sessionGroup(session({ loaded: false, status: "needsInput" }))).toBe("parked");
+  });
+
+  it("puts a run awaiting approval or paused under Needs you, but not an agent waiting for a reply", () => {
+    const run = (state: SessionRun["state"]): SessionRun => ({
+      id: "r",
+      workflow: "quick-fix",
+      stage: "implement",
+      state,
+    });
+    expect(sessionGroup(session({ run: run("approval") }))).toBe("needs");
+    expect(sessionGroup(session({ run: run("paused") }))).toBe("needs");
+    expect(sessionGroup(session({ run: run("waitingOnYou") }))).toBe("idle");
+    expect(sessionGroup(session({ status: "working", run: run("working") }))).toBe("working");
+    expect(sessionGroup(session({ loaded: false, run: run("approval") }))).toBe("parked");
   });
 });
 
@@ -72,6 +88,23 @@ describe("sessionSubtitle", () => {
     );
     expect(sessionSubtitle(session({ loaded: false, activity: "stale" }), NOW)).toBe("not loaded");
     expect(sessionSubtitle(session({ offline: true }), NOW)).toBe("connection lost");
+  });
+
+  it("leads with the run's stage, then live activity or the run's state", () => {
+    const run: SessionRun = {
+      id: "r",
+      workflow: "quick-fix",
+      stage: "implement",
+      state: "working",
+    };
+    expect(
+      sessionSubtitle(session({ status: "working", activity: "running pnpm test", run }), NOW),
+    ).toBe("implement · running pnpm test");
+    expect(sessionSubtitle(session({ status: "working", run }), NOW)).toBe("implement · working");
+    expect(sessionSubtitle(session({ run: { ...run, state: "approval" } }), NOW)).toBe(
+      "implement · approval needs you",
+    );
+    expect(sessionSubtitle(session({ loaded: false, run }), NOW)).toBe("not loaded");
   });
 
   it("marks a worktree Weavie didn't create", () => {

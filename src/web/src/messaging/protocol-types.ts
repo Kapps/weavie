@@ -31,12 +31,31 @@ export interface SessionChip {
   status: SessionStatusName;
   /** What the agent is doing (`running pnpm test`, `wants to edit App.tsx`), or null when only the status applies. */
   activity: string | null;
+  /** The session's live workflow run, or null when none is running. */
+  run: SessionRun | null;
   /** When the agent last started or finished work (Unix ms), or null if it never has. */
   lastActiveAt: number | null;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
   external: boolean;
+}
+
+export type SessionRunState =
+  | "working"
+  | "waitingOnYou"
+  | "approval"
+  | "watching"
+  | "deciding"
+  | "paused"
+  | "stalled";
+
+/** A live workflow run as the session list shows it. */
+export interface SessionRun {
+  id: string;
+  workflow: string;
+  stage: string;
+  state: SessionRunState;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";

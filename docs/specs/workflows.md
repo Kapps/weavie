@@ -1,6 +1,30 @@
 # Workflows
 
-Status: proposed
+Status: partially built — see [Built so far](#built-so-far).
+
+## Built so far
+
+The first slice runs a workflow end to end in one session, for terminal Claude and native ACP agents alike:
+
+- **Definitions** — YAML from all three scopes (parsed with YamlDotNet's low-level parser, AOT-safe), one field table
+  that drives both the JSON Schema and positioned diagnostics, `listWorkflows` / `getWorkflowSchema` /
+  `validateWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
+  equals its file name.
+- **Fields** — `inputs`, and stages with `when` (text) / `else`, `do` (`prompt` or `skill`, `args`, `outputs`),
+  `gate: approve`, and `next` (stage id, `done`, or a choice step with `max`). Every other field is rejected as an
+  unknown key.
+- **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
+  with `workflow` + `inputs`; the stage block on every turn; `completeStage` / `failStage`; Approve, Reject (with
+  feedback), Resume, Jump to Stage, and Cancel as commands taking the run id. The user approves or rejects by telling
+  the agent, which runs the command.
+- **Decisions** — `when` and choice `next` steps see their prompt and the stage's outputs, answered by the utility
+  model; `unsure`, a failed query, or an answer outside the choices pauses the run.
+- **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run awaiting approval or
+  paused sits under *Needs you*.
+
+Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
+`wait`, milestones), the confidence threshold, the new-session workflow picker, the run header and run view, run
+history, and suggestions.
 
 ## Purpose
 
@@ -90,7 +114,7 @@ stages: [<stage>]
 | `do` | the work step |
 | `check` | step that must pass when the stage completes (see [Completing a stage](#completing-a-stage)) |
 | `gate: approve` | the user approves (or rejects with feedback) before the run advances |
-| `next` | a stage id, `done`, or a choice step whose `choices` map to stage ids / `done`; `max: N` caps how often this transition loops |
+| `next` | a stage id, `done`, or a choice step whose `choices` map to stage ids / `done`; `max: N` caps how often each `stage → target` edge is taken, and exceeding it pauses the run |
 | `reaches` | milestone reached when the stage completes |
 | `workflow` + `args` | run another workflow as this stage |
 | `in` | `here` (this session) or `new-session` (Weavie creates a linked session). Required with `workflow`. |
@@ -290,8 +314,8 @@ rejected at one stage.
 
 ## Naming
 
-Today's bundled instruction prompts (`report-weavie-bug`, `request-weavie-feature`, workspace setup) and the
-`runWorkflow` tool are renamed to **prompts** / `runPrompt` in a separate change first, freeing "workflow".
+Bundled instruction prompts (`report-weavie-bug`, `request-weavie-feature`, workspace setup) are **prompts**, started
+through `runPrompt`; "workflow" means only this feature.
 
 ## Built-in examples
 
@@ -466,9 +490,12 @@ Full-stack on `headless` ([integration-testing-strategy.md](integration-testing-
 1. **quick-fix** — a check fails, the reason reaches the agent, the retry passes, the `pr` output is recorded.
 2. **spec-driven** — each gate blocks until approval; a rejection with feedback reopens the stage; `foreach … in: here`
    walks three tasks with per-item progress in the strip.
-3. **ship-task** — the review loop runs `fix` twice then pauses at `max`; resuming reaches `pr-ready`; the `respond`
+3. **ship-task** — the review loop takes `review → fix` three times and pauses on the fourth (`max: 3`); resuming reaches `pr-ready`; the `respond`
    stage shows `watching` while the agent holds background work.
 4. **diagnose** — the routing decision picks `quick`; an `unsure` answer pauses the run instead of advancing.
+5. **status line** (`workflow-status-line.spec.ts`, built) — a fake-ACP session runs a gated two-stage repository
+   workflow; its line moves through `implement · …`, `implement · waiting on you`, `implement · approval needs you`
+   under *Needs you*, `ship · waiting on you`, and back to idle when the run ends.
 
 ## Deferred
 
@@ -482,7 +509,6 @@ can already ask the agent to use one.
 
 ## Open questions
 
-- YAML parsing under Native AOT: the repo has no YAML dependency yet.
 - `completeStage` waits for its check. Claude over ACP aborts an HTTP MCP call that sends no response headers within
   60s, so the response must stream (SSE) rather than return headers only when the check finishes.
 - Fork support for terminal Claude: `--fork-session` starts a separate process outside the PTY pane.

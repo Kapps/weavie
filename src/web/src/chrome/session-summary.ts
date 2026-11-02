@@ -1,3 +1,4 @@
+import type { SessionRunState } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -19,6 +20,9 @@ export function sessionGroup(session: RailSession): SessionGroup {
   if (!session.loaded) {
     return "parked";
   }
+  if (session.run !== null && RUN_NEEDS_USER.has(session.run.state)) {
+    return "needs";
+  }
   switch (session.status) {
     case "needsInput":
     case "error":
@@ -37,6 +41,19 @@ export function panelOrder(sessions: RailSession[]): RailSession[] {
   return [...sessions].sort((a, b) => rank(a) - rank(b));
 }
 
+// A run waiting on an approval or paused for the user needs them; an idle agent asking a question doesn't move.
+const RUN_NEEDS_USER: ReadonlySet<SessionRunState> = new Set(["approval", "paused"]);
+
+const RUN_PHRASE: Record<SessionRunState, string> = {
+  working: "working",
+  waitingOnYou: "waiting on you",
+  approval: "approval needs you",
+  watching: "watching in background",
+  deciding: "deciding",
+  paused: "paused",
+  stalled: "stalled",
+};
+
 const STATUS_PHRASE: Record<RailSession["status"], string> = {
   starting: "starting",
   working: "working",
@@ -46,13 +63,18 @@ const STATUS_PHRASE: Record<RailSession["status"], string> = {
   error: "crashed",
 };
 
-/** The line under a session's name: what its agent is doing, else its state and how long ago it was active. */
+/** The line under a session's name: its run's stage, else what its agent is doing, else its state and age. */
 export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.offline) {
     return "connection lost";
   }
   // Status arrives before the coalesced activity, so a line is shown only while it can still be current.
   const busy = session.status === "working" || session.status === "needsInput";
+  if (session.loaded && session.run !== null) {
+    const doing =
+      busy && session.activity !== null ? session.activity : RUN_PHRASE[session.run.state];
+    return `${session.run.stage} · ${doing}`;
+  }
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;
   }

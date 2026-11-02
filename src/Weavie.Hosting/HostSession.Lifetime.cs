@@ -11,6 +11,7 @@ public sealed partial class HostSession {
 
 	private async Task DisposeCoreAsync() {
 		DiscardInitialInput();
+		DisposeWorkflow();
 		var failures = new List<Exception>();
 		await DisposeStepAsync(failures, "message admission", () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file observation", FileActivity.StopObservingAsync).ConfigureAwait(false);

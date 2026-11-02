@@ -59,6 +59,8 @@ internal sealed partial class AcpConversation {
 
 		if (_spec.Side) {
 			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
+		} else if (_context.TurnContext.Compose() is { Length: > 0 } turnContext) {
+			blocks.Add(AcpContent.AssistantText(turnContext));
 		}
 
 		return new([.. blocks], images);

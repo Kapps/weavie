@@ -107,6 +107,7 @@ public sealed partial class HostCore {
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 		WireReviewHints(session);
+		WireWorkflow(session);
 		WireSpelling(session);
 
 		WireFileActivity(session);
@@ -659,12 +660,21 @@ public sealed partial class HostCore {
 		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
+		if (request.Workflow is { } workflow) {
+			if (input is not null) {
+				return Task.FromResult(CommandResult.Failure("A new session starts either a workflow or a prompt, not both."));
+			}
+			input = InitialSessionInput.ForWorkflow(new WorkflowStart(workflow, request.Inputs ?? EmptyInputs));
+		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
 		_global.RememberDefaultProvider(provider);
 		return GatedAsync(_sessionCatalog, async () => {
 			SessionSlot? source = null;
 			if (sourceAddress is not null && (source = await CurrentSourceAsync(sourceAddress, ct).ConfigureAwait(false)) is null) {
 				return SourceGone();
+			}
+			if (input?.Workflow is { } start && WorkflowStartError(source, start) is { } refusal) {
+				return refusal;
 			}
 
 			return await (request.Existing
@@ -1199,7 +1209,7 @@ public sealed partial class HostCore {
 	private static CommandResult? ExistingSessionInputError(InitialSessionInput? input) =>
 		input is null
 			? null
-			: CommandResult.Failure("A prompt or images can't be submitted when opening a session that already exists.");
+			: CommandResult.Failure("A prompt, images, or a workflow can't be submitted when opening a session that already exists.");
 
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
@@ -1229,7 +1239,9 @@ public sealed partial class HostCore {
 				};
 				sessions.Add(slot);
 				PushSessionList();
-				if (input is not null) {
+				if (input?.Workflow is { } workflow) {
+					slot.Session.Workflow.Start(workflow.Id, workflow.Inputs);
+				} else if (input is not null) {
 					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
 				ActivateSessionRuntimeAndMessages(slot.Session);
@@ -1312,13 +1324,17 @@ public sealed partial class HostCore {
 		string Extension,
 		byte[] Bytes);
 
-	private sealed record InitialSessionInput(string Text, IReadOnlyList<InitialSessionAttachment> Attachments) {
+	// A new session's first input: a prompt with images, or a workflow whose first stage is the opening turn.
+	private sealed record InitialSessionInput(
+		string Text, IReadOnlyList<InitialSessionAttachment> Attachments, WorkflowStart? Workflow) {
 		public static InitialSessionInput? Create(
 			string? text,
 			IReadOnlyList<InitialSessionAttachment> attachments) =>
 			string.IsNullOrWhiteSpace(text) && attachments.Count == 0
 				? null
-				: new InitialSessionInput(text?.Trim() ?? string.Empty, attachments);
+				: new InitialSessionInput(text?.Trim() ?? string.Empty, attachments, null);
+
+		public static InitialSessionInput ForWorkflow(WorkflowStart workflow) => new(string.Empty, [], workflow);
 
 		public static InitialSessionInput? FromText(string? text) => Create(text, []);
 	}

@@ -5,8 +5,8 @@ namespace Weavie.Core.Workflows;
 
 /// <summary>What a session's runner needs from its owner: deliver turns and tell the user.</summary>
 public interface IWorkflowRunPort {
-	/// <summary>Sends <paramref name="text"/> to the session's agent as its next turn, once it can take one.</summary>
-	void Kickoff(string text);
+	/// <summary>Sends <paramref name="turn"/> to the session's agent as its next turn, once it can take one.</summary>
+	void Kickoff(WorkflowKickoff turn);
 
 	/// <summary>Shows <paramref name="message"/> to the user.</summary>
 	void Notify(string message);
@@ -141,9 +141,9 @@ public sealed class WorkflowRunner : IDisposable {
 	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
 
 	/// <summary>Records that the owed kickoff turn was handed to the agent.</summary>
-	public void KickoffDelivered(string text) {
+	public void KickoffDelivered(WorkflowKickoff turn) {
 		lock (_gate) {
-			if (_run?.Kickoff == text) {
+			if (_run?.Kickoff == turn) {
 				Commit(_run with { Kickoff = null }, []);
 			}
 		}
@@ -185,7 +185,7 @@ public sealed class WorkflowRunner : IDisposable {
 		_store.Save(run);
 		foreach (var effect in effects) {
 			switch (effect) {
-				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Text); break;
+				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
 				case WorkflowEffect.Notify notify: _port.Notify(notify.Message); break;
 				case WorkflowEffect.Decide decide: _pending = new PendingDecision(this, decide.Request); break;
 			}

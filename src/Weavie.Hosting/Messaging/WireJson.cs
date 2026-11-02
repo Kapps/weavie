@@ -79,6 +79,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.SessionCatalogEntry[]))]
 [JsonSerializable(typeof(SessionStatusChanged))]
 [JsonSerializable(typeof(SessionActivityChanged))]
+[JsonSerializable(typeof(SessionRunChanged))]
 [JsonSerializable(typeof(SourceEditError))]
 [JsonSerializable(typeof(SuggestionsChanged))]
 [JsonSerializable(typeof(PaneFocus))]

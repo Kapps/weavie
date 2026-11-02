@@ -545,6 +545,7 @@ public sealed partial class AgentSessionHostTests {
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
 				AuthenticationTerminal = authenticationTerminal,
+				TurnContext = AgentTurnContext.None,
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),

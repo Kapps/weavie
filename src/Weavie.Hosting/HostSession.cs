@@ -220,6 +220,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 				workspaceRoot,
 				authenticationTerminalLogPath)
 			: UnavailableAgentAuthenticationTerminal.Instance;
+		WorkflowCatalog = new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir);
+		Workflow = CreateWorkflowRunner(fileSystem, settings, inference, workspaceRoot);
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
@@ -235,7 +237,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			() => SlotId,
 			agentConsultation,
 			ReviewHints,
-			WorkflowRegistry.AuthoringOnly(new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir)));
+			new SessionWorkflowRegistry(WorkflowCatalog, Workflow));
 
 		Agent = new AgentSessionHost(
 			agentProvider,
@@ -250,6 +252,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 				AuthenticationTerminal = authenticationTerminal,
+				TurnContext = new WorkflowTurnContext(this),
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
@@ -284,6 +287,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		WireMessages(inputFrozen, acceptTerminalInput);
+		Workflow.Activate();
 	}
 
 	/// <summary>This live backend incarnation.</summary>
@@ -298,6 +302,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Starts this session's structured runtime and advertises its bus after its exact address enters
 	/// the host catalog.</summary>
 	internal void ActivateOwnedRuntimeAndMessages() {
+		MarkRuntimeActivated();
 		_endpoint.Activate();
 		_ = Background.Run(RunWorkspaceObservationAsync);
 		Agent.StartStructured();

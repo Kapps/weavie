@@ -79,6 +79,9 @@ public sealed record AgentSessionContext {
 
 	/// <summary>The host-owned visible terminal used for standard ACP terminal authentication.</summary>
 	public required IAgentAuthenticationTerminal AuthenticationTerminal { get; init; }
+
+	/// <summary>The context attached to every primary-conversation turn.</summary>
+	public required IAgentTurnContext TurnContext { get; init; }
 }
 
 /// <summary>Creates provider sessions without exposing provider protocols to the host composition.</summary>

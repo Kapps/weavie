@@ -426,6 +426,9 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(
 			StatePath("prompts.log"),
 			$"{_sessionId}:{text}{Environment.NewLine}");
+		foreach (string? context in AssistantContext(prompt)) {
+			File.AppendAllText(StatePath("assistant-context.log"), $"{_sessionId}:{context}{Environment.NewLine}");
+		}
 		var mcpPrompt = McpPromptCatalog.All.FirstOrDefault(candidate => text.StartsWith(candidate.Text, StringComparison.Ordinal));
 		if (mcpPrompt is not null) {
 			Message($"Received Weavie MCP prompt: {mcpPrompt.Name}. Deterministic fixture acknowledgment only; no action or report submitted.");
@@ -539,8 +542,8 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 			Message("echo: " + text);
 		} else if (text == "image") Message("image=" + prompt.EnumerateArray().Any(
 			  block => AcpJson.OptionalString(block, "type") == "image"));
-		else if (text.StartsWith(ReviewHintPrefix, StringComparison.Ordinal)) {
-			await AddReviewHintAsync(text[ReviewHintPrefix.Length..], ct).ConfigureAwait(false);
+		else if (text.StartsWith(WeavieToolPrefix, StringComparison.Ordinal)) {
+			await CallWeavieToolAsync(text[WeavieToolPrefix.Length..], ct).ConfigureAwait(false);
 		} else if (text == "crash") Environment.Exit(19);
 		else {
 			File.AppendAllText(TranscriptPath(_sessionId!), JsonSerializer.Serialize(prompt) + Environment.NewLine);
@@ -1428,10 +1431,19 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}
 	}
 
-	private static string PromptText(JsonElement prompt) => string.Concat(prompt.EnumerateArray()
-		.Where(block => AcpJson.OptionalString(block, "type") == "text")
-		.Select(block => AcpJson.OptionalString(block, "text"))
-		.Where(text => text != EmbeddedAgentGuidance.SideConversationInstructions));
+	// The user's text: assistant-audience blocks are Weavie's context for the model, not the prompt.
+	private static string PromptText(JsonElement prompt) => string.Concat(TextBlocks(prompt, assistant: false));
+
+	private static IEnumerable<string?> AssistantContext(JsonElement prompt) => TextBlocks(prompt, assistant: true);
+
+	private static IEnumerable<string?> TextBlocks(JsonElement prompt, bool assistant) => prompt.EnumerateArray()
+		.Where(block => AcpJson.OptionalString(block, "type") == "text" && IsAssistantAudience(block) == assistant)
+		.Select(block => AcpJson.OptionalString(block, "text"));
+
+	private static bool IsAssistantAudience(JsonElement block) =>
+		block.TryGetProperty("annotations", out var annotations)
+		&& annotations.TryGetProperty("audience", out var audience)
+		&& audience.EnumerateArray().Any(entry => entry.GetString() == "assistant");
 
 	private static string? ResourceUri(JsonElement block) =>
 		block.TryGetProperty("resource", out var resource) ? AcpJson.OptionalString(resource, "uri") : null;

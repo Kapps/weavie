@@ -23,6 +23,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		SettingsStore settings,
 		EditorStore editor,
 		HostRuntimeInfo runtime,
+		IAgentTurnContext turnContext,
 		Func<HookRequest, AgentEventFeedback> observe,
 		Action<HookRequest, HookDecision> decided) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -32,6 +33,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(runtime);
+		ArgumentNullException.ThrowIfNull(turnContext);
 		ArgumentNullException.ThrowIfNull(observe);
 		ArgumentNullException.ThrowIfNull(decided);
 		_registry = registry;
@@ -50,7 +52,10 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 				var decision = HookPolicy.Decide(
 					request, settings.RequireBool(AgentSettings.AllowAllPermissions));
 				string? message = feedback.Messages.FirstOrDefault();
-				return message is null ? decision : decision with { SystemMessage = message };
+				if (message is not null) decision = decision with { SystemMessage = message };
+				return request.Event == HookEventKind.UserPromptSubmit
+					? decision with { AdditionalContext = turnContext.Compose() }
+					: decision;
 			});
 		HookBridge.Decided += decided;
 		HookBridge.Start();

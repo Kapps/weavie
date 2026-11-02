@@ -115,7 +115,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		_port.Kickoffs.Clear();
 		using (var reloaded = Runner()) {
 			Assert.Equal(["do a"], _port.Kickoffs);
-			reloaded.KickoffDelivered("do a");
+			reloaded.KickoffDelivered(WorkflowKickoff.Prompt("do a"));
 		}
 
 		_port.Kickoffs.Clear();
@@ -192,7 +192,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 
 		public List<string> Notices { get; } = [];
 
-		public void Kickoff(string text) => Kickoffs.Add(text);
+		public void Kickoff(WorkflowKickoff turn) => Kickoffs.Add(turn.Text);
 
 		public void Notify(string message) => Notices.Add(message);
 	}

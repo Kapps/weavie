@@ -504,9 +504,9 @@ test("an ACP agent's addReviewHint renders", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-review-hint");
   await submitAcpDraft(
     surface,
-    `review-hint:${JSON.stringify({ path: "notes.txt", line: 1, severity: "bug", text: "ACP finding\nDetails" })}`,
+    `mcp:addReviewHint:${JSON.stringify({ path: "notes.txt", line: 1, severity: "bug", text: "ACP finding\nDetails" })}`,
   );
-  await expect(surface).toContainText("review hint: Hint added at notes.txt:1.");
+  await expect(surface).toContainText("addReviewHint: Hint added at notes.txt:1.");
   await openFile(page, "notes.txt");
   await expect(page.locator(".weavie-hint-pill")).toHaveText("✦ Bug ACP finding");
   await page.locator(".weavie-hint-mark").click();

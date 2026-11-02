@@ -73,9 +73,21 @@ public sealed record WorkflowRun {
 	public required string? PausedReason { get; init; }
 
 	/// <summary>The turn Weavie still owes the agent for the current stage, or <see langword="null"/> once delivered.</summary>
-	public required string? Kickoff { get; init; }
+	public required WorkflowKickoff? Kickoff { get; init; }
 
 	/// <summary>Whether the run has ended.</summary>
 	[JsonIgnore]
 	public bool IsFinished => Phase is WorkflowPhase.Done or WorkflowPhase.Cancelled;
+}
+
+/// <summary>A turn Weavie owes the agent: a prompt, or a provider command (a skill) with its arguments.</summary>
+public sealed record WorkflowKickoff {
+	/// <summary>The turn's full text; a command's starts with <c>/</c> and its name.</summary>
+	public required string Text { get; init; }
+
+	/// <summary>The provider command (skill) name, or empty for an ordinary prompt.</summary>
+	public required string Command { get; init; }
+
+	/// <summary>An ordinary prompt.</summary>
+	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "" };
 }

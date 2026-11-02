@@ -486,3 +486,6 @@ can already ask the agent to use one.
 - `completeStage` waits for its check. Claude over ACP aborts an HTTP MCP call that sends no response headers within
   60s, so the response must stream (SSE) rather than return headers only when the check finishes.
 - Fork support for terminal Claude: `--fork-session` starts a separate process outside the PTY pane.
+- Skill stages on ACP agents: a provider command is sent as one isolated text block, so a `skill` stage's opening
+  turn carries no stage block; the block reaches the agent on its next turn. Whether claude-agent-acp and codex-acp
+  still recognise a command followed by an assistant-audience block is unverified against the real agents.

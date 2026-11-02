@@ -44,7 +44,7 @@ public sealed class WorkflowTransitionsTests {
 	private static WorkflowDecisionRequest Decision(WorkflowStep step) =>
 		Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Request;
 
-	private static string Kickoff(WorkflowStep step) => Assert.IsType<WorkflowEffect.Kickoff>(Assert.Single(step.Effects)).Text;
+	private static string Kickoff(WorkflowStep step) => Assert.IsType<WorkflowEffect.Kickoff>(Assert.Single(step.Effects)).Turn.Text;
 
 	private static WorkflowStep OpenPlan() => Machine.Resolve(Started().Run, WorkflowDecisionResult.Chose("yes"));
 
@@ -64,7 +64,7 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Equal(("plan", WorkflowPhase.Open, "plan auth"), (yes.Run.Stage, yes.Run.Phase, Kickoff(yes)));
 		var no = OpenBuild();
 		Assert.Equal(("build", "/implement auth"), (no.Run.Stage, Kickoff(no)));
-		Assert.Equal("/implement auth", no.Run.Kickoff);
+		Assert.Equal(new WorkflowKickoff { Text = "/implement auth", Command = "implement" }, no.Run.Kickoff);
 	}
 
 	[Fact]

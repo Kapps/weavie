@@ -213,6 +213,35 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ClaudeIntegration_AttachesTheTurnContextToSubmittedPrompts() {
+		using var store = NewStore();
+		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
+		await using var ide = new Weavie.Core.Agents.Claude.ClaudeIdeIntegration(
+			registry,
+			FakeDiffPresenter.AlwaysKeep(),
+			[_dir.Path],
+			"weavie",
+			store,
+			new EditorStore(),
+			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			new FixedTurnContext("[Weavie workflow] stage build"),
+			_ => Weavie.Core.Agents.AgentEventFeedback.None,
+			(_, _) => { });
+
+		using var client = new System.IO.Pipes.NamedPipeClientStream(
+			".", Weavie.Core.Hooks.HookProtocol.PipeName(ide.Port), System.IO.Pipes.PipeDirection.InOut,
+			System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+		await client.ConnectAsync(5000);
+		await Weavie.Core.Hooks.HookProtocol.WriteFramedAsync(
+			client, Encoding.UTF8.GetBytes("""{"hook_event_name":"UserPromptSubmit","session_id":"s","prompt":"go"}"""), CancellationToken.None);
+		byte[] reply = await Weavie.Core.Hooks.HookProtocol.ReadFramedAsync(client, CancellationToken.None) ?? [];
+
+		using var output = JsonDocument.Parse(reply);
+		Assert.Equal("[Weavie workflow] stage build",
+			output.RootElement.GetProperty("hookSpecificOutput").GetProperty("additionalContext").GetString());
+	}
+
+	[Fact]
 	public async Task ClaudeIntegration_WritesPortScopedRegistryConfig() {
 		using var store = NewStore();
 		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
@@ -224,6 +253,7 @@ public sealed class RegistryMcpTests : IDisposable {
 			store,
 			new EditorStore(),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			Weavie.Core.Agents.AgentTurnContext.None,
 			_ => Weavie.Core.Agents.AgentEventFeedback.None,
 			(_, _) => { });
 
@@ -329,9 +359,13 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		string personal = Path.Combine(_dir.Path, "personal");
 		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
+		var catalog = new WorkflowCatalog(_dir.Path, personal);
+		using var runner = new WorkflowRunner(
+			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
+			new UnusedDecider(), new UnusedPort(), () => 3, _dir.Path);
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
-			workflows: WorkflowRegistry.AuthoringOnly(new WorkflowCatalog(_dir.Path, personal)));
+			workflows: new SessionWorkflowRegistry(catalog, runner));
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -436,5 +470,20 @@ public sealed class RegistryMcpTests : IDisposable {
 		};
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 		return await client.SendAsync(request);
+	}
+
+	private sealed class UnusedDecider : IWorkflowDecider {
+		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) =>
+			throw new InvalidOperationException("No decision is expected.");
+	}
+
+	private sealed class UnusedPort : IWorkflowRunPort {
+		public void Kickoff(WorkflowKickoff turn) => throw new InvalidOperationException("No kickoff is expected.");
+
+		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
+	}
+
+	private sealed class FixedTurnContext(string text) : Weavie.Core.Agents.IAgentTurnContext {
+		public string Compose() => text;
 	}
 }

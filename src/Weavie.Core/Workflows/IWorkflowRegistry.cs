@@ -18,13 +18,10 @@ public interface IWorkflowRegistry {
 	void FailStage(string reason);
 }
 
-/// <summary>Workflow registries for servers that have none, or that only author workflows.</summary>
+/// <summary>The registry for MCP servers without workflows.</summary>
 public static class WorkflowRegistry {
 	/// <summary>A registry for MCP servers that never advertise the workflow tools; every call is a tool error.</summary>
 	public static IWorkflowRegistry None { get; } = new Unavailable();
-
-	/// <summary>A registry that lists and validates <paramref name="catalog"/>'s workflows but has no runs.</summary>
-	public static IWorkflowRegistry AuthoringOnly(WorkflowCatalog catalog) => new Authoring(catalog);
 
 	private sealed class Unavailable : IWorkflowRegistry {
 		public IReadOnlyList<WorkflowCatalogEntry> List() => throw Error();
@@ -36,18 +33,6 @@ public static class WorkflowRegistry {
 		public void FailStage(string reason) => throw Error();
 
 		private static ToolUnavailableException Error() => new("Workflows are not available.");
-	}
-
-	private sealed class Authoring(WorkflowCatalog catalog) : IWorkflowRegistry {
-		public IReadOnlyList<WorkflowCatalogEntry> List() => catalog.List();
-
-		public IReadOnlyList<WorkflowDiagnostic> Validate(string path) => catalog.Validate(path);
-
-		public string CompleteStage(JsonElement outputs) => throw NoRun();
-
-		public void FailStage(string reason) => throw NoRun();
-
-		private static WorkflowException NoRun() => new("No workflow run is live in this session.");
 	}
 }
 

@@ -83,6 +83,41 @@ public sealed class InitialTerminalInputTests : IDisposable {
 		Assert.Empty(_launcher.LastTerminal!.Writes);
 	}
 
+	[Fact]
+	public async Task WorkflowStages_ReachALiveTerminalAgentAsTypedTurnsOnceItIsIdle() {
+		Directory.CreateDirectory(_dir.Combine(".weavie", "workflows"));
+		File.WriteAllText(_dir.Combine(".weavie", "workflows", "flow.yaml"), """
+			id: flow
+			description: two stages
+			stages:
+			  - id: one
+			    do: { prompt: "first stage" }
+			  - id: two
+			    do: { prompt: "second stage" }
+			""");
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+		var provider = new FakeTerminalAgentProvider(_dir.Path);
+		await using var session = CreateSession(settings, provider);
+		session.Claude!.OnReady(80, 24);
+
+		session.Workflow.Start("flow", JsonDocument.Parse("{}").RootElement);
+		Assert.Empty(_launcher.LastTerminal!.Writes);
+		session.Status.Observe(new AgentSessionStarted("startup"));
+		await TypedAsync("first stage");
+
+		session.Workflow.CompleteStage(JsonDocument.Parse("{}").RootElement);
+		await TypedAsync("second stage");
+		Assert.Null(provider.Session!.FirstTurn);
+		for (int i = 0; i < 500 && session.Workflow.Current!.Kickoff is not null; i++) await Task.Delay(10);
+		Assert.Null(session.Workflow.Current!.Kickoff);
+	}
+
+	private async Task TypedAsync(string text) {
+		string Typed() => string.Concat(_launcher.LastTerminal!.Writes.Select(System.Text.Encoding.UTF8.GetString));
+		for (int i = 0; i < 500 && !Typed().Contains(text, StringComparison.Ordinal); i++) await Task.Delay(10);
+		Assert.Contains(text, Typed(), StringComparison.Ordinal);
+	}
+
 	private static AgentTurnSubmission Input(string text, params AgentInputAttachment[] attachments) =>
 		new() {
 			Id = "initial",

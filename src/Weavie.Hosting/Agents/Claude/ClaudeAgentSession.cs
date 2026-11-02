@@ -23,7 +23,8 @@ public sealed class ClaudeAgentSession : ITerminalAgentSession {
 		IDiffPresenter presenter,
 		EditorStore editor,
 		HostRuntimeInfo runtime,
-		IAgentEventSink events) {
+		IAgentEventSink events,
+		IAgentTurnContext turnContext) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
 		ArgumentNullException.ThrowIfNull(sessions);
@@ -33,10 +34,11 @@ public sealed class ClaudeAgentSession : ITerminalAgentSession {
 		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(runtime);
 		ArgumentNullException.ThrowIfNull(events);
+		ArgumentNullException.ThrowIfNull(turnContext);
 		_events = events;
 		Registry = registry;
 		Ide = new ClaudeIdeIntegration(
-			registry, presenter, [workspace], "weavie", settings, editor, runtime, ObserveHook, ObserveDecision);
+			registry, presenter, [workspace], "weavie", settings, editor, runtime, turnContext, ObserveHook, ObserveDecision);
 		Ide.Server.Log += Tagged("[mcp]");
 		Ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");

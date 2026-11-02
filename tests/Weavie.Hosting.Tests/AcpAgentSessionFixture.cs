@@ -41,8 +41,12 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		AcpAgentSession session,
 		RecordingAgentEventSink events,
 		IAgentAuthenticationTerminal authenticationTerminal,
-		ReviewHintStore reviewHints) {
+		ReviewHintStore reviewHints,
+		WorkflowRunner workflow,
+		RecordingWorkflowPort workflowPort) {
 		_directory = directory;
+		Workflow = workflow;
+		WorkflowKickoffs = workflowPort.Kickoffs;
 		ReviewHints = reviewHints;
 		_settings = settings;
 		_keybindings = keybindings;
@@ -63,6 +67,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
 	public ReviewHintStore ReviewHints { get; }
+	public WorkflowRunner Workflow { get; }
+	public ConcurrentQueue<WorkflowKickoff> WorkflowKickoffs { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace => _directory.Combine("workspace");
@@ -388,6 +394,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			directory.Combine("keybindings.json"),
 			enableWatcher: false);
 		var editor = new EditorStore();
+		var workflowCatalog = new WorkflowCatalog(workspace, directory.Combine("personal-workflows"));
+		var workflowPort = new RecordingWorkflowPort();
+		var workflow = new WorkflowRunner(
+			workflowCatalog, new WorkflowRunStore(fileSystem, directory.Combine("workflow-run.json")),
+			new UnusedWorkflowDecider(), workflowPort, () => 3, workspace);
 		var reviewHints = new ReviewHintStore(fileSystem, workspace, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
@@ -404,7 +415,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			static () => "test-session",
 			AgentConsultation.None,
 			reviewHints,
-			WorkflowRegistry.None);
+			new SessionWorkflowRegistry(workflowCatalog, workflow));
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
@@ -439,6 +450,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 				Events = events,
 				CurrentSessionId = static () => "test-session",
 				AuthenticationTerminal = authenticationTerminal,
+				TurnContext = new WorkflowStageContext(workflow),
 			},
 			launches(definition),
 			store,
@@ -453,7 +465,9 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			session,
 			events,
 			authenticationTerminal,
-			reviewHints);
+			reviewHints,
+			workflow,
+			workflowPort);
 	}
 
 	internal static void SeedSession(AcpSessionStore store, string provider, string workspace, string sessionId, long turnNumber) =>
@@ -524,6 +538,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Session.DisposeAsync().ConfigureAwait(false);
+		Workflow.Dispose();
 		await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
 		_keybindings.Dispose();
 		_settings.Dispose();
@@ -665,4 +680,22 @@ internal sealed class RecordingAgentEventBlock(Func<AgentEvent, bool> matches) {
 	public void Enter() => _entered.TrySetResult();
 	public void Release() => _released.TrySetResult();
 	public void WaitForRelease() => _released.Task.GetAwaiter().GetResult();
+}
+
+internal sealed class RecordingWorkflowPort : IWorkflowRunPort {
+	public ConcurrentQueue<WorkflowKickoff> Kickoffs { get; } = new();
+
+	public void Kickoff(WorkflowKickoff turn) => Kickoffs.Enqueue(turn);
+
+	public void Notify(string message) {
+	}
+}
+
+internal sealed class UnusedWorkflowDecider : IWorkflowDecider {
+	public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) =>
+		throw new InvalidOperationException("No decision is expected.");
+}
+
+internal sealed class WorkflowStageContext(WorkflowRunner runner) : IAgentTurnContext {
+	public string Compose() => runner.StageBlock();
 }

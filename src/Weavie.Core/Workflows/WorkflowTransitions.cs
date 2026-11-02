@@ -70,7 +70,7 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 	/// <summary>The user rejects the stage awaiting approval; the stage reopens with their feedback.</summary>
 	public WorkflowStep Reject(WorkflowRun run, string feedback) {
 		Require(run, WorkflowPhase.AwaitingApproval, "reject");
-		string kickoff = $"I didn't approve stage \"{run.Stage}\" yet: {feedback}\n\nRevise the work, then call completeStage again.";
+		var kickoff = WorkflowKickoff.Prompt($"I didn't approve stage \"{run.Stage}\" yet: {feedback}\n\nRevise the work, then call completeStage again.");
 		return new WorkflowStep(run with { Phase = WorkflowPhase.Open, Attempts = 0, Kickoff = kickoff }, [new WorkflowEffect.Kickoff(kickoff)]);
 	}
 
@@ -165,7 +165,9 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 			return Pause(run with { Stage = stage.Id }, missing);
 		}
 
-		string kickoff = stage.Do.Skill is { } skill ? $"/{skill} {rendered}".TrimEnd() : rendered;
+		var kickoff = stage.Do.Skill is { } skill
+			? new WorkflowKickoff { Text = $"/{skill} {rendered}".TrimEnd(), Command = skill }
+			: WorkflowKickoff.Prompt(rendered);
 		return new WorkflowStep(
 			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Deciding = null, Attempts = 0, Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);

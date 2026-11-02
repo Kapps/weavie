@@ -2,8 +2,8 @@ namespace Weavie.Core.Workflows;
 
 /// <summary>Something a transition asks the run's owner to do.</summary>
 public abstract record WorkflowEffect {
-	/// <summary>Send <paramref name="Text"/> to the agent as its next turn.</summary>
-	public sealed record Kickoff(string Text) : WorkflowEffect;
+	/// <summary>Send <paramref name="Turn"/> to the agent as its next turn.</summary>
+	public sealed record Kickoff(WorkflowKickoff Turn) : WorkflowEffect;
 
 	/// <summary>Ask the decision model <paramref name="Request"/>.</summary>
 	public sealed record Decide(WorkflowDecisionRequest Request) : WorkflowEffect;

@@ -5,7 +5,7 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
 	private readonly Lock _initialInputGate = new();
-	private AgentTurnSubmission? _initialInput;
+	private IdleTurnDelivery? _initialInput;
 	private bool _initialInputAssigned;
 	private bool _acceptInitialInput = true;
 
@@ -32,37 +32,15 @@ public sealed partial class HostSession {
 				return;
 			}
 
-			_initialInput = input;
-			Status.Changed += DeliverInitialInput;
+			_initialInput = new IdleTurnDelivery(Status, new HashSet<SessionStatus> { SessionStatus.Idle }, SendAgentInput);
+			_initialInput.Queue(input);
 		}
-
-		DeliverInitialInput(Status.Status);
-	}
-
-	private void DeliverInitialInput(SessionStatus status) {
-		if (status != SessionStatus.Idle) {
-			return;
-		}
-
-		AgentTurnSubmission? input;
-		lock (_initialInputGate) {
-			if (_initialInput is null || Status.Status != SessionStatus.Idle) {
-				return;
-			}
-
-			input = _initialInput;
-			_initialInput = null;
-			Status.Changed -= DeliverInitialInput;
-		}
-
-		SendAgentInput(input);
 	}
 
 	private void DiscardInitialInput() {
 		lock (_initialInputGate) {
 			_acceptInitialInput = false;
-			_initialInput = null;
-			Status.Changed -= DeliverInitialInput;
+			_initialInput?.Dispose();
 		}
 	}
 }

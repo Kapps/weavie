@@ -85,6 +85,7 @@ internal static class AgentPaneProtocol {
 			message.MediaType,
 			message.MediaData,
 			message.ResourceUri,
+			message.PlanPath,
 			message.Sender);
 	}
 }
@@ -125,6 +126,7 @@ internal sealed record AgentPaneWire(
 	string? MediaType,
 	string? MediaData,
 	string? ResourceUri,
+	string? PlanPath,
 	AgentMessageSender? Sender);
 
 internal sealed record AgentPaneDiffPath(string Path);

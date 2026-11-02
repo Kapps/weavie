@@ -8,12 +8,12 @@ public sealed partial class AgentSessionHost {
 			if (message.Type == "transcript-reset") {
 				ResetPaneLocked();
 				_paneOutput.Reset();
-				PublishPlanDocumentsLocked();
+				PublishPlansLocked();
 				return;
 			}
 
 			_paneOutput.Live(StorePaneMessageLocked(message));
-			if (message.ItemType == "plan" || message.Type == "item-retracted") PublishPlanDocumentsLocked();
+			if (AffectsPlans(message)) PublishPlansLocked();
 		}
 	}
 
@@ -27,7 +27,7 @@ public sealed partial class AgentSessionHost {
 	/// <summary>Publishes the restored plans to the session's restored editor tabs, then starts the runtime.</summary>
 	internal void StartStructured() {
 		if (Structured is null) return;
-		lock (_paneGate) PublishPlanDocumentsLocked();
+		lock (_paneGate) PublishPlansLocked();
 		Structured.Start();
 	}
 
@@ -42,7 +42,7 @@ public sealed partial class AgentSessionHost {
 					_paneOutput.Live(StorePaneMessageLocked(message));
 				}
 
-				PublishPlanDocumentsLocked();
+				PublishPlansLocked();
 				return;
 			}
 
@@ -55,7 +55,7 @@ public sealed partial class AgentSessionHost {
 			foreach (var message in messages) {
 				_paneOutput.Live(StorePaneMessageLocked(message));
 			}
-			PublishPlanDocumentsLocked();
+			PublishPlansLocked();
 		}
 	}
 

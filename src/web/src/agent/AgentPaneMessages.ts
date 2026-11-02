@@ -7,7 +7,7 @@ import {
   normalizeStatus,
   normalizeText,
   type RequestResolution,
-  requestLifecycles,
+  requestResolutions,
 } from "./AgentPaneMessageFormat";
 import {
   collectSideConversations,
@@ -41,7 +41,7 @@ export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
 ): AgentTranscriptProjection {
   const updates = coalesceStreaming(messages);
-  const resolved = collectResolved(messages);
+  const resolved = requestResolutions(messages);
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {
     if (message.type === "error") {
@@ -208,18 +208,6 @@ function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdat
   return output;
 }
 
-function collectResolved(
-  messages: readonly AgentPaneUpdate[],
-): ReadonlyMap<string, RequestResolution> {
-  const resolved = new Map<string, RequestResolution>();
-  for (const lifecycle of requestLifecycles(messages)) {
-    if (lifecycle.resolution !== null) {
-      resolved.set(lifecycle.key, lifecycle.resolution);
-    }
-  }
-  return resolved;
-}
-
 function durableEntry(
   message: AgentPaneUpdate,
   resolved: ReadonlyMap<string, RequestResolution>,
@@ -227,6 +215,7 @@ function durableEntry(
   sequence: number,
 ): AgentTranscriptEntry | null {
   const status = displayStatus(message, resolved);
+  const tone = status === "pending" ? "pending" : "system";
   if (message.itemType === "backgroundTask") {
     return {
       ...entry(message, sequence, "workflow", "assistant", "Workflow", message.status ?? null),
@@ -235,7 +224,12 @@ function durableEntry(
   }
   switch (message.type) {
     case "approval-requested":
-      return entry(message, sequence, "request", "pending", "Permission", status);
+      return message.itemType === "plan-review"
+        ? {
+            ...entry(message, sequence, "request", tone, "Plan", status),
+            summary: status === "pending" ? "Ready to review in the editor" : null,
+          }
+        : entry(message, sequence, "request", tone, "Permission", status);
     case "authentication-requested":
       return entry(message, sequence, "request", "pending", "Sign in", status);
     case "edit-location":
@@ -257,7 +251,13 @@ function durableEntry(
       if (message.itemType === "agentMessage") {
         return entry(message, sequence, "message", "assistant", "Agent", null);
       }
-      return message.itemType === "plan" ? planEntry(message, sequence) : null;
+      return message.itemType === "plan"
+        ? planEntry(
+            message,
+            sequence,
+            resolved.get(paneItemIdentity(message) ?? "")?.status ?? null,
+          )
+        : null;
     case "turn-completed": {
       const turnKey = paneTurnIdentity(message);
       return normalizeStatus(message.status) === "failed" &&
@@ -286,7 +286,12 @@ function durableEntry(
   }
 }
 
-function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptEntry {
+// An approved plan review's item becomes the agent's plan, which carries the review's outcome.
+function planEntry(
+  message: AgentPaneUpdate,
+  sequence: number,
+  outcome: string | null,
+): AgentTranscriptEntry {
   const identity = planIdentity(message);
   return {
     actionMessage: identity === null ? null : message,
@@ -295,9 +300,14 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
     id: paneItemIdentity(message) ?? `plan-${sequence}`,
     kind: "plan",
     label: "Plan",
-    status: null,
+    status: outcome,
     streaming: false,
-    summary: identity === null ? "Plan is unavailable" : "Ready to review in the editor",
+    summary:
+      identity === null
+        ? "Plan is unavailable"
+        : outcome === null
+          ? "Ready to review in the editor"
+          : null,
     text: null,
     tone: "assistant",
   };

@@ -92,6 +92,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>A linked resource URI associated with the content.</summary>
 	public string? ResourceUri { get; init; }
 
+	/// <summary>The editable plan file a plan review asks the user to approve.</summary>
+	public string? PlanPath { get; init; }
+
 	/// <summary>The session that sent a submitted prompt, when it came from another session's agent.</summary>
 	public AgentMessageSender? Sender { get; init; }
 

@@ -138,7 +138,7 @@ public sealed partial class AcpAgentSession {
 						["jetbrains"] = new JsonObject {
 							["air"] = new JsonObject {
 								["version"] = 1,
-								["capabilities"] = new JsonArray("nativeSubagentSessions", "asyncTasks"),
+								["capabilities"] = new JsonArray("nativeSubagentSessions", "asyncTasks", "planFile"),
 							},
 						},
 					},

@@ -203,11 +203,15 @@ function EntryActions(props: {
     <Show when={props.entry.actionMessage}>
       {(message) => (
         <Switch>
+          <Match when={message().itemType === "plan-review"}>
+            <PlanActions message={message()} session={props.session} />
+          </Match>
           <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
             <ApprovalActions
               session={props.session}
               message={message()}
               answersToKeys={props.entry.id === props.keyboardRequestKey}
+              beforeAllow={(send) => send()}
             />
           </Match>
           <Match

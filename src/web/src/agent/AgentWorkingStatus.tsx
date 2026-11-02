@@ -45,6 +45,9 @@ function workingLabel(pending: PendingRequestKind | null): string {
   if (pending === "approval") {
     return "Waiting on your approval";
   }
+  if (pending === "plan-review") {
+    return "Waiting on your plan review";
+  }
   if (pending === "authentication") {
     return "Waiting for sign in";
   }

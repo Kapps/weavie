@@ -57,7 +57,12 @@ public sealed partial class HostSession {
 			current => WithOpen(current, path, preview, scratch, kind: null),
 			"openFile",
 			WireJson.Default.EditorFileOpened,
-			revision => new(path, line, preview, scratch, intent == EditorOpenIntent.Reveal ? "reveal" : "navigation", revision));
+			revision => new(path, line, preview, scratch, intent switch {
+				EditorOpenIntent.Navigation => "navigation",
+				EditorOpenIntent.Reveal => "reveal",
+				EditorOpenIntent.Background => "background",
+				_ => throw new ArgumentOutOfRangeException(nameof(intent)),
+			}, revision));
 
 	private void PublishEditorClose(string path) => PublishEditorEdit(
 		current => WithClosed(current, path),

@@ -101,6 +101,7 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+  planPath?: string | null;
   /** The session that sent a submitted prompt, when another session's agent sent it. */
   sender?: AgentMessageSender | null;
 }

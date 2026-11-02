@@ -47,7 +47,7 @@ public sealed partial class AgentSessionHostTests {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		var snapshots = new List<IReadOnlyList<AgentPlan>>();
-		host.PlanDocumentsChanged += snapshots.Add;
+		host.PlansChanged += plans => snapshots.Add(plans.Documents);
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		session.Emit(plan);
 		snapshots.Clear();
@@ -65,7 +65,7 @@ public sealed partial class AgentSessionHostTests {
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		fixture.Session.Emit(plan);
 		var snapshots = new List<IReadOnlyList<AgentPlan>>();
-		fixture.Host.PlanDocumentsChanged += snapshots.Add;
+		fixture.Host.PlansChanged += plans => snapshots.Add(plans.Documents);
 		fixture.Session.Emit(plan with { Type = "item-retracted", ItemType = null, Text = null });
 		Assert.Empty(Assert.Single(snapshots));
 		Assert.False(fixture.Host.WithCompletedPlan(plan.ThreadId!, plan.TurnId!, plan.ItemId!,
@@ -81,7 +81,7 @@ public sealed partial class AgentSessionHostTests {
 		var plan = Completed("plan", "# Original") with { ItemType = "plan" };
 		session.Emit(plan);
 		string? published = null;
-		host.PlanDocumentsChanged += plans => published = plans.SingleOrDefault().Markdown;
+		host.PlansChanged += plans => published = plans.Documents.SingleOrDefault().Markdown;
 		using var ready = new Barrier(2);
 
 		var open = Task.Run(() => {
@@ -95,4 +95,38 @@ public sealed partial class AgentSessionHostTests {
 		await Task.WhenAll(open, update).WaitAsync(TimeSpan.FromSeconds(10));
 		Assert.Equal(removed ? null : "# Revised", published);
 	}
+
+	[Fact]
+	public async Task PlanReviews_ArePendingPlanFileApprovals() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		var snapshots = new List<AgentPlansSnapshot>();
+		host.PlansChanged += snapshots.Add;
+		var first = Review("first", "/plans/first.md");
+		var second = Review("second", "/plans/second.md");
+
+		session.Emit(first);
+		session.Emit(second);
+		Assert.Equal([("first", "/plans/first.md"), ("second", "/plans/second.md")],
+			snapshots[^1].Reviews.Select(review => (review.RequestId, review.Path)));
+		Assert.Empty(snapshots[^1].Documents);
+
+		session.Emit(first with { Type = "approval-resolved", ItemType = null, PlanPath = null, Status = "allowed once" });
+		Assert.Equal("second", Assert.Single(snapshots[^1].Reviews).RequestId);
+		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
+		Assert.Empty(snapshots[^1].Reviews);
+	}
+
+	private static AgentPaneMessage Review(string requestId, string planPath) => new() {
+		Type = "approval-requested",
+		ProviderId = "structured",
+		ThreadId = "thread",
+		TurnId = "turn",
+		ItemId = "request:" + requestId,
+		RequestId = requestId,
+		ItemType = "plan-review",
+		PlanPath = planPath,
+		Actions = [new AgentActionOption { Id = "allow", Label = "Yes", Kind = "allow_once" }],
+		Status = "pending",
+	};
 }

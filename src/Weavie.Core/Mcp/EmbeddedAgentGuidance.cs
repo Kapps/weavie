@@ -58,7 +58,7 @@ public static class EmbeddedAgentGuidance {
 		line, then keep your chat reply to a brief overall summary. If you also have a built-in findings tool
 		(e.g. ReportFindings), report each finding once, through either one.
 
-		When the user asks to report a Weavie bug or request a Weavie feature, call `mcp__weavie__runWorkflow`
+		When the user asks to report a Weavie bug or request a Weavie feature, call `mcp__weavie__runPrompt`
 		with `report-weavie-bug` or `request-weavie-feature` and follow what it returns; never file one directly.
 
 		Before a task that creates GitHub issues, PRs, or comments (e.g. filing a Weavie issue), first run

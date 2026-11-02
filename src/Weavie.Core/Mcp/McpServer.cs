@@ -106,7 +106,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, ReviewHintToolEntries, BuildWorkflowToolEntry() };
+			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, ReviewHintToolEntries, BuildPromptToolEntry() };
 			if (exposeIdeTools) {
 				parts.Add(IdeToolEntries);
 			}
@@ -486,8 +486,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "addReviewHint":
 				await HandleAddReviewHintAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "runWorkflow":
-				await HandleRunWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+			case "runPrompt":
+				await HandleRunPromptAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listThemes":
 				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);

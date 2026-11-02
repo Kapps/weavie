@@ -12,7 +12,7 @@ public sealed record McpPrompt {
 	public required string Text { get; init; }
 }
 
-/// <summary>Weavie's bundled user-invoked workflows, shared by MCP and the native composer.</summary>
+/// <summary>Weavie's bundled user-invoked prompts, shared by MCP and the native composer.</summary>
 public static class McpPromptCatalog {
 	/// <summary>The prompt definitions exposed to every Weavie session.</summary>
 	public static IReadOnlyList<McpPrompt> All { get; } = [

@@ -296,13 +296,13 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("--repo Kapps/weavie", text, StringComparison.Ordinal);
 		int readiness = text.IndexOf("gh auth status --hostname github.com", StringComparison.Ordinal);
 		Assert.InRange(readiness, 0, text.IndexOf("Prepare the exact public title", StringComparison.Ordinal));
-		await SendAsync(ws, Request(3, "tools/call", JsonSerializer.Serialize(new { name = "runWorkflow", arguments = new { name } })));
+		await SendAsync(ws, Request(3, "tools/call", JsonSerializer.Serialize(new { name = "runPrompt", arguments = new { name } })));
 		using var called = await ReceiveAsync(ws);
 		Assert.Equal(text, called.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
 	}
 
 	[Fact]
-	public async Task RunWorkflowAdvertisesEveryCatalogPromptAndRejectsUnknownNames() {
+	public async Task RunPromptAdvertisesEveryCatalogPromptAndRejectsUnknownNames() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
@@ -310,7 +310,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
 		using var list = await ReceiveAsync(ws);
 		var tool = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
-			.Single(t => t.GetProperty("name").GetString() == "runWorkflow");
+			.Single(t => t.GetProperty("name").GetString() == "runPrompt");
 		string description = tool.GetProperty("description").GetString()!;
 		var names = tool.GetProperty("inputSchema").GetProperty("properties").GetProperty("name").GetProperty("enum")
 			.EnumerateArray().Select(n => n.GetString());
@@ -318,7 +318,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.All(McpPromptCatalog.All, p => Assert.Contains($"- {p.Name}: {p.Description}", description, StringComparison.Ordinal));
 		Assert.True(tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean());
 
-		await SendAsync(ws, Request(2, "tools/call", """{"name":"runWorkflow","arguments":{"name":"nope"}}"""));
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"runPrompt","arguments":{"name":"nope"}}"""));
 		using var called = await ReceiveAsync(ws);
 		Assert.True(called.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}

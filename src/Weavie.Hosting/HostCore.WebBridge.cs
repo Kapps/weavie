@@ -106,7 +106,7 @@ public sealed partial class HostCore {
 		target.Feature("lsp").PublishJson("config", session.LspConfigJson);
 
 	/// <summary>
-	/// Re-walks one session's worktree and publishes its file index. An invalidating refresh first clears only
+	/// Publishes one session's file index from the inventory its watcher keeps current. An invalidating refresh first clears only
 	/// that session's prior index; a slow result remains addressed to the same owner.
 	/// </summary>
 	private void PushFileIndexToWeb(HostSession session, bool invalidate) =>
@@ -125,7 +125,7 @@ public sealed partial class HostCore {
 			try {
 				IReadOnlyList<string> files;
 				try {
-					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+					var inventory = await session.FileActivity.InventorySnapshotAsync(ct).ConfigureAwait(false);
 					// A refresh during deletion can lose Git metadata before the root disappears.
 					if (!inventory.IsRepository && session.EndIfWorkspaceRootIsGone(
 						$"Couldn't load workspace files: {session.WorkspaceRoot} is not a git repository.")) {
@@ -176,24 +176,6 @@ public sealed partial class HostCore {
 		Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
 		files,
 		pending);
-
-	/// <summary>
-	/// Publishes one session's file index from the inventory's already-current Git snapshot instead of forcing
-	/// another reload — used only by a consumer of the watcher's own invalidation fact, which fired *because*
-	/// that watcher just refreshed this same inventory via Git. A non-repository snapshot skips the seeding
-	/// dance <see cref="PushFileIndexToWeb(HostSession, bool)"/> does, so that path still reloads through it.
-	/// </summary>
-	private void PushCachedFileIndexToWeb(HostSession session) {
-		if (session.Inventory.LastSnapshot is not { IsRepository: true } inventory) {
-			PushFileIndexToWeb(session, false);
-			return;
-		}
-
-		session.Bus.BroadcastTarget.Feature("files").Publish(
-			"index",
-			WireJson.Default.FileIndexWire,
-			FileIndexPayload(session, inventory.Files, pending: false));
-	}
 
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
 	// omnibar renders the top few as its Recent section.

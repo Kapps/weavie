@@ -54,12 +54,13 @@ without an explicit command the same way issue reporting does: the always-inject
 request that lands on the same prompt. It holds guidance only; the field list stays in `getWorkflowSchema`, so the two
 never drift. It tells the agent to:
 
-- Interview the user about how they actually work before writing; start from the closest built-in and fork it.
+- Interview the user about how they actually work, and model that process. Built-ins are references for the format,
+  not templates; fork one only when it already matches what the user described.
 - Prefer the user's existing skills as stage steps over restating them as prompts.
 - Write personal workflows unless the user says the process belongs to the repository.
 - Leave `agent` unset unless the user names a model, so a workflow stays portable across providers.
 - Keep checks to confirming state, never redoing work; put long work in `do`.
-- Use `fresh` only for deliberate independence; rely on the `fork` default otherwise.
+- Choose each step's `context` by the rule in [Choosing context](#choosing-context).
 - Use `gate: approve` where the user wants to sign off, `in: new-session` where each item needs its own branch and PR,
   and `max` on every loop.
 - Never encode facts the run already knows (a skipped stage, an output's presence) as a model decision; use `else`.
@@ -128,6 +129,19 @@ history. `fresh` is for deliberate independence (a reviewer that must not inheri
   or summary return. Forked and fresh steps appear as background-work cards with Stop.
 - `fresh` starts a new conversation seeded only with the step's prompt and args.
 - All three share the worktree; files are never forked.
+
+#### Choosing context
+
+Ask whether later steps — and the user — need *how* the step did its work, or only *what* it produced.
+
+| Use | When | Examples |
+| --- | --- | --- |
+| `continue` | the user converses in the step, or later steps build on its reasoning | spec interview, implement, fix review findings |
+| `fork` | the step needs everything so far, but only its result matters afterward | record videos, gather review findings, research, a check |
+| `fresh` | the step must not inherit the author's assumptions, or its inputs fully describe it | an independent review, one `foreach` item whose context is on disk |
+
+A forked step runs as a background-work card, which the user can watch but not talk to, so a step that expects
+conversation is always `continue`.
 
 A choice step on a tool-less model sees only its prompt, the stage's outputs, and the agent's last message — never the
 transcript.

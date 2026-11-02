@@ -1,11 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { rm } from "node:fs/promises";
 import { expect } from "@playwright/test";
 import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
 import { test } from "./harness/network-fixtures";
 import { makeTempDir } from "./harness/temp-root";
 import { headlessProgram, programExists } from "./harness/test-programs";
-import { killProcessTree } from "./harness/weavie-host";
+import { killProcessTree, removeHostTree } from "./harness/weavie-host";
 
 // End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,
 // point a browser at it, and prove the bridge round-trips into the C# session. Skipped when the host hasn't
@@ -38,9 +37,12 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
 
   test.afterAll(async () => {
     if (proc !== undefined) await killProcessTree(proc);
-    if (workspace !== undefined) await rm(workspace, { recursive: true, force: true });
+    if (workspace !== undefined) await removeHostTree(workspace);
   });
 
+  // FLAKE 2026-11-02 15:05Z https://github.com/Kapps/weavie/actions/runs/41466299642/job/125352124727 (Windows shard 1/6):
+  // afterAll failed with EBUSY removing the workspace right after the host tree died, which also leaked the temp entry.
+  // Fixed by sharing the harness's host-tree removal, which tolerates Windows releasing dead-process handles late.
   test("a browser completes the host hello and renders the returned session catalog", async ({
     page,
   }) => {

@@ -47,6 +47,24 @@ Workflows are written by the agent, not by hand. The registry exposes:
 
 The vocabulary is deliberately small and unlike GitHub Actions, so an agent has nothing similar to drift toward.
 
+**The authoring prompt.** A bundled prompt, `author-workflow`, carries the judgment the schema can't. It triggers
+without an explicit command the same way issue reporting does: the always-injected embedded-agent guidance
+(`EmbeddedAgentGuidance`) says *when the user asks to create, fork, change, or improve a Weavie workflow, call
+`runPrompt` with `author-workflow` and follow it*. **Improve This Workflow** and the workflow suggestion cards prefill a
+request that lands on the same prompt. It holds guidance only; the field list stays in `getWorkflowSchema`, so the two
+never drift. It tells the agent to:
+
+- Interview the user about how they actually work before writing; start from the closest built-in and fork it.
+- Prefer the user's existing skills as stage steps over restating them as prompts.
+- Write personal workflows unless the user says the process belongs to the repository.
+- Leave `agent` unset unless the user names a model, so a workflow stays portable across providers.
+- Keep checks to confirming state, never redoing work; put long work in `do`.
+- Use `fresh` only for deliberate independence; rely on the `fork` default otherwise.
+- Use `gate: approve` where the user wants to sign off, `in: new-session` where each item needs its own branch and PR,
+  and `max` on every loop.
+- Never encode facts the run already knows (a skipped stage, an output's presence) as a model decision; use `else`.
+- Call `validateWorkflow` and fix every error before finishing; with run history, cite the evidence for each change.
+
 **Edit Workflow** opens the YAML in the editor; the same schema drives inline diagnostics. Saving is never blocked.
 An invalid file is listed as broken (with its error) in the picker and cannot start; a run executes the definition
 snapshot it started with, so editing a file never changes a run in flight. A visual viewer is deferred.

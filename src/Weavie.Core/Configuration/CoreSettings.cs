@@ -231,6 +231,7 @@ public static class CoreSettings {
 		TestSettings.Register(registry);
 		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
+		WorkflowSettings.Register(registry);
 		MessageSettings.Register(registry);
 
 	}

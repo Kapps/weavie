@@ -2,8 +2,6 @@ namespace Weavie.Core.Workflows;
 
 /// <summary>Checks a well-shaped workflow's meaning across fields: ids, targets, and references.</summary>
 internal static class WorkflowSemantics {
-	public const string Unsure = "unsure";
-
 	public static void Check(WorkflowDefinition definition, string fileId, WorkflowCheck check) {
 		if (definition.Id != fileId) {
 			check.Add("id", $"id \"{definition.Id}\" must match the file name \"{fileId}\"");
@@ -50,7 +48,7 @@ internal static class WorkflowSemantics {
 				}
 
 				foreach (var choice in choose.Choices) {
-					if (choice.Name == Unsure) {
+					if (choice.Name == WorkflowDecision.Unsure) {
 						check.Add($"{path}.next.choices.{choice.Name}", "\"unsure\" is reserved: an unsure answer always pauses the run");
 					}
 

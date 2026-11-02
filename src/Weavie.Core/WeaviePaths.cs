@@ -175,6 +175,9 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
 
+	/// <summary>A session worktree's workflow run: <c>~/.weavie/workspaces/&lt;id&gt;/workflow-run.json</c>.</summary>
+	public static string WorkspaceWorkflowRunFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "workflow-run.json");
+
 	/// <summary>
 	/// A workspace's recorded post-turn corrections (JSONL ring, oldest first):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/corrections.jsonl</c>. See <see cref="Corrections.CorrectionCorpus"/>.

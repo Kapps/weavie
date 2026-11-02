@@ -37,11 +37,11 @@ public sealed record WorkflowCatalogEntry {
 /// Every workflow visible from one worktree: built-in, personal, and repository files, re-read on each call so
 /// an edit shows at once.
 /// </summary>
-public sealed class WorkflowCatalog(string worktree, string personalDirectory) : IWorkflowRegistry {
+public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 	private const string Extension = ".yaml";
 	private const string BuiltInResourcePrefix = "Weavie.Core.Workflows.BuiltIn.";
 
-	/// <inheritdoc/>
+	/// <summary>Every workflow file visible from the worktree, including shadowed and broken ones.</summary>
 	public IReadOnlyList<WorkflowCatalogEntry> List() {
 		var entries = BuiltIns()
 			.Concat(Directory(personalDirectory, WorkflowScope.Personal))
@@ -64,7 +64,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) :
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics)}");
 	}
 
-	/// <inheritdoc/>
+	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
 	public IReadOnlyList<WorkflowDiagnostic> Validate(string path) {
 		string full = System.IO.Path.GetFullPath(System.IO.Path.Combine(worktree, path));
 		if (!full.EndsWith(Extension, StringComparison.Ordinal)) {

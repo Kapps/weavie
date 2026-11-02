@@ -331,7 +331,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
-			workflows: new WorkflowCatalog(_dir.Path, personal));
+			workflows: WorkflowRegistry.AuthoringOnly(new WorkflowCatalog(_dir.Path, personal)));
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));

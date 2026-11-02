@@ -500,6 +500,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "validateWorkflow":
 				await HandleValidateWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "completeStage":
+				await HandleCompleteStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "failStage":
+				await HandleFailStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			case "runPrompt":
 				await HandleRunPromptAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;

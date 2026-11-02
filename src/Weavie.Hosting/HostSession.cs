@@ -235,7 +235,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			() => SlotId,
 			agentConsultation,
 			ReviewHints,
-			new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir));
+			WorkflowRegistry.AuthoringOnly(new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir)));
 
 		Agent = new AgentSessionHost(
 			agentProvider,

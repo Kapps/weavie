@@ -72,6 +72,14 @@ const STATUS_PHRASE: Record<SessionStatusName | "finished", string> = {
   error: "crashed",
 };
 
+/** Why a session's workflow needs the user, in full (the subtitle stays short), or empty. */
+export function sessionDetail(session: RailSession): string {
+  if (!session.loaded) {
+    return "";
+  }
+  return session.run?.reason || session.workflowProblem;
+}
+
 /** The line under a session's name: its run's stage, else what its agent is doing, else its state and age. */
 export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.offline) {
@@ -83,6 +91,9 @@ export function sessionSubtitle(session: RailSession, now: number): string {
     const doing =
       busy && session.activity !== null ? session.activity : RUN_PHRASE[session.run.state];
     return `${session.run.stage} · ${doing}`;
+  }
+  if (session.loaded && session.workflowProblem !== "") {
+    return "workflow run unreadable";
   }
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;

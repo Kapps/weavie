@@ -607,14 +607,15 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	private string StatePath(string name) => Path.Combine(_stateDirectory, name);
 
+	// As claude-agent-acp reads it: the command is the first block, exactly; only assistant-audience context may follow.
 	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
-		if (prompt.GetArrayLength() != 1) {
-			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
-		}
 		var block = prompt[0];
 		if (AcpJson.OptionalString(block, "type") != "text"
 			|| AcpJson.OptionalString(block, "text") != text) {
 			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
+		}
+		if (prompt.EnumerateArray().Skip(1).Any(next => !IsAssistantAudience(next))) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
 		}
 	}
 

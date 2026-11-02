@@ -55,4 +55,8 @@ public sealed record AgentTurnSubmission {
 
 	/// <summary>The session that sent this prompt, when another session's agent sent it rather than the user.</summary>
 	public AgentMessageSender? Sender { get; init; }
+
+	/// <summary>Whether a provider command also carries the session's per-turn context, as a workflow stage's opening
+	/// turn does; ordinary prompts always carry it.</summary>
+	public bool CarriesTurnContext { get; init; }
 }

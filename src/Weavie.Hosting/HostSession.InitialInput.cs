@@ -32,7 +32,11 @@ public sealed partial class HostSession {
 				return;
 			}
 
-			_initialInput = new IdleTurnDelivery(Status, new HashSet<SessionStatus> { SessionStatus.Idle }, SendAgentInput);
+			_initialInput = new IdleTurnDelivery(
+				Status,
+				new HashSet<SessionStatus> { SessionStatus.Idle },
+				SendAgentInput,
+				(_, ex) => Notify("error", $"Weavie couldn't send the session's first prompt to the agent: {ex.Message}"));
 			_initialInput.Queue(input);
 		}
 	}

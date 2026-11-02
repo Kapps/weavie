@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Workflows;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -25,7 +26,7 @@ public sealed partial class HostCore {
 			(run, args) => runner.Jump(run, Required(args, "stage")), "Moved the run.");
 		RegisterRunCommand(session, CoreCommands.WorkflowCancel, (run, _) => runner.Cancel(run), "Cancelled the run.");
 
-		SessionRunWire? published = null;
+		SessionRunChanged? published = null;
 		void Publish() => PostForSession(session, () => {
 			var line = SessionRunLine(session);
 			if (line == published) return;
@@ -58,30 +59,33 @@ public sealed partial class HostCore {
 			? text
 			: throw new WorkflowException($"'{name}' is required.");
 
-	// Refused before any worktree exists: an unknown workflow or bad inputs must not leave a session behind.
-	private CommandResult? WorkflowStartError(SessionSlot? source, WorkflowStart start) {
-		string root = source?.WorktreePath ?? WorkspaceRoot;
-		try {
-			WorkflowTransitions.ReadInputs(new WorkflowCatalog(root, WeaviePaths.WorkflowsDir).Resolve(start.Id), start.Inputs, root);
-			return null;
-		} catch (WorkflowException ex) {
-			return CommandResult.Failure(ex.Message);
-		}
+	// Resolved once, from where the user started the session, before any worktree exists: an unknown workflow or bad
+	// inputs must not leave a session behind, and the new session runs exactly what was checked.
+	private WorkflowLaunch PrepareWorkflow(SessionSlot? source, string workflow, JsonElement inputs) =>
+		new WorkflowCatalog(source?.WorktreePath ?? WorkspaceRoot, WeaviePaths.WorkflowsDir).Prepare(workflow, inputs);
+
+	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
+	private static void ForgetWorkflowRun(string worktreePath) {
+		string run = WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(worktreePath));
+		if (File.Exists(run)) File.Delete(run);
 	}
 
-	private static SessionRunWire? SessionRunLine(HostSession session) =>
-		WorkflowRunSummary.From(session.Workflow.Current, session.Status.Status) is { } summary
-			? new SessionRunWire(summary.RunId, summary.Workflow, summary.Stage, JsonNamingPolicy.CamelCase.ConvertName(summary.State.ToString()))
-			: null;
+	private static SessionRunChanged SessionRunLine(HostSession session) =>
+		new(
+			WorkflowRunSummary.From(session.Workflow.Current, session.Status.Status) is { } summary
+				? new SessionRunWire(summary.RunId, summary.Workflow, summary.Stage, summary.State, summary.Reason)
+				: null,
+			session.Workflow.Problem ?? "");
 
-	private static void PostSessionRun(MessageTarget target, SessionRunWire? run) =>
-		target.Feature("status").Publish("run", WireJson.Default.SessionRunChanged, new(run));
-
-	private sealed record WorkflowStart(string Id, JsonElement Inputs);
+	private static void PostSessionRun(MessageTarget target, SessionRunChanged line) =>
+		target.Feature("status").Publish("run", WireJson.Default.SessionRunChanged, line);
 }
 
-/// <summary>A session's live workflow run as its session-list line shows it.</summary>
-internal sealed record SessionRunWire(string Id, string Workflow, string Stage, string State);
+/// <summary>A session's live workflow run as its session-list line shows it; <c>Reason</c> says why it paused.</summary>
+internal sealed record SessionRunWire(string Id, string Workflow, string Stage, WorkflowRunState State, string Reason);
 
-/// <summary>A session's run line changed; <see langword="null"/> when no run is live.</summary>
-internal sealed record SessionRunChanged(SessionRunWire? Run);
+/// <summary>
+/// A session's run line changed: its live run (<see langword="null"/> when none) and why its saved run couldn't be
+/// loaded (empty when it could).
+/// </summary>
+internal sealed record SessionRunChanged(SessionRunWire? Run, string Problem);

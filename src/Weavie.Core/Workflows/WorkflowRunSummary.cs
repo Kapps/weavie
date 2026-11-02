@@ -1,10 +1,11 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Core.Workflows;
 
 /// <summary>What a run is doing, as the session list shows it.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<WorkflowRunState>))]
+[JsonConverter(typeof(WorkflowRunStateConverter))]
 public enum WorkflowRunState {
 	/// <summary>The agent is working on the stage.</summary>
 	Working,
@@ -42,6 +43,9 @@ public sealed record WorkflowRunSummary {
 	/// <summary>What the run is doing.</summary>
 	public required WorkflowRunState State { get; init; }
 
+	/// <summary>Why the run paused; empty unless <see cref="State"/> is <see cref="WorkflowRunState.Paused"/>.</summary>
+	public required string Reason { get; init; }
+
 	/// <summary>The summary of <paramref name="run"/> in a session whose agent is <paramref name="status"/>.</summary>
 	public static WorkflowRunSummary? From(WorkflowRun? run, SessionStatus status) {
 		if (run is null || run.IsFinished) {
@@ -59,6 +63,15 @@ public sealed record WorkflowRunSummary {
 				_ => WorkflowRunState.Working,
 			},
 		};
-		return new WorkflowRunSummary { RunId = run.Id, Workflow = run.WorkflowId, Stage = run.Stage, State = state };
+		return new WorkflowRunSummary {
+			RunId = run.Id,
+			Workflow = run.WorkflowId,
+			Stage = run.Stage,
+			State = state,
+			Reason = state == WorkflowRunState.Paused ? run.PausedReason ?? "" : "",
+		};
 	}
 }
+
+/// <summary>Writes <see cref="WorkflowRunState"/> in camelCase, as the web reads it.</summary>
+public sealed class WorkflowRunStateConverter() : JsonStringEnumConverter<WorkflowRunState>(JsonNamingPolicy.CamelCase);

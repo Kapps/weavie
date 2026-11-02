@@ -28,6 +28,7 @@ public sealed class WorkflowRunner : IDisposable {
 	private WorkflowRun? _run;
 	private WorkflowDefinition? _definition;
 	private PendingDecision? _pending;
+	private bool _closed;
 
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
@@ -40,6 +41,7 @@ public sealed class WorkflowRunner : IDisposable {
 		_maxStageAttempts = maxStageAttempts;
 		_worktree = worktree;
 		_run = store.Run;
+		Problem = store.LoadFailure;
 	}
 
 	/// <summary>Raised after every change to the run.</summary>
@@ -54,12 +56,11 @@ public sealed class WorkflowRunner : IDisposable {
 		}
 	}
 
+	/// <summary>Why the session's saved run couldn't be loaded, until a new run starts; otherwise <see langword="null"/>.</summary>
+	public string? Problem { get; private set; }
+
 	/// <summary>Resumes the persisted run: re-reads its definition and re-performs any owed turn or decision.</summary>
 	public void Activate() {
-		if (_store.LoadFailure is { } failure) {
-			_port.Notify(failure);
-		}
-
 		lock (_gate) {
 			if (_run is not { IsFinished: false } run) {
 				return;
@@ -67,8 +68,11 @@ public sealed class WorkflowRunner : IDisposable {
 
 			var read = WorkflowReader.Read(run.SourceText, run.WorkflowId);
 			if (read.Definition is null) {
-				Commit(run with { Phase = WorkflowPhase.Paused, Kickoff = null, PausedReason = $"Its definition no longer validates: {string.Join("; ", read.Diagnostics)}. Cancel it and start again." }, []);
-				_port.Notify($"Workflow {run.WorkflowId} paused: {run.WorkflowId}'s saved definition no longer validates.");
+				Commit(run with {
+					Phase = WorkflowPhase.Paused,
+					Kickoff = null,
+					PausedReason = $"The saved definition no longer validates ({string.Join("; ", read.Diagnostics)}); cancel the run and start it again.",
+				}, []);
 				return;
 			}
 
@@ -88,17 +92,22 @@ public sealed class WorkflowRunner : IDisposable {
 	}
 
 	/// <summary>Starts <paramref name="workflowId"/> with <paramref name="inputs"/>; refuses while another run is live.</summary>
-	public WorkflowRun Start(string workflowId, JsonElement inputs) {
+	public WorkflowRun Start(string workflowId, JsonElement inputs) => Start(_catalog.Prepare(workflowId, inputs));
+
+	/// <summary>Starts the resolved <paramref name="launch"/>; refuses while another run is live.</summary>
+	public WorkflowRun Start(WorkflowLaunch launch) {
 		lock (_gate) {
+			if (_closed) {
+				throw new WorkflowException("This session is closing; it can't start a workflow run.");
+			}
+
 			if (_run is { IsFinished: false } live) {
 				throw new WorkflowException($"Run {live.Id} of {live.WorkflowId} is still live; cancel it first.");
 			}
 
-			var definition = _catalog.Resolve(workflowId);
-			var values = WorkflowTransitions.ReadInputs(definition, inputs, _worktree);
-			string path = _catalog.List().First(e => e.Id == workflowId && e.ShadowedBy is null).Path;
-			_definition = definition;
-			Apply(Transitions().Start($"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}", path, values));
+			_definition = launch.Definition;
+			Problem = null;
+			Apply(Transitions().Start($"r-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}", launch.SourcePath, launch.Inputs));
 			return _run!;
 		}
 	}
@@ -140,18 +149,25 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>The user cancels run <paramref name="runId"/>.</summary>
 	public void Cancel(string runId) => Mutate(runId, run => Transitions().Cancel(run));
 
-	/// <summary>Records that the owed kickoff turn was handed to the agent.</summary>
-	public void KickoffDelivered(WorkflowKickoff turn) {
+	/// <summary>
+	/// Claims <paramref name="turn"/> for sending: true only while the run still owes exactly that turn, which it then
+	/// stops owing. A turn the run no longer owes (cancelled, paused, replaced, or the session closing) is never sent.
+	/// </summary>
+	public bool TryClaimKickoff(WorkflowKickoff turn) {
 		lock (_gate) {
-			if (_run?.Kickoff == turn) {
-				Commit(_run with { Kickoff = null }, []);
+			if (_closed || _run?.Kickoff != turn) {
+				return false;
 			}
+
+			Commit(_run with { Kickoff = null }, []);
+			return true;
 		}
 	}
 
-	/// <inheritdoc/>
+	/// <summary>Closes the runner: the pending decision is dropped and every later change is refused.</summary>
 	public void Dispose() {
 		lock (_gate) {
+			_closed = true;
 			_pending?.Dispose();
 			_pending = null;
 		}
@@ -169,7 +185,8 @@ public sealed class WorkflowRunner : IDisposable {
 	}
 
 	private WorkflowRun Live() =>
-		_run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
+		_closed ? throw new WorkflowException("This session is closing; its workflow run can't change.")
+		: _run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
 
 	private WorkflowTransitions Transitions() =>
 		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _worktree);

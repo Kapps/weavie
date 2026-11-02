@@ -142,6 +142,69 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForRunLineAsync(host, reloaded, line => line?.GetProperty("state").GetString() == "approval");
 	}
 
+	[Theory]
+	[InlineData("cancel")]
+	[InlineData("fail")]
+	public async Task ATurnQueuedWhileTheAgentIsBusyIsNotSentOnceTheRunNoLongerOwesIt(string retire) {
+		await using var host = await StartAsync(new DecisionStub("yes"));
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
+		var session = host.Session("wf");
+		var run = session.Workflow.Start("flow", Json("{}"));
+		await WaitForEchoAsync(host, session, "write the draft");
+		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""));
+
+		session.Status.Observe(new AgentPromptSubmitted(null, "busy"));
+		session.Workflow.Approve(run.Id);
+		if (retire == "cancel") session.Workflow.Cancel(run.Id);
+		else session.Workflow.FailStage("stuck");
+		session.Status.Observe(new AgentTurnStopped(false));
+
+		await Task.Delay(200);
+		Assert.DoesNotContain(host.Bridge.PostedEvents(session.Address, "agent", "pane"), message =>
+			message.GetProperty("text").GetString()?.StartsWith("echo: polish", StringComparison.Ordinal) == true);
+	}
+
+	[Fact]
+	public async Task DeletingASessionForgetsItsRunSoTheBranchCanStartAfresh() {
+		await using var host = await StartAsync(new DecisionStub("yes"));
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
+		host.Session("wf").Workflow.Start("flow", Json("{}"));
+
+		host.SelectWorkspaceSession();
+		Assert.True((await host.DeleteSessionAsync("wf", force: true, classify: false)).Ok);
+		var reopened = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "wf",
+			Existing = true,
+			AgentProviderId = "structured",
+			Workflow = "flow",
+		});
+		Assert.True(reopened.Ok, reopened.Error);
+		var recreated = await WaitForSessionAsync(host, "wf");
+		Assert.Equal(("draft", WorkflowPhase.Open), (recreated.Workflow.Current!.Stage, recreated.Workflow.Current.Phase));
+	}
+
+	[Fact]
+	public async Task NewSessionRunsTheWorkflowResolvedWhereItWasStarted() {
+		await using var host = await StartAsync(new DecisionStub("yes"));
+		File.WriteAllText(Path.Combine(host.RepoRoot, ".weavie", "workflows", "local.yaml"), """
+			id: local
+			description: exists only uncommitted in the source checkout
+			stages:
+			  - id: only
+			    do: { prompt: "local stage" }
+			""");
+
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "fresh",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "local",
+		})).Ok);
+		var session = await WaitForSessionAsync(host, "fresh");
+		Assert.False(File.Exists(Path.Combine(session.WorkspaceRoot, ".weavie", "workflows", "local.yaml")));
+		await WaitForEchoAsync(host, session, "local stage");
+	}
+
 	private static async Task WaitForEchoAsync(TestHost host, HostSession session, string prompt) =>
 		await Eventually(() => host.Bridge.PostedEvents(session.Address, "agent", "pane").Any(message =>
 			message.GetProperty("type").GetString() == "item-completed"

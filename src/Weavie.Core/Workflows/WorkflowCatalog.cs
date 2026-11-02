@@ -57,11 +57,19 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 	}
 
 	/// <summary>The winning definition for <paramref name="id"/>; throws when it is missing or broken.</summary>
-	public WorkflowDefinition Resolve(string id) {
+	public WorkflowDefinition Resolve(string id) => Winner(id).Definition;
+
+	/// <summary>Resolves <paramref name="id"/> once and reads <paramref name="inputs"/> against this worktree.</summary>
+	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) {
+		var (entry, definition) = Winner(id);
+		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree));
+	}
+
+	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
 		var entry = List().FirstOrDefault(e => e.Id == id && e.ShadowedBy is null)
 			?? throw new WorkflowException($"No workflow \"{id}\" exists. Call listWorkflows for the available ids.");
-		return entry.Definition ?? throw new WorkflowException(
-			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics)}");
+		return (entry, entry.Definition ?? throw new WorkflowException(
+			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics)}"));
 	}
 
 	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
@@ -121,6 +129,9 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 		};
 	}
 }
+
+/// <summary>A resolved workflow ready to start: its definition, where it came from, and its read inputs.</summary>
+public sealed record WorkflowLaunch(WorkflowDefinition Definition, string SourcePath, Dictionary<string, WorkflowValue> Inputs);
 
 /// <summary>A workflow request Weavie refuses, with a message meant for the agent or user.</summary>
 public sealed class WorkflowException(string message) : Exception(message);

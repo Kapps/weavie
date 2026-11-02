@@ -120,6 +120,7 @@ registerHostFeature((connection) =>
             status: entry.status,
             activity: owner === null ? null : (carried.get(owner)?.activity ?? null),
             run: owner === null ? null : (carried.get(owner)?.run ?? null),
+            workflowProblem: owner === null ? "" : (carried.get(owner)?.workflowProblem ?? ""),
             lastActiveAt: entry.lastActiveAt,
             unseen: entry.unseen,
             workspaceCheckout: entry.workspaceCheckout,
@@ -156,8 +157,8 @@ registerSessionFeature((session) => {
   const offActivity = status.on<{ activity: string | null }>("activity", (message) =>
     patchOwned(session, { activity: message.activity }),
   );
-  const offRun = status.on<{ run: SessionRun | null }>("run", (message) =>
-    patchOwned(session, { run: message.run }),
+  const offRun = status.on<{ run: SessionRun | null; problem: string }>("run", (message) =>
+    patchOwned(session, { run: message.run, workflowProblem: message.problem }),
   );
   return () => {
     offStatus();

@@ -4,13 +4,14 @@ using Weavie.Core.Sessions;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Holds one agent turn until the session's status is one of <c>deliverOn</c>, then sends it once. A newer turn
-/// replaces a pending one; after <see cref="Dispose"/> nothing is sent.
+/// Holds one agent turn until the session's status is one of <c>deliverOn</c>, then sends it once; a send that throws
+/// is reported to <c>failed</c>. A newer turn replaces a pending one; after <see cref="Dispose"/> nothing is sent.
 /// </summary>
 internal sealed class IdleTurnDelivery(
 	SessionStatusMachine status,
 	IReadOnlySet<SessionStatus> deliverOn,
-	Action<AgentTurnSubmission> send) : IDisposable {
+	Action<AgentTurnSubmission> send,
+	Action<AgentTurnSubmission, Exception> failed) : IDisposable {
 	private readonly Lock _gate = new();
 	private AgentTurnSubmission? _pending;
 	private bool _closed;
@@ -50,7 +51,11 @@ internal sealed class IdleTurnDelivery(
 			Clear();
 		}
 
-		send(pending);
+		try {
+			send(pending);
+		} catch (Exception ex) {
+			failed(pending, ex);
+		}
 	}
 
 	private void Clear() {

@@ -526,6 +526,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
+	public void Deliver(WorkflowKickoff kickoff) => Session.Submit(kickoff.Submission());
+
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
 		Text = text,

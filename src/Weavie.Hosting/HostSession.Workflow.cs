@@ -11,7 +11,7 @@ namespace Weavie.Hosting;
 // The session's workflow run: Weavie owns its stages and delivers each stage's turn; the agent does the work and
 // reports back through the session's registry. See docs/specs/workflows.md.
 public sealed partial class HostSession {
-	private IdleTurnDelivery? _workflowTurns;
+	private readonly IdleTurnDelivery _workflowTurns;
 	private int _runtimeActivated;
 
 	/// <summary>The session's workflow run.</summary>
@@ -19,6 +19,12 @@ public sealed partial class HostSession {
 
 	/// <summary>The workflows visible to this session.</summary>
 	internal WorkflowCatalog WorkflowCatalog { get; }
+
+	private IdleTurnDelivery CreateWorkflowTurns() => new(
+		Status,
+		new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
+		SendWorkflowTurn,
+		(_, ex) => FailWorkflowTurn(ex));
 
 	private WorkflowRunner CreateWorkflowRunner(
 		IFileSystem fileSystem, SettingsStore settings, IInferenceService inference, string workspaceRoot) =>
@@ -30,52 +36,42 @@ public sealed partial class HostSession {
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
 			workspaceRoot);
 
-	// Before the runtime starts, a stage's turn is the session's opening input (a TUI's launch turn); afterwards it
-	// waits for the agent to finish its current turn.
+	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
+	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.
 	private void DeliverWorkflowTurn(WorkflowKickoff kickoff) {
-		var turn = new AgentTurnSubmission {
-			Id = Guid.NewGuid().ToString("n"),
-			Text = kickoff.Text,
-			Kind = kickoff.Command.Length > 0 ? AgentTurnSubmissionKind.ProviderCommand : AgentTurnSubmissionKind.Prompt,
-			CommandName = kickoff.Command,
-			Attachments = [],
-		};
+		var turn = kickoff.Submission();
 		lock (_initialInputGate) {
-			if (Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
+			if (Agent.TerminalSession is not null && Volatile.Read(ref _runtimeActivated) == 0 && !_initialInputAssigned) {
 				QueueInitialInput(turn);
-				_ = Task.Run(() => Workflow.KickoffDelivered(kickoff));
+				_ = Task.Run(() => Workflow.TryClaimKickoff(kickoff));
 				return;
 			}
 		}
 
-		(_workflowTurns ??= new IdleTurnDelivery(
-			Status,
-			new HashSet<SessionStatus> { SessionStatus.Idle, SessionStatus.Waiting },
-			SendWorkflowTurn)).Queue(turn);
+		_workflowTurns.Queue(turn);
 	}
 
 	private void SendWorkflowTurn(AgentTurnSubmission turn) {
-		var kickoff = new WorkflowKickoff { Text = turn.Text, Command = turn.CommandName };
-		try {
+		if (Workflow.TryClaimKickoff(WorkflowKickoff.Of(turn))) {
 			SendAgentInput(turn);
-		} catch (Exception ex) when (ex is InvalidOperationException or IOException) {
-			string reason = $"Weavie couldn't send the stage's turn to the agent: {ex.Message}";
-			try {
-				Workflow.FailStage(reason);
-			} catch (WorkflowException) {
-				Notify("error", reason);
-			}
-			return;
 		}
+	}
 
-		Workflow.KickoffDelivered(kickoff);
+	private void FailWorkflowTurn(Exception ex) {
+		string reason = $"Weavie couldn't send the stage's turn to the agent: {ex.Message}";
+		try {
+			Workflow.FailStage(reason);
+		} catch (WorkflowException) {
+			Notify("error", reason);
+		}
 	}
 
 	private void MarkRuntimeActivated() => Volatile.Write(ref _runtimeActivated, 1);
 
+	// The runner closes first, so nothing queues a turn after the delivery is gone.
 	private void DisposeWorkflow() {
-		_workflowTurns?.Dispose();
 		Workflow.Dispose();
+		_workflowTurns.Dispose();
 	}
 
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {

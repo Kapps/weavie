@@ -17,6 +17,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     title: "x",
     activity: null,
     run: null,
+    workflowProblem: "",
     lastActiveAt: null,
     unseen: false,
     workspaceCheckout: false,

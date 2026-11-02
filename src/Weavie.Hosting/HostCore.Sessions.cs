@@ -8,6 +8,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
+using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
@@ -678,11 +679,8 @@ public sealed partial class HostCore {
 		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
-		if (request.Workflow is { } workflow) {
-			if (input is not null) {
-				return Task.FromResult(CommandResult.Failure("A new session starts either a workflow or a prompt, not both."));
-			}
-			input = InitialSessionInput.ForWorkflow(new WorkflowStart(workflow, request.Inputs ?? EmptyInputs));
+		if (request.Workflow is not null && input is not null) {
+			return Task.FromResult(CommandResult.Failure("A new session starts either a workflow or a prompt, not both."));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
 		_global.RememberDefaultProvider(provider);
@@ -691,8 +689,12 @@ public sealed partial class HostCore {
 			if (sourceAddress is not null && (source = await CurrentSourceAsync(sourceAddress, ct).ConfigureAwait(false)) is null) {
 				return SourceGone();
 			}
-			if (input?.Workflow is { } start && WorkflowStartError(source, start) is { } refusal) {
-				return refusal;
+			if (request.Workflow is { } workflow) {
+				try {
+					input = InitialSessionInput.ForWorkflow(PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs));
+				} catch (WorkflowException ex) {
+					return CommandResult.Failure(ex.Message);
+				}
 			}
 
 			return await (request.Existing
@@ -991,6 +993,7 @@ public sealed partial class HostCore {
 				force,
 				CancellationToken.None).ConfigureAwait(false);
 			await RetireSlotAsync(target).ConfigureAwait(false);
+			ForgetWorkflowRun(worktreePath);
 			Notify("info", branchless
 				? $"Session '{label}' was deleted. Its checkout had no branch to keep."
 				: $"Session '{label}' was deleted. Its branch was kept.");
@@ -1266,7 +1269,7 @@ public sealed partial class HostCore {
 				sessions.Add(slot);
 				PushSessionList();
 				if (input?.Workflow is { } workflow) {
-					slot.Session.Workflow.Start(workflow.Id, workflow.Inputs);
+					slot.Session.Workflow.Start(workflow);
 				} else if (input is not null) {
 					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
@@ -1352,7 +1355,7 @@ public sealed partial class HostCore {
 
 	// A new session's first input: a prompt with images, or a workflow whose first stage is the opening turn.
 	private sealed record InitialSessionInput(
-		string Text, IReadOnlyList<InitialSessionAttachment> Attachments, WorkflowStart? Workflow) {
+		string Text, IReadOnlyList<InitialSessionAttachment> Attachments, WorkflowLaunch? Workflow) {
 		public static InitialSessionInput? Create(
 			string? text,
 			IReadOnlyList<InitialSessionAttachment> attachments) =>
@@ -1360,7 +1363,7 @@ public sealed partial class HostCore {
 				? null
 				: new InitialSessionInput(text?.Trim() ?? string.Empty, attachments, null);
 
-		public static InitialSessionInput ForWorkflow(WorkflowStart workflow) => new(string.Empty, [], workflow);
+		public static InitialSessionInput ForWorkflow(WorkflowLaunch workflow) => new(string.Empty, [], workflow);
 
 		public static InitialSessionInput? FromText(string? text) => Create(text, []);
 	}

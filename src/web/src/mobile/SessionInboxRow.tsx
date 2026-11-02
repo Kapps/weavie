@@ -2,7 +2,7 @@ import { EllipsisVertical } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
 import type { RailSession } from "../chrome/session-store";
-import { sessionSubtitle, statusDot } from "../chrome/session-summary";
+import { sessionDetail, sessionSubtitle, statusDot } from "../chrome/session-summary";
 import { useNow } from "../compact-age";
 
 /**
@@ -35,7 +35,9 @@ export function SessionInboxRow(props: {
         <span class={`session-status status-${statusDot(session())}`} />
         <span class="session-inbox-details">
           <strong>{session().title}</strong>
-          <span class="session-inbox-status">{sessionSubtitle(session(), now())}</span>
+          <span class="session-inbox-status" title={sessionDetail(session()) || undefined}>
+            {sessionSubtitle(session(), now())}
+          </span>
         </span>
         <span class="session-inbox-where">
           {session().locationName} ·{" "}

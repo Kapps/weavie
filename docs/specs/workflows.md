@@ -191,7 +191,14 @@ workflows use only the defaults above, so they ship without naming a model.
 
 Each turn during a run carries a short **stage block**: run, stage, expected outputs, and how to complete. Weavie
 appends it to every prompt it sends an ACP agent, and adds it for terminal Claude through a `UserPromptSubmit` hook on
-the hook bridge. The next turn always restates the stage, so compaction cannot lose it.
+the hook bridge. The next turn always restates the stage, so compaction cannot lose it. A `skill` stage's opening
+turn is the provider command as the first block with the stage block after it, which agents read as the command plus
+context; other provider commands the user sends stay a single block.
+
+A stage's turn is owed by the run until it is handed to the agent: it is sent only if, at that moment, the run still
+owes exactly that turn, so a cancel, pause, or newer turn retires it. An owed turn survives a restart and is sent
+again on reload. A paused run's reason and a saved run that couldn't be loaded travel with the session's run line, in
+the session list's tooltip.
 
 A stage whose agent is idle is **waiting on you** — the agent asked a question, proposed an approach, or is
 interviewing you. Weavie does nothing on turn end. There are no stage kinds.
@@ -512,6 +519,5 @@ can already ask the agent to use one.
 - `completeStage` waits for its check. Claude over ACP aborts an HTTP MCP call that sends no response headers within
   60s, so the response must stream (SSE) rather than return headers only when the check finishes.
 - Fork support for terminal Claude: `--fork-session` starts a separate process outside the PTY pane.
-- Skill stages on ACP agents: a provider command is sent as one isolated text block, so a `skill` stage's opening
-  turn carries no stage block; the block reaches the agent on its next turn. Whether claude-agent-acp and codex-acp
-  still recognise a command followed by an assistant-audience block is unverified against the real agents.
+- Skill stages on codex-acp: a stage's opening command is followed by the stage block. claude-agent-acp runs the
+  skill and sees the block (verified against 0.99.1); codex-acp is unverified.

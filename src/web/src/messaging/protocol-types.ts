@@ -33,6 +33,8 @@ export interface SessionChip {
   activity: string | null;
   /** The session's live workflow run, or null when none is running. */
   run: SessionRun | null;
+  /** Why the session's saved workflow run couldn't be loaded, or empty. */
+  workflowProblem: string;
   /** When the agent last started or finished work (Unix ms), or null if it never has. */
   lastActiveAt: number | null;
   /** A turn finished here that no one has viewed since — the panel's "Finished" section. */
@@ -58,6 +60,8 @@ export interface SessionRun {
   workflow: string;
   stage: string;
   state: SessionRunState;
+  /** Why a paused run stopped; empty otherwise. */
+  reason: string;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";

@@ -40,4 +40,27 @@ public sealed class AcpWorkflowTests {
 		await fixture.WaitForMessageAsync(message => message.Text == "echo: after");
 		Assert.Equal(context, File.ReadAllText(log));
 	}
+
+	[Fact]
+	public async Task SkillStageRunsTheProviderCommandWithTheStageBlockAfterIt() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		Directory.CreateDirectory(Path.Combine(fixture.Workspace, ".weavie", "workflows"));
+		File.WriteAllText(Path.Combine(fixture.Workspace, ".weavie", "workflows", "skilled.yaml"), """
+			id: skilled
+			description: one skill stage
+			stages:
+			  - id: review
+			    do: { skill: review, args: the diff }
+			""");
+		await fixture.StartAsync();
+
+		var run = fixture.Workflow.Start("skilled", JsonDocument.Parse("{}").RootElement);
+		Assert.True(fixture.WorkflowKickoffs.TryDequeue(out var kickoff));
+		Assert.True(fixture.Workflow.TryClaimKickoff(kickoff));
+		fixture.Deliver(kickoff);
+
+		await fixture.WaitForMessageAsync(message => message.Text == "review command: the diff");
+		string context = File.ReadAllText(Path.Combine(fixture.FakeAcpStateDirectory, "assistant-context.log"));
+		Assert.Contains($"Run {run.Id} of workflow \"skilled\" is at stage \"review\"", context, StringComparison.Ordinal);
+	}
 }

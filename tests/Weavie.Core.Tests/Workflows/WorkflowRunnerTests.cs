@@ -115,7 +115,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		_port.Kickoffs.Clear();
 		using (var reloaded = Runner()) {
 			Assert.Equal(["do a"], _port.Kickoffs);
-			reloaded.KickoffDelivered(WorkflowKickoff.Prompt("do a"));
+			Assert.True(reloaded.TryClaimKickoff(WorkflowKickoff.Prompt("do a")));
 		}
 
 		_port.Kickoffs.Clear();
@@ -134,7 +134,8 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		File.WriteAllText(StorePath, text);
 		using var reloaded = Runner();
 		Assert.Equal(WorkflowPhase.Paused, reloaded.Current!.Phase);
-		Assert.Contains("no longer validates", _port.Notices[^1]);
+		Assert.Contains("no longer validates", reloaded.Current.PausedReason);
+		Assert.Contains("no longer validates", WorkflowRunSummary.From(reloaded.Current, SessionStatus.Idle)!.Reason);
 	}
 
 	[Fact]
@@ -142,8 +143,35 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		File.WriteAllText(StorePath, "{not json");
 		using var runner = Runner();
 		Assert.Null(runner.Current);
-		Assert.Contains("couldn't be read", _port.Notices[^1]);
+		Assert.Contains("couldn't be read", runner.Problem);
 		Assert.True(File.Exists(StorePath + ".bad"));
+		runner.Start("flow", Json("{}"));
+		Assert.Null(runner.Problem);
+	}
+
+	[Fact]
+	public void AnOwedTurnIsClaimedOnlyWhileTheRunStillOwesIt() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		var owed = WorkflowKickoff.Prompt("do a");
+		runner.FailStage("stuck");
+		Assert.False(runner.TryClaimKickoff(owed));
+
+		runner.Resume(run.Id);
+		runner.Cancel(run.Id);
+		Assert.False(runner.TryClaimKickoff(owed));
+	}
+
+	[Fact]
+	public void AClosedRunnerRefusesEveryChange() {
+		var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.Dispose();
+		Assert.False(runner.TryClaimKickoff(WorkflowKickoff.Prompt("do a")));
+		Assert.Throws<WorkflowException>(() => runner.CompleteStage(Json("""{"note":"n"}""")));
+		Assert.Throws<WorkflowException>(() => runner.Cancel(run.Id));
+		Assert.Throws<WorkflowException>(() => runner.Start("flow", Json("{}")));
+		Assert.Equal(WorkflowPhase.Open, runner.Current!.Phase);
 	}
 
 	[Fact]

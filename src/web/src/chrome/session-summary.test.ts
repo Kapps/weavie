@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionRun } from "../bridge";
 import type { RailSession } from "./session-store";
-import { panelOrder, sessionGroup, sessionSubtitle } from "./session-summary";
+import { panelOrder, sessionDetail, sessionGroup, sessionSubtitle } from "./session-summary";
 
 vi.mock("../commands/registry", () => ({ getKeybindings: () => [] }));
 
@@ -19,6 +19,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   status: "idle",
   activity: null,
   run: null,
+  workflowProblem: "",
   lastActiveAt: null,
   unseen: false,
   workspaceCheckout: false,
@@ -48,6 +49,7 @@ describe("sessionGroup", () => {
       workflow: "quick-fix",
       stage: "implement",
       state,
+      reason: "",
     });
     expect(sessionGroup(session({ run: run("approval") }))).toBe("needs");
     expect(sessionGroup(session({ run: run("paused") }))).toBe("needs");
@@ -104,6 +106,7 @@ describe("sessionSubtitle", () => {
       workflow: "quick-fix",
       stage: "implement",
       state: "working",
+      reason: "",
     };
     expect(
       sessionSubtitle(session({ status: "working", activity: "running pnpm test", run }), NOW),
@@ -119,5 +122,21 @@ describe("sessionSubtitle", () => {
     expect(sessionSubtitle(session({ loaded: false, external: true }), NOW)).toBe(
       "outside Weavie · not loaded",
     );
+  });
+
+  it("keeps the line short and puts why a run paused, or why it couldn't load, in the detail", () => {
+    const run: SessionRun = {
+      id: "r",
+      workflow: "quick-fix",
+      stage: "pr",
+      state: "paused",
+      reason: 'The agent couldn\'t finish stage "pr": no remote',
+    };
+    expect(sessionSubtitle(session({ run }), NOW)).toBe("pr · paused");
+    expect(sessionDetail(session({ run }))).toBe(run.reason);
+    const unreadable = session({ workflowProblem: "The saved workflow run couldn't be read" });
+    expect(sessionSubtitle(unreadable, NOW)).toBe("workflow run unreadable");
+    expect(sessionDetail(unreadable)).toBe("The saved workflow run couldn't be read");
+    expect(sessionDetail(session({ loaded: false, run }))).toBe("");
   });
 });

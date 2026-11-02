@@ -164,6 +164,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 			Id = new SessionId(id),
 			Label = label,
 			LastActiveAt = null,
+			Unseen = false,
 			WorktreePath = worktree,
 			Loaded = loaded,
 			AgentProviderId = provider,

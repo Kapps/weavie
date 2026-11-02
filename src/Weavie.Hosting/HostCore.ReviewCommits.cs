@@ -10,7 +10,7 @@ public sealed partial class HostCore {
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot> AttachReviewCommits(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewCommitsSnapshot>(
 			session.Background,
-			ct => ResolveReviewCommitsAsync(session.WorkspaceRoot, ActiveReview(session), ct),
+			ct => ResolveReviewCommitsAsync(session, ActiveReview(session), ct),
 			commits => session.Bus.BroadcastTarget.Feature("review").Publish("commits", WireJson.Default.ReviewCommitsSnapshot, commits));
 		session.AttachReviewCommits(monitor);
 		session.Changes.ReviewChanged += monitor.RefreshNow;
@@ -24,14 +24,16 @@ public sealed partial class HostCore {
 		}
 	}
 
-	// The branch starts at its PR's merge-base, else where it left the default branch (or, with none, at the review's
+	// The branch starts at its PR's merge-base, else where it left its base branch (or, with none, at the review's
 	// base); the review spans the commits after its own base. Range logs over the branch only, never a history walk.
-	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(string worktree, ReviewContext? review, CancellationToken ct) {
+	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(HostSession session, ReviewContext? review, CancellationToken ct) {
+		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		try {
-			string? defaultRef = await DefaultDiffRefAsync(worktree, ct).ConfigureAwait(false);
-			string? branchBase = review is { PrNumber: > 0 } || defaultRef is null ? review?.MergeBase
-				: await git.MergeBaseAsync(worktree, defaultRef, "HEAD", ct).ConfigureAwait(false);
+			bool pullRequest = review is { PrNumber: > 0 };
+			string? baseRef = pullRequest ? null : await BranchBaseRefAsync(session, ct).ConfigureAwait(false);
+			string? branchBase = baseRef is null ? review?.MergeBase
+				: await git.MergeBaseAsync(worktree, baseRef, "HEAD", ct).ConfigureAwait(false);
 			if (branchBase is null) {
 				return ReviewCommitsSnapshot.None;
 			}
@@ -40,7 +42,7 @@ public sealed partial class HostCore {
 			var reviewed = review is null ? []
 				: review.MergeBase == branchBase ? branch.Select(c => c.Sha).ToHashSet(StringComparer.Ordinal)
 				: (await git.LogRangeAsync(worktree, review.MergeBase, "HEAD", ct).ConfigureAwait(false)).Select(c => c.Sha).ToHashSet(StringComparer.Ordinal);
-			bool wholeBranch = review is not null && (review.PrNumber > 0 || review.Label == $"vs {defaultRef}");
+			bool wholeBranch = review is not null && (pullRequest || review.Label == $"vs {baseRef}");
 			return new(wholeBranch, [.. branch.Select(c => new BranchCommit(c.Sha, c.Author, c.TimeUnix, c.Summary, reviewed.Contains(c.Sha)))], null);
 		} catch (GitException ex) {
 			return new(false, [], ex.Message);
@@ -53,7 +55,7 @@ internal sealed record BranchCommit(string Sha, string Author, long TimeUnix, st
 
 /// <summary>
 /// The branch's commits since it left its base, newest first; <see cref="WholeBranch"/> marks a review comparing the
-/// whole branch with its PR's or the repository's default branch.
+/// whole branch with its PR's or its base branch.
 /// </summary>
 internal sealed record ReviewCommitsSnapshot(bool WholeBranch, IReadOnlyList<BranchCommit> Commits, string? Error) {
 	public static ReviewCommitsSnapshot None { get; } = new(false, [], null);

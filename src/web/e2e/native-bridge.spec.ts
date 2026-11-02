@@ -120,6 +120,7 @@ test.describe("native in-process bridge contract", () => {
                 agentInputProtocol: 2,
                 status: "idle",
                 lastActiveAt: null,
+                unseen: false,
                 workspaceCheckout: false,
                 external: false,
               },

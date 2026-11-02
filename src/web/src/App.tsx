@@ -1,4 +1,4 @@
-import { Files, X } from "lucide-solid";
+import { X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -126,6 +126,7 @@ import { createEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
 import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
+import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
@@ -136,6 +137,7 @@ import {
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
+import { ReviewViewSwitch } from "./editor/review/ReviewViewSwitch";
 import { reviewCommandBindings } from "./editor/review/review-commands";
 import { registerReviewHintCommands } from "./editor/review-hints/review-hint-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
@@ -882,6 +884,10 @@ export default function App(): JSX.Element {
     const session = selectedSession();
     return session === null ? undefined : activeTabFor(session);
   });
+  const reviewView = () => {
+    const session = selectedSession();
+    return session === null ? undefined : editor.review.view(session);
+  };
   createEffect(() => {
     const tab = activeTabBinding();
     setContext("unifiedReviewActive", tab !== undefined && tabKind(tab.entry) === "review");
@@ -1253,15 +1259,7 @@ export default function App(): JSX.Element {
             trailing={
               <>
                 <Show when={editor.parkedReviewCount() > 0}>
-                  <button
-                    type="button"
-                    class="editor-review-action editor-review-open"
-                    title={`Review Changes${keyHint(CommandIds.reviewOpen)}`}
-                    onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
-                  >
-                    <Files size={14} />
-                    Review Changes
-                  </button>
+                  <ReviewViewSwitch view={reviewView()} />
                 </Show>
                 <Show when={editor.review.canClose()}>
                   <button
@@ -1288,6 +1286,7 @@ export default function App(): JSX.Element {
             </Show>
             <TabContent sessions={editorSessions} controller={editor} />
           </div>
+          <PlanReviewBar afterFlush={editor.afterFlush} />
           <EditorFooter
             onOpenRecent={(path) => editor.openFile(path, undefined)}
             root={() => indexRoot() ?? ""}

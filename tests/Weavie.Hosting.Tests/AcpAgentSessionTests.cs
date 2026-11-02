@@ -712,7 +712,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(SessionStatus.NeedsInput, fixture.Events.Status.Status);
 		fixture.Session.ResolvePermission(approval.RequestId!, "allow-once");
 		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "approval-resolved");
-		Assert.Equal("allowed once", resolved.Status);
+		Assert.Equal("Approved · Allow", resolved.Status);
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "permission: allow-once");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");

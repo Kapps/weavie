@@ -25,6 +25,17 @@ const command = (text: string): AgentPaneUpdate => ({
 });
 
 describe("submittedPrompts", () => {
+  it("leaves out messages other sessions sent", () => {
+    const sender = { id: "feat/auth", title: "auth" };
+    const messages: AgentPaneUpdate[] = [
+      user("mine"),
+      { ...user("theirs"), sender },
+      { ...steer("their steer"), sender },
+    ];
+
+    expect(submittedPrompts(messages)).toEqual(["mine"]);
+  });
+
   it("collects user prompts and steers oldest-first, dropping blanks and adjacent dupes", () => {
     const messages: AgentPaneUpdate[] = [
       user("first"),

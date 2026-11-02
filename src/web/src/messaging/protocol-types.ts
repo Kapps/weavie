@@ -33,6 +33,8 @@ export interface SessionChip {
   activity: string | null;
   /** When the agent last started or finished work (Unix ms), or null if it never has. */
   lastActiveAt: number | null;
+  /** A turn finished here that no one has viewed since — the panel's "Finished" section. */
+  unseen: boolean;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
@@ -61,6 +63,12 @@ export interface AgentProviderInfo {
   unavailableReason: string | null;
   warning: string | null;
   surface: "terminal" | "structured";
+}
+
+/** The session whose agent sent a prompt to another session. */
+export interface AgentMessageSender {
+  id: string;
+  title: string;
 }
 
 export interface AgentPaneUpdate {
@@ -93,6 +101,9 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+  planPath?: string | null;
+  /** The session that sent a submitted prompt, when another session's agent sent it. */
+  sender?: AgentMessageSender | null;
 }
 
 export interface AgentPaneContent {
@@ -206,6 +217,7 @@ export interface AgentControlState {
 export interface AgentQueuedSubmission {
   text: string;
   attachments: number;
+  sender?: AgentMessageSender | null;
 }
 
 export interface AgentContextWindowUsage {

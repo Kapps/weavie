@@ -150,6 +150,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 			Id = new SessionId(entry.Id),
 			Label = entry.Label,
 			LastActiveAt = entry.LastActiveAt,
+			Unseen = entry.Unseen,
 			WorktreePath = entry.WorktreePath,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
@@ -171,6 +172,7 @@ public sealed partial class SessionStore : JsonDocumentStore {
 		Id = session.Id.Value,
 		Label = session.Label,
 		LastActiveAt = session.LastActiveAt,
+		Unseen = session.Unseen,
 		WorktreePath = session.WorktreePath,
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
@@ -201,6 +203,9 @@ public sealed partial class SessionStore : JsonDocumentStore {
 
 		[JsonPropertyName("lastActiveAt")]
 		public DateTimeOffset? LastActiveAt { get; set; }
+
+		[JsonPropertyName("unseen")]
+		public bool Unseen { get; set; }
 
 		[JsonPropertyName("worktreePath")]
 		public string? WorktreePath { get; set; }

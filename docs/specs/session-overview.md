@@ -14,7 +14,7 @@ reaches the diffs; there is no separate "start" step.
 | Title | always | PR title with its `#N` link, state, author, "merge head into base", or the branch name; [Finish review](pr-review-finish.md) in the byline |
 | Description, Conversation | the branch has a PR | PR body; PR-level comments and review events, with a composer |
 | Checks, Reviewers | the branch has a PR | failing checks first; each reviewer's latest state |
-| Commits | the branch has commits of its own | from where it left its PR's or the default branch, dimming those the review doesn't span |
+| Commits | the branch has commits of its own | from where it left its PR's or its base branch, dimming those the review doesn't span |
 | Changes | always | the review's file tree, headed by what it compares (`PR #12`, `vs main`, or agent edits) |
 
 Commits always list the whole branch; when the review is narrower (Uncommitted, Last commit, agent edits) the commits
@@ -28,10 +28,24 @@ Finish review reaches its control. Finishing a review still closes the tab and r
 ## Opening a diff
 
 Every new diff opens on the overview: Open Pull Request, Diff Against…, and **Review Branch**
-(`weavie.diff.againstBranchBase`, unbound), which compares the branch with the remote's default branch
-(`origin/main` over a local `main` that may be far behind). Clicking the status bar's diff totals offers Current
-review, Uncommitted, Last commit, and Branch. A session holds one review, so switching to a different comparison asks
+(`weavie.diff.againstBranchBase`, unbound), which compares the branch with its base. Clicking the status bar's diff
+totals offers Current review, Uncommitted, Last commit, and Branch. A session holds one review, so switching to a different comparison asks
 first: it closes the current review the way Close Diff does.
+
+## Branch base
+
+Git has no notion of a parent branch, so the base layers what is known, first match wins:
+
+1. The branch the user last diffed against (Diff Against…), kept in git config as `branch.<b>.weavie-review-base`;
+   choosing the base Weavie would detect anyway clears it, so the detected base keeps tracking.
+2. The open pull request's base branch.
+3. The branch it was created from, when that is another branch it forked from off the default branch: as Weavie
+   recorded it (`branch.<b>.weavie-parent`, written when a session branches from another session), else as git's
+   reflog does (`branch: Created from X`, or for a branch created from `HEAD`, the branch HEAD then left).
+4. The remote's default branch (`origin/main` over a local `main` that may be far behind).
+
+Git config sections follow the branch through `git branch -m` and go with it on delete. VS Code and GitLens layer the
+same sources under their own keys (`vscode-merge-base`, `gk-merge-target-user`).
 
 ## Collapsing
 

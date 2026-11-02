@@ -184,7 +184,7 @@
   height: 13px;
 }
 /* A session's status dot, shared by the rail, the session panel, the title bar, and the pane footer
-   (idle = calm green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
+   (idle = calm green, finished = haloed green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
 .session-status {
   --status-color: var(--dim);
   width: 8px;
@@ -196,6 +196,10 @@
 }
 .session-status.status-idle {
   --status-color: var(--ok);
+}
+.session-status.status-finished {
+  --status-color: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent);
 }
 .session-status.status-needsInput {
   --status-color: var(--warn);
@@ -241,6 +245,9 @@
 }
 .session-status.cloud.status-needsInput {
   filter: drop-shadow(0 0 2px color-mix(in srgb, var(--warn) 60%, transparent));
+}
+.session-status.cloud.status-finished {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--ok) 60%, transparent));
 }
 .session-status.cloud.status-unloaded {
   fill: none;

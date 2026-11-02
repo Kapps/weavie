@@ -76,6 +76,7 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     agentInputProtocol: providerId === "claude" ? 0 : 2,
     status: "idle",
     lastActiveAt: null,
+    unseen: false,
     workspaceCheckout: false,
     external: false,
     shellTerminals: [`${id}-shell`],

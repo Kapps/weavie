@@ -1,5 +1,6 @@
 using CoreGraphics;
 using Foundation;
+using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
@@ -66,7 +67,9 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 			.ToList();
 		var placement = WindowPlacement.Resolve(_core.SavedWindow, screens, 1280, 840);
 		var frame = new CGRect(placement.X, placement.Y, placement.Width, placement.Height);
-		_webView = new WKWebView(frame, config);
+		_webView = new WKWebView(frame, config) {
+			Inspectable = app.Services.Settings.RequireBool(DeveloperSettings.WebInspector),
+		};
 		_bridge.Attach(_webView);
 #if DEBUG
 		// Intercept the dev-server error page's weavie-dev:// action links (Retry / Load stale bundle).

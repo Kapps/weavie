@@ -1,4 +1,4 @@
-import { createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
 import {
   backendName,
   backendPhase,
@@ -14,6 +14,7 @@ import {
   selectedSession,
 } from "../bridge";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
+import { windowFocused } from "./window-state";
 
 // The rail shows every session on every connected backend. Each connection publishes its catalog,
 // kept by host while each loaded entry points at an exact ClientSession.
@@ -120,6 +121,7 @@ registerHostFeature((connection) =>
             status: entry.status,
             activity: owner === null ? null : (activity.get(owner) ?? null),
             lastActiveAt: entry.lastActiveAt,
+            unseen: entry.unseen,
             workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
           };
@@ -181,6 +183,18 @@ onBackendPhase((backendId, phase) => {
 
 onSelectedSession(() => setPendingSelection(null));
 
+// The session the user is looking at is seen: its owner clears the host's flag for every client.
+createRoot(() => {
+  const watchedUnseen = createMemo(() => {
+    const selected = selectedSession();
+    const chip = byBackend()
+      .get(selected?.connection.id ?? "")
+      ?.find((candidate) => candidate.owner === selected);
+    return selected !== null && chip?.unseen === true && windowFocused() ? selected : null;
+  });
+  createEffect(() => watchedUnseen()?.feature("attention").publish("seen", {}));
+});
+
 // Every backend's chips, local first. A chip is active only when its backend is the one driving the page,
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
@@ -196,13 +210,16 @@ const merged = createMemo<RailSession[]>(() => {
     const isLocal = backendId === "local";
     const offline = backendPhase(backendId) !== "online";
     for (const chip of chips) {
+      // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
+      const active = chip.owner !== null && selected === chip.owner;
       out.push({
         ...chip,
         backendId,
         isLocal,
         locationName: backendName(backendId),
-        // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
-        active: chip.owner !== null && selected === chip.owner,
+        active,
+        // The selected session reads seen at once rather than flashing Finished until the host clears it.
+        unseen: chip.unseen && !active,
         pending: pending.has(pendingKey(backendId, chip.id)),
         offline,
       });

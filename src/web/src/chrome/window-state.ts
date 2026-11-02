@@ -1,12 +1,20 @@
 // The native window's chrome state, host-pushed as `window.state` (a local-machine push: only a shell
 // with a real window sends it; browser-served pages never see one and the defaults hold). One source for
-// the title bar and the attention intake.
+// the title bar, the attention intake, and seen-marking.
 
 import { createSignal } from "solid-js";
 import { registerHostFeature } from "../bridge";
 
 const [maximized, setMaximized] = createSignal(false);
 const [hostFocused, setHostFocused] = createSignal(true);
+// Re-runs reactive readers of windowFocused() when the page's own focus or visibility may have changed.
+const [pageTick, setPageTick] = createSignal(0, { equals: false });
+const tickPage = (): void => {
+  setPageTick(0);
+};
+window.addEventListener("focus", tickPage);
+window.addEventListener("blur", tickPage);
+document.addEventListener("visibilitychange", tickPage);
 
 registerHostFeature((connection) => {
   if (!connection.isLocal) {
@@ -32,5 +40,6 @@ export const hostWindowFocused = hostFocused;
  * and page visibility corroborate it — any signal saying "away" wins.
  */
 export function windowFocused(): boolean {
+  pageTick();
   return document.hasFocus() && !document.hidden && hostFocused();
 }

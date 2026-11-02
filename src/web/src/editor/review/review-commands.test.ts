@@ -41,6 +41,7 @@ const review = {
   redo: vi.fn(() => true),
   toggleFileCollapsed: vi.fn(() => true),
   toggleFileContext: vi.fn(() => true),
+  switchView: vi.fn(() => true),
 };
 const openReview = vi.fn((session: ClientSession) => session === env.selected);
 const lifetime = new AbortController();
@@ -92,7 +93,6 @@ describe("review command bindings", () => {
       CommandIds.reviewOpen,
       CommandIds.reviewToggleFile,
       CommandIds.reviewToggleContext,
-      CommandIds.reviewOpenLine,
       CommandIds.reviewNextFile,
       CommandIds.reviewPrevFile,
     ];
@@ -121,9 +121,10 @@ describe("review command bindings", () => {
     expect(review.toggleFileContext).toHaveBeenCalledWith(left, "/left/one.ts");
   });
 
-  it("opens the presentation's cursor line in file review", async () => {
-    expect(await run(CommandIds.reviewOpenLine, undefined, left)).toBe(true);
-    expect(openReview).toHaveBeenCalledWith(left, "/left/one.ts", 9);
+  it("switches review views when no file is addressed", async () => {
+    expect(await run(CommandIds.reviewOpen, undefined, left)).toBe(true);
+    expect(review.switchView).toHaveBeenCalledWith(left);
+    expect(openReview).not.toHaveBeenCalled();
   });
 
   it("lets the selected presentation consume empty undo chords", async () => {

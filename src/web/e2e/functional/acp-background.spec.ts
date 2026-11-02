@@ -160,6 +160,8 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(listed).toContainText("sleep 30");
   await dialog.getByRole("button", { name: "Stop and restart" }).click();
   await expect(dialog).toBeHidden();
+  // The dialog closes on the click; the restart lands when its command reports back.
+  await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
   await expect(card).toHaveAttribute("data-state", "completed");
   await expect(surface.locator("[data-agent-composer]")).toHaveAttribute(
     "data-agent-controls-ready",

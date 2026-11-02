@@ -103,15 +103,6 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
       }),
     ],
     [
-      CommandIds.reviewOpenLine,
-      whileDisplayed(({ session }) => {
-        const text =
-          session === null ? undefined : activeTabFor(session)?.presentation?.capture().text;
-        return () =>
-          session !== null && text != null && editor.openReview(session, text.path, text.line);
-      }),
-    ],
-    [
       CommandIds.reviewOverview,
       forSession((session) => {
         requestOverview(session);
@@ -121,12 +112,10 @@ export function reviewCommandBindings(editor: EditorController): ReviewCommandBi
     [
       CommandIds.reviewOpen,
       forSession((session, _path, args) => {
+        const path = commandPath(args);
+        if (path === undefined) return editor.review.switchView(session);
         const line = (args as { line?: unknown } | undefined)?.line;
-        return editor.openReview(
-          session,
-          commandPath(args),
-          typeof line === "number" ? line : undefined,
-        );
+        return editor.openReview(session, path, typeof line === "number" ? line : undefined);
       }),
     ],
   ];

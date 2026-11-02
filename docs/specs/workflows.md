@@ -254,19 +254,21 @@ shortcut never acts on whichever run happens to be newest.
 
 ## Visualizing a run
 
-The run's live state is shown at three depths, each in a surface the session already has:
+A workflow must not take over the standard session experience. The everyday UI gains almost nothing; detail lives in
+a view the user opens on demand.
 
-- **Session rail and session panel** — one line under the session: workflow, current stage, state
-  (`ship-task · review · waiting on you`). A parent with `new-session` children shows progress (`build 3/7`).
-- **Run strip** — a slim bar above the session's agent pane: the run chain as breadcrumbs
-  (`spec-driven › implement (3/7) › quick-fix › implement`), the state, and links to outputs (spec, videos, PR).
-  Activating it opens the run panel.
-- **Run panel** — on demand: every stage with status, attempts, and check reasons; outputs; `foreach` items with their
-  child sessions (each one jumps to its session); the run commands with their shortcuts.
+- **Session rail** — no new rows, nesting, or indentation. A session in a run uses its existing status line for the
+  run's stage and state (`review · decision needs you` instead of `idle · 5m ago`). Child sessions are ordinary
+  sessions.
+- **Agent pane** — one chip in the existing status line under the composer (`ship-task · review 2/6`), beside the PR
+  chip. Stage boundaries appear in the transcript as one-line dividers (`implement ✓ · check passed`), not cards.
+- **Cards only when the run needs the user** — an approval gate or an `unsure` decision, styled like a permission
+  request, with keyed choices. Forked and fresh steps use the existing background-work cards.
+- **Run view** — opened from the chip or **Show Run**, as an ordinary editor tab: stages with status, attempts, and
+  check reasons; outputs; `foreach` items with their child sessions (each jumps to its session); decisions with their
+  answers and confidence; Pause, Cancel, and Edit Workflow. Closing it leaves the standard UI untouched.
 
-Decisions that need the user appear where they're already looking — in the agent pane, as conversation cards like
-permission requests: approve / reject-with-feedback for a gate, and pick-a-choice for an `unsure` decision. Forked and
-fresh steps appear as background-work cards. The workflow *definition* is viewed as its YAML in the editor.
+Mockup: `temp/mockups/workflow-run.html` (not tracked).
 
 ## Run history and suggestions
 

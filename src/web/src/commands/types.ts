@@ -150,7 +150,6 @@ export const CommandIds = {
   reviewClose: "weavie.review.close",
   reviewToggleFile: "weavie.review.toggleFile",
   reviewToggleContext: "weavie.review.toggleContext",
-  reviewOpenLine: "weavie.review.openLine",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",
   reviewGoToFile: "weavie.review.goToFile",

@@ -203,11 +203,15 @@ function EntryActions(props: {
     <Show when={props.entry.actionMessage}>
       {(message) => (
         <Switch>
+          <Match when={message().itemType === "plan-review"}>
+            <PlanActions message={message()} session={props.session} />
+          </Match>
           <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
             <ApprovalActions
               session={props.session}
               message={message()}
               answersToKeys={props.entry.id === props.keyboardRequestKey}
+              beforeAllow={(send) => send()}
             />
           </Match>
           <Match
@@ -293,7 +297,7 @@ function AgentMedia(props: {
 
 function entryLabel(entry: AgentTranscriptEntry): string {
   if (entry.kind === "message" && entry.tone === "user") {
-    return entry.label === "Steer" || entry.label === "Command" ? entry.label : "Prompt";
+    return entry.label === "You" || entry.label === "Image" ? "Prompt" : entry.label;
   }
   switch (entry.label) {
     case "Interrupted":

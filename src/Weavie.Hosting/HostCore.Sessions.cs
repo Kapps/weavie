@@ -20,8 +20,10 @@ public sealed partial class HostCore {
 	private void WireSession(HostSession session) {
 		// Off the raising thread (any observer's, including the UI's): closing a session is lifecycle work.
 		session.WorkspaceRootVanished += () => _ = Task.Run(() => CloseVanishedSessionAsync(session));
-		AttachGitStatus(session);
+		// Both monitors exist before either runs: each refreshes from the other (branch commits read the PR's base).
 		AttachPullRequestStatus(session);
+		AttachGitStatus(session);
+		session.PullRequestStatus.UpdateStatus(session.Status.Status);
 		if (session.Agent.Controls is { } controls) {
 			string provider = session.Agent.Provider.Id;
 			controls.ControlStateChanged += state => {
@@ -38,11 +40,18 @@ public sealed partial class HostCore {
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		RegisterShellTerminalHandlers(session);
-		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, _) => {
-			if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
-			_ui.Post(session.RestartAgent);
-			return Task.FromResult(CommandResult.Success("Restarted the agent."));
-		});
+		// Succeeds only once the restart has happened, so the caller never acts on the agent it replaced.
+		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (argsJson, ct) =>
+			BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal
+				? Task.FromResult(refusal)
+				: _ui.InvokeAsync(() => {
+					try {
+						session.RestartAgent();
+						return Task.FromResult(CommandResult.Success("Restarted the agent."));
+					} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
+						return Task.FromResult(CommandResult.Failure(ex.Message));
+					}
+				}, ct));
 		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (argsJson, _) => {
 			try {
 				if (BackgroundWorkRefusal(session, StopsBackgroundWork(argsJson)) is { } refusal) return Task.FromResult(refusal);
@@ -117,10 +126,12 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			session.PullRequestStatus.UpdateStatus(status);
 			bool marksActive = SessionStatusMachine.MarksLastActive(previous, status);
+			bool finished = AttentionRules.Classify(previous, status) == AttentionKind.TurnComplete;
 			previous = status;
 			PostForSession(session, () => {
-				if (marksActive && _sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session)) {
+				if (marksActive && OwnedSlot(session) is { } slot) {
 					slot.LastActiveAt = _time.GetUtcNow();
+					slot.Unseen |= finished;
 					PersistSessionState();
 				}
 
@@ -148,6 +159,10 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		}, ct));
 	}
+
+	/// <summary>The slot <paramref name="session"/> is still the live backend of, or <c>null</c> once it was replaced.</summary>
+	private SessionSlot? OwnedSlot(HostSession session) =>
+		_sessions?.Find(session.SlotId) is { } slot && ReferenceEquals(slot.Session, session) ? slot : null;
 
 	/// <summary>Test seam for one exact logical slot.</summary>
 	internal HostSession? SessionForTest(string slot) =>
@@ -443,6 +458,7 @@ public sealed partial class HostCore {
 					structured ? 2 : 0,
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
+					slot.Unseen,
 					IsWorkspaceCheckout(slot),
 					!IsWorkspaceCheckout(slot) && _worktrees?.Owns(slot.WorktreePath) == false);
 			})
@@ -460,6 +476,7 @@ public sealed partial class HostCore {
 		int AgentInputProtocol,
 		string Status,
 		long? LastActiveAt,
+		bool Unseen,
 		bool WorkspaceCheckout,
 		bool External);
 
@@ -534,6 +551,7 @@ public sealed partial class HostCore {
 				_corrections,
 				_inference,
 				_agentConsultation,
+				new BoundSessionPeers(this, address),
 				_platform.PtyLauncher,
 				provider,
 				_runtime,
@@ -1095,7 +1113,7 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"Couldn't validate the branch name: {ex.Message}");
 		}
 
-		string baseRef;
+		SessionBase baseRef;
 		try {
 			baseRef = await ResolveBaseRefAsync(source, baseSpec, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or InvalidOperationException) {
@@ -1104,9 +1122,17 @@ public sealed partial class HostCore {
 
 		WorktreeRecord record;
 		try {
-			record = await _worktrees.CreateAsync(branch, baseRef, agentProviderId, ct).ConfigureAwait(false);
+			record = await _worktrees.CreateAsync(branch, baseRef.Ref, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
+		}
+
+		if (baseRef.Parent is { } parent) {
+			try {
+				await new GitService().RecordParentBranchAsync(record.Path, branch, parent, ct).ConfigureAwait(false);
+			} catch (GitException ex) {
+				_ui.Post(() => Notify("warn", $"Couldn't record '{parent}' as the branch '{branch}' is stacked on: {ex.Message}"));
+			}
 		}
 
 		// Run the user's setup command (e.g. `pnpm install`) in the background so the session opens now; it
@@ -1364,7 +1390,10 @@ public sealed partial class HostCore {
 
 	private static SessionAddress LiveAddress(HostSession session) => session.Address;
 
-	private async Task<string> ResolveBaseRefAsync(
+	// Where a new session's branch starts, and the branch it is stacked on when it starts from another session's.
+	private readonly record struct SessionBase(string Ref, string? Parent);
+
+	private async Task<SessionBase> ResolveBaseRefAsync(
 		SessionSlot? source,
 		string? baseSpec,
 		CancellationToken ct) {
@@ -1374,7 +1403,9 @@ public sealed partial class HostCore {
 				throw new InvalidOperationException("There is no source session to branch from.");
 			}
 
-			return await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false);
+			return new(
+				await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false),
+				await git.GetCurrentBranchAsync(source.WorktreePath, ct).ConfigureAwait(false));
 		}
 
 		if (string.IsNullOrWhiteSpace(baseSpec)
@@ -1384,13 +1415,13 @@ public sealed partial class HostCore {
 			string branch = await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException("This repository has no default branch.");
 			if (await git.GetRemoteUrlAsync(WorkspaceRoot, "origin", ct).ConfigureAwait(false) is null) {
-				return branch;
+				return new(branch, null);
 			}
 
 			string sha = await git.RemoteBranchCommitAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false)
 				?? throw new InvalidOperationException($"origin has no '{branch}'.");
 			await git.FetchCommitAsync(WorkspaceRoot, "origin", sha, ct).ConfigureAwait(false);
-			return sha;
+			return new(sha, null);
 		}
 
 		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");

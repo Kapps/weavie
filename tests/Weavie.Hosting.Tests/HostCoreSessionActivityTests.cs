@@ -58,6 +58,22 @@ public sealed class HostCoreSessionActivityTests {
 		Assert.Equal(expected, Stamp());
 	}
 
+	[Fact]
+	public async Task FinishedTurn_StaysUnseenAcrossRestart_UntilTheSessionIsSeen() {
+		await using var host = await TestHost.StartAsync();
+		bool Unseen() => WorkspaceEntry(host).GetProperty("unseen").GetBoolean();
+		Assert.False(Unseen());
+
+		host.WorkspaceSession.Events.Observe(new AgentPromptSubmitted(null, "go"));
+		host.WorkspaceSession.Events.Observe(new AgentTurnStopped(WillResume: false));
+		await Wait.UntilAsync(Unseen);
+		await host.RestartAsync();
+		Assert.True(Unseen());
+
+		host.SessionEvent(host.WorkspaceSession, "attention", "seen", new { });
+		await Wait.UntilAsync(() => !Unseen());
+	}
+
 	private static async Task AdvanceUntilAsync(TestHost host, string? line) =>
 		await Wait.UntilAsync(() => {
 			host.Time.Advance(Interval);

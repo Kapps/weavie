@@ -49,7 +49,12 @@ export function ThemeVariants(props: { model: ThemePickerModel; onClose: () => v
                 disabled={m.saving()}
                 onInput={(event) => m.setVariantQuery(event.currentTarget.value)}
               />
-              <ThemeAppearanceSelect model={m} />
+              <ThemeAppearanceSelect
+                model={m}
+                onChosen={() =>
+                  document.getElementById(`theme-variants-${m.variantSelected()}`)?.focus()
+                }
+              />
               <ThemeChoiceList
                 id="theme-variants"
                 label="Theme variants"

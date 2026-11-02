@@ -24,6 +24,18 @@ public sealed class ClaudeTranscriptsTests {
 	}
 
 	[Fact]
+	public void ReadText_OnDisk_IsNullUntilClaudeWritesTheTranscript() {
+		using var dir = new TempDirectory("weavie-claude-transcripts");
+		var transcripts = new ClaudeTranscripts(new LocalFileSystem(), dir.Path);
+
+		Assert.Null(transcripts.ReadText(Cwd, Id));
+		string path = transcripts.TranscriptPath(Cwd, Id);
+		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+		File.WriteAllBytes(path, [.. "{\"a\":\"é\"}\n"u8, 0xC3]);
+		Assert.Equal("{\"a\":\"é\"}\n\uFFFD", transcripts.ReadText(Cwd, Id));
+	}
+
+	[Fact]
 	public void Exists_WhenTranscriptAbsent_ReturnsFalse() {
 		var transcripts = new ClaudeTranscripts(new InMemoryFileSystem(), ProjectsDir);
 

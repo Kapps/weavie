@@ -15,6 +15,7 @@ export interface SessionCatalogEntry {
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   lastActiveAt: number | null;
+  unseen: boolean;
   workspaceCheckout: boolean;
   external: boolean;
 }

@@ -100,7 +100,7 @@ public sealed partial class HostCore {
 			"text", "Loading a review baseline", WireJson.Default.ReviewTextRequest, WireJson.Default.ReviewTextResult,
 			(message, _) => Task.FromResult(new ReviewTextResult(session.Changes.ReviewText(message.Path, message.Revision))));
 		review.Handle("diffAgainst", "Changing the diff base", WireJson.Default.DiffAgainstMessage, WireJson.Default.ReviewOpened, (message, ct) =>
-			DiffAgainstFromWebAsync(session, message.Reference, message.Replaces, ct));
+			ChooseDiffAgainstFromWebAsync(session, message.Reference, message.Replaces, ct));
 		review.Handle("diffAgainstBase", "Reviewing the branch", WireJson.Default.DiffAgainstBaseMessage, WireJson.Default.ReviewOpened, (message, ct) =>
 			DiffAgainstBaseFromWebAsync(session, message.Replaces, ct));
 

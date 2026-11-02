@@ -24,6 +24,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 
 	public const string PlanMarkdown = "# Plan\n\n- Inspect the code\n- Implement the fix";
 
+	/// <summary>A prompt prefix asking to review the plan file named after it.</summary>
+	public const string PlanReviewPrompt = "review-plan:";
+
 	/// <summary>A prompt that leaves one stoppable background task running.</summary>
 	public const string BackgroundPrompt = "start-background";
 
@@ -38,6 +41,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	};
 
 	public void ClearConversation(string workspace) => Transcripts.TryRemove(workspace, out _);
+
+	public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) =>
+		AgentTranscript.FromPaneJournal([.. Transcripts.GetOrAdd(workspace, static _ => [])]);
 
 	public Action<AgentSessionContext> CreatingSession { get; set; } = _ => { };
 
@@ -173,6 +179,25 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				});
 				return;
 			}
+			if (submission.Text.StartsWith(PlanReviewPrompt, StringComparison.Ordinal)) {
+				_turns++;
+				Emit(new AgentPaneMessage {
+					Type = "approval-requested",
+					ProviderId = "structured",
+					ThreadId = "thread-fake",
+					TurnId = $"turn-{_turns}",
+					ItemId = $"request:review-{_turns}",
+					RequestId = $"review-{_turns}",
+					ItemType = "plan-review",
+					PlanPath = submission.Text[PlanReviewPrompt.Length..],
+					Actions = [
+						new AgentActionOption { Id = "allow", Label = "Yes", Kind = "allow_once" },
+						new AgentActionOption { Id = "reject", Label = "No", Kind = "reject_once" },
+					],
+					Status = "pending",
+				});
+				return;
+			}
 			if (submission.Text is PlanReplayPrompt or PlanRemovedReplayPrompt) {
 				if (submission.Text == PlanRemovedReplayPrompt) transcript.RemoveAll(message => message.ItemType == "plan");
 				PaneSnapshot?.Invoke([.. transcript]);
@@ -187,6 +212,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				ThreadId = "thread-fake",
 				TurnId = $"turn-{_turns}",
 				Text = submission.Text,
+				Sender = submission.Sender,
 			});
 			Emit(new AgentPaneMessage {
 				Type = "item-completed",
@@ -212,10 +238,15 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 		public void Interrupt() {
 		}
 
+		// Restarting stops running work, as a real agent's process restart does.
 		public void Restart() {
+			BackgroundWork = [.. BackgroundWork.Select(item => item with { State = AgentBackgroundState.Stopped, CanStop = false })];
+			BackgroundWorkChanged?.Invoke(BackgroundWork);
 		}
 
 		public void ResolvePermission(string requestId, string optionId) {
+			var request = transcript.Last(message => message.RequestId == requestId);
+			Emit(request with { Type = "approval-resolved", ItemType = null, PlanPath = null, Actions = null, Status = optionId });
 		}
 
 		public void ResolveInput(

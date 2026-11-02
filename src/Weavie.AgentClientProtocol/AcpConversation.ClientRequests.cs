@@ -217,14 +217,7 @@ internal sealed partial class AcpConversation {
 		_pendingRequests.TryRemove(state.Request.Id, out var pending);
 		RespondToCompletedClientRequest(state, null, -32800, "Request cancelled.", null);
 		if (pending is not null) {
-			ResolveInteraction(
-				state.Request.Id,
-				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
-				"cancelled",
-				pending.Kind == "permission",
-				pending.ThreadId,
-				pending.TurnId,
-				answers: null);
+			ResolveInteraction(state.Request.Id, pending, "cancelled", answers: null);
 		}
 	}
 

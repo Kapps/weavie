@@ -166,6 +166,21 @@ describe("host edits", () => {
   const lastSnapshot = (): Record<string, unknown> | undefined =>
     bridgeState.posted.findLast((message) => message.name === "sessionChanged")?.payload;
 
+  it("adds a tab without activating it when asked", () => {
+    seed([{ path: "/a.ts", viewState: null }], "/a.ts");
+    const fake = fakeSession("local", "sess-1");
+    store.onHostEditorEdit<{ path: string }>(fake.client, "openFile", ({ path }) =>
+      store.openTabFor(fake.client, path, { activate: false }),
+    );
+    fake.handlers.get("editor.openFile")?.({ path: "/plan.md", revision: 6 });
+    vi.advanceTimersByTime(300);
+
+    expect(lastSnapshot()).toMatchObject({
+      basis: 6,
+      session: { active: "/a.ts", open: [{ path: "/a.ts" }, { path: "/plan.md" }] },
+    });
+  });
+
   it("reports the edit with its revision as the snapshot's basis", () => {
     seed([], null);
     const fake = fakeSession("local", "sess-1");

@@ -174,7 +174,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			await next().ConfigureAwait(false);
 		});
 		if (assets is not null) {
-			app.UseStaticFiles(new StaticFileOptions { FileProvider = assets });
+			WorkspaceStaticAssets.Use(app, assets);
 		}
 
 		await app.StartAsync().ConfigureAwait(false);

@@ -8,18 +8,11 @@ namespace Weavie.Hosting.Agents;
 /// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
 public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly MessageFeatureChannel _messages;
-	private readonly List<AgentPaneMessage> _paneMessages = [];
-	private readonly List<long> _paneOrdinals = [];
-	private readonly List<long> _paneRevisions = [];
-	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
-	private readonly HashSet<string> _paneActiveItems = new(StringComparer.Ordinal);
-	private readonly Dictionary<int, PaneDeltaBuffer> _paneDeltaBuffers = [];
+	private readonly AgentPaneLedger _pane = new();
 	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
 	private long _paneGeneration;
-	private long _nextPaneOrdinal;
-	private long _nextPaneRevision;
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(

@@ -629,7 +629,7 @@ public sealed partial class HostCore {
 
 	private static async Task<DiffRefsResult> ListRefsAsync(HostSession session, CancellationToken ct) =>
 		new([.. await new GitService().ListRefsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false)],
-			await DefaultDiffRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false));
+			await BranchBaseRefAsync(session, ct).ConfigureAwait(false));
 
 	private async Task<CommandResult> InvokeCommandAsync(
 		HostSession session,

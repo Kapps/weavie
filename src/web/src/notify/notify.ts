@@ -36,3 +36,11 @@ export function notify(
 export function clearNotification(key: string): void {
   clearSink?.(key);
 }
+
+/** Surfaces a failure only a page reload recovers from; repeats collapse into one toast. */
+export function notifyReloadRequired(message: string): void {
+  notify("error", message, "reload-required", {
+    label: "Reload",
+    run: () => window.location.reload(),
+  });
+}

@@ -46,4 +46,22 @@ describe("agent plan identity", () => {
       itemId: "usable",
     });
   });
+
+  it("finds a pending plan review, including one that names a plan file", () => {
+    const review = {
+      type: "approval-requested",
+      providerId: "fake",
+      threadId: "thread",
+      turnId: "turn",
+      itemId: "request:7",
+      requestId: "7",
+      itemType: "plan-review",
+      planPath: "/plans/claude.md",
+    };
+    expect(latestCompletedPlan([plan("first"), review])).toEqual({
+      itemId: "request:7",
+      threadId: "thread",
+      turnId: "turn",
+    });
+  });
 });

@@ -21,3 +21,5 @@ internal static class AgentPlanProtocol {
 internal sealed record AgentPlanShown(string Id, string Path, string Title, string Markdown);
 
 internal sealed record AgentPlanRemoved(string Path);
+
+internal sealed record AgentPlanReviewsWire(IReadOnlyList<AgentPlanReview> Reviews);

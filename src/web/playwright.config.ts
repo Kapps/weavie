@@ -56,6 +56,7 @@ export default defineConfig({
         "agent-code-copy.spec.ts",
         "agent-markdown-links.spec.ts",
         "agent-scroll-smoothness.spec.ts",
+        "agent-scroll-streaming.spec.ts",
         "bridge.spec.ts",
         "headless-host.spec.ts",
         "host-startup.spec.ts",

@@ -258,11 +258,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     const body = page.locator(".agent-body");
     await expect(page.getByText("FIRST_799", { exact: true })).toBeVisible({ timeout: 60_000 });
     expect(await rows.count()).toBeLessThan(40);
-    await expect
-      .poll(() =>
-        body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
-      )
-      .toBeLessThanOrEqual(1);
+    await expect.poll(() => body.evaluate((element) => -element.scrollTop)).toBeLessThanOrEqual(1);
 
     const measureSwitch = (label: string, marker: string): Promise<number> =>
       page.evaluate(
@@ -280,7 +276,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
             return (
               active?.title.startsWith(`${target.label} —`) === true &&
               body !== null &&
-              body.scrollHeight - body.scrollTop - body.clientHeight <= 1 &&
+              -body.scrollTop <= 1 &&
               rows.length < 40 &&
               rows.some((row) => row.textContent?.includes(target.marker) === true)
             );
@@ -313,9 +309,8 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
       contentType: "application/json",
     });
 
-    await body.evaluate((element) => {
-      element.scrollTop = element.scrollHeight * 0.45;
-    });
+    await body.hover();
+    await page.mouse.wheel(0, -(await body.evaluate((element) => element.scrollHeight * 0.55)));
     await expect(page.locator(".agent-scroll-nav-button")).toHaveCount(1);
     const viewportAnchor = () =>
       body.evaluate((element) => {

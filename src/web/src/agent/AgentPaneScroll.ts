@@ -1,253 +1,255 @@
-import type { Virtualizer } from "@tanstack/solid-virtual";
-import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
-import type { ClientSession } from "../bridge";
+import { observeElementOffset, type Virtualizer } from "@tanstack/solid-virtual";
+import {
+  type Accessor,
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { createAgentPaneGesture } from "./AgentPaneGesture";
+import type { AgentPaneModel } from "./AgentPaneModel";
+import type { AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
+import { withLivePending } from "./AgentTranscriptSnapshot";
 
-const turnStartAlignmentTolerance = 1;
+type PaneVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
 
+/** Where the reader was when the pane last unmounted. */
+export interface AgentPaneScrollState {
+  following: boolean;
+  shown: AgentTranscriptSnapshot;
+  unseen: boolean;
+  watched: { id: string; topSeen: boolean } | null;
+}
+
+// The scroller is bottom-origin (column-reverse): scrollTop is 0 at the latest output and negative above it,
+// so output arriving above the reader never moves what is on screen.
 export function createAgentPaneScroll(
-  session: ClientSession,
+  model: AgentPaneModel,
   body: Accessor<HTMLDivElement | undefined>,
-  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
-  turnStartIndex: Accessor<number | null>,
-  liveResultIndex: Accessor<number | null>,
-  pendingRequestKey: Accessor<string | null>,
+  saved: AgentPaneScrollState | undefined,
+  virtualizer: () => PaneVirtualizer,
+  virtualIndex: (index: number) => number,
   turnNavigable: Accessor<boolean>,
-  revision: Accessor<number>,
-  initiallyFollowingLatest: boolean,
-  wheel: { cancel: () => void; isActive: () => boolean },
+  wheel: { cancel: () => void },
 ) {
-  let anchorCorrectionScheduled = false;
-  let anchor: "bottom" | { row: number } | null = initiallyFollowingLatest ? "bottom" : null;
-  let controllerScrolls: Array<{ top: number }> = [];
-  let scrollScheduled = false;
-  let viewportHeight = 0;
-  let viewportWidth = 0;
-  const [followingLatest, setFollowingLatest] = createSignal(initiallyFollowingLatest);
-  const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
+  const [following, setFollowingSignal] = createSignal(saved?.following ?? true);
+  const [unseen, setUnseen] = createSignal(
+    saved !== undefined &&
+      (saved.unseen || (!saved.following && saved.shown !== model.transcript())),
+  );
+  // The transcript a touch gesture is reading, held still until the gesture ends.
+  const [held, setHeld] = createSignal<AgentTranscriptSnapshot | null>(
+    saved !== undefined && !saved.following ? saved.shown : null,
+  );
+  const [turnStartAbove, setTurnStartAbove] = createSignal(false);
+  const shown = createMemo(() => {
+    const frozen = held();
+    return frozen === null ? model.transcript() : withLivePending(frozen, model.transcript());
+  });
+  const liveResultIndex = (): number | null => (model.live() ? shown().latestResultIndex : null);
+  // The topmost visible row, where the reader sees it, and the scroll position and viewport it was seen in.
+  let anchor: { height: number; id: string; scroll: number; top: number } | null = null;
+  // The position the pane last wrote, so its scroll event isn't mistaken for the reader moving.
+  let written: number | null = null;
+  let pinned = false;
+  // The live reply the pin watches; one already above the viewport when following began never pins.
+  let watched = saved?.watched ?? null;
+  let userChange = false;
+  let notifyOffset = (): void => {};
+  const gesture = createAgentPaneGesture(body, () => syncHold());
 
-  const followThreshold = (): number => {
-    const element = body();
-    return element === undefined
-      ? 0
-      : Math.ceil(Number.parseFloat(getComputedStyle(element).lineHeight) * 3);
-  };
-
-  const isNearBottom = (): boolean => {
-    const element = body();
-    return (
-      element !== undefined &&
-      element.scrollHeight - element.scrollTop - element.clientHeight <= followThreshold()
+  const element = (): HTMLDivElement => body()!;
+  const topOf = (row: HTMLElement): number =>
+    row.getBoundingClientRect().top - element().getBoundingClientRect().top;
+  const rowElement = (id: string): HTMLElement | null =>
+    element().querySelector<HTMLElement>(
+      `.agent-virtual-row[data-transcript-entry="${CSS.escape(id)}"]`,
     );
+  const followThreshold = (): number =>
+    Math.ceil(Number.parseFloat(getComputedStyle(element()).lineHeight) * 3);
+  const nearBottom = (): boolean => -element().scrollTop <= followThreshold();
+
+  const write = (top: number): void => {
+    const before = element().scrollTop;
+    element().scrollTop = top;
+    written = element().scrollTop;
+    // The pane's own writes are not the reader moving, so the anchor's view moves with them.
+    if (anchor !== null) anchor.scroll += written - before;
+    notifyOffset();
   };
 
-  const rowStart = (index: number | null): number | undefined => {
-    if (index === null) {
-      return undefined;
-    }
-    virtualizer.getTotalSize();
-    return virtualizer.measurementsCache[index]?.start;
-  };
-
-  const updateAgentTurnStartPosition = (): void => {
-    const start = rowStart(turnStartIndex());
-    // Sub-pixel tolerance: scrollOffset and the cached start can settle a fraction of a pixel
-    // apart (e.g. 745.671875 vs 746) even when the turn start is exactly at the viewport top,
-    // which without slack flips this above-the-fold long after a jump with nothing left to
-    // correct it.
-    setAgentTurnStartAbove(
-      start !== undefined && start + turnStartAlignmentTolerance < (virtualizer.scrollOffset ?? 0),
-    );
-  };
-
-  const noteControllerScroll = (top: number): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
-    }
-    const maximum = Math.max(element.scrollHeight - element.clientHeight, 0);
-    const assigned = { top: Math.min(Math.max(top, 0), maximum) };
-    controllerScrolls.push(assigned);
-    requestAnimationFrame(() => {
-      controllerScrolls = controllerScrolls.filter((candidate) => candidate !== assigned);
-    });
-  };
-
-  const assign = (action: () => void, target: typeof anchor): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
-    }
-    wheel.cancel();
-    setFollowingLatest(target === "bottom");
-    anchor = target;
-    action();
-    noteControllerScroll(element.scrollTop);
-    updateAgentTurnStartPosition();
-  };
-
-  const assignBottom = (): void =>
-    assign(() => {
-      const element = body();
-      if (element !== undefined) {
-        element.scrollTop = element.scrollHeight;
+  const capture = (): void => {
+    const top = element().getBoundingClientRect().top;
+    for (const row of element().querySelectorAll<HTMLElement>(".agent-virtual-row")) {
+      if (row.getBoundingClientRect().bottom > top) {
+        anchor = {
+          height: element().clientHeight,
+          id: row.dataset.transcriptEntry!,
+          scroll: element().scrollTop,
+          top: topOf(row),
+        };
+        return;
       }
-    }, "bottom");
+    }
+    anchor = null;
+  };
 
-  const pinRow = (row: number, start: number): void =>
-    assign(
-      () => {
-        const element = body();
-        if (element !== undefined) {
-          element.scrollTop = start;
-        }
-      },
-      { row },
-    );
-
-  // Following stops at the latest live result's top so a long response is read from its start.
-  const followLatest = (): void => {
-    const element = body();
-    const row = liveResultIndex();
-    const start = rowStart(row);
+  // Puts the anchor back where the reader sees it after the transcript below it changed size. A resized
+  // viewport keeps its bottom edge, like a chat; so does a top the engine clamped after history shrank.
+  const settle = (): void => {
+    const row = anchor === null ? null : rowElement(anchor.id);
+    if (anchor === null || row === null) return;
+    const scrolled = element().scrollTop - anchor.scroll;
+    // Within a pixel: the transcript's height is fractional but scrollHeight whole.
+    const top = element().clientHeight - element().scrollHeight + 1;
     if (
-      element !== undefined &&
-      row !== null &&
-      start !== undefined &&
-      element.scrollTop <= start &&
-      element.scrollHeight - element.clientHeight > start
+      anchor.height !== element().clientHeight ||
+      (scrolled !== 0 && element().scrollTop <= top)
     ) {
-      pinRow(row, start);
-    } else {
-      assignBottom();
-    }
-  };
-
-  const scheduleFollow = (): void => {
-    if (scrollScheduled) {
+      capture();
       return;
     }
-    scrollScheduled = true;
-    requestAnimationFrame(() => {
-      scrollScheduled = false;
-      if (followingLatest()) {
-        followLatest();
-      }
+    const shift = Math.trunc(topOf(row) - anchor.top + scrolled);
+    if (shift !== 0) write(element().scrollTop + shift);
+  };
+
+  const syncHold = (): void => {
+    const holding = gesture.touching() && !following();
+    if (holding && held() === null) setHeld(shown());
+    else if (!holding && held() !== null) setHeld(null);
+  };
+
+  const setFollowing = (value: boolean): void => {
+    if (!value) capture();
+    if (value && watched !== null) watched.topSeen = false;
+    batch(() => {
+      setFollowingSignal(value);
+      if (value) setUnseen(false);
+      syncHold();
     });
   };
 
-  const jumpToTurn = (): boolean => {
-    const index = turnStartIndex();
-    const element = body();
-    if (!turnNavigable() || index === null || element === undefined) {
-      return false;
+  // A live reply whose top scrolls out of view while following stops there, so it is read from its start.
+  const pin = (): void => {
+    const index = liveResultIndex();
+    const id = index === null ? null : shown().entries[index]!.id;
+    const row = id === null ? null : rowElement(id);
+    if (id === null || row === null) return;
+    if (watched?.id !== id) watched = { id, topSeen: true };
+    const overshoot = topOf(row);
+    if (overshoot > 0) {
+      if (overshoot < element().clientHeight) watched.topSeen = true;
+      return;
     }
-    const previous = element.scrollTop;
-    assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), null);
-    setAgentTurnStartAbove(false);
-    return Math.abs(element.scrollTop - previous) >= 1;
+    if (!watched.topSeen) return;
+    pinned = true;
+    if (!gesture.active()) write(element().scrollTop + overshoot);
+    setFollowing(false);
+  };
+
+  const updateTurnStartAbove = (): void => {
+    const index = shown().agentTurnStartIndex;
+    const row = index === null ? undefined : virtualizer().measurementsCache[virtualIndex(index)];
+    setTurnStartAbove(
+      turnNavigable() &&
+        row !== undefined &&
+        row.end > element().clientHeight - element().scrollTop + 1,
+    );
+  };
+
+  // After the rendered rows change: a reader who isn't following stays still; a long live reply pins.
+  const afterLayout = (): void => {
+    if (body()?.isConnected !== true) return;
+    if (!following()) {
+      if (!gesture.touching()) settle();
+    } else {
+      pin();
+    }
+    updateTurnStartAbove();
   };
 
   const jumpToLatest = (): boolean => {
-    if (followingLatest() && isNearBottom()) {
-      return false;
+    // Asking for the latest output stops a reply already in view from pinning at its top.
+    if (watched !== null) watched.topSeen = false;
+    if (following() && nearBottom()) return false;
+    const momentum = gesture.touching();
+    wheel.cancel();
+    gesture.reset();
+    pinned = false;
+    setFollowing(true);
+    write(0);
+    if (momentum) {
+      // iOS ignores scroll writes during momentum; suspending scrolling for a frame stops it first.
+      const scroller = element();
+      scroller.style.overflowY = "hidden";
+      requestAnimationFrame(() => {
+        scroller.style.overflowY = "";
+        if (following() && scroller.isConnected) write(0);
+      });
     }
-    assignBottom();
     return true;
   };
 
-  const onViewportResize = (): void => {
-    const height = body()?.clientHeight ?? 0;
-    const width = body()?.clientWidth ?? 0;
-    if (height === viewportHeight && width === viewportWidth) return;
-    viewportHeight = height;
-    viewportWidth = width;
-    if (followingLatest()) followLatest();
+  // The virtualizer re-aims each frame while the rows it scrolls past are measured.
+  const reveal = (index: number): void => {
+    wheel.cancel();
+    pinned = false;
+    setFollowing(false);
+    virtualizer().scrollToIndex(virtualIndex(index), { align: "end", behavior: "auto" });
   };
 
-  // Measurement anchoring also emits scroll events; every unowned scroll is the user's intent.
-  const onScroll = (): void => {
-    const element = body();
-    if (element === undefined) {
-      return;
-    }
-    // A viewport resize can clamp scrollTop and emit scroll before ResizeObserver runs.
-    onViewportResize();
-    const assigned = controllerScrolls.findIndex(
-      (candidate) => Math.abs(candidate.top - element.scrollTop) < 1.5,
-    );
-    if (assigned >= 0) {
-      controllerScrolls.splice(assigned, 1);
-    } else {
-      controllerScrolls = [];
-      anchor = null;
-      setFollowingLatest(!wheel.isActive() && isNearBottom());
-    }
-    updateAgentTurnStartPosition();
+  const jumpToTurn = (): boolean => {
+    const index = shown().agentTurnStartIndex;
+    if (!turnNavigable() || index === null) return false;
+    const previous = element().scrollTop;
+    reveal(index);
+    return Math.abs(element().scrollTop - previous) >= 1;
   };
 
-  const onVirtualizerChange = (sync: boolean): void => {
-    if (anchor !== null && !sync && !anchorCorrectionScheduled) {
-      anchorCorrectionScheduled = true;
-      requestAnimationFrame(() => {
-        anchorCorrectionScheduled = false;
-        const element = body();
-        if (element === undefined) {
-          return;
-        }
-        if (anchor === "bottom") {
-          if (element.scrollHeight - element.clientHeight - element.scrollTop > 1) followLatest();
-        } else if (anchor !== null) {
-          const start = rowStart(anchor.row);
-          if (start !== undefined && Math.abs(element.scrollTop - start) > 1) {
-            pinRow(anchor.row, start);
-          }
-        }
-      });
-    }
-    updateAgentTurnStartPosition();
-  };
-
+  // New output is a new or changed latest row; status changes further up are not announced.
   createEffect(
     on(
-      revision,
-      () => {
-        if (followingLatest()) {
-          scheduleFollow();
-        } else {
-          updateAgentTurnStartPosition();
-        }
+      model.transcript,
+      (next, previous) => {
+        const latest = next.entries.at(-1);
+        if (!following() && !userChange && latest !== previous?.entries.at(-1)) setUnseen(true);
       },
       { defer: true },
     ),
   );
-
-  // A request needs the user, so it releases a result pin; a position the user chose is kept.
+  // New output while following lands at the bottom.
   createEffect(
-    on(pendingRequestKey, (key) => {
-      const pinned = (): boolean => anchor !== null && anchor !== "bottom";
-      if (key !== null && pinned()) requestAnimationFrame(() => pinned() && assignBottom());
-    }),
+    on(
+      shown,
+      () => {
+        if (following() && !gesture.active() && element().scrollTop !== 0) write(0);
+      },
+      { defer: true },
+    ),
   );
-
+  createEffect(on(turnNavigable, () => body() !== undefined && updateTurnStartAbove()));
+  // A request needs the user, so it releases the automatic pin; a position the reader chose is kept.
   createEffect(
-    on(turnNavigable, (navigable) => {
-      if (navigable) {
-        updateAgentTurnStartPosition();
-      } else {
-        setAgentTurnStartAbove(false);
-      }
+    on(model.keyboardRequestKey, (key) => {
+      if (key !== null && pinned && !following()) jumpToLatest();
     }),
   );
 
   onMount(() => {
-    if (followingLatest()) {
-      scheduleFollow();
-    } else {
-      updateAgentTurnStartPosition();
+    if (!following()) {
+      // A remount shows the transcript as the reader left it, then applies what arrived since.
+      requestAnimationFrame(() => {
+        if (body()?.isConnected !== true) return;
+        capture();
+        syncHold();
+      });
     }
-    const targetsSession = (target: ClientSession | null): boolean => target === session;
+    const targetsSession = (target: unknown): boolean => target === model.session;
     const unregisterTurn = registerCommand(
       CommandIds.agentJumpToTurn,
       (_args, context) => targetsSession(context.session) && jumpToTurn(),
@@ -263,30 +265,58 @@ export function createAgentPaneScroll(
   });
 
   return {
-    agentTurnStartAbove,
-    followingLatest,
+    following,
     jumpToLatest,
+    jumpToStart: (): void => reveal(0),
     jumpToTurn,
-    noteControllerScroll,
-    onScroll,
-    onWheelIntent: (): void => {
-      controllerScrolls = [];
-      anchor = null;
-      setFollowingLatest(false);
-    },
-    onWheelSettled: (): void => {
-      setFollowingLatest(isNearBottom());
-      updateAgentTurnStartPosition();
-    },
-    onViewportResize,
-    onVirtualizerChange,
-    restoreReadingPosition: (offset: number): void => {
-      const element = body();
-      if (!followingLatest() && element !== undefined && Math.abs(element.scrollTop - offset) > 1) {
-        element.scrollTop = offset;
-        noteControllerScroll(element.scrollTop);
-        updateAgentTurnStartPosition();
+    shown,
+    turnStartAbove,
+    unseen,
+    anchorId: (): string | null => anchor?.id ?? null,
+    /** Applies a change the reader made: never unseen output, and it keeps what they see still. */
+    applyUserChange(change: () => void): void {
+      if (following()) setFollowing(false);
+      userChange = true;
+      try {
+        change();
+      } finally {
+        userChange = false;
       }
     },
+    observeOffset(instance: PaneVirtualizer, notify: (offset: number, scrolling: boolean) => void) {
+      notifyOffset = () => notify(Math.max(0, -element().scrollTop), instance.isScrolling);
+      return observeElementOffset(instance, (offset, scrolling) =>
+        notify(Math.max(0, -offset), scrolling),
+      );
+    },
+    onScroll(): void {
+      gesture.noteScroll();
+      const moved = element().scrollTop !== written;
+      written = null;
+      if (moved && gesture.active()) {
+        pinned = false;
+        if (nearBottom() !== following()) setFollowing(!following());
+      }
+      if (moved && !following()) capture();
+      updateTurnStartAbove();
+    },
+    /** The rendered rows were mounted, measured, or changed, which can move what is below the reader. */
+    onLayout: afterLayout,
+    onWheelIntent(delta: number): void {
+      pinned = false;
+      if (delta < 0 && following()) setFollowing(false);
+    },
+    onWheelSettled(): void {
+      if (nearBottom()) setFollowing(true);
+    },
+    scrollTo(offset: number): void {
+      element().scrollTop = -offset;
+    },
+    snapshot: (): AgentPaneScrollState => ({
+      following: following(),
+      shown: shown(),
+      unseen: unseen(),
+      watched,
+    }),
   };
 }

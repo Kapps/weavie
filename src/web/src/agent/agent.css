@@ -74,6 +74,31 @@
   margin-top: auto;
 }
 
+.agent-scroll-nav-new-output,
+.agent-scroll-nav-new-output:hover {
+  display: flex;
+  flex: 0 0 var(--agent-scroll-nav-inline-size);
+  gap: 6px;
+  align-items: center;
+  align-self: flex-end;
+  width: auto;
+  padding: 0 12px;
+  border-color: var(--accent);
+  border-radius: 999px;
+  color: var(--bg);
+  background: var(--accent);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-metadata-size);
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* Unseen output is announced whether or not the navigation is revealed. */
+.agent-scroll-nav:has(.agent-scroll-nav-new-output) {
+  opacity: 1;
+}
+
 .agent-scroll-nav-button:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--bar));
@@ -130,19 +155,26 @@
   line-height: 1.24;
 }
 
+/* Bottom-origin: scrollTop is 0 at the latest output, so growth above the reader never moves it. */
+.agent-transcript-scroller {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+/* A transcript shorter than the viewport stays at its top. */
+.agent-transcript-scroller > * {
+  flex: none;
+  margin-bottom: auto;
+}
+
 .agent-transcript {
-  position: relative;
-  width: 100%;
   max-width: 100%;
   overflow-x: clip;
 }
 
 .agent-virtual-row {
-  position: absolute;
-  top: 0;
-  left: 0;
+  display: flow-root;
   box-sizing: border-box;
-  width: 100%;
   padding-top: 5px;
 }
 
@@ -167,7 +199,7 @@
   display: grid;
   gap: 12px;
   max-width: 620px;
-  margin: 0;
+  margin: 0 0 auto;
   padding: 14px 12px;
   color: var(--dim);
 }

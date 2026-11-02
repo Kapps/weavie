@@ -13,26 +13,23 @@ import {
 import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import { scrollVirtualElement } from "../virtual-scroll";
 import { AgentBackgroundTray } from "./AgentBackgroundTray";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneLayout } from "./AgentPaneLayout";
-import { createAgentPanePremeasure } from "./AgentPanePremeasure";
-import { createAgentPaneScroll } from "./AgentPaneScroll";
+import { type AgentPaneScrollState, createAgentPaneScroll } from "./AgentPaneScroll";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { AgentTranscript } from "./AgentTranscript";
 import { agentBackground, backgroundRunning } from "./agent-background-store";
 import { agentControlState } from "./agent-controls-store";
 import type { AgentPaneModel } from "./pane-store";
 
-interface ViewportSnapshot {
+interface ViewportSnapshot extends AgentPaneScrollState {
   expandedDetails: ReadonlySet<string>;
-  followingLatest: boolean;
   generation: number;
   measurements: VirtualItem[];
+  /** Distance from the bottom of the transcript to the bottom of the viewport. */
   offset: number;
-  revision: number;
   width: number;
 }
 
@@ -45,6 +42,7 @@ function AgentScrollNavigationButton(props: {
   commandId: string;
   edge: "start" | "latest";
   label: string;
+  newOutput: boolean;
   run: () => boolean;
   title: string;
 }): JSX.Element {
@@ -58,9 +56,26 @@ function AgentScrollNavigationButton(props: {
       type="button"
       aria-label={props.label}
       class={`agent-scroll-nav-button agent-scroll-nav-${props.edge}`}
+      classList={{ "agent-scroll-nav-new-output": props.newOutput }}
       title={title()}
       onClick={() => props.run()}
+      // A tap that stops momentum produces no click on iOS, so a finger lifted over the button acts.
+      onTouchEnd={(event) => {
+        const touch = event.changedTouches[0];
+        if (touch === undefined) return;
+        event.preventDefault();
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (
+          touch.clientX >= bounds.left &&
+          touch.clientX <= bounds.right &&
+          touch.clientY >= bounds.top &&
+          touch.clientY <= bounds.bottom
+        ) {
+          props.run();
+        }
+      }}
     >
+      <Show when={props.newOutput}>New output</Show>
       <Show
         when={props.edge === "start"}
         fallback={<ArrowDown class="agent-scroll-nav-icon" aria-hidden="true" />}
@@ -79,11 +94,8 @@ export function AgentPaneBody(props: {
   providerName: string;
 }): JSX.Element {
   let body: HTMLDivElement | undefined;
-  let virtualizerChanged = (_sync: boolean): void => {};
-  let virtualizerScroll = (_top: number): void => {};
   const stored = viewports.get(props.model);
   const saved = stored?.generation === props.model.generation() ? stored : undefined;
-  const savedMeasurements = saved?.revision === props.model.revision() ? saved.measurements : [];
   for (const id of saved?.expandedDetails ?? []) {
     props.model.setActivityExpanded(id, true);
   }
@@ -102,15 +114,30 @@ export function AgentPaneBody(props: {
       { defer: true },
     ),
   );
-  const turnNavigable = createMemo(
-    () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
-  );
-  const liveResultIndex = createMemo(props.model.liveResultIndex);
-  const premeasure = createAgentPanePremeasure(
+  const wheel = createAgentPaneWheel(
     () => body,
+    (delta) => scroll.onWheelIntent(delta),
+    () => scroll.onWheelSettled(),
+    { start: () => scroll.jumpToStart(), end: () => scroll.jumpToLatest() },
+  );
+  const scroll = createAgentPaneScroll(
+    props.model,
+    () => body,
+    saved,
+    () => virtualizer,
+    (index) => layout.flip(index),
+    () => turnNavigable(),
+    wheel,
+  );
+  const turnNavigable = createMemo(
+    () => !props.model.turnActive() && scroll.shown().agentTurnStartId !== null,
+  );
+  const layout = createAgentPaneLayout(
+    scroll.shown,
+    props.model.generation,
+    scroll.anchorId,
     () => virtualizer,
   );
-  const layout = createAgentPaneLayout(props.model, () => body, premeasure.rows);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
       return layout.count();
@@ -122,44 +149,16 @@ export function AgentPaneBody(props: {
       return layout.rangeExtractor();
     },
     getScrollElement: () => body ?? null,
-    estimateSize: (index) => estimateEntrySize(props.model.entries[index]),
-    // The virtualizer's own end anchoring would follow a streaming result past its top.
-    get anchorTo() {
-      return liveResultIndex() === null ? ("end" as const) : ("start" as const);
-    },
-    initialMeasurementsCache: savedMeasurements,
+    estimateSize: (index) => estimateEntrySize(layout.entryAt(index)),
+    initialMeasurementsCache: saved?.shown === scroll.shown() ? saved.measurements : [],
     initialOffset: saved?.offset ?? 0,
     measureElement: (element): number => element.getBoundingClientRect().height,
-    onChange: (_instance, sync) => virtualizerChanged(sync),
+    observeElementOffset: scroll.observeOffset,
     overscan: 4,
-    scrollToFn: (offset, options, instance) => {
-      virtualizerScroll(scrollVirtualElement(offset, options, instance, () => {}));
-    },
+    scrollToFn: scroll.scrollTo,
   });
-  const wheel = createAgentPaneWheel(
-    () => body,
-    () => scroll.onWheelIntent(),
-    () => scroll.onWheelSettled(),
-  );
-  const scroll = createAgentPaneScroll(
-    props.model.session,
-    () => body,
-    virtualizer,
-    props.model.agentTurnStartIndex,
-    liveResultIndex,
-    props.model.keyboardRequestKey,
-    turnNavigable,
-    props.model.revision,
-    saved?.followingLatest ?? true,
-    wheel,
-  );
-  virtualizerChanged = (sync) => {
-    scroll.onVirtualizerChange(sync);
-    premeasure.schedule();
-  };
-  virtualizerScroll = scroll.noteControllerScroll;
-  layout.observe(virtualizer, scroll);
-
+  // The scroller's own anchoring keeps the reader still; the virtualizer never corrects scroll position.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
   createEffect(() =>
@@ -181,9 +180,12 @@ export function AgentPaneBody(props: {
     if (saved !== undefined && saved.width !== element.clientWidth) {
       virtualizer.measure();
     }
+    // After the virtualizer's own listener, so the rows for the new position are already rendered.
+    element.addEventListener("scroll", scroll.onScroll, { passive: true });
+    onCleanup(() => element.removeEventListener("scroll", scroll.onScroll));
     const onViewportResize = (): void => {
       setScrollbarInlineSize(element.offsetWidth - element.clientWidth);
-      scroll.onViewportResize();
+      scroll.onLayout();
     };
     onViewportResize();
     const observer = new ResizeObserver(onViewportResize);
@@ -192,12 +194,11 @@ export function AgentPaneBody(props: {
   });
   onCleanup(() => {
     viewports.set(props.model, {
+      ...scroll.snapshot(),
       expandedDetails: new Set(expandedDetails()),
-      followingLatest: scroll.followingLatest(),
       generation: props.model.generation(),
       measurements: virtualizer.takeSnapshot(),
-      offset: body?.scrollTop ?? 0,
-      revision: props.model.revision(),
+      offset: -(body?.scrollTop ?? 0),
       width: body?.clientWidth ?? 0,
     });
   });
@@ -217,27 +218,29 @@ export function AgentPaneBody(props: {
     <>
       <div class="agent-body-wrap">
         <div
-          class="agent-body"
+          class="agent-body agent-transcript-scroller"
           ref={body}
+          tabindex="-1"
           onPointerDown={revealTouchNavigation}
           onPointerLeave={() => setScrollEdgeHovered(false)}
           onPointerMove={updateScrollEdgeHover}
-          onScroll={scroll.onScroll}
         >
           <AgentTranscript
-            agentTurnStartId={props.model.agentTurnStartId()}
             compact={props.compact}
-            entries={props.model.entries}
+            entryAt={layout.entryAt}
             entryForKey={layout.entryForKey}
             expandedDetails={expandedDetails()}
             keyboardRequestKey={props.model.keyboardRequestKey()}
-            onDetailsToggle={(entryId, open) => {
-              props.model.setActivityExpanded(entryId, open);
-              setExpandedDetails((current) => toggleMember(current, entryId, open));
-            }}
+            onLayout={scroll.onLayout}
+            onDetailsToggle={(entryId, open) =>
+              scroll.applyUserChange(() => {
+                props.model.setActivityExpanded(entryId, open);
+                setExpandedDetails((current) => toggleMember(current, entryId, open));
+              })
+            }
             providerName={props.providerName}
-            sectionLabels={props.model.sectionLabels()}
             session={props.model.session}
+            transcript={scroll.shown()}
             virtualizer={virtualizer}
           />
         </div>
@@ -252,20 +255,22 @@ export function AgentPaneBody(props: {
             scrollNavigationScrollbarGap
           }px`}
         >
-          <Show when={turnNavigable() && scroll.agentTurnStartAbove()}>
+          <Show when={turnNavigable() && scroll.turnStartAbove()}>
             <AgentScrollNavigationButton
               commandId={CommandIds.agentJumpToTurn}
               edge="start"
               label="Jump to turn"
+              newOutput={false}
               run={scroll.jumpToTurn}
               title="Jump to the start of this agent turn"
             />
           </Show>
-          <Show when={!scroll.followingLatest()}>
+          <Show when={!scroll.following()}>
             <AgentScrollNavigationButton
               commandId={CommandIds.agentJumpToLatest}
               edge="latest"
               label="Jump to latest"
+              newOutput={scroll.unseen()}
               run={scroll.jumpToLatest}
               title="Scroll to the latest activity and follow it"
             />

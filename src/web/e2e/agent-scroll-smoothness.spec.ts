@@ -5,11 +5,9 @@ import { expect, type JSHandle, type Locator, type Page } from "@playwright/test
 import { test } from "./harness/network-fixtures";
 import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
-// Scrolling back through history the pane has never measured used to stutter: the virtualizer answers each
-// first measurement with a scroll correction, and resolving that correction against its own cached offset
-// wrote back a position the live scroll had already moved past — one frame of motion discarded per newly
-// measured row, smooth again only on a second pass over the same range. This drives the pane up at an exact
-// constant rate and asserts the on-screen content tracks it while those corrections are still landing.
+// The pane scrolls from the bottom, so rows first measured above the reader grow upward, off screen, and need no
+// scroll correction. This drives the pane up at an exact constant rate through never-measured history and
+// asserts the on-screen content tracks it without the pane ever writing the scroll position.
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -67,17 +65,12 @@ test("scrolling back through never-measured history stays smooth", async ({ page
     const body = page.locator(".agent-body");
     await expect(body).toBeVisible();
     await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
-    await body.evaluate((element) => {
-      element.scrollTo({ top: element.scrollHeight });
-    });
-    await page.waitForTimeout(1000);
+    expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
 
     // Scroll up one exact step per frame. Every tracked row must move by exactly that step: the pane owes
-    // the reader the motion it was given, whatever it is re-measuring underneath.
+    // the reader the motion it was given, whatever it is measuring underneath.
     const measured = await body.evaluate(scrollUpSteadily, { touch: false });
-
-    // The corrections have to be real, or a pane that simply stopped compensating would pass.
-    expect(measured.corrections).toBeGreaterThan(10);
+    expect(measured.corrections).toBe(0);
     expect(measured.stutters).toBe(0);
   } finally {
     await host.close();
@@ -114,7 +107,6 @@ test.describe("native wheel scrolling", () => {
         const body = page.locator(".agent-body");
         await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
         const paint = await pauseAnimationClock(page);
-        await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
         await page.clock.runFor(500);
         await paint.evaluate((afterPaint) => afterPaint());
         await body.hover();
@@ -165,11 +157,7 @@ test.describe("native wheel scrolling", () => {
         await expect(latest).toBeHidden();
         await page.clock.runFor(200);
         await paint.evaluate((afterPaint) => afterPaint());
-        expect(
-          await body.evaluate(
-            (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
-          ),
-        ).toBeLessThanOrEqual(1);
+        expect(await body.evaluate((element) => -element.scrollTop)).toBeLessThanOrEqual(1);
         const fineMovement = await body.evaluate((element) => {
           const previous = element.scrollTop;
           for (let step = 0; step < 4; step++) {
@@ -296,7 +284,7 @@ for (const preciseDelta of [-0.25, 0.25]) {
       const body = page.locator(".agent-body");
       await expect(body.locator("code")).toContainText("A fully measured transcript line.");
       await body.evaluate((element) => {
-        element.scrollTop = element.scrollHeight / 2;
+        element.scrollTop = (element.clientHeight - element.scrollHeight) / 2;
       });
       await page.waitForTimeout(200);
       const movement = await body.evaluate(async (element, delta) => {
@@ -319,9 +307,8 @@ for (const preciseDelta of [-0.25, 0.25]) {
   });
 }
 
-// iOS WebKit cancels momentum when scrollTop is written, so the virtualizer defers its corrections for the
-// whole touch gesture and replays them after it settles. Every row first measured under a finger therefore
-// shoves the content the reader is looking at, and the replay shoves it again.
+// iOS WebKit cancels momentum when scrollTop is written, so nothing under a finger may correct the scroll
+// position: rows first measured above the reader must not move it during the gesture or after it ends.
 test.describe("touch scrolling on iOS", () => {
   test.use({
     viewport: { width: 390, height: 844 },
@@ -340,20 +327,8 @@ test.describe("touch scrolling on iOS", () => {
       await page.getByRole("button", { name: "Agent", exact: true }).click();
       const body = page.locator(".agent-body");
       await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
-      await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-      // Idle touch devices measure the history above; it is done once the content stops growing.
-      let height = 0;
-      await expect
-        .poll(
-          async () => {
-            const previous = height;
-            height = await body.evaluate((element) => element.scrollHeight);
-            return height === previous;
-          },
-          { intervals: [1000] },
-        )
-        .toBe(true);
       const measured = await body.evaluate(scrollUpSteadily, { touch: true });
+      expect(measured.corrections).toBe(0);
       expect(measured.stutters).toBe(0);
     } finally {
       await host.close();
@@ -394,8 +369,12 @@ async function scrollUpSteadily(
     scrollTo(scrollOptions);
   }) as typeof element.scrollTo;
   const deviations: number[] = [];
+  const touch = (type: string, touches: Touch[]): boolean =>
+    element.dispatchEvent(
+      new TouchEvent(type, { bubbles: true, touches, changedTouches: touches }),
+    );
   if (options.touch) {
-    element.dispatchEvent(new Event("touchstart"));
+    touch("touchstart", [new Touch({ identifier: 1, target: element })]);
   }
   let previous: { id: string; top: number } | null = null;
   for (let frame = 0; frame < 500; frame++) {
@@ -420,7 +399,7 @@ async function scrollUpSteadily(
   if (options.touch) {
     // The gesture ends: whatever the pane deferred must not move the content either.
     const before = previous;
-    element.dispatchEvent(new Event("touchend"));
+    touch("touchend", []);
     await new Promise<void>((resolve) => setTimeout(resolve, 500));
     const row =
       before === null

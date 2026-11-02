@@ -4,120 +4,82 @@ import {
   type VirtualItem,
   type Virtualizer,
 } from "@tanstack/solid-virtual";
-import {
-  type Accessor,
-  createComputed,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  untrack,
-} from "solid-js";
-import { estimateEntrySize, invalidateEntrySize } from "./AgentPaneEstimate";
-import type { AgentPaneModel } from "./AgentPaneModel";
-import type { PremeasuredRow } from "./AgentPanePremeasure";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { type Accessor, createEffect, createMemo, on } from "solid-js";
+import { estimateEntrySize } from "./AgentPaneEstimate";
+import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 
-interface Layout {
-  generation: number;
-  entries: Map<string, AgentTranscriptEntry>;
-  keys: string[];
-  pendingRows: Map<string, number>;
-}
-
+/** Maps the shown transcript onto the virtualizer, which measures from the bottom: index 0 is the newest row. */
 export function createAgentPaneLayout(
-  model: AgentPaneModel,
-  body: Accessor<HTMLDivElement | undefined>,
-  premeasured: Accessor<PremeasuredRow[]>,
+  shown: Accessor<AgentTranscriptSnapshot>,
+  generation: Accessor<number>,
+  anchorId: () => string | null,
+  virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
 ) {
-  const [layout, setLayout] = createSignal<Layout>({
-    generation: model.generation(),
-    entries: new Map(),
-    keys: [],
-    pendingRows: new Map(),
-  });
-  let beforeChange = (_previous: Layout, _next: Layout): void => {};
-  createComputed(() => {
-    const generation = model.generation();
-    const entries = new Map(model.entries.map((entry) => [`${generation}\0${entry.id}`, entry]));
-    const keys = [...entries.keys()];
-    const next = {
-      generation,
+  const layout = createMemo(() => {
+    const { entries, pendingRowIndexes } = shown();
+    const prefix = `${generation()}\0`;
+    const keys = entries.map((entry) => prefix + entry.id);
+    return {
       entries,
       keys,
-      pendingRows: new Map(model.pendingRowIndexes().map((index) => [keys[index]!, index])),
+      indexes: new Map(keys.map((key, index) => [key, index])),
+      pendingRowIndexes,
+      prefix,
     };
-    untrack(() => beforeChange(layout(), next));
-    setLayout(next);
   });
+  const flip = (index: number): number => reverse(layout().entries.length, index);
   const itemKey = createMemo(() => {
-    const keys = layout().keys;
-    return (index: number) => keys[index]!;
-  });
-  const rangeExtractor = createMemo(() => {
-    const { keys, pendingRows } = layout();
-    // Pending forms own live command handlers and focus even while outside the viewport.
-    const extra = [...pendingRows.values()];
-    for (const row of premeasured()) if (keys[row.index] === row.key) extra.push(row.index);
-    return (range: Range) =>
-      [...new Set([...defaultRangeExtractor(range), ...extra])].sort((left, right) => left - right);
+    const { keys } = layout();
+    return (virtualIndex: number) => keys[reverse(keys.length, virtualIndex)]!;
   });
 
-  return {
-    count: () => layout().keys.length,
-    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry =>
-      layout().entries.get(String(key))!,
-    itemKey,
-    rangeExtractor,
-    observe(
-      virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
-      scroll: {
-        followingLatest: Accessor<boolean>;
-        restoreReadingPosition: (offset: number) => void;
+  // A changed row that isn't mounted can't be measured again, so it returns to its estimate.
+  createEffect(
+    on(
+      shown,
+      (next, previous) => {
+        const before = new Map(previous?.entries.map((entry) => [entry.id, entry]));
+        next.entries.forEach((entry, index) => {
+          const old = before.get(entry.id);
+          const row = flip(index);
+          if (
+            old !== undefined &&
+            old !== entry &&
+            virtualizer().elementsCache.get(itemKey()(row))?.isConnected !== true
+          ) {
+            virtualizer().resizeItem(row, estimateEntrySize(entry));
+          }
+        });
       },
-    ): void {
-      let anchor: { key: string; offset: number } | null = null;
-      beforeChange = (previous, next) => {
-        const element = body();
-        if (
-          element === undefined ||
-          scroll.followingLatest() ||
-          previous.generation !== next.generation
-        ) {
-          anchor = null;
-          return;
-        }
-        const row = virtualizer.getVirtualItemForOffset(element.scrollTop);
-        anchor =
-          row === undefined
-            ? null
-            : { key: String(row.key), offset: element.scrollTop - row.start };
+      { defer: true },
+    ),
+  );
+
+  return {
+    count: () => layout().entries.length,
+    entryAt: (virtualIndex: number): AgentTranscriptEntry | undefined =>
+      layout().entries[flip(virtualIndex)],
+    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry =>
+      layout().entries[layout().indexes.get(String(key))!]!,
+    flip,
+    itemKey,
+    // Pending forms own live command handlers, and the reader's anchor must stay measurable.
+    rangeExtractor: createMemo(() => {
+      const { indexes, keys, pendingRowIndexes, prefix } = layout();
+      const pending = pendingRowIndexes.map((index) => reverse(keys.length, index));
+      return (range: Range) => {
+        const id = anchorId();
+        const anchor = id === null ? undefined : indexes.get(prefix + id);
+        const extra = anchor === undefined ? pending : [...pending, reverse(keys.length, anchor)];
+        return [...new Set([...defaultRangeExtractor(range), ...extra])].sort(
+          (left, right) => left - right,
+        );
       };
-      createEffect(
-        on(layout, (next, previous) => {
-          if (previous !== undefined) {
-            for (const key of previous.pendingRows.keys()) {
-              if (next.pendingRows.has(key)) continue;
-              const index = next.keys.indexOf(key);
-              const entry = model.entries[index];
-              if (entry === undefined) continue;
-              invalidateEntrySize(entry);
-              const element = virtualizer.elementsCache.get(key);
-              if (element?.isConnected) virtualizer.measureElement(element);
-              else virtualizer.resizeItem(index, estimateEntrySize(entry));
-            }
-          }
-          if (anchor !== null) {
-            const index = next.keys.indexOf(anchor.key);
-            const row = virtualizer.measurementsCache[index];
-            if (row !== undefined)
-              scroll.restoreReadingPosition(
-                row.start + Math.min(anchor.offset, Math.max(0, row.size - 1)),
-              );
-            anchor = null;
-          }
-        }),
-      );
-    },
+    }),
   };
+}
+
+// The one place transcript order and virtual order meet; the mapping is its own inverse.
+function reverse(count: number, index: number): number {
+  return count - 1 - index;
 }

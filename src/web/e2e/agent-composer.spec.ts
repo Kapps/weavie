@@ -317,22 +317,18 @@ test.describe("ACP composer", () => {
     await expect(statusLine).toBeVisible();
   }
 
-  // The app's own follow-to-bottom correction (AgentPaneScroll.onVirtualizerChange) chases convergence one
-  // requestAnimationFrame at a time as the virtualizer keeps mounting/measuring rows, so how many real frames
-  // it takes is unbounded under CI contention. Poll it frame-by-frame instead of racing it against a
-  // wall-clock `expect.poll` timeout, which flaked here: 2026-09-03,
-  // https://github.com/Kapps/weavie/actions/runs/33710321926/job/100508846088 ("Received: 47" after the full
-  // Windows 30s expect.timeout — one row's height still short of settling).
-  // Recurred on main CI 2026-09-04 04:51 UTC, same wait-vs-poll race, on both
-  // e2e (linux) / shard (1/6) (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914906521,
-  // "Received: 25") and e2e (macos) / shard (1/6)
-  // (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914932032, "Received: 25") — the fix
-  // below (PR #732) was open but not yet merged when this build ran; merging it applies the same fix here.
+  // Whole pixels only: transcript heights are fractional but scroll positions whole, so the top of a
+  // bottom-origin pane can rest a fraction of a pixel short of the transcript's first row.
+  function distanceFromTop(element: HTMLElement): number {
+    return Math.trunc(
+      element.getBoundingClientRect().top - element.firstElementChild!.getBoundingClientRect().top,
+    );
+  }
+
+  // Polled frame by frame rather than against a wall-clock timeout, which flaked under CI contention.
   async function waitForBottom(page: Page, body: Locator): Promise<void> {
     for (;;) {
-      const distance = await body.evaluate(
-        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
-      );
+      const distance = await body.evaluate((element) => -element.scrollTop);
       if (distance < 1) {
         return;
       }
@@ -785,10 +781,11 @@ test.describe("ACP composer", () => {
           text: `Later agent update ${index}\nwith enough text to fill the conversation history`,
         }),
       );
-      await expect(body.locator(".agent-virtual-row").last()).toHaveAttribute(
-        "data-index",
-        String(index + 2),
-      );
+      await expect(
+        body.locator(".agent-virtual-row", {
+          hasText: new RegExp(`Later agent update ${index}\\b`),
+        }),
+      ).toHaveCount(1);
       expect(
         await response.evaluate((element, original) => element === original, originalResponse),
       ).toBe(true);
@@ -804,7 +801,7 @@ test.describe("ACP composer", () => {
     await expect(body.locator(".agent-entry-text").first()).toContainText(
       "Read this earlier output before answering",
     );
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect.poll(() => body.evaluate(distanceFromTop)).toBe(0);
     await expect(response).toBeFocused();
     await expect(response).toHaveValue("Keep this answer");
 
@@ -819,7 +816,7 @@ test.describe("ACP composer", () => {
     );
     await expect(body.locator(".agent-virtual-row").last()).toContainText("Question 6");
     await expect(request).not.toBeInViewport();
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect.poll(() => body.evaluate(distanceFromTop)).toBe(0);
 
     const freshSession = mockSession("cx-input-draft", "fresh-input", "acp");
     host.setSessions([agentSession, freshSession]);
@@ -842,7 +839,7 @@ test.describe("ACP composer", () => {
     await composer.fill("");
     await body.hover();
     await page.mouse.wheel(0, -100_000);
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect.poll(() => body.evaluate(distanceFromTop)).toBe(0);
 
     const pendingHeight = await request.evaluate(
       (element) => element.getBoundingClientRect().height,
@@ -857,7 +854,7 @@ test.describe("ACP composer", () => {
     await expect
       .poll(() => body.evaluate((element) => element.scrollHeight))
       .toBeLessThanOrEqual(pendingScrollHeight - pendingHeight + resolvedHeight + 1);
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect.poll(() => body.evaluate(distanceFromTop)).toBe(0);
     await composer.focus();
     await page.keyboard.press("Alt+ArrowDown");
     await waitForBottom(page, body);
@@ -2067,7 +2064,7 @@ test.describe("ACP composer", () => {
     const navigation = page.locator(".agent-scroll-nav");
     const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
     const distanceFromBottom = (): Promise<number> =>
-      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+      body.evaluate((element) => -element.scrollTop);
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(latestButton).toHaveCount(0);
 
@@ -2090,10 +2087,7 @@ test.describe("ACP composer", () => {
       const movement = await body.evaluateHandle((element) => {
         let furthest = 0;
         const observe = (): void => {
-          furthest = Math.max(
-            furthest,
-            element.scrollHeight - element.scrollTop - element.clientHeight,
-          );
+          furthest = Math.max(furthest, -element.scrollTop);
         };
         element.addEventListener("scroll", observe);
         return {
@@ -2298,14 +2292,8 @@ test.describe("ACP composer", () => {
     await expect(page.locator(".agent-entry-request")).toBeInViewport();
   });
 
-  // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):
-  // https://github.com/Kapps/weavie/actions/runs/31666115997/job/94341238717 — turnButton stuck
-  // visible after the jump-to-turn click. Root cause: AgentPaneScroll's agentTurnStartAbove
-  // compared the cached measurement start against virtualizer.scrollOffset with strict `<`, and
-  // the two can settle a sub-pixel apart (e.g. 745.671875 vs 746) even when aligned, flipping the
-  // signal back on with nothing left to correct it. Fixed by adding a 1px tolerance in
-  // AgentPaneScroll.ts's updateAgentTurnStartPosition. Reproduced locally at ~5-7% under worker
-  // contention before the fix; 80/80 passed after under the same contention.
+  // The turn start and the scroll position can settle a sub-pixel apart even when aligned, so
+  // AgentPaneScroll's updateTurnStartAbove allows 1px before calling the turn start above the fold.
   test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();

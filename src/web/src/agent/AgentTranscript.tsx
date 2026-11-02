@@ -1,78 +1,95 @@
 import type { VirtualItem, Virtualizer } from "@tanstack/solid-virtual";
-import { createMemo, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, For, type JSX, on, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
-import type { AgentSectionLabel } from "./pane-store";
 
 export function AgentTranscript(props: {
-  agentTurnStartId: string | null;
   compact: boolean;
-  entries: AgentTranscriptEntry[];
+  entryAt: (virtualIndex: number) => AgentTranscriptEntry | undefined;
   entryForKey: (key: VirtualItem["key"]) => AgentTranscriptEntry;
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
+  onLayout: () => void;
   providerName: string;
-  sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
   session: ClientSession;
+  transcript: AgentTranscriptSnapshot;
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
   // The rewind shortcut acts on the latest prompt, so only that row advertises it.
   const latestPromptTurn = createMemo(
-    () => props.entries.findLast((entry) => entry.promptTurnId)?.promptTurnId ?? null,
+    () => props.transcript.entries.findLast((entry) => entry.promptTurnId)?.promptTurnId ?? null,
   );
+  // Rows flow oldest first; each row's top margin stands in for the unmounted rows above it.
+  const rows = createMemo(() => {
+    const items = props.virtualizer.getVirtualItems();
+    const placed = new Map<VirtualItem["key"], { gap: number; index: number }>();
+    let above = props.virtualizer.getTotalSize();
+    for (let position = items.length - 1; position >= 0; position--) {
+      const item = items[position]!;
+      placed.set(item.key, { gap: above - item.end, index: item.index });
+      above = item.start;
+    }
+    return { below: above, placed };
+  });
+  // After the whole update, once every new row has rendered its content.
+  createEffect(on(rows, () => queueMicrotask(props.onLayout), { defer: true }));
   return (
     <Show
-      when={props.entries.length > 0}
+      when={props.transcript.entries.length > 0}
       fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
     >
       <div
         class="agent-transcript"
         data-agent-transcript
-        style={`height:${props.virtualizer.getTotalSize()}px`}
+        style={`padding-bottom:${rows().below}px`}
       >
-        <For each={props.virtualizer.getVirtualItems().map((row) => row.key)}>
+        <For each={[...rows().placed.keys()]}>
           {(key) => {
-            const entry = props.entryForKey(key);
-            const virtualRow = () =>
-              props.virtualizer.getVirtualItems().find((row) => row.key === key)!;
-            const previous = (): AgentTranscriptEntry | undefined =>
-              props.entries[virtualRow().index - 1];
+            const entry = () => props.entryForKey(key);
+            const row = () => rows().placed.get(key)!;
+            const previous = () => props.entryAt(row().index + 1);
             onCleanup(() => props.virtualizer.measureElement(null));
             return (
               <div
                 class="agent-virtual-row"
                 classList={{
                   "agent-virtual-row-assistant-pair":
-                    entry.kind === "message" &&
-                    entry.tone === "assistant" &&
+                    entry().kind === "message" &&
+                    entry().tone === "assistant" &&
                     previous()?.kind === "message" &&
                     previous()?.tone === "assistant",
-                  "agent-virtual-row-first": virtualRow().index === 0,
-                  "agent-virtual-row-user": entry.kind === "message" && entry.tone === "user",
+                  "agent-virtual-row-first": previous() === undefined,
+                  "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
                 }}
-                data-index={virtualRow().index}
-                data-agent-turn-output-start={entry.id === props.agentTurnStartId ? "" : undefined}
-                data-transcript-entry={entry.id}
+                data-index={row().index}
+                data-agent-turn-output-start={
+                  entry().id === props.transcript.agentTurnStartId ? "" : undefined
+                }
+                data-transcript-entry={entry().id}
+                // Measured as soon as it renders, even mid-scroll, so a mounted row is never left unmeasured.
                 ref={(element) =>
                   queueMicrotask(() => {
-                    if (element.isConnected) {
-                      props.virtualizer.measureElement(element);
-                    }
+                    if (!element.isConnected) return;
+                    props.virtualizer.measureElement(element);
+                    props.virtualizer.resizeItem(
+                      row().index,
+                      element.getBoundingClientRect().height,
+                    );
                   })
                 }
-                style={`transform:translateY(${virtualRow().start}px)`}
+                style={row().gap > 0 ? `margin-top:${row().gap}px` : undefined}
               >
                 <TranscriptEntry
                   expandedDetails={props.expandedDetails}
-                  entry={entry}
+                  entry={entry()}
                   keyboardRequestKey={props.keyboardRequestKey}
                   latestPromptTurn={latestPromptTurn()}
                   onDetailsToggle={props.onDetailsToggle}
-                  sectionLabel={props.sectionLabels.get(entry.id) ?? null}
+                  sectionLabel={props.transcript.sectionLabels.get(entry().id) ?? null}
                   session={props.session}
                 />
               </div>

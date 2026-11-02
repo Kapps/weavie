@@ -7,12 +7,15 @@ import { type Accessor, onCleanup, onMount } from "solid-js";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 
 const animationDuration = 125;
-const scrollingKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+// Chromium's keyboard steps: a line is 40px and a page keeps at most 40px of overlap.
+const lineStep = 40;
+const editable = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
 export function createAgentPaneWheel(
   body: Accessor<HTMLDivElement | undefined>,
-  onIntent: () => void,
+  onIntent: (delta: number) => void,
   onSettled: () => void,
+  edges: { start: () => void; end: () => void },
 ) {
   let frame: number | null = null;
   let remaining = 0;
@@ -28,13 +31,15 @@ export function createAgentPaneWheel(
     fraction = 0;
   };
 
+  // The pane is bottom-origin, so scrollTop runs from minus the overflow up to 0.
   const move = (element: HTMLElement, delta: number): void => {
-    const previous = element.scrollTop;
-    const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
-    const target = Math.max(0, Math.min(maximum, previous + delta + fraction));
+    const minimum = Math.min(0, element.clientHeight - element.scrollHeight);
+    const target = Math.max(minimum, Math.min(0, element.scrollTop + delta + fraction));
     element.scrollTop = target;
     fraction = target - element.scrollTop;
-    if ((delta < 0 && target === 0) || (delta > 0 && target === maximum)) remaining = 0;
+    if ((delta < 0 && target === minimum) || (delta > 0 && target === 0)) remaining = 0;
+    // History measured on arrival extends the top, so reaching it hands off to the start edge.
+    if (delta < 0 && target === minimum && minimum < 0) edges.start();
   };
 
   const animate = (time: number): void => {
@@ -96,13 +101,13 @@ export function createAgentPaneWheel(
       event.deltaMode === WheelEvent.DOM_DELTA_PIXEL &&
       (Math.abs(event.deltaY) <= 1 || !Number.isInteger(event.deltaY));
     event.preventDefault();
-    onIntent();
     // Single-pixel and fractional input stay precise inside the classifier's near-integer tolerance.
-    if (
-      precisePixel ||
-      !classifier.isPhysicalMouseWheel() ||
-      !currentEditorOptions().smoothScrolling
-    ) {
+    scroll(element, delta, !precisePixel && classifier.isPhysicalMouseWheel());
+  };
+
+  const scroll = (element: HTMLElement, delta: number, animated: boolean): void => {
+    onIntent(delta);
+    if (!animated || !currentEditorOptions().smoothScrolling) {
       let movement = delta;
       if (frame !== null) {
         if (Math.sign(delta) === Math.sign(remaining)) movement += remaining + fraction;
@@ -128,9 +133,31 @@ export function createAgentPaneWheel(
       cancel();
       if (active) onSettled();
     };
+    // Keys scroll here rather than natively, so their motion is the reader's like the wheel's.
     const keydown = (event: KeyboardEvent): void => {
-      if (event.target === element && !event.defaultPrevented && scrollingKeys.has(event.key))
-        interrupt();
+      const target = event.target as HTMLElement;
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.metaKey ||
+        (target !== element && (event.key === " " || target.closest(editable) !== null))
+      )
+        return;
+      const page = Math.max(element.clientHeight * 0.875, element.clientHeight - lineStep);
+      const step = {
+        ArrowUp: -lineStep,
+        ArrowDown: lineStep,
+        PageUp: -page,
+        PageDown: page,
+        " ": event.shiftKey ? -page : page,
+      }[event.key];
+      const edge = { Home: edges.start, End: edges.end }[event.key];
+      if (edge === undefined && (step === undefined || event.ctrlKey)) return;
+      event.preventDefault();
+      if (edge !== undefined) edge();
+      else scroll(element, step!, true);
+      // The focused row may scroll out and unmount; the pane keeps the keys.
+      element.focus({ preventScroll: true });
     };
     element.addEventListener("wheel", wheel, { passive: false });
     element.addEventListener("pointerdown", interrupt);

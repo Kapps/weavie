@@ -13,6 +13,7 @@ using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 
 namespace Weavie.Core.Mcp;
 
@@ -37,6 +38,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly Func<string>? _currentSessionId;
 	private readonly AgentConsultation _agents;
 	private readonly IReviewHintSink _reviewHints;
+	private readonly IWorkflowRegistry _workflows;
 	private readonly string _toolsListJson;
 	private readonly IReadOnlyList<McpPrompt> _prompts;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -69,10 +71,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 		ThemeOverridesStore? themeOverrides,
 		Func<string>? currentSessionId,
 		AgentConsultation agents,
-		IReviewHintSink reviewHints) {
+		IReviewHintSink reviewHints,
+		IWorkflowRegistry workflows) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(agents);
 		ArgumentNullException.ThrowIfNull(reviewHints);
+		ArgumentNullException.ThrowIfNull(workflows);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		if (registryMode && settings is null) {
@@ -94,6 +98,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_currentSessionId = currentSessionId;
 		_agents = agents;
 		_reviewHints = reviewHints;
+		_workflows = workflows;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
@@ -106,7 +111,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, ReviewHintToolEntries, BuildPromptToolEntry() };
+			var parts = new List<string> { SettingsToolEntries, AgentToolEntries, ReviewHintToolEntries, WorkflowToolEntries, BuildPromptToolEntry() };
 			if (exposeIdeTools) {
 				parts.Add(IdeToolEntries);
 			}
@@ -485,6 +490,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "addReviewHint":
 				await HandleAddReviewHintAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "listWorkflows":
+				await HandleListWorkflowsAsync(responder, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "getWorkflowSchema":
+				await SendToolTextAsync(responder, idRaw, WorkflowSchema.Json, ct).ConfigureAwait(false);
+				break;
+			case "validateWorkflow":
+				await HandleValidateWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "runPrompt":
 				await HandleRunPromptAsync(responder, args, idRaw, ct).ConfigureAwait(false);

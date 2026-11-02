@@ -104,6 +104,9 @@ public static class WeaviePaths {
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 
+	/// <summary>The user's personal workflow files (<c>~/.weavie/workflows/*.yaml</c>).</summary>
+	public static string WorkflowsDir { get; } = Path.Combine(Root, "workflows");
+
 	/// <summary>Root for host-internal caches (e.g. the WebView2 user-data folder): <c>~/.weavie/internals</c>.</summary>
 	public static string Internals { get; } = Path.Combine(Root, "internals");
 

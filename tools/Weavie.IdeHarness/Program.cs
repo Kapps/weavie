@@ -4,6 +4,7 @@ using Weavie.Core.Agents;
 using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Terminal;
+using Weavie.Core.Workflows;
 
 // Dev harness (not shipped): launches the real interactive `claude` wired to our IDE-MCP server and verifies
 // the handshake (connect/auth/initialize/tools/list) end to end. It does not puppeteer claude's TUI — the only
@@ -28,7 +29,7 @@ var credential = AgentSessionCredential.Create();
 await using var server = new McpServer(
 	credential.Token, presenter, [workspace], "weavie", settings: null, registryMode: false,
 	exposeIdeTools: true, layout: null, editor: null, commands: null, keybindings: null, themeOverrides: null,
-	currentSessionId: null, AgentConsultation.None, ReviewHintSink.None);
+	currentSessionId: null, AgentConsultation.None, ReviewHintSink.None, WorkflowRegistry.None);
 int port = server.Start();
 IdeLockFile.Write(port, [workspace], "weavie", credential.Token);
 using var lockCleanup = new LockCleanup(port);

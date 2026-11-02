@@ -1,0 +1,18 @@
+id: quick-fix
+description: A small, well-understood change. Implement it, verify it, and open a draft PR.
+inputs:
+  task: text
+stages:
+  - id: implement
+    do:
+      prompt: >
+        Implement this task: {{inputs.task}}
+
+        Run the relevant tests and the linter, fix what fails, and commit. Call completeStage only once
+        both are green and the work is committed.
+
+  - id: pr
+    do:
+      prompt: Push the branch and open a draft pull request describing the change.
+      outputs:
+        pr: pr

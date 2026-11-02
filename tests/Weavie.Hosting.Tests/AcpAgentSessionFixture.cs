@@ -14,6 +14,7 @@ using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 
 namespace Weavie.Hosting.Tests;
 
@@ -402,7 +403,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
 			static () => "test-session",
 			AgentConsultation.None,
-			reviewHints);
+			reviewHints,
+			WorkflowRegistry.None);
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;

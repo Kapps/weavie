@@ -24,6 +24,8 @@
     <PackageVersion Include="WeCantSpell.Hunspell" Version="7.0.1" />
     <PackageVersion Include="SharpCompress" Version="0.50.4" />
     <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
+    <!-- Workflow definitions: only the low-level Parser/Events API is used, which is reflection-free (AOT-safe). -->
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
   <ItemGroup>

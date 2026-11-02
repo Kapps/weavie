@@ -19,6 +19,7 @@ using Weavie.Core.Review.Hints;
 using Weavie.Core.Revise;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
@@ -233,7 +234,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			themeOverrides,
 			() => SlotId,
 			agentConsultation,
-			ReviewHints);
+			ReviewHints,
+			new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir));
 
 		Agent = new AgentSessionHost(
 			agentProvider,

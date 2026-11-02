@@ -1,0 +1,44 @@
+id: spec-driven
+description: Requirements, design, and a task list, each approved by you, then the tasks implemented on this branch.
+inputs:
+  feature: text
+stages:
+  - id: requirements
+    do:
+      prompt: >
+        Interview me as needed, then choose a short kebab-case slug for "{{inputs.feature}}" and write
+        EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md. Report the
+        directory you wrote to as the dir output.
+      outputs:
+        dir: text
+    gate: approve
+
+  - id: design
+    do:
+      prompt: Write {{requirements.dir}}/design.md from the approved requirements.
+    gate: approve
+
+  - id: tasks
+    do:
+      prompt: >
+        Break the approved design into small, independently testable tasks, written as a checklist in
+        {{requirements.dir}}/tasks.md. Report them in order as the tasks output.
+      outputs:
+        tasks: list
+    gate: approve
+
+  - id: implement
+    do:
+      prompt: >
+        Implement these tasks in order, following {{requirements.dir}}/design.md, ticking each one off in
+        {{requirements.dir}}/tasks.md as it lands:
+
+        {{tasks.tasks}}
+
+        Run the tests and the linter, fix what fails, and commit.
+    next:
+      prompt: "Is every task in {{requirements.dir}}/tasks.md done? Remaining work, if any: {{tasks.tasks}}"
+      choices:
+        yes: done
+        no: implement
+      max: 3

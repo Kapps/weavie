@@ -19,6 +19,7 @@ public static class McpPromptCatalog {
 		IssueReportingPrompts.ReportBug,
 		IssueReportingPrompts.RequestFeature,
 		WorkspaceSetupPrompt.Prompt,
+		AuthorWorkflowPrompt.Prompt,
 	];
 
 	/// <summary>Resolves an exact catalog identity without accepting client-supplied instructions.</summary>

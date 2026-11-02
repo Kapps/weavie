@@ -80,6 +80,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		CorrectionCorpus corrections,
 		IInferenceService inference,
 		AgentConsultation agentConsultation,
+		ISessionPeers peers,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
@@ -99,6 +100,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(corrections);
+		ArgumentNullException.ThrowIfNull(peers);
 		ArgumentNullException.ThrowIfNull(inference);
 		ArgumentNullException.ThrowIfNull(agentConsultation);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
@@ -123,6 +125,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		_editorMessages = Bus.Feature("editor");
 		_notificationMessages = Bus.Feature("notifications");
 
+		Peers = peers;
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and this bus's
 		// commands.invoke requests both route here. Core wires the WebInvoker + Core handlers once the session exists.
 		Commands = new CommandDispatcher(commandRegistry);
@@ -234,7 +237,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Commands,
 			keybindings,
 			themeOverrides,
-			() => SlotId,
+			peers,
 			agentConsultation,
 			ReviewHints,
 			new SessionWorkflowRegistry(WorkflowCatalog, Workflow));
@@ -258,7 +261,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("terminal.agent"),
 				settings,
 			ptyLauncher);
-		Agent.PlanDocumentsChanged += UpdateAgentPlans;
+		Agent.PlansChanged += plans => UpdateAgentPlans(plans, settings.RequireBool(AgentSettings.PlanReviewAutoOpen));
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor
@@ -295,6 +298,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>The immutable slot and live incarnation used by the router.</summary>
 	internal SessionAddress Address => _endpoint.Address;
+
+	/// <summary>This session's view of the other sessions on the host.</summary>
+	internal ISessionPeers Peers { get; }
 
 	/// <summary>The session-owned message bus.</summary>
 	internal SessionMessageBus Bus => _endpoint.Bus;
@@ -602,13 +608,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
-		SendAgentInput(new AgentTurnSubmission {
-			Id = Guid.NewGuid().ToString("n"),
-			Text = text,
-			Kind = AgentTurnSubmissionKind.Prompt,
-			CommandName = string.Empty,
-			Attachments = [],
-		});
+		SendAgentInput(AgentTurnSubmission.Prompt(text));
 	}
 
 	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>

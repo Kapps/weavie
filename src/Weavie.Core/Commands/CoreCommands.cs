@@ -1271,7 +1271,7 @@ public static partial class CoreCommands {
 			Category = "Agent",
 			Description = "Accept the agent's pending approval request.",
 			Aliases = ["approve", "accept request", "allow tool", "yes"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+y" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+y" }, PlanReviewBinding("alt+y")],
 			When = "agentFocused && agentApprovalPending",
 		});
 
@@ -1282,7 +1282,7 @@ public static partial class CoreCommands {
 			Category = "Agent",
 			Description = "Accept the agent's pending approval request for the rest of the session.",
 			Aliases = ["approve for session", "always allow", "accept for session"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+y" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+y" }, PlanReviewBinding("alt+shift+y")],
 			When = "agentFocused && agentApprovalPending",
 		});
 
@@ -1293,7 +1293,7 @@ public static partial class CoreCommands {
 			Category = "Agent",
 			Description = "Decline the agent's pending approval request.",
 			Aliases = ["decline", "deny request", "reject tool", "no"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+n" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+n" }, PlanReviewBinding("alt+n")],
 			When = "agentFocused && agentApprovalPending",
 		});
 
@@ -2363,4 +2363,7 @@ public static partial class CoreCommands {
 		// SessionCommands.RegisterHandlers; next/prev/switch are web-handled by the session rail.
 		SessionCommands.Register(registry);
 	}
+
+	// The same chord answers the plan review bar's newest review while the editor holds focus.
+	private static CommandKeybinding PlanReviewBinding(string key) => new() { Key = key, When = "editorFocused && planReviewShown" };
 }

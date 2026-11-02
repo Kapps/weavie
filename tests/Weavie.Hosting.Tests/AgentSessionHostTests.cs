@@ -518,7 +518,7 @@ public sealed partial class AgentSessionHostTests {
 			new CommandDispatcher(commandRegistry),
 			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			slot,
+			NoSessionPeers.Instance,
 			AgentConsultation.None,
 			ReviewHintSink.None,
 			WorkflowRegistry.None);
@@ -586,6 +586,8 @@ public sealed partial class AgentSessionHostTests {
 		};
 
 		public void ClearConversation(string workspace) { }
+
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
 
 		public IAgentSession CreateSession(AgentSessionContext context) => session;
 	}

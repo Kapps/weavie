@@ -6,6 +6,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 
@@ -32,11 +33,11 @@ internal static class TestMcp {
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
 		ThemeOverridesStore? themeOverrides = null,
-		Func<string>? currentSessionId = null,
+		ISessionPeers? sessions = null,
 		AgentConsultation? agents = null,
 		IReviewHintSink? reviewHints = null,
 		IWorkflowRegistry? workflows = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, currentSessionId, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
+		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -58,7 +59,7 @@ internal static class TestMcp {
 			new CommandDispatcher(registry),
 			new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => "test-session",
+			NoSessionPeers.Instance,
 			AgentConsultation.None,
 			ReviewHintSink.None,
 			WorkflowRegistry.None);

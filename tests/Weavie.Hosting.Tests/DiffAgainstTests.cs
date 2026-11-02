@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Changes;
+using Weavie.Core.Sessions;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -328,6 +329,72 @@ public sealed class DiffAgainstTests {
 		Assert.False(answer.GetProperty("opened").GetBoolean());
 		Assert.Equal(JsonValueKind.Null, answer.GetProperty("replaces").ValueKind);
 	}
+
+	[Fact]
+	public async Task ReviewBranch_OnAStackedBranch_ComparesWithItsParent() {
+		await using var host = await TestHost.StartAsync(repo => {
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "a.txt"), "parent\n");
+			Commit(repo, "feature-a work");
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-b", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "b.txt"), "own\n");
+			Commit(repo, "feature-b work");
+		});
+		var session = host.SelectedSession;
+
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+
+		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
+		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(["b.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+	}
+
+	[Fact]
+	public async Task ReviewBranch_OnASessionBranchedFromAnotherSession_ComparesWithThatSessionsBranch() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature-a")).Ok);
+		File.WriteAllText(Path.Combine(host.Session("feature-a").WorkspaceRoot, "a.txt"), "parent\n");
+		Commit(host.Session("feature-a").WorkspaceRoot, "feature-a work");
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "feature-b", Base = "source" })).Ok);
+		var session = host.Session("feature-b");
+		File.WriteAllText(Path.Combine(session.WorkspaceRoot, "b.txt"), "own\n");
+
+		var opened = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainstBase", new { replaces = (string?)null });
+
+		Assert.Equal("vs feature-a", opened.GetProperty("label").GetString());
+		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Equal(["b.txt"], changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+	}
+
+	[Fact]
+	public async Task DiffAgainstABranch_BecomesTheBranchsReviewBaseOnceItsReviewOpens() {
+		await using var host = await TestHost.StartAsync(repo => {
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-a");
+			File.WriteAllText(Path.Combine(repo, "a.txt"), "parent\n");
+			Commit(repo, "feature-a work");
+			TempGitRepo.Run(repo, "switch", "-q", "-c", "feature-b", "main");
+			File.WriteAllText(Path.Combine(repo, "b.txt"), "own\n");
+			Commit(repo, "feature-b work");
+		});
+		var session = host.SelectedSession;
+
+		File.WriteAllText(Path.Combine(host.RepoRoot, "b.txt"), "edited\n");
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+
+		// Refused while another review is open: declining to replace it changes nothing.
+		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = (string?)null });
+		Assert.False(refused.GetProperty("opened").GetBoolean());
+		Assert.Equal("main", await DefaultRefAsync(host, session));
+
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = "vs HEAD" });
+		var toast = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "notifications", "show"));
+		Assert.Contains("Review Branch now compares with 'feature-a'", toast.GetProperty("message").GetString());
+		Assert.Equal("feature-a", await DefaultRefAsync(host, session));
+	}
+
+	private static async Task<string?> DefaultRefAsync(TestHost host, HostSession session) =>
+		(await host.SessionRequestAsync<JsonElement>(session, "files", "refs", new { })).GetProperty("defaultRef").GetString();
 
 	private static void Commit(string cwd, string message) {
 		TempGitRepo.Run(cwd, "add", "-A");

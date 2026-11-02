@@ -38,6 +38,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		KeybindingStore keybindings,
 		EditorStore editor,
 		AcpSessionStore sessions,
+		AcpControlStore controlDefaults,
 		AcpAgentSession session,
 		RecordingAgentEventSink events,
 		IAgentAuthenticationTerminal authenticationTerminal,
@@ -52,6 +53,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		_keybindings = keybindings;
 		Editor = editor;
 		Sessions = sessions;
+		ControlDefaults = controlDefaults;
 		Session = session;
 		Events = events;
 		_authenticationTerminal = authenticationTerminal;
@@ -66,6 +68,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
+	public AcpControlStore ControlDefaults { get; }
 	public ReviewHintStore ReviewHints { get; }
 	public WorkflowRunner Workflow { get; }
 	public ConcurrentQueue<WorkflowKickoff> WorkflowKickoffs { get; }
@@ -412,7 +415,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			new CommandDispatcher(commandRegistry),
 			keybindings,
 			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
-			static () => "test-session",
+			NoSessionPeers.Instance,
 			AgentConsultation.None,
 			reviewHints,
 			new SessionWorkflowRegistry(workflowCatalog, workflow));
@@ -462,6 +465,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			keybindings,
 			editor,
 			store,
+			controls,
 			session,
 			events,
 			authenticationTerminal,
@@ -520,13 +524,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 
 	public void ReplyAside(string conversationId, string text) => Session.ReplyAside(conversationId, Prompt(text));
 
-	private static AgentTurnSubmission Prompt(string text) => new() {
-		Id = Guid.NewGuid().ToString("N"),
-		Text = text,
-		Kind = AgentTurnSubmissionKind.Prompt,
-		CommandName = string.Empty,
-		Attachments = [],
-	};
+	private static AgentTurnSubmission Prompt(string text) => AgentTurnSubmission.Prompt(text);
 
 	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),

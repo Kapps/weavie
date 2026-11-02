@@ -1,4 +1,6 @@
-import { createAcpSession } from "../harness/acp-session";
+import type { Locator } from "@playwright/test";
+import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
+import { clickIntoEditor, pressDocumentEnd, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 test.describe("ACP plan review with automatic tool approval", () => {
@@ -82,6 +84,56 @@ test.describe("ACP plan review with automatic tool approval", () => {
       await expect(surface).not.toContainText("unknown tool call");
     });
   }
+
+  test("Claude's plan file opens for editing and an unsaved edit is accepted with the keyboard @cross", async ({
+    page,
+  }) => {
+    const surface = await createAcpSession(page, "acp-plan-file");
+    const composer = surface.locator("[data-agent-composer] textarea");
+    await composer.fill("exit-plan-mode");
+    await composer.press("Enter");
+
+    await expect(page.locator(".editor-tab.active")).toContainText("fake-plan.md");
+    await expect(composer).toBeFocused();
+    const card = surface.locator(".agent-entry-request");
+    await expect(card).toContainText("Ready to review in the editor");
+    await expect(card.getByRole("button")).toHaveCount(1);
+    await expect(card.getByRole("button", { name: /Open plan/ }).locator("kbd")).toBeVisible();
+    const bar = page.locator(".plan-review-bar");
+    await expectBelow(bar, page.locator(".editor"));
+    const accept = bar.getByRole("button", { name: /Yes, manually approve edits/ });
+    await expect(accept).toHaveAttribute("title", /\((Alt|⌥)\+Y\)/);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(accept).toBeVisible();
+    await clickIntoEditor(page);
+    await pressDocumentEnd(page);
+    await typeInEditor(page, "Edited in the editor.");
+    await page.keyboard.press("Alt+y");
+
+    await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
+      "Edited in the editor.",
+    );
+    await expect(bar).toHaveCount(0);
+    const plan = surface.locator(".agent-entry-plan");
+    await expect(plan).toHaveCount(1);
+    await expect(plan).toContainText("Approved · Yes, manually approve edits");
+    await expect(surface.locator(".agent-entry-request")).toHaveCount(0);
+    await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
+  });
+
+  test("a side conversation's plan review answers only that conversation", async ({ page }) => {
+    const surface = await createAcpSession(page, "acp-plan-btw");
+    await submitAcpDraft(surface, "/btw exit-plan-mode");
+    await expect(page.locator(".editor-tab.active")).toContainText("fake-plan.md");
+    await page
+      .locator(".plan-review-bar")
+      .getByRole("button", { name: /Yes, manually approve edits/ })
+      .click();
+    await expect(surface.locator(".agent-aside")).toContainText("approved plan:");
+    await expect(page.locator(".plan-review-bar")).toHaveCount(0);
+    await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
+  });
 });
 
 test("an open ACP plan shows full revisions and remains removed after reconnect", async ({
@@ -124,3 +176,16 @@ test("an open ACP plan shows full revisions and remains removed after reconnect"
   await expect(surface.getByRole("button", { name: "Open plan" })).toHaveCount(0);
   await expect(surface.locator(".agent-entry-notice.agent-tone-error")).toHaveCount(0);
 });
+
+// The review bar takes its own strip, so no line of the plan can sit underneath it.
+async function expectBelow(bar: Locator, content: Locator): Promise<void> {
+  await expect(bar).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [barBox, contentBox] = await Promise.all([bar.boundingBox(), content.boundingBox()]);
+      return (
+        barBox !== null && contentBox !== null && barBox.y >= contentBox.y + contentBox.height - 1
+      );
+    })
+    .toBe(true);
+}

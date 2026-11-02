@@ -22,9 +22,10 @@ export function submittedPrompts(messages: readonly AgentPaneUpdate[]): string[]
   const prompts: string[] = [];
   for (const message of messages) {
     if (
-      message.type !== "user-message" &&
-      message.type !== "user-command" &&
-      message.type !== "user-steer"
+      (message.type !== "user-message" &&
+        message.type !== "user-command" &&
+        message.type !== "user-steer") ||
+      message.sender
     ) {
       continue;
     }

@@ -16,20 +16,24 @@ internal sealed partial class AcpConversation {
 			EmitFailure(new AcpProtocolException($"'{optionId}' was not advertised for permission {requestId}."));
 			return;
 		}
+		// Claude's clear-context options (no protocol marker names them) restart from the plan as requested.
+		if (pending.Plan is { } plan && optionId.StartsWith("exit-plan-clear", StringComparison.Ordinal)) {
+			try {
+				if (PlanFileText(plan.Path) != plan.Text) {
+					throw new AcpProtocolException("Clear context would discard your plan edits. Choose another option, or undo your edits.");
+				}
+			} catch (AcpProtocolException ex) {
+				EmitFailure(ex);
+				return;
+			}
+		}
 		if (!CompleteDeferredClientRequest(
 			requestId,
 			AcpContent.Selected(optionId))) {
 			EmitStaleInteraction(requestId, "permission");
 			return;
 		}
-		ResolveInteraction(
-			requestId,
-			"approval-resolved",
-			PermissionStatus(option),
-			permission: true,
-			pending.ThreadId,
-			pending.TurnId,
-			answers: null);
+		ResolveInteraction(requestId, pending, PermissionStatus(option), answers: null);
 		if (OptionalString(option, "kind") is "reject_once" or "reject_always") CompletePermissionTool(pending.Request);
 	}
 
@@ -60,14 +64,7 @@ internal sealed partial class AcpConversation {
 			EmitStaleInteraction(requestId, "input");
 			return;
 		}
-		ResolveInteraction(
-			requestId,
-			"input-resolved",
-			action == "accept" ? "accepted" : action,
-			permission: false,
-			pending.ThreadId,
-			pending.TurnId,
-			action == "accept" ? answers : null);
+		ResolveInteraction(requestId, pending, action == "accept" ? "accepted" : action, action == "accept" ? answers : null);
 	}
 
 	private void CompleteElicitation(System.Text.Json.JsonElement parameters) =>
@@ -90,14 +87,7 @@ internal sealed partial class AcpConversation {
 			} catch (Exception ex) when (ex is InvalidOperationException or IOException) {
 				// The process generation that owned the request is already gone.
 			}
-			ResolveInteraction(
-				entry.Key,
-				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
-				"cancelled",
-				pending.Kind == "permission",
-				pending.ThreadId,
-				pending.TurnId,
-				answers: null);
+			ResolveInteraction(entry.Key, pending, "cancelled", answers: null);
 		}
 		bool cancelAuthentication;
 		bool requiresUserInput;
@@ -133,12 +123,10 @@ internal sealed partial class AcpConversation {
 
 	private void ResolveInteraction(
 		string requestId,
-		string type,
+		AcpPendingRequest pending,
 		string status,
-		bool permission,
-		string? threadId,
-		string turnId,
 		IReadOnlyDictionary<string, IReadOnlyList<string>>? answers) {
+		bool permission = pending.Kind == "permission";
 		bool requiresUserInput;
 		lock (_gate) {
 			_resolvedRequests.Add(requestId);
@@ -147,11 +135,11 @@ internal sealed partial class AcpConversation {
 		if (permission) Observe(new AgentPermissionResolved(requiresUserInput));
 		else Observe(new AgentInputResolved(requiresUserInput));
 		Emit(new AgentPaneMessage {
-			Type = type,
+			Type = permission ? "approval-resolved" : "input-resolved",
 			ProviderId = Definition.Id,
-			ThreadId = threadId,
-			TurnId = turnId,
-			ItemId = $"request:{requestId}",
+			ThreadId = pending.ThreadId,
+			TurnId = pending.TurnId,
+			ItemId = pending.ItemId,
 			RequestId = requestId,
 			Status = status,
 			Answers = answers,
@@ -165,12 +153,24 @@ internal sealed partial class AcpConversation {
 		EmitFailure(new AcpProtocolException($"ACP {kind} request '{requestId}' is no longer pending."));
 	}
 
-	private static string PermissionStatus(System.Text.Json.JsonElement option) => OptionalString(option, "kind") switch {
-		"allow_once" => "allowed once",
-		"allow_always" => "always allowed",
-		"reject_once" or "reject_always" => "denied",
-		_ => OptionalString(option, "name") ?? RequiredString(option, "optionId", "permission option"),
-	};
+	// The outcome names the option the user chose.
+	private static string PermissionStatus(System.Text.Json.JsonElement option) {
+		string name = RequiredString(option, "name", "permission option");
+		return OptionalString(option, "kind") switch {
+			"allow_once" or "allow_always" => "Approved · " + name,
+			"reject_once" or "reject_always" => "Declined · " + name,
+			_ => name,
+		};
+	}
+
+	// Compared as the adapter reads a plan: trimmed.
+	private string PlanFileText(string path) {
+		try {
+			return _context.FileSystem.ReadAllText(path).Trim();
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			throw new AcpProtocolException($"The plan file could not be read: {ex.Message}", ex);
+		}
+	}
 
 	private bool HasPendingInteractionLocked() => !_pendingRequests.IsEmpty || _authenticationPending;
 

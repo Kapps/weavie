@@ -108,6 +108,13 @@ activity rather than an openable document. Weavie advertises the separate plan-d
 `plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
 retracts them. File-backed plans are snapshotted when received and must resolve to a local file. Open editor
 tabs follow the complete document's revisions; removed plans show an unavailable notice, including after reconnect.
+A `switch_mode` permission that names a plan file is a plan review, answered from the editor rather than the pane.
+Weavie advertises AIR `planFile`, so Claude names its plan file in `rawInput.planFilePath`: the host opens that real
+file once as an editable buffer (setting `agent.planReview.autoOpen`) without taking focus, and a bar below the tab
+shows the agent's options with the approval chords. Approving saves the buffer before answering, so the agent reads
+the user's edit; the agent's own `plan_update` then records the approved plan, and its synthetic "plan file
+released" call is not rendered. The pane card only offers **Open plan**. A mode switch without a plan file
+(Codex's plan approval) stays an ordinary approval card.
 
 Permission requests can introduce a tool identity before its execution notifications. The same tool state merges
 both sources in receive order, while only execution notifications establish background activity. Mode-change

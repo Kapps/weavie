@@ -29,7 +29,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	}
 
 	private PullRequestTarget Target => new(
-		new RepoRef("github.com", "Kapps", "weavie"), "origin", Number, _headSha, _baseSha, "https://github.com/Kapps/weavie/pull/7");
+		new RepoRef("github.com", "Kapps", "weavie"), "origin", Number, _headSha, "main", _baseSha, "https://github.com/Kapps/weavie/pull/7");
 
 	[Fact]
 	public async Task NoPullRequest_PublishesAnEmptySet() {

@@ -16,7 +16,7 @@ internal sealed partial class AcpConversation {
 			if (!_urlElicitations.TryAdd(elicitationId, request.Id)) {
 				throw new AcpProtocolException($"ACP repeated outstanding URL elicitation id '{elicitationId}'.");
 			}
-			var urlPending = new AcpPendingRequest(request, "url", EmptyArray, SessionId(), TurnId());
+			var urlPending = new AcpPendingRequest(request, "url", EmptyArray, SessionId(), TurnId(), $"request:{request.Id}");
 			if (!_pendingRequests.TryAdd(request.Id, urlPending)) {
 				_urlElicitations.TryRemove(elicitationId, out _);
 				throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
@@ -43,7 +43,7 @@ internal sealed partial class AcpConversation {
 			throw new AcpProtocolException($"Unsupported ACP elicitation mode '{mode}'.");
 		}
 		var questions = AcpElicitationSchema.ReadQuestions(schema, OptionalString(request.Parameters, "message"));
-		var pending = new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId());
+		var pending = new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId(), $"request:{request.Id}");
 		if (!_pendingRequests.TryAdd(request.Id, pending)) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}

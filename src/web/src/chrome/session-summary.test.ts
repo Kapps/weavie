@@ -20,6 +20,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   activity: null,
   run: null,
   lastActiveAt: null,
+  unseen: false,
   workspaceCheckout: false,
   external: false,
   backendId: "local",
@@ -36,6 +37,8 @@ describe("sessionGroup", () => {
     expect(sessionGroup(session({ status: "error" }))).toBe("needs");
     expect(sessionGroup(session({ status: "waiting" }))).toBe("working");
     expect(sessionGroup(session({ status: "idle" }))).toBe("idle");
+    expect(sessionGroup(session({ status: "idle", unseen: true }))).toBe("finished");
+    expect(sessionGroup(session({ status: "working", unseen: true }))).toBe("working");
     expect(sessionGroup(session({ loaded: false, status: "needsInput" }))).toBe("parked");
   });
 
@@ -62,10 +65,12 @@ describe("panelOrder", () => {
       session({ id: "working", status: "working" }),
       session({ id: "idle-2" }),
       session({ id: "needs", status: "needsInput" }),
+      session({ id: "finished", unseen: true }),
     ];
     expect(panelOrder(sessions).map((s) => s.id)).toEqual([
       "needs",
       "working",
+      "finished",
       "idle-1",
       "idle-2",
       "parked",
@@ -85,6 +90,9 @@ describe("sessionSubtitle", () => {
     expect(sessionSubtitle(session({ activity: "running pnpm test" }), NOW)).toBe("idle");
     expect(sessionSubtitle(session({ lastActiveAt: NOW - 2 * 3_600_000 }), NOW)).toBe(
       "idle · 2h ago",
+    );
+    expect(sessionSubtitle(session({ unseen: true, lastActiveAt: NOW - 3 * 60_000 }), NOW)).toBe(
+      "finished · 3m ago",
     );
     expect(sessionSubtitle(session({ loaded: false, activity: "stale" }), NOW)).toBe("not loaded");
     expect(sessionSubtitle(session({ offline: true }), NOW)).toBe("connection lost");

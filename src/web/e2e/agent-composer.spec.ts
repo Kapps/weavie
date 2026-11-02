@@ -2000,7 +2000,10 @@ test.describe("ACP composer", () => {
         status: "pending",
         summary: "Wants to run the test suite.",
         text: "dotnet test tests/Weavie.Hosting.Tests",
-        actions: permissionActions,
+        actions: [
+          ...permissionActions,
+          { id: "allow-everything", label: "Allow everything", kind: "allow_always" },
+        ],
       }),
     );
 
@@ -2008,6 +2011,13 @@ test.describe("ACP composer", () => {
     await expect(card).toContainText("dotnet test tests/Weavie.Hosting.Tests");
     const accept = card.getByRole("button", { name: /Allow once/ });
     await expect(accept.locator(".agent-key-chip")).toHaveText("Alt+Y");
+    // A chord answers only the first option of its kind, so a second one must not claim it.
+    await expect(
+      card.getByRole("button", { name: /Always allow/ }).locator(".agent-key-chip"),
+    ).toHaveCount(1);
+    await expect(
+      card.getByRole("button", { name: /Allow everything/ }).locator(".agent-key-chip"),
+    ).toHaveCount(0);
     await page.screenshot({ path: join(shotsDir, "09-approval-card.png") });
 
     await page.locator("[data-agent-composer] textarea").click();

@@ -696,6 +696,28 @@ video.editor-media-content {
   text-align: center;
 }
 
+/* Below the editor pane in the surface's flow, so it never covers the plan. */
+.plan-review-bar {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+}
+
+.plan-review-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-review-label {
+  color: var(--dim);
+}
+
 .editor-tab-content {
   position: absolute;
   inset: 0;

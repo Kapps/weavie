@@ -81,6 +81,15 @@ configured volume. A failed pack load or browser autoplay rejection is surfaced 
 
 OS notifications are silent; the pack player is the one audio source.
 
+## Unseen finished turns
+
+A `turnComplete` also sets the slot's host-owned `unseen` flag, carried in the session catalog and persisted
+in `sessions.json` so it survives restarts and auto-updates. The panel shows an idle, unseen session in its
+**Finished** section with a haloed dot. A page clears the flag by publishing `attention.seen` on the owning
+session while that session is selected and the window is focused; the host persists and re-pushes the catalog,
+so every client clears it together. The selected session renders seen immediately rather than flashing
+Finished for the round-trip.
+
 ## Notifications
 
 Browser-hosted Weavie uses the Web Notification API. Permission is requested only from an explicit action in

@@ -8,6 +8,7 @@ namespace Weavie.AgentClientProtocol;
 internal sealed partial class AcpConversation {
 	// A tool the agent marked as a subagent's spawn renders as the subagent's card instead of a row.
 	private void PublishTool(AcpToolState tool) {
+		if (tool.PlanReleased) return;
 		if (!tool.Subagent) Emit(ToolMessage(tool));
 		else if (tool.Shown) Emit(ToolMessage(tool) with { Type = "item-retracted", Status = "retracted" });
 		tool.Shown = !tool.Subagent;

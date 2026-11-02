@@ -98,12 +98,15 @@ class OwnedEditorSession {
       line?: number;
       column?: number;
       focus?: boolean;
+      activate?: boolean;
       preview?: boolean;
       scratch?: boolean;
       kind?: TabKind;
     },
   ): ActivateResult {
     const current = this.readState() ?? { active: null, open: [] };
+    const active = (path: string): string | null =>
+      opts.activate === false ? current.active : path;
     const placement: Placement = {
       line: opts.line ?? 1,
       ...(opts.column === undefined ? {} : { column: opts.column }),
@@ -120,7 +123,7 @@ class OwnedEditorSession {
         existing.preview && !preview
           ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
           : current.open;
-      this.commit({ active: existing.path, open });
+      this.commit({ active: active(existing.path), open });
       // A requested line always reveals — including line 1, a created file's whole diff. Only a positionless
       // open (file tree, recents, Go-to-File) restores where the user last was in the tab.
       return {
@@ -143,7 +146,7 @@ class OwnedEditorSession {
       replaced === -1
         ? normalize([...current.open, entry])
         : current.open.map((previous, index) => (index === replaced ? entry : previous));
-    this.commit({ active: path, open });
+    this.commit({ active: active(path), open });
     return { path, placement };
   }
 
@@ -580,6 +583,7 @@ export function openTabFor(
     line?: number;
     column?: number;
     focus?: boolean;
+    activate?: boolean;
     preview?: boolean;
     scratch?: boolean;
     kind?: TabKind;

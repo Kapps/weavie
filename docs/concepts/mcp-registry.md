@@ -71,3 +71,5 @@ hand-written MCP tools per capability:
   (`~/.weavie/keybindings.json`) + the omnibar command palette.
 - Agent consultation — [implemented](../specs/agent-consultation.md). `listAgents`/`consultAgent` let the
   embedded agent resolve another configured agent or model by name and run one read-only consult turn with it.
+- Session messaging — [implemented](../specs/session-messaging.md). `listSessions`/`readSession`/`messageSession` let
+  the embedded agent find, read, and message the other sessions on its host.

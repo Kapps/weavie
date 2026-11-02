@@ -1,4 +1,4 @@
-import type { SessionRunState } from "../bridge";
+import type { SessionRunState, SessionStatusName } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -6,11 +6,12 @@ import { compactAge } from "../compact-age";
 import type { RailSession } from "./session-store";
 
 /** The session panel's sections, in display order. */
-export type SessionGroup = "needs" | "working" | "idle" | "parked";
+export type SessionGroup = "needs" | "working" | "finished" | "idle" | "parked";
 
 export const SESSION_GROUPS: { id: SessionGroup; title: string }[] = [
   { id: "needs", title: "Needs you" },
   { id: "working", title: "Working" },
+  { id: "finished", title: "Finished" },
   { id: "idle", title: "Idle" },
   { id: "parked", title: "Parked" },
 ];
@@ -23,10 +24,12 @@ export function sessionGroup(session: RailSession): SessionGroup {
   if (session.run !== null && RUN_NEEDS_USER.has(session.run.state)) {
     return "needs";
   }
-  switch (session.status) {
+  switch (loadedState(session)) {
     case "needsInput":
     case "error":
       return "needs";
+    case "finished":
+      return "finished";
     case "idle":
       return "idle";
     default:
@@ -54,11 +57,17 @@ const RUN_PHRASE: Record<SessionRunState, string> = {
   stalled: "stalled",
 };
 
-const STATUS_PHRASE: Record<RailSession["status"], string> = {
+/** A loaded session's state: its status, with an unseen finished turn told apart from plain idle. */
+function loadedState(session: RailSession): SessionStatusName | "finished" {
+  return session.status === "idle" && session.unseen ? "finished" : session.status;
+}
+
+const STATUS_PHRASE: Record<SessionStatusName | "finished", string> = {
   starting: "starting",
   working: "working",
   needsInput: "needs input",
   idle: "idle",
+  finished: "finished",
   waiting: "waiting on a scheduled task",
   error: "crashed",
 };
@@ -78,7 +87,7 @@ export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.loaded && busy && session.activity !== null) {
     return session.activity;
   }
-  const loaded = session.loaded ? STATUS_PHRASE[session.status] : "not loaded";
+  const loaded = session.loaded ? STATUS_PHRASE[loadedState(session)] : "not loaded";
   const state = session.external ? `outside Weavie · ${loaded}` : loaded;
   const quiet = !session.loaded || session.status === "idle";
   return quiet && session.lastActiveAt !== null
@@ -88,7 +97,7 @@ export function sessionSubtitle(session: RailSession, now: number): string {
 
 /** The status-dot modifier: `offline` while its backend is unreachable, `unloaded` when dormant, else its status. */
 export function statusDot(session: RailSession): string {
-  return session.offline ? "offline" : session.loaded ? session.status : "unloaded";
+  return session.offline ? "offline" : session.loaded ? loadedState(session) : "unloaded";
 }
 
 /** The switch shortcut for the rail session at `index` (0-based); only the first nine have one. */

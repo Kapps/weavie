@@ -149,6 +149,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			new CorrectionCorpus(new LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
 			AgentConsultation.None,
+			NoSessionPeers.Instance,
 			_launcher,
 			provider,
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
@@ -199,6 +200,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 		public FakeTerminalAgentSession? Session { get; private set; }
 
 		public void ClearConversation(string workspace) { }
+
+		public IReadOnlyList<AgentTranscriptEntry> ReadTranscript(string workspace) => throw new NotSupportedException();
 
 		public IAgentSession CreateSession(AgentSessionContext context) => Session = new FakeTerminalAgentSession(workspace);
 

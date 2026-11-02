@@ -14,6 +14,9 @@ public static class AgentSettings {
 	/// <summary>Automatically allows ACP tool permissions, excluding mode changes such as plan approval.</summary>
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 
+	/// <summary>Opens an agent's plan in the editor as soon as it asks for review.</summary>
+	public const string PlanReviewAutoOpen = "agent.planReview.autoOpen";
+
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, CoreSettings.ClaudePath];
 

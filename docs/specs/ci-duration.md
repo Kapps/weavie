@@ -311,3 +311,20 @@ alongside would save ~30s.
 | + #3 8 shards | 255s | ~365s | 35s | ~11.6 min |
 | + #5 macOS format split | — | — | — | p90 stays e2e-bound |
 | + #4 −0.5s boot | 255s | ~330s | 35s | ~11.0 min |
+
+## First measured run (#1, #3, #5, #6)
+
+Run 41584165279 planned from the timings of one previous run:
+
+| | Before (p50) | Measured |
+|---|---|---|
+| Trigger → `ci` check | 15.3 min | 12.6 min |
+| Slowest shard (job) | 9.8 min | 6.75 min |
+| Slowest − fastest shard | 5.4 min | 1.7 min |
+| Shard time outside Playwright | ~43s | 49–70s (incl. ~27s container start) |
+| macOS `Verify .NET formatting` | 94s | 26s |
+
+Shards were planned at ~250s each and ran 250–356s. Two things cause the gap. The recorded per-test
+durations leave out ~19% of Playwright's own time (worker and browser start-up), so every shard runs
+longer than planned. On top of that, single-run timings are noisy per file. If the spread stays wide,
+the next step is to average each file's time over several runs when recording timings.

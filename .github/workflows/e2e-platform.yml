@@ -101,7 +101,7 @@ jobs:
           pnpm exec playwright test --list --reporter=json > /dev/null
           python3 ../../temp/workflow/.github/scripts/plan_e2e_shards.py plan \
             "$PLAYWRIGHT_JSON_OUTPUT_FILE" ../../e2e-timings.json "$SHARDS" ../../artifacts/e2e-bundle/shards
-          echo "shards=$(python3 -c "import json; print(json.dumps(list(range(1, $SHARDS + 1))))")" >> "$GITHUB_OUTPUT"
+          echo "shards=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
           echo "playwright=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Verify test bundle
@@ -153,6 +153,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - *trusted-infrastructure
+      # Playwright's image has no Python for the release checkout helper.
+      - uses: actions/setup-python@v5
+        if: inputs.ref
+        with:
+          python-version: '3.x'
       - name: Authorize and check out release source
         if: inputs.ref
         env:
@@ -193,7 +198,10 @@ jobs:
             chmod +x .e2e-bundle/runner/worker/weavie-pty-launcher
           fi
           echo "WEAVIE_E2E_BUNDLE=$GITHUB_WORKSPACE/.e2e-bundle" >> "$GITHUB_ENV"
-          if [[ "${{ runner.os }}" != Linux ]]; then
+          # A container step inherits no login shell, and the host's shell panes launch $SHELL.
+          if [[ "${{ runner.os }}" == Linux ]]; then
+            echo "SHELL=/bin/bash" >> "$GITHUB_ENV"
+          else
             echo "PLAYWRIGHT_BROWSERS_PATH=$GITHUB_WORKSPACE/.pw-browsers" >> "$GITHUB_ENV"
           fi
           mkdir -p src/web/dist

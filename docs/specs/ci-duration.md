@@ -204,7 +204,7 @@ processing time (LPT) bin-packing, and give each shard an explicit file list ins
   Every shard runs from that one plan, so coverage is complete by construction, and the planner refuses
   any plan that doesn't partition the listed tests. The shard count lives only in the planner's step
   (`SHARDS`); the shard matrix comes from its output.
-- **New or unknown files** take the median file weight. With no timings cache at all (evicted after 7
+- **New or unknown files** weigh their test count times the median per-test time. With no timings cache at all (evicted after 7
   idle days), every file gets equal weight: the result is still a correct, complete plan, just less
   balanced. Surface it as a `::warning` in the job summary rather than failing the run.
 - **Result:** the slowest shard goes from 590s to ~470s (425s tests + 43s fixed).

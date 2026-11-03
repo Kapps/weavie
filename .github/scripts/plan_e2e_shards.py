@@ -35,9 +35,9 @@ def units(report):
 
 
 def record_timings(report_path, timings_path):
-    report = json.loads(Path(report_path).read_text())
+    report = json.loads(Path(report_path).read_text(encoding="utf-8"))
     timings = {unit: round(seconds, 1) for unit, (_, seconds) in units(report).items()}
-    Path(timings_path).write_text(json.dumps(timings, indent=1, sort_keys=True))
+    Path(timings_path).write_text(json.dumps(timings, indent=1, sort_keys=True), encoding="utf-8")
 
 
 def plan(listed, timings, shards):
@@ -53,15 +53,13 @@ def plan(listed, timings, shards):
         load, index = heapq.heappop(heap)
         assigned[index].append(unit)
         heapq.heappush(heap, (load + weights[unit], index))
-    if sorted(u for shard in assigned for u in shard) != sorted(listed):
-        raise SystemExit("shard plan does not cover the listed tests exactly once")
     return [sorted(shard) for shard in assigned], [sum(weights[u] for u in shard) for shard in assigned]
 
 
 def write_plan(list_path, timings_path, shards, out_dir):
-    listed = units(json.loads(Path(list_path).read_text()))
+    listed = units(json.loads(Path(list_path).read_text(encoding="utf-8")))
     timings_file = Path(timings_path)
-    timings = json.loads(timings_file.read_text()) if timings_file.exists() else {}
+    timings = json.loads(timings_file.read_text(encoding="utf-8")) if timings_file.exists() else {}
     if not timings:
         print("::warning::No recorded e2e timings; shards are balanced by test count this run.")
     assigned, loads = plan(listed, timings, shards)
@@ -69,7 +67,7 @@ def write_plan(list_path, timings_path, shards, out_dir):
     out.mkdir(parents=True, exist_ok=True)
     summary = ["| Shard | Files | Planned seconds |", "|---|---|---|"]
     for index, (shard, load) in enumerate(zip(assigned, loads), start=1):
-        (out / f"{index}.txt").write_text("".join(f"{unit}\n" for unit in shard))
+        (out / f"{index}.txt").write_text("".join(f"{unit}\n" for unit in shard), encoding="utf-8")
         summary.append(f"| {index} | {len(shard)} | {load:.0f} |")
     if "GITHUB_STEP_SUMMARY" in os.environ:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as step_summary:

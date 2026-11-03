@@ -93,6 +93,7 @@ never drift. It tells the agent to:
 - Remember a model decision has no tools: it sees only its question, the stage's outputs, and the agent's summary, so
   anything it depends on must be a stage output, shaped for the decision that reads it.
 - Never encode facts the run already knows (a skipped stage, an output's presence) as a model decision.
+- Persist to a file anything a later stage needs from every visit of a repeated stage; a revisit overwrites its outputs.
 - Only use commands and flags verified to exist, and check that every file or value a stage uses is produced earlier
   and reachable where it's used.
 - Walk through a run stage by stage, then call `validateWorkflow`, fix every error, and heed its warnings; with run

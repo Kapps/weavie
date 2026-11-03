@@ -39,7 +39,9 @@ public static class AuthorWorkflowPrompt {
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or
 			   an output exists; stage order and fixed `then` targets handle those.
 			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`;
-			   reference run inputs as `{{inputs.<name>}}`.
+			   reference run inputs as `{{inputs.<name>}}`. A stage visited more than once overwrites its outputs,
+			   so anything a later stage needs from every visit (such as each group's videos) must be written to a
+			   file that persists, and the later stage reads it from there.
 			11. Only put commands and flags in prompts that you've verified exist (check `--help`), and make sure
 			   every file or value a stage uses is produced by an earlier stage and reachable where it's used.
 			12. Before finishing, walk through a run stage by stage: what each stage receives, what it reports,

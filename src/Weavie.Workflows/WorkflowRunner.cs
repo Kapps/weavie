@@ -25,6 +25,7 @@ public sealed class WorkflowRunner : IDisposable {
 	private readonly IWorkflowRunPort _port;
 	private readonly Func<int> _maxStageAttempts;
 	private readonly string _worktree;
+	private readonly WorkflowVocabulary _words;
 	private WorkflowRun? _run;
 	private WorkflowDefinition? _definition;
 	private PendingDecision? _pending;
@@ -33,13 +34,14 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
 		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
-		Func<int> maxStageAttempts, string worktree) {
+		Func<int> maxStageAttempts, string worktree, WorkflowVocabulary words) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
 		_port = port;
 		_maxStageAttempts = maxStageAttempts;
 		_worktree = worktree;
+		_words = words;
 		_run = store.Run;
 		Problem = store.LoadFailure;
 	}
@@ -87,7 +89,7 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>The stage block for the agent's next turn, or empty.</summary>
 	public string StageBlock() {
 		lock (_gate) {
-			return WorkflowStageBlock.Compose(_run, _definition);
+			return WorkflowStageBlock.Compose(_run, _definition, _words);
 		}
 	}
 
@@ -120,11 +122,11 @@ public sealed class WorkflowRunner : IDisposable {
 			if (completion.Errors.Count > 0) {
 				return _run!.Phase == WorkflowPhase.Paused
 					? $"Rejected again, so the run is paused for the user: {_run.PausedReason}"
-					: $"Not complete — fix these and call completeStage again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
+					: $"Not complete — fix these and call {_words.CompleteStage} again:\n{string.Join("\n", completion.Errors.Select(e => $"- {e}"))}";
 			}
 
 			return _run!.Phase switch {
-				WorkflowPhase.Asking => $"Complete. Weavie now asks the user: {_run.Asked!.Question} (answers: {string.Join(", ", _run.Asked.Choices)}). "
+				WorkflowPhase.Asking => $"Complete. {_words.Host} now asks the user: {_run.Asked!.Question} (answers: {string.Join(", ", _run.Asked.Choices)}). "
 					+ "Put that question to the user with what they need to answer it, and end your turn.",
 				WorkflowPhase.Done => "Complete. The workflow is finished.",
 				_ => "Complete. The next stage starts after this turn — end your turn now.",
@@ -187,7 +189,7 @@ public sealed class WorkflowRunner : IDisposable {
 		: _run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
 
 	private WorkflowTransitions Transitions() =>
-		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _worktree);
+		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _worktree, _words);
 
 	private void Apply(WorkflowStep step) {
 		_pending?.Dispose();

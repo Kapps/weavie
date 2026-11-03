@@ -18,7 +18,7 @@ public sealed record WorkflowValue {
 }
 
 /// <summary>Reads and type-checks workflow values.</summary>
-public static class WorkflowValues {
+internal static class WorkflowValues {
 	/// <summary>Parses a type name from a workflow file (<c>files</c>, <c>pr</c>, …).</summary>
 	public static WorkflowValueType ParseType(string name) => name switch {
 		"text" => WorkflowValueType.Text,

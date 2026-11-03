@@ -14,7 +14,9 @@ public sealed class WorkflowCatalogTests : IDisposable {
 
 	private string Personal => _dir.Combine("personal");
 
-	private WorkflowCatalog Catalog() => new(Worktree, Personal);
+	private static System.Text.Json.JsonElement NoInputs => System.Text.Json.JsonDocument.Parse("{}").RootElement;
+
+	private WorkflowCatalog Catalog() => TestWorkflows.Catalog(Worktree, Personal);
 
 	private static string Minimal(string id) => $"id: {id}\ndescription: {id} workflow\nstages:\n  - id: a\n    run: {{ prompt: go }}\n";
 
@@ -34,7 +36,7 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.Equal(
 			[(WorkflowScope.Repository, (WorkflowScope?)null), (WorkflowScope.Personal, WorkflowScope.Repository), (WorkflowScope.BuiltIn, WorkflowScope.Repository)],
 			entries.Select(e => (e.Scope, e.ShadowedBy)));
-		Assert.Equal("quick-fix workflow", Catalog().Resolve("quick-fix").Description);
+		Assert.Equal("quick-fix workflow", entries.Single(e => e.ShadowedBy is null).Definition!.Description);
 	}
 
 	[Fact]
@@ -43,9 +45,9 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		var entry = Catalog().List().Single(e => e.Id == "broken");
 		Assert.Null(entry.Definition);
 		Assert.Contains(entry.Diagnostics, d => d.Path == "stages");
-		var ex = Assert.Throws<WorkflowException>(() => Catalog().Resolve("broken"));
+		var ex = Assert.Throws<WorkflowException>(() => Catalog().Prepare("broken", NoInputs));
 		Assert.Contains("invalid", ex.Message, StringComparison.Ordinal);
-		Assert.Throws<WorkflowException>(() => Catalog().Resolve("missing"));
+		Assert.Throws<WorkflowException>(() => Catalog().Prepare("missing", NoInputs));
 	}
 
 	[Fact]
@@ -69,7 +71,7 @@ public sealed class WorkflowCatalogTests : IDisposable {
 	[Fact]
 	public void SchemaDescribesTheFieldTable() {
 		var schema = JsonNode.Parse(WorkflowSchema.Json)!.AsObject();
-		Assert.Equal("Weavie workflow", schema["title"]!.GetValue<string>());
+		Assert.Equal("Workflow", schema["title"]!.GetValue<string>());
 		Assert.False(schema["additionalProperties"]!.GetValue<bool>());
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();

@@ -2,13 +2,13 @@ namespace Weavie.Workflows;
 
 /// <summary>Where a workflow file lives; a more specific scope overrides a less specific one with the same id.</summary>
 public enum WorkflowScope {
-	/// <summary>Shipped with Weavie.</summary>
+	/// <summary>Shipped with the host.</summary>
 	BuiltIn,
 
-	/// <summary>The user's own, for every project (<c>~/.weavie/workflows</c>).</summary>
+	/// <summary>The user's own, for every project.</summary>
 	Personal,
 
-	/// <summary>This repository's (<c>.weavie/workflows</c>).</summary>
+	/// <summary>This repository's.</summary>
 	Repository,
 }
 
@@ -35,9 +35,9 @@ public sealed record WorkflowCatalogEntry {
 
 /// <summary>
 /// Every workflow visible from one worktree: built-in, personal, and repository files, re-read on each call so
-/// an edit shows at once.
+/// an edit shows at once. Relative paths and file inputs resolve against <paramref name="worktree"/>.
 /// </summary>
-public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
+public sealed class WorkflowCatalog(string worktree, string personalDirectory, string repositoryDirectory) {
 	private const string Extension = ".yaml";
 	private const string BuiltInResourcePrefix = "Weavie.Workflows.BuiltIn.";
 
@@ -45,7 +45,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 	public IReadOnlyList<WorkflowCatalogEntry> List() {
 		var entries = BuiltIns()
 			.Concat(Directory(personalDirectory, WorkflowScope.Personal))
-			.Concat(Directory(System.IO.Path.Combine(worktree, ".weavie", "workflows"), WorkflowScope.Repository))
+			.Concat(Directory(repositoryDirectory, WorkflowScope.Repository))
 			.ToList();
 		return [.. entries
 			.GroupBy(entry => entry.Id, StringComparer.Ordinal)
@@ -56,9 +56,6 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 			})];
 	}
 
-	/// <summary>The winning definition for <paramref name="id"/>; throws when it is missing or broken.</summary>
-	public WorkflowDefinition Resolve(string id) => Winner(id).Definition;
-
 	/// <summary>Resolves <paramref name="id"/> once and reads <paramref name="inputs"/> against this worktree.</summary>
 	public WorkflowLaunch Prepare(string id, System.Text.Json.JsonElement inputs) {
 		var (entry, definition) = Winner(id);
@@ -66,8 +63,9 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 	}
 
 	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
-		var entry = List().FirstOrDefault(e => e.Id == id && e.ShadowedBy is null)
-			?? throw new WorkflowException($"No workflow \"{id}\" exists. Call listWorkflows for the available ids.");
+		var winners = List().Where(e => e.ShadowedBy is null).ToList();
+		var entry = winners.FirstOrDefault(e => e.Id == id)
+			?? throw new WorkflowException($"No workflow \"{id}\" exists; the workflows are: {string.Join(", ", winners.Select(e => e.Id))}.");
 		return (entry, entry.Definition ?? throw new WorkflowException(
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
 	}
@@ -133,5 +131,5 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 /// <summary>A resolved workflow ready to start: its definition, where it came from, and its read inputs.</summary>
 public sealed record WorkflowLaunch(WorkflowDefinition Definition, string SourcePath, Dictionary<string, WorkflowValue> Inputs);
 
-/// <summary>A workflow request Weavie refuses, with a message meant for the agent or user.</summary>
+/// <summary>A workflow request the engine refuses, with a message meant for the agent or user.</summary>
 public sealed class WorkflowException(string message) : Exception(message);

@@ -35,7 +35,8 @@ public sealed partial class HostSession {
 			new InferenceWorkflowDecider(inference, workspaceRoot),
 			new WorkflowPort(this),
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
-			workspaceRoot);
+			workspaceRoot,
+			WeavieWorkflows.Vocabulary);
 
 	// A terminal agent that hasn't launched takes the stage's turn as its launch turn; otherwise the turn waits for
 	// the agent to finish its current one. Either way the run must still owe the turn when it is handed over.

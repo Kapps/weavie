@@ -36,7 +36,7 @@ public sealed class WorkflowTransitionsTests {
 	private static readonly WorkflowDefinition Definition = WorkflowReader.Read(Flow, "flow").Definition
 		?? throw new InvalidOperationException(string.Join("\n", WorkflowReader.Read(Flow, "flow").Diagnostics));
 
-	private static readonly WorkflowTransitions Machine = new(Definition, 2, Path.GetTempPath());
+	private static readonly WorkflowTransitions Machine = new(Definition, 2, Path.GetTempPath(), TestWorkflows.Words);
 
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
@@ -162,11 +162,11 @@ public sealed class WorkflowTransitionsTests {
 			      ask: "anything left in {{a.left}}?"
 			      choices: { yes: a, no: done }
 			""", "loop").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath());
+		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath(), TestWorkflows.Words);
 		var deciding = machine.Complete(machine.Start("r-3", "p", []).Run, Json("""{"left":["x"]}"""), "one left").Step;
 		var again = machine.Resolve(deciding.Run, WorkflowDecisionResult.Chose("yes"));
 		Assert.Equal(("a", WorkflowPhase.Open), (again.Run.Stage, again.Run.Phase));
-		Assert.StartsWith("Weavie decided \"yes\"", Kickoff(again));
+		Assert.StartsWith("Host decided \"yes\"", Kickoff(again));
 	}
 
 	[Fact]
@@ -214,7 +214,7 @@ public sealed class WorkflowTransitionsTests {
 			  - id: b
 			    run: { prompt: "use {{a.x}}" }
 			""", "refs").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath());
+		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath(), TestWorkflows.Words);
 		var run = machine.Start("r-2", "p", []).Run;
 		var paused = machine.Jump(run, "b");
 		Assert.Equal(WorkflowPhase.Paused, paused.Run.Phase);

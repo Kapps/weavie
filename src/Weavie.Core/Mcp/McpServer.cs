@@ -490,7 +490,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "listCommands":
 				await HandleListCommandsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "runCommand":
+			case RunCommandTool:
 				await HandleRunCommandAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listAgents":
@@ -502,19 +502,19 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "addReviewHint":
 				await HandleAddReviewHintAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "listWorkflows":
+			case ListWorkflowsTool:
 				await HandleListWorkflowsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "getWorkflowSchema":
+			case GetWorkflowSchemaTool:
 				await SendToolTextAsync(responder, idRaw, WorkflowSchema.Json, ct).ConfigureAwait(false);
 				break;
-			case "validateWorkflow":
+			case ValidateWorkflowTool:
 				await HandleValidateWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "completeStage":
+			case CompleteStageTool:
 				await HandleCompleteStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "failStage":
+			case FailStageTool:
 				await HandleFailStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "runPrompt":

@@ -27,11 +27,11 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private string StorePath => _dir.Combine("run.json");
 
-	private WorkflowCatalog Catalog() => new(_dir.Combine("worktree"), _dir.Combine("personal"));
+	private WorkflowCatalog Catalog() => new(_dir.Combine("worktree"), _dir.Combine("personal"), WeaviePaths.RepositoryWorkflowsDir(_dir.Combine("worktree")));
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new NoPort(), () => 3, _dir.Combine("worktree"));
+			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new NoPort(), () => 3, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
 		runner.Activate();
 		return runner;
 	}
@@ -97,12 +97,6 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		};
 		Assert.Equal(state, WorkflowRunSummary.From(run, status)!.State);
 		Assert.Null(WorkflowRunSummary.From(run with { Phase = WorkflowPhase.Done }, status));
-	}
-
-	[Fact]
-	public void DecisionPromptOffersUnsure() {
-		var request = new WorkflowDecisionRequest { Question = "q", Choices = ["yes", "no"], Outputs = new Dictionary<string, string>(), Summary = "" };
-		Assert.Contains("\"unsure\"", InferenceWorkflowDecider.BuildPrompt(request));
 	}
 
 	[Fact]

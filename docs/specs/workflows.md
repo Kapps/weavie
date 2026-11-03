@@ -52,8 +52,12 @@ iteration, typed outputs, decisions, checks — is held by Weavie. The agent onl
 The engine is its own project, `src/Weavie.Workflows`, with no reference to Weavie.Core: the YAML reader, schema and
 diagnostics, definitions, catalog (built-ins embedded; personal and repository directories passed in), transitions,
 runner, stage block, and the run's persisted form. It meets its owner only through seams it defines:
-`IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), and `IWorkflowRunPort` (deliver a turn,
-notify the user). Weavie.Core holds the adapters in `src/Weavie.Core/Workflows`; Hosting wires one runner per session.
+`IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), `IWorkflowRunPort` (deliver a turn,
+notify the user), and `WorkflowVocabulary` (the host's name and the tool and command names it writes into agent-facing
+text). Only the types those seams and the catalog expose are public. Weavie.Core holds the adapters in
+`src/Weavie.Core/Workflows` — `WeavieWorkflows` supplies the vocabulary from the MCP tool and command constants and
+builds the catalog over `~/.weavie/workflows` and the repository's `.weavie/workflows`; Hosting wires one runner per
+session.
 
 ```mermaid
 flowchart LR
@@ -68,6 +72,7 @@ flowchart LR
     Registry[SessionWorkflowRegistry + MCP tools]
     Summary[WorkflowRunSummary<br/>phase × session status]
     Turns[WorkflowKickoffTurns<br/>kickoff ↔ agent turn]
+    Words[WeavieWorkflows<br/>vocabulary, catalog] --> Seams
   end
   subgraph Hosting["Weavie.Hosting"]
     Session[HostSession.Workflow<br/>port: turn delivery, notices] --> Seams

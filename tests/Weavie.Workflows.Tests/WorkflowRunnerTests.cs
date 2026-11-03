@@ -34,8 +34,8 @@ public sealed class WorkflowRunnerTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			new WorkflowCatalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, _port, () => 3, _dir.Combine("worktree"));
+			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
+			_store, _decider, _port, () => 3, _dir.Combine("worktree"), TestWorkflows.Words);
 		runner.Activate();
 		return runner;
 	}
@@ -58,8 +58,8 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		using var runner = Runner();
 		runner.Start("flow", Json("{}"));
 		Assert.Contains("missing output \"note\"", runner.CompleteStage(Json("{}"), "s"));
-		Assert.Contains("Weavie now asks the user: approve n?", runner.CompleteStage(Json("""{"note":"n"}"""), "s"));
-		Assert.Contains("weavie.workflow.answer with run", runner.StageBlock());
+		Assert.Contains("Host now asks the user: approve n?", runner.CompleteStage(Json("""{"note":"n"}"""), "s"));
+		Assert.Contains("runCommand workflow.answer with run", runner.StageBlock());
 		Assert.Contains("Never answer for the user", runner.StageBlock());
 		Assert.Single(_port.Notices);
 	}

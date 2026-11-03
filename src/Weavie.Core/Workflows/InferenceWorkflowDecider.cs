@@ -19,8 +19,7 @@ public sealed partial class InferenceWorkflowDecider(IInferenceService inference
 		TimeBudget = TimeSpan.FromSeconds(60),
 	};
 
-	/// <summary>The full prompt for <paramref name="request"/>.</summary>
-	public static string BuildPrompt(WorkflowDecisionRequest request) =>
+	private static string BuildPrompt(WorkflowDecisionRequest request) =>
 		InferencePrompts.WithJsonInput(
 			Instructions,
 			new DecisionInput {

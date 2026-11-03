@@ -6,7 +6,7 @@ namespace Weavie.Workflows;
 /// The pure state machine of a run: each transition takes a run and returns the next run plus the effects its
 /// owner must perform. Nothing here touches files, threads, or the agent.
 /// </summary>
-public sealed partial class WorkflowTransitions(WorkflowDefinition definition, int maxStageAttempts, string worktree) {
+internal sealed partial class WorkflowTransitions(WorkflowDefinition definition, int maxStageAttempts, string worktree, WorkflowVocabulary words) {
 	private const string Yes = "yes";
 	private const string No = "no";
 
@@ -97,7 +97,7 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 			run = run with { Streaks = new() { [run.Stage] = count } };
 		}
 
-		return Route(run, choice, $"Weavie decided \"{choice}\"", "");
+		return Route(run, choice, $"{words.Host} decided \"{choice}\"", "");
 	}
 
 	/// <summary>The user resumes a paused run: a paused decision is asked again, otherwise the stage restarts.</summary>
@@ -150,7 +150,7 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 		var kickoff = WorkflowKickoff.Prompt(
 			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
 			+ (run.Note.Length == 0 ? "" : $" Feedback: {run.Note}")
-			+ " Revise the work accordingly, then call completeStage again.");
+			+ $" Revise the work accordingly, then call {words.CompleteStage} again.");
 		return new WorkflowStep(
 			run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Note = "", Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);

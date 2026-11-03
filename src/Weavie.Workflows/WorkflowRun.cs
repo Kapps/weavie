@@ -5,7 +5,7 @@ namespace Weavie.Workflows;
 /// <summary>Where a run is in its current stage.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<WorkflowPhase>))]
 public enum WorkflowPhase {
-	/// <summary>The stage is open; the agent works until it calls completeStage.</summary>
+	/// <summary>The stage is open; the agent works until it completes the stage.</summary>
 	Open,
 
 	/// <summary>The model is answering a decision (<c>if</c> or <c>then</c>).</summary>
@@ -96,7 +96,7 @@ public sealed record WorkflowRun {
 	/// <summary>Why a paused run stopped; otherwise <see langword="null"/>.</summary>
 	public required string? PausedReason { get; init; }
 
-	/// <summary>The turn Weavie still owes the agent for the current stage, or <see langword="null"/> once delivered.</summary>
+	/// <summary>The turn the host still owes the agent for the current stage, or <see langword="null"/> once delivered.</summary>
 	public required WorkflowKickoff? Kickoff { get; init; }
 
 	/// <summary>Whether the run has ended.</summary>
@@ -104,7 +104,7 @@ public sealed record WorkflowRun {
 	public bool IsFinished => Phase is WorkflowPhase.Done or WorkflowPhase.Cancelled;
 }
 
-/// <summary>A turn Weavie owes the agent: a prompt, or a provider command (a skill) with its arguments.</summary>
+/// <summary>A turn the host owes the agent: a prompt, or a provider command (a skill) with its arguments.</summary>
 public sealed record WorkflowKickoff {
 	/// <summary>The turn's full text; a command's starts with <c>/</c> and its name.</summary>
 	public required string Text { get; init; }

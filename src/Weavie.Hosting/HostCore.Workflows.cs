@@ -63,7 +63,7 @@ public sealed partial class HostCore {
 	// Resolved once, from where the user started the session, before any worktree exists: an unknown workflow or bad
 	// inputs must not leave a session behind, and the new session runs exactly what was checked.
 	private WorkflowLaunch PrepareWorkflow(SessionSlot? source, string workflow, JsonElement inputs) =>
-		new WorkflowCatalog(source?.WorktreePath ?? WorkspaceRoot, WeaviePaths.WorkflowsDir).Prepare(workflow, inputs);
+		WeavieWorkflows.Catalog(source?.WorktreePath ?? WorkspaceRoot).Prepare(workflow, inputs);
 
 	// A deleted session's run must not resurface in a later session on the same branch (and so the same path).
 	private static void ForgetWorkflowRun(string worktreePath) {

@@ -224,7 +224,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				workspaceRoot,
 				authenticationTerminalLogPath)
 			: UnavailableAgentAuthenticationTerminal.Instance;
-		WorkflowCatalog = new WorkflowCatalog(workspaceRoot, Core.WeaviePaths.WorkflowsDir);
+		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
 		Workflow = CreateWorkflowRunner(fileSystem, settings, inference, workspaceRoot);
 		var registry = new CapabilityRegistryHost(

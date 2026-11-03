@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace Weavie.Workflows;
 
 /// <summary>A workflow file's definition, or the reasons it has none.</summary>
-public sealed record WorkflowReadResult {
+internal sealed record WorkflowReadResult {
 	/// <summary>The definition when the file is valid; otherwise <see langword="null"/>.</summary>
 	public required WorkflowDefinition? Definition { get; init; }
 
@@ -12,7 +12,7 @@ public sealed record WorkflowReadResult {
 }
 
 /// <summary>Reads workflow file text: YAML, then the schema's shape, then the meaning across fields.</summary>
-public static class WorkflowReader {
+internal static class WorkflowReader {
 	/// <summary>Reads <paramref name="text"/> from a file named <paramref name="fileId"/> (<c>quick-fix.yaml</c> → <c>quick-fix</c>).</summary>
 	public static WorkflowReadResult Read(string text, string fileId) {
 		YamlDocument document;

@@ -1,7 +1,7 @@
 namespace Weavie.Workflows;
 
 /// <summary>Something a transition asks the run's owner to do.</summary>
-public abstract record WorkflowEffect {
+internal abstract record WorkflowEffect {
 	/// <summary>Send <paramref name="Turn"/> to the agent as its next turn.</summary>
 	public sealed record Kickoff(WorkflowKickoff Turn) : WorkflowEffect;
 
@@ -13,10 +13,10 @@ public abstract record WorkflowEffect {
 }
 
 /// <summary>A run after a transition, and what its owner must do next.</summary>
-public sealed record WorkflowStep(WorkflowRun Run, IReadOnlyList<WorkflowEffect> Effects);
+internal sealed record WorkflowStep(WorkflowRun Run, IReadOnlyList<WorkflowEffect> Effects);
 
-/// <summary>A completeStage call's result: the step, and why the outputs were rejected (empty when accepted).</summary>
-public sealed record WorkflowCompletion(WorkflowStep Step, IReadOnlyList<string> Errors);
+/// <summary>A stage completion's result: the step, and why the outputs were rejected (empty when accepted).</summary>
+internal sealed record WorkflowCompletion(WorkflowStep Step, IReadOnlyList<string> Errors);
 
 /// <summary>One typed decision: a question and the answers it may take.</summary>
 public sealed record WorkflowDecisionRequest {

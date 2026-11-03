@@ -8,7 +8,7 @@ namespace Weavie.Workflows;
 public readonly record struct WorkflowPosition(int Line, int Column);
 
 /// <summary>A YAML document read as a JSON tree whose scalars are all strings, with each node's source position.</summary>
-public sealed record YamlDocument {
+internal sealed record YamlDocument {
 	/// <summary>The document root; a null scalar reads as <see langword="null"/>.</summary>
 	public required JsonNode? Root { get; init; }
 
@@ -16,14 +16,14 @@ public sealed record YamlDocument {
 	public required IReadOnlyDictionary<string, WorkflowPosition> Positions { get; init; }
 }
 
-/// <summary>A workflow file that isn't the YAML Weavie accepts.</summary>
-public sealed class WorkflowFormatException(string message, WorkflowPosition position) : Exception(message) {
+/// <summary>A workflow file that isn't the YAML the engine accepts.</summary>
+internal sealed class WorkflowFormatException(string message, WorkflowPosition position) : Exception(message) {
 	/// <summary>Where the problem is.</summary>
 	public WorkflowPosition Position { get; } = position;
 }
 
 /// <summary>Reads one YAML document with YamlDotNet's event parser, which is reflection-free and so AOT-safe.</summary>
-public static class YamlNodeReader {
+internal static class YamlNodeReader {
 	/// <summary>Reads <paramref name="text"/>; every scalar stays a string so <c>yes</c>/<c>3</c> keep their spelling.</summary>
 	public static YamlDocument Read(string text) {
 		var positions = new Dictionary<string, WorkflowPosition>(StringComparer.Ordinal);

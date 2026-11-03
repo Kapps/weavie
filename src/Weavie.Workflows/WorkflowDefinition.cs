@@ -1,6 +1,6 @@
 namespace Weavie.Workflows;
 
-/// <summary>A validated workflow: ordered stages Weavie runs and the agent fills.</summary>
+/// <summary>A validated workflow: ordered stages the host runs and the agent fills.</summary>
 public sealed record WorkflowDefinition {
 	/// <summary>The workflow id, equal to its file name.</summary>
 	public required string Id { get; init; }

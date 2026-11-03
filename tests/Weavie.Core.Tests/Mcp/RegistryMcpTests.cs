@@ -337,10 +337,10 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		string personal = Path.Combine(_dir.Path, "personal");
 		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
-		var catalog = new WorkflowCatalog(_dir.Path, personal);
+		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		using var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new UnusedPort(), () => 3, _dir.Path);
+			new UnusedDecider(), new UnusedPort(), () => 3, _dir.Path, WeavieWorkflows.Vocabulary);
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
 			workflows: new SessionWorkflowRegistry(catalog, runner));

@@ -398,11 +398,11 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			directory.Combine("keybindings.json"),
 			enableWatcher: false);
 		var editor = new EditorStore();
-		var workflowCatalog = new WorkflowCatalog(workspace, directory.Combine("personal-workflows"));
+		var workflowCatalog = new WorkflowCatalog(workspace, directory.Combine("personal-workflows"), Core.WeaviePaths.RepositoryWorkflowsDir(workspace));
 		var workflowPort = new RecordingWorkflowPort();
 		var workflow = new WorkflowRunner(
 			workflowCatalog, new WorkflowRunStore(fileSystem, directory.Combine("workflow-run.json")),
-			new UnusedWorkflowDecider(), workflowPort, () => 3, workspace);
+			new UnusedWorkflowDecider(), workflowPort, () => 3, workspace, WeavieWorkflows.Vocabulary);
 		var reviewHints = new ReviewHintStore(fileSystem, workspace, new MemoryReviewPersistence(), providerName, _ => { }, _ => { });
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),

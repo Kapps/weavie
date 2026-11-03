@@ -11,7 +11,7 @@ public static partial class WorkflowSchema {
 
 	internal static WorkflowShape Root { get; } = Build();
 
-	/// <summary>The JSON Schema of a workflow file, as <c>getWorkflowSchema</c> publishes it.</summary>
+	/// <summary>The JSON Schema of a workflow file.</summary>
 	public static string Json { get; } = BuildJson();
 
 	[GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
@@ -28,7 +28,7 @@ public static partial class WorkflowSchema {
 		const string nameHint = "a letter followed by letters or digits";
 		string[] inputTypes = [.. ValueTypes, .. ValueTypes.Select(t => t + "?")];
 		var outputs = new MapShape(
-			"Typed values the step must report through completeStage, by name.",
+			"Typed values the step must report when it completes, by name.",
 			NamePattern(), nameHint, new EnumShape("The value's type.", ValueTypes));
 		var work = new ObjectShape("The work step: a prompt, or a skill run as its real slash command.", [
 			new("prompt", new TextShape("Instruction text sent as the stage's turn; may use {{…}} references."), false),
@@ -40,7 +40,7 @@ public static partial class WorkflowSchema {
 		]);
 		var ask = new TextShape(
 			"The question. A model answers it with no tools: it sees only this text (with its {{…}} values filled in), "
-			+ "the stage's outputs, and the summary the agent gave at completeStage, so reference every value it needs.");
+			+ "the stage's outputs, and the summary the agent gave when it completed the stage, so reference every value it needs.");
 		var by = new EnumShape("Who answers: model (default; an unsure or failed answer goes to the user) or user.", ["model", "user"]);
 		var condition = new TextOrObjectShape(
 			"Run the stage only if the answer is yes; on no it is skipped and the run moves to the following stage. "
@@ -64,7 +64,7 @@ public static partial class WorkflowSchema {
 				"What follows: a stage id, done, or a decision. Without it the run moves to the following stage.",
 				new TextShape("A stage id, or done."), decision), false),
 		]);
-		return new ObjectShape("A Weavie workflow: ordered stages that Weavie runs and the agent fills.", [
+		return new ObjectShape("A workflow: ordered stages the host runs and the agent fills.", [
 			new("id", new TextShape("The workflow id; must match the file name.", IdPattern(), idHint), true),
 			new("description", new TextShape("One line, shown when choosing a workflow."), true),
 			new("inputs", new MapShape(
@@ -77,7 +77,7 @@ public static partial class WorkflowSchema {
 	private static string BuildJson() {
 		var schema = Root.Schema();
 		schema["$schema"] = "https://json-schema.org/draft/2020-12/schema";
-		schema["title"] = "Weavie workflow";
+		schema["title"] = "Workflow";
 		return schema.ToJsonString();
 	}
 }

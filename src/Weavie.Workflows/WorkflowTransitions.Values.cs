@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Weavie.Workflows;
 
-public sealed partial class WorkflowTransitions {
+internal sealed partial class WorkflowTransitions {
 	/// <summary>Reads a run's inputs for <paramref name="definition"/>; throws listing every problem.</summary>
 	public static Dictionary<string, WorkflowValue> ReadInputs(WorkflowDefinition definition, JsonElement inputs, string worktree) {
 		var errors = new List<string>();

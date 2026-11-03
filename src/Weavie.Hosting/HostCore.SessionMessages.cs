@@ -190,6 +190,7 @@ public sealed partial class HostCore {
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);
 		PostSessionActivity(target, session.Activity.Line);
+		PostSessionRun(target, SessionRunLine(session));
 		PushReviewStateToWeb(session, target);
 		PushReviewCommits(session, target);
 		session.DiffPresenter.Replay(target.Feature("editor"));

@@ -3,8 +3,8 @@ using Weavie.Core.Json;
 
 namespace Weavie.Core.Mcp;
 
-// The bundled workflows (registry mode only): prompts/list + prompts/get for user-invoked slash commands, and the
-// runWorkflow tool so an agent can start the same workflow when the user asks for it in plain language.
+// The bundled prompts (registry mode only): prompts/list + prompts/get for user-invoked slash commands, and the
+// runPrompt tool so an agent can start the same prompt when the user asks for it in plain language.
 public sealed partial class McpServer {
 	private string BuildPromptsListJson() => JsonWrite.Object(writer => {
 		writer.WriteStartArray("prompts");
@@ -20,10 +20,10 @@ public sealed partial class McpServer {
 		writer.WriteEndArray();
 	});
 
-	private string BuildWorkflowToolEntry() => JsonWrite.Object(writer => {
-		writer.WriteString("name", "runWorkflow");
+	private string BuildPromptToolEntry() => JsonWrite.Object(writer => {
+		writer.WriteString("name", "runPrompt");
 		writer.WriteString("description",
-			"Get the instructions for one of Weavie's bundled workflows, then follow them yourself in this turn. "
+			"Get the instructions for one of Weavie's bundled prompts, then follow them yourself in this turn. "
 			+ "Call it when the user asks for one of these in their own words (e.g. to report a Weavie bug or request "
 			+ "a Weavie feature):\n"
 			+ string.Join("\n", _prompts.Select(prompt => $"- {prompt.Name}: {prompt.Description}")));
@@ -49,12 +49,12 @@ public sealed partial class McpServer {
 	private McpPrompt? FindPrompt(string? name) =>
 		_prompts.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
 
-	private async Task HandleRunWorkflowAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleRunPromptAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		string name = args.GetStringOrEmpty("name");
 		await (FindPrompt(name) is { } prompt
 			? SendToolTextAsync(responder, idRaw, prompt.Text, ct)
 			: SendToolErrorAsync(responder, idRaw,
-				$"Unknown workflow '{name}'. Available: {string.Join(", ", _prompts.Select(p => p.Name))}.", ct)).ConfigureAwait(false);
+				$"Unknown prompt '{name}'. Available: {string.Join(", ", _prompts.Select(p => p.Name))}.", ct)).ConfigureAwait(false);
 	}
 
 	private async Task HandlePromptsGetAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {

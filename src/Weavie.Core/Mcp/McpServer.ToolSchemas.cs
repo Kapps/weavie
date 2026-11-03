@@ -42,10 +42,13 @@ public sealed partial class McpServer {
         """;
 
 	// Command tools (model-facing), advertised on the registry server only when a CommandDispatcher is wired.
+	/// <summary>The tool that runs a weavie command by id.</summary>
+	public const string RunCommandTool = "runCommand";
+
 	private const string CommandToolEntries =
-		"""
+		$$$$"""
           {"name":"listCommands","description":"List all weavie commands (actions like focusing a pane, toggling the diff layout, or reopening the terminal) with each one's id, title, category, description, aliases, and current keybinding(s). Call this FIRST to find the exact id before running a command.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"runCommand","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
+          {"name":"{{{{RunCommandTool}}}}","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
         """;
 
 	// Theme tools (model-facing), advertised on the registry server only when a ThemeOverridesStore is wired.

@@ -6,6 +6,8 @@ using Weavie.Core.Layout;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Mcp;
 
@@ -26,7 +28,8 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ThemeOverridesStore themeOverrides,
 		ISessionPeers sessions,
 		AgentConsultation agents,
-		IReviewHintSink reviewHints) {
+		IReviewHintSink reviewHints,
+		IWorkflowRegistry workflows) {
 		ArgumentNullException.ThrowIfNull(credential);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -41,7 +44,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		Credential = credential;
 		Server = new McpServer(
 			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, exposeIdeTools,
-			layout, editor, commands, keybindings, themeOverrides, sessions, agents, reviewHints);
+			layout, editor, commands, keybindings, themeOverrides, sessions, agents, reviewHints, workflows);
 		Port = Server.Start();
 	}
 

@@ -41,7 +41,7 @@ public sealed class AcpMcpPromptTests {
 	}
 
 	[Fact]
-	public async Task SelectedWorkflowWaitsForItsOwnTurnWhileOrdinaryPromptsCanSteer() {
+	public async Task SelectedPromptWaitsForItsOwnTurnWhileOrdinaryPromptsCanSteer() {
 		await using var fixture = AcpAgentSessionFixture.CreateWithEmbeddedContext(false);
 		await fixture.StartAsync();
 		fixture.Submit("hold");

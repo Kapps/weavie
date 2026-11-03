@@ -11,9 +11,9 @@ public sealed class AcpReviewHintTests {
 		File.WriteAllText(Path.Combine(fixture.Workspace, "a.cs"), "one\ntwo\n");
 		await fixture.StartAsync();
 
-		fixture.Submit("""review-hint:{"path":"a.cs","line":2,"severity":"nit","text":"Rename two"}""");
+		fixture.Submit("""mcp:addReviewHint:{"path":"a.cs","line":2,"severity":"nit","text":"Rename two"}""");
 
-		await fixture.WaitForMessageAsync(message => message.Text?.StartsWith("review hint: Hint added at a.cs:2", StringComparison.Ordinal) == true);
+		await fixture.WaitForMessageAsync(message => message.Text?.StartsWith("addReviewHint: Hint added at a.cs:2", StringComparison.Ordinal) == true);
 		var hint = Assert.Single(fixture.ReviewHints.Hints);
 		Assert.Equal(("a.cs", 2, ReviewHintSeverity.Nit, "Rename two", "two"), (hint.Path, hint.Line, hint.Severity, hint.Title, hint.Quote));
 	}

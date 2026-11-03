@@ -34,10 +34,10 @@ MCP tools *on the registry server*. There are three kinds.
   invokable MCP tools (`listCommands`/`runCommand`), so the user can ask Claude to run them — and the
   same declaration drives keybindings and the omnibar command palette. Design:
   [docs/specs/commands.md](../specs/commands.md).
-- **Workflows** *(implemented)* — bundled instruction prompts (`McpPromptCatalog`: report a Weavie bug,
+- **Prompts** *(implemented)* — bundled instruction prompts (`McpPromptCatalog`: report a Weavie bug,
   request a Weavie feature, set up the workspace). They are prompts, not actions: Weavie performs nothing, the
   agent follows the text. The user starts one as a slash command (MCP `prompts/get`, or the native slash menu);
-  an agent asked in plain language starts the same text through the read-only `runWorkflow` tool, whose
+  an agent asked in plain language starts the same text through the read-only `runPrompt` tool, whose
   description and name enum are generated from the catalog.
 
 ## The shared pattern

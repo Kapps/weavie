@@ -12,6 +12,7 @@
     <Project Path="src/Weavie.Runner/Weavie.Runner.csproj" />
     <Project Path="src/Weavie.Mac/Weavie.Mac.csproj" />
     <Project Path="src/Weavie.Win/Weavie.Win.csproj" />
+    <Project Path="src/Weavie.Workflows/Weavie.Workflows.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj" />
@@ -22,6 +23,7 @@
     <Project Path="tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj" />
     <Project Path="tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj" />
     <Project Path="tests/Weavie.TestSupport/Weavie.TestSupport.csproj" />
+    <Project Path="tests/Weavie.Workflows.Tests/Weavie.Workflows.Tests.csproj" />
     <Project Path="tests/Weavie.WorktreeServe.Tests/Weavie.WorktreeServe.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

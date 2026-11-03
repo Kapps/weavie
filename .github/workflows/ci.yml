@@ -133,6 +133,9 @@ jobs:
       - name: Verify .NET formatting
         run: python3 temp/workflow/.github/scripts/format-dotnet.py --verify-no-changes
 
+      - name: Test workflow engine
+        run: dotnet test tests/Weavie.Workflows.Tests/Weavie.Workflows.Tests.csproj -c Debug
+
       - name: Test Core
         run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
 

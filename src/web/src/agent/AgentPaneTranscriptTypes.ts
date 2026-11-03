@@ -61,4 +61,5 @@ export interface AgentTranscriptSnapshot {
   readonly latestResultIndex: number | null;
   readonly pendingRowIndexes: readonly number[];
   readonly sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
+  readonly turnActive: boolean;
 }

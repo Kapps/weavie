@@ -44,7 +44,7 @@ const history = Array.from({ length: 30 }, (_, turn) => [
     itemId: `a-${turn}`,
     itemType: "agentMessage",
     status: "completed",
-    text: `### Answer ${turn}\n\n${"A paragraph that wraps in the pane. ".repeat((turn % 5) + 2)}`,
+    text: `### Answer ${turn}\n\n${"A paragraph that wraps in the pane. ".repeat((turn % 5) + 2)}[source ${turn}](https://example.com/${turn})`,
   },
 ]).flat();
 
@@ -241,6 +241,15 @@ test("following the latest output stays at the bottom and keyboard keys scroll t
     await body.evaluate((element) =>
       element.querySelector<HTMLElement>("summary:last-of-type")!.focus({ preventScroll: true }),
     );
+    // A focused control keeps focus while the keys scroll.
+    await page.keyboard.press("ArrowUp");
+    expect(
+      await body.evaluate(
+        (element) =>
+          document.activeElement?.closest(".agent-body") === element &&
+          document.activeElement !== element,
+      ),
+    ).toBe(true);
     await page.keyboard.press("Home");
     await expect
       .poll(() =>
@@ -268,6 +277,10 @@ test("following the latest output stays at the bottom and keyboard keys scroll t
 test("expanding details while reading keeps the toggled header still", async ({ page }) => {
   const { body, host } = await openPane(page, "details");
   try {
+    // While following, a toggle changes nothing about following.
+    await body.locator(".agent-activity-details > summary").last().click();
+    await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(0);
+    await body.locator(".agent-activity-details > summary").last().click();
     await readAway(page, body);
     const visible = await body.evaluate((element) => {
       const viewport = element.getBoundingClientRect();
@@ -287,6 +300,53 @@ test("expanding details while reading keeps the toggled header still", async ({ 
     expect(
       Math.abs((await summary.evaluate((element) => element.getBoundingClientRect().top)) - before),
     ).toBeLessThanOrEqual(1);
+    // The reader's own toggle is not new output.
+    await expect(
+      page.getByRole("button", { name: "Jump to latest", exact: true }),
+    ).not.toContainText("New output");
+  } finally {
+    await host.close();
+  }
+});
+
+test("focusing a link in an older row stops following, and streaming leaves it in view", async ({
+  page,
+}) => {
+  const { body, host, session } = await openPane(page, "focus-reading");
+  try {
+    await stream(page, host, session, "focus-reply", 5);
+    const link = body.getByRole("link", { name: "source 27", exact: true });
+    await link.focus();
+    await expect(link).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+    await stream(page, host, session, "focus-reply", 30);
+    await expect(link).toBeInViewport();
+  } finally {
+    await host.close();
+  }
+});
+
+test("a rewind while reading starts the new transcript following, with nothing unseen", async ({
+  page,
+}) => {
+  const { body, host, session } = await openPane(page, "rewind-reading");
+  try {
+    await readAway(page, body);
+    await stream(page, host, session, "before-rewind", 20);
+    const latest = page.getByRole("button", { name: "Jump to latest", exact: true });
+    await expect(latest).toContainText("New output");
+    host.setAgentHistory(session.address, {
+      generation: 2,
+      batchSize: 5000,
+      messages: history.slice(0, 45),
+    });
+    host.publishSession(session.address, "agent", "paneReset", {});
+    await expect(page.getByText("Answer 14", { exact: true })).toBeInViewport();
+    await expect(latest).toHaveCount(0);
+    expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
+    await stream(page, host, session, "after-rewind", 10);
+    expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
+    await expect(latest).toHaveCount(0);
   } finally {
     await host.close();
   }
@@ -364,9 +424,10 @@ test.describe("touch on iOS", () => {
       const touch = (type: string, active: boolean) =>
         body.evaluate(
           (element, event) => {
-            const touches = event.active ? [new Touch({ identifier: 1, target: element })] : [];
+            const finger = [new Touch({ identifier: 1, target: element })];
+            const touches = event.active ? finger : [];
             element.dispatchEvent(
-              new TouchEvent(event.type, { bubbles: true, touches, changedTouches: touches }),
+              new TouchEvent(event.type, { bubbles: true, touches, changedTouches: finger }),
             );
           },
           { type, active },
@@ -407,6 +468,62 @@ test.describe("touch on iOS", () => {
         .poll(() => body.evaluate((element) => -element.scrollTop))
         .toBeLessThanOrEqual(1);
       await expect(page.getByText("Held marker", { exact: true })).toBeInViewport();
+    } finally {
+      await host.close();
+    }
+  });
+
+  test("a dragging finger holds through its momentum; a resting one releases as it lifts", async ({
+    page,
+  }) => {
+    const { body, host, session } = await openPane(page, "touch-momentum");
+    try {
+      await stream(page, host, session, "momentum-reply", 10);
+      // Synthetic events alone, so no real scroll sends a scrollend the test didn't ask for.
+      const send = (type: string, active: boolean) =>
+        body.evaluate(
+          (element, event) => {
+            const finger = [new Touch({ identifier: 1, target: element })];
+            const init = {
+              bubbles: true,
+              touches: event.active ? finger : [],
+              changedTouches: finger,
+            };
+            element.dispatchEvent(
+              event.type.startsWith("touch")
+                ? new TouchEvent(event.type, init)
+                : new Event(event.type),
+            );
+          },
+          { type, active },
+        );
+      const height = () => body.evaluate((element) => element.scrollHeight);
+      await send("touchstart", true);
+      await body.evaluate((element) => {
+        element.scrollTop -= 1200;
+      });
+      await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+      await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeLessThan(-1000);
+      // A scroll the layout caused while the finger rests is not the finger's.
+      await send("scroll", true);
+      const resting = await height();
+      await stream(page, host, session, "momentum-reply", 10);
+      expect(await height()).toBe(resting);
+      await send("touchend", false);
+      await expect.poll(height).toBeGreaterThan(resting);
+
+      await send("touchstart", true);
+      await send("touchmove", true);
+      await send("scroll", true);
+      const dragged = await height();
+      await stream(page, host, session, "momentum-reply", 10);
+      await send("touchend", false);
+      await nextFrame(page);
+      await nextFrame(page);
+      // Momentum: the finger is up but the pane is still moving under it.
+      expect(await height()).toBe(dragged);
+      await send("scrollend", false);
+      await expect.poll(height).toBeGreaterThan(dragged);
     } finally {
       await host.close();
     }

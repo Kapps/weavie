@@ -35,7 +35,7 @@ export function AgentTranscript(props: {
     }
     return { below: above, placed };
   });
-  // After the whole update, once every new row has rendered its content.
+  // After the whole update, once every row has rendered where the virtualizer placed it.
   createEffect(on(rows, () => queueMicrotask(props.onLayout), { defer: true }));
   return (
     <Show
@@ -52,7 +52,16 @@ export function AgentTranscript(props: {
             const entry = () => props.entryForKey(key);
             const row = () => rows().placed.get(key)!;
             const previous = () => props.entryAt(row().index + 1);
-            onCleanup(() => props.virtualizer.measureElement(null));
+            let element: HTMLDivElement | undefined;
+            onCleanup(() => {
+              props.virtualizer.measureElement(null);
+              // A focused row scrolled out of range hands focus to the scroller, which keeps the scrolling keys.
+              if (element?.contains(document.activeElement) === true) {
+                element.closest<HTMLElement>(".agent-transcript-scroller")!.focus({
+                  preventScroll: true,
+                });
+              }
+            });
             return (
               <div
                 class="agent-virtual-row"
@@ -70,17 +79,13 @@ export function AgentTranscript(props: {
                   entry().id === props.transcript.agentTurnStartId ? "" : undefined
                 }
                 data-transcript-entry={entry().id}
-                // Measured as soon as it renders, even mid-scroll, so a mounted row is never left unmeasured.
-                ref={(element) =>
-                  queueMicrotask(() => {
-                    if (!element.isConnected) return;
-                    props.virtualizer.measureElement(element);
-                    props.virtualizer.resizeItem(
-                      row().index,
-                      element.getBoundingClientRect().height,
-                    );
-                  })
-                }
+                // Observed once its index is set; the observer measures it after layout, even mid-scroll.
+                ref={(mounted) => {
+                  element = mounted;
+                  queueMicrotask(
+                    () => mounted.isConnected && props.virtualizer.measureElement(mounted),
+                  );
+                }}
                 style={row().gap > 0 ? `margin-top:${row().gap}px` : undefined}
               >
                 <TranscriptEntry

@@ -9,6 +9,7 @@ export const emptyTranscript: AgentTranscriptSnapshot = {
   latestResultIndex: null,
   pendingRowIndexes: [],
   sectionLabels: new Map(),
+  turnActive: false,
 };
 
 /** `next`, reusing every part of `previous` it deep-equals; array items with an `id` match by id. */
@@ -51,31 +52,33 @@ export function shareTranscript(
     next.agentTurnStartId === previous.agentTurnStartId &&
     next.agentTurnStartIndex === previous.agentTurnStartIndex &&
     next.latestResultIndex === previous.latestResultIndex &&
+    next.turnActive === previous.turnActive &&
     sameItems(next.pendingRowIndexes, previous.pendingRowIndexes) &&
     next.sectionLabels.size === previous.sectionLabels.size &&
     [...next.sectionLabels].every(([id, label]) => previous.sectionLabels.get(id) === label);
   return unchanged ? previous : { ...next, entries };
 }
 
-/** A held snapshot showing the live pending requests, whose forms must always be answerable. */
+/**
+ * A held snapshot whose request rows are live: a row holding a request pending in either view is replaced in place
+ * by the live row with its id, or dropped once live no longer has it, and live request rows the hold lacks follow.
+ */
 export function withLivePending(
   held: AgentTranscriptSnapshot,
   live: AgentTranscriptSnapshot,
 ): AgentTranscriptSnapshot {
-  const pending = new Map(live.pendingRowIndexes.map((index) => [live.entries[index]!.id, index]));
-  const entries: AgentTranscriptEntry[] = [];
-  for (const entry of held.entries) {
-    const index = pending.get(entry.id);
-    if (index !== undefined) {
-      entries.push(live.entries[index]!);
-      pending.delete(entry.id);
-    } else if (!isPendingRequest(entry)) {
-      entries.push(entry);
-    }
+  const liveById = new Map(live.entries.map((entry) => [entry.id, entry]));
+  const placed = new Set<string>();
+  const entries = held.entries.flatMap((entry) => {
+    const current = liveById.get(entry.id);
+    if (!holdsRequest(entry) && (current === undefined || !holdsRequest(current))) return [entry];
+    placed.add(entry.id);
+    return current === undefined ? [] : [current];
+  });
+  for (const entry of live.entries) {
+    if (holdsRequest(entry) && !placed.has(entry.id)) entries.push(entry);
   }
-  for (const index of pending.values()) entries.push(live.entries[index]!);
   if (sameItems(entries, held.entries)) return held;
-  const pendingIds = new Set(live.pendingRowIndexes.map((index) => live.entries[index]!.id));
   const turnStart = entries.findIndex((entry) => entry.id === held.agentTurnStartId);
   const last = entries.at(-1);
   return {
@@ -83,8 +86,13 @@ export function withLivePending(
     agentTurnStartIndex: turnStart < 0 ? null : turnStart,
     entries,
     latestResultIndex: last !== undefined && isResult(last) ? entries.length - 1 : null,
-    pendingRowIndexes: entries.flatMap((entry, index) => (pendingIds.has(entry.id) ? [index] : [])),
+    pendingRowIndexes: entries.flatMap((entry, index) => (holdsRequest(entry) ? [index] : [])),
   };
+}
+
+// A pending request, or a card nesting one.
+function holdsRequest(entry: AgentTranscriptEntry): boolean {
+  return isPendingRequest(entry) || entry.asideEntries?.some(holdsRequest) === true;
 }
 
 function sameItems<T>(left: readonly T[], right: readonly T[]): boolean {

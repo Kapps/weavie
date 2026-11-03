@@ -11,40 +11,43 @@ const animationDuration = 125;
 const lineStep = 40;
 const editable = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
+/** What the wheel and scrolling keys drive: the pane owns the scroll position they move. */
+export interface AgentPaneWheelTarget {
+  /** Moves toward the latest output by `delta` pixels; returns the edge the move reached. */
+  scrollBy(delta: number): "start" | "end" | null;
+  intent(delta: number): void;
+  settled(): void;
+  start(): void;
+  end(): void;
+  lineHeight(): number;
+  viewportHeight(): number;
+}
+
 export function createAgentPaneWheel(
   body: Accessor<HTMLDivElement | undefined>,
-  onIntent: (delta: number) => void,
-  onSettled: () => void,
-  edges: { start: () => void; end: () => void },
+  pane: AgentPaneWheelTarget,
 ) {
   let frame: number | null = null;
   let remaining = 0;
   let distance = 0;
   let started = 0;
   let progress = 0;
-  let fraction = 0;
 
   const cancel = (): void => {
     if (frame !== null) cancelAnimationFrame(frame);
     frame = null;
     remaining = 0;
-    fraction = 0;
   };
 
-  // The pane is bottom-origin, so scrollTop runs from minus the overflow up to 0.
-  const move = (element: HTMLElement, delta: number): void => {
-    const minimum = Math.min(0, element.clientHeight - element.scrollHeight);
-    const target = Math.max(minimum, Math.min(0, element.scrollTop + delta + fraction));
-    element.scrollTop = target;
-    fraction = target - element.scrollTop;
-    if ((delta < 0 && target === minimum) || (delta > 0 && target === 0)) remaining = 0;
+  const move = (delta: number): void => {
+    const edge = pane.scrollBy(delta);
+    if (edge !== null) remaining = 0;
     // History measured on arrival extends the top, so reaching it hands off to the start edge.
-    if (delta < 0 && target === minimum && minimum < 0) edges.start();
+    if (edge === "start" && delta < 0) pane.start();
   };
 
   const animate = (time: number): void => {
-    const element = body();
-    if (element === undefined) {
+    if (body() === undefined) {
       cancel();
       return;
     }
@@ -52,11 +55,10 @@ export function createAgentPaneWheel(
     const delta = distance * (next - progress);
     progress = next;
     remaining -= delta;
-    // Measurement anchoring changes scrollTop, but never spends the wheel's remaining distance.
-    move(element, delta);
+    move(delta);
     if (next === 1 || remaining === 0) {
       cancel();
-      onSettled();
+      pane.settled();
     } else {
       frame = requestAnimationFrame(animate);
     }
@@ -88,9 +90,9 @@ export function createAgentPaneWheel(
     }
     const unit =
       event.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? Number.parseFloat(getComputedStyle(element).lineHeight)
+        ? pane.lineHeight()
         : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-          ? element.clientHeight
+          ? pane.viewportHeight()
           : 1;
     const delta = event.deltaY * unit;
     const classifier = MouseWheelClassifier.INSTANCE;
@@ -102,19 +104,19 @@ export function createAgentPaneWheel(
       (Math.abs(event.deltaY) <= 1 || !Number.isInteger(event.deltaY));
     event.preventDefault();
     // Single-pixel and fractional input stay precise inside the classifier's near-integer tolerance.
-    scroll(element, delta, !precisePixel && classifier.isPhysicalMouseWheel());
+    scroll(delta, !precisePixel && classifier.isPhysicalMouseWheel());
   };
 
-  const scroll = (element: HTMLElement, delta: number, animated: boolean): void => {
-    onIntent(delta);
+  const scroll = (delta: number, animated: boolean): void => {
+    pane.intent(delta);
     if (!animated || !currentEditorOptions().smoothScrolling) {
       let movement = delta;
       if (frame !== null) {
-        if (Math.sign(delta) === Math.sign(remaining)) movement += remaining + fraction;
+        if (Math.sign(delta) === Math.sign(remaining)) movement += remaining;
         cancel();
       }
-      move(element, movement);
-      onSettled();
+      move(movement);
+      pane.settled();
       return;
     }
     if (Math.sign(delta) !== Math.sign(remaining)) cancel();
@@ -131,7 +133,7 @@ export function createAgentPaneWheel(
     const interrupt = (): void => {
       const active = frame !== null;
       cancel();
-      if (active) onSettled();
+      if (active) pane.settled();
     };
     // Keys scroll here rather than natively, so their motion is the reader's like the wheel's.
     const keydown = (event: KeyboardEvent): void => {
@@ -143,7 +145,8 @@ export function createAgentPaneWheel(
         (target !== element && (event.key === " " || target.closest(editable) !== null))
       )
         return;
-      const page = Math.max(element.clientHeight * 0.875, element.clientHeight - lineStep);
+      const viewport = pane.viewportHeight();
+      const page = Math.max(viewport * 0.875, viewport - lineStep);
       const step = {
         ArrowUp: -lineStep,
         ArrowDown: lineStep,
@@ -151,13 +154,11 @@ export function createAgentPaneWheel(
         PageDown: page,
         " ": event.shiftKey ? -page : page,
       }[event.key];
-      const edge = { Home: edges.start, End: edges.end }[event.key];
+      const edge = { Home: pane.start, End: pane.end }[event.key];
       if (edge === undefined && (step === undefined || event.ctrlKey)) return;
       event.preventDefault();
       if (edge !== undefined) edge();
-      else scroll(element, step!, true);
-      // The focused row may scroll out and unmount; the pane keeps the keys.
-      element.focus({ preventScroll: true });
+      else scroll(step!, true);
     };
     element.addEventListener("wheel", wheel, { passive: false });
     element.addEventListener("pointerdown", interrupt);

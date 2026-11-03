@@ -369,12 +369,11 @@ async function scrollUpSteadily(
     scrollTo(scrollOptions);
   }) as typeof element.scrollTo;
   const deviations: number[] = [];
+  const finger = [new Touch({ identifier: 1, target: element })];
   const touch = (type: string, touches: Touch[]): boolean =>
-    element.dispatchEvent(
-      new TouchEvent(type, { bubbles: true, touches, changedTouches: touches }),
-    );
+    element.dispatchEvent(new TouchEvent(type, { bubbles: true, touches, changedTouches: finger }));
   if (options.touch) {
-    touch("touchstart", [new Touch({ identifier: 1, target: element })]);
+    touch("touchstart", finger);
   }
   let previous: { id: string; top: number } | null = null;
   for (let frame = 0; frame < 500; frame++) {
@@ -400,7 +399,10 @@ async function scrollUpSteadily(
     // The gesture ends: whatever the pane deferred must not move the content either.
     const before = previous;
     touch("touchend", []);
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    // A finger that never dragged releases as it lifts; the next frame renders and measures what it released.
+    for (let frame = 0; frame < 2; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
     const row =
       before === null
         ? null

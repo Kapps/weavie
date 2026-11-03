@@ -11,7 +11,7 @@ import type {
 } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
 import { computeSectionLabels, isResult, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { emptyTranscript, share, shareTranscript } from "./AgentTranscriptSnapshot";
+import { emptyTranscript, shareTranscript } from "./AgentTranscriptSnapshot";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import {
@@ -32,6 +32,8 @@ export interface AgentPaneModel {
   readonly interruptible: Accessor<boolean>;
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardRequestKey: Accessor<string | null>;
+  /** Counts published changes to the latest row, the output a reader away from the bottom hasn't seen. */
+  readonly latestOutput: Accessor<number>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
   /** Whether the transcript is receiving live output rather than only history. */
   readonly live: Accessor<boolean>;
@@ -62,6 +64,7 @@ interface ProjectedActivity {
 
 export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
   const [transcript, setTranscript] = createSignal(emptyTranscript);
+  const [latestOutput, setLatestOutput] = createSignal(0);
   const [generation, setGeneration] = createSignal(0);
   // Steps can change without changing any shown entry, so step readers track projections directly.
   const [projected, setProjected] = createSignal(undefined, { equals: false });
@@ -110,7 +113,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     });
 
     batch(() => {
-      setTranscript((previous) =>
+      publishTranscript((previous) =>
         shareTranscript(previous, {
           agentTurnStartId: turnStartId,
           agentTurnStartIndex: turnStartIndex,
@@ -118,6 +121,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
           latestResultIndex: last !== undefined && isResult(last) ? visible.length - 1 : null,
           pendingRowIndexes: ordered.pendingRowIndexes,
           sectionLabels: computeSectionLabels(visible, active),
+          turnActive: active,
         }),
       );
       setTurnActive(active);
@@ -150,37 +154,45 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       return false;
     }
 
-    const changedActivities = new Set<ProjectedActivity>();
+    const changed = new Map<ProjectedActivity, Set<number>>();
+    for (const { activity, message } of mutations) {
+      const indexes = changed.get(activity) ?? new Set<number>();
+      indexes.add(activity.projection.upsert(message));
+      changed.set(activity, indexes);
+    }
     batch(() => {
-      for (const { activity, message } of mutations) {
-        const index = activity.projection.upsert(message);
-        updateActivity(activity, (entry) => {
-          if (!expandedActivities.has(entry.id)) {
-            return { ...entry, detailCount: activity.projection.count };
-          }
-          const details = [...entry.details];
-          details[index] = activity.projection.materializeAt(index);
-          return { ...entry, detailCount: activity.projection.count, details };
-        });
-        changedActivities.add(activity);
-      }
-      for (const activity of changedActivities) {
-        const state = activity.projection.summary();
-        updateActivity(activity, (entry) => ({ ...entry, ...state }));
-      }
+      // One copy per changed activity, however many of its steps the batch touched.
+      publishTranscript((previous) => {
+        let entries = previous.entries;
+        for (const [activity, indexes] of changed) {
+          entries = replaceAtPath(entries, activity.path, (entry) => {
+            const details = expandedActivities.has(entry.id) ? [...entry.details] : entry.details;
+            if (details !== entry.details) {
+              for (const index of indexes)
+                details[index] = activity.projection.materializeAt(index);
+            }
+            return {
+              ...entry,
+              ...activity.projection.summary(),
+              detailCount: activity.projection.count,
+              details,
+            };
+          });
+        }
+        return { ...previous, entries };
+      });
       setProjected();
     });
     return true;
   };
 
-  const updateActivity = (
-    activity: ProjectedActivity,
-    update: (entry: AgentTranscriptEntry) => AgentTranscriptEntry,
+  // Output from the agent: the latest row changing is output a reader away from the bottom hasn't seen.
+  const publishTranscript = (
+    next: (previous: AgentTranscriptSnapshot) => AgentTranscriptSnapshot,
   ): void => {
-    setTranscript((previous) => {
-      const entries = replaceAtPath(previous.entries, activity.path, update);
-      return entries === previous.entries ? previous : { ...previous, entries };
-    });
+    const latest = transcript().entries.at(-1);
+    setTranscript(next);
+    if (transcript().entries.at(-1) !== latest) setLatestOutput((count) => count + 1);
   };
 
   const model: MutableAgentPaneModel = {
@@ -190,6 +202,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     interruptible,
     keyboardApprovalId,
     keyboardRequestKey,
+    latestOutput,
     latestPlan,
     live,
     pendingLegacyImageCount,
@@ -238,9 +251,12 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       }
       if (expanded) expandedActivities.add(id);
       else expandedActivities.delete(id);
-      updateActivity(activity, (entry) => ({
-        ...entry,
-        details: expanded ? activity.projection.materialize() : [],
+      setTranscript((previous) => ({
+        ...previous,
+        entries: replaceAtPath(previous.entries, activity.path, (entry) => ({
+          ...entry,
+          details: expanded ? activity.projection.materialize() : [],
+        })),
       }));
     },
   };
@@ -269,16 +285,14 @@ function replaceAtPath(
 ): readonly AgentTranscriptEntry[] {
   const [index, ...rest] = path as [number, ...number[]];
   const entry = entries[index]!;
-  const children = rest.length === 0 ? undefined : replaceAtPath(entry.asideEntries!, rest, update);
-  const next =
-    children === undefined
-      ? share(entry, update(entry))
-      : children === entry.asideEntries
-        ? entry
-        : { ...entry, asideEntries: children as AgentTranscriptEntry[] };
-  if (next === entry) return entries;
   const copy = [...entries];
-  copy[index] = next;
+  copy[index] =
+    rest.length === 0
+      ? update(entry)
+      : {
+          ...entry,
+          asideEntries: replaceAtPath(entry.asideEntries!, rest, update) as AgentTranscriptEntry[],
+        };
   return copy;
 }
 

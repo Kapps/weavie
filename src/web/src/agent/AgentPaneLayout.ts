@@ -11,26 +11,20 @@ import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneT
 /** Maps the shown transcript onto the virtualizer, which measures from the bottom: index 0 is the newest row. */
 export function createAgentPaneLayout(
   shown: Accessor<AgentTranscriptSnapshot>,
-  generation: Accessor<number>,
-  anchorId: () => string | null,
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
 ) {
   const layout = createMemo(() => {
     const { entries, pendingRowIndexes } = shown();
-    const prefix = `${generation()}\0`;
-    const keys = entries.map((entry) => prefix + entry.id);
     return {
       entries,
-      keys,
-      indexes: new Map(keys.map((key, index) => [key, index])),
+      indexes: new Map(entries.map((entry, index) => [entry.id, index])),
       pendingRowIndexes,
-      prefix,
     };
   });
   const flip = (index: number): number => reverse(layout().entries.length, index);
   const itemKey = createMemo(() => {
-    const { keys } = layout();
-    return (virtualIndex: number) => keys[reverse(keys.length, virtualIndex)]!;
+    const { entries } = layout();
+    return (virtualIndex: number) => entries[reverse(entries.length, virtualIndex)]!.id;
   });
 
   // A changed row that isn't mounted can't be measured again, so it returns to its estimate.
@@ -45,7 +39,7 @@ export function createAgentPaneLayout(
           if (
             old !== undefined &&
             old !== entry &&
-            virtualizer().elementsCache.get(itemKey()(row))?.isConnected !== true
+            virtualizer().elementsCache.get(entry.id)?.isConnected !== true
           ) {
             virtualizer().resizeItem(row, estimateEntrySize(entry));
           }
@@ -61,20 +55,21 @@ export function createAgentPaneLayout(
       layout().entries[flip(virtualIndex)],
     entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry =>
       layout().entries[layout().indexes.get(String(key))!]!,
+    /** The virtual index of the row with `id`, if the shown transcript has it. */
+    virtualIndexOf: (id: string): number | undefined => {
+      const index = layout().indexes.get(id);
+      return index === undefined ? undefined : flip(index);
+    },
     flip,
     itemKey,
-    // Pending forms own live command handlers, and the reader's anchor must stay measurable.
+    // Pending forms own live command handlers, so they stay mounted.
     rangeExtractor: createMemo(() => {
-      const { indexes, keys, pendingRowIndexes, prefix } = layout();
-      const pending = pendingRowIndexes.map((index) => reverse(keys.length, index));
-      return (range: Range) => {
-        const id = anchorId();
-        const anchor = id === null ? undefined : indexes.get(prefix + id);
-        const extra = anchor === undefined ? pending : [...pending, reverse(keys.length, anchor)];
-        return [...new Set([...defaultRangeExtractor(range), ...extra])].sort(
+      const { entries, pendingRowIndexes } = layout();
+      const pending = pendingRowIndexes.map((index) => reverse(entries.length, index));
+      return (range: Range) =>
+        [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
           (left, right) => left - right,
         );
-      };
     }),
   };
 }

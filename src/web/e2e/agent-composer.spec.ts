@@ -1979,6 +1979,13 @@ test.describe("ACP composer", () => {
     );
     await expect(page.locator("[data-agent-composer]")).not.toContainText("prompt>");
     await page.screenshot({ path: join(shotsDir, "08-empty-state.png") });
+    // An empty transcript has no start to jump to, so Home leaves it following.
+    const errors: Error[] = [];
+    page.on("pageerror", (error) => errors.push(error));
+    await page.locator(".agent-body").focus();
+    await page.keyboard.press("Home");
+    await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
   });
 
   // Pins the informed-approval flow: the card shows the command under review, the buttons wear their

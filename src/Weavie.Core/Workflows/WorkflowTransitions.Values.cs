@@ -43,7 +43,7 @@ public sealed partial class WorkflowTransitions {
 			return values;
 		}
 
-		foreach (var spec in stage.Do.Outputs) {
+		foreach (var spec in stage.Run.Outputs) {
 			if (!isObject || !outputs.TryGetProperty(spec.Name, out var element)) {
 				errors.Add($"missing output \"{spec.Name}\" ({spec.Type.ToString().ToLowerInvariant()})");
 			} else if (WorkflowValues.TryRead(element, spec.Type, worktree, out var value, out string error)) {
@@ -55,7 +55,7 @@ public sealed partial class WorkflowTransitions {
 
 		if (isObject) {
 			errors.AddRange(outputs.EnumerateObject()
-				.Where(p => stage.Do.Outputs.All(spec => spec.Name != p.Name))
+				.Where(p => stage.Run.Outputs.All(spec => spec.Name != p.Name))
 				.Select(p => $"stage \"{stage.Id}\" declares no output \"{p.Name}\""));
 		}
 

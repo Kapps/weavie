@@ -16,7 +16,7 @@ public static class WorkflowStageBlock {
 			.Append($"({definition.Stages.ToList().IndexOf(stage) + 1} of {definition.Stages.Count}). ");
 		text.Append(run.Phase switch {
 			WorkflowPhase.Open => OpenInstructions(stage),
-			WorkflowPhase.AwaitingApproval => $"The stage is complete and waits for the user's approval. {ApprovalRules(run)}",
+			WorkflowPhase.Asking => AnswerRules(run),
 			WorkflowPhase.Deciding => "Weavie is deciding what comes next; wait for its next message.",
 			WorkflowPhase.Paused => $"The run is paused: {run.PausedReason} Only the user resumes, jumps, or cancels it (runCommand weavie.workflow.resume, weavie.workflow.jumpToStage, or weavie.workflow.cancel with run \"{run.Id}\"), and only when they say so.",
 			_ => "",
@@ -25,14 +25,17 @@ public static class WorkflowStageBlock {
 	}
 
 	private static string OpenInstructions(WorkflowStage stage) {
-		string outputs = stage.Do.Outputs.Count == 0
+		string outputs = stage.Run.Outputs.Count == 0
 			? "with no outputs ({})"
-			: "with outputs " + string.Join(", ", stage.Do.Outputs.Select(o => $"\"{o.Name}\" ({o.Type.ToString().ToLowerInvariant()})"));
-		return $"Do the stage's work, talking with the user when it needs them. When it is truly finished, call completeStage {outputs}, then end your turn; Weavie starts the next stage. If you can't finish it, call failStage with the reason.";
+			: "with outputs " + string.Join(", ", stage.Run.Outputs.Select(o => $"\"{o.Name}\" ({o.Type.ToString().ToLowerInvariant()})"));
+		return $"Do the stage's work, talking with the user when it needs them. When it is truly finished, call completeStage {outputs} and a short summary of what you did and found (decisions read it), then end your turn; Weavie starts the next stage. If you can't finish it, call failStage with the reason.";
 	}
 
-	private static string ApprovalRules(WorkflowRun run) =>
-		"Never approve or reject on your own. Only when the user explicitly approves, call runCommand "
-		+ $"weavie.workflow.approveStage with run \"{run.Id}\"; when they ask for changes, call runCommand "
-		+ $"weavie.workflow.rejectStage with run \"{run.Id}\" and their feedback.";
+	private static string AnswerRules(WorkflowRun run) {
+		var asked = run.Asked!;
+		return $"Weavie is asking the user: \"{asked.Question}\" (answers: {string.Join(", ", asked.Choices)})"
+			+ (asked.Reason.Length == 0 ? ". " : $"; {asked.Reason}. ")
+			+ "Never answer for the user. Only when the user explicitly gives one of those answers, call runCommand "
+			+ $"weavie.workflow.answer with run \"{run.Id}\", their choice, and their own words as feedback (empty when they gave none).";
+	}
 }

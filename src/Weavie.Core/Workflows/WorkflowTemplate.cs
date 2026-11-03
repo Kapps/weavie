@@ -27,6 +27,9 @@ public sealed partial class WorkflowTemplate {
 	/// <summary>The template text as written.</summary>
 	public string Source { get; }
 
+	/// <summary>The empty template; stands in for one that failed to parse, whose error is already reported.</summary>
+	public static WorkflowTemplate Empty { get; } = new("", [""]);
+
 	/// <summary>Every reference, in order.</summary>
 	public IEnumerable<WorkflowReference> References => _parts.OfType<WorkflowReference>();
 

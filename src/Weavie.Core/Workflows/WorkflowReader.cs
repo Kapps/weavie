@@ -19,12 +19,12 @@ public static class WorkflowReader {
 		try {
 			document = YamlNodeReader.Read(text);
 		} catch (WorkflowFormatException ex) {
-			return Failed([new WorkflowDiagnostic { Path = "", Position = ex.Position, Message = ex.Message }]);
+			return Failed([WorkflowDiagnostic.Error("", ex.Position, ex.Message)]);
 		}
 
 		var check = new WorkflowCheck(document.Positions);
 		WorkflowSchema.Root.Check(document.Root, "", check);
-		if (check.Diagnostics.Count > 0) {
+		if (check.HasErrors) {
 			return Failed(check.Diagnostics);
 		}
 
@@ -43,19 +43,18 @@ public static class WorkflowReader {
 			SourceText = text,
 		};
 		WorkflowSemantics.Check(definition, fileId, check);
-		return check.Diagnostics.Count > 0 ? Failed(check.Diagnostics) : new WorkflowReadResult { Definition = definition, Diagnostics = [] };
+		return check.HasErrors ? Failed(check.Diagnostics) : new WorkflowReadResult { Definition = definition, Diagnostics = check.Diagnostics };
 	}
 
 	private static WorkflowStage ReadStage(JsonObject stage, string path, WorkflowCheck check) {
-		var work = stage["do"]!.AsObject();
+		var work = stage["run"]!.AsObject();
 		return new WorkflowStage {
 			Id = Text(stage["id"]),
-			When = Template(stage["when"], $"{path}.when", check),
-			Else = stage["else"] is null ? null : Text(stage["else"]),
-			Do = new WorkflowWork {
-				Prompt = Template(work["prompt"], $"{path}.do.prompt", check),
+			If = stage["if"] is { } condition ? Question(condition, $"{path}.if", check) : null,
+			Run = new WorkflowWork {
+				Prompt = Template(work["prompt"], $"{path}.run.prompt", check),
 				Skill = work["skill"] is null ? null : Text(work["skill"]),
-				Args = Template(work["args"], $"{path}.do.args", check),
+				Args = Template(work["args"], $"{path}.run.args", check),
 				Outputs = work["outputs"] is JsonObject outputs
 					? [.. outputs.Select(output => new WorkflowOutputSpec {
 						Name = output.Key,
@@ -63,17 +62,24 @@ public static class WorkflowReader {
 					})]
 					: [],
 			},
-			Gate = stage["gate"] is not null,
-			Next = stage["next"] switch {
-				null => new WorkflowNext.Sequential(),
-				JsonObject choose => new WorkflowNext.Choose(
-					Template(choose["prompt"], $"{path}.next.prompt", check)!,
-					[.. choose["choices"]!.AsObject().Select(choice => new WorkflowChoice(choice.Key, Text(choice.Value)))],
-					choose["max"] is null ? null : int.Parse(Text(choose["max"]), System.Globalization.CultureInfo.InvariantCulture)),
-				var target => new WorkflowNext.Goto(Text(target)),
+			Then = stage["then"] switch {
+				null => new WorkflowThen.Sequential(),
+				JsonObject decide => new WorkflowThen.Decide(
+					Question(decide, $"{path}.then", check),
+					[.. decide["choices"]!.AsObject().Select(choice => new WorkflowChoice(choice.Key, Text(choice.Value)))],
+					decide["limit"] is null ? null : int.Parse(Text(decide["limit"]), System.Globalization.CultureInfo.InvariantCulture)),
+				var target => new WorkflowThen.Goto(Text(target)),
 			},
 		};
 	}
+
+	// A question is text (the model answers) or a mapping with `ask` and an optional `by`.
+	private static WorkflowQuestion Question(JsonNode node, string path, WorkflowCheck check) => node is JsonObject mapping
+		? new WorkflowQuestion {
+			Ask = Template(mapping["ask"], $"{path}.ask", check) ?? WorkflowTemplate.Empty,
+			By = mapping["by"] is { } by && Text(by) == "user" ? WorkflowAnswerer.User : WorkflowAnswerer.Model,
+		}
+		: new WorkflowQuestion { Ask = Template(node, path, check) ?? WorkflowTemplate.Empty, By = WorkflowAnswerer.Model };
 
 	private static WorkflowTemplate? Template(JsonNode? node, string path, WorkflowCheck check) {
 		if (node is null) {

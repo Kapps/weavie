@@ -19,6 +19,9 @@ public sealed record WorkflowDecisionInput {
 
 	/// <summary>The outputs of the stage the decision follows.</summary>
 	public required IReadOnlyDictionary<string, string> Outputs { get; init; }
+
+	/// <summary>The agent's summary of the stage it last completed.</summary>
+	public required string Summary { get; init; }
 }
 
 /// <summary>The model's structured answer.</summary>
@@ -29,12 +32,12 @@ public sealed record WorkflowDecisionOutput {
 
 /// <summary>The decision prompt and its strict contracts.</summary>
 public static class WorkflowDecision {
-	/// <summary>The answer every decision may give; it pauses the run for the user.</summary>
+	/// <summary>The answer every model decision may give; it hands the question to the user.</summary>
 	public const string Unsure = "unsure";
 
 	private const string Instructions = "You decide one step of a software workflow. Answer the question with exactly "
-		+ "one of the listed choices, judging only from the question and the supplied outputs. Answer \"unsure\" "
-		+ "whenever the information given doesn't clearly support one choice; a person will decide instead.";
+		+ "one of the listed choices, judging only from the question, the supplied outputs, and the agent's summary. "
+		+ "Answer \"unsure\" whenever the information given doesn't clearly support one choice; a person will decide instead.";
 
 	/// <summary>The resource policy for one decision.</summary>
 	public static InferenceQueryOptions QueryOptions { get; } = new() {
@@ -50,7 +53,12 @@ public static class WorkflowDecision {
 	public static string BuildPrompt(WorkflowDecisionRequest request) =>
 		InferencePrompts.WithJsonInput(
 			Instructions,
-			new WorkflowDecisionInput { Question = request.Question, Choices = [.. request.Choices, Unsure], Outputs = request.Outputs },
+			new WorkflowDecisionInput {
+				Question = request.Question,
+				Choices = [.. request.Choices, Unsure],
+				Outputs = request.Outputs,
+				Summary = request.Summary,
+			},
 			WorkflowDecisionJsonContext.Default.WorkflowDecisionInput);
 
 	/// <summary>Maps a model answer to a result: a listed choice or unsure, else a failure naming it.</summary>

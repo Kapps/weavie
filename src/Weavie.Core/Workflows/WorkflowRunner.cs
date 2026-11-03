@@ -112,10 +112,10 @@ public sealed class WorkflowRunner : IDisposable {
 		}
 	}
 
-	/// <summary>The agent completes the current stage; returns the reply for the agent.</summary>
-	public string CompleteStage(JsonElement outputs) {
+	/// <summary>The agent completes the current stage with its outputs and a summary; returns the reply for the agent.</summary>
+	public string CompleteStage(JsonElement outputs, string summary) {
 		lock (_gate) {
-			var completion = Transitions().Complete(Live(), outputs);
+			var completion = Transitions().Complete(Live(), outputs, summary);
 			Apply(completion.Step);
 			if (completion.Errors.Count > 0) {
 				return _run!.Phase == WorkflowPhase.Paused
@@ -124,7 +124,8 @@ public sealed class WorkflowRunner : IDisposable {
 			}
 
 			return _run!.Phase switch {
-				WorkflowPhase.AwaitingApproval => "Complete. The stage now waits for the user's approval; summarize what to review and end your turn.",
+				WorkflowPhase.Asking => $"Complete. Weavie now asks the user: {_run.Asked!.Question} (answers: {string.Join(", ", _run.Asked.Choices)}). "
+					+ "Put that question to the user with what they need to answer it, and end your turn.",
 				WorkflowPhase.Done => "Complete. The workflow is finished.",
 				_ => "Complete. The next stage starts after this turn — end your turn now.",
 			};
@@ -134,11 +135,8 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>The agent can't finish the current stage.</summary>
 	public void FailStage(string reason) => Mutate(null, run => Transitions().Fail(run, reason));
 
-	/// <summary>The user approves run <paramref name="runId"/>'s stage.</summary>
-	public void Approve(string runId) => Mutate(runId, run => Transitions().Approve(run));
-
-	/// <summary>The user rejects run <paramref name="runId"/>'s stage with <paramref name="feedback"/>.</summary>
-	public void Reject(string runId, string feedback) => Mutate(runId, run => Transitions().Reject(run, feedback));
+	/// <summary>The user answers run <paramref name="runId"/>'s question with <paramref name="choice"/> and <paramref name="feedback"/> (empty for none).</summary>
+	public void Answer(string runId, string choice, string feedback) => Mutate(runId, run => Transitions().Answer(run, choice, feedback));
 
 	/// <summary>The user resumes paused run <paramref name="runId"/>.</summary>
 	public void Resume(string runId) => Mutate(runId, run => Transitions().Resume(run));

@@ -48,7 +48,7 @@ export interface SessionChip {
 export type SessionRunState =
   | "working"
   | "waitingOnYou"
-  | "approval"
+  | "needsAnswer"
   | "watching"
   | "deciding"
   | "paused"
@@ -60,7 +60,7 @@ export interface SessionRun {
   workflow: string;
   stage: string;
   state: SessionRunState;
-  /** Why a paused run stopped; empty otherwise. */
+  /** Why a paused run stopped, or the question awaiting the user (and why the model handed it over); empty otherwise. */
   reason: string;
 }
 

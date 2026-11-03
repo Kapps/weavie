@@ -37,22 +37,31 @@ internal static partial class WorkflowSchema {
 			new("args", new TextShape("Text passed after the skill name; may use {{…}} references."), false),
 			new("outputs", outputs, false),
 		]);
-		var choose = new ObjectShape("A decision whose answer picks the next stage; an unsure answer pauses the run.", [
-			new("prompt", new TextShape("The question; may use {{…}} references."), true),
+		var ask = new TextShape(
+			"The question. A model answers it with no tools: it sees only this text (with its {{…}} values filled in), "
+			+ "the stage's outputs, and the summary the agent gave at completeStage, so reference every value it needs.");
+		var by = new EnumShape("Who answers: model (default; an unsure or failed answer goes to the user) or user.", ["model", "user"]);
+		var condition = new TextOrObjectShape(
+			"Run the stage only if the answer is yes; on no it is skipped and the run moves to the following stage. "
+			+ "Text is a yes/no question for the model.",
+			new TextShape("A yes/no question for the model; may use {{…}} references."),
+			new ObjectShape("A yes/no question.", [new("ask", ask, true), new("by", by, false)]));
+		var decision = new ObjectShape("A question whose answer picks the next stage.", [
+			new("ask", ask, true),
 			new("choices", new MapShape(
-				"Each answer and the stage id (or done) it leads to.",
+				"Each answer and the stage id (or done) it leads to; an answer leading back to this stage reopens it with the user's feedback.",
 				IdPattern(), idHint, new TextShape("A stage id, or done.")), true),
-			new("max", new IntShape("How often each transition from this stage may be taken before the run pauses.", 1), false),
+			new("limit", new IntShape(
+				"How many times in a row the model may choose the same answer before the user is asked instead.", 1), false),
+			new("by", by, false),
 		]);
 		var stage = new ObjectShape("One stage of the run.", [
 			new("id", new TextShape("Unique within the workflow.", IdPattern(), idHint), true),
-			new("when", new TextShape("A yes/no question; a no skips the stage. May use {{…}} references."), false),
-			new("else", new TextShape("Stage id (or done) to jump to when `when` skips this stage."), false),
-			new("do", work, true),
-			new("gate", new EnumShape("The user approves (or rejects with feedback) before the run advances.", ["approve"]), false),
-			new("next", new TextOrObjectShape(
-				"What follows: a stage id, done, or a decision. Stages otherwise advance in order.",
-				new TextShape("A stage id, or done."), choose), false),
+			new("if", condition, false),
+			new("run", work, true),
+			new("then", new TextOrObjectShape(
+				"What follows: a stage id, done, or a decision. Without it the run moves to the following stage.",
+				new TextShape("A stage id, or done."), decision), false),
 		]);
 		return new ObjectShape("A Weavie workflow: ordered stages that Weavie runs and the agent fills.", [
 			new("id", new TextShape("The workflow id; must match the file name.", IdPattern(), idHint), true),
@@ -60,7 +69,7 @@ internal static partial class WorkflowSchema {
 			new("inputs", new MapShape(
 				"Values the run starts with, by name; a ? suffix on the type marks one optional.",
 				NamePattern(), nameHint, new EnumShape("The value's type.", inputTypes)), false),
-			new("stages", new ListShape("The stages, run in order unless next/else says otherwise.", stage), true),
+			new("stages", new ListShape("The stages, run in order unless a stage's then says otherwise.", stage), true),
 		]);
 	}
 

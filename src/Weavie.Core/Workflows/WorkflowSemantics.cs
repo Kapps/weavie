@@ -21,47 +21,50 @@ internal static class WorkflowSemantics {
 
 	private static void CheckStage(
 		WorkflowDefinition definition, WorkflowStage stage, string path, HashSet<string> stageIds, WorkflowCheck check) {
-		var work = stage.Do;
+		var work = stage.Run;
 		if ((work.Prompt is null) == (work.Skill is null)) {
-			check.Add($"{path}.do", "do needs exactly one of prompt or skill");
+			check.Add($"{path}.run", "run needs exactly one of prompt or skill");
 		}
 
 		if (work.Args is not null && work.Skill is null) {
-			check.Add($"{path}.do.args", "args applies only to a skill");
+			check.Add($"{path}.run.args", "args applies only to a skill");
 		}
 
-		if (stage.Else is not null) {
-			if (stage.When is null) {
-				check.Add($"{path}.else", "else applies only with when");
-			}
-
-			CheckTarget(stage.Else, $"{path}.else", stageIds, check);
+		if (stage.If is { } condition) {
+			CheckQuestion(definition, condition, $"{path}.if", check);
 		}
 
-		switch (stage.Next) {
-			case WorkflowNext.Goto go:
-				CheckTarget(go.Target, $"{path}.next", stageIds, check);
+		switch (stage.Then) {
+			case WorkflowThen.Goto go:
+				CheckTarget(go.Target, $"{path}.then", stageIds, check);
 				break;
-			case WorkflowNext.Choose choose:
-				if (choose.Choices.Count < 2) {
-					check.Add($"{path}.next.choices", "a decision needs at least two choices");
+			case WorkflowThen.Decide decide:
+				if (decide.Choices.Count < 2) {
+					check.Add($"{path}.then.choices", "a decision needs at least two choices");
 				}
 
-				foreach (var choice in choose.Choices) {
+				foreach (var choice in decide.Choices) {
 					if (choice.Name == WorkflowDecision.Unsure) {
-						check.Add($"{path}.next.choices.{choice.Name}", "\"unsure\" is reserved: an unsure answer always pauses the run");
+						check.Add($"{path}.then.choices.{choice.Name}", "\"unsure\" is reserved: an unsure model hands the question to the user");
 					}
 
-					CheckTarget(choice.Target, $"{path}.next.choices.{choice.Name}", stageIds, check);
+					CheckTarget(choice.Target, $"{path}.then.choices.{choice.Name}", stageIds, check);
 				}
 
-				CheckReferences(definition, choose.Prompt, $"{path}.next.prompt", check);
+				CheckQuestion(definition, decide.Question, $"{path}.then.ask", check);
 				break;
 		}
 
-		CheckReferences(definition, stage.When, $"{path}.when", check);
-		CheckReferences(definition, work.Prompt, $"{path}.do.prompt", check);
-		CheckReferences(definition, work.Args, $"{path}.do.args", check);
+		CheckReferences(definition, work.Prompt, $"{path}.run.prompt", check);
+		CheckReferences(definition, work.Args, $"{path}.run.args", check);
+	}
+
+	private static void CheckQuestion(WorkflowDefinition definition, WorkflowQuestion question, string path, WorkflowCheck check) {
+		CheckReferences(definition, question.Ask, path, check);
+		if (question.By == WorkflowAnswerer.Model && !question.Ask.References.Any()) {
+			check.Warn(path, "the model answering this has no tools and sees only the question, the stage's outputs, and the "
+				+ "agent's summary; reference the values it needs with {{…}}");
+		}
 	}
 
 	private static void CheckTarget(string target, string path, HashSet<string> stageIds, WorkflowCheck check) {
@@ -74,7 +77,7 @@ internal static class WorkflowSemantics {
 		foreach (var reference in template?.References ?? []) {
 			bool declared = reference.IsInput
 				? definition.Inputs.Any(input => input.Name == reference.Name)
-				: definition.Stages.Any(stage => stage.Id == reference.Scope && stage.Do.Outputs.Any(output => output.Name == reference.Name));
+				: definition.Stages.Any(stage => stage.Id == reference.Scope && stage.Run.Outputs.Any(output => output.Name == reference.Name));
 			if (!declared) {
 				check.Add(path, reference.IsInput
 					? $"{reference} names no declared input"

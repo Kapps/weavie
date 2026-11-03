@@ -69,7 +69,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 		var entry = List().FirstOrDefault(e => e.Id == id && e.ShadowedBy is null)
 			?? throw new WorkflowException($"No workflow \"{id}\" exists. Call listWorkflows for the available ids.");
 		return (entry, entry.Definition ?? throw new WorkflowException(
-			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics)}"));
+			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
 	}
 
 	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
@@ -103,7 +103,7 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 				Path = file,
 				Definition = null,
 				ShadowedBy = null,
-				Diagnostics = [new WorkflowDiagnostic { Path = "", Position = new WorkflowPosition(1, 1), Message = ex.Message }],
+				Diagnostics = [WorkflowDiagnostic.Error("", new WorkflowPosition(1, 1), ex.Message)],
 			};
 		}
 	}

@@ -230,7 +230,7 @@ describe("session run", () => {
       id: "r-1",
       workflow: "quick-fix",
       stage: "pr",
-      state: "approval",
+      state: "needsAnswer",
       reason: "",
     };
     session("local", "main").run?.({ run, problem: "" });

@@ -4,41 +4,59 @@ inputs:
   feature: text
 stages:
   - id: requirements
-    do:
+    run:
       prompt: >
         Interview me as needed, then choose a short kebab-case slug for "{{inputs.feature}}" and write
         EARS-style user stories with acceptance criteria to docs/specs/<slug>/requirements.md. Report the
         directory you wrote to as the dir output.
       outputs:
         dir: text
-    gate: approve
+    then:
+      ask: Approve the requirements in {{requirements.dir}}/requirements.md?
+      by: user
+      choices:
+        approve: design
+        revise: requirements
 
   - id: design
-    do:
+    run:
       prompt: Write {{requirements.dir}}/design.md from the approved requirements.
-    gate: approve
+    then:
+      ask: Approve the design in {{requirements.dir}}/design.md?
+      by: user
+      choices:
+        approve: tasks
+        revise: design
 
   - id: tasks
-    do:
+    run:
       prompt: >
         Break the approved design into small, independently testable tasks, written as a checklist in
         {{requirements.dir}}/tasks.md. Report them in order as the tasks output.
       outputs:
         tasks: list
-    gate: approve
+    then:
+      ask: Approve the task list in {{requirements.dir}}/tasks.md?
+      by: user
+      choices:
+        approve: implement
+        revise: tasks
 
   - id: implement
-    do:
+    run:
       prompt: >
         Implement these tasks in order, following {{requirements.dir}}/design.md, ticking each one off in
         {{requirements.dir}}/tasks.md as it lands:
 
         {{tasks.tasks}}
 
-        Run the tests and the linter, fix what fails, and commit.
-    next:
-      prompt: "Is every task in {{requirements.dir}}/tasks.md done? Remaining work, if any: {{tasks.tasks}}"
+        Run the tests and the linter, fix what fails, and commit. Report the tasks still not done as the
+        remaining output (empty when all are done).
+      outputs:
+        remaining: list
+    then:
+      ask: "Is this list of tasks still not done empty? {{implement.remaining}}"
       choices:
         yes: done
         no: implement
-      max: 3
+      limit: 3

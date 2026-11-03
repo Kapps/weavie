@@ -9,11 +9,11 @@ public enum WorkflowPhase {
 	/// <summary>The stage is open; the agent works until it calls completeStage.</summary>
 	Open,
 
-	/// <summary>The stage completed and waits for the user's approval.</summary>
-	AwaitingApproval,
-
-	/// <summary>A decision (<c>when</c> or <c>next</c>) is being made.</summary>
+	/// <summary>The model is answering a decision (<c>if</c> or <c>then</c>).</summary>
 	Deciding,
+
+	/// <summary>A decision waits for the user's answer; see <see cref="WorkflowRun.Asked"/>.</summary>
+	Asking,
 
 	/// <summary>The run needs the user before it can continue; see <see cref="WorkflowRun.PausedReason"/>.</summary>
 	Paused,
@@ -25,15 +25,30 @@ public enum WorkflowPhase {
 	Cancelled,
 }
 
-/// <summary>Which decision a <see cref="WorkflowPhase.Deciding"/> run waits for.</summary>
+/// <summary>Which decision a deciding or asking run waits for.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<WorkflowDecisionKind>))]
 public enum WorkflowDecisionKind {
-	/// <summary>The stage's <c>when</c>: run it or skip it.</summary>
-	When,
+	/// <summary>The stage's <c>if</c>: run it or skip it.</summary>
+	If,
 
-	/// <summary>The stage's <c>next</c> choice: where the run goes after it.</summary>
-	Next,
+	/// <summary>The stage's <c>then</c> decision: where the run goes after it.</summary>
+	Then,
 }
+
+/// <summary>A decision put to the user: the rendered question, its answers, and why the model didn't answer it.</summary>
+public sealed record WorkflowAsked {
+	/// <summary>The rendered question.</summary>
+	public required string Question { get; init; }
+
+	/// <summary>The answers the user may give.</summary>
+	public required IReadOnlyList<string> Choices { get; init; }
+
+	/// <summary>Why the model handed it over (unsure, failed, or its limit reached); empty when the user answers by design.</summary>
+	public required string Reason { get; init; }
+}
+
+/// <summary>The answer a <c>then</c> decision's model last gave, and how many times in a row.</summary>
+public sealed record WorkflowStreak(string Choice, int Count);
 
 /// <summary>One execution of a workflow, owned by a session and persisted with it.</summary>
 public sealed record WorkflowRun {
@@ -58,8 +73,11 @@ public sealed record WorkflowRun {
 	/// <summary>Where the run is in that stage.</summary>
 	public required WorkflowPhase Phase { get; init; }
 
-	/// <summary>The decision a deciding run waits for; otherwise <see langword="null"/>.</summary>
-	public required WorkflowDecisionKind? Deciding { get; init; }
+	/// <summary>The decision a deciding or asking run waits for; otherwise <see langword="null"/>.</summary>
+	public required WorkflowDecisionKind? Decision { get; init; }
+
+	/// <summary>The question waiting for the user's answer; otherwise <see langword="null"/>.</summary>
+	public required WorkflowAsked? Asked { get; init; }
 
 	/// <summary>Rejected completions of the current stage.</summary>
 	public required int Attempts { get; init; }
@@ -67,8 +85,11 @@ public sealed record WorkflowRun {
 	/// <summary>Each completed stage's reported outputs.</summary>
 	public required Dictionary<string, Dictionary<string, WorkflowValue>> Outputs { get; init; }
 
-	/// <summary>How often each <c>from→to</c> edge of a choice <c>next</c> has been taken.</summary>
-	public required Dictionary<string, int> EdgeCounts { get; init; }
+	/// <summary>The summary the agent gave when it last completed a stage; decisions read it.</summary>
+	public required string Summary { get; init; }
+
+	/// <summary>Each <c>then</c> decision's latest model answer and its run, by stage id; a user's answer clears it.</summary>
+	public required Dictionary<string, WorkflowStreak> Streaks { get; init; }
 
 	/// <summary>Why a paused run stopped; otherwise <see langword="null"/>.</summary>
 	public required string? PausedReason { get; init; }

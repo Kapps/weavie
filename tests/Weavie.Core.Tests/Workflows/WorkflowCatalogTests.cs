@@ -16,7 +16,7 @@ public sealed class WorkflowCatalogTests : IDisposable {
 
 	private WorkflowCatalog Catalog() => new(Worktree, Personal);
 
-	private static string Minimal(string id) => $"id: {id}\ndescription: {id} workflow\nstages:\n  - id: a\n    do: {{ prompt: go }}\n";
+	private static string Minimal(string id) => $"id: {id}\ndescription: {id} workflow\nstages:\n  - id: a\n    run: {{ prompt: go }}\n";
 
 	[Fact]
 	public void EveryBuiltInIsValid() {
@@ -73,8 +73,8 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		Assert.False(schema["additionalProperties"]!.GetValue<bool>());
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
-		Assert.Equal(["id", "when", "else", "do", "gate", "next"], stage.Select(p => p.Key));
-		Assert.Equal(["prompt", "skill", "args", "outputs"], stage["do"]!["properties"]!.AsObject().Select(p => p.Key));
-		Assert.Equal(2, stage["next"]!["oneOf"]!.AsArray().Count);
+		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
+		Assert.Equal(["prompt", "skill", "args", "outputs"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal(["ask", "choices", "limit", "by"], stage["then"]!["oneOf"]![1]!["properties"]!.AsObject().Select(p => p.Key));
 	}
 }

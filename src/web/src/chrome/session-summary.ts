@@ -44,13 +44,13 @@ export function panelOrder(sessions: RailSession[]): RailSession[] {
   return [...sessions].sort((a, b) => rank(a) - rank(b));
 }
 
-// A run waiting on an approval or paused for the user needs them; an idle agent asking a question doesn't move.
-const RUN_NEEDS_USER: ReadonlySet<SessionRunState> = new Set(["approval", "paused"]);
+// A run waiting on the user's answer or paused for them needs them; an idle agent asking a question doesn't move.
+const RUN_NEEDS_USER: ReadonlySet<SessionRunState> = new Set(["needsAnswer", "paused"]);
 
 const RUN_PHRASE: Record<SessionRunState, string> = {
   working: "working",
   waitingOnYou: "waiting on you",
-  approval: "approval needs you",
+  needsAnswer: "needs your answer",
   watching: "watching in background",
   deciding: "deciding",
   paused: "paused",

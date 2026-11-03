@@ -13,8 +13,8 @@ public enum WorkflowRunState {
 	/// <summary>The stage is open and the agent is idle: it's the user's turn.</summary>
 	WaitingOnYou,
 
-	/// <summary>The stage waits for the user's approval.</summary>
-	Approval,
+	/// <summary>A decision waits for the user's answer.</summary>
+	NeedsAnswer,
 
 	/// <summary>The stage is open and the agent has background work pending.</summary>
 	Watching,
@@ -43,7 +43,7 @@ public sealed record WorkflowRunSummary {
 	/// <summary>What the run is doing.</summary>
 	public required WorkflowRunState State { get; init; }
 
-	/// <summary>Why the run paused; empty unless <see cref="State"/> is <see cref="WorkflowRunState.Paused"/>.</summary>
+	/// <summary>Why the run paused, or the question awaiting the user (with why the model didn't answer it); otherwise empty.</summary>
 	public required string Reason { get; init; }
 
 	/// <summary>The summary of <paramref name="run"/> in a session whose agent is <paramref name="status"/>.</summary>
@@ -53,7 +53,7 @@ public sealed record WorkflowRunSummary {
 		}
 
 		var state = run.Phase switch {
-			WorkflowPhase.AwaitingApproval => WorkflowRunState.Approval,
+			WorkflowPhase.Asking => WorkflowRunState.NeedsAnswer,
 			WorkflowPhase.Deciding => WorkflowRunState.Deciding,
 			WorkflowPhase.Paused => WorkflowRunState.Paused,
 			_ => status switch {
@@ -68,7 +68,11 @@ public sealed record WorkflowRunSummary {
 			Workflow = run.WorkflowId,
 			Stage = run.Stage,
 			State = state,
-			Reason = state == WorkflowRunState.Paused ? run.PausedReason ?? "" : "",
+			Reason = state switch {
+				WorkflowRunState.Paused => run.PausedReason ?? "",
+				WorkflowRunState.NeedsAnswer => run.Asked!.Reason.Length == 0 ? run.Asked.Question : $"{run.Asked.Question} ({run.Asked.Reason})",
+				_ => "",
+			},
 		};
 	}
 }

@@ -91,9 +91,9 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			description: two stages
 			stages:
 			  - id: one
-			    do: { prompt: "first stage" }
+			    run: { prompt: "first stage" }
 			  - id: two
-			    do: { prompt: "second stage" }
+			    run: { prompt: "second stage" }
 			""");
 		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		var provider = new FakeTerminalAgentProvider(_dir.Path);
@@ -105,7 +105,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 		session.Status.Observe(new AgentSessionStarted("startup"));
 		await TypedAsync("first stage");
 
-		session.Workflow.CompleteStage(JsonDocument.Parse("{}").RootElement);
+		session.Workflow.CompleteStage(JsonDocument.Parse("{}").RootElement, "s");
 		await TypedAsync("second stage");
 		Assert.Null(provider.Session!.FirstTurn);
 		for (int i = 0; i < 500 && session.Workflow.Current!.Kickoff is not null; i++) await Task.Delay(10);

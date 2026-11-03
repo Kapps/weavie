@@ -16,15 +16,18 @@ namespace Weavie.Hosting.Tests;
 public sealed class HostCoreWorkflowTests {
 	private const string Flow = """
 		id: flow
-		description: gated stage, then a decided stage
+		description: a stage the user approves, then a stage the model decides on
 		stages:
 		  - id: draft
-		    do: { prompt: "write the draft", outputs: { note: text } }
-		    gate: approve
+		    run: { prompt: "write the draft", outputs: { note: text } }
+		    then:
+		      ask: "Approve the draft {{draft.note}}?"
+		      by: user
+		      choices: { approve: polish, revise: draft }
 		  - id: polish
-		    do: { prompt: "polish {{draft.note}}" }
-		    next:
-		      prompt: "Is it polished?"
+		    run: { prompt: "polish {{draft.note}}" }
+		    then:
+		      ask: "Is {{draft.note}} polished?"
 		      choices: { yes: done, no: polish }
 		""";
 
@@ -60,38 +63,41 @@ public sealed class HostCoreWorkflowTests {
 		Assert.Contains("at stage \"draft\"", turnContext!.Compose(), StringComparison.Ordinal);
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("stage").GetString() == "draft");
 
-		Assert.Contains("waits for the user's approval", session.Workflow.CompleteStage(Json("""{"note":"v1"}""")), StringComparison.Ordinal);
-		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "approval");
-		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRejectStage,
-			new { run = "r-other", feedback = "x" }, CancellationToken.None)).Ok);
-		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRejectStage,
-			new { run = runId, feedback = "shorter please" }, CancellationToken.None)).Ok);
-		await WaitForEchoAsync(host, session, "I didn't approve stage \"draft\" yet: shorter please");
+		Assert.Contains("Weavie now asks the user: Approve the draft v1?", session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s"), StringComparison.Ordinal);
+		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
+			&& line.Value.GetProperty("reason").GetString() == "Approve the draft v1?");
+		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = "r-other", choice = "revise", feedback = "x" }, CancellationToken.None)).Ok);
+		Assert.False((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = runId, choice = "maybe" }, CancellationToken.None)).Ok);
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer,
+			new { run = runId, choice = "revise", feedback = "shorter please" }, CancellationToken.None)).Ok);
+		await WaitForEchoAsync(host, session, "The user answered \"revise\" to \"Approve the draft v1?\"");
 
-		session.Workflow.CompleteStage(Json("""{"note":"v2"}"""));
-		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowApproveStage, new { run = runId }, CancellationToken.None)).Ok);
+		session.Workflow.CompleteStage(Json("""{"note":"v2"}"""), "s");
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer, new { run = runId, choice = "approve" }, CancellationToken.None)).Ok);
 		await WaitForEchoAsync(host, session, "polish v2");
 
-		session.Workflow.CompleteStage(Json("{}"));
+		session.Workflow.CompleteStage(Json("{}"), "s");
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
 		Assert.Equal("", turnContext.Compose());
 	}
 
 	[Fact]
-	public async Task UnsureDecisionPausesTheRunAndResumeAsksAgain() {
+	public async Task UnsureDecisionAsksTheUserTheSameQuestion() {
 		var decisions = new DecisionStub("unsure");
 		await using var host = await StartAsync(decisions);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session("wf");
 		var run = session.Workflow.Start("flow", Json("{}"));
-		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""));
-		session.Workflow.Approve(run.Id);
-		session.Workflow.CompleteStage(Json("{}"));
+		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
+		session.Workflow.Answer(run.Id, "approve", "");
+		session.Workflow.CompleteStage(Json("{}"), "s");
 
-		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "paused");
-		decisions.Choice = "yes";
-		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowResume, new { run = run.Id }, CancellationToken.None)).Ok);
+		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
+			&& line.Value.GetProperty("reason").GetString() == "Is v1 polished? (the decision model was unsure)");
+		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer, new { run = run.Id, choice = "yes" }, CancellationToken.None)).Ok);
 		await WaitForRunLineAsync(host, session, line => line is null);
 	}
 
@@ -131,15 +137,15 @@ public sealed class HostCoreWorkflowTests {
 		await using var host = await StartAsync(new DecisionStub("yes"));
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var run = host.Session("wf").Workflow.Start("flow", Json("{}"));
-		host.Session("wf").Workflow.CompleteStage(Json("""{"note":"v1"}"""));
+		host.Session("wf").Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
 
 		Assert.True((await host.UnloadSessionAsync("wf")).Ok);
 		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
 			new { id = "wf" }, CancellationToken.None)).Ok);
 		var reloaded = await WaitForSessionAsync(host, "wf");
 
-		Assert.Equal((run.Id, WorkflowPhase.AwaitingApproval), (reloaded.Workflow.Current!.Id, reloaded.Workflow.Current.Phase));
-		await WaitForRunLineAsync(host, reloaded, line => line?.GetProperty("state").GetString() == "approval");
+		Assert.Equal((run.Id, WorkflowPhase.Asking), (reloaded.Workflow.Current!.Id, reloaded.Workflow.Current.Phase));
+		await WaitForRunLineAsync(host, reloaded, line => line?.GetProperty("state").GetString() == "needsAnswer");
 	}
 
 	[Theory]
@@ -151,10 +157,10 @@ public sealed class HostCoreWorkflowTests {
 		var session = host.Session("wf");
 		var run = session.Workflow.Start("flow", Json("{}"));
 		await WaitForEchoAsync(host, session, "write the draft");
-		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""));
+		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
 
 		session.Status.Observe(new AgentPromptSubmitted(null, "busy"));
-		session.Workflow.Approve(run.Id);
+		session.Workflow.Answer(run.Id, "approve", "");
 		if (retire == "cancel") session.Workflow.Cancel(run.Id);
 		else session.Workflow.FailStage("stuck");
 		session.Status.Observe(new AgentTurnStopped(false));
@@ -191,7 +197,7 @@ public sealed class HostCoreWorkflowTests {
 			description: exists only uncommitted in the source checkout
 			stages:
 			  - id: only
-			    do: { prompt: "local stage" }
+			    run: { prompt: "local stage" }
 			""");
 
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {

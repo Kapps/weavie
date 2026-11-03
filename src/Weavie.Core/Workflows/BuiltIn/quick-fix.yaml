@@ -4,7 +4,7 @@ inputs:
   task: text
 stages:
   - id: implement
-    do:
+    run:
       prompt: >
         Implement this task: {{inputs.task}}
 
@@ -12,7 +12,7 @@ stages:
         both are green and the work is committed.
 
   - id: pr
-    do:
+    run:
       prompt: Push the branch and open a draft pull request describing the change.
       outputs:
         pr: pr

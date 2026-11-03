@@ -13,12 +13,15 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		description: test flow
 		stages:
 		  - id: a
-		    do: { prompt: "do a", outputs: { note: text } }
-		    gate: approve
+		    run: { prompt: "do a", outputs: { note: text } }
+		    then:
+		      ask: "approve {{a.note}}?"
+		      by: user
+		      choices: { approve: b, revise: a }
 		  - id: b
-		    do: { prompt: "do b" }
-		    next:
-		      prompt: "again?"
+		    run: { prompt: "do b" }
+		    then:
+		      ask: "again after {{a.note}}?"
 		      choices: { yes: a, no: done }
 		""";
 
@@ -59,9 +62,10 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	public void CompleteStageRepliesWithErrorsOrTheNextStep() {
 		using var runner = Runner();
 		runner.Start("flow", Json("{}"));
-		Assert.Contains("missing output \"note\"", runner.CompleteStage(Json("{}")));
-		Assert.Contains("approval", runner.CompleteStage(Json("""{"note":"n"}""")));
-		Assert.Contains("approveStage with run", runner.StageBlock());
+		Assert.Contains("missing output \"note\"", runner.CompleteStage(Json("{}"), "s"));
+		Assert.Contains("Weavie now asks the user: approve n?", runner.CompleteStage(Json("""{"note":"n"}"""), "s"));
+		Assert.Contains("weavie.workflow.answer with run", runner.StageBlock());
+		Assert.Contains("Never answer for the user", runner.StageBlock());
 		Assert.Single(_port.Notices);
 	}
 
@@ -69,12 +73,12 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	public void UserCommandsTargetOnlyTheLiveRun() {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
-		runner.CompleteStage(Json("""{"note":"n"}"""));
-		Assert.Throws<WorkflowException>(() => runner.Approve("r-000000000000"));
-		runner.Approve(run.Id);
+		runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		Assert.Throws<WorkflowException>(() => runner.Answer("r-000000000000", "approve", ""));
+		runner.Answer(run.Id, "approve", "");
 		Assert.Equal("do b", _port.Kickoffs[^1]);
 		runner.Cancel(run.Id);
-		Assert.Throws<WorkflowException>(() => runner.CompleteStage(Json("{}")));
+		Assert.Throws<WorkflowException>(() => runner.CompleteStage(Json("{}"), "s"));
 		Assert.Equal("", runner.StageBlock());
 	}
 
@@ -82,10 +86,10 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	public async Task DecisionAnswerAdvancesTheRun() {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
-		runner.CompleteStage(Json("""{"note":"n"}"""));
-		runner.Approve(run.Id);
+		runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		runner.Answer(run.Id, "approve", "");
 		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-		runner.CompleteStage(Json("{}"));
+		runner.CompleteStage(Json("{}"), "s");
 		Assert.Equal(WorkflowPhase.Deciding, runner.Current!.Phase);
 		_decider.Next.SetResult(WorkflowDecisionResult.Chose("no"));
 		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Done);
@@ -95,11 +99,11 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	public async Task LateDecisionAfterJumpIsDropped() {
 		using var runner = Runner();
 		var run = runner.Start("flow", Json("{}"));
-		runner.CompleteStage(Json("""{"note":"n"}"""));
-		runner.Approve(run.Id);
+		runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		runner.Answer(run.Id, "approve", "");
 		var late = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_decider.Next = late;
-		runner.CompleteStage(Json("{}"));
+		runner.CompleteStage(Json("{}"), "s");
 		runner.Jump(run.Id, "b");
 		late.SetResult(WorkflowDecisionResult.Chose("yes"));
 		await Task.Delay(100);
@@ -168,17 +172,27 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		var run = runner.Start("flow", Json("{}"));
 		runner.Dispose();
 		Assert.False(runner.TryClaimKickoff(WorkflowKickoff.Prompt("do a")));
-		Assert.Throws<WorkflowException>(() => runner.CompleteStage(Json("""{"note":"n"}""")));
+		Assert.Throws<WorkflowException>(() => runner.CompleteStage(Json("""{"note":"n"}"""), "s"));
 		Assert.Throws<WorkflowException>(() => runner.Cancel(run.Id));
 		Assert.Throws<WorkflowException>(() => runner.Start("flow", Json("{}")));
 		Assert.Equal(WorkflowPhase.Open, runner.Current!.Phase);
 	}
 
 	[Fact]
+	public void SummaryCarriesTheQuestionAwaitingTheUserAndWhyTheModelHandedItOver() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}")) with {
+			Phase = WorkflowPhase.Asking,
+			Asked = new WorkflowAsked { Question = "ship it?", Choices = ["yes", "no"], Reason = "the decision model was unsure" },
+		};
+		Assert.Equal("ship it? (the decision model was unsure)", WorkflowRunSummary.From(run, SessionStatus.Idle)!.Reason);
+	}
+
+	[Fact]
 	public void SessionRegistryRoutesToItsRunnerAndErrorsWithoutARun() {
 		using var runner = Runner();
 		var registry = new SessionWorkflowRegistry(new WorkflowCatalog(_dir.Combine("worktree"), _dir.Combine("personal")), runner);
-		Assert.Throws<WorkflowException>(() => registry.CompleteStage(Json("{}")));
+		Assert.Throws<WorkflowException>(() => registry.CompleteStage(Json("{}"), "s"));
 		runner.Start("flow", Json("{}"));
 		registry.FailStage("stuck");
 		Assert.Equal(WorkflowPhase.Paused, runner.Current!.Phase);
@@ -191,19 +205,22 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	[InlineData(WorkflowPhase.Open, SessionStatus.NeedsInput, WorkflowRunState.WaitingOnYou)]
 	[InlineData(WorkflowPhase.Open, SessionStatus.Waiting, WorkflowRunState.Watching)]
 	[InlineData(WorkflowPhase.Open, SessionStatus.Error, WorkflowRunState.Stalled)]
-	[InlineData(WorkflowPhase.AwaitingApproval, SessionStatus.Idle, WorkflowRunState.Approval)]
+	[InlineData(WorkflowPhase.Asking, SessionStatus.Idle, WorkflowRunState.NeedsAnswer)]
 	[InlineData(WorkflowPhase.Deciding, SessionStatus.Idle, WorkflowRunState.Deciding)]
 	[InlineData(WorkflowPhase.Paused, SessionStatus.Working, WorkflowRunState.Paused)]
 	public void SummaryCombinesPhaseAndSessionStatus(WorkflowPhase phase, SessionStatus status, WorkflowRunState state) {
 		using var runner = Runner();
-		var run = runner.Start("flow", Json("{}")) with { Phase = phase };
+		var run = runner.Start("flow", Json("{}")) with {
+			Phase = phase,
+			Asked = new WorkflowAsked { Question = "q", Choices = ["a", "b"], Reason = "" },
+		};
 		Assert.Equal(state, WorkflowRunSummary.From(run, status)!.State);
 		Assert.Null(WorkflowRunSummary.From(run with { Phase = WorkflowPhase.Done }, status));
 	}
 
 	[Fact]
 	public void DecisionAnswersOutsideTheChoicesFail() {
-		var request = new WorkflowDecisionRequest { Question = "q", Choices = ["yes", "no"], Outputs = new Dictionary<string, string>() };
+		var request = new WorkflowDecisionRequest { Question = "q", Choices = ["yes", "no"], Outputs = new Dictionary<string, string>(), Summary = "" };
 		Assert.Equal("yes", WorkflowDecision.Interpret(request, "yes").Choice);
 		Assert.Equal(WorkflowDecision.Unsure, WorkflowDecision.Interpret(request, "unsure").Choice);
 		Assert.Contains("isn't one of yes, no", WorkflowDecision.Interpret(request, "maybe").Failure);

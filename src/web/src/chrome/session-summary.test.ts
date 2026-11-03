@@ -43,7 +43,7 @@ describe("sessionGroup", () => {
     expect(sessionGroup(session({ loaded: false, status: "needsInput" }))).toBe("parked");
   });
 
-  it("puts a run awaiting approval or paused under Needs you, but not an agent waiting for a reply", () => {
+  it("puts a run awaiting an answer or paused under Needs you, but not an agent waiting for a reply", () => {
     const run = (state: SessionRun["state"]): SessionRun => ({
       id: "r",
       workflow: "quick-fix",
@@ -51,11 +51,11 @@ describe("sessionGroup", () => {
       state,
       reason: "",
     });
-    expect(sessionGroup(session({ run: run("approval") }))).toBe("needs");
+    expect(sessionGroup(session({ run: run("needsAnswer") }))).toBe("needs");
     expect(sessionGroup(session({ run: run("paused") }))).toBe("needs");
     expect(sessionGroup(session({ run: run("waitingOnYou") }))).toBe("idle");
     expect(sessionGroup(session({ status: "working", run: run("working") }))).toBe("working");
-    expect(sessionGroup(session({ loaded: false, run: run("approval") }))).toBe("parked");
+    expect(sessionGroup(session({ loaded: false, run: run("needsAnswer") }))).toBe("parked");
   });
 });
 
@@ -112,8 +112,8 @@ describe("sessionSubtitle", () => {
       sessionSubtitle(session({ status: "working", activity: "running pnpm test", run }), NOW),
     ).toBe("implement · running pnpm test");
     expect(sessionSubtitle(session({ status: "working", run }), NOW)).toBe("implement · working");
-    expect(sessionSubtitle(session({ run: { ...run, state: "approval" } }), NOW)).toBe(
-      "implement · approval needs you",
+    expect(sessionSubtitle(session({ run: { ...run, state: "needsAnswer" } }), NOW)).toBe(
+      "implement · needs your answer",
     );
     expect(sessionSubtitle(session({ loaded: false, run }), NOW)).toBe("not loaded");
   });

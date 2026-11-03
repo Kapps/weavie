@@ -63,19 +63,13 @@ public sealed record WorkflowStage {
 	public required string Id { get; init; }
 
 	/// <summary>A yes/no question whose no skips the stage, or <see langword="null"/> to always run.</summary>
-	public required WorkflowTemplate? When { get; init; }
+	public required WorkflowQuestion? If { get; init; }
 
-	/// <summary>Where a skipped stage jumps, or <see langword="null"/> for the following stage.</summary>
-	public required string? Else { get; init; }
-
-	/// <summary>The work step.</summary>
-	public required WorkflowWork Do { get; init; }
-
-	/// <summary>Whether the user approves before the run advances.</summary>
-	public required bool Gate { get; init; }
+	/// <summary>The work.</summary>
+	public required WorkflowWork Run { get; init; }
 
 	/// <summary>What follows this stage.</summary>
-	public required WorkflowNext Next { get; init; }
+	public required WorkflowThen Then { get; init; }
 }
 
 /// <summary>A stage's work: a prompt, or a skill run as its slash command.</summary>
@@ -93,16 +87,34 @@ public sealed record WorkflowWork {
 	public required IReadOnlyList<WorkflowOutputSpec> Outputs { get; init; }
 }
 
+/// <summary>Who answers a decision.</summary>
+public enum WorkflowAnswerer {
+	/// <summary>A tool-less decision model; an unsure or failed answer goes to the user.</summary>
+	Model,
+
+	/// <summary>The user, through the agent.</summary>
+	User,
+}
+
+/// <summary>A question whose answer is one of its choices; for <c>if</c> the choices are yes and no.</summary>
+public sealed record WorkflowQuestion {
+	/// <summary>The question; may reference values.</summary>
+	public required WorkflowTemplate Ask { get; init; }
+
+	/// <summary>Who answers it.</summary>
+	public required WorkflowAnswerer By { get; init; }
+}
+
 /// <summary>What follows a stage.</summary>
-public abstract record WorkflowNext {
+public abstract record WorkflowThen {
 	/// <summary>The following stage in file order (done after the last).</summary>
-	public sealed record Sequential : WorkflowNext;
+	public sealed record Sequential : WorkflowThen;
 
 	/// <summary>A fixed stage id, or <see cref="WorkflowSchema.Done"/>.</summary>
-	public sealed record Goto(string Target) : WorkflowNext;
+	public sealed record Goto(string Target) : WorkflowThen;
 
-	/// <summary>A decision whose answer names the next stage.</summary>
-	public sealed record Choose(WorkflowTemplate Prompt, IReadOnlyList<WorkflowChoice> Choices, int? Max) : WorkflowNext;
+	/// <summary>A decision whose answer names the next stage; <paramref name="Limit"/> caps an answer chosen in a row.</summary>
+	public sealed record Decide(WorkflowQuestion Question, IReadOnlyList<WorkflowChoice> Choices, int? Limit) : WorkflowThen;
 }
 
 /// <summary>One answer of a decision and where it leads.</summary>

@@ -15,9 +15,16 @@ public sealed record WorkflowDiagnostic {
 	/// <summary>What is wrong.</summary>
 	public required string Message { get; init; }
 
+	/// <summary>Whether the problem is advice: a warning never makes the file invalid.</summary>
+	public required bool IsWarning { get; init; }
+
+	/// <summary>A problem that makes the file invalid.</summary>
+	public static WorkflowDiagnostic Error(string path, WorkflowPosition position, string message) =>
+		new() { Path = path, Position = position, Message = message, IsWarning = false };
+
 	/// <inheritdoc/>
 	public override string ToString() =>
-		$"{Message}{(Path.Length == 0 ? "" : $" at {Path}")} (line {Position.Line}, column {Position.Column})";
+		$"{(IsWarning ? "warning: " : "")}{Message}{(Path.Length == 0 ? "" : $" at {Path}")} (line {Position.Line}, column {Position.Column})";
 }
 
 /// <summary>Collects diagnostics against one document's positions.</summary>
@@ -26,8 +33,12 @@ internal sealed class WorkflowCheck(IReadOnlyDictionary<string, WorkflowPosition
 
 	public IReadOnlyList<WorkflowDiagnostic> Diagnostics => _diagnostics;
 
-	public void Add(string path, string message) =>
-		_diagnostics.Add(new WorkflowDiagnostic { Path = path, Position = Locate(path), Message = message });
+	public bool HasErrors => _diagnostics.Any(d => !d.IsWarning);
+
+	public void Add(string path, string message) => _diagnostics.Add(WorkflowDiagnostic.Error(path, Locate(path), message));
+
+	public void Warn(string path, string message) =>
+		_diagnostics.Add(new WorkflowDiagnostic { Path = path, Position = Locate(path), Message = message, IsWarning = true });
 
 	private WorkflowPosition Locate(string path) {
 		for (string p = path; ; p = Parent(p)) {

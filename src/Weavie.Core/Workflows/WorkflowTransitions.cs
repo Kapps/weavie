@@ -20,18 +20,20 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 			Inputs = inputs,
 			Stage = definition.Stages[0].Id,
 			Phase = WorkflowPhase.Open,
-			Deciding = null,
+			Decision = null,
+			Asked = null,
 			Attempts = 0,
 			Outputs = [],
-			EdgeCounts = [],
+			Summary = "",
+			Streaks = [],
 			PausedReason = null,
 			Kickoff = null,
 		};
-		return Enter(run, definition.Stages[0].Id);
+		return Enter(run, definition.Stages[0].Id, "");
 	}
 
-	/// <summary>The agent reports the current stage done with <paramref name="outputs"/>.</summary>
-	public WorkflowCompletion Complete(WorkflowRun run, JsonElement outputs) {
+	/// <summary>The agent reports the current stage done with <paramref name="outputs"/> and a <paramref name="summary"/>.</summary>
+	public WorkflowCompletion Complete(WorkflowRun run, JsonElement outputs, string summary) {
 		Require(run, WorkflowPhase.Open, "complete");
 		var stage = StageOf(run.Stage);
 		var errors = new List<string>();
@@ -45,14 +47,11 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 
 		run = run with {
 			Outputs = new(run.Outputs) { [stage.Id] = values },
+			Summary = summary,
 			Attempts = 0,
 			Kickoff = null,
 		};
-		return new WorkflowCompletion(stage.Gate
-			? new WorkflowStep(
-				run with { Phase = WorkflowPhase.AwaitingApproval },
-				[new WorkflowEffect.Notify($"Stage \"{stage.Id}\" of {definition.Id} is waiting for your approval.")])
-			: Advance(run, stage), []);
+		return new WorkflowCompletion(Advance(run, stage), []);
 	}
 
 	/// <summary>The agent can't finish the current stage.</summary>
@@ -61,48 +60,46 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 		return Pause(run with { Kickoff = null }, $"The agent couldn't finish stage \"{run.Stage}\": {reason}");
 	}
 
-	/// <summary>The user approves the stage awaiting approval.</summary>
-	public WorkflowStep Approve(WorkflowRun run) {
-		Require(run, WorkflowPhase.AwaitingApproval, "approve");
-		return Advance(run, StageOf(run.Stage));
+	/// <summary>The user answers the question the run is asking, with <paramref name="feedback"/> (empty for none).</summary>
+	public WorkflowStep Answer(WorkflowRun run, string choice, string feedback) {
+		Require(run, WorkflowPhase.Asking, "answer");
+		if (!run.Asked!.Choices.Contains(choice)) {
+			throw new WorkflowException($"\"{choice}\" isn't an answer to this question; answer one of {string.Join(", ", run.Asked.Choices)}.");
+		}
+
+		var streaks = new Dictionary<string, WorkflowStreak>(run.Streaks);
+		streaks.Remove(run.Stage);
+		return Route(run with { Streaks = streaks }, choice, $"The user answered \"{choice}\"", feedback);
 	}
 
-	/// <summary>The user rejects the stage awaiting approval; the stage reopens with their feedback.</summary>
-	public WorkflowStep Reject(WorkflowRun run, string feedback) {
-		Require(run, WorkflowPhase.AwaitingApproval, "reject");
-		var kickoff = WorkflowKickoff.Prompt($"I didn't approve stage \"{run.Stage}\" yet: {feedback}\n\nRevise the work, then call completeStage again.");
-		return new WorkflowStep(run with { Phase = WorkflowPhase.Open, Attempts = 0, Kickoff = kickoff }, [new WorkflowEffect.Kickoff(kickoff)]);
-	}
-
-	/// <summary>A decision answered (or failed).</summary>
+	/// <summary>The model's answer to the decision in flight (or why there is none).</summary>
 	public WorkflowStep Resolve(WorkflowRun run, WorkflowDecisionResult result) {
 		Require(run, WorkflowPhase.Deciding, "resolve a decision for");
-		var stage = StageOf(run.Stage);
-		var choices = run.Deciding == WorkflowDecisionKind.When
-			? [new WorkflowChoice(Yes, stage.Id), new WorkflowChoice(No, stage.Else ?? Following(stage))]
-			: ((WorkflowNext.Choose)stage.Next).Choices;
+		var choices = run.Asked?.Choices ?? [];
 		if (result.Choice is not { } choice) {
-			return Pause(run, $"Couldn't decide what follows stage \"{stage.Id}\": {result.Failure}");
+			return AskUser(run, $"the decision model failed ({result.Failure})");
 		}
 
 		if (choice == WorkflowDecision.Unsure) {
-			return Pause(run, $"The decision model was unsure at stage \"{stage.Id}\". Resume to ask again, or jump to the stage you want.");
+			return AskUser(run, "the decision model was unsure");
 		}
 
-		if (choices.FirstOrDefault(c => c.Name == choice) is not { } chosen) {
-			return Pause(run, $"The decision at stage \"{stage.Id}\" answered \"{choice}\", which isn't one of its choices.");
+		if (!choices.Contains(choice)) {
+			return AskUser(run, $"the decision model answered \"{choice}\", which isn't one of the choices");
 		}
 
-		if (run.Deciding == WorkflowDecisionKind.When) {
-			return choice == Yes ? Open(run with { Deciding = null }, stage) : Enter(run, chosen.Target);
+		if (run.Decision == WorkflowDecisionKind.Then) {
+			var decide = (WorkflowThen.Decide)StageOf(run.Stage).Then;
+			var streak = run.Streaks.GetValueOrDefault(run.Stage);
+			int count = streak?.Choice == choice ? streak.Count + 1 : 1;
+			if (decide.Limit is { } limit && count > limit) {
+				return AskUser(run, $"the decision model chose \"{choice}\" {limit} times in a row, the limit");
+			}
+
+			run = run with { Streaks = new(run.Streaks) { [run.Stage] = new WorkflowStreak(choice, count) } };
 		}
 
-		string edge = $"{stage.Id}→{chosen.Target}";
-		int count = run.EdgeCounts.GetValueOrDefault(edge) + 1;
-		run = run with { EdgeCounts = new(run.EdgeCounts) { [edge] = count } };
-		return ((WorkflowNext.Choose)stage.Next).Max is { } max && count > max
-			? Pause(run, $"Stage \"{stage.Id}\" chose \"{chosen.Target}\" more than its limit of {max}. Resume to continue anyway, or jump to a stage.")
-			: Enter(run, chosen.Target);
+		return Route(run, choice, $"Weavie decided \"{choice}\"", "");
 	}
 
 	/// <summary>The user resumes a paused run: a paused decision is asked again, otherwise the stage restarts.</summary>
@@ -110,20 +107,20 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 		Require(run, WorkflowPhase.Paused, "resume");
 		var stage = StageOf(run.Stage);
 		run = run with { PausedReason = null, Attempts = 0 };
-		return run.Deciding switch {
-			WorkflowDecisionKind.When => Enter(run, stage.Id),
-			WorkflowDecisionKind.Next => Advance(run with { EdgeCounts = [] }, stage),
-			_ => Open(run, stage),
+		return run.Decision switch {
+			WorkflowDecisionKind.If => Enter(run, stage.Id, ""),
+			WorkflowDecisionKind.Then => Advance(run, stage),
+			_ => Open(run, stage, ""),
 		};
 	}
 
-	/// <summary>The user moves the run to <paramref name="stageId"/>, which opens regardless of its <c>when</c>.</summary>
+	/// <summary>The user moves the run to <paramref name="stageId"/>, which opens regardless of its <c>if</c>.</summary>
 	public WorkflowStep Jump(WorkflowRun run, string stageId) {
 		if (run.IsFinished) {
 			throw new WorkflowException($"Run {run.Id} has ended.");
 		}
 
-		return Open(run with { PausedReason = null }, StageOf(stageId));
+		return Open(run with { PausedReason = null }, StageOf(stageId), "");
 	}
 
 	/// <summary>The user cancels the run.</summary>
@@ -132,11 +129,33 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 			throw new WorkflowException($"Run {run.Id} has ended.");
 		}
 
-		return new WorkflowStep(run with { Phase = WorkflowPhase.Cancelled, Deciding = null, Kickoff = null }, []);
+		return new WorkflowStep(run with { Phase = WorkflowPhase.Cancelled, Decision = null, Asked = null, Kickoff = null }, []);
 	}
 
-	private WorkflowStep Enter(WorkflowRun run, string target) {
-		run = run with { Deciding = null, PausedReason = null, Attempts = 0, Kickoff = null };
+	// Where an answer leads. Back to the current stage reopens it with a short turn; anywhere else enters that stage.
+	private WorkflowStep Route(WorkflowRun run, string choice, string answered, string feedback) {
+		var stage = StageOf(run.Stage);
+		string note = feedback.Length == 0 ? "" : $"{answered}: {feedback}";
+		if (run.Decision == WorkflowDecisionKind.If) {
+			return choice == Yes ? Open(run, stage, note) : Enter(run, Following(stage), note);
+		}
+
+		string target = ((WorkflowThen.Decide)stage.Then).Choices.First(c => c.Name == choice).Target;
+		if (target != stage.Id) {
+			return Enter(run, target, note);
+		}
+
+		var kickoff = WorkflowKickoff.Prompt(
+			$"{answered} to \"{run.Asked?.Question ?? ""}\", so stage \"{stage.Id}\" continues."
+			+ (feedback.Length == 0 ? "" : $" Their feedback: {feedback}")
+			+ " Revise the work accordingly, then call completeStage again.");
+		return new WorkflowStep(
+			run with { Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Kickoff = kickoff },
+			[new WorkflowEffect.Kickoff(kickoff)]);
+	}
+
+	private WorkflowStep Enter(WorkflowRun run, string target, string note) {
+		run = run with { Decision = null, Asked = null, PausedReason = null, Attempts = 0, Kickoff = null };
 		if (target == WorkflowSchema.Done) {
 			return new WorkflowStep(
 				run with { Phase = WorkflowPhase.Done },
@@ -145,49 +164,66 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 
 		var stage = StageOf(target);
 		run = run with { Stage = stage.Id };
-		if (stage.When is not { } when) {
-			return Open(run, stage);
-		}
-
-		return Decide(run, WorkflowDecisionKind.When, when, [Yes, No], new Dictionary<string, string>());
+		return stage.If is { } condition
+			? Ask(run, WorkflowDecisionKind.If, condition, [Yes, No], new Dictionary<string, string>())
+			: Open(run, stage, note);
 	}
 
-	private WorkflowStep Advance(WorkflowRun run, WorkflowStage stage) => stage.Next switch {
-		WorkflowNext.Goto go => Enter(run, go.Target),
-		WorkflowNext.Choose choose => Decide(
-			run, WorkflowDecisionKind.Next, choose.Prompt, [.. choose.Choices.Select(c => c.Name)],
+	private WorkflowStep Advance(WorkflowRun run, WorkflowStage stage) => stage.Then switch {
+		WorkflowThen.Goto go => Enter(run, go.Target, ""),
+		WorkflowThen.Decide decide => Ask(
+			run, WorkflowDecisionKind.Then, decide.Question, [.. decide.Choices.Select(c => c.Name)],
 			run.Outputs.GetValueOrDefault(stage.Id, []).ToDictionary(o => o.Key, o => o.Value.Render())),
-		_ => Enter(run, Following(stage)),
+		_ => Enter(run, Following(stage), ""),
 	};
 
-	private WorkflowStep Open(WorkflowRun run, WorkflowStage stage) {
-		if (!TryRender(run, stage.Do.Prompt ?? stage.Do.Args, out string rendered, out string missing)) {
+	private WorkflowStep Open(WorkflowRun run, WorkflowStage stage, string note) {
+		if (!TryRender(run, stage.Run.Prompt ?? stage.Run.Args, out string rendered, out string missing)) {
 			return Pause(run with { Stage = stage.Id }, missing);
 		}
 
-		var kickoff = stage.Do.Skill is { } skill
-			? new WorkflowKickoff { Text = $"/{skill} {rendered}".TrimEnd(), Command = skill }
-			: WorkflowKickoff.Prompt(rendered);
+		var kickoff = stage.Run.Skill is { } skill
+			? new WorkflowKickoff { Text = $"/{skill} {Join(rendered, note)}".TrimEnd(), Command = skill }
+			: WorkflowKickoff.Prompt(Join(note, rendered));
 		return new WorkflowStep(
-			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Deciding = null, Attempts = 0, Kickoff = kickoff },
+			run with { Stage = stage.Id, Phase = WorkflowPhase.Open, Decision = null, Asked = null, Attempts = 0, Kickoff = kickoff },
 			[new WorkflowEffect.Kickoff(kickoff)]);
 	}
 
-	private WorkflowStep Decide(
-		WorkflowRun run, WorkflowDecisionKind kind, WorkflowTemplate question, IReadOnlyList<string> choices,
+	private WorkflowStep Ask(
+		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<string> choices,
 		IReadOnlyDictionary<string, string> outputs) {
-		if (!TryRender(run, question, out string rendered, out string missing)) {
-			return Pause(run, missing);
+		if (!TryRender(run, question.Ask, out string rendered, out string missing)) {
+			return Pause(run with { Decision = kind }, missing);
+		}
+
+		run = run with { Decision = kind };
+		if (question.By == WorkflowAnswerer.User) {
+			return AskUser(run with { Asked = new WorkflowAsked { Question = rendered, Choices = choices, Reason = "" } }, "");
 		}
 
 		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Deciding, Deciding = kind },
-			[new WorkflowEffect.Decide(new WorkflowDecisionRequest { Question = rendered, Choices = choices, Outputs = outputs })]);
+			run with { Phase = WorkflowPhase.Deciding, Asked = new WorkflowAsked { Question = rendered, Choices = choices, Reason = "" } },
+			[new WorkflowEffect.Decide(new WorkflowDecisionRequest {
+				Question = rendered, Choices = choices, Outputs = outputs, Summary = run.Summary,
+			})]);
+	}
+
+	// Puts the run's current question to the user; a non-empty reason says why the model didn't answer it.
+	private static WorkflowStep AskUser(WorkflowRun run, string reason) {
+		var asked = run.Asked! with { Reason = reason };
+		return new WorkflowStep(
+			run with { Phase = WorkflowPhase.Asking, Asked = asked, Kickoff = null },
+			[new WorkflowEffect.Notify($"Workflow {run.WorkflowId} needs your answer at stage \"{run.Stage}\": {asked.Question}"
+				+ (reason.Length == 0 ? "" : $" ({reason})"))]);
 	}
 
 	private static WorkflowStep Pause(WorkflowRun run, string reason) => new(
 		run with { Phase = WorkflowPhase.Paused, PausedReason = reason, Kickoff = null },
 		[new WorkflowEffect.Notify($"Workflow {run.WorkflowId} paused: {reason}")]);
+
+	private static string Join(string first, string second) =>
+		first.Length == 0 ? second : second.Length == 0 ? first : $"{first}\n\n{second}";
 
 	private static void Require(WorkflowRun run, WorkflowPhase phase, string action) {
 		if (run.Phase != phase) {
@@ -197,8 +233,8 @@ public sealed partial class WorkflowTransitions(WorkflowDefinition definition, i
 
 	private static string Describe(WorkflowPhase phase) => phase switch {
 		WorkflowPhase.Open => "open",
-		WorkflowPhase.AwaitingApproval => "awaiting approval",
 		WorkflowPhase.Deciding => "deciding what comes next",
+		WorkflowPhase.Asking => "waiting for the user's answer",
 		WorkflowPhase.Paused => "paused",
 		WorkflowPhase.Done => "done",
 		_ => "cancelled",

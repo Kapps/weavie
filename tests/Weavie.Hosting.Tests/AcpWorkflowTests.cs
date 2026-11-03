@@ -11,8 +11,8 @@ public sealed class AcpWorkflowTests {
 		description: one stage the fake agent completes itself
 		stages:
 		  - id: build
-		    do:
-		      prompt: 'mcp:completeStage:{"outputs":{"pr":"https://example.test/pull/7"}}'
+		    run:
+		      prompt: 'mcp:completeStage:{"outputs":{"pr":"https://example.test/pull/7"},"summary":"opened the PR"}'
 		      outputs: { pr: pr }
 		""";
 
@@ -50,7 +50,7 @@ public sealed class AcpWorkflowTests {
 			description: one skill stage
 			stages:
 			  - id: review
-			    do: { skill: review, args: the diff }
+			    run: { skill: review, args: the diff }
 			""");
 		await fixture.StartAsync();
 

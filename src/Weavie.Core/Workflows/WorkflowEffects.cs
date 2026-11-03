@@ -26,8 +26,11 @@ public sealed record WorkflowDecisionRequest {
 	/// <summary>The allowed answers, without the implicit <see cref="WorkflowDecision.Unsure"/>.</summary>
 	public required IReadOnlyList<string> Choices { get; init; }
 
-	/// <summary>The outputs of the stage the decision follows, rendered; empty for a <c>when</c>.</summary>
+	/// <summary>The outputs of the stage the decision follows, rendered; empty for an <c>if</c>.</summary>
 	public required IReadOnlyDictionary<string, string> Outputs { get; init; }
+
+	/// <summary>The summary the agent gave when it last completed a stage, or empty.</summary>
+	public required string Summary { get; init; }
 }
 
 /// <summary>A decision's answer, or why there is none.</summary>

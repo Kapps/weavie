@@ -11,8 +11,8 @@ public interface IWorkflowRegistry {
 	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
 	IReadOnlyList<WorkflowDiagnostic> Validate(string path);
 
-	/// <summary>Completes the session's open stage with <paramref name="outputs"/>; returns the reply for the agent.</summary>
-	string CompleteStage(JsonElement outputs);
+	/// <summary>Completes the session's open stage with <paramref name="outputs"/> and a <paramref name="summary"/>; returns the reply for the agent.</summary>
+	string CompleteStage(JsonElement outputs, string summary);
 
 	/// <summary>Reports that the agent can't finish the session's open stage.</summary>
 	void FailStage(string reason);
@@ -28,7 +28,7 @@ public static class WorkflowRegistry {
 
 		public IReadOnlyList<WorkflowDiagnostic> Validate(string path) => throw Error();
 
-		public string CompleteStage(JsonElement outputs) => throw Error();
+		public string CompleteStage(JsonElement outputs, string summary) => throw Error();
 
 		public void FailStage(string reason) => throw Error();
 
@@ -45,7 +45,7 @@ public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRun
 	public IReadOnlyList<WorkflowDiagnostic> Validate(string path) => catalog.Validate(path);
 
 	/// <inheritdoc/>
-	public string CompleteStage(JsonElement outputs) => runner.CompleteStage(outputs);
+	public string CompleteStage(JsonElement outputs, string summary) => runner.CompleteStage(outputs, summary);
 
 	/// <inheritdoc/>
 	public void FailStage(string reason) => runner.FailStage(reason);

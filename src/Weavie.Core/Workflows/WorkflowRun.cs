@@ -47,9 +47,6 @@ public sealed record WorkflowAsked {
 	public required string Reason { get; init; }
 }
 
-/// <summary>The answer a <c>then</c> decision's model last gave, and how many times in a row.</summary>
-public sealed record WorkflowStreak(string Choice, int Count);
-
 /// <summary>One execution of a workflow, owned by a session and persisted with it.</summary>
 public sealed record WorkflowRun {
 	/// <summary>The run's id (<c>r-</c> plus 12 hex digits).</summary>
@@ -88,8 +85,14 @@ public sealed record WorkflowRun {
 	/// <summary>The summary the agent gave when it last completed a stage; decisions read it.</summary>
 	public required string Summary { get; init; }
 
-	/// <summary>Each <c>then</c> decision's latest model answer and its run, by stage id; a user's answer clears it.</summary>
-	public required Dictionary<string, WorkflowStreak> Streaks { get; init; }
+	/// <summary>
+	/// The model's consecutive answers to a <c>then</c> decision, by stage id; any user answer or another stage's
+	/// <c>then</c> decision starts the count over.
+	/// </summary>
+	public required Dictionary<string, int> Streaks { get; init; }
+
+	/// <summary>Feedback from the user's last answer, owed to the next stage that opens; empty when none.</summary>
+	public required string Note { get; init; }
 
 	/// <summary>Why a paused run stopped; otherwise <see langword="null"/>.</summary>
 	public required string? PausedReason { get; init; }

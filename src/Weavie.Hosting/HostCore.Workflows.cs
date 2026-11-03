@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.Json;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
@@ -19,7 +20,7 @@ public sealed partial class HostCore {
 			return $"Started run {run.Id} of workflow {run.WorkflowId} at stage {run.Stage}.";
 		}, argsJson));
 		RegisterRunCommand(session, CoreCommands.WorkflowAnswer,
-			(run, args) => runner.Answer(run, Required(args, "choice"), Optional(args, "feedback")), "Answered; the run continues.");
+			(run, args) => runner.Answer(run, Required(args, "choice"), args.GetStringOrEmpty("feedback")), "Answered; the run continues.");
 		RegisterRunCommand(session, CoreCommands.WorkflowResume, (run, _) => runner.Resume(run), "Resumed the run.");
 		RegisterRunCommand(session, CoreCommands.WorkflowJumpToStage,
 			(run, args) => runner.Jump(run, Required(args, "stage")), "Moved the run.");
@@ -57,11 +58,6 @@ public sealed partial class HostCore {
 			&& value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
 			? text
 			: throw new WorkflowException($"'{name}' is required.");
-
-	private static string Optional(JsonElement args, string name) =>
-		args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-			? value.GetString()!
-			: "";
 
 	// Resolved once, from where the user started the session, before any worktree exists: an unknown workflow or bad
 	// inputs must not leave a session behind, and the new session runs exactly what was checked.

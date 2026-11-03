@@ -80,6 +80,7 @@ public sealed class WorkflowReaderTests {
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: b }]", "\"b\" is neither a stage id nor done")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done } } }]", "at least two choices")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, unsure: a } } }]", "reserved")]
+	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, no: a }, limit: 2 } }]", "limit applies only to decisions the model answers")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.missing}}\" } }]", "names no declared input")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{a.out}}\" } }]", "names no output declared")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{ oops }}\" } }]", "must be {{inputs.<name>}}")]
@@ -99,6 +100,14 @@ public sealed class WorkflowReaderTests {
 		Assert.Equal(["stages[0].if", "stages[0].then.ask"], result.Diagnostics.Select(d => d.Path));
 		Assert.All(result.Diagnostics, d => Assert.True(d.IsWarning));
 		Assert.StartsWith("warning: the model answering this has no tools", result.Diagnostics[0].ToString(), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void AThenDecisionAfterAStageWithOutputsIsNotWarned() {
+		var result = WorkflowReader.Read(
+			"id: x\ndescription: d\nstages: [{ id: a, run: { prompt: p, outputs: { left: list } }, then: { ask: \"done?\", choices: { yes: done, no: a } } }]", "x");
+		Assert.NotNull(result.Definition);
+		Assert.Empty(result.Diagnostics);
 	}
 
 	[Fact]

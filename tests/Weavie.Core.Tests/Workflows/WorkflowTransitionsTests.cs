@@ -115,17 +115,17 @@ public sealed class WorkflowTransitionsTests {
 	}
 
 	[Fact]
-	public void ALimitCountsTheSameAnswerInARowThenAsksTheUserWhoseAnswerResetsIt() {
+	public void ALimitCountsTheModelsAnswersInARowThenAsksTheUserWhoseAnswerResetsIt() {
 		var deciding = Complete(OpenBuild().Run, "{}").Step;
 		var fix = Machine.Resolve(deciding.Run, WorkflowDecisionResult.Chose("yes"));
-		Assert.Equal(("fix", new WorkflowStreak("yes", 1)), (fix.Run.Stage, fix.Run.Streaks["build"]));
+		Assert.Equal(("fix", 1), (fix.Run.Stage, fix.Run.Streaks["build"]));
 		var again = Complete(Complete(fix.Run, "{}").Step.Run, "{}").Step;
 		var capped = Machine.Resolve(again.Run, WorkflowDecisionResult.Chose("yes"));
 		Assert.Equal(WorkflowPhase.Asking, capped.Run.Phase);
 		Assert.Contains("1 times in a row", Asked(capped).Reason);
 		var answered = Machine.Answer(capped.Run, "yes", "");
 		Assert.Equal("fix", answered.Run.Stage);
-		Assert.False(answered.Run.Streaks.ContainsKey("build"));
+		Assert.Empty(answered.Run.Streaks);
 		var next = Complete(Complete(answered.Run, "{}").Step.Run, "{}").Step;
 		Assert.Equal("fix", Machine.Resolve(next.Run, WorkflowDecisionResult.Chose("yes")).Run.Stage);
 	}

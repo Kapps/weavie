@@ -31,7 +31,7 @@ internal static class WorkflowSemantics {
 		}
 
 		if (stage.If is { } condition) {
-			CheckQuestion(definition, condition, $"{path}.if", check);
+			CheckQuestion(definition, condition, $"{path}.if", seesOutputs: false, check);
 		}
 
 		switch (stage.Then) {
@@ -51,7 +51,11 @@ internal static class WorkflowSemantics {
 					CheckTarget(choice.Target, $"{path}.then.choices.{choice.Name}", stageIds, check);
 				}
 
-				CheckQuestion(definition, decide.Question, $"{path}.then.ask", check);
+				if (decide.Limit is not null && decide.Question.By == WorkflowAnswerer.User) {
+					check.Add($"{path}.then.limit", "limit applies only to decisions the model answers");
+				}
+
+				CheckQuestion(definition, decide.Question, $"{path}.then.ask", seesOutputs: work.Outputs.Count > 0, check);
 				break;
 		}
 
@@ -59,9 +63,11 @@ internal static class WorkflowSemantics {
 		CheckReferences(definition, work.Args, $"{path}.run.args", check);
 	}
 
-	private static void CheckQuestion(WorkflowDefinition definition, WorkflowQuestion question, string path, WorkflowCheck check) {
+	// A model answering with no references and no stage outputs to read can only judge the question's own text.
+	private static void CheckQuestion(
+		WorkflowDefinition definition, WorkflowQuestion question, string path, bool seesOutputs, WorkflowCheck check) {
 		CheckReferences(definition, question.Ask, path, check);
-		if (question.By == WorkflowAnswerer.Model && !question.Ask.References.Any()) {
+		if (question.By == WorkflowAnswerer.Model && !seesOutputs && !question.Ask.References.Any()) {
 			check.Warn(path, "the model answering this has no tools and sees only the question, the stage's outputs, and the "
 				+ "agent's summary; reference the values it needs with {{…}}");
 		}

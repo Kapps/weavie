@@ -134,8 +134,8 @@ Stages advance in order unless `then` says otherwise; a skipped stage falls thro
 | Field | Meaning |
 | --- | --- |
 | `ask` | the question; may reference values |
-| `choices` | each answer and the stage (or `done`) it leads to; an answer leading back to the current stage reopens it with a short turn carrying the answer and any feedback |
-| `limit` | how many times in a row the model may give the same answer before the user is asked instead. The count belongs to the decision and restarts whenever it gives a different answer or the user answers, so it caps one pass through a loop, not the whole run. |
+| `choices` | each answer and the stage (or `done`) it leads to; an answer leading back to the current stage reopens it with a short turn carrying the answer and any feedback. Feedback toward another stage travels with the run until a stage opens (a model `if` on the way sees it too); with no stage left it appears in the finished notice. |
+| `limit` | how many times in a row the model may answer this decision, whatever it answers, before the user is asked instead. The count restarts when the user answers any decision or another stage's `then` decision is answered, so it caps every loop through this decision (alternating answers included) without accumulating across separate passes. Model-answered decisions only; on `by: user` it is an error. |
 | `by` | `model` (default) or `user` |
 
 **Step**

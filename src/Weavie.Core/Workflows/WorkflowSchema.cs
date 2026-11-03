@@ -52,7 +52,7 @@ internal static partial class WorkflowSchema {
 				"Each answer and the stage id (or done) it leads to; an answer leading back to this stage reopens it with the user's feedback.",
 				IdPattern(), idHint, new TextShape("A stage id, or done.")), true),
 			new("limit", new IntShape(
-				"How many times in a row the model may choose the same answer before the user is asked instead.", 1), false),
+				"How many times in a row the model may answer this decision before the user is asked instead; model decisions only.", 1), false),
 			new("by", by, false),
 		]);
 		var stage = new ObjectShape("One stage of the run.", [

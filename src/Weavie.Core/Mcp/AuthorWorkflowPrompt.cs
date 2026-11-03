@@ -34,8 +34,8 @@ public static class AuthorWorkflowPrompt {
 			   commands, or see the conversation. So anything a decision depends on must be a stage output:
 			   shape outputs for the decisions that read them (a `remaining: list` the decision checks, not
 			   "read tasks.md"). When the model is unsure, Weavie asks the user instead.
-			8. Put `limit` on every decision that can loop back: how many times in a row the model may give the
-			   same answer before the user is asked.
+			8. Put `limit` on every model decision that can loop back: how many times in a row the model may
+			   answer it before the user is asked.
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or
 			   an output exists; stage order and fixed `then` targets handle those.
 			10. Declare `outputs` for anything a later stage needs, and reference it as `{{<stage>.<output>}}`;

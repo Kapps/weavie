@@ -97,7 +97,7 @@ export function AgentTranscriptViewport(props: {
     { flip: (index) => layout.flip(index), virtualIndexOf: (id) => layout.virtualIndexOf(id) },
   );
   props.onJumpToLatest(scroll.jumpToLatest);
-  const layout = createAgentPaneLayout(scroll.shown, () => virtualizer);
+  const layout = createAgentPaneLayout(scroll.shown, () => virtualizer, scroll.forgetMeasured);
   const virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
     get count() {
       return layout.count();
@@ -113,9 +113,12 @@ export function AgentTranscriptViewport(props: {
     initialMeasurementsCache: saved?.shown === scroll.shown() ? saved.measurements : [],
     initialOffset: saved?.offset ?? 0,
     // A row is measured by its resize observer, after layout; registering it keeps the size it has.
-    measureElement: (element, entry, instance) =>
-      entry?.borderBoxSize[0]?.blockSize ??
-      instance.measurementsCache[instance.indexFromElement(element)]!.size,
+    measureElement: (element, entry, instance) => {
+      if (entry === undefined)
+        return instance.measurementsCache[instance.indexFromElement(element)]!.size;
+      scroll.noteMeasured(element.dataset.transcriptEntry!);
+      return entry.borderBoxSize[0]!.blockSize;
+    },
     observeElementOffset: scroll.observeOffset,
     overscan: 4,
     scrollToFn: scroll.scrollTo,

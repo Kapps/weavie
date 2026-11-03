@@ -12,6 +12,7 @@ import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneT
 export function createAgentPaneLayout(
   shown: Accessor<AgentTranscriptSnapshot>,
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
+  onEstimated: (id: string) => void,
 ) {
   const layout = createMemo(() => {
     const { entries, pendingRowIndexes } = shown();
@@ -41,6 +42,7 @@ export function createAgentPaneLayout(
             old !== entry &&
             virtualizer().elementsCache.get(entry.id)?.isConnected !== true
           ) {
+            onEstimated(entry.id);
             virtualizer().resizeItem(row, estimateEntrySize(entry));
           }
         });
@@ -53,8 +55,10 @@ export function createAgentPaneLayout(
     count: () => layout().entries.length,
     entryAt: (virtualIndex: number): AgentTranscriptEntry | undefined =>
       layout().entries[flip(virtualIndex)],
-    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry =>
-      layout().entries[layout().indexes.get(String(key))!]!,
+    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry | undefined => {
+      const index = layout().indexes.get(String(key));
+      return index === undefined ? undefined : layout().entries[index];
+    },
     /** The virtual index of the row with `id`, if the shown transcript has it. */
     virtualIndexOf: (id: string): number | undefined => {
       const index = layout().indexes.get(id);

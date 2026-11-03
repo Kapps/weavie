@@ -9,7 +9,7 @@ import { TranscriptEntry } from "./AgentTranscriptEntry";
 export function AgentTranscript(props: {
   compact: boolean;
   entryAt: (virtualIndex: number) => AgentTranscriptEntry | undefined;
-  entryForKey: (key: VirtualItem["key"]) => AgentTranscriptEntry;
+  entryForKey: (key: VirtualItem["key"]) => AgentTranscriptEntry | undefined;
   expandedDetails: ReadonlySet<string>;
   keyboardRequestKey: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
@@ -49,7 +49,11 @@ export function AgentTranscript(props: {
       >
         <For each={[...rows().placed.keys()]}>
           {(key) => {
-            const entry = () => props.entryForKey(key);
+            // By identity, so a row's view updates only when its own entry changes; a removed row keeps its
+            // last entry until it unmounts.
+            const entry = createMemo<AgentTranscriptEntry>(
+              (last) => props.entryForKey(key) ?? last!,
+            );
             const row = () => rows().placed.get(key)!;
             const previous = () => props.entryAt(row().index + 1);
             let element: HTMLDivElement | undefined;

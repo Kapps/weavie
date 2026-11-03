@@ -12,6 +12,7 @@ describe("agent pane layout", () => {
         () => {
           throw new Error("No transcript change reaches the virtualizer here.");
         },
+        () => {},
       );
       expect(layout.count()).toBe(6);
       expect([0, 5].map(layout.flip)).toEqual([5, 0]);
@@ -19,7 +20,8 @@ describe("agent pane layout", () => {
       expect(layout.entryAt(5)?.id).toBe("a");
       expect(layout.entryAt(6)).toBeUndefined();
       expect(layout.itemKey()(0)).toBe("f");
-      expect(layout.entryForKey("b").id).toBe("b");
+      expect(layout.entryForKey("b")?.id).toBe("b");
+      expect(layout.entryForKey("missing")).toBeUndefined();
       expect(layout.virtualIndexOf("b")).toBe(4);
       expect(layout.virtualIndexOf("missing")).toBeUndefined();
 

@@ -9,7 +9,9 @@ export function createReadingAnchor(
   rowOf: (id: string) => VirtualItem | undefined,
 ) {
   let anchor: { id: string; top: number; unsized: Map<string, number> } | null = null;
-  const measured = (key: string): boolean => virtualizer().itemSizeCache.has(key);
+  // Rows whose size came from their resize observer, even where it matched the estimate.
+  const sized = new Set<string>();
+  const measured = (key: string): boolean => sized.has(key);
 
   // Keeping the screen still, a first measurement of a row the screen already shows replaces an estimate it never
   // showed, so it moves nothing. Placing a row at the top, every measurement moves the position toward it.
@@ -26,6 +28,10 @@ export function createReadingAnchor(
   };
 
   return {
+    /** Records a row's size reported by its resize observer. */
+    noteMeasured: (id: string): void => void sized.add(id),
+    /** Forgets a row's measurement once its estimate stands in for it again. */
+    forget: (id: string): void => void sized.delete(id),
     /** Anchors on the topmost row in view. */
     pick(position: number, viewport: number): void {
       const row = virtualizer().getVirtualItemForOffset(position + viewport - 1);
@@ -34,7 +40,7 @@ export function createReadingAnchor(
     },
     /** Anchors on a row just placed at the viewport top, which measurements keep there. */
     reveal: (row: VirtualItem, position: number): void => anchorOn(row, position, false),
-    /** Whether every rendered row from the newest through virtual `index` has its measured size. */
+    /** Whether every rendered row from the newest through virtual `index` has been measured. */
     measuredThrough: (index: number): boolean =>
       virtualizer()
         .getVirtualItems()

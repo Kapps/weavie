@@ -321,6 +321,8 @@ test("focusing a link in an older row stops following, and streaming leaves it i
     await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
     await stream(page, host, session, "focus-reply", 30);
     await expect(link).toBeInViewport();
+    // Output elsewhere leaves an unchanged row's rendered content, and the focus in it, alone.
+    await expect(link).toBeFocused();
   } finally {
     await host.close();
   }
@@ -512,9 +514,20 @@ test.describe("touch on iOS", () => {
       await send("touchend", false);
       await expect.poll(height).toBeGreaterThan(resting);
 
+      // The engine's own scrollend for the drag would end it at once; momentum ends when the test says.
+      await page.evaluate(() =>
+        window.addEventListener(
+          "scrollend",
+          (event) => event.isTrusted && event.stopImmediatePropagation(),
+          { capture: true },
+        ),
+      );
       await send("touchstart", true);
       await send("touchmove", true);
-      await send("scroll", true);
+      await body.evaluate((element) => {
+        element.scrollTop -= 200;
+      });
+      await nextFrame(page);
       const dragged = await height();
       await stream(page, host, session, "momentum-reply", 10);
       await send("touchend", false);
@@ -524,6 +537,52 @@ test.describe("touch on iOS", () => {
       expect(await height()).toBe(dragged);
       await send("scrollend", false);
       await expect.poll(height).toBeGreaterThan(dragged);
+    } finally {
+      await host.close();
+    }
+  });
+
+  // Engines send no scrollend for a scroll the layout caused, so such a scroll must never hold past the lift.
+  test("a layout clamp under a finger that dragged without scrolling releases as it lifts", async ({
+    page,
+  }) => {
+    const { body, host, session } = await openPane(page, "touch-clamp");
+    try {
+      await stream(page, host, session, "clamp-reply", 10);
+      const send = (type: string, active: boolean) =>
+        body.evaluate(
+          (element, event) => {
+            const finger = [new Touch({ identifier: 1, target: element })];
+            const touches = event.active ? finger : [];
+            element.dispatchEvent(
+              new TouchEvent(event.type, { bubbles: true, touches, changedTouches: finger }),
+            );
+          },
+          { type, active },
+        );
+      const height = () => body.evaluate((element) => element.scrollHeight);
+      const viewport = page.viewportSize()!;
+      await send("touchstart", true);
+      // The finger rests at the very top, where a taller viewport clamps the scroll position.
+      await body.evaluate((element) => {
+        element.scrollTop = -element.scrollHeight;
+      });
+      await expect(page.getByText("Prompt 0", { exact: true })).toBeInViewport();
+      const resting = await height();
+      await stream(page, host, session, "clamp-reply", 10);
+      expect(await height()).toBe(resting);
+      // A drag the pane doesn't follow (a nested scroller, an edge), then a clamp, no scrollend.
+      await send("touchmove", true);
+      const clamped = body.evaluate(
+        (element) =>
+          new Promise<number>((resolve) =>
+            element.addEventListener("scroll", () => resolve(element.scrollTop), { once: true }),
+          ),
+      );
+      await page.setViewportSize({ width: viewport.width, height: viewport.height + 120 });
+      await clamped;
+      await send("touchend", false);
+      await expect.poll(height).toBeGreaterThan(resting);
     } finally {
       await host.close();
     }

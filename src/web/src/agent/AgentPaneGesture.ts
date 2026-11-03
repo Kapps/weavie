@@ -4,7 +4,8 @@ import { notify } from "../notify/notify";
 /**
  * Tracks a touch gesture on the pane from touchstart until its fingers lift or, when a finger scrolled the pane,
  * until the `scrollend` that follows its momentum. Each finger's touchstart pairs with its touchend or touchcancel,
- * and a scroll the user drove always ends in `scrollend`, so the gesture always ends.
+ * and only a scroll the finger drove, which always ends in `scrollend`, holds past the lift: one the layout
+ * caused (a clamp, which sends no `scrollend`) never does, so the gesture always ends.
  */
 export function createAgentPaneGesture(
   body: Accessor<HTMLDivElement | undefined>,
@@ -24,9 +25,11 @@ export function createAgentPaneGesture(
     onChanged();
   };
 
+  let tracksMomentum = false;
+
   onMount(() => {
     const element = body()!;
-    const tracksMomentum = "onscrollend" in element;
+    tracksMomentum = "onscrollend" in element;
     const touch = (event: TouchEvent): void => {
       const lifted = event.type === "touchend" || event.type === "touchcancel";
       if (event.type === "touchstart" && fingers.size === 0) dragged = false;
@@ -44,21 +47,15 @@ export function createAgentPaneGesture(
       }
       update();
     };
-    const scrolled = (): void => {
-      if (dragged && fingers.size > 0 && tracksMomentum) momentum = true;
-      dragged = false;
-    };
     const ended = (): void => {
       momentum = false;
       update();
     };
     const types = ["touchstart", "touchmove", "touchend", "touchcancel"] as const;
     for (const type of types) element.addEventListener(type, touch, { passive: true });
-    element.addEventListener("scroll", scrolled, { passive: true });
     element.addEventListener("scrollend", ended);
     onCleanup(() => {
       for (const type of types) element.removeEventListener(type, touch);
-      element.removeEventListener("scroll", scrolled);
       element.removeEventListener("scrollend", ended);
     });
   });
@@ -66,6 +63,11 @@ export function createAgentPaneGesture(
   return {
     /** Whether a touch gesture, including its momentum, is in progress. */
     touching: (): boolean => active,
+    /** A scroll event; `byFinger` says, when asked, whether the layout couldn't have caused it. */
+    scrolled(byFinger: () => boolean): void {
+      if (dragged && fingers.size > 0 && tracksMomentum && !momentum && byFinger()) momentum = true;
+      dragged = false;
+    },
     /** Forgets momentum the pane has just stopped by taking over the scroll position. */
     reset(): void {
       momentum = false;

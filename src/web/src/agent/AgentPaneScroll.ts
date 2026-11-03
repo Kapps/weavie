@@ -178,6 +178,12 @@ export function createAgentPaneScroll(
 
   // A scroll the pane didn't write is the reader moving: wheel, keys, touch, scrollbar, focus, or find.
   const observed = (to: number): void => {
+    // Layout only ever clamps toward the bottom, onto the top edge; a finger's scroll toward it can't land there.
+    gesture.scrolled(
+      () =>
+        to > position + 0.5 ||
+        (to < position - 0.5 && to < element().scrollHeight - element().clientHeight - 1),
+    );
     if (Math.abs(to - position) <= 1) return;
     position = Math.max(0, Math.min(maxPosition(), to));
     pinned = false;
@@ -292,6 +298,8 @@ export function createAgentPaneScroll(
     shown,
     turnNavigable,
     turnStartAbove,
+    noteMeasured: anchor.noteMeasured,
+    forgetMeasured: anchor.forget,
     unseen: (): boolean => !following() && model.latestOutput() !== seen(),
     observeOffset(instance: PaneVirtualizer, notify: (offset: number, scrolling: boolean) => void) {
       notifyOffset = () => notify(position, instance.isScrolling);

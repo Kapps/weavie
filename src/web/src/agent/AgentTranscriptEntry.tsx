@@ -65,6 +65,7 @@ export function TranscriptEntry(props: {
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
         "agent-entry-waiting": isPendingRequest(props.entry),
+        "agent-entry-question": props.entry.actionMessage?.type === "input-requested",
       }}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>

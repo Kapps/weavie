@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.Sessions;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Workflows;
 

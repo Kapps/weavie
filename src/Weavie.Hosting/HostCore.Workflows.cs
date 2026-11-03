@@ -5,6 +5,7 @@ using Weavie.Core.Json;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
+using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 

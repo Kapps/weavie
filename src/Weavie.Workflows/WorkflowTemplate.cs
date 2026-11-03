@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>A <c>{{inputs.name}}</c> or <c>{{stage.output}}</c> reference inside a template.</summary>
 public sealed record WorkflowReference(string Scope, string Name) {

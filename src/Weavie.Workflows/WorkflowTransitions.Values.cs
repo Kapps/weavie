@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 public sealed partial class WorkflowTransitions {
 	/// <summary>Reads a run's inputs for <paramref name="definition"/>; throws listing every problem.</summary>

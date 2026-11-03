@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>A 1-based line and column in a workflow file.</summary>
 public readonly record struct WorkflowPosition(int Line, int Column);

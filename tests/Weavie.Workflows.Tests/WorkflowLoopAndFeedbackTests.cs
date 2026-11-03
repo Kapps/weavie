@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Weavie.Core.Workflows;
+using Weavie.Workflows;
 using Xunit;
 
-namespace Weavie.Core.Tests.Workflows;
+namespace Weavie.Workflows.Tests;
 
 public sealed class WorkflowLoopAndFeedbackTests {
 	private const string Loops = """

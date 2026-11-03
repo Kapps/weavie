@@ -12,6 +12,7 @@ using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
+using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 

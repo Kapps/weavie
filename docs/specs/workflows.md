@@ -47,6 +47,37 @@ iteration, typed outputs, decisions, checks — is held by Weavie. The agent onl
 - **Decision** — a question with choices, answered by a model or by the user (`by`). `if` and `then` take one;
   approvals are decisions the user answers.
 
+## Architecture
+
+The engine is its own project, `src/Weavie.Workflows`, with no reference to Weavie.Core: the YAML reader, schema and
+diagnostics, definitions, catalog (built-ins embedded; personal and repository directories passed in), transitions,
+runner, stage block, and the run's persisted form. It meets its owner only through seams it defines:
+`IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), and `IWorkflowRunPort` (deliver a turn,
+notify the user). Weavie.Core holds the adapters in `src/Weavie.Core/Workflows`; Hosting wires one runner per session.
+
+```mermaid
+flowchart LR
+  subgraph Engine["Weavie.Workflows"]
+    Catalog[WorkflowCatalog] --> Runner[WorkflowRunner]
+    Runner --> Transitions[WorkflowTransitions]
+    Runner -. seams .-> Seams["IWorkflowRunStore · IWorkflowDecider · IWorkflowRunPort"]
+  end
+  subgraph Core["Weavie.Core adapters"]
+    Store[WorkflowRunStore<br/>JsonDocumentStore] --> Seams
+    Decider[InferenceWorkflowDecider<br/>typed inference] --> Seams
+    Registry[SessionWorkflowRegistry + MCP tools]
+    Summary[WorkflowRunSummary<br/>phase × session status]
+    Turns[WorkflowKickoffTurns<br/>kickoff ↔ agent turn]
+  end
+  subgraph Hosting["Weavie.Hosting"]
+    Session[HostSession.Workflow<br/>port: turn delivery, notices] --> Seams
+    Wire[HostCore.Workflows<br/>commands, status/run]
+  end
+  Registry --> Runner
+  Wire --> Summary
+  Session --> Turns
+```
+
 ## Definitions
 
 ### Location and precedence

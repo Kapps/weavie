@@ -1,4 +1,4 @@
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>A validated workflow: ordered stages Weavie runs and the agent fills.</summary>
 public sealed record WorkflowDefinition {

@@ -13,6 +13,7 @@ using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
+using Weavie.Workflows;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;

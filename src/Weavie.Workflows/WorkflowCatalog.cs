@@ -1,4 +1,4 @@
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>Where a workflow file lives; a more specific scope overrides a less specific one with the same id.</summary>
 public enum WorkflowScope {
@@ -39,7 +39,7 @@ public sealed record WorkflowCatalogEntry {
 /// </summary>
 public sealed class WorkflowCatalog(string worktree, string personalDirectory) {
 	private const string Extension = ".yaml";
-	private const string BuiltInResourcePrefix = "Weavie.Core.Workflows.BuiltIn.";
+	private const string BuiltInResourcePrefix = "Weavie.Workflows.BuiltIn.";
 
 	/// <summary>Every workflow file visible from the worktree, including shadowed and broken ones.</summary>
 	public IReadOnlyList<WorkflowCatalogEntry> List() {

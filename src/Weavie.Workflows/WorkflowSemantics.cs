@@ -1,4 +1,4 @@
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>Checks a well-shaped workflow's meaning across fields: ids, targets, and references.</summary>
 internal static class WorkflowSemantics {

@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>A workflow file's definition, or the reasons it has none.</summary>
 public sealed record WorkflowReadResult {

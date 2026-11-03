@@ -5,6 +5,7 @@ using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
+using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 
@@ -52,7 +53,7 @@ public sealed partial class HostSession {
 	}
 
 	private void SendWorkflowTurn(AgentTurnSubmission turn) {
-		if (Workflow.TryClaimKickoff(WorkflowKickoff.Of(turn))) {
+		if (Workflow.TryClaimKickoff(turn.Kickoff())) {
 			SendAgentInput(turn);
 		}
 	}

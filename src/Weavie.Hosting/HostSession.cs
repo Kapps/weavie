@@ -23,6 +23,7 @@ using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
+using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 

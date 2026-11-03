@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>One problem in a workflow file, located by path and position.</summary>
 public sealed record WorkflowDiagnostic {

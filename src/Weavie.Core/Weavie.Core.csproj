@@ -11,13 +11,15 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Tomlyn" />
     <PackageReference Include="WeCantSpell.Hunspell" />
-    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.Workflows\Weavie.Workflows.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Core.Tests" />
     <EmbeddedResource Include="Spelling/Resources/*" />
-    <EmbeddedResource Include="Workflows/BuiltIn/*.yaml" LogicalName="Weavie.Core.Workflows.BuiltIn.%(Filename)%(Extension)" />
     <Content Include="../../third-party/spelling/*" Link="third-party/spelling/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

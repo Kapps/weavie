@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>The short block each agent turn carries while a run is live, so the stage survives compaction.</summary>
 public static class WorkflowStageBlock {

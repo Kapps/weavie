@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>What a session's runner needs from its owner: deliver turns and tell the user.</summary>
 public interface IWorkflowRunPort {
@@ -20,7 +20,7 @@ public interface IWorkflowRunPort {
 public sealed class WorkflowRunner : IDisposable {
 	private readonly Lock _gate = new();
 	private readonly WorkflowCatalog _catalog;
-	private readonly WorkflowRunStore _store;
+	private readonly IWorkflowRunStore _store;
 	private readonly IWorkflowDecider _decider;
 	private readonly IWorkflowRunPort _port;
 	private readonly Func<int> _maxStageAttempts;
@@ -32,7 +32,7 @@ public sealed class WorkflowRunner : IDisposable {
 
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
-		WorkflowCatalog catalog, WorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
+		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
 		Func<int> maxStageAttempts, string worktree) {
 		_catalog = catalog;
 		_store = store;

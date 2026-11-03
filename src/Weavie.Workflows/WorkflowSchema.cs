@@ -1,20 +1,21 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>The one field table for workflow files: validation and the published JSON Schema both derive from it.</summary>
-internal static partial class WorkflowSchema {
-	public const string Done = "done";
+public static partial class WorkflowSchema {
+	internal const string Done = "done";
 
-	public static IReadOnlyList<string> ValueTypes { get; } = ["text", "url", "list", "files", "pr"];
+	internal static IReadOnlyList<string> ValueTypes { get; } = ["text", "url", "list", "files", "pr"];
 
-	public static WorkflowShape Root { get; } = Build();
+	internal static WorkflowShape Root { get; } = Build();
 
+	/// <summary>The JSON Schema of a workflow file, as <c>getWorkflowSchema</c> publishes it.</summary>
 	public static string Json { get; } = BuildJson();
 
 	[GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
-	public static partial Regex IdPattern();
+	internal static partial Regex IdPattern();
 
 	[GeneratedRegex("^[A-Za-z][A-Za-z0-9]*$")]
 	private static partial Regex NamePattern();

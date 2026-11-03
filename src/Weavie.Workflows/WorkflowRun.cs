@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
-using Weavie.Core.Agents;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>Where a run is in its current stage.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<WorkflowPhase>))]
@@ -115,17 +114,4 @@ public sealed record WorkflowKickoff {
 
 	/// <summary>An ordinary prompt.</summary>
 	public static WorkflowKickoff Prompt(string text) => new() { Text = text, Command = "" };
-
-	/// <summary>The agent turn that delivers this kickoff; a skill's command turn carries the stage block too.</summary>
-	public AgentTurnSubmission Submission() => new() {
-		Id = Guid.NewGuid().ToString("n"),
-		Text = Text,
-		Kind = Command.Length > 0 ? AgentTurnSubmissionKind.ProviderCommand : AgentTurnSubmissionKind.Prompt,
-		CommandName = Command,
-		Attachments = [],
-		CarriesTurnContext = true,
-	};
-
-	/// <summary>The kickoff <paramref name="turn"/> delivers.</summary>
-	public static WorkflowKickoff Of(AgentTurnSubmission turn) => new() { Text = turn.Text, Command = turn.CommandName };
 }

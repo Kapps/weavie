@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>
 /// The pure state machine of a run: each transition takes a run and returns the next run plus the effects its

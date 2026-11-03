@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Json;
 using Weavie.Core.Workflows;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Mcp;
 

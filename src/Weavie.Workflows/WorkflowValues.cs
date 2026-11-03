@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>A typed workflow input or stage output: text, or a list of items.</summary>
 public sealed record WorkflowValue {

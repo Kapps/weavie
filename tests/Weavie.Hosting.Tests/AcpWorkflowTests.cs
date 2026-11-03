@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Workflows;
+using Weavie.Workflows;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;

@@ -1,7 +1,7 @@
-using Weavie.Core.Workflows;
+using Weavie.Workflows;
 using Xunit;
 
-namespace Weavie.Core.Tests.Workflows;
+namespace Weavie.Workflows.Tests;
 
 public sealed class WorkflowReaderTests {
 	private const string Valid = """

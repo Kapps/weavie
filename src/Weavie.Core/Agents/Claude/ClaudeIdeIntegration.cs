@@ -6,6 +6,7 @@ using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Agents.Claude;
 

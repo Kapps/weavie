@@ -1,4 +1,4 @@
-namespace Weavie.Core.Workflows;
+namespace Weavie.Workflows;
 
 /// <summary>Something a transition asks the run's owner to do.</summary>
 public abstract record WorkflowEffect {

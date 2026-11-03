@@ -8,6 +8,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
+using Weavie.Workflows;
 using Xunit;
 
 namespace Weavie.Core.Tests;

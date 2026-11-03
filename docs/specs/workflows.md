@@ -337,26 +337,20 @@ All unbound by default and reachable from the palette, user keybindings, and age
 Workflow**, **Answer** (with feedback), **Finish Stage**, **Skip Stage**, **Retry Stage**,
 **Jump to Stage**, **Pause Run**, **Resume Run**, **Cancel Run**, **Improve This Workflow**.
 
-Every run command takes an explicit run id; a card or strip that shows a run registers the handler for it, so a
-shortcut never acts on whichever run happens to be newest.
+Every run command takes an explicit run id, so a command never acts on whichever run happens to be newest.
 
 ## Visualizing a run
 
-A workflow must not take over the standard session experience. The everyday UI gains almost nothing; detail lives in
-a view the user opens on demand.
+A workflow must not take over the standard session experience.
 
-- **Session rail** — no new rows, nesting, or indentation. A session in a run uses its existing status line for the
-  run's stage and state (`review · needs your answer` instead of `idle · 5m ago`). Child sessions are ordinary
-  sessions.
-- **Agent pane** — one chip in the existing status line under the composer (`ship-task · review 2/6`), beside the PR
-  chip. Stage boundaries appear in the transcript as one-line dividers (`implement ✓ · check passed`), not cards.
-- **Cards only when the run needs the user** — a question awaiting the user's answer, styled like a permission
-  request, with keyed choices. Forked and fresh steps use the existing background-work cards.
-- **Run view** — opened from the chip or **Show Run**, as an ordinary editor tab: stages with status, attempts, and
-  check reasons; outputs; `foreach` items with their child sessions (each jumps to its session); decisions with their
-  answers and confidence; Pause, Cancel, and Edit Workflow. Closing it leaves the standard UI untouched.
-
-Mockup: `temp/mockups/workflow-run.html` (not tracked).
+- **Session list** — no new rows, nesting, or indentation. A session in a run uses its existing status line for the
+  run's stage and state (`review · needs your answer` instead of `idle · 5m ago`); the full pause reason is its
+  tooltip. Runs that need the user join the Needs you group. Child sessions are ordinary sessions.
+- **Questions for the user are a conversation, not cards.** The agent asks in its own words, the user replies however
+  they like, and the agent relays the chosen answer and any feedback through `weavie.workflow.answer`. The stage
+  block tells the agent never to answer for the user.
+- **Detail on demand** is open: a collapsed run header in the agent pane that expands in place is the leading
+  candidate. Opening an editor tab to see run state was rejected as too much friction.
 
 ## Run history and suggestions
 

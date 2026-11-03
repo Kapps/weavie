@@ -9,16 +9,19 @@ import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
 import { Disclosure } from "./AgentDisclosure";
+import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
+import { ApprovalActions, AuthenticationActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { isPendingRequest } from "./AgentPendingRequests";
 import { AgentSubagentEntry } from "./AgentSubagentEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
+import { singleChoiceQuestion } from "./input-questions";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -61,6 +64,7 @@ export function TranscriptEntry(props: {
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
+        "agent-entry-waiting": isPendingRequest(props.entry),
       }}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
@@ -163,7 +167,14 @@ function entryText(props: {
   entry: AgentTranscriptEntry;
   session: ClientSession;
 }): ConciseToolInput | null {
-  if (props.entry.actionMessage?.type !== "approval-requested")
+  const message = props.entry.actionMessage;
+  // A one-choice question shows its own prompt, so request text that only repeats it is dropped.
+  if (
+    message?.type === "input-requested" &&
+    singleChoiceQuestion(message)?.question === props.entry.text
+  )
+    return null;
+  if (message?.type !== "approval-requested")
     return props.entry.text ? { text: props.entry.text, path: null } : null;
   const { root, home } = fileIndexFor(props.session);
   return conciseToolInput(props.entry.text, props.entry.summary, (path) =>

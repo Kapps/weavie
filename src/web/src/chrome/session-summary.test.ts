@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RailSession } from "./session-store";
 import { panelOrder, sessionGroup, sessionSubtitle } from "./session-summary";
 
-vi.mock("../commands/registry", () => ({ getKeybindings: () => [] }));
+vi.mock("../commands/registry", () => ({ getKeybindings: () => [], onCommandsChanged: () => {} }));
 
 const NOW = Date.UTC(2026, 9, 12, 12, 0);
 const session = (patch: Partial<RailSession>): RailSession => ({

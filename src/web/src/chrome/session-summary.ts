@@ -1,6 +1,7 @@
 import type { SessionStatusName } from "../bridge";
 import { formatKey } from "../commands/keybindings";
-import { findCommand, getKeybindings } from "../commands/registry";
+import { liveIndexedKeyLabel } from "../commands/keys-live";
+import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { compactAge } from "../compact-age";
 import type { RailSession } from "./session-store";
@@ -81,12 +82,7 @@ export function statusDot(session: RailSession): string {
 
 /** The switch shortcut for the rail session at `index` (0-based); only the first nine have one. */
 export function switchShortcut(index: number): string {
-  const match = getKeybindings().find(
-    (binding) =>
-      binding.command === CommandIds.selectSessionByIndex &&
-      (binding.args as { index?: unknown } | undefined)?.index === index + 1,
-  );
-  return match !== undefined ? formatKey(match.key) : "";
+  return liveIndexedKeyLabel(CommandIds.selectSessionByIndex, index + 1);
 }
 
 /** A filled cloud silhouette: the remote-agents button and the remote marker on a session. */

@@ -1,6 +1,6 @@
 # CI duration: measurements and proposals
 
-Status: proposal. Nothing here changes CI config yet.
+Status: #1, #3, #5 and #6 implemented; #2 deferred (see its section); the rest are proposals.
 
 ## Summary
 
@@ -15,7 +15,7 @@ The e2e shards are badly unbalanced. Playwright splits tests by **count**, not d
 down a host, not to test bodies.
 
 Dependency caches already hit, so caching is not a lever. The ranked proposals below would take the
-median from ~15.3 to ~10 min without dropping any coverage.
+median from ~15.3 to ~11.5 min without dropping any coverage.
 
 ## Method
 
@@ -193,14 +193,17 @@ removes or loosens a test, a platform, or the AOT build that ships.
 Plan the shards once per run from the previous green `main` run's per-file durations, using a longest
 processing time (LPT) bin-packing, and give each shard an explicit file list instead of `--shard=i/6`.
 
-- **Timing source** (no hand-maintained copy): the `report` job on `main` already merges every shard's
-  blob, so it writes `file → seconds` from it and saves the result to `actions/cache` under
-  `e2e-timings-<run_id>`. PR runs can read `main`'s caches.
-- **Plan once, in one place.** The bundle job already has pnpm deps. It restores the newest
-  `e2e-timings-*`, runs `playwright test --list --reporter=json` for the authoritative test set, LPT-packs
-  the files, and emits the plan as the shard matrix output. Every shard then runs from the same plan, so
-  coverage is complete by construction: no shard can restore a different timings file mid-run and drop
-  tests. A unit test asserts that the plan's files partition the `--list` output.
+- **Timing source** (no hand-maintained copy): after a green Linux run, the `report` job merges the
+  shard blobs to JSON, reduces them to `[project] › file → seconds`, and saves that to `actions/cache`
+  as `e2e-timings-<run_id>-<attempt>`. A run restores its own branch's newest timings, otherwise
+  `main`'s. macOS and Windows (release runs) plan from the same Linux timings, since relative cost is
+  what matters.
+- **Plan once, in one place** (`.github/scripts/plan_e2e_shards.py`). The bundle job runs
+  `playwright test --list --reporter=json` for the authoritative test set, LPT-packs the
+  `[project] › file` units, and ships one `--test-list` file per shard inside the bundle artifact.
+  Every shard runs from that one plan, so coverage is complete by construction, and the planner refuses
+  any plan that doesn't partition the listed tests. The shard count lives only in the planner's step
+  (`SHARDS`); the shard matrix comes from its output.
 - **New or unknown files** take the median file weight. With no timings cache at all (evicted after 7
   idle days), every file gets equal weight: the result is still a correct, complete plan, just less
   balanced. Surface it as a `::warning` in the job summary rather than failing the run.
@@ -209,18 +212,14 @@ processing time (LPT) bin-packing, and give each shard an explicit file list ins
   so an order-dependent leak can surface; fix it, never hide it. Splitting by file keeps `beforeAll`
   semantics.
 
-### 2. Overlap the bundle's two AOT compiles and Vite: −1.0 to −1.5 min
+### 2. Overlap the bundle's two AOT compiles and Vite: ~−0.5 min (deferred)
 
-The Runner's AOT (32s) and the whole worker publish (Vite + Headless AOT, ~130s) are independent but
-run back to back. Make the Runner's publish build the worker in parallel with its own native compile,
-for example by having `StageHeadlessWorker` run the worker publish through an `MSBuild` task that starts
-alongside ILC rather than an `Exec` that waits for `Publish`. Keep it inside the Runner project so
-"publish the runner, get a complete worker" stays the one staging path that releases and CI share.
-Overlapping Vite with the managed compile saves another ~15s.
-
-- **Tradeoffs:** a 4-vCPU runner running two ILC processes at once speeds each up less than linearly;
-  measure before claiming the full ~70s. It also touches the release staging path, so a release dry run
-  should prove it.
+On a closer look, the 56s managed compile is shared by both apps and can't overlap. Only the Runner's
+32s AOT and part of the worker's Vite build can, so the realistic saving is 30–45s, not 1–1.5 min. It
+also means restructuring `StageHeadlessWorker`, the staging path releases use. Deferred until the cheaper
+items are measured. The approach, if picked up: have `StageHeadlessWorker` publish the worker
+alongside the Runner's own native compile rather than after `Publish`, keeping "publish the runner, get
+a complete worker" as the one staging path, and prove it with a release dry run.
 
 ### 3. Move to 8 duration-balanced shards: −1.75 min, +2 Ubuntu runners per run
 
@@ -250,8 +249,8 @@ via `format-dotnet.py`. Have macOS verify only the projects Linux can't evaluate
 frameworks, with full analyzers), and drop the whitespace-only mac pass from Linux. Coverage is the
 same, each project gets checked once, and the duplication goes away.
 
-- **Why it matters:** after #1–#3 the e2e path is ~10.5 min, and macOS's p90 (10.9 min) becomes the
-  p90 critical path. This keeps it under. A faster macOS image could also help, but `xcode-27` is pinned
+- **Why it matters:** after #1–#3 the e2e path is ~11.5 min, and macOS's p90 (10.9 min) is within a minute of
+  it. This keeps it clear. A faster macOS image could also help, but `xcode-27` is pinned
   by the workload's Xcode requirement (see `.github/actions/setup-macos-workload`), so that isn't a free
   choice.
 
@@ -262,8 +261,9 @@ that has stalled for 3–11 min (run 40014261583), wrapped in a 3× retry loop. 
 official `mcr.microsoft.com/playwright:v<version>-noble` image instead: the browsers and OS deps are
 baked in, so the apt step, the browser cache, and the retry loop all go away.
 
-- **Single source:** compute the tag from `src/web/pnpm-lock.yaml`'s `@playwright/test` version in the
-  planning job (#1) and pass it as an output, not as a literal in the workflow.
+- **Single source:** the planning step reads the installed `@playwright/test` version and passes it to
+  the shard job as an output, so the image tag is never a literal in the workflow. Shards run as
+  `--user 1001`, per Playwright's CI guidance.
 - **Tradeoffs:** the image pull (~20–30s, cached per runner) replaces ~12s of p50 install, so the typical
   run is about even. The win is the tail (p90 and max). The bundle comes from a different image
   (`ubuntu-latest`), so ldd-check the self-contained AOT binaries in the container once first.
@@ -308,7 +308,6 @@ alongside would save ~30s.
 |---|---|---|---|---|
 | Today | 255s | 590s | 35s | ~15.3 min |
 | #1 balanced, 6 shards | 255s | ~470s | 35s | ~13.3 min |
-| + #2 parallel bundle | ~180s | ~470s | 35s | ~12.0 min |
-| + #3 8 shards | ~180s | ~365s | 35s | ~10.3 min |
+| + #3 8 shards | 255s | ~365s | 35s | ~11.6 min |
 | + #5 macOS format split | — | — | — | p90 stays e2e-bound |
-| + #4 −0.5s boot | ~180s | ~330s | 35s | ~9.7 min |
+| + #4 −0.5s boot | 255s | ~330s | 35s | ~11.0 min |

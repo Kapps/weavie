@@ -249,7 +249,7 @@ jobs:
 
       - name: Verify .NET formatting
         if: matrix.platform.name == 'macos'
-        run: dotnet format weavie.slnx --verify-no-changes --no-restore
+        run: python3 temp/workflow/.github/scripts/format-dotnet.py --macos --verify-no-changes --no-restore
 
   e2e:
     needs: platforms

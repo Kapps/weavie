@@ -7,7 +7,13 @@ import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { panelPinned, parkedCollapsed, setParkedCollapsed } from "./rail-state";
 import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
-import { CLOUD_PATH, newSessionTitle, sessionSubtitle, statusDot } from "./session-summary";
+import {
+  CLOUD_PATH,
+  newSessionTitle,
+  sessionDetail,
+  sessionSubtitle,
+  statusDot,
+} from "./session-summary";
 
 /** The new-session and remote-agents buttons: at the rail's foot, or in the pinned session panel's header. */
 export function SessionTools(props: {
@@ -105,7 +111,9 @@ export function SessionText(props: { session: RailSession; now: number }): JSX.E
   return (
     <span class="session-panel-text">
       <span class="session-panel-title">{props.session.title}</span>
-      <span class="session-panel-activity">{sessionSubtitle(props.session, props.now)}</span>
+      <span class="session-panel-activity" title={sessionDetail(props.session) || undefined}>
+        {sessionSubtitle(props.session, props.now)}
+      </span>
     </span>
   );
 }

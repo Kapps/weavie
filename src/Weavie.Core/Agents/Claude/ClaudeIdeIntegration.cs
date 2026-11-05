@@ -5,6 +5,8 @@ using Weavie.Core.Hooks;
 using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
+using Weavie.Core.Workflows;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Agents.Claude;
 
@@ -23,6 +25,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		SettingsStore settings,
 		EditorStore editor,
 		HostRuntimeInfo runtime,
+		IAgentTurnContext turnContext,
 		Func<HookRequest, AgentEventFeedback> observe,
 		Action<HookRequest, HookDecision> decided) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -32,6 +35,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(runtime);
+		ArgumentNullException.ThrowIfNull(turnContext);
 		ArgumentNullException.ThrowIfNull(observe);
 		ArgumentNullException.ThrowIfNull(decided);
 		_registry = registry;
@@ -39,7 +43,8 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		Server = new McpServer(
 			registry.Credential.Token, presenter, workspaceFolders, ideName, settings: null, registryMode: false,
 			exposeIdeTools: true, layout: null, editor, commands: null, keybindings: null,
-			themeOverrides: null, NoSessionPeers.Instance, AgentConsultation.None, ReviewHintSink.None);
+			themeOverrides: null, NoSessionPeers.Instance, AgentConsultation.None, ReviewHintSink.None,
+			WorkflowRegistry.None);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, registry.Credential.Token);
 		HookBridge = new HookBridgeServer(
@@ -49,7 +54,10 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 				var decision = HookPolicy.Decide(
 					request, settings.RequireBool(AgentSettings.AllowAllPermissions));
 				string? message = feedback.Messages.FirstOrDefault();
-				return message is null ? decision : decision with { SystemMessage = message };
+				if (message is not null) decision = decision with { SystemMessage = message };
+				return request.Event == HookEventKind.UserPromptSubmit
+					? decision with { AdditionalContext = turnContext.Compose() }
+					: decision;
 			});
 		HookBridge.Decided += decided;
 		HookBridge.Start();

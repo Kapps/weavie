@@ -78,4 +78,16 @@ public sealed class HookDecisionTests {
 		Assert.Contains("\"systemMessage\":\"a.cs:1\"", json, StringComparison.Ordinal);
 		Assert.Contains("\"permissionDecision\":\"allow\"", json, StringComparison.Ordinal);
 	}
+
+	[Fact]
+	public void AdditionalContext_UserPromptSubmit_EmitsItAndNowhereElse() {
+		var decision = HookDecision.PassThrough with { AdditionalContext = "stage block" };
+
+		string? json = decision.ToHookOutputJson(HookEventKind.UserPromptSubmit);
+
+		Assert.Equal(
+			"""{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"stage block"}}""", json);
+		Assert.Null(decision.ToHookOutputJson(HookEventKind.PostToolUse));
+		Assert.Null(HookDecision.PassThrough.ToHookOutputJson(HookEventKind.UserPromptSubmit));
+	}
 }

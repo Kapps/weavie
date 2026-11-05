@@ -201,8 +201,8 @@ processing time (LPT) bin-packing, and give each shard an explicit file list ins
 - **Plan once, in one place** (`.github/scripts/plan_e2e_shards.py`). The bundle job runs
   `playwright test --list --reporter=json` for the authoritative test set, LPT-packs the
   `[project] › file` units, and ships one `--test-list` file per shard inside the bundle artifact.
-  Every shard runs from that one plan, so coverage is complete by construction, and the planner refuses
-  any plan that doesn't partition the listed tests. The shard count lives only in the planner's step
+  Every shard runs from that one plan, and the packing assigns each listed unit to exactly one shard,
+  so coverage is complete by construction. The shard count lives only in the planner's step
   (`SHARDS`); the shard matrix comes from its output.
 - **New or unknown files** weigh their test count times the median per-test time. With no timings cache at all (evicted after 7
   idle days), every file gets equal weight: the result is still a correct, complete plan, just less
@@ -312,19 +312,26 @@ alongside would save ~30s.
 | + #5 macOS format split | — | — | — | p90 stays e2e-bound |
 | + #4 −0.5s boot | 255s | ~330s | 35s | ~11.0 min |
 
-## First measured run (#1, #3, #5, #6)
+## Measured results (#1, #3, #5, #6)
 
-Run 41584165279 planned from the timings of one previous run:
+Four consecutive runs of this branch, on 2026-11-03. The first is the old layout, so it's the closest
+like-for-like baseline. It ran well under the 15.3 min median.
 
-| | Before (p50) | Measured |
-|---|---|---|
-| Trigger → `ci` check | 15.3 min | 12.6 min |
-| Slowest shard (job) | 9.8 min | 6.75 min |
-| Slowest − fastest shard | 5.4 min | 1.7 min |
-| Shard time outside Playwright | ~43s | 49–70s (incl. ~27s container start) |
-| macOS `Verify .NET formatting` | 94s | 26s |
+| Run | Layout | Trigger → last job | Bundle | Shard jobs (fastest–slowest) | Sum of Playwright steps | macOS build |
+|---|---|---|---|---|---|---|
+| 41579242583 | 6 shards by count | 13.1 min | 188s | 287–552s | 2393s | 428s |
+| 41582936245 | 8 shards, no timings yet | 12.1 min | 275s | 211–405s | 2040s | 622s |
+| 41584165279 | 8 shards, timed | 12.7 min | 292s | 302–405s | 2470s | 380s |
+| 41585443256 | 8 shards, timed | 10.5 min | 201s | 281–385s | 2235s | 484s |
 
-Shards were planned at ~250s each and ran 250–356s. Two things cause the gap. The recorded per-test
-durations leave out ~19% of Playwright's own time (worker and browser start-up), so every shard runs
-longer than planned. On top of that, single-run timings are noisy per file. If the spread stays wide,
-the next step is to average each file's time over several runs when recording timings.
+- **What the change caused:** the slowest shard fell from ~9.2–9.8 min to ~6.4–6.75 min, about 2.5–3 min.
+- **What it didn't:** the bundle swung between 188s and 292s across these runs, unrelated to this change,
+  and that swing moves the total by up to 1.7 min. Two timed runs can't give a new median; re-measure
+  over ~30 runs.
+- **macOS format check:** 26s in the one run checked, against a 94s p50.
+- **Test count:** 548 in all three new runs (547 passed, 1 skipped). The baseline's 547 is from an older `main`.
+
+Shards were planned at ~250s each in run 41584165279 and their Playwright steps took 250–356s. Total
+Playwright time varies by ±10% between runs of the same suite (2040–2470s), and single-run timings
+carry that noise per file. Averaging each file's time over several runs when recording is the next
+step if the spread stays wide.

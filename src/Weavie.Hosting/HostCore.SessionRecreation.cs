@@ -46,21 +46,39 @@ public sealed partial class HostCore {
 	private async Task<CommandResult> RecreateSlotAsync(SessionSlot target, IAgentProvider provider, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		try {
-			// Once teardown starts, finish the replacement even if its originating endpoint disconnects.
-			await _ui.InvokeAsync(() => UnloadSlotAsync(target), CancellationToken.None).ConfigureAwait(false);
-			provider.ClearConversation(target.WorktreePath);
-			return await _ui.InvokeAsync(() => {
+			await ReplaceSlotAsync(target, () => {
+				provider.ClearConversation(target.WorktreePath);
 				if (_worktrees?.Registry.FindByPath(target.WorktreePath) is { } record) {
 					_worktrees.Registry.Add(record with { AgentProviderId = provider.Info.Id });
 				}
 				target.AgentProviderId = provider.Info.Id;
-				PersistSessionState();
-				LoadSlotInBackground(target);
-				return Task.FromResult(CommandResult.Success(
-					$"Recreated '{target.Label}' with {provider.Info.Name}.", SessionActivationJson(target)));
-			}, CancellationToken.None).ConfigureAwait(false);
+			}).ConfigureAwait(false);
+			return CommandResult.Success($"Recreated '{target.Label}' with {provider.Info.Name}.", SessionActivationJson(target));
 		} catch (Exception ex) {
 			return CommandResult.Failure($"Couldn't recreate '{target.Label}': {ex.Message}");
+		}
+	}
+
+	// One catalog push swaps the incarnation, so selection never sees the slot go dormant. Once teardown starts it
+	// finishes even if the originating endpoint disconnects.
+	private async Task ReplaceSlotAsync(SessionSlot target, Action prepare) {
+		var session = target.Session;
+		try {
+			if (session is not null) {
+				await session.DisposeAsync().ConfigureAwait(false);
+			}
+		} finally {
+			await _ui.InvokeAsync(() => {
+				if (session is not null && ReferenceEquals(target.Session, session)) {
+					target.Session = null;
+					_fileRoutes.Unregister(session.Incarnation);
+				}
+
+				prepare();
+				PersistSessionState();
+				LoadSlotInBackground(target);
+				return Task.CompletedTask;
+			}, CancellationToken.None).ConfigureAwait(false);
 		}
 	}
 }

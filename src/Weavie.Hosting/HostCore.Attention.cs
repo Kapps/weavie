@@ -16,15 +16,15 @@ public sealed partial class HostCore {
 	private void WireSystemNotificationMessages() {
 		_notificationFeature = _messages.Host.Feature("notifications");
 		_notificationFeature.Handle(
-			"permission", "Checking notification permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
+			"permission", MessageActivity.ActionFailed("Checking notification permission"), WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.GetPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.Handle(
-			"requestPermission", "Requesting notification permission", WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
+			"requestPermission", MessageActivity.NoDeadline("Requesting notification permission"), WireJson.Default.EmptyPayload, WireJson.Default.NotificationPermissionMessage,
 			async (_, ct) => new NotificationPermissionMessage(
 				PermissionName(await _platform.Notifications.RequestPermissionAsync(ct).ConfigureAwait(false))));
 		_notificationFeature.HandleOwned(
-			"show", "Showing a system notification", WireJson.Default.NotificationShowMessage, WireJson.Default.NotificationShownMessage,
+			"show", MessageActivity.ActionFailed("Showing a system notification"), WireJson.Default.NotificationShowMessage, WireJson.Default.NotificationShownMessage,
 			ShowSystemNotificationAsync);
 		_platform.Notifications.Activated += OnSystemNotificationActivated;
 		_messages.Host.PeerDisconnected += OnNotificationPeerDisconnected;
@@ -32,7 +32,7 @@ public sealed partial class HostCore {
 
 	/// <summary>Subscribes a session's status transitions and publishes each attention-worthy event on its bus.</summary>
 	private void WireAttention(HostSession session) {
-		session.Bus.Feature("attention").Handle("seen", "Marking the session seen", WireJson.Default.EmptyPayload, (_, _) => {
+		session.Bus.Feature("attention").Handle("seen", MessageActivity.ActionFailed("Marking the session seen"), WireJson.Default.EmptyPayload, (_, _) => {
 			PostForSession(session, () => {
 				if (OwnedSlot(session) is { Unseen: true } slot) {
 					slot.Unseen = false;

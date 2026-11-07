@@ -37,6 +37,8 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 
 	internal MessageHealthSnapshot Health(bool ingressResponsive) => _operations.Snapshot(ingressResponsive);
 
+	internal bool TryCancelOperation(string id) => _operations.TryCancel(id);
+
 	public SessionEndpoint OpenSession(SessionAddress address) {
 		ArgumentNullException.ThrowIfNull(address);
 		var transport = new SessionTransportGate(_transport);

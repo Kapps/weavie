@@ -18,6 +18,7 @@ export interface SessionCatalogEntry {
   unseen: boolean;
   workspaceCheckout: boolean;
   external: boolean;
+  reloadRequired: string | null;
 }
 
 export interface HostHello {
@@ -266,6 +267,7 @@ export class HostConnection {
   }
 
   private applyCatalog(catalog: SessionCatalogEntry[]): void {
+    this.catalog = catalog;
     const live = new Set(
       catalog.flatMap((entry) => (entry.address === null ? [] : [this.addressKey(entry.address)])),
     );
@@ -285,7 +287,6 @@ export class HostConnection {
         this.sessionsByAddress.set(key, session);
       }
     }
-    this.catalog = catalog;
     this.publishCatalog();
     if (this.transportReady) {
       this.flushSessionMessages();

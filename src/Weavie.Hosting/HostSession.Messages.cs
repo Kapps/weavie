@@ -26,7 +26,7 @@ public sealed partial class HostSession {
 				acceptTerminalInput,
 				static (_, _) => { });
 			Bus.Feature("terminal.agent").Handle(
-				"pasteImage", "Pasting an image into the agent", WireJson.Default.ImagePasteMessage,
+				"pasteImage", MessageActivity.ActionFailed("Pasting an image into the agent"), WireJson.Default.ImagePasteMessage,
 				(message, _) => {
 					HandleTerminalImagePaste(message, inputFrozen);
 					return Task.CompletedTask;
@@ -41,29 +41,29 @@ public sealed partial class HostSession {
 
 		var lsp = Bus.Feature("lsp");
 		lsp.HandleOwned(
-			"start", "Starting a language server", WireJson.Default.LspStartMessage, WireJson.Default.LspStartResult,
+			"start", MessageActivity.ActionFailed("Starting a language server"), WireJson.Default.LspStartMessage, WireJson.Default.LspStartResult,
 			(message, peer, _) => Task.FromResult(
 				Lsp.Start(peer, message.Server, message.Channel, out string? error)
 					? new LspStartResult(true, null)
 					: new LspStartResult(false, error)));
-		lsp.HandleOwned("data", "Talking to a language server", WireJson.Default.LspDataMessage, (message, peer, _) => {
+		lsp.HandleOwned("data", MessageActivity.ActionFailed("Talking to a language server"), WireJson.Default.LspDataMessage, (message, peer, _) => {
 			Lsp.Data(peer, message.Channel, Encoding.UTF8.GetBytes(message.Payload.GetRawText()));
 			return Task.CompletedTask;
 		});
-		lsp.HandleOwned("stop", "Stopping a language server", WireJson.Default.ChannelMessage, (message, peer, _) => Lsp.StopAsync(peer, message.Channel));
+		lsp.HandleOwned("stop", MessageActivity.ActionFailed("Stopping a language server"), WireJson.Default.ChannelMessage, (message, peer, _) => Lsp.StopAsync(peer, message.Channel));
 		lsp.HandleOwned(
-			"reset", "Resetting language servers", WireJson.Default.LspResetMessage,
+			"reset", MessageActivity.ActionFailed("Resetting language servers"), WireJson.Default.LspResetMessage,
 			(message, peer, _) => Lsp.DropOtherEpochsAsync(peer, message.Epoch));
 
 		var files = Bus.Feature("files");
 		files.Handle(
-			"stat", "Checking a file", WireJson.Default.FilePathMessage, WireJson.Default.FileStat,
+			"stat", MessageActivity.ActionFailed("Checking a file"), WireJson.Default.FilePathMessage, WireJson.Default.FileStat,
 			(message, _) => Task.FromResult(FileProvider.Stat(message.Path)));
 		files.Handle(
-			"read", "Reading a file", WireJson.Default.FilePathMessage, WireJson.Default.FileReadResult,
+			"read", MessageActivity.ActionFailed("Reading a file"), WireJson.Default.FilePathMessage, WireJson.Default.FileReadResult,
 			(message, _) => Task.FromResult(FileProvider.Read(message.Path)));
 		files.HandleAfterResponse(
-			"write", "Saving a file", WireJson.Default.FileWriteMessage, WireJson.Default.FileWriteResult,
+			"write", MessageActivity.SessionCritical("Saving a file"), WireJson.Default.FileWriteMessage, WireJson.Default.FileWriteResult,
 			(message, _) => {
 				var result = FileProvider.Write(message.Path, message.Content);
 				var handEdit = result.Ok
@@ -88,18 +88,18 @@ public sealed partial class HostSession {
 			});
 		Bus.PeerDisconnected += peer => DirectoryWatches(peer).Dispose();
 		files.HandleOwned(
-			"listDirectory", "Listing a folder", WireJson.Default.ListDirectoryMessage, WireJson.Default.DirectoryListingMessage,
+			"listDirectory", MessageActivity.ActionFailed("Listing a folder"), WireJson.Default.ListDirectoryMessage, WireJson.Default.DirectoryListingMessage,
 			(message, peer, _) => Task.FromResult(ListDirectory(peer, message.SubscriptionId, message.Path)));
-		files.HandleOwned("unwatchDirectory", "Unwatching a folder", WireJson.Default.UnwatchDirectoryMessage, (message, peer, _) => {
+		files.HandleOwned("unwatchDirectory", MessageActivity.ActionFailed("Unwatching a folder"), WireJson.Default.UnwatchDirectoryMessage, (message, peer, _) => {
 			DirectoryWatches(peer).Unwatch(message.SubscriptionId);
 			return Task.CompletedTask;
 		});
-		files.HandleOwned("reset", "Resetting folder watches", WireJson.Default.ResetDirectoryWatchesMessage, (message, peer, _) => {
+		files.HandleOwned("reset", MessageActivity.ActionFailed("Resetting folder watches"), WireJson.Default.ResetDirectoryWatchesMessage, (message, peer, _) => {
 			DirectoryWatches(peer).Reset(message.PageEpoch);
 			return Task.CompletedTask;
 		});
-		files.Handle(
-			"reveal", "Revealing a file", WireJson.Default.RevealFileMessage,
+		files.HandleConcurrent(
+			"reveal", MessageActivity.ActionFailed("Revealing a file"), WireJson.Default.RevealFileMessage,
 			(message, ct) => FileOpener.OpenAsync(
 				message.Path,
 				message.Line,
@@ -110,7 +110,7 @@ public sealed partial class HostSession {
 
 		var editor = Bus.Feature("editor");
 		editor.HandleOwned(
-			"activeChanged", "Updating the active editor",
+			"activeChanged", MessageActivity.ActionFailed("Updating the active editor"),
 			WireJson.Default.JsonElement,
 			View.IsBound,
 			(message, _, _) => {
@@ -118,7 +118,7 @@ public sealed partial class HostSession {
 				return Task.CompletedTask;
 			});
 		editor.HandleOwned(
-			"openEditorsChanged", "Updating open editors",
+			"openEditorsChanged", MessageActivity.ActionFailed("Updating open editors"),
 			WireJson.Default.JsonElement,
 			View.IsBound,
 			(message, _, _) => {
@@ -126,7 +126,7 @@ public sealed partial class HostSession {
 				return Task.CompletedTask;
 			});
 		editor.Handle(
-			"resolveDiff", "Resolving a diff", WireJson.Default.DiffResolutionMessage, WireJson.Default.Boolean,
+			"resolveDiff", MessageActivity.ActionFailed("Resolving a diff"), WireJson.Default.DiffResolutionMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
 				DiffPresenter.Resolve(message.Id, message.Kept, message.FinalContents)));
 		WireAgentMessages(Bus.Feature("agent"), inputFrozen, acceptTerminalInput);
@@ -136,25 +136,25 @@ public sealed partial class HostSession {
 		Messaging.MessageFeatureChannel messages,
 		Func<bool> inputFrozen,
 		Action<bool, Action> acceptInput) {
-		messages.Handle("typing", "Reporting typing to the agent", WireJson.Default.EmptyPayload, (_, _) => {
+		messages.Handle("typing", MessageActivity.ActionFailed("Reporting typing to the agent"), WireJson.Default.EmptyPayload, (_, _) => {
 			acceptInput(true, static () => { });
 			return Task.CompletedTask;
 		});
-		messages.Handle("toolOutput", "Loading tool output", WireJson.Default.AgentPaneRecordRequest, WireJson.Default.AgentPaneWire, (message, _) =>
+		messages.Handle("toolOutput", MessageActivity.ActionFailed("Loading tool output"), WireJson.Default.AgentPaneRecordRequest, WireJson.Default.AgentPaneWire, (message, _) =>
 			Task.FromResult(AgentPaneProtocol.Message(Agent.ReadRecord(message))));
-		messages.Handle("interrupt", "Interrupting the agent", WireJson.Default.EmptyPayload, (_, _) => {
+		messages.Handle("interrupt", MessageActivity.ActionFailed("Interrupting the agent"), WireJson.Default.EmptyPayload, (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;
 		});
-		messages.Handle("setControl", "Changing an agent setting", WireJson.Default.AgentControlMessage, (message, _) => {
+		messages.Handle("setControl", MessageActivity.ActionFailed("Changing an agent setting"), WireJson.Default.AgentControlMessage, (message, _) => {
 			Agent.Controls?.SetControl(message.Axis, message.Value);
 			return Task.CompletedTask;
 		});
-		messages.Handle("permission", "Answering a permission request", WireJson.Default.AgentDecisionMessage, (message, _) => {
+		messages.Handle("permission", MessageActivity.ActionFailed("Answering a permission request"), WireJson.Default.AgentDecisionMessage, (message, _) => {
 			Agent.Structured?.ResolvePermission(message.RequestId, message.OptionId);
 			return Task.CompletedTask;
 		});
-		messages.Handle("authenticate", "Signing in to the agent", WireJson.Default.AgentAuthMessage, (message, _) => {
+		messages.Handle("authenticate", MessageActivity.ActionFailed("Signing in to the agent"), WireJson.Default.AgentAuthMessage, (message, _) => {
 			Agent.Structured?.Authenticate(
 				message.RequestId,
 				message.MethodId,
@@ -164,7 +164,7 @@ public sealed partial class HostSession {
 					StringComparer.Ordinal));
 			return Task.CompletedTask;
 		});
-		messages.Handle("input", "Sending input to the agent", WireJson.Default.AgentInputMessage, (message, _) => {
+		messages.Handle("input", MessageActivity.ActionFailed("Sending input to the agent"), WireJson.Default.AgentInputMessage, (message, _) => {
 			Agent.Structured?.ResolveInput(
 				message.RequestId,
 				message.Action,
@@ -174,16 +174,16 @@ public sealed partial class HostSession {
 					StringComparer.Ordinal));
 			return Task.CompletedTask;
 		});
-		messages.Handle("uploadAttachment", "Uploading an attachment", WireJson.Default.AttachmentUploadMessage, (message, _) => {
+		messages.Handle("uploadAttachment", MessageActivity.ActionFailed("Uploading an attachment"), WireJson.Default.AttachmentUploadMessage, (message, _) => {
 			HandleAttachmentUpload(message, inputFrozen);
 			return Task.CompletedTask;
 		});
-		messages.Handle("removeAttachment", "Removing an attachment", WireJson.Default.AttachmentMessage, (message, _) => {
+		messages.Handle("removeAttachment", MessageActivity.ActionFailed("Removing an attachment"), WireJson.Default.AttachmentMessage, (message, _) => {
 			AgentAttachments.Remove(message.Id);
 			PublishAttachmentState(message.Id, "removed", string.Empty);
 			return Task.CompletedTask;
 		});
-		messages.Handle("submit", "Sending your prompt to the agent", WireJson.Default.AgentSubmitMessage, (message, _) => {
+		messages.Handle("submit", MessageActivity.ActionFailed("Sending your prompt to the agent"), WireJson.Default.AgentSubmitMessage, (message, _) => {
 			HandleAgentSubmit(message, inputFrozen, submission => {
 				var agent = Agent.Structured
 					?? throw new InvalidOperationException("This session does not use a structured agent.");
@@ -191,7 +191,7 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
-		messages.Handle("replyAside", "Sending a side reply", WireJson.Default.AgentSideReplyMessage, (message, _) => {
+		messages.Handle("replyAside", MessageActivity.ActionFailed("Sending a side reply"), WireJson.Default.AgentSideReplyMessage, (message, _) => {
 			HandleAgentSubmit(message.Submission, inputFrozen, submission => {
 				var sideConversations = Agent.SideConversations
 					?? throw new InvalidOperationException("This agent does not support side conversations.");
@@ -199,14 +199,14 @@ public sealed partial class HostSession {
 			});
 			return Task.CompletedTask;
 		});
-		messages.Handle("setAsideCollapsed", "Updating a side conversation", WireJson.Default.AgentAsideCollapsedMessage, (message, _) => {
+		messages.Handle("setAsideCollapsed", MessageActivity.ActionFailed("Updating a side conversation"), WireJson.Default.AgentAsideCollapsedMessage, (message, _) => {
 			var sideConversations = Agent.SideConversations
 				?? throw new InvalidOperationException("This agent does not support side conversations.");
 			sideConversations.SetAsideCollapsed(message.ConversationId, message.Collapsed);
 			return Task.CompletedTask;
 		});
 		messages.Handle(
-			"openPlan", "Opening the plan", WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
+			"openPlan", MessageActivity.ActionFailed("Opening the plan"), WireJson.Default.OpenPlanMessage, WireJson.Default.Boolean,
 			(message, _) => Task.FromResult(
 				OpenAgentPlan(message.ThreadId, message.TurnId, message.ItemId)));
 	}

@@ -28,6 +28,16 @@ export function persistSessionDraft(session: ClientSession, kind: string, value:
   }
 }
 
+/** Forgets a departed slot's drafts, so a reused slot can't inherit them. */
+export function clearSlotDrafts(connectionId: string, slot: string): void {
+  const suffix = `:${connectionId}:${slot}`;
+  for (const key of Object.keys(window.sessionStorage)) {
+    if (key.startsWith(PREFIX) && key.endsWith(suffix)) {
+      window.sessionStorage.removeItem(key);
+    }
+  }
+}
+
 function draftKey(session: ClientSession, kind: string): string {
   return `${PREFIX}:${kind}:${session.connection.id}:${session.address.slot}`;
 }

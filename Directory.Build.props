@@ -39,7 +39,7 @@
 
     <!-- Runner⟷worker spawn contract generation (argv + control endpoints). Bump when that contract
          changes; only an exact match may be staged or spawned. See docs/specs/runner-auto-update.md. -->
-    <SpawnContractVersion>2</SpawnContractVersion>
+    <SpawnContractVersion>3</SpawnContractVersion>
   </PropertyGroup>
 
   <!--

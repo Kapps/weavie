@@ -34,6 +34,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 			Id = "weavie.terminal.reopen",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 		});
 		return registry;
 	}
@@ -163,6 +164,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 			Id = "weavie.window.toggle",
 			Title = "Toggle Window",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+`", Global = true }],
 		});
 		return registry;

@@ -68,6 +68,7 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { lastLocation, panelPinned, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
+import { SessionReloadBar } from "./chrome/SessionReloadBar";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import {
   seedSearch,
@@ -106,6 +107,7 @@ import { installKeybindings } from "./commands/keybindings";
 import { liveIndexedKeyLabel, liveKeyHint } from "./commands/keys-live";
 import {
   applySessionActivation,
+  type CommandContext,
   captureCommandRunner,
   dispatchCommand,
   dispatchCommandFromCatalog,
@@ -1142,6 +1144,24 @@ export default function App(): JSX.Element {
       backendId,
     });
   };
+  const promptReloadSession = async (args: unknown, context: CommandContext): Promise<void> => {
+    const fields = args as { id?: string; backendId?: string } | undefined;
+    const id = fields?.id ?? context.session?.address.slot;
+    const backendId = fields?.backendId ?? context.session?.connection.id;
+    const confirmed = await confirm({
+      title: "Reload this session?",
+      body: "Its shells and any running agent turn will stop. The conversation and your unsaved edits are kept.",
+      confirmLabel: "Reload",
+    });
+    if (!confirmed) {
+      return;
+    }
+    const result = await dispatchCommand(CommandIds.reloadSession, { id, backendId });
+    if (!result.ok && result.cancelled !== true) {
+      addToast("error", result.error ?? "Couldn't reload the session.");
+    }
+  };
+
   const confirmDeleteSession = async (): Promise<void> => {
     const req = deleteReq();
     if (req === null) {
@@ -1773,6 +1793,7 @@ export default function App(): JSX.Element {
       // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
       // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
+      registerCommand(CommandIds.reloadSessionPrompt, promptReloadSession),
       // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
       // client-side). Declines a missing/blank name.
       registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
@@ -1986,6 +2007,11 @@ export default function App(): JSX.Element {
                 {connectionLabel()}…
               </span>
             </output>
+          </Show>
+          <Show
+            when={sessions().find((session) => session.active && session.reloadRequired !== null)}
+          >
+            {(session) => <SessionReloadBar session={session()} />}
           </Show>
           <Show when={visibleBuildMismatch()}>
             {(mismatch) => (

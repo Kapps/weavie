@@ -56,7 +56,7 @@ vi.mock("./revise-marks", () => ({ sharedReviseMarks: stub() }));
 vi.mock("../splash", () => ({ dismissSplash: () => {} }));
 
 vi.stubGlobal("location", { search: "" });
-vi.stubGlobal("window", { setTimeout, clearTimeout });
+vi.stubGlobal("window", { setTimeout, clearTimeout, addEventListener: vi.fn() });
 const { activePathFor, openTabFor, openTabsFor, tabOwnerFor } = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
 

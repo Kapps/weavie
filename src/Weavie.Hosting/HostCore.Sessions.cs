@@ -463,7 +463,8 @@ public sealed partial class HostCore {
 					slot.LastActiveAt?.ToUnixTimeMilliseconds(),
 					slot.Unseen,
 					IsWorkspaceCheckout(slot),
-					!IsWorkspaceCheckout(slot) && _worktrees?.Owns(slot.WorktreePath) == false);
+					!IsWorkspaceCheckout(slot) && _worktrees?.Owns(slot.WorktreePath) == false,
+					slot.Session?.Bus.ReloadReason);
 			})
 			.ToArray()
 		?? [];
@@ -481,7 +482,8 @@ public sealed partial class HostCore {
 		long? LastActiveAt,
 		bool Unseen,
 		bool WorkspaceCheckout,
-		bool External);
+		bool External,
+		string? ReloadRequired);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
 		try {
@@ -526,6 +528,7 @@ public sealed partial class HostCore {
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
+		endpoint.Bus.ReloadRequiredChanged += () => _ui.Post(PushSessionList);
 		HostSession? session = null;
 		try {
 			session = new HostSession(

@@ -179,6 +179,12 @@ test.describe("changes in a document taller than the pane", () => {
     await expect(preview(page).locator(".wv-md-ins")).toContainText(["fifty-eight"]);
     await expect(preview(page).locator(".wv-md-ins")).toBeInViewport();
 
+    // Scrolled away from the shown change, Keep brings it back into view instead of acting out of sight.
+    await page.locator(".editor-preview").evaluate((pane) => pane.scrollTo({ top: 0 }));
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(preview(page).locator(".wv-md-ins")).toBeInViewport();
+    await expect(preview(page).locator(".wv-md-changed")).toHaveCount(2);
+
     await page.keyboard.press("ControlOrMeta+Backspace");
     const path = join(weavie.workspace, "plan.md");
     await expect.poll(() => readFile(path, "utf8")).toContain("Paragraph 58.");

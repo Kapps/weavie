@@ -15,6 +15,12 @@ export interface BlockChange {
   at: number;
 }
 
+/** One side of the diff: its editable units and source lines. */
+export interface DiffSide {
+  units: LineRange[];
+  lines: string[];
+}
+
 interface Span {
   cs: number;
   ce: number;
@@ -30,8 +36,8 @@ type Side = "current" | "baseline";
  */
 export function blockChanges(
   hunks: readonly DiffHunk[],
-  current: { units: LineRange[]; lines: string[] },
-  baseline: { units: LineRange[]; lines: string[] },
+  current: DiffSide,
+  baseline: DiffSide,
 ): BlockChange[] {
   const line = hunks.map((h) => ({
     cs: h.currentStart - 1,
@@ -127,29 +133,19 @@ function mapLine(hunks: Span[], from: Side, x: number, edge: "start" | "end"): n
   return x + offset;
 }
 
-function describe(
-  span: Span,
-  current: { units: LineRange[]; lines: string[] },
-  baseline: { units: LineRange[]; lines: string[] },
-): BlockChange {
+function describe(span: Span, current: DiffSide, baseline: DiffSide): BlockChange {
   const within = (units: LineRange[], s: number, e: number) =>
     units.filter((u) => u.start >= s && u.end <= e);
   const text = (lines: string[], u: LineRange) => lines.slice(u.start, u.end).join("\n");
   const now = within(current.units, span.cs, span.ce);
   const was = within(baseline.units, span.bs, span.be);
   // Units pulled in whole but unchanged (an adopted neighbor) carry no mark.
-  while (now[0] && was[0] && text(current.lines, now[0]) === text(baseline.lines, was[0])) {
-    now.shift();
-    was.shift();
-  }
-  while (
-    now.at(-1) &&
-    was.at(-1) &&
-    text(current.lines, now.at(-1)!) === text(baseline.lines, was.at(-1)!)
-  ) {
-    now.pop();
-    was.pop();
-  }
+  const same = (i: number, j: number) =>
+    now[i] !== undefined &&
+    was[j] !== undefined &&
+    text(current.lines, now[i]) === text(baseline.lines, was[j]);
+  while (same(0, 0)) [now.shift(), was.shift()];
+  while (same(now.length - 1, was.length - 1)) [now.pop(), was.pop()];
   const paired = Math.min(now.length, was.length);
   const anchor = now[0]?.start ?? span.cs;
   return {

@@ -254,8 +254,7 @@ function ownTextNodes(unit: Element): Text[] {
       if (node instanceof Text)
         return node.data === "" ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT;
       const element = node as Element;
-      const nestedList =
-        element !== unit && unit.localName === "li" && /^(ul|ol)$/.test(element.localName);
+      const nestedList = unit.localName === "li" && /^(ul|ol)$/.test(element.localName);
       return element.classList.contains(MARK) || element.localName === "svg" || nestedList
         ? NodeFilter.FILTER_REJECT
         : NodeFilter.FILTER_SKIP;
@@ -283,7 +282,8 @@ function markText(unit: Element, diff: WordDiff): Element[] {
     if (text !== undefined) {
       const del = removedText(text);
       const [node, offset] = locate(unit, at);
-      if (node === undefined) unit.append(del);
+      // Past the end, it follows the unit's own last text, ahead of any nested list.
+      if (node === undefined) ownTextNodes(unit).at(-1)?.after(del) ?? unit.prepend(del);
       else (offset === 0 ? node : node.splitText(offset)).before(del);
       marks.push(del);
       continue;

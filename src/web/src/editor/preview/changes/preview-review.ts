@@ -97,7 +97,13 @@ export class PreviewReview {
 
   /** Whether `hunk` is the change on screen; otherwise shows it, so nothing is kept or reverted unseen. */
   confirmTarget(hunk: DiffHunk): boolean {
-    if (this.rewritten === undefined && this.showing && this.current()?.hunk === hunk) return true;
+    if (
+      this.rewritten === undefined &&
+      this.showing &&
+      this.current()?.hunk === hunk &&
+      this.onScreen(hunk)
+    )
+      return true;
     this.document.setCursor(hunk.anchorLine);
     this.revealLine(hunk.anchorLine);
     return false;
@@ -159,6 +165,23 @@ export class PreviewReview {
   /** Takes the marks off `unit` so it can open on its own text; the rest of the page stays put. */
   clearMarks(unit: Element): void {
     this.marks.clearUnit(unit);
+  }
+
+  // Whether any of the hunk's blocks is inside the pane, so the change acted on is the one in view.
+  private onScreen(hunk: DiffHunk): boolean {
+    const pane = this.host.getBoundingClientRect();
+    return this.list
+      .units()
+      .filter((unit) => {
+        const [start, end] = this.list.lines(unit);
+        return (
+          start < hunk.currentEndExclusive - 1 && hunk.currentStart - 1 < Math.max(end, start + 1)
+        );
+      })
+      .some((unit) => {
+        const box = unit.getBoundingClientRect();
+        return box.bottom > pane.top && box.top < pane.bottom;
+      });
   }
 
   // The change at the review position, as the inline diff resolves it: the last one starting at or before it.

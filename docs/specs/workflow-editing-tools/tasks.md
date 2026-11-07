@@ -21,7 +21,7 @@ Satisfies R1, R2, R3.
 
 Satisfies R4, R5, R6.
 
-- [ ] Add `WorkflowCatalog.Folder` and `Fork`.
+- [x] Add `WorkflowCatalog.Folder` and `Fork`.
 - [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
 - [ ] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
 - [ ] Add `folders` to `listWorkflows`.

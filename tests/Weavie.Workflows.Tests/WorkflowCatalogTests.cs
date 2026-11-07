@@ -91,6 +91,68 @@ public sealed class WorkflowCatalogTests : IDisposable {
 	}
 
 	[Fact]
+	public void ForkCopiesABuiltInIntoANewFolderAndWinsExactlyAsWritten() {
+		string builtIn = Catalog().List().Single(e => e.Id == "quick-fix").Definition!.SourceText;
+		string path = Catalog().Fork("quick-fix", WorkflowScope.Personal);
+		Assert.Equal(_dir.Combine("personal", "quick-fix.yaml"), path);
+		Assert.Equal(builtIn, File.ReadAllText(path));
+		var entries = Catalog().List().Where(e => e.Id == "quick-fix").ToList();
+		Assert.Equal(
+			[(WorkflowScope.Personal, (WorkflowScope?)null), (WorkflowScope.BuiltIn, WorkflowScope.Personal)],
+			entries.Select(e => (e.Scope, e.ShadowedBy)));
+	}
+
+	[Fact]
+	public void ForkCopiesIntoTheRepositoryFromEitherLessSpecificScope() {
+		string comment = "# keep me\n" + Minimal("mine");
+		_dir.WriteFile("personal/mine.yaml", comment);
+		Assert.Equal(comment, File.ReadAllText(Catalog().Fork("mine", WorkflowScope.Repository)));
+		Assert.Equal(_dir.Combine("worktree", ".weavie", "workflows", "spec-driven.yaml"), Catalog().Fork("spec-driven", WorkflowScope.Repository));
+	}
+
+	[Fact]
+	public void ForkRefusesABrokenWorkflowAndListsItsErrors() {
+		_dir.WriteFile("personal/quick-fix.yaml", "id: quick-fix\ndescription: d\nstages: nope\n");
+		var ex = Assert.Throws<WorkflowException>(() => Catalog().Fork("quick-fix", WorkflowScope.Repository));
+		Assert.Contains("stages", ex.Message, StringComparison.Ordinal);
+		Assert.False(Directory.Exists(_dir.Combine("worktree", ".weavie", "workflows")));
+	}
+
+	[Theory]
+	[InlineData(WorkflowScope.Repository)]
+	[InlineData(WorkflowScope.Personal)]
+	[InlineData(WorkflowScope.BuiltIn)]
+	public void ForkRefusesAnythingButAMoreSpecificScope(WorkflowScope target) {
+		_dir.WriteFile("worktree/.weavie/workflows/mine.yaml", Minimal("mine"));
+		var ex = Assert.Throws<WorkflowException>(() => Catalog().Fork("mine", target));
+		Assert.Contains("mine.yaml", ex.Message, StringComparison.Ordinal);
+		Assert.False(File.Exists(_dir.Combine("personal", "mine.yaml")));
+		Assert.Equal(Minimal("mine"), File.ReadAllText(_dir.Combine("worktree", ".weavie", "workflows", "mine.yaml")));
+	}
+
+	[Fact]
+	public void ForkNamesTheWorkflowsWhenTheIdIsUnknown() {
+		var ex = Assert.Throws<WorkflowException>(() => Catalog().Fork("missing", WorkflowScope.Personal));
+		Assert.Contains("quick-fix", ex.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void ForkFailsRatherThanReplaceWhatTheCatalogDoesNotList() {
+		string target = _dir.Combine("personal", "quick-fix.yaml");
+		Directory.CreateDirectory(target);
+		var ex = Assert.ThrowsAny<Exception>(() => Catalog().Fork("quick-fix", WorkflowScope.Personal));
+		Assert.True(ex is IOException or UnauthorizedAccessException, ex.ToString());
+		Assert.True(Directory.Exists(target));
+	}
+
+	[Fact]
+	public void FolderIsWhereTheCatalogReadsEvenBeforeItExists() {
+		Assert.Equal(Personal, Catalog().Folder(WorkflowScope.Personal));
+		Assert.Equal(_dir.Combine("worktree", ".weavie", "workflows"), Catalog().Folder(WorkflowScope.Repository));
+		Assert.Throws<WorkflowException>(() => Catalog().Folder(WorkflowScope.BuiltIn));
+	}
+
+	[Fact]
 	public void SchemaDescribesTheFieldTable() {
 		var schema = JsonNode.Parse(WorkflowSchema.Json)!.AsObject();
 		Assert.Equal("Workflow", schema["title"]!.GetValue<string>());

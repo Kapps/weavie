@@ -80,6 +80,28 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 	/// <summary>The problems in proposed workflow <paramref name="text"/>; no file is touched.</summary>
 	public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => WorkflowReader.ReadProposal(text).Diagnostics;
 
+	/// <summary>Copies the valid workflow <paramref name="id"/> into the more specific <paramref name="scope"/>; returns the new path.</summary>
+	public string Fork(string id, WorkflowScope scope) {
+		var (entry, definition) = Winner(id);
+		if (scope <= entry.Scope) {
+			throw new WorkflowException($"Workflow \"{id}\" is already {entry.Scope}, so a {scope} copy would not override it; edit {entry.Path} instead.");
+		}
+
+		string folder = Folder(scope);
+		System.IO.Directory.CreateDirectory(folder);
+		string path = System.IO.Path.Combine(folder, id + Extension);
+		using var writer = new StreamWriter(File.Open(path, FileMode.CreateNew, FileAccess.Write));
+		writer.Write(definition.SourceText);
+		return path;
+	}
+
+	/// <summary>The folder holding <paramref name="scope"/>'s workflow files, which may not exist yet.</summary>
+	public string Folder(WorkflowScope scope) => scope switch {
+		WorkflowScope.Personal => personalDirectory,
+		WorkflowScope.Repository => repositoryDirectory,
+		_ => throw new WorkflowException("Built-in workflows have no folder."),
+	};
+
 	private static IEnumerable<WorkflowCatalogEntry> Directory(string directory, WorkflowScope scope) =>
 		System.IO.Directory.Exists(directory)
 			? System.IO.Directory.EnumerateFiles(directory, "*" + Extension)

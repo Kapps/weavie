@@ -1081,9 +1081,12 @@ test.describe("ACP composer", () => {
     await expect(card.locator(".agent-entry-text")).toHaveCount(0);
     await expect(rows.first()).toHaveClass(/default/);
     // The newer form owns the keys, so the older card advertises none.
-    await expect(card.locator(".agent-choice-key")).toHaveCount(0);
+    await expect(card.locator(".agent-choice-key")).toHaveText(["", ""]);
     await expect(card.locator(".agent-choice-keys")).toHaveCount(0);
     await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(1);
+    const labelLeft = async (): Promise<number | undefined> =>
+      (await card.locator(".agent-choice-label").first().boundingBox())?.x;
+    const unkeyedLeft = await labelLeft();
     await page.locator("[data-agent-composer] textarea").focus();
     await page.keyboard.press("Alt+1");
     await page.keyboard.press("Alt+N");
@@ -1094,6 +1097,7 @@ test.describe("ACP composer", () => {
     publishPane(paneMessage({ type: "input-resolved", itemId: "form-newer", status: "declined" }));
 
     await expect(card.locator(".agent-choice-key")).toHaveText(["1", "2"]);
+    expect(await labelLeft()).toBe(unkeyedLeft);
     await expect(card.locator(".agent-choice-keys")).toHaveText("Alt+1–2");
     await expect(rows.first()).toHaveAttribute(
       "title",

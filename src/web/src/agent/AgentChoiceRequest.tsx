@@ -89,9 +89,7 @@ export function ChoiceRequestActions(
             )}
             onClick={() => answer(option.value)}
           >
-            <Show when={gutterKey(index())}>
-              {(key) => <kbd class="agent-choice-key">{key()}</kbd>}
-            </Show>
+            <kbd class="agent-choice-key">{gutterKey(index())}</kbd>
             <span class="agent-choice-label">{option.label}</span>
             <Show when={option.description}>
               <span class="agent-choice-description">{option.description}</span>

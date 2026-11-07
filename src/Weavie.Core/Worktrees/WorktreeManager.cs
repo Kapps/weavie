@@ -55,7 +55,6 @@ public sealed class WorktreeManager {
 		var record = new WorktreeRecord {
 			Branch = branch,
 			Path = PathIdentity.Normalize(path),
-			BaseRef = baseRef,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
 			AgentProviderId = agentProviderId,
 		};
@@ -65,13 +64,14 @@ public sealed class WorktreeManager {
 
 	/// <summary>
 	/// Creates a provider-bound worktree on the existing branch <paramref name="branch"/>, records it, and returns
-	/// the record. Existing tracked records keep their original provider.
+	/// the record and whether it was created now. A recorded worktree git has on that branch is returned as it is.
 	/// </summary>
-	public async Task<WorktreeRecord> AttachAsync(string branch, string agentProviderId, CancellationToken ct = default) {
+	public async Task<(WorktreeRecord Record, bool Created)> AttachAsync(string branch, string agentProviderId, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(branch);
 		ArgumentException.ThrowIfNullOrEmpty(agentProviderId);
+		SyncBranches(await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false));
 		if (Registry.FindByBranch(branch) is { } existing) {
-			return existing;
+			return (existing, false);
 		}
 
 		if (!await _git.BranchExistsAsync(_repositoryRoot, branch, ct).ConfigureAwait(false)) {
@@ -83,13 +83,21 @@ public sealed class WorktreeManager {
 		var record = new WorktreeRecord {
 			Branch = branch,
 			Path = PathIdentity.Normalize(path),
-			// No distinct base; record the branch itself. Persisted bookkeeping only, nothing branches on it.
-			BaseRef = branch,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
 			AgentProviderId = agentProviderId,
 		};
 		Registry.Add(record);
-		return record;
+		return (record, true);
+	}
+
+	// Git owns which branch a worktree has checked out; a record follows it whenever git is asked.
+	private void SyncBranches(IReadOnlyList<GitWorktree> gitWorktrees) {
+		foreach (var worktree in gitWorktrees) {
+			if (worktree.Branch is { } branch && Registry.FindByPath(PathIdentity.Normalize(worktree.Path)) is { } record
+				&& record.Branch != branch) {
+				Registry.Add(record with { Branch = branch });
+			}
+		}
 	}
 
 	/// <summary>
@@ -98,6 +106,7 @@ public sealed class WorktreeManager {
 	/// </summary>
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		SyncBranches(gitWorktrees);
 		string normalizedRoot = PathIdentity.Normalize(_repositoryRoot);
 
 		var result = new List<WorktreeStatus>();
@@ -117,7 +126,6 @@ public sealed class WorktreeManager {
 			result.Add(new WorktreeStatus {
 				Path = worktree.Path,
 				Branch = worktree.Branch,
-				BaseRef = record?.BaseRef,
 				AgentProviderId = record?.AgentProviderId,
 				IsManaged = isManaged,
 				IsPrimary = isPrimary,
@@ -134,7 +142,6 @@ public sealed class WorktreeManager {
 			result.Add(new WorktreeStatus {
 				Path = record.Path,
 				Branch = record.Branch,
-				BaseRef = record.BaseRef,
 				AgentProviderId = record.AgentProviderId,
 				IsManaged = true,
 				IsPrimary = false,
@@ -164,7 +171,6 @@ public sealed class WorktreeManager {
 		Registry.Add(new WorktreeRecord {
 			Branch = status.Branch,
 			Path = normalized,
-			BaseRef = status.BaseRef ?? status.Branch,
 			CreatedAtUtc = status.CreatedAtUtc ?? DateTimeOffset.UtcNow,
 			AgentProviderId = agentProviderId,
 		});
@@ -178,9 +184,9 @@ public sealed class WorktreeManager {
 	public async Task RemoveAsync(string path, bool deleteBranch, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		string normalized = PathIdentity.Normalize(path);
-		var record = Registry.FindByPath(normalized);
-
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		SyncBranches(gitWorktrees);
+		var record = Registry.FindByPath(normalized);
 		bool existsInGit = gitWorktrees.Any(w => PathIdentity.Comparer.Equals(PathIdentity.Normalize(w.Path), normalized));
 		if (existsInGit) {
 			if (!force && await _git.HasUncommittedChangesAsync(path, ct).ConfigureAwait(false)) {

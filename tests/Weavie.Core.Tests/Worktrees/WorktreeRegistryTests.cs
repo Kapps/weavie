@@ -16,7 +16,6 @@ public sealed class WorktreeRegistryTests {
 	private static WorktreeRecord Record(string branch, string path, string agentProviderId) => new() {
 		Branch = branch,
 		Path = path,
-		BaseRef = "main",
 		CreatedAtUtc = DateTimeOffset.UnixEpoch,
 		AgentProviderId = agentProviderId,
 	};
@@ -32,7 +31,6 @@ public sealed class WorktreeRegistryTests {
 		var reloaded = new WorktreeRegistry(fs, RegistryPath);
 		Assert.Single(reloaded.Items);
 		Assert.Equal("feature", reloaded.Items[0].Branch);
-		Assert.Equal("main", reloaded.Items[0].BaseRef);
 	}
 
 	[Fact]

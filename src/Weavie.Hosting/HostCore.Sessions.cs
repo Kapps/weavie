@@ -1215,10 +1215,10 @@ public sealed partial class HostCore {
 		}
 
 		// Only run setup on a freshly-created worktree; a branch Weavie already tracks reuses its existing one.
-		bool freshWorktree = worktrees.Registry.FindByBranch(branch) is null;
 		WorktreeRecord record;
+		bool freshWorktree;
 		try {
-			record = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
+			(record, freshWorktree) = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
 		}

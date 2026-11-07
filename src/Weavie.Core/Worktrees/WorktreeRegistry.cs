@@ -98,7 +98,6 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 			Worktrees = [.. _items.Select(r => new WorktreeEntry {
 				Branch = r.Branch,
 				Path = r.Path,
-				BaseRef = r.BaseRef,
 				CreatedAt = r.CreatedAtUtc,
 				AgentProviderId = r.AgentProviderId,
 			})],
@@ -109,14 +108,12 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
 		if (string.IsNullOrWhiteSpace(entry.Branch)
 			|| string.IsNullOrWhiteSpace(entry.Path)
-			|| string.IsNullOrWhiteSpace(entry.BaseRef)
 			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)) {
-			throw new JsonException("Worktree entries require branch, path, baseRef, and agentProviderId.");
+			throw new JsonException("Worktree entries require branch, path, and agentProviderId.");
 		}
 		return new WorktreeRecord {
 			Branch = entry.Branch,
 			Path = entry.Path,
-			BaseRef = entry.BaseRef,
 			CreatedAtUtc = entry.CreatedAt,
 			AgentProviderId = entry.AgentProviderId,
 		};
@@ -136,9 +133,6 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 
 		[JsonPropertyName("path")]
 		public string Path { get; set; } = string.Empty;
-
-		[JsonPropertyName("baseRef")]
-		public string BaseRef { get; set; } = string.Empty;
 
 		[JsonPropertyName("createdAt")]
 		public DateTimeOffset CreatedAt { get; set; }

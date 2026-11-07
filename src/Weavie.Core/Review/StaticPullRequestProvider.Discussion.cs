@@ -14,6 +14,16 @@ public sealed partial class StaticPullRequestProvider : IPullRequestDiscussion {
 		}
 	}
 
+	/// <summary>Seeded attachment kinds by URL; any other attachment reads as unsupported.</summary>
+	public Dictionary<Uri, AttachmentKind> AttachmentKinds { get; } = [];
+
+	/// <inheritdoc/>
+	public Task<AttachmentKind> AttachmentKindAsync(Uri url, CancellationToken ct = default) {
+		lock (_gate) {
+			return Task.FromResult(AttachmentKinds.GetValueOrDefault(url, AttachmentKind.Unsupported));
+		}
+	}
+
 	/// <inheritdoc/>
 	public Task AddCommentAsync(RepoRef repo, string pullRequestId, string body, CancellationToken ct = default) {
 		lock (_gate) {

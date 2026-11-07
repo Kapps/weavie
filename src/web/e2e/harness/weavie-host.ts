@@ -265,6 +265,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
         threads: pr.threads,
         viewer: pr.viewer,
         viewerAvatarUrl: pr.viewerAvatarUrl,
+        attachments: pr.attachments,
       }),
     );
     env.WEAVIE_FAKE_PRS = prsPath;

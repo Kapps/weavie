@@ -126,12 +126,17 @@ export interface ThreadSeed {
 const avatar = (color: string): string =>
   `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="${color}"/><circle cx="4" cy="3" r="1.6" fill="#fff"/><rect x="1.5" y="5.2" width="5" height="3" rx="1.5" fill="#fff"/></svg>`)}`;
 
+/** A GitHub attachment URL; the PR scenario serves #1 as an image and #2 as a video. */
+export const githubAsset = (id: number): string =>
+  `https://github.com/user-attachments/assets/00000000-0000-4000-8000-${String(id).padStart(12, "0")}`;
+
 export async function createPrWorkspace(parent: string): Promise<{
   dir: string;
   prs: PrSeed[];
   threads: ThreadSeed[];
   viewer: string;
   viewerAvatarUrl: string;
+  attachments: Record<string, "image" | "video">;
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
@@ -301,6 +306,7 @@ export async function createPrWorkspace(parent: string): Promise<{
     viewer: "you",
     // Only bob has a photo, so both the image and the monogram paths render.
     viewerAvatarUrl: "",
+    attachments: { [githubAsset(1)]: "image", [githubAsset(2)]: "video" },
   };
 }
 

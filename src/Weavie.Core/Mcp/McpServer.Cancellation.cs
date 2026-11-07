@@ -26,12 +26,13 @@ public sealed partial class McpServer {
 		}
 	}
 
-	// An HTTP client sends nothing after its request, so any read completing means it hung up.
+	// An HTTP client sends nothing after its request, so a read completing or failing means it hung up.
 	private static async Task CancelOnDisconnectAsync(NetworkStream stream, CancellationTokenSource connection) {
 		try {
 			await stream.ReadAsync(new byte[1], connection.Token).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) {
+		} catch (OperationCanceledException) {
 			return;
+		} catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
 		}
 		await connection.CancelAsync().ConfigureAwait(false);
 	}

@@ -220,6 +220,18 @@ public sealed class McpServerTests {
 	}
 
 	[Fact]
+	public async Task HttpMcp_NonStringMethod_GetsAnError() {
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		int port = server.Start();
+
+		using var response = await PostHttpAsync(port, Token, "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":5}");
+		using var document = await TestMcp.ReadResponseAsync(response);
+
+		Assert.Equal(24, document.RootElement.GetProperty("id").GetInt32());
+		Assert.True(document.RootElement.TryGetProperty("error", out _));
+	}
+
+	[Fact]
 	public async Task HttpMcp_MalformedJson_ReturnsParseError() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
 		int port = server.Start();

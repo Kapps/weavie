@@ -80,13 +80,11 @@ async Task HandleHttpClientAsync(stream, request, ct) {
 		if (IsRequest(root)) await responder.OpenAsync(connection.Token);
 		if (ProgressToken(root) is { } token) responder.StartProgress(token, connection);
 		await DispatchAsync(responder, root, connection.Token);
-	} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-		await responder.FailAsync(requestId, "Weavie closed this session.");    // server disposal
-	} catch (Exception e) when (e is OperationCanceledException or IOException) {
+	} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
 		// the caller cancelled or hung up; it expects no reply
 	} finally {
 		await connection.CancelAsync();
-		await responder.StopProgressAsync();
+		await responder.Progress;
 		await watch;
 	}
 	if (!responder.Opened) await WriteStatusAsync(stream, "202 Accepted", ct);
@@ -103,7 +101,6 @@ One object per POST owns everything that writes to that connection, so ordering 
 sealed class HttpResponder(NetworkStream stream, string sessionId, TimeSpan interval) : IMcpResponder, IDisposable {
 	SemaphoreSlim _gate;     // orders every write
 	bool _answered;          // set under _gate; ends progress
-	Task? _heartbeat;
 
 	public bool Opened { get; private set; }
 	public object Client => sessionId;
@@ -115,12 +112,10 @@ sealed class HttpResponder(NetworkStream stream, string sessionId, TimeSpan inte
 
 	public Task SendErrorAsync(idRaw, code, message, ct) => AnswerAsync(ErrorJson(idRaw, code, message), ct);
 
-	public Task FailAsync(idRaw, message) => SendErrorAsync(idRaw, -32603, message, CancellationToken.None);
+	public Task Progress { get; private set; } = Task.CompletedTask;
 
 	public void StartProgress(string tokenJson, CancellationTokenSource connection) =>
-		_heartbeat = HeartbeatAsync(tokenJson, connection);
-
-	public Task StopProgressAsync() => _heartbeat ?? Task.CompletedTask;
+		Progress = HeartbeatAsync(tokenJson, connection);
 
 	async Task AnswerAsync(json, ct) => await Locked(async () => {
 		if (_answered) return;                   // a call has one answer
@@ -192,7 +187,6 @@ await RelayEventsAsync(response, outputGate, cancellationToken);
 | `McpServer.Cancellation.cs` | Reset counts as a hang-up |
 | `McpServer.Responders.cs` | Shared envelopes; `SendRawAsync` removed from the interface |
 | `McpServer.cs` | `DispatchAsync` split; HTTP code moved out |
-| `McpServer.Progress.cs` | Deleted, leaving `ProgressInterval` on `McpServer` |
 | `WebSocketHandshake.cs` | `WriteEventStreamHeadAsync` replaces `WriteJsonAsync` |
 | `McpStdioProxy.cs` | JSON branch removed |
 | `FakeAcpAgent.WeavieTools.cs`, MCP and proxy tests | Read event streams |

@@ -41,12 +41,6 @@ As a user, I don't pay for a consult nobody can receive.
 - WHEN the caller closes or resets the connection, Weavie SHALL cancel the call.
 - WHEN a progress write fails, Weavie SHALL cancel the call.
 
-## R6. Shutdown answers running calls
-
-As a caller, I learn that Weavie went away instead of waiting.
-
-- WHEN the MCP server is disposed during a call, Weavie SHALL send a `-32603` error event for that call before closing.
-
 ## R7. Weavie's own clients read the stream
 
 - The stdio proxy SHALL relay each event as one stdout line and SHALL have no plain JSON path.

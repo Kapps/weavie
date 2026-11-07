@@ -18,6 +18,9 @@ public sealed partial class McpServer {
 	private static string ErrorJson(string? idRaw, int code, string messageText) =>
 		$"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw ?? "null"},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}";
 
+	private static string ProgressJson(string progressToken, int progress) =>
+		$"{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progressToken\":{progressToken},\"progress\":{progress}}}}}";
+
 	private sealed class WebSocketResponder(McpServer server, WebSocket webSocket) : IMcpResponder {
 		public object Client => this;
 

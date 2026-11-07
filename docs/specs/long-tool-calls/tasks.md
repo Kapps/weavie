@@ -16,16 +16,15 @@ answers while a slow one is still running.
 
 ## Group 2: Progress and hang-ups
 
-Requirements: R4, R5, R6, R9
+Requirements: R4, R5, R9
 
-Video: in the real app, a slow fake consult shows progress reaching the caller; cancelling it stops the consulted
-process; unloading the session gives the caller an error.
+Video: in the real app, a slow fake consult shows progress reaching the caller, and cancelling it stops the consulted
+process.
 
-- [ ] Move the heartbeat into `HttpResponder` and delete `McpServer.Progress.cs`
-- [ ] Cover progress values, token types, no progress after an answer, and no token
-- [ ] Prove WebSocket calls with a progress token get no progress
-- [ ] Treat a connection reset and a failed progress write as hang-ups
-- [ ] Send `-32603` on server disposal
+- [x] Add the heartbeat to `HttpResponder`
+- [x] Cover progress values, token types, no progress after an answer, and no token
+- [x] Prove WebSocket calls with a progress token get no progress
+- [x] Treat a connection reset and a failed progress write as hang-ups
 
 ## Group 3: Real long consult
 

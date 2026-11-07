@@ -292,10 +292,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private async Task DispatchAsync(IMcpResponder responder, JsonElement root, CancellationToken ct) {
 		string? idForError = null;
 		try {
-			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
 			bool hasId = root.TryGetProperty("id", out var idElement);
 			string? idRaw = hasId ? idElement.GetRawText() : null;
 			idForError = idRaw;
+			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
 
 			Emit($"recv: method={method ?? "(response)"} id={idRaw ?? "-"}");
 

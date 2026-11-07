@@ -10,7 +10,7 @@ The [overview](overview.md) has the flow and pseudo implementations. This file h
 | `McpServer.ResultJson`, `ErrorJson`, `ProgressJson` | Private static envelope builders |
 | `McpServer.ProgressInterval` | Internal `TimeSpan`, 30 seconds, shortened by tests |
 | `McpServer.DispatchAsync(responder, root, ct)` | New overload taking a parsed root; the string overload parses and calls it |
-| `HttpResponder` | `Opened`, `OpenAsync`, `StartProgress`, `StopProgressAsync`, `FailAsync` |
+| `HttpResponder` | `Opened`, `Progress`, `OpenAsync`, `StartProgress`, `ExpectNoReply` |
 | `WebSocketHandshake.WriteEventStreamHeadAsync` | Replaces `WriteJsonAsync` |
 
 `ProgressInterval` is not a setting: no user decision depends on it, and it only has to stay well inside Claude's
@@ -45,10 +45,13 @@ Any future rejection by status code must run before the stream opens.
 | Connection closes or resets | `CancelOnDisconnectAsync` cancels the connection token |
 | Progress write fails | Heartbeat cancels the connection token |
 | Result write fails | The `IOException` is treated as a hang-up and ends the handler |
-| Server disposed | `ct` cancels; `FailAsync` writes `-32603` with no cancellation token |
+| Server disposed | Running calls cancel and their streams close |
 
-Only the server token decides between "caller left" and "server closing". Every write goes through the gate, so a
-late heartbeat tick sees `_answered` and writes nothing.
+Every write goes through the gate, so a late heartbeat tick sees `_answered` and writes nothing. A session's MCP server
+is disposed only after that session's agent process has exited, so no caller remains to hear a shutdown error.
+
+A failed progress write can't be tested on its own: the disconnect watcher sees the same dropped connection first.
+The heartbeat still handles it, because the write can lose that race.
 
 ## Concurrency
 
@@ -61,8 +64,8 @@ Tests are deterministic and shorten `ProgressInterval`.
 
 - **Core (`McpAgentToolsTests`, `McpServerTests`):** head arrives while a tool is blocked; progress values and token
   echo for string and number tokens; no progress after the result or without a token; notification `202`; malformed
-  body; multi-line JSON stays on one `data:` line; cancel, close, reset, and failed progress write each cancel the
-  call; disposal sends `-32603`; a quick call completes while another streams; WebSocket calls get no progress.
+  body; multi-line JSON stays on one `data:` line; cancel, close, and reset each cancel the
+  call; a quick call completes while another streams; WebSocket calls get no progress.
 - **Hosting (`McpStdioProxyTests`):** stubs reply with event streams; `tools/list` relays as one line.
 - **Real clients:** a real native-pane Claude session consults for more than 5 minutes. A real cancel shows how Claude
   treats a stream that ends with no reply.

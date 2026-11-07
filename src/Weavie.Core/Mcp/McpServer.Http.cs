@@ -7,6 +7,9 @@ namespace Weavie.Core.Mcp;
 // Streamable HTTP: a request is answered with an event stream opened at once, so a client that times out
 // waiting for response headers never gives up on a long tool call; a notification is answered 202.
 public sealed partial class McpServer {
+	/// <summary>How often a running tool call reports progress; clients' inactivity limits are minutes long.</summary>
+	internal TimeSpan ProgressInterval { get; set; } = TimeSpan.FromSeconds(30);
+
 	private async Task HandleHttpClientAsync(NetworkStream stream, HttpRequestHead request, CancellationToken ct) {
 		if (!IsAuthorized(request.Headers)) {
 			Emit("rejected HTTP MCP request: missing/invalid auth token");
@@ -24,7 +27,7 @@ public sealed partial class McpServer {
 		string sessionId = request.Headers.TryGetValue("mcp-session-id", out string? presented) && presented.Length > 0
 			? presented
 			: Guid.NewGuid().ToString("N");
-		using var responder = new HttpResponder(stream, sessionId);
+		using var responder = new HttpResponder(stream, sessionId, ProgressInterval);
 		using (var connection = CancellationTokenSource.CreateLinkedTokenSource(ct)) {
 			var watch = CancelOnDisconnectAsync(stream, connection);
 			try {
@@ -32,6 +35,7 @@ public sealed partial class McpServer {
 				var root = document.RootElement;
 				if (IsRequest(root)) {
 					await responder.OpenAsync(connection.Token).ConfigureAwait(false);
+					if (ToolCallProgressToken(root) is { } token) responder.StartProgress(token, connection);
 				} else if (root.ValueKind == JsonValueKind.Object) {
 					responder.ExpectNoReply();
 				}
@@ -43,6 +47,7 @@ public sealed partial class McpServer {
 				// The client cancelled the call or hung up; it expects no result either way.
 			} finally {
 				await connection.CancelAsync().ConfigureAwait(false);
+				await responder.Progress.ConfigureAwait(false);
 				await watch.ConfigureAwait(false);
 			}
 		}
@@ -55,7 +60,15 @@ public sealed partial class McpServer {
 	private static bool IsRequest(JsonElement root) =>
 		root.ValueKind == JsonValueKind.Object && root.TryGetProperty("id", out _) && root.TryGetProperty("method", out _);
 
-	private sealed class HttpResponder(NetworkStream stream, string sessionId) : IMcpResponder, IDisposable {
+	private static string? ToolCallProgressToken(JsonElement root) =>
+		root.TryGetProperty("method", out var method) && method.ValueKind == JsonValueKind.String && method.ValueEquals("tools/call")
+		&& root.TryGetProperty("params", out var parameters) && parameters.ValueKind == JsonValueKind.Object
+		&& parameters.TryGetProperty("_meta", out var meta) && meta.ValueKind == JsonValueKind.Object
+		&& meta.TryGetProperty("progressToken", out var token) && token.ValueKind is JsonValueKind.String or JsonValueKind.Number
+			? token.GetRawText()
+			: null;
+
+	private sealed class HttpResponder(NetworkStream stream, string sessionId, TimeSpan progressInterval) : IMcpResponder, IDisposable {
 		private readonly SemaphoreSlim _gate = new(1, 1);
 		private bool _answered;
 
@@ -80,6 +93,31 @@ public sealed partial class McpServer {
 
 		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) =>
 			AnswerAsync(ErrorJson(idRaw, code, messageText), ct);
+
+		// Ends once the call is answered or the connection is cancelled; cancel the connection before awaiting it.
+		public Task Progress { get; private set; } = Task.CompletedTask;
+
+		public void StartProgress(string token, CancellationTokenSource connection) => Progress = ReportProgressAsync(token, connection);
+
+		private async Task ReportProgressAsync(string token, CancellationTokenSource connection) {
+			using var timer = new PeriodicTimer(progressInterval);
+			int progress = 0;
+			try {
+				while (await timer.WaitForNextTickAsync(connection.Token).ConfigureAwait(false)) {
+					await _gate.WaitAsync(connection.Token).ConfigureAwait(false);
+					try {
+						if (_answered) return;
+						await WriteEventAsync(ProgressJson(token, ++progress), connection.Token).ConfigureAwait(false);
+					} finally {
+						_gate.Release();
+					}
+				}
+			} catch (OperationCanceledException) {
+				// The call ended.
+			} catch (IOException) {
+				await connection.CancelAsync().ConfigureAwait(false);
+			}
+		}
 
 		private async Task AnswerAsync(string json, CancellationToken ct) {
 			await _gate.WaitAsync(ct).ConfigureAwait(false);

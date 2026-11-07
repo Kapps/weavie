@@ -847,7 +847,8 @@ public sealed class AcpAgentSessionTests {
 		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "input-resolved"
 			&& message.ItemId == input.ItemId);
 		await fixture.WaitForMessageAsync(message => message.Text == "URL action: decline");
-		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		// The complete-url prompt's own turn finishes first; only the URL turn's end settles the session.
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == input.TurnId);
 
 		Assert.Equal("decline", resolved.Status);
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);

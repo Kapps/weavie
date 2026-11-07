@@ -26,11 +26,12 @@ public sealed partial class HostCore {
 	// refusal names the session so a client can follow its work live.
 	private static CommandResult? BackgroundWorkRefusal(HostSession? session, bool stopBackgroundWork) {
 		if (stopBackgroundWork || session?.Agent.Background is not { } background) return null;
-		AgentBackgroundItem[] running = [.. background.BackgroundWork.Where(item => item.Running)];
+		AgentBackgroundItem[] running = [.. background.BackgroundWork.Where(item => item.Orphanable)];
 		return running.Length == 0
 			? null
 			: CommandResult.Failure(
-				"This session still has background work running. Stopping it ends that work, and its results won't come back.",
+				$"This session still has background work running: {string.Join(", ", running.Select(item => $"{item.Name} ({item.Type})"))}. "
+					+ "Stopping it ends that work, and its results won't come back.",
 				JsonSerializer.Serialize(
 					new BackgroundWorkRefusalData(session.Address, [.. running.Select(item => new BackgroundWorkSummary(
 						item.Name, item.Type, item.State.ToString().ToLowerInvariant(), item.StartedAtMs))]),

@@ -179,6 +179,20 @@ test("running work survives a page reload, and stopping actions confirm against 
   await expect(surface.locator(".agent-entry-message.agent-tone-user")).toHaveCount(0);
 });
 
+test("the agent's own unprompted turn shows in the tray but never asks to be stopped", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "acp-background-turn");
+  await submitAcpDraft(surface, "task-turn");
+  const tray = surface.locator(".agent-background-tray [data-background-item]");
+  await expect(tray).toHaveAttribute("data-state", "running");
+  await expect(tray).toContainText("Claude is working");
+
+  await runPalette(page, "Restart Agent");
+  await expect(page.locator(".toast", { hasText: "Restarted the agent." })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test.describe("with approvals", () => {
   test.use({
     fakeScript: {

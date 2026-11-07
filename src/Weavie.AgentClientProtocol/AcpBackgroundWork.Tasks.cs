@@ -20,7 +20,7 @@ internal sealed partial class AcpBackgroundWork {
 		// The card lives in the root's transcript, which outlives a subagent that started the task.
 		var task = new BackgroundTask(root, root.TurnId(), new AgentBackgroundItem {
 			Id = itemId,
-			Kind = AgentBackgroundKind.Task,
+			Kind = type == "turn" ? AgentBackgroundKind.Turn : AgentBackgroundKind.Task,
 			Name = RequiredString(update, "name", "async_task_spawned update"),
 			Type = type,
 			Detail = OptionalString(update, "description"),

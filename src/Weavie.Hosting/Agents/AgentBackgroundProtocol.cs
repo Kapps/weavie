@@ -17,6 +17,7 @@ internal static class AgentBackgroundProtocol {
 			item.Usage,
 			item.State.ToString().ToLowerInvariant(),
 			item.CanStop,
+			item.Orphanable,
 			item.StartedAtMs,
 			item.EndedAtMs,
 			item.TranscriptItemId))]);
@@ -37,6 +38,7 @@ internal sealed record AgentBackgroundWire(
 	AgentBackgroundUsage? Usage,
 	string State,
 	bool CanStop,
+	bool Orphanable,
 	long StartedAtMs,
 	long? EndedAtMs,
 	string? TranscriptItemId);

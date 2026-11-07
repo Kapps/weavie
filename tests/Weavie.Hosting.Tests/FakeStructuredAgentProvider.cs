@@ -30,6 +30,9 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 	/// <summary>A prompt that leaves one stoppable background task running.</summary>
 	public const string BackgroundPrompt = "start-background";
 
+	/// <summary>A prompt that leaves a turn the agent started on its own running.</summary>
+	public const string AutonomousTurnPrompt = "start-autonomous-turn";
+
 	public AgentProviderInfo Info { get; } = new() {
 		Id = "structured",
 		Name = "Fake structured agent",
@@ -129,9 +132,11 @@ internal sealed class FakeStructuredAgentProvider : IAgentConsultProvider {
 				return;
 			}
 
-			if (submission.Text == BackgroundPrompt) {
+			if (submission.Text is BackgroundPrompt or AutonomousTurnPrompt) {
+				bool turn = submission.Text == AutonomousTurnPrompt;
 				BackgroundWork = [new AgentBackgroundItem {
-					Id = "task:sleep", Kind = AgentBackgroundKind.Task, Name = "sleep 30", Type = "shell", Detail = null,
+					Id = "task:sleep", Kind = turn ? AgentBackgroundKind.Turn : AgentBackgroundKind.Task,
+					Name = turn ? "Claude is working" : "sleep 30", Type = turn ? "turn" : "shell", Detail = null,
 					LastActivity = null, Summary = null, OutputPath = null, Usage = null, State = AgentBackgroundState.Running, CanStop = true,
 					StartedAtMs = 1, EndedAtMs = null, TranscriptItemId = null,
 				}];

@@ -25,6 +25,7 @@ import {
   agentAuthenticationTerminalActive,
   agentPaneModel,
 } from "./agent/pane-store";
+import { WorkflowRunStatus } from "./agent/WorkflowRunStatus";
 import {
   activeBackendOffline,
   activeBackendPhase,
@@ -1349,6 +1350,7 @@ export default function App(): JSX.Element {
               <span class="pane-label">
                 {authenticationTerminalActive() ? "Agent sign in" : "Claude Code"}
               </span>
+              <WorkflowRunStatus session={selectedSession()} />
               <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
                 <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
               </Show>

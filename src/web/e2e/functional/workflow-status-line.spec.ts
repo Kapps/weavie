@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
-import { runCommand } from "../harness/actions";
+import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -44,15 +44,20 @@ async function runId(home: string): Promise<string> {
   throw new Error("No workflow run was persisted.");
 }
 
+// Writes TWO_STEP into `dir`'s workflows under `workflow`, its id and file name.
+async function writeWorkflow(dir: string, workflow: string): Promise<void> {
+  await mkdir(join(dir, ".weavie", "workflows"), { recursive: true });
+  await writeFile(
+    join(dir, ".weavie", "workflows", `${workflow}.yaml`),
+    TWO_STEP.replace("id: two-step", `id: ${workflow}`),
+  );
+}
+
 // Starts TWO_STEP under `workflow` (its id and file name) and waits for its first stage to hold.
 async function startTwoStep(page: Page, workspace: string, branch: string, workflow: string) {
   const surface = await createAcpSession(page, branch);
   const worktree = sessionWorktrees(workspace)[0]!;
-  await mkdir(join(worktree, ".weavie", "workflows"), { recursive: true });
-  await writeFile(
-    join(worktree, ".weavie", "workflows", `${workflow}.yaml`),
-    TWO_STEP.replace("id: two-step", `id: ${workflow}`),
-  );
+  await writeWorkflow(worktree, workflow);
   await submitAcpDraft(
     surface,
     tool("runCommand", { id: "weavie.workflow.run", args: { workflow, inputs: {} } }),
@@ -223,4 +228,35 @@ test("the header run line keeps its place and its stage as space runs out", asyn
   await expect(head).toBeVisible();
   await expect(run).toHaveCSS("display", "none");
   await expect(label).toBeVisible();
+});
+
+test.describe("terminal Claude", () => {
+  // The workspace's own terminal Claude starts TWO_STEP once signalled; a new session waits forever.
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "waitFile", path: "start-two-step" },
+        {
+          op: "mcp",
+          tool: "runCommand",
+          args: { id: "weavie.workflow.run", args: { workflow: "two-step", inputs: {} } },
+        },
+      ],
+    },
+  });
+
+  test("the terminal header shows the selected session's run", async ({ page, weavie }) => {
+    const run = page.locator(".agent-terminal-surface .pane-head .pane-run");
+    const mainSlot = await activeSessionSlot(page);
+    await writeWorkflow(weavie.workspace, "two-step");
+    await writeFile(join(weavie.workspace, "start-two-step"), "");
+    await expect(run).toHaveText("two-step · implement");
+
+    await createSession(page, { branch: "workflow-terminal-other", provider: "claude" });
+    await expect(page.locator(".agent-terminal-surface")).toBeVisible();
+    await expect(run).toHaveCount(0);
+
+    await page.locator(`.session-chip[data-session-slot="${mainSlot}"]`).click();
+    await expect(run).toHaveText("two-step · implement");
+  });
 });

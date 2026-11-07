@@ -37,9 +37,9 @@ whole, the badge staying at the far right, and the run line gone in the mobile l
 
 Satisfies R2.
 
-- [ ] Render `WorkflowRunStatus` in the `App.tsx` terminal header with `selectedSession()`
-- [ ] E2e: terminal journey driven by a fake-claude `mcp` step
-- [ ] E2e: switching between terminal sessions updates the header
+- [x] Render `WorkflowRunStatus` in the `App.tsx` terminal header with `selectedSession()`
+- [x] E2e: terminal journey driven by a fake-claude `mcp` step
+- [x] E2e: switching between terminal sessions updates the header
 
 **Video:** run a workflow in a terminal Claude session. The "Claude Code" header shows the run line, and switching
 sessions changes or clears it.

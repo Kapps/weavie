@@ -200,8 +200,12 @@ jobs:
           cache-write: ${{ !inputs.ref }}
       # Flake 2026-10-01 07:03 UTC (https://github.com/Kapps/weavie/actions/runs/36827937474, macOS):
       # `corepack pnpm` re-downloaded pnpm from registry.npmjs.org (connect timeout) although
-      # pnpm/action-setup had already installed it. Use the installed pnpm; no network fetch.
-      - run: pnpm install --frozen-lockfile
+      # pnpm/action-setup had already installed it. Use the installed pnpm; no network fetch. Building the
+      # web app here also leaves the project files' incremental `corepack pnpm run build` nothing to do.
+      - run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+        shell: bash
         working-directory: src/web
 
       - name: Restore

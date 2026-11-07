@@ -60,9 +60,13 @@ jobs:
         with:
           cache-write: ${{ inputs.cache-write }}
 
-      - name: Install web dependencies
+      # Built with the installed pnpm, so the worker publish's incremental `corepack pnpm` build is a no-op.
+      - name: Install and build web app
         working-directory: src/web
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # Runner publish stages the matching self-contained Headless worker, Vite UI, and hook relay.
       # The generic ACP fake exercises the external agent process seam.

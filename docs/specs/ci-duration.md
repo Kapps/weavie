@@ -344,6 +344,11 @@ like-for-like baseline. It ran well under the 15.3 min median.
 - **macOS format check:** 26s in the one run checked, against a 94s p50.
 - **Test count:** 548 in all three new runs (547 passed, 1 skipped). The baseline's 547 is from an older `main`.
 
+After #4 (run 42345521026), summed Playwright time fell to 1639s and seven shard jobs took 222–273s, but the
+run took 16.2 min: pulling the Playwright image took 238s on one shard against the usual ~27s, and that
+shard set the finish at 527s. Image pulls are the new tail risk in place of apt. Jobs also queued for ~55s
+before `report` and again before `ci`.
+
 Shards were planned at ~250s each in run 41584165279 and their Playwright steps took 250–356s. Total
 Playwright time varies by ±10% between runs of the same suite (2040–2470s), and single-run timings
 carry that noise per file. Averaging each file's time over several runs when recording is the next

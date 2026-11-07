@@ -49,7 +49,7 @@ public sealed class WorkflowLoopAndFeedbackTests {
 
 	private static WorkflowTransitions Machine(string text, string id) {
 		var read = WorkflowReader.Read(text, id);
-		return new(read.Definition ?? throw new InvalidOperationException(string.Join("\n", read.Diagnostics)), 3, Path.GetTempPath(), TestWorkflows.Words);
+		return new(read.Definition ?? throw new InvalidOperationException(string.Join("\n", read.Diagnostics)), 3, true, Path.GetTempPath(), TestWorkflows.Words);
 	}
 
 	private static WorkflowStep Done(WorkflowTransitions machine, WorkflowRun run, string outputs) =>

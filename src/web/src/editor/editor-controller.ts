@@ -82,6 +82,7 @@ import {
 } from "./session-store";
 import type { EditorSession } from "./session-types";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
+import { showPreviewMode } from "./view-mode-store";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -473,6 +474,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       : selectedSession() === session && evaluateWhen("editorFocused")
         ? { activate: false }
         : { focus: false };
+
+  const typingIn = (session: ClientSession, path: string): boolean =>
+    selectedSession() === session &&
+    activePathFor(session) === path &&
+    evaluateWhen("editorFocused");
 
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) return false;
@@ -1338,9 +1344,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         path: string;
         line: number | null;
         preview?: boolean;
+        rendered?: boolean;
         scratch?: boolean;
-        intent: EditorOpenIntent;
+        intent: "navigation" | "background";
       }>(session, "openFile", (message) => {
+        if (message.rendered === true && !typingIn(session, message.path)) {
+          showPreviewMode(session, message.path);
+        }
         openFileFor(
           session,
           message.path,

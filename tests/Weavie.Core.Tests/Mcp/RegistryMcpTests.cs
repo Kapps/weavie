@@ -45,7 +45,29 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("getSetting", names);
 		Assert.Contains("setSetting", names);
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
-		Assert.DoesNotContain("openFile", names);
+	}
+
+	[Fact]
+	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools() {
+		using var store = NewStore();
+		var presenter = FakeDiffPresenter.AlwaysKeep();
+		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], "weavie", store, registryMode: true);
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+
+		await SendAsync(ws, Request(1, "tools/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		var names = list.RootElement.GetProperty("result").GetProperty("tools")
+			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
+		Assert.Single(names, name => name == McpServer.OpenFileTool);
+
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"openFile","arguments":{"filePath":"plan.md","preview":true}}"""));
+		using var opened = await ReceiveAsync(ws);
+		Assert.Equal("FILE_OPENED", ToolText(opened));
+		Assert.Equal(["plan.md"], presenter.Opened);
+
+		await SendAsync(ws, Request(3, "tools/call", """{"name":"openFile","arguments":{}}"""));
+		using var missing = await ReceiveAsync(ws);
+		Assert.True(missing.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}
 
 	[Fact]
@@ -340,7 +362,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		using var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new UnusedPort(), () => 3, _dir.Path, WeavieWorkflows.Vocabulary);
+			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
 			workflows: new SessionWorkflowRegistry(catalog, runner));

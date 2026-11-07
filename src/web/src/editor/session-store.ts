@@ -141,11 +141,20 @@ class OwnedEditorSession {
       ...(opts.kind === undefined ? {} : { kind: opts.kind }),
     };
     const previewIndex = preview ? current.open.findIndex((entry) => entry.preview) : -1;
-    const replaced = existing === undefined ? previewIndex : current.open.indexOf(existing);
+    // An open that leaves the user where they are can't take the preview tab out from under them: theirs stays.
+    const keepsPreview =
+      opts.activate === false && current.open[previewIndex]?.path === current.active;
+    const replaced =
+      existing !== undefined ? current.open.indexOf(existing) : keepsPreview ? -1 : previewIndex;
+    const kept = keepsPreview
+      ? current.open.map((previous, index) =>
+          index === previewIndex ? { ...previous, preview: false } : previous,
+        )
+      : current.open;
     const open =
       replaced === -1
-        ? normalize([...current.open, entry])
-        : current.open.map((previous, index) => (index === replaced ? entry : previous));
+        ? normalize([...kept, entry])
+        : kept.map((previous, index) => (index === replaced ? entry : previous));
     this.commit({ active: active(path), open });
     return { path, placement };
   }

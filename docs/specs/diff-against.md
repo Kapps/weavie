@@ -61,8 +61,12 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
     Open --> Closed: another branch, or detached HEAD, is checked out
   ```
 
-  Closing on a branch change finishes the review the way Close does and says so in a toast. A review against
-  `HEAD` or `HEAD^` follows HEAD, so committing reviewed work moves it out of that review.
+  Closing on a branch change finishes the review the way Close does and says so in a toast. A rebase under way
+  detaches HEAD, so the check waits until it finishes. Moving re-seeds every file the review holds inside the
+  worktree that Git doesn't ignore, and only while the review it was computed for is still open. A PR review
+  follows `origin/<base>`, so merging newer base work moves it too. A review against `HEAD` or `HEAD^` follows
+  HEAD, so committing reviewed work moves it out of that review. Files whose kept changes overlap the new base
+  are named in a toast.
 
 ## The shared review-diff surface
 

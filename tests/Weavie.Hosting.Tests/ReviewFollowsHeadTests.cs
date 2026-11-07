@@ -55,6 +55,25 @@ public sealed class ReviewFollowsHeadTests {
 		Assert.Equal(["topic.txt"], files);
 	}
 
+	[Fact]
+	public async Task RebasingOntoTheTarget_KeepsTheReviewOpen_AtItsNewMergeBase() {
+		await using var host = await TestHost.StartAsync(repo => {
+			Branch(repo, "topic", "topic.txt");
+			TempGitRepo.Run(repo, "checkout", "-q", "main");
+			Commit(repo, "main.txt", "main moved on");
+			TempGitRepo.Run(repo, "checkout", "-q", "topic");
+		});
+		var session = host.SelectedSession;
+		await host.SessionRequestAsync<JsonElement>(
+			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+
+		TempGitRepo.Run(host.RepoRoot, "rebase", "-q", "main");
+
+		string mergeBase = TempGitRepo.Run(host.RepoRoot, "rev-parse", "main").Trim();
+		await Wait.UntilAsync(() => session.Changes.Review?.MergeBase == mergeBase);
+		Assert.Equal("topic", session.Changes.Review!.Branch);
+	}
+
 	private static void Branch(string repo, string branch, string file) {
 		TempGitRepo.Run(repo, "checkout", "-q", "-b", branch);
 		Commit(repo, file, $"{branch} work");

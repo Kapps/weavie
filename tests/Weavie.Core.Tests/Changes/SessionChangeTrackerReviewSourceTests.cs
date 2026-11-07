@@ -65,28 +65,31 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	}
 
 	[Fact]
-	public void OverlappingBaseExtension_RependsTheFileAgainstTheNewBase() {
+	public void OverlappingBaseExtension_RestartsTheFileAgainstTheNewBase() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
-		files.WriteAllText(File, "session baseline\n");
+		files.WriteAllText(File, "a\nspace\nb\n");
 		var tracker = Tracker(files, persistence);
 		tracker.CaptureBaseline(File);
-		files.WriteAllText(File, "kept proposal\n");
+		files.WriteAllText(File, "A\nspace\nB\n");
 		tracker.RecordChange(File);
-		tracker.KeepFile(File);
+		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
 		string other = Path.Combine(Root, "other.txt");
 		files.WriteAllText(other, "new file\n");
+		IReadOnlyList<string>? restarted = null;
+		tracker.ReviewFilesRestarted += paths => restarted = paths;
 
 		tracker.ArmReview(Review, [
-			new(other, "", "new file\n", false, true), new(File, "earlier base\n", "kept proposal\n", true, true),
+			new(other, "", "new file\n", false, true), new(File, "x\nspace\nb\n", "A\nspace\nB\n", true, true),
 		]);
 
+		Assert.Equal([File], restarted);
 		Assert.Equal(Review, tracker.Review);
 		var change = tracker.GetTurn(File)!;
-		Assert.Equal("earlier base\n", change.BaselineText);
-		Assert.Equal("earlier base\n", change.AcceptedBaselineText);
+		Assert.Equal("x\nspace\nb\n", change.BaselineText);
+		Assert.Equal("x\nspace\nb\n", change.AcceptedBaselineText);
 		Assert.NotNull(tracker.GetTurn(other));
-		Assert.Equal("kept proposal\n", files.ReadAllText(File));
+		Assert.Equal("A\nspace\nB\n", files.ReadAllText(File));
 	}
 
 	[Fact]
@@ -161,14 +164,16 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	}
 
 	[Fact]
-	public void AMovedMergeBase_NeedsASeedForEveryTrackedPath() {
+	public void RebaseReview_LeavesAClosedOrReplacedReviewAlone() {
 		var files = new InMemoryFileSystem();
 		var tracker = Tracker(files, new MemoryReviewPersistence());
 		files.WriteAllText(File, "changed\n");
-		tracker.ArmReview(Review, [new(File, "base\n", "changed\n", true, true)]);
+		ReviewSeed[] seeds = [new(File, "base\n", "changed\n", true, true)];
+		tracker.ArmReview(Review, seeds);
+		tracker.CloseReview();
 
-		Assert.Throws<InvalidOperationException>(() => tracker.ArmReview(Review with { MergeBase = "merged" }, []));
-		Assert.Equal("base", tracker.Review!.MergeBase);
+		Assert.False(tracker.RebaseReview(Review, Review with { MergeBase = "merged" }, seeds));
+		Assert.Null(tracker.Review);
 	}
 
 	[Fact]

@@ -1,5 +1,6 @@
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 
@@ -67,7 +68,9 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			bool opened = await SeedAndArmReviewAsync(review, session, changes, request, replaces, ct).ConfigureAwait(false);
+			bool opened = await SeedAndArmReviewAsync(review, session, changes, seeds => replaces is null
+				? session.Changes.ArmReview(review, seeds, request)
+				: session.Changes.ReplaceReview(review, seeds, request, replaces), ct).ConfigureAwait(false);
 			// Another review took over while this one was computing: ask about that one instead.
 			return !opened && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
 				? new(false, now.Label, review.Label)
@@ -150,26 +153,29 @@ public sealed partial class HostCore {
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
 	/// first file's diff, and answers whether a new review opened (resuming the same source keeps the user's place).
-	/// <paramref name="replaces"/>, when set, names the review against another source to close first.
+	/// <paramref name="arm"/> attaches the seeds on the UI thread, answering whether the review it was asked for armed.
 	/// Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the session usable.
 	/// </summary>
 	private async Task<bool> SeedAndArmReviewAsync(
 		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
-		object request,
-		string? replaces,
+		Func<ReviewSeed[], bool> arm,
 		CancellationToken ct) {
-		bool resuming = session.Changes.Review is { } existing && existing.SameSource(review);
-		// A review moving to a new merge-base re-reads every tracked file there, not only the changed ones.
+		var git = new GitService();
+		var existing = session.Changes.Review;
+		bool resuming = existing is not null && existing.SameSource(review);
 		var paths = changes.Select(change => change.Path).ToList();
-		if (resuming && session.Changes.Review!.MergeBase != review.MergeBase) {
-			paths.AddRange(session.Changes.TrackedPaths()
-				.Select(path => Path.GetRelativePath(review.Worktree, path).Replace('\\', '/'))
+		if (resuming && existing!.MergeBase != review.MergeBase) {
+			// A review moving to a new merge-base re-reads every file it holds there that Git would show it.
+			string root = Path.GetFullPath(review.Worktree);
+			string[] held = [.. session.Changes.TrackedPaths().Where(path => path.StartsWith(root + Path.DirectorySeparatorChar, PathIdentity.Comparison))];
+			var ignored = await git.FindIgnoredAsync(root, held, ct).ConfigureAwait(false);
+			paths.AddRange(held.Where(path => !ignored.Contains(path))
+				.Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
 				.Except(paths, StringComparer.Ordinal));
 		}
 
-		var git = new GitService();
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
 		try {
 			foreach (string path in paths) {
@@ -192,9 +198,7 @@ public sealed partial class HostCore {
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists))];
 			bool armedReview;
 			try {
-				armedReview = replaces is null
-					? session.Changes.ArmReview(review, armed, request)
-					: session.Changes.ReplaceReview(review, armed, request, replaces);
+				armedReview = arm(armed);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				// Arming may have replaced what the page holds revisions of before it failed.
 				PushReviewStateToWeb(session, session.Bus.BroadcastTarget);

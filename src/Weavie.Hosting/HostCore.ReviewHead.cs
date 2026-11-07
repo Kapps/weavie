@@ -4,7 +4,8 @@ using Weavie.Core.Review;
 namespace Weavie.Hosting;
 
 // Keeps the open review on the branch it was opened for: another branch checked out closes it, and a merge or
-// rebase that moves the merge-base with its target moves the review there. See docs/specs/diff-against.md.
+// rebase that moves the merge-base with its target moves the review there. A rebase under way detaches HEAD, so
+// the review waits for it to finish. See docs/specs/diff-against.md.
 public sealed partial class HostCore {
 	private CoalescedSnapshotMonitor<ReviewHeadSnapshot> AttachReviewHead(HostSession session) {
 		var monitor = new CoalescedSnapshotMonitor<ReviewHeadSnapshot>(
@@ -12,6 +13,9 @@ public sealed partial class HostCore {
 			ct => ResolveReviewHeadAsync(session, ct),
 			head => _ = session.Background.Run(ct => FollowReviewHeadAsync(session, head, ct)));
 		session.Changes.ReviewChanged += monitor.RefreshNow;
+		session.Changes.ReviewFilesRestarted += paths => PostForSession(session, () => Notify(session, "info",
+			$"Your kept changes overlapped the review's new base, so these start over: "
+			+ string.Join(", ", paths.Select(path => Path.GetRelativePath(session.WorkspaceRoot, path))) + "."));
 		monitor.RequestRefresh();
 		return monitor;
 	}
@@ -20,6 +24,7 @@ public sealed partial class HostCore {
 		if (ActiveReview(session) is not { } review) return ReviewHeadSnapshot.None;
 		var git = new GitService();
 		try {
+			if (await git.IsRebasingAsync(review.Worktree, ct).ConfigureAwait(false)) return ReviewHeadSnapshot.None;
 			string branch = await git.GetCurrentBranchAsync(review.Worktree, ct).ConfigureAwait(false) ?? string.Empty;
 			string? mergeBase = branch != review.Branch ? null
 				: await git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", ct).ConfigureAwait(false);
@@ -48,7 +53,7 @@ public sealed partial class HostCore {
 		try {
 			await SeedAndArmReviewAsync(
 				moved, session, await ComputeReviewChangesAsync(moved, ct).ConfigureAwait(false),
-				session.Changes.BeginReviewRequest(), null, ct).ConfigureAwait(false);
+				seeds => session.Changes.RebaseReview(review, moved, seeds), ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't move the review {review.Label} to its new merge-base: {ex.Message}");
 		}

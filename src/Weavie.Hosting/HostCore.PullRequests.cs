@@ -119,6 +119,7 @@ public sealed partial class HostCore {
 			request.Number,
 			headRef,
 			pullRequest.BaseSha,
+			pullRequest.BaseRef,
 			ct).ConfigureAwait(false);
 		Step("review armed");
 		return reviewError is null
@@ -131,6 +132,7 @@ public sealed partial class HostCore {
 		int number,
 		string headRef,
 		string baseSha,
+		string baseRef,
 		CancellationToken ct) {
 		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
@@ -156,15 +158,15 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
-		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, baseSha, headRef);
+		// Following the remote base branch, not the fixed SHA, lets a merge of its newer work move the review's base.
+		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, $"origin/{baseRef}", headRef);
 		try {
 			// The page activates this PR's session as this request's answer, landing on its overview.
 			await SeedAndArmReviewAsync(
 				review,
 				session,
 				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
-				request,
-				null,
+				seeds => session.Changes.ArmReview(review, seeds, request),
 				ct)
 				.ConfigureAwait(false);
 			return null;

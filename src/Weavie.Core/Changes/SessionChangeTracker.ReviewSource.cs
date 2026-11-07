@@ -9,12 +9,18 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Raised under the tracker's lock when the review's source changes; handlers may only signal.</summary>
 	public event Action? ReviewChanged;
 
+	/// <summary>
+	/// Raised under the tracker's lock with the files whose new review base overlapped their kept changes, so they
+	/// started over against it; handlers may only signal.
+	/// </summary>
+	public event Action<IReadOnlyList<string>>? ReviewFilesRestarted;
+
 	/// <summary>Reserves a source-opening request, replacing any earlier request still reading its files.</summary>
 	public object BeginReviewRequest() {
 		lock (_gate) return _reviewRequest = new object();
 	}
 
-	/// <summary>Every path the tracker holds, which a review rebased onto a new merge-base must seed.</summary>
+	/// <summary>Every path the tracker holds; a review moving to a new merge-base re-seeds those in its worktree.</summary>
 	public IReadOnlyCollection<string> TrackedPaths() {
 		lock (_gate) return [.. _baseline.Keys];
 	}
@@ -73,17 +79,35 @@ public sealed partial class SessionChangeTracker {
 			if (!ReferenceEquals(_reviewRequest, request)) return false;
 			if (_review is { } existing && !existing.SameSource(review))
 				throw new InvalidOperationException("This worktree already has a review against a different source.");
-			bool rebase = _review is { } open && open.MergeBase != review.MergeBase;
-			if (rebase && _baseline.Keys.Except(seeds.Select(seed => NormalizePath(seed.Path)), PathIdentity.Comparer).Any())
-				throw new InvalidOperationException("A review moving to a new merge-base needs a seed for every tracked path.");
-			var prepared = seeds.Where(seed => _review is null || rebase || !_baseline.ContainsKey(seed.Path)).Select(PrepareSeed).ToArray();
-			foreach (var state in prepared) RestoreState(state);
-			SynchronizeHistory(external: rebase, except: null);
-			SetReview(review);
-			ReconcileReviewDisk();
-			Checkpoint();
+			ApplySeedsLocked(review, seeds);
 			return true;
 		}
+	}
+
+	/// <summary>
+	/// Moves <paramref name="expected"/> to <paramref name="moved"/>'s merge-base, re-seeding the given paths there and
+	/// keeping decisions; a review closed or replaced meanwhile is left alone.
+	/// </summary>
+	public bool RebaseReview(ReviewContext expected, ReviewContext moved, IReadOnlyList<ReviewSeed> seeds) {
+		lock (_gate) {
+			if (_review != expected || !expected.SameSource(moved)) return false;
+			ApplySeedsLocked(moved, seeds);
+			return true;
+		}
+	}
+
+	// A review whose merge-base moved re-seeds every supplied path; otherwise only paths it doesn't hold yet.
+	private void ApplySeedsLocked(ReviewContext review, IReadOnlyList<ReviewSeed> seeds) {
+		bool rebase = _review is { } open && open.MergeBase != review.MergeBase;
+		var restarted = new List<string>();
+		var prepared = seeds.Where(seed => _review is null || rebase || !_baseline.ContainsKey(seed.Path))
+			.Select(seed => PrepareSeed(seed, restarted)).ToArray();
+		foreach (var state in prepared) RestoreState(state);
+		SynchronizeHistory(external: rebase, except: null);
+		SetReview(review);
+		ReconcileReviewDisk();
+		Checkpoint();
+		if (restarted.Count > 0) ReviewFilesRestarted?.Invoke(restarted);
 	}
 
 	/// <summary>
@@ -111,7 +135,7 @@ public sealed partial class SessionChangeTracker {
 		ReviewChanged?.Invoke();
 	}
 
-	private PathState PrepareSeed(ReviewSeed seed) {
+	private PathState PrepareSeed(ReviewSeed seed, List<string> restarted) {
 		string path = NormalizePath(seed.Path);
 		if (!_isInScope(path)) throw new ArgumentException("The review file is outside this session.");
 		var state = Capture(path, withDisk: false);
@@ -158,6 +182,7 @@ public sealed partial class SessionChangeTracker {
 		}
 		var extended = (Boundary: Extend(new(state.ReviewBaseline, state.ReviewBaselineExists)),
 			Anchor: Extend(new(state.AcceptedAnchor, state.AcceptedAnchorExists)));
+		if (extended is not ( { }, { })) restarted.Add(path);
 		var (boundary, anchor) = extended is ( { } b, { } a) ? (b, a) : (to, to);
 		return state with {
 			Baseline = seed.Baseline,

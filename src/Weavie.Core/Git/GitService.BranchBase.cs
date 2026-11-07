@@ -59,6 +59,14 @@ public sealed partial class GitService {
 		return reference != before;
 	}
 
+	/// <summary>Whether a rebase is under way, during which HEAD is detached from the branch being rebased.</summary>
+	public async Task<bool> IsRebasingAsync(string directory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		var paths = await RunCheckedAsync(directory, ["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"], ct)
+			.ConfigureAwait(false);
+		return Lines(paths.StdOut).Any(path => Directory.Exists(Path.GetFullPath(path, directory)));
+	}
+
 	/// <summary>Records <paramref name="parent"/> as the branch <paramref name="branch"/> was created from.</summary>
 	public async Task RecordParentBranchAsync(string directory, string branch, string parent, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);

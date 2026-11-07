@@ -10,8 +10,8 @@ Satisfies R1, R2, R3.
 - [x] Extract `WorkflowCatalog.Resolve` and have `Winner` use it.
 - [x] Add `Validate(id)` and `ValidateText`; delete `Validate(path)`.
 - [x] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
-- [ ] Change the `validateWorkflow` schema and handler, with the exactly-one check.
-- [ ] Replace the path test and add the catalog and MCP tests for R1 to R3.
+- [x] Change the `validateWorkflow` schema and handler, with the exactly-one check.
+- [x] Replace the path test and add the catalog and MCP tests for R1 to R3.
 
 **Video:** in the real app, an agent validates a broken saved workflow by `id`, then a broken and a fixed proposal as
 `text`, and the file on disk stays unchanged throughout; calling with both arguments shows the error.

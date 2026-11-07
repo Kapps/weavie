@@ -333,10 +333,11 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task WorkflowToolsListPublishTheSchemaAndValidateFiles() {
+	public async Task WorkflowToolsListPublishTheSchemaAndValidateByIdOrText() {
 		using var store = NewStore();
 		string personal = Path.Combine(_dir.Path, "personal");
-		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
+		Directory.CreateDirectory(personal);
+		File.WriteAllText(Path.Combine(personal, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		using var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
@@ -365,13 +366,35 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var schema = await ReceiveAsync(ws);
 		Assert.Equal(WorkflowSchema.Json, ToolText(schema));
 
-		await SendAsync(ws, Request(4, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"broken.yaml"}}"""));
-		using var invalid = await ReceiveAsync(ws);
-		Assert.Contains("expected a non-empty list at stages", ToolText(invalid), StringComparison.Ordinal);
+		var validate = tools.Single(t => t.GetProperty("name").GetString() == "validateWorkflow");
+		Assert.Equal(
+			["id", "text"],
+			validate.GetProperty("inputSchema").GetProperty("properties").EnumerateObject().Select(p => p.Name));
 
-		await SendAsync(ws, Request(5, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"missing.yaml"}}"""));
+		await SendAsync(ws, Request(4, "tools/call", """{"name":"validateWorkflow","arguments":{"id":"broken"}}"""));
+		using var invalid = await ReceiveAsync(ws);
+		Assert.Contains("expected a non-empty list at stages (line 3, column ", ToolText(invalid), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(5, "tools/call", """{"name":"validateWorkflow","arguments":{"id":"missing"}}"""));
 		using var missing = await ReceiveAsync(ws);
 		Assert.True(missing.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+		Assert.Contains("quick-fix", ToolText(missing), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(6, "tools/call", """{"name":"validateWorkflow","arguments":{"text":"id: draft\ndescription: d\nstages: []\n"}}"""));
+		using var badProposal = await ReceiveAsync(ws);
+		Assert.Contains("expected a non-empty list at stages", ToolText(badProposal), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(7, "tools/call", """{"name":"validateWorkflow","arguments":{"text":"id: draft\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go }\n"}}"""));
+		using var goodProposal = await ReceiveAsync(ws);
+		Assert.Equal("Valid.", ToolText(goodProposal));
+		Assert.False(File.Exists(Path.Combine(personal, "draft.yaml")));
+
+		foreach (var (id, arguments) in new[] { (8, "{}"), (9, """{"id":"broken","text":"id: a"}"""), (10, """{"path":"broken.yaml"}""") }) {
+			await SendAsync(ws, Request(id, "tools/call", $$"""{"name":"validateWorkflow","arguments":{{arguments}}}"""));
+			using var refused = await ReceiveAsync(ws);
+			Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+			Assert.Contains("exactly one of 'id' or 'text'", ToolText(refused), StringComparison.Ordinal);
+		}
 	}
 
 	[Fact]

@@ -24,7 +24,7 @@ public sealed partial class McpServer {
 		$$$$"""
           {"name":"{{{{ListWorkflowsTool}}}}","description":"List every Weavie workflow visible to this session (built-in, personal ~/.weavie/workflows, and this repository's .weavie/workflows), with its id, description, scope, file path, inputs, whether it is valid (and its errors), and which scope shadows it when a more specific file has the same id.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}},
           {"name":"{{{{GetWorkflowSchemaTool}}}}","description":"Get the JSON Schema of Weavie workflow YAML files. Read it before writing or editing a workflow; never write fields it doesn't list.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}},
-          {"name":"{{{{ValidateWorkflowTool}}}}","description":"Validate a workflow YAML file and get every problem with its path, line, and column. Call it after writing or editing a workflow and fix every problem before finishing.","inputSchema":{"type":"object","properties":{"path":{"type":"string","description":"Absolute path, or relative to the worktree."}},"required":["path"]},"annotations":{"readOnlyHint":true}},
+          {"name":"{{{{ValidateWorkflowTool}}}}","description":"Validate a Weavie workflow and get every problem with its path, line, and column. Pass exactly one of 'text', the complete proposed YAML, checked without touching any file; or 'id', the saved workflow that wins for that id. Validate the proposed text and fix every problem before saving.","inputSchema":{"type":"object","properties":{"id":{"type":"string","description":"A workflow id from listWorkflows."},"text":{"type":"string","description":"The complete proposed workflow YAML."}}},"annotations":{"readOnlyHint":true}},
           {"name":"{{{{CompleteStageTool}}}}","description":"Complete the open stage of this session's Weavie workflow run, reporting the stage's declared outputs and a summary. Call it only when the stage's work is truly finished, then end your turn; Weavie starts the next stage. A rejection lists what to fix.","inputSchema":{"type":"object","properties":{"outputs":{"type":"object","description":"The stage's declared outputs by name; {} when it declares none."},"summary":{"type":"string","description":"A few sentences on what the stage did and found. The model deciding what comes next reads it, and has no other view of your work."}},"required":["outputs","summary"]}},
           {"name":"{{{{FailStageTool}}}}","description":"Report that you can't finish the open stage of this session's Weavie workflow run. The run pauses for the user with your reason.","inputSchema":{"type":"object","properties":{"reason":{"type":"string"}},"required":["reason"]}}
         """;
@@ -63,15 +63,16 @@ public sealed partial class McpServer {
 		}), ct);
 
 	private async Task HandleValidateWorkflowAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
-		string path = args.GetStringOrEmpty("path");
-		if (path.Length == 0) {
-			await SendToolErrorAsync(responder, idRaw, $"{ValidateWorkflowTool} requires 'path'.", ct).ConfigureAwait(false);
+		string id = args.GetStringOrEmpty("id");
+		string text = args.GetStringOrEmpty("text");
+		if ((id.Length == 0) == (text.Length == 0)) {
+			await SendToolErrorAsync(responder, idRaw, $"{ValidateWorkflowTool} requires exactly one of 'id' or 'text'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		IReadOnlyList<WorkflowDiagnostic> diagnostics;
 		try {
-			diagnostics = _workflows.Validate(path);
+			diagnostics = id.Length > 0 ? _workflows.Validate(id) : _workflows.ValidateText(text);
 		} catch (Exception ex) when (ex is WorkflowException or IOException or UnauthorizedAccessException) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;

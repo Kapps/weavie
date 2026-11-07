@@ -73,6 +73,11 @@ test("comments queue as drafts in place and submit once with a verdict", async (
   await expect(button).toHaveText("Review");
   const review = page.locator(".session-overview-comment", { hasText: "One thing inline." });
   await expect(review).toContainText("requested changes");
+  // Line comments show their text and place: a lone one reads as a comment, never as a review.
+  const entry = (body: string) => page.locator(".session-overview-comment", { hasText: body });
+  await expect(entry("Queued for the review.")).toContainText(/commented on \S*hello\.ts:6/);
+  await expect(entry("Posted right away.")).toContainText(/commented on \S*hello\.ts:5/);
+  await expect(page.locator(".session-overview-comment", { hasText: "reviewed" })).toHaveCount(0);
 });
 
 test("discarding the pending review asks first and deletes every draft", async ({ page }) => {

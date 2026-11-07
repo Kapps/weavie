@@ -50,15 +50,18 @@ public sealed partial class StaticPullRequestProvider {
 				throw new InvalidOperationException("User can only have one pending review per pull request");
 			}
 
-			if (verdict is { } submitted) {
-				RequireVerdict(number, submitted, body, threads.Count);
-				RecordReview(number, submitted, body);
+			if (verdict is { } required) {
+				RequireVerdict(number, required, body, threads.Count);
 			} else {
 				PendingReviews[number] = new PendingReview($"review-{++_nextId}", body);
 			}
 
 			foreach (var draft in threads) {
-				AddThread(number, draft, pending: verdict is null);
+				AddThread(number, draft, pending: true);
+			}
+
+			if (verdict is { } submitted) {
+				RecordReview(number, submitted, body);
 			}
 
 			return Task.FromResult(PendingReviews.GetValueOrDefault(number)?.Id ?? $"review-{++_nextId}");
@@ -88,7 +91,12 @@ public sealed partial class StaticPullRequestProvider {
 			}
 
 			// GitHub files a reply into the viewer's pending review whether or not the call names it.
-			_threads[index] = (number, thread with { Comments = [.. thread.Comments, Comment(body, PendingReviews.ContainsKey(number))] });
+			var reply = Comment(body, PendingReviews.ContainsKey(number));
+			_threads[index] = (number, thread with { Comments = [.. thread.Comments, reply] });
+			if (!reply.Pending) {
+				AppendConversation(number, [LineEntry(thread, reply)]);
+			}
+
 			return Task.CompletedTask;
 		}
 	}
@@ -115,7 +123,6 @@ public sealed partial class StaticPullRequestProvider {
 			int number = PendingNumber(reviewId);
 			RequireVerdict(number, verdict, body, Drafts(number).Count());
 			PendingReviews.Remove(number);
-			MapDrafts(number, c => c with { Pending = false });
 			RecordReview(number, verdict, body);
 			return Task.CompletedTask;
 		}

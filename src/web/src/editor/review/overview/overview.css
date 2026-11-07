@@ -318,6 +318,11 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
   font-weight: 600;
 }
 
+.session-overview-comment-where {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .session-overview-comment-body {
   margin-top: 0.25em;
   font-family: var(--font-prose-family);

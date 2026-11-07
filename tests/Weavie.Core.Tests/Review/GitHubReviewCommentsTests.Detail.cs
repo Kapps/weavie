@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Review;
 using Xunit;
 
@@ -35,6 +36,58 @@ public sealed partial class GitHubReviewCommentsTests {
 	}
 
 	[Fact]
+	public async Task LoadDetailAsync_ShowsLineCommentsInTheConversation() {
+		var handler = new ScriptedHandler(
+			Ok(Detail(
+				commentsHasNextPage: false,
+				reviews: """
+					{ "id": "PRR_1", "body": "", "state": "COMMENTED", "submittedAt": "2026-01-03T00:00:00Z", "url": "r1",
+					  "author": { "login": "mira", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
+					    { "id": "RC_1", "body": "lone", "url": "c1", "path": "a.ts", "line": 3, "author": { "login": "mira", "avatarUrl": "" } } ] } },
+					{ "id": "PRR_2", "body": "fix these", "state": "CHANGES_REQUESTED", "submittedAt": "2026-01-04T00:00:00Z", "url": "r2",
+					  "author": { "login": "kapps", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": true, "endCursor": "cursor-line" }, "nodes": [
+					    { "id": "RC_2", "body": "stale", "url": "c2", "path": "b.ts", "line": null, "author": { "login": "kapps", "avatarUrl": "" } } ] } }
+					""")),
+			Ok("""
+				{ "data": { "node": { "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
+				  { "id": "RC_3", "body": "more", "url": "c3", "path": "c.ts", "line": 9, "author": { "login": "kapps", "avatarUrl": "" } } ] } } } }
+				"""));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		var detail = await provider.LoadDetailAsync(Repo, 7);
+
+		Assert.Equal("PRR_2", Variables(handler, 1).GetProperty("id").GetString());
+		Assert.Equal("cursor-line", Variables(handler, 1).GetProperty("after").GetString());
+		Assert.Equal(
+			[
+				("IC_1", null, null),
+				("RC_1", null, new PullRequestCommentLocation("a.ts", 3)),
+				("PRR_2", ReviewerState.ChangesRequested, null),
+				("RC_2", null, new PullRequestCommentLocation("b.ts", null)),
+				("RC_3", null, new PullRequestCommentLocation("c.ts", 9)),
+			],
+			detail.Conversation.Select(item => (item.Id, item.Review, item.Location)));
+		Assert.Equal("2026-01-04T00:00:00Z", detail.Conversation[4].CreatedAt);
+	}
+
+	[Fact]
+	public async Task LoadDetailAsync_ContinuingReviewsLeavesTheirLineCommentsOnTheFirstPage() {
+		var handler = new ScriptedHandler(
+			Ok(Detail(commentsHasNextPage: false).Replace(
+				"\"reviews\": { \"pageInfo\": { \"hasNextPage\": false, \"endCursor\": null }",
+				"\"reviews\": { \"pageInfo\": { \"hasNextPage\": true, \"endCursor\": \"cursor-reviews\" }",
+				StringComparison.Ordinal)),
+			Ok("""{ "data": { "node": { "reviews": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] } } } }"""));
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
+
+		await provider.LoadDetailAsync(Repo, 7);
+
+		string query = JsonDocument.Parse(handler.Requests[1].Body!).RootElement.GetProperty("query").GetString()!;
+		Assert.Contains("reviews(first:100,after:$after,", query, StringComparison.Ordinal);
+		Assert.Contains("comments(first:100)", query, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task AddCommentAsync_PostsAPullRequestLevelComment() {
 		var handler = new ScriptedHandler(Ok("""{ "data": { "addComment": { "clientMutationId": null } } }"""));
 		var provider = new GitHubReviewProvider(new HttpClient(handler), new TokenSource());
@@ -45,18 +98,23 @@ public sealed partial class GitHubReviewCommentsTests {
 		Assert.Equal(("PR_7", "Looks good overall."), (input.GetProperty("subjectId").GetString(), input.GetProperty("body").GetString()));
 	}
 
-	private static string Detail(bool commentsHasNextPage) => $$"""
+	private const string DefaultReviews = """
+		{ "id": "PRR_1", "body": "", "state": "CHANGES_REQUESTED", "submittedAt": "2026-01-03T00:00:00Z", "url": "r1",
+		  "author": { "login": "kapps", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] } },
+		{ "id": "PRR_0", "body": "summary", "state": "COMMENTED", "submittedAt": "2026-01-02T12:00:00Z", "url": "r0",
+		  "author": { "login": "astra", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] } }
+		""";
+
+	private static string Detail(bool commentsHasNextPage) => Detail(commentsHasNextPage, DefaultReviews);
+
+	private static string Detail(bool commentsHasNextPage, string reviews) => $$"""
 		{ "data": { "repository": { "pullRequest": {
 		  "id": "PR_7", "number": 7, "url": "https://github.com/Kapps/weavie/pull/7", "baseRefName": "main",
 		  "headRefName": "feature", "title": "Front door", "body": "Adds it.",
 		  "isDraft": true, "createdAt": "2026-01-01T00:00:00Z", "author": { "login": "astra", "avatarUrl": "https://a/astra" },
 		  "comments": { "pageInfo": { "hasNextPage": {{(commentsHasNextPage ? "true" : "false")}}, "endCursor": "cursor-comments" }, "nodes": [
 		    { "id": "IC_1", "body": "first", "createdAt": "2026-01-02T00:00:00Z", "url": "u1", "author": { "login": "mira", "avatarUrl": "" } } ] },
-		  "reviews": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
-		    { "id": "PRR_1", "body": "", "state": "CHANGES_REQUESTED", "submittedAt": "2026-01-03T00:00:00Z", "url": "r1",
-		      "author": { "login": "kapps", "avatarUrl": "" } },
-		    { "id": "PRR_0", "body": "", "state": "COMMENTED", "submittedAt": "2026-01-02T12:00:00Z", "url": "r0",
-		      "author": { "login": "astra", "avatarUrl": "" } } ] },
+		  "reviews": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [ {{reviews}} ] },
 		  "latestOpinionatedReviews": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
 		    { "state": "CHANGES_REQUESTED", "author": { "login": "kapps", "avatarUrl": "" } } ] },
 		  "reviewRequests": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [

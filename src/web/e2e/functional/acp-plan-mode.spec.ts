@@ -1,5 +1,5 @@
 import { setFakeAcpMode } from "../harness/acp-session";
-import { createSession, runCommand } from "../harness/actions";
+import { createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 test("Plan shortcut changes ACP collaboration without changing permissions", async ({

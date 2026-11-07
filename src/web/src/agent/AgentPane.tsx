@@ -4,6 +4,7 @@ import { hasTextSelection } from "../commands/context";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentWorkingStatus } from "./AgentWorkingStatus";
 import type { AgentPaneModel } from "./pane-store";
+import { WorkflowRunStatus } from "./WorkflowRunStatus";
 
 const AgentPaneBody = lazy(() =>
   import("./AgentPaneBody").then((module) => ({ default: module.AgentPaneBody })),
@@ -94,6 +95,7 @@ export function AgentPane(props: {
           />
           <AgentStatusLine compact session={props.model.session} />
         </Show>
+        <WorkflowRunStatus session={props.model.session} />
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>

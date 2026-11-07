@@ -1,5 +1,5 @@
 import { formatKey } from "./keybindings";
-import { findCommand, findCommandInCatalog } from "./registry";
+import { findCommand, findCommandInCatalog, getKeybindings } from "./registry";
 
 function labels(keys: string[]): string {
   return keys.map(formatKey).join(" / ");
@@ -32,4 +32,14 @@ export function keyHint(commandId: string): string {
 export function keyLabel(commandId: string): string {
   const key = findCommand(commandId)?.keys[0];
   return key === undefined ? "" : formatKey(key);
+}
+
+/** The key bound to a command with `{ index }` args (Ctrl+3 for pane 3); empty when that index is unbound. */
+export function indexedKeyLabel(commandId: string, index: number): string {
+  const binding = getKeybindings().find(
+    (candidate) =>
+      candidate.command === commandId &&
+      (candidate.args as { index?: unknown } | undefined)?.index === index,
+  );
+  return binding === undefined ? "" : formatKey(binding.key);
 }

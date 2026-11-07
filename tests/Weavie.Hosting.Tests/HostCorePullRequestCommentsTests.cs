@@ -10,7 +10,6 @@ public sealed class HostCorePullRequestCommentsTests {
 
 	[Fact]
 	public async Task ABranchWithAPullRequest_LoadsItsCommentsWithoutOpeningIt() {
-		// Populated by prepareRepo, which runs before the host (and its PR lookup) starts.
 		var pullRequests = new List<PullRequestSummary>();
 		var provider = new StaticPullRequestProvider(
 			pullRequests,
@@ -19,31 +18,7 @@ public sealed class HostCorePullRequestCommentsTests {
 				CreatedAt = "2026-01-01T00:00:00Z", UpdatedAt = "2026-01-01T00:00:00Z", Pending = false, Mine = false,
 			}]))],
 			new ForgeUser("kapps", "https://a/kapps"));
-		await using var host = await TestHost.StartAsync(
-			repo => {
-				string remote = Path.Combine(Path.GetDirectoryName(repo)!, "remote");
-				TempGitRepo.Run(Directory.CreateDirectory(remote).FullName, "init", "--quiet", "--bare");
-				TempGitRepo.Run(repo, "branch", "base");
-				File.WriteAllText(Path.Combine(repo, "feature.txt"), "feature\n");
-				TempGitRepo.Run(repo, "add", "-A");
-				TempGitRepo.Run(repo, "commit", "--quiet", "-m", "feature");
-				TempGitRepo.Run(repo, "remote", "add", "origin", Origin);
-				TempGitRepo.Run(repo, "config", $"url.{remote}.insteadOf", Origin);
-				TempGitRepo.Run(repo, "push", "--quiet", "origin", "main", "base");
-				pullRequests.Add(new PullRequestSummary {
-					Number = 42,
-					Title = "Feature",
-					Author = "ann",
-					HeadRef = "main",
-					BaseRef = "base",
-					BaseSha = TempGitRepo.Run(repo, "rev-parse", "base").Trim(),
-					Url = "u",
-					HeadSha = TempGitRepo.Run(repo, "rev-parse", "HEAD").Trim(),
-					IsDraft = false,
-					State = PullRequestState.Open,
-				});
-			},
-			provider);
+		await using var host = await StartOnPullRequestAsync(pullRequests, provider);
 		string feature = Path.Combine(host.WorkspaceSession.WorkspaceRoot, "feature.txt");
 
 		var loaded = await CommentsAsync(host, set => set.GetProperty("threads").GetArrayLength() == 1);
@@ -81,6 +56,55 @@ public sealed class HostCorePullRequestCommentsTests {
 		Assert.Equal("fix it", review.GetProperty("body").GetString());
 		Assert.Equal("changesRequested", review.GetProperty("review").GetString());
 	}
+
+	[Fact]
+	public async Task ARefreshOnAnUnresponsiveForge_LeavesNoMessageOperationRunning() {
+		var pullRequests = new List<PullRequestSummary>();
+		var provider = new StaticPullRequestProvider(pullRequests, [], new ForgeUser("kapps", "https://a/kapps"));
+		await using var host = await StartOnPullRequestAsync(pullRequests, provider);
+		await CommentsAsync(host, _ => true);
+		var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var neverAnswers = new TaskCompletionSource();
+		provider.BeforeLoad = () => {
+			stalled.TrySetResult();
+			return neverAnswers.Task;
+		};
+
+		host.SessionEvent(host.WorkspaceSession, "pullRequests", "refresh", new { });
+		await stalled.Task;
+
+		await Wait.UntilAsync(() => !host.Core.MessageHealthAsync(CancellationToken.None).GetAwaiter().GetResult()
+			.ActiveOperations.Any(operation => operation is { Feature: "pullRequests", Name: "refresh" }));
+		Assert.True((await host.Core.MessageHealthAsync(CancellationToken.None)).Healthy);
+	}
+
+	// The list is populated by prepareRepo, which runs before the host (and its PR lookup) starts.
+	private static Task<TestHost> StartOnPullRequestAsync(List<PullRequestSummary> pullRequests, StaticPullRequestProvider provider) =>
+		TestHost.StartAsync(
+			repo => {
+				string remote = Path.Combine(Path.GetDirectoryName(repo)!, "remote");
+				TempGitRepo.Run(Directory.CreateDirectory(remote).FullName, "init", "--quiet", "--bare");
+				TempGitRepo.Run(repo, "branch", "base");
+				File.WriteAllText(Path.Combine(repo, "feature.txt"), "feature\n");
+				TempGitRepo.Run(repo, "add", "-A");
+				TempGitRepo.Run(repo, "commit", "--quiet", "-m", "feature");
+				TempGitRepo.Run(repo, "remote", "add", "origin", Origin);
+				TempGitRepo.Run(repo, "config", $"url.{remote}.insteadOf", Origin);
+				TempGitRepo.Run(repo, "push", "--quiet", "origin", "main", "base");
+				pullRequests.Add(new PullRequestSummary {
+					Number = 42,
+					Title = "Feature",
+					Author = "ann",
+					HeadRef = "main",
+					BaseRef = "base",
+					BaseSha = TempGitRepo.Run(repo, "rev-parse", "base").Trim(),
+					Url = "u",
+					HeadSha = TempGitRepo.Run(repo, "rev-parse", "HEAD").Trim(),
+					IsDraft = false,
+					State = PullRequestState.Open,
+				});
+			},
+			provider);
 
 	private static Task<JsonElement> RequestAsync(TestHost host, string type, object payload) =>
 		host.SessionRequestAsync<JsonElement>(host.WorkspaceSession, "pullRequests", type, payload);

@@ -18,7 +18,8 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   agent, which runs `weavie.workflow.answer`.
 - **Decisions** — answered by the utility model (`by: model`) or the user (`by: user`); a model decision sees its
   question, the stage's outputs, and the agent's summary. An `unsure`, failed, or out-of-set model answer, or a
-  `limit` reached, puts the same question to the user.
+  `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
+  item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   answer or paused sits under *Needs you*.
 
@@ -54,7 +55,7 @@ diagnostics, definitions, catalog (built-ins embedded; personal and repository d
 runner, stage block, and the run's persisted form. It meets its owner only through seams it defines:
 `IWorkflowRunStore` (persistence), `IWorkflowDecider` (model decisions), `IWorkflowRunPort` (deliver a turn,
 notify the user), and `WorkflowVocabulary` (the host's name and the tool and command names it writes into agent-facing
-text). Only the types those seams and the catalog expose are public. Weavie.Core holds the adapters in
+text). The runner also reads, per use, whether the agent opens what a question is about. Only the types those seams and the catalog expose are public. Weavie.Core holds the adapters in
 `src/Weavie.Core/Workflows` — `WeavieWorkflows` supplies the vocabulary from the MCP tool and command constants and
 builds the catalog over `~/.weavie/workflows` and the repository's `.weavie/workflows`; Hosting wires one runner per
 session.
@@ -311,6 +312,16 @@ always goes to the user. The agent relays the user's answer with `weavie.workflo
 user's own words as feedback) and never answers for them. Decision-model providers (Jev, OpenAI Decisions) plug in as
 typed-inference providers ([ad-hoc-inference.md](../concepts/ad-hoc-inference.md)).
 
+Every question reaches the user through the agent. A question asked as a stage completes rides the `completeStage`
+reply; any other (a model decision handed over, an `if`, one reached by an answer, resume, or jump) is a turn the run
+owes the agent, retired like a stage's. Both carry one instruction: when `workflow.openReviewItem` is on, the agent
+opens the main file the question is about with `openFile`, `preview: true`, and `rendered: true`, and links any others
+in its reply. `rendered` shows a file's rendered view when it has one (Markdown, HTML, SVG); any other file shows its source.
+Stages that just run and decisions the model answers open nothing, and workflow authors write nothing for this.
+The preview tab is reused across opens. `openFile` lands in the agent's own session: in a session the user isn't
+viewing, the tab waits there and shows when they switch to it. In the session they are viewing it shows without taking
+the keyboard, so they can answer straight away; while they type in the editor it only joins the tab strip.
+
 ## Child runs
 
 A `workflow` stage starts a child run. With `foreach`, Weavie iterates the list itself — the position and per-item
@@ -379,6 +390,7 @@ rejected at one stage.
 | `workflow.default` | workflow preselected in the new-session composer |
 | `workflow.maxStageAttempts` | rejected completions before a run pauses |
 | `workflow.decisionConfidence` | minimum confidence for a model decision to advance |
+| `workflow.openReviewItem` | the agent opens the main item a question to the user is about (default on) |
 
 ## Naming
 

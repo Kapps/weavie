@@ -109,13 +109,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
 		_prompts = registryMode ? McpPromptCatalog.All : [];
 
-		// Registry mode advertises ONLY the capability tools (the model-facing .mcp.json server), kept separate
+		// Registry mode advertises the capability tools and openFile (the model-facing .mcp.json server), kept separate
 		// from the IDE server whose openDiff-style tools Claude Code filters before they reach the model. IDE
 		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
 			var parts = new List<string> {
-				SettingsToolEntries, SessionToolEntries, AgentToolEntries, ReviewHintToolEntries, WorkflowToolEntries,
+				OpenFileToolEntry, SettingsToolEntries, SessionToolEntries, AgentToolEntries, ReviewHintToolEntries, WorkflowToolEntries,
 				BuildPromptToolEntry(),
 			};
 			if (exposeIdeTools) {
@@ -136,7 +136,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 			entries = string.Join(",", parts);
 		} else {
-			entries = settings is null ? IdeToolEntries : IdeToolEntries + "," + SettingsToolEntries;
+			string ide = OpenFileToolEntry + "," + IdeToolEntries;
+			entries = settings is null ? ide : ide + "," + SettingsToolEntries;
 		}
 
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
@@ -416,15 +417,17 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "openDiff":
 				await HandleOpenDiffAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "openFile":
+			case OpenFileTool:
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
-				if (!string.IsNullOrEmpty(path)) {
-					// `preview` defaults to false (a persistent tab). Coerced leniently: embedded Claude sends
-					// scalar args as JSON strings ("true").
-					await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ct).ConfigureAwait(false);
+				if (string.IsNullOrEmpty(path)) {
+					await SendToolErrorAsync(responder, idRaw, $"{OpenFileTool} requires 'filePath'.", ct).ConfigureAwait(false);
+				} else if (await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ReadLenientBool(args, "rendered"), ct).ConfigureAwait(false)) {
+					// Both flags default to false (a persistent source tab), coerced leniently: embedded Claude sends scalars as strings.
+					await SendToolTextAsync(responder, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
+				} else {
+					await SendToolErrorAsync(responder, idRaw, $"Couldn't open {path}: it's missing, unreadable, or matches several files. Use its full path.", ct).ConfigureAwait(false);
 				}
 
-				await SendToolTextAsync(responder, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
 				break;
 			case "getWorkspaceFolders":
 				await SendToolTextAsync(responder, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);

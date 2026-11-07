@@ -69,7 +69,7 @@ public sealed partial class GitHubReviewProvider {
 	private async Task<JsonElement> GraphQlAsync(RepoRef repo, string query, JsonObject variables, CancellationToken ct) {
 		string payload = new JsonObject { ["query"] = query, ["variables"] = variables }.ToJsonString();
 		using var request = await BuildRequestAsync(HttpMethod.Post, GraphQlUrl(repo.Host), payload, ct).ConfigureAwait(false);
-		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		using var response = await ExchangeAsync(request, ct).ConfigureAwait(false);
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		ThrowForFailure(response, repo, body);
 		using var doc = JsonDocument.Parse(body);

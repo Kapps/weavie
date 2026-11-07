@@ -181,6 +181,24 @@ public sealed class GitHubReviewProviderTests {
 		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
 	}
 
+	[Fact]
+	public async Task UnansweredRequest_FailsAsARequestErrorNamingTheWait() {
+		var http = new HttpClient(new SilentHandler()) { Timeout = TimeSpan.FromMilliseconds(50) };
+		var provider = new GitHubReviewProvider(http, new StaticTokenSource());
+
+		var failure = await Assert.ThrowsAsync<HttpRequestException>(
+			() => provider.FindForBranchAsync(new RepoRef("github.com", "o", "r"), "o", "b", CancellationToken.None));
+
+		Assert.Equal("GitHub didn't respond within 0.05 seconds.", failure.Message);
+	}
+
+	private sealed class SilentHandler : HttpMessageHandler {
+		protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+			await Task.Delay(Timeout.Infinite, ct);
+			throw new InvalidOperationException("unreachable");
+		}
+	}
+
 	private sealed class RecordingHandler(params string[] responses) : HttpMessageHandler {
 		private readonly Queue<string> _responses = new(responses);
 

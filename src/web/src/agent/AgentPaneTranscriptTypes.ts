@@ -50,3 +50,16 @@ export interface AgentSubagentInfo {
   task: string | null;
   via: string | null;
 }
+
+export type AgentSectionLabel = "Updates" | "Results";
+
+/** One immutable state of the transcript; unchanged entries keep their identity across snapshots. */
+export interface AgentTranscriptSnapshot {
+  readonly agentTurnStartId: string | null;
+  readonly agentTurnStartIndex: number | null;
+  readonly entries: readonly AgentTranscriptEntry[];
+  readonly latestResultIndex: number | null;
+  readonly pendingRowIndexes: readonly number[];
+  readonly sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
+  readonly turnActive: boolean;
+}

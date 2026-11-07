@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { keyHint, keyLabel } from "./key-hint";
+import { indexedKeyLabel, keyHint, keyLabel } from "./key-hint";
 import { onCommandsChanged } from "./registry";
 
 // App-lifetime subscription: visible key labels re-resolve when the catalog/keybindings change.
@@ -16,4 +16,10 @@ export function liveKeyLabel(commandId: string): string {
 export function liveKeyHint(commandId: string): string {
   version();
   return keyHint(commandId);
+}
+
+/** `indexedKeyLabel` that tracks catalog changes. */
+export function liveIndexedKeyLabel(commandId: string, index: number): string {
+  version();
+  return indexedKeyLabel(commandId, index);
 }

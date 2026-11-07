@@ -14,7 +14,12 @@ internal sealed record WorkflowReadResult {
 /// <summary>Reads workflow file text: YAML, then the schema's shape, then the meaning across fields.</summary>
 internal static class WorkflowReader {
 	/// <summary>Reads <paramref name="text"/> from a file named <paramref name="fileId"/> (<c>quick-fix.yaml</c> → <c>quick-fix</c>).</summary>
-	public static WorkflowReadResult Read(string text, string fileId) {
+	public static WorkflowReadResult Read(string text, string fileId) => Read(text, _ => fileId);
+
+	/// <summary>Reads proposed <paramref name="text"/> that has no file yet, so its own id stands in for the file name.</summary>
+	public static WorkflowReadResult ReadProposal(string text) => Read(text, definition => definition.Id);
+
+	private static WorkflowReadResult Read(string text, Func<WorkflowDefinition, string> fileId) {
 		YamlDocument document;
 		try {
 			document = YamlNodeReader.Read(text);
@@ -42,7 +47,7 @@ internal static class WorkflowReader {
 			Stages = [.. root["stages"]!.AsArray().Select((stage, i) => ReadStage(stage!.AsObject(), $"stages[{i}]", check))],
 			SourceText = text,
 		};
-		WorkflowSemantics.Check(definition, fileId, check);
+		WorkflowSemantics.Check(definition, fileId(definition), check);
 		return check.HasErrors ? Failed(check.Diagnostics) : new WorkflowReadResult { Definition = definition, Diagnostics = check.Diagnostics };
 	}
 

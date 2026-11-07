@@ -6,7 +6,7 @@ Groups are in build order. Each builds and tests on its own.
 
 Satisfies R1, R2, R3.
 
-- [ ] Add `WorkflowReader.ReadProposal` over a shared private `Read`.
+- [x] Add `WorkflowReader.ReadProposal` over a shared private `Read`.
 - [ ] Extract `WorkflowCatalog.Resolve` and have `Winner` use it.
 - [ ] Add `Validate(id)` and `ValidateText`; delete `Validate(path)`.
 - [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.

@@ -94,7 +94,7 @@ export function AgentTranscriptViewport(props: {
     () => body,
     saved,
     () => virtualizer,
-    { flip: (index) => layout.flip(index), virtualIndexOf: (id) => layout.virtualIndexOf(id) },
+    () => layout,
   );
   props.onJumpToLatest(scroll.jumpToLatest);
   const layout = createAgentPaneLayout(scroll.shown, () => virtualizer, scroll.forgetMeasured);
@@ -145,7 +145,7 @@ export function AgentTranscriptViewport(props: {
       expandedDetails: new Set(expandedDetails()),
       generation,
       measurements: virtualizer.takeSnapshot(),
-      width: body?.clientWidth ?? 0,
+      width: body!.clientWidth,
     });
   });
 

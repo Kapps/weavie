@@ -25,39 +25,41 @@ export function createAgentPaneGesture(
     onChanged();
   };
 
-  let tracksMomentum = false;
+  const tracksMomentum = (): boolean => "onscrollend" in body()!;
+  const start = (event: TouchEvent): void => {
+    if (fingers.size === 0) dragged = false;
+    for (const touch of event.changedTouches) fingers.add(touch.identifier);
+    if (!tracksMomentum()) {
+      notify(
+        "error",
+        "This browser doesn't report when scrolling ends, so the agent pane can't hold output still during touch momentum.",
+        "agent-pane-scrollend",
+      );
+    }
+    update();
+  };
+  const drag = (): void => {
+    dragged = true;
+  };
+  const lift = (event: TouchEvent): void => {
+    for (const touch of event.changedTouches) fingers.delete(touch.identifier);
+    update();
+  };
+  const ended = (): void => {
+    momentum = false;
+    update();
+  };
 
   onMount(() => {
     const element = body()!;
-    tracksMomentum = "onscrollend" in element;
-    const touch = (event: TouchEvent): void => {
-      const lifted = event.type === "touchend" || event.type === "touchcancel";
-      if (event.type === "touchstart" && fingers.size === 0) dragged = false;
-      for (const changed of event.changedTouches) {
-        if (event.type === "touchstart") fingers.add(changed.identifier);
-        else if (lifted) fingers.delete(changed.identifier);
-      }
-      if (event.type === "touchmove") dragged = true;
-      if (event.type === "touchstart" && !tracksMomentum) {
-        notify(
-          "error",
-          "This browser doesn't report when scrolling ends, so the agent pane can't hold output still during touch momentum.",
-          "agent-pane-scrollend",
-        );
-      }
-      update();
-    };
-    const ended = (): void => {
-      momentum = false;
-      update();
-    };
-    const types = ["touchstart", "touchmove", "touchend", "touchcancel"] as const;
-    for (const type of types) element.addEventListener(type, touch, { passive: true });
-    element.addEventListener("scrollend", ended);
-    onCleanup(() => {
-      for (const type of types) element.removeEventListener(type, touch);
-      element.removeEventListener("scrollend", ended);
-    });
+    const listening = new AbortController();
+    const options = { passive: true, signal: listening.signal };
+    element.addEventListener("touchstart", start, options);
+    element.addEventListener("touchmove", drag, options);
+    element.addEventListener("touchend", lift, options);
+    element.addEventListener("touchcancel", lift, options);
+    element.addEventListener("scrollend", ended, options);
+    onCleanup(() => listening.abort());
   });
 
   return {
@@ -65,13 +67,12 @@ export function createAgentPaneGesture(
     touching: (): boolean => active,
     /** A scroll event; `byFinger` says, when asked, whether the layout couldn't have caused it. */
     scrolled(byFinger: () => boolean): void {
-      if (dragged && fingers.size > 0 && tracksMomentum && !momentum && byFinger()) momentum = true;
+      if (dragged && fingers.size > 0 && tracksMomentum() && !momentum && byFinger()) {
+        momentum = true;
+      }
       dragged = false;
     },
     /** Forgets momentum the pane has just stopped by taking over the scroll position. */
-    reset(): void {
-      momentum = false;
-      update();
-    },
+    reset: ended,
   };
 }

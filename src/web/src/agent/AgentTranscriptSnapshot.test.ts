@@ -2,7 +2,7 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { paneItemIdentity } from "./AgentPaneIdentity";
-import { createAgentPaneModel } from "./AgentPaneModel";
+import { createAgentPaneModel, type MutableAgentPaneModel } from "./AgentPaneModel";
 import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { emptyTranscript, share, withLivePending } from "./AgentTranscriptSnapshot";
 
@@ -30,20 +30,17 @@ describe("transcript snapshots", () => {
   });
 
   it("returns the previous snapshot when a publish changes nothing", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const updates = [user("prompt"), answer("first")];
       model.replace(updates);
       const before = model.transcript();
       model.publish([...updates], []);
       expect(model.transcript()).toBe(before);
-      dispose();
     });
   });
 
   it("leaves a held snapshot untouched while later output is published", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const updates: AgentPaneUpdate[] = [user("prompt"), command("c0"), answer("first")];
       model.replace(updates);
       const held = model.transcript();
@@ -57,13 +54,11 @@ describe("transcript snapshots", () => {
       const live = model.transcript();
       expect(live.entries[0]).toBe(held.entries[0]);
       expect(live.entries.length).toBeGreaterThan(held.entries.length);
-      dispose();
     });
   });
 
   it("path-copies an activity update so its siblings keep their identity", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const updates: AgentPaneUpdate[] = [user("prompt"), answer("first"), command("c0")];
       model.replace(updates);
       const before = model.transcript();
@@ -76,13 +71,11 @@ describe("transcript snapshots", () => {
       expect(after.entries[2]).not.toBe(before.entries[2]);
       expect(after.entries[2]!.detailCount).toBe(2);
       expect(before.entries[2]!.detailCount).toBe(1);
-      dispose();
     });
   });
 
   it("copies an expanded activity once per batch, keeping its untouched steps", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const updates: AgentPaneUpdate[] = [user("prompt"), answer("first"), command("c0")];
       model.replace(updates);
       const id = model.transcript().entries[2]!.id;
@@ -95,13 +88,11 @@ describe("transcript snapshots", () => {
       expect(after.detailCount).toBe(3);
       expect(after.details).toHaveLength(3);
       expect(after.details[0]).toBe(before.details[0]);
-      dispose();
     });
   });
 
   it("counts output only when published output changes the latest row", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const updates: AgentPaneUpdate[] = [user("prompt"), command("c0")];
       model.replace(updates);
       const start = model.latestOutput();
@@ -112,13 +103,11 @@ describe("transcript snapshots", () => {
       updates.push(answer("reply"));
       model.publish([...updates], updates.slice(-1));
       expect(model.latestOutput()).toBe(start + 1);
-      dispose();
     });
   });
 
   it("shows a held snapshot's requests live, resolved in place", () => {
-    createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+    withModel((model) => {
       const first = request("first");
       const updates: AgentPaneUpdate[] = [user("prompt"), answer("history"), first];
       model.replace(updates);
@@ -144,7 +133,6 @@ describe("transcript snapshots", () => {
       expect(merged.entries[2]!.status).not.toBe("pending");
       expect(merged.pendingRowIndexes).toEqual([3]);
       expect(withLivePending(held, live).entries).toEqual(merged.entries);
-      dispose();
     });
   });
 
@@ -166,6 +154,13 @@ describe("transcript snapshots", () => {
     expect(withLivePending(snapshot([entry("a", {}), quiet]), live).entries[1]).toBe(asking);
   });
 });
+
+function withModel(test: (model: MutableAgentPaneModel) => void): void {
+  createRoot((dispose) => {
+    test(createAgentPaneModel({} as ClientSession));
+    dispose();
+  });
+}
 
 function entry(id: string, fields: Partial<AgentTranscriptEntry>): AgentTranscriptEntry {
   return { ...({ kind: "message", status: null } as AgentTranscriptEntry), ...fields, id };

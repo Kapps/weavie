@@ -14,17 +14,14 @@ export function createAgentPaneLayout(
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
   onEstimated: (id: string) => void,
 ) {
-  const layout = createMemo(() => {
-    const { entries, pendingRowIndexes } = shown();
-    return {
-      entries,
-      indexes: new Map(entries.map((entry, index) => [entry.id, index])),
-      pendingRowIndexes,
-    };
-  });
-  const flip = (index: number): number => reverse(layout().entries.length, index);
+  const indexes = createMemo(
+    () => new Map(shown().entries.map((entry, index) => [entry.id, index])),
+  );
+  const flip = (index: number): number => reverse(shown().entries.length, index);
+  const rowAt = (index: number | null): VirtualItem | undefined =>
+    index === null ? undefined : virtualizer().measurementsCache[flip(index)];
   const itemKey = createMemo(() => {
-    const { entries } = layout();
+    const { entries } = shown();
     return (virtualIndex: number) => entries[reverse(entries.length, virtualIndex)]!.id;
   });
 
@@ -36,14 +33,13 @@ export function createAgentPaneLayout(
         const before = new Map(previous?.entries.map((entry) => [entry.id, entry]));
         next.entries.forEach((entry, index) => {
           const old = before.get(entry.id);
-          const row = flip(index);
           if (
             old !== undefined &&
             old !== entry &&
             virtualizer().elementsCache.get(entry.id)?.isConnected !== true
           ) {
             onEstimated(entry.id);
-            virtualizer().resizeItem(row, estimateEntrySize(entry));
+            virtualizer().resizeItem(flip(index), estimateEntrySize(entry));
           }
         });
       },
@@ -52,23 +48,21 @@ export function createAgentPaneLayout(
   );
 
   return {
-    count: () => layout().entries.length,
+    count: () => shown().entries.length,
     entryAt: (virtualIndex: number): AgentTranscriptEntry | undefined =>
-      layout().entries[flip(virtualIndex)],
+      shown().entries[flip(virtualIndex)],
     entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry | undefined => {
-      const index = layout().indexes.get(String(key));
-      return index === undefined ? undefined : layout().entries[index];
+      const index = indexes().get(String(key));
+      return index === undefined ? undefined : shown().entries[index];
     },
-    /** The virtual index of the row with `id`, if the shown transcript has it. */
-    virtualIndexOf: (id: string): number | undefined => {
-      const index = layout().indexes.get(id);
-      return index === undefined ? undefined : flip(index);
-    },
-    flip,
+    /** The measured row at transcript `index`. */
+    rowAt,
+    /** The measured row of the entry with `id`, if the shown transcript has it. */
+    rowOf: (id: string): VirtualItem | undefined => rowAt(indexes().get(id) ?? null),
     itemKey,
     // Pending forms own live command handlers, so they stay mounted.
     rangeExtractor: createMemo(() => {
-      const { entries, pendingRowIndexes } = layout();
+      const { entries, pendingRowIndexes } = shown();
       const pending = pendingRowIndexes.map((index) => reverse(entries.length, index));
       return (range: Range) =>
         [...new Set([...defaultRangeExtractor(range), ...pending])].sort(

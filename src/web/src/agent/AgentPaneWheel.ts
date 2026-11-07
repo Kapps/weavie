@@ -12,7 +12,7 @@ const lineStep = 40;
 const editable = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
 /** What the wheel and scrolling keys drive: the pane owns the scroll position they move. */
-export interface AgentPaneWheelTarget {
+interface AgentPaneWheelTarget {
   /** Moves toward the latest output by `delta` pixels; returns the edge the move reached. */
   scrollBy(delta: number): "start" | "end" | null;
   intent(delta: number): void;
@@ -43,14 +43,10 @@ export function createAgentPaneWheel(
     const edge = pane.scrollBy(delta);
     if (edge !== null) remaining = 0;
     // History measured on arrival extends the top, so reaching it hands off to the start edge.
-    if (edge === "start" && delta < 0) pane.start();
+    if (edge === "start") pane.start();
   };
 
   const animate = (time: number): void => {
-    if (body() === undefined) {
-      cancel();
-      return;
-    }
     const next = 1 - (1 - Math.max(0, Math.min(1, (time - started) / animationDuration))) ** 3;
     const delta = distance * (next - progress);
     progress = next;
@@ -65,9 +61,8 @@ export function createAgentPaneWheel(
   };
 
   const wheel = (event: WheelEvent): void => {
-    const element = body();
+    const element = body()!;
     if (
-      element === undefined ||
       event.defaultPrevented ||
       !event.cancelable ||
       event.ctrlKey ||
@@ -128,8 +123,7 @@ export function createAgentPaneWheel(
   };
 
   onMount(() => {
-    const element = body();
-    if (element === undefined) return;
+    const element = body()!;
     const interrupt = (): void => {
       const active = frame !== null;
       cancel();

@@ -16,17 +16,13 @@ import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { createReadingAnchor } from "./AgentPaneAnchor";
 import { createAgentPaneGesture } from "./AgentPaneGesture";
+import type { createAgentPaneLayout } from "./AgentPaneLayout";
 import type { AgentPaneModel } from "./AgentPaneModel";
 import type { AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 import { createAgentPaneWheel } from "./AgentPaneWheel";
 import { withLivePending } from "./AgentTranscriptSnapshot";
 
 type PaneVirtualizer = Virtualizer<HTMLDivElement, HTMLDivElement>;
-
-interface Watched {
-  id: string;
-  topSeen: boolean;
-}
 
 /** Where the reader was when the pane last unmounted. */
 export interface AgentPaneScrollState {
@@ -36,7 +32,8 @@ export interface AgentPaneScrollState {
   /** The model's `latestOutput` when the reader stopped following. */
   seen: number;
   shown: AgentTranscriptSnapshot;
-  watched: Watched | null;
+  topSeen: boolean;
+  watchedId: string | null;
 }
 
 // The scroller is bottom-origin (column-reverse), so output arriving above the reader never moves what is on
@@ -47,7 +44,7 @@ export function createAgentPaneScroll(
   body: Accessor<HTMLDivElement | undefined>,
   saved: AgentPaneScrollState | undefined,
   virtualizer: () => PaneVirtualizer,
-  layout: { flip: (index: number) => number; virtualIndexOf: (id: string) => number | undefined },
+  layout: () => ReturnType<typeof createAgentPaneLayout>,
 ) {
   const [following, setFollowingSignal] = createSignal(saved?.following ?? true);
   const [seen, setSeen] = createSignal(saved?.seen ?? model.latestOutput());
@@ -64,21 +61,16 @@ export function createAgentPaneScroll(
   let position = saved?.offset ?? 0;
   let viewport = 0;
   let lineHeight = 0;
-  // A remount shows the transcript as the reader left it, then applies what arrived once the viewport is known.
-  let restoring = saved !== undefined && !saved.following;
   let pinned = false;
   // The live reply the pin watches; one already above the viewport when following began never pins.
-  let watched = saved === undefined || saved.watched === null ? null : { ...saved.watched };
+  let watchedId = saved?.watchedId ?? null;
+  let topSeen = saved?.topSeen ?? false;
   let notifyOffset = (): void => {};
-  const gesture = createAgentPaneGesture(body, () => syncHold());
 
   const element = (): HTMLDivElement => body()!;
-  const rowOf = (id: string) => {
-    const index = layout.virtualIndexOf(id);
-    return index === undefined ? undefined : virtualizer().measurementsCache[index];
-  };
-  const anchor = createReadingAnchor(virtualizer, rowOf);
+  const anchor = createReadingAnchor(virtualizer, (id) => layout().rowOf(id));
   const maxPosition = (): number => Math.max(0, virtualizer().getTotalSize() - viewport);
+  const clamped = (to: number): number => Math.max(0, Math.min(maxPosition(), to));
   const nearBottom = (): boolean => position <= Math.ceil(lineHeight * 3);
   // The reader is moving the pane, so the pane doesn't write over them.
   const driving = (): boolean =>
@@ -88,13 +80,9 @@ export function createAgentPaneScroll(
   };
 
   const place = (to: number): void => {
-    position = Math.max(0, Math.min(maxPosition(), to));
+    position = clamped(to);
     element().scrollTop = -position;
     updateTurnStartAbove();
-  };
-  const write = (to: number): void => {
-    place(to);
-    notifyOffset();
   };
 
   const pickAnchor = (): void => anchor.pick(position, viewport);
@@ -123,10 +111,11 @@ export function createAgentPaneScroll(
     if (holding && held() === null) setHeld(shown());
     else if (!holding && held() !== null) setHeld(null);
   };
+  const gesture = createAgentPaneGesture(body, syncHold);
 
   const setFollowing = (value: boolean): void => {
     if (value === following()) return;
-    if (value && watched !== null) watched.topSeen = false;
+    if (value) topSeen = false;
     if (!value) pickAnchor();
     batch(() => {
       setFollowingSignal(value);
@@ -139,18 +128,21 @@ export function createAgentPaneScroll(
   // pushed out by the viewport shrinking (the composer, a keyboard) keeps following, bottom-anchored like a chat.
   const pin = (resized: boolean): void => {
     const index = model.live() ? shown().latestResultIndex : null;
-    const id = index === null ? null : shown().entries[index]!.id;
-    const row = id === null ? undefined : rowOf(id);
+    const row = layout().rowAt(index);
     // Decided on measured sizes, never on estimates.
-    if (id === null || row === undefined || !anchor.measuredThrough(row.index)) return;
-    if (watched?.id !== id) watched = { id, topSeen: true };
+    if (index === null || row === undefined || !anchor.measuredThrough(row.index)) return;
+    const { id } = shown().entries[index]!;
+    if (watchedId !== id) {
+      watchedId = id;
+      topSeen = true;
+    }
     const overshoot = viewport - (row.end - position);
     if (overshoot > 0) {
-      if (overshoot < viewport) watched.topSeen = true;
+      if (overshoot < viewport) topSeen = true;
       return;
     }
-    if (resized) watched.topSeen = false;
-    if (!watched.topSeen) return;
+    if (resized) topSeen = false;
+    if (!topSeen) return;
     pinned = true;
     const placing = !driving();
     if (placing) place(position - overshoot);
@@ -160,8 +152,7 @@ export function createAgentPaneScroll(
   };
 
   const updateTurnStartAbove = (): void => {
-    const index = shown().agentTurnStartIndex;
-    const row = index === null ? undefined : virtualizer().measurementsCache[layout.flip(index)];
+    const row = layout().rowAt(shown().agentTurnStartIndex);
     setTurnStartAbove(turnNavigable() && row !== undefined && row.end > position + viewport + 1);
   };
 
@@ -185,7 +176,7 @@ export function createAgentPaneScroll(
         (to < position - 0.5 && to < element().scrollHeight - element().clientHeight - 1),
     );
     if (Math.abs(to - position) <= 1) return;
-    position = Math.max(0, Math.min(maxPosition(), to));
+    position = clamped(to);
     pinned = false;
     setFollowing(!wheel.isActive() && nearBottom());
     if (!following()) pickAnchor();
@@ -194,21 +185,21 @@ export function createAgentPaneScroll(
 
   const jumpToLatest = (): boolean => {
     // Asking for the latest output stops a reply already in view from pinning at its top.
-    if (watched !== null) watched.topSeen = false;
+    topSeen = false;
     if (following() && nearBottom()) return false;
     const momentum = gesture.touching();
     wheel.cancel();
     gesture.reset();
     pinned = false;
     setFollowing(true);
-    write(0);
+    moveTo(0);
     if (momentum) {
       // iOS ignores scroll writes during momentum; suspending scrolling for a frame stops it first.
       const scroller = element();
       scroller.style.overflowY = "hidden";
       requestAnimationFrame(() => {
         scroller.style.overflowY = "";
-        if (following() && scroller.isConnected) write(0);
+        if (following() && scroller.isConnected) moveTo(0);
       });
     }
     return true;
@@ -216,7 +207,7 @@ export function createAgentPaneScroll(
 
   // Puts a row's top at the viewport top and keeps it there while the rows around it are measured.
   const reveal = (index: number): void => {
-    const row = virtualizer().measurementsCache[layout.flip(index)];
+    const row = layout().rowAt(index);
     if (row === undefined) return;
     wheel.cancel();
     pinned = false;
@@ -251,7 +242,7 @@ export function createAgentPaneScroll(
       if (nearBottom()) setFollowing(true);
     },
     start: () => reveal(0),
-    end: () => jumpToLatest(),
+    end: jumpToLatest,
     lineHeight: () => lineHeight,
     viewportHeight: () => viewport,
   });
@@ -261,7 +252,7 @@ export function createAgentPaneScroll(
     on(
       shown,
       () => {
-        if (following() && position !== 0 && !driving()) write(0);
+        if (following() && position !== 0 && !driving()) moveTo(0);
       },
       { defer: true },
     ),
@@ -276,19 +267,12 @@ export function createAgentPaneScroll(
 
   onMount(() => {
     onCleanup(onFontsChanged(measureLineHeight));
-    const targetsSession = (target: unknown): boolean => target === model.session;
-    onCleanup(
-      registerCommand(
-        CommandIds.agentJumpToTurn,
-        (_args, context) => targetsSession(context.session) && jumpToTurn(),
-      ),
-    );
-    onCleanup(
-      registerCommand(
-        CommandIds.agentJumpToLatest,
-        (_args, context) => targetsSession(context.session) && jumpToLatest(),
-      ),
-    );
+    const register = (id: string, run: () => boolean) =>
+      onCleanup(
+        registerCommand(id, (_args, context) => context.session === model.session && run()),
+      );
+    register(CommandIds.agentJumpToTurn, jumpToTurn);
+    register(CommandIds.agentJumpToLatest, jumpToLatest);
   });
 
   return {
@@ -315,10 +299,8 @@ export function createAgentPaneScroll(
       viewport = height;
       measureLineHeight();
       if (!following()) pickAnchor();
-      if (restoring) {
-        restoring = false;
-        syncHold();
-      }
+      // A remount shows the transcript as the reader left it, then applies what arrived once the viewport is known.
+      syncHold();
       settle(true);
     },
     scrollTo: moveTo,
@@ -327,7 +309,8 @@ export function createAgentPaneScroll(
       offset: position,
       seen: seen(),
       shown: shown(),
-      watched: watched === null ? null : { ...watched },
+      topSeen,
+      watchedId,
     }),
   };
 }

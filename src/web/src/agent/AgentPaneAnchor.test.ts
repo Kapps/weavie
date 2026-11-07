@@ -10,25 +10,24 @@ function rows(): VirtualItem[] {
   ];
 }
 
-function fakeVirtualizer(items: VirtualItem[]) {
+function anchored(items: VirtualItem[]) {
   const connected = { isConnected: true } as HTMLDivElement;
-  return {
+  const virtualizer = {
     elementsCache: new Map(items.map((item) => [String(item.key), connected])),
     getVirtualItemForOffset: (offset: number) =>
       items.find((item) => item.start <= offset && offset < item.end),
     getVirtualItems: () => items,
-    itemSizeCache: new Map<string, number>(),
-    measurementsCache: items,
   } as unknown as Virtualizer<HTMLDivElement, HTMLDivElement>;
+  return createReadingAnchor(
+    () => virtualizer,
+    (id) => items.find((item) => item.key === id),
+  );
 }
 
 describe("reading anchor", () => {
   it("counts a row measured at exactly its estimate as measured", () => {
     const items = rows();
-    const anchor = createReadingAnchor(
-      () => fakeVirtualizer(items),
-      (id) => items.find((item) => item.key === id),
-    );
+    const anchor = anchored(items);
     expect(anchor.measuredThrough(1)).toBe(false);
     anchor.noteMeasured("newest");
     expect(anchor.measuredThrough(0)).toBe(true);
@@ -41,10 +40,7 @@ describe("reading anchor", () => {
 
   it("absorbs a shown row's first measurement and keeps a measured row's growth", () => {
     const items = rows();
-    const anchor = createReadingAnchor(
-      () => fakeVirtualizer(items),
-      (id) => items.find((item) => item.key === id),
-    );
+    const anchor = anchored(items);
     anchor.pick(120, 60);
     items[0] = { ...items[0]!, size: 140, end: 140 };
     items[1] = { ...items[1]!, start: 140, end: 240 };

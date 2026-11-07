@@ -1,23 +1,10 @@
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, type JSHandle, type Locator, type Page } from "@playwright/test";
-import { test } from "./harness/network-fixtures";
-import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
+import { anchorMovement, iPhone, readAnchor, test } from "./harness/agent-pane";
+import { mockEditorOptions } from "./mock-host";
 
 // The pane scrolls from the bottom, so rows first measured above the reader grow upward, off screen, and need no
 // scroll correction. This drives the pane up at an exact constant rate through never-measured history and
 // asserts the on-screen content tracks it without the pane ever writing the scroll position.
-
-const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
-test.beforeAll(() => {
-  if (!existsSync(join(distDir, "index.html"))) {
-    throw new Error(
-      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
-    );
-  }
-});
 
 // Turns of prompt → collapsed tool activity → answer, so the range holds every entry shape the estimator
 // guesses at, each guess wrong by a different amount.
@@ -54,27 +41,18 @@ const transcript = Array.from({ length: 150 }, (_, turn) => [
   },
 ]).flat();
 
-test("scrolling back through never-measured history stays smooth", async ({ page }) => {
-  const session = mockSession("scroll", "scroll", "acp");
-  const host = await MockHost.start({ distDir, sessions: [session] });
-  host.setAgentHistory(session.address, { generation: 1, batchSize: 5000, messages: transcript });
+test("scrolling back through never-measured history stays smooth", async ({ page, openPanes }) => {
+  const { body } = await openPanes({ scroll: transcript });
+  await expect(body).toBeVisible();
+  await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
+  expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
 
-  try {
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitUntilConnected();
-    const body = page.locator(".agent-body");
-    await expect(body).toBeVisible();
-    await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
-    expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
-
-    // Scroll up one exact step per frame. Every tracked row must move by exactly that step: the pane owes
-    // the reader the motion it was given, whatever it is measuring underneath.
-    const measured = await body.evaluate(scrollUpSteadily, { touch: false });
-    expect(measured.corrections).toBe(0);
-    expect(measured.stutters).toBe(0);
-  } finally {
-    await host.close();
-  }
+  // Scroll up one exact step per frame. Every tracked row must move by exactly that step: the pane owes
+  // the reader the motion it was given, whatever it is measuring underneath.
+  expect(await body.evaluate(scrollUpSteadily, { touch: false })).toEqual({
+    corrections: 0,
+    stutters: 0,
+  });
 });
 
 test.use({
@@ -90,87 +68,77 @@ test.describe("native wheel scrolling", () => {
   for (const smoothScrolling of [true, false]) {
     test(`wheel notches preserve their distance without overlapping history rows (smooth=${smoothScrolling})`, async ({
       page,
+      openPanes,
     }) => {
-      const session = mockSession("wheel-scroll", "wheel-scroll", "acp");
-      const host = await MockHost.start({ distDir, sessions: [session] });
-      host.setAgentHistory(session.address, {
-        generation: 1,
-        batchSize: 5000,
-        messages: transcript.map((message) =>
+      const { body, host } = await openPanes({
+        "wheel-scroll": transcript.map((message) =>
           message.type === "user-message" ? { ...message, text: message.text.repeat(4) } : message,
         ),
       });
-      try {
-        await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-        await host.waitUntilConnected();
-        host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling }));
-        const body = page.locator(".agent-body");
-        await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
-        const paint = await pauseAnimationClock(page);
-        await page.clock.runFor(500);
-        await paint.evaluate((afterPaint) => afterPaint());
-        await body.hover();
-        const overlaps: number[] = [];
-        const distances: number[] = [];
-        const movingFrames: number[] = [];
-        for (let notch = 0; notch < 32; notch++) {
-          const anchor = await body.evaluate(readVisibleAnchor);
-          const sample = await sampleWheelFrames(page, body, paint, [-120]);
-          overlaps.push(sample.overlap);
-          movingFrames.push(sample.frames);
-          distances.push(await body.evaluate(anchorDistance, anchor));
-        }
-        const rapidAnchor = await body.evaluate(readVisibleAnchor);
-        overlaps.push((await sampleWheelFrames(page, body, paint, [-120, -120, -120])).overlap);
-        const rapidDistance = await body.evaluate(anchorDistance, rapidAnchor);
-        expect(
-          Math.abs(rapidDistance - 360),
-          "rapid notches must retain accumulated distance",
-        ).toBeLessThanOrEqual(1);
-        overlaps.push((await sampleWheelFrames(page, body, paint, [-2000])).overlap);
-        expect(
-          Math.max(...overlaps),
-          "visible transcript rows must never paint over each other",
-        ).toBeLessThanOrEqual(1);
-        expect(
-          Math.max(...distances.map((distance) => Math.abs(distance - 120))),
-          "every notch must move visible content the requested 120 pixels",
-        ).toBeLessThanOrEqual(1);
-        if (smoothScrolling)
-          expect(Math.max(...movingFrames), "smooth scrolling must animate").toBeGreaterThan(3);
-        const latest = page.getByRole("button", { name: "Jump to latest", exact: true });
-        const bounds = await body.boundingBox();
-        if (bounds === null) throw new Error("Agent scroll pane has no bounds");
-        const clientWidth = await body.evaluate((element) => element.clientWidth);
-        await page.mouse.move(bounds.x + clientWidth - 20, bounds.y + bounds.height / 2);
-        await expect(page.locator(".agent-scroll-nav")).toHaveCSS("opacity", "1");
-        // Keep the pending wheel and navigation in one task so the animation cannot finish
-        // while Playwright waits for the button to become stable enough to click.
-        await body.evaluate((element) => {
-          element.dispatchEvent(
-            new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
-          );
-          const button = document.querySelector<HTMLButtonElement>(".agent-scroll-nav-latest");
-          if (button === null) throw new Error("Jump to latest is unavailable");
-          button.click();
-        });
-        await expect(latest).toBeHidden();
-        await page.clock.runFor(200);
-        await paint.evaluate((afterPaint) => afterPaint());
-        expect(await body.evaluate((element) => -element.scrollTop)).toBeLessThanOrEqual(1);
-        const fineMovement = await body.evaluate((element) => {
-          const previous = element.scrollTop;
-          for (let step = 0; step < 4; step++) {
-            element.dispatchEvent(
-              new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -0.25 }),
-            );
-          }
-          return element.scrollTop - previous;
-        });
-        expect(fineMovement, "fractional input must accumulate immediately").toBe(-1);
-      } finally {
-        await host.close();
+      host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling }));
+      await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
+      const paint = await pauseAnimationClock(page);
+      await page.clock.runFor(500);
+      await paint.evaluate((afterPaint) => afterPaint());
+      await body.hover();
+      const overlaps: number[] = [];
+      const distances: number[] = [];
+      const movingFrames: number[] = [];
+      for (let notch = 0; notch < 32; notch++) {
+        const anchor = await body.evaluate(readAnchor);
+        const sample = await sampleWheelFrames(page, body, paint, [-120]);
+        overlaps.push(sample.overlap);
+        movingFrames.push(sample.frames);
+        distances.push(await body.evaluate(anchorMovement, anchor));
       }
+      const rapidAnchor = await body.evaluate(readAnchor);
+      overlaps.push((await sampleWheelFrames(page, body, paint, [-120, -120, -120])).overlap);
+      const rapidDistance = await body.evaluate(anchorMovement, rapidAnchor);
+      expect(
+        Math.abs(rapidDistance - 360),
+        "rapid notches must retain accumulated distance",
+      ).toBeLessThanOrEqual(1);
+      overlaps.push((await sampleWheelFrames(page, body, paint, [-2000])).overlap);
+      expect(
+        Math.max(...overlaps),
+        "visible transcript rows must never paint over each other",
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.max(...distances.map((distance) => Math.abs(distance - 120))),
+        "every notch must move visible content the requested 120 pixels",
+      ).toBeLessThanOrEqual(1);
+      if (smoothScrolling)
+        expect(Math.max(...movingFrames), "smooth scrolling must animate").toBeGreaterThan(3);
+      const latest = page.getByRole("button", { name: "Jump to latest", exact: true });
+      const bounds = await body.boundingBox();
+      if (bounds === null) throw new Error("Agent scroll pane has no bounds");
+      const clientWidth = await body.evaluate((element) => element.clientWidth);
+      await page.mouse.move(bounds.x + clientWidth - 20, bounds.y + bounds.height / 2);
+      await expect(page.locator(".agent-scroll-nav")).toHaveCSS("opacity", "1");
+      // Keep the pending wheel and navigation in one task so the animation cannot finish
+      // while Playwright waits for the button to become stable enough to click.
+      await body.evaluate((element) => {
+        element.dispatchEvent(
+          new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
+        );
+        const button = document.querySelector<HTMLButtonElement>(".agent-scroll-nav-latest");
+        if (button === null) throw new Error("Jump to latest is unavailable");
+        button.click();
+      });
+      await expect(latest).toBeHidden();
+      await page.clock.runFor(200);
+      await paint.evaluate((afterPaint) => afterPaint());
+      expect(await body.evaluate((element) => -element.scrollTop)).toBeLessThanOrEqual(1);
+      const fineMovement = await body.evaluate((element) => {
+        const previous = element.scrollTop;
+        for (let step = 0; step < 4; step++) {
+          element.dispatchEvent(
+            new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -0.25 }),
+          );
+        }
+        return element.scrollTop - previous;
+      });
+      expect(fineMovement, "fractional input must accumulate immediately").toBe(-1);
     });
   }
 });
@@ -237,36 +205,13 @@ async function sampleWheelFrames(
   }
 }
 
-function readVisibleAnchor(element: HTMLElement): { id: string; top: number } {
-  const viewport = element.getBoundingClientRect();
-  const row = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row")).find(
-    (candidate) => {
-      const bounds = candidate.getBoundingClientRect();
-      return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
-    },
-  );
-  if (row === undefined) throw new Error("No visible transcript anchor");
-  return { id: row.dataset.transcriptEntry!, top: row.getBoundingClientRect().top };
-}
-
-function anchorDistance(element: HTMLElement, previous: { id: string; top: number }): number {
-  const row = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row")).find(
-    (candidate) => candidate.dataset.transcriptEntry === previous.id,
-  );
-  if (row === undefined) throw new Error("Wheel notches lost the visible transcript anchor");
-  return row.getBoundingClientRect().top - previous.top;
-}
-
 for (const preciseDelta of [-0.25, 0.25]) {
   test(`precision input ${preciseDelta < 0 ? "preserves" : "reverses"} a pending wheel gesture`, async ({
     page,
+    openPanes,
   }) => {
-    const session = mockSession("precision-transition", "precision-transition", "acp");
-    const host = await MockHost.start({ distDir, sessions: [session] });
-    host.setAgentHistory(session.address, {
-      generation: 1,
-      batchSize: 5000,
-      messages: [
+    const { body } = await openPanes({
+      "precision-transition": [
         {
           providerId: "acp",
           type: "item-completed",
@@ -278,61 +223,42 @@ for (const preciseDelta of [-0.25, 0.25]) {
         },
       ],
     });
-    try {
-      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-      await host.waitUntilConnected();
-      const body = page.locator(".agent-body");
-      await expect(body.locator("code")).toContainText("A fully measured transcript line.");
-      await body.evaluate((element) => {
-        element.scrollTop = (element.clientHeight - element.scrollHeight) / 2;
-      });
-      await page.waitForTimeout(200);
-      const movement = await body.evaluate(async (element, delta) => {
-        const initial = element.scrollTop;
-        for (const deltaY of [-120, delta]) {
-          element.dispatchEvent(
-            new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }),
-          );
-        }
-        const immediate = element.scrollTop - initial;
-        await new Promise<void>((resolve) => setTimeout(resolve, 160));
-        return { immediate, settled: element.scrollTop - initial };
-      }, preciseDelta);
-      const expected = preciseDelta < 0 ? -120 + preciseDelta : preciseDelta;
-      expect(Math.abs(movement.immediate - expected)).toBeLessThanOrEqual(0.5);
-      expect(movement.settled).toBe(movement.immediate);
-    } finally {
-      await host.close();
-    }
+    await expect(body.locator("code")).toContainText("A fully measured transcript line.");
+    await body.evaluate((element) => {
+      element.scrollTop = (element.clientHeight - element.scrollHeight) / 2;
+    });
+    await page.waitForTimeout(200);
+    const movement = await body.evaluate(async (element, delta) => {
+      const initial = element.scrollTop;
+      for (const deltaY of [-120, delta]) {
+        element.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }));
+      }
+      const immediate = element.scrollTop - initial;
+      await new Promise<void>((resolve) => setTimeout(resolve, 160));
+      return { immediate, settled: element.scrollTop - initial };
+    }, preciseDelta);
+    const expected = preciseDelta < 0 ? -120 + preciseDelta : preciseDelta;
+    expect(Math.abs(movement.immediate - expected)).toBeLessThanOrEqual(0.5);
+    expect(movement.settled).toBe(movement.immediate);
   });
 }
 
 // iOS WebKit cancels momentum when scrollTop is written, so nothing under a finger may correct the scroll
 // position: rows first measured above the reader must not move it during the gesture or after it ends.
 test.describe("touch scrolling on iOS", () => {
-  test.use({
-    viewport: { width: 390, height: 844 },
-    hasTouch: true,
-    userAgent:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
-  });
+  test.use(iPhone);
 
-  test("scrolling back through history under a touch keeps content still", async ({ page }) => {
-    const session = mockSession("touch-scroll", "touch-scroll", "acp");
-    const host = await MockHost.start({ distDir, sessions: [session] });
-    host.setAgentHistory(session.address, { generation: 1, batchSize: 5000, messages: transcript });
-    try {
-      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-      await host.waitUntilConnected();
-      await page.getByRole("button", { name: "Agent", exact: true }).click();
-      const body = page.locator(".agent-body");
-      await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
-      const measured = await body.evaluate(scrollUpSteadily, { touch: true });
-      expect(measured.corrections).toBe(0);
-      expect(measured.stutters).toBe(0);
-    } finally {
-      await host.close();
-    }
+  test("scrolling back through history under a touch keeps content still", async ({
+    page,
+    openPanes,
+  }) => {
+    const { body } = await openPanes({ "touch-scroll": transcript });
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    await expect(page.getByText("Answer 149", { exact: true })).toBeVisible({ timeout: 60_000 });
+    expect(await body.evaluate(scrollUpSteadily, { touch: true })).toEqual({
+      corrections: 0,
+      stutters: 0,
+    });
   });
 });
 

@@ -24,11 +24,7 @@ export function share<T>(previous: unknown, next: T): T {
     const shared = next.map((item, index) =>
       share(hasId(item) ? byId.get(item.id) : before[index], item),
     );
-    return (
-      shared.length === before.length && shared.every((item, index) => item === before[index])
-        ? before
-        : shared
-    ) as T;
+    return (sameItems(shared, before) ? before : shared) as T;
   }
   const before = previous as Record<string, unknown>;
   const keys = Object.keys(next);
@@ -80,14 +76,19 @@ export function withLivePending(
   }
   if (sameItems(entries, held.entries)) return held;
   const turnStart = entries.findIndex((entry) => entry.id === held.agentTurnStartId);
-  const last = entries.at(-1);
   return {
     ...held,
     agentTurnStartIndex: turnStart < 0 ? null : turnStart,
     entries,
-    latestResultIndex: last !== undefined && isResult(last) ? entries.length - 1 : null,
+    latestResultIndex: latestResultIndex(entries),
     pendingRowIndexes: entries.flatMap((entry, index) => (holdsRequest(entry) ? [index] : [])),
   };
+}
+
+/** The last row's index, if it is a result. */
+export function latestResultIndex(entries: readonly AgentTranscriptEntry[]): number | null {
+  const last = entries.at(-1);
+  return last !== undefined && isResult(last) ? entries.length - 1 : null;
 }
 
 // A pending request, or a card nesting one.

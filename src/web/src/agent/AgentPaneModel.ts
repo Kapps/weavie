@@ -10,8 +10,8 @@ import type {
   AgentTranscriptSnapshot,
 } from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
-import { computeSectionLabels, isResult, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { emptyTranscript, shareTranscript } from "./AgentTranscriptSnapshot";
+import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
+import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import {
@@ -105,7 +105,6 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const visible = ordered.entries;
     const turnStartIndex =
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
-    const last = visible.at(-1);
     activities.clear();
     visitEntries(visible, (entry, path) => {
       const activity = projection.activities.get(entry.id);
@@ -118,7 +117,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
           agentTurnStartId: turnStartId,
           agentTurnStartIndex: turnStartIndex,
           entries: visible,
-          latestResultIndex: last !== undefined && isResult(last) ? visible.length - 1 : null,
+          latestResultIndex: latestResultIndex(visible),
           pendingRowIndexes: ordered.pendingRowIndexes,
           sectionLabels: computeSectionLabels(visible, active),
           turnActive: active,

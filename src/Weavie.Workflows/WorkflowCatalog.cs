@@ -35,7 +35,7 @@ public sealed record WorkflowCatalogEntry {
 
 /// <summary>
 /// Every workflow visible from one worktree: built-in, personal, and repository files, re-read on each call so
-/// an edit shows at once. Relative paths and file inputs resolve against <paramref name="worktree"/>.
+/// an edit shows at once. File inputs resolve against <paramref name="worktree"/>.
 /// </summary>
 public sealed class WorkflowCatalog(string worktree, string personalDirectory, string repositoryDirectory) {
 	private const string Extension = ".yaml";
@@ -62,27 +62,45 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree));
 	}
 
-	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
+	private WorkflowCatalogEntry Resolve(string id) {
 		var winners = List().Where(e => e.ShadowedBy is null).ToList();
-		var entry = winners.FirstOrDefault(e => e.Id == id)
+		return winners.FirstOrDefault(e => e.Id == id)
 			?? throw new WorkflowException($"No workflow \"{id}\" exists; the workflows are: {string.Join(", ", winners.Select(e => e.Id))}.");
+	}
+
+	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
+		var entry = Resolve(id);
 		return (entry, entry.Definition ?? throw new WorkflowException(
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
 	}
 
-	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
-	public IReadOnlyList<WorkflowDiagnostic> Validate(string path) {
-		string full = System.IO.Path.GetFullPath(System.IO.Path.Combine(worktree, path));
-		if (!full.EndsWith(Extension, StringComparison.Ordinal)) {
-			throw new WorkflowException($"Workflow files end in {Extension}: {full}");
+	/// <summary>The problems in the saved workflow that wins for <paramref name="id"/>; empty when valid.</summary>
+	public IReadOnlyList<WorkflowDiagnostic> Validate(string id) => Resolve(id).Diagnostics;
+
+	/// <summary>The problems in proposed workflow <paramref name="text"/>; no file is touched.</summary>
+	public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => WorkflowReader.ReadProposal(text).Diagnostics;
+
+	/// <summary>Copies the valid workflow <paramref name="id"/> into the more specific <paramref name="scope"/>; returns the new path.</summary>
+	public string Fork(string id, WorkflowScope scope) {
+		var (entry, definition) = Winner(id);
+		if (scope <= entry.Scope) {
+			throw new WorkflowException($"Workflow \"{id}\" is already {entry.Scope}, so a {scope} copy would not override it; edit {entry.Path} instead.");
 		}
 
-		if (!File.Exists(full)) {
-			throw new WorkflowException($"No file at {full}.");
-		}
-
-		return WorkflowReader.Read(File.ReadAllText(full), System.IO.Path.GetFileNameWithoutExtension(full)).Diagnostics;
+		string folder = Folder(scope);
+		System.IO.Directory.CreateDirectory(folder);
+		string path = System.IO.Path.Combine(folder, id + Extension);
+		using var writer = new StreamWriter(File.Open(path, FileMode.CreateNew, FileAccess.Write));
+		writer.Write(definition.SourceText);
+		return path;
 	}
+
+	/// <summary>The folder holding <paramref name="scope"/>'s workflow files, which may not exist yet.</summary>
+	public string Folder(WorkflowScope scope) => scope switch {
+		WorkflowScope.Personal => personalDirectory,
+		WorkflowScope.Repository => repositoryDirectory,
+		_ => throw new WorkflowException("Built-in workflows have no folder."),
+	};
 
 	private static IEnumerable<WorkflowCatalogEntry> Directory(string directory, WorkflowScope scope) =>
 		System.IO.Directory.Exists(directory)

@@ -75,7 +75,8 @@ public static class EmbeddedAgentGuidance {
 		with `report-weavie-bug` or `request-weavie-feature` and follow what it returns; never file one directly.
 
 		When the user asks to create, fork, change, or improve a Weavie workflow, call `mcp__weavie__runPrompt` with
-		`author-workflow` and follow what it returns.
+		`author-workflow` and follow what it returns. Find workflows through `mcp__weavie__listWorkflows`, never by
+		assuming a folder.
 
 		Before a task that creates GitHub issues, PRs, or comments (e.g. filing a Weavie issue), first run
 		`gh auth status` or confirm an authenticated GitHub tool. If neither is available, tell the user up front

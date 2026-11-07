@@ -17,10 +17,15 @@ public static class AuthorWorkflowPrompt {
 			1. Call `listWorkflows` to see what exists and `getWorkflowSchema` for the exact fields. Never write a
 			   field the schema doesn't list.
 			2. Interview the user about how they actually work, and model that process. Built-in workflows are
-			   references for the format, not templates; fork one (copy it under the same id into a more
-			   specific scope) only when it already matches what the user described.
-			3. Write a personal workflow (`~/.weavie/workflows/<id>.yaml`) unless the user says the process
-			   belongs to this repository (`.weavie/workflows/<id>.yaml`). The `id` must equal the file name.
+			   references for the format, not templates; when creating a process, fork one with `forkWorkflow`
+			   only when it already matches what the user described.
+			3. A change goes in the winning file: the entry `listWorkflows` shows with no `shadowedBy`. A new workflow
+			   goes in `<id>.yaml` in the personal folder `listWorkflows` reports, or its repository folder if the
+			   user says the process belongs to this repository; never assume a folder. The `id` must equal the file
+			   name. To change a built-in, or a personal workflow for this repository only, call `forkWorkflow`
+			   first and change the copy, forking a built-in to `personal` unless the user says it belongs to this
+			   repository; never edit a built-in in place. A fork keeps its id; a variant under a new id is a new
+			   workflow, not a fork.
 			4. Prefer the user's existing skills as stage steps (`skill` + `args`) over restating them as prompts.
 			5. Route with `then`: a stage id or `done` to go there, or a decision (`ask` + `choices`, each answer
 			   naming the stage it leads to). Stages without `then` move to the following stage. Use `if` to run
@@ -45,8 +50,12 @@ public static class AuthorWorkflowPrompt {
 			11. Only put commands and flags in prompts that you've verified exist (check `--help`), and make sure
 			   every file or value a stage uses is produced by an earlier stage and reachable where it's used.
 			12. Before finishing, walk through a run stage by stage: what each stage receives, what it reports,
-			   and what each decision can see. Then call `validateWorkflow` on the file, fix every error, and
-			   heed its warnings. Summarize the workflow's stages for the user and say where the file lives.
+			   and what each decision can see.
+			13. Before saving any new or changed workflow, pass the complete proposed YAML to `validateWorkflow` as
+			   `text`. Fix every error and validate again until it reports `Valid.`, because later checks and all
+			   warnings only run once structural errors are gone. Heed its warnings. Then save with your normal
+			   edit or write tool, not a script.
+			14. Summarize the workflow's stages for the user and say where the file lives.
 			""",
 	};
 }

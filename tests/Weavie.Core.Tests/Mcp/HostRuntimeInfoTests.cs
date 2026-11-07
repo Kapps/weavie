@@ -38,4 +38,8 @@ public sealed class HostRuntimeInfoTests {
 		Assert.Contains("local (loopback only)", text, StringComparison.Ordinal);
 		Assert.Contains("0.1.247 (local dev build)", text, StringComparison.Ordinal);
 	}
+
+	[Fact]
+	public void GuidanceFindsWorkflowsThroughTheirTool() =>
+		Assert.Contains("Find workflows through `mcp__weavie__listWorkflows`", EmbeddedAgentGuidance.Instructions, StringComparison.Ordinal);
 }

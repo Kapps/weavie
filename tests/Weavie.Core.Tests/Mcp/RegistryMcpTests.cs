@@ -22,11 +22,24 @@ namespace Weavie.Core.Tests;
 public sealed class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
 	private readonly TempDirectory _dir = new("weavie-registry-tests");
+	private readonly List<WorkflowRunner> _runners = [];
 
-	public void Dispose() => _dir.Dispose();
+	public void Dispose() {
+		foreach (var runner in _runners) runner.Dispose();
+		_dir.Dispose();
+	}
 
 	private SettingsStore NewStore() =>
 		CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+
+	private SessionWorkflowRegistry NewWorkflows(string personal) {
+		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
+		var runner = new WorkflowRunner(
+			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
+			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
+		_runners.Add(runner);
+		return new SessionWorkflowRegistry(catalog, runner);
+	}
 
 	[Fact]
 	public async Task RegistryMode_AdvertisesOnlySettingsTools() {
@@ -355,17 +368,13 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task WorkflowToolsListPublishTheSchemaAndValidateFiles() {
+	public async Task WorkflowToolsListPublishTheSchemaAndValidateByIdOrText() {
 		using var store = NewStore();
 		string personal = Path.Combine(_dir.Path, "personal");
-		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
-		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
-		using var runner = new WorkflowRunner(
-			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
+		Directory.CreateDirectory(personal);
+		File.WriteAllText(Path.Combine(personal, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
-			workflows: new SessionWorkflowRegistry(catalog, runner));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: NewWorkflows(personal));
 		using var ws = await ConnectBearerAsync(server.Start(), Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -378,6 +387,9 @@ public sealed class RegistryMcpTests : IDisposable {
 		await SendAsync(ws, Request(2, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
 		using var listed = await ReceiveAsync(ws);
 		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var folders = workflows.RootElement.GetProperty("folders");
+		Assert.Equal(personal, folders.GetProperty("personal").GetString());
+		Assert.Equal(WeaviePaths.RepositoryWorkflowsDir(_dir.Path), folders.GetProperty("repository").GetString());
 		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
 		Assert.Equal("built-in", quickFix.GetProperty("scope").GetString());
 		Assert.True(quickFix.GetProperty("valid").GetBoolean());
@@ -387,13 +399,82 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var schema = await ReceiveAsync(ws);
 		Assert.Equal(WorkflowSchema.Json, ToolText(schema));
 
-		await SendAsync(ws, Request(4, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"broken.yaml"}}"""));
-		using var invalid = await ReceiveAsync(ws);
-		Assert.Contains("expected a non-empty list at stages", ToolText(invalid), StringComparison.Ordinal);
+		var validate = tools.Single(t => t.GetProperty("name").GetString() == "validateWorkflow");
+		Assert.Equal(
+			["id", "text"],
+			validate.GetProperty("inputSchema").GetProperty("properties").EnumerateObject().Select(p => p.Name));
 
-		await SendAsync(ws, Request(5, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"missing.yaml"}}"""));
+		await SendAsync(ws, Request(4, "tools/call", """{"name":"validateWorkflow","arguments":{"id":"broken"}}"""));
+		using var invalid = await ReceiveAsync(ws);
+		Assert.Contains("expected a non-empty list at stages (line 3, column ", ToolText(invalid), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(5, "tools/call", """{"name":"validateWorkflow","arguments":{"id":"missing"}}"""));
 		using var missing = await ReceiveAsync(ws);
 		Assert.True(missing.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+		Assert.Contains("quick-fix", ToolText(missing), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(6, "tools/call", """{"name":"validateWorkflow","arguments":{"text":"id: draft\ndescription: d\nstages: []\n"}}"""));
+		using var badProposal = await ReceiveAsync(ws);
+		Assert.Contains("expected a non-empty list at stages", ToolText(badProposal), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(7, "tools/call", """{"name":"validateWorkflow","arguments":{"text":"id: draft\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go }\n"}}"""));
+		using var goodProposal = await ReceiveAsync(ws);
+		Assert.Equal("Valid.", ToolText(goodProposal));
+		Assert.False(File.Exists(Path.Combine(personal, "draft.yaml")));
+
+		foreach (var (id, arguments) in new[] { (8, "{}"), (9, """{"id":"broken","text":"id: a"}"""), (10, """{"path":"broken.yaml"}"""), (11, """{"id":"broken","path":"/etc/passwd"}"""), (12, """{"id":"broken","text":""}""") }) {
+			await SendAsync(ws, Request(id, "tools/call", $$"""{"name":"validateWorkflow","arguments":{{arguments}}}"""));
+			using var refused = await ReceiveAsync(ws);
+			Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+			Assert.Contains("takes exactly one of 'id' or 'text'", ToolText(refused), StringComparison.Ordinal);
+		}
+	}
+
+	[Fact]
+	public async Task ForkWorkflowCopiesIntoAScopeAndReportsEveryRefusal() {
+		using var store = NewStore();
+		string personal = Path.Combine(_dir.Path, "personal");
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, workflows: NewWorkflows(personal));
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+
+		await SendAsync(ws, Request(1, "tools/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		var fork = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
+			.Single(t => t.GetProperty("name").GetString() == "forkWorkflow");
+		Assert.False(fork.TryGetProperty("annotations", out _));
+
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"forkWorkflow","arguments":{"id":"quick-fix","scope":"personal"}}"""));
+		using var forked = await ReceiveAsync(ws);
+		string path = Path.Combine(personal, "quick-fix.yaml");
+		Assert.Equal($"Forked quick-fix to {path}.", ToolText(forked));
+		Assert.True(File.Exists(path));
+
+		await SendAsync(ws, Request(9, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
+		using var listed = await ReceiveAsync(ws);
+		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var copies = workflows.RootElement.GetProperty("workflows").EnumerateArray()
+			.Where(w => w.GetProperty("id").GetString() == "quick-fix").ToList();
+		Assert.False(copies.Single(w => w.GetProperty("scope").GetString() == "personal").TryGetProperty("shadowedBy", out _));
+		Assert.Equal("personal", copies.Single(w => w.GetProperty("scope").GetString() == "built-in").GetProperty("shadowedBy").GetString());
+
+		foreach (var (id, arguments, message) in new[] {
+			(3, """{"id":"quick-fix","scope":"personal"}""", "would not override it"),
+			(4, """{"id":"missing","scope":"personal"}""", "No workflow"),
+			(5, """{"id":"quick-fix"}""", "requires 'id' and a 'scope'"),
+			(6, """{"scope":"personal"}""", "requires 'id' and a 'scope'"),
+			(7, """{"id":"quick-fix","scope":"built-in"}""", "requires 'id' and a 'scope'"),
+		}) {
+			await SendAsync(ws, Request(id, "tools/call", $$"""{"name":"forkWorkflow","arguments":{{arguments}}}"""));
+			using var refused = await ReceiveAsync(ws);
+			Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+			Assert.Contains(message, ToolText(refused), StringComparison.Ordinal);
+		}
+
+		Directory.CreateDirectory(Path.Combine(WeaviePaths.RepositoryWorkflowsDir(_dir.Path), "spec-driven.yaml"));
+		await SendAsync(ws, Request(8, "tools/call", """{"name":"forkWorkflow","arguments":{"id":"spec-driven","scope":"repository"}}"""));
+		using var blocked = await ReceiveAsync(ws);
+		Assert.True(blocked.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}
 
 	[Fact]

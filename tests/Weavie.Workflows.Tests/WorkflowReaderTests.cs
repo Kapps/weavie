@@ -31,6 +31,28 @@ public sealed class WorkflowReaderTests {
 		""";
 
 	[Fact]
+	public void AProposalIsReadUnderItsOwnId() {
+		var result = WorkflowReader.ReadProposal(Valid);
+		Assert.Equal("ship", result.Definition!.Id);
+		Assert.Empty(result.Diagnostics);
+	}
+
+	[Theory]
+	[InlineData("description: d\nstages:\n  - id: a\n    run: { prompt: go }\n", "missing required key \"id\"")]
+	[InlineData("id: Not Valid\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go }\n", "Not Valid")]
+	public void AProposalReportsAMissingOrMalformedIdAsAnOrdinaryError(string text, string message) {
+		var result = WorkflowReader.ReadProposal(text);
+		Assert.Null(result.Definition);
+		Assert.Contains(result.Diagnostics, d => d.ToString().Contains(message, StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public void AProposalThatIsNotYamlReportsWhereItBroke() {
+		var diagnostic = Assert.Single(WorkflowReader.ReadProposal("id: a\ndescription: [\n").Diagnostics);
+		Assert.Equal(3, diagnostic.Position.Line);
+	}
+
+	[Fact]
 	public void ReadsAValidWorkflowIntoTypedRecords() {
 		var result = WorkflowReader.Read(Valid, "ship");
 		Assert.Empty(result.Diagnostics);

@@ -9,7 +9,7 @@ Satisfies R1, R3, R4, R5, R9, R10.
 - [x] Add `chipOf` and `sessionRun` to `session-store.ts`, and use `chipOf` in `watchedUnseen`
 - [x] Add `runDotColor` and `runTooltip` to `session-summary.ts`
 - [x] Unit test both, plus `sessionRun`
-- [ ] Create `WorkflowRunStatus.tsx`
+- [x] Create `WorkflowRunStatus.tsx`
 - [ ] Render it in `AgentPane.tsx` before the shortcut `<Show>`
 - [ ] Add the base `.pane-run` styles to `layout.css`
 - [ ] Extend `workflow-status-line.spec.ts`: text, dot colors, tooltip, run end, second session, reload, no stage count

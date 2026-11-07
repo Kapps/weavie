@@ -41,6 +41,7 @@ Any future rejection by status code must run before the stream opens.
 | Event | Behavior |
 |---|---|
 | Tool throws | Dispatch sends a `-32603` event, which counts as the answer |
+| Tool stops itself with a cancellation | Dispatch sends a `-32603` event, because real Claude doesn't notice a closed stream |
 | Caller cancels | Call token cancels; stream closes with no answer |
 | Connection closes or resets | `CancelOnDisconnectAsync` cancels the connection token |
 | Progress write fails | Heartbeat cancels the connection token |

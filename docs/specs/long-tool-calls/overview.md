@@ -196,8 +196,9 @@ The WebSocket transport and the consult runtime don't change.
 
 ## Risks
 
-- **Silent end of stream:** whether real Claude reports a stream that closes with no reply, or waits out its 5-minute
-  limit. This must be tested, because a client cancel still ends that way.
+- **Silent end of stream:** real Claude doesn't notice a closed stream and waits out its 5-minute limit, even after a
+  reset. Every call Weavie ends itself over HTTP therefore gets an answer. A cancel is safe: Claude ends the turn without
+  waiting for the stream.
 - **Disconnects cancel:** the MCP spec says a disconnect shouldn't imply cancellation. Weavie cancels anyway, because
   it can't resume a stream and nobody could receive the result.
 - **Hung consults:** progress only proves Weavie is alive, so a stuck consult runs until the caller cancels it.

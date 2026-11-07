@@ -320,7 +320,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 					break;
 				case "tools/call":
 					using (var call = BeginCall(responder.Client, idRaw, ct)) {
-						await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+						try {
+							await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+						} catch (OperationCanceledException) when (!call.Token.IsCancellationRequested) {
+							// A client doesn't notice a closed stream, so a tool that stopped itself still owes an answer.
+							Emit("tool call stopped itself");
+							await responder.SendErrorAsync(idRaw, -32603, "The tool call stopped before it finished.", ct).ConfigureAwait(false);
+						}
 					}
 					break;
 				case "prompts/list":

@@ -205,6 +205,17 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 	}
 
 	[Fact]
+	public async Task HttpToolThatStopsItselfStillAnswers() {
+		_codex.Consult = (_, _) => Task.FromException<AgentConsultOutcome>(new OperationCanceledException());
+		using var client = new HttpClient();
+
+		using var response = await PostAsync(client, Request(2, "tools/call", """{"name":"consultAgent","arguments":{"provider":"codex","prompt":"x"}}"""), null);
+		using var reply = await TestMcp.ReadResponseAsync(response);
+
+		Assert.Equal(-32603, reply.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+	}
+
+	[Fact]
 	public async Task HttpConnectionResetStopsItsCall() {
 		var started = BlockConsult();
 		using var socket = new TcpClient();

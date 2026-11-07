@@ -88,9 +88,30 @@ Long tool calls own a per-call cancellation source, cancelled by:
 
 The stdio MCP proxy has no client-side request timeout: the caller's cancellation owns a tool call's lifetime.
 
-The calling agent's own tool timeout still applies. Codex defaults MCP tool calls to 60 seconds, and codex-acp
-configures client-supplied MCP servers without a timeout, so a Codex caller gives up on a longer consult. Codex
-reaches the registry over HTTP, so abandoning the request closes the connection and cancels the consult.
+A disconnect cancels on purpose, although the MCP spec says it need not: Weavie can't resume a stream, so nobody could
+receive the result.
+
+## Long consults
+
+HTTP replies are event streams opened at once, and a running call with a progress token gets a progress event every
+30 seconds. See [long tool calls](long-tool-calls/overview.md). That clears the limits a calling agent can be helped
+past:
+
+| Caller | Limit | Result |
+|---|---|---|
+| Claude over HTTP MCP | Response headers within 60 seconds | Cleared by the immediate reply |
+| Claude over HTTP MCP | 5 minutes without progress | Cleared by progress events |
+| Claude over HTTP MCP | About 28 hours per call | Not reached |
+| Codex (`codex exec`) | 300 seconds per call, not extended by progress | Stays: the call fails and the consult is cancelled |
+| Terminal Claude over WebSocket | None found | Not affected |
+
+Real Claude (2.1.312) doesn't notice a stream closing, even with a TCP reset: it reports nothing until its 5-minute
+limit, or about 5.5 minutes after a progress event. So every call Weavie ends itself over HTTP gets an answer, including a
+tool that stops without being cancelled. When the user interrupts, Claude ends the turn at once and doesn't wait for the
+stream.
+
+Measured from a real native-pane Claude session: a consult with a stand-in target held for 6m41s returned its result,
+and a real Astra review of two files took 1m47s.
 
 ## Deferred
 

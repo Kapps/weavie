@@ -18,6 +18,8 @@ As a client author, I handle one reply format.
 - Each event's JSON SHALL occupy one `data:` line, even when the source JSON contains newlines.
 - A call SHALL produce at most one answer.
 - A malformed body SHALL get a `-32700` error event.
+- IF a tool stops without the caller cancelling, the caller SHALL get an error event. `openDiff` is the exception:
+  terminal Claude's IDE flow dismisses it with no response on purpose.
 
 ## R3. Notifications stay empty
 
@@ -53,7 +55,8 @@ As a user, I don't pay for a consult nobody can receive.
 
 ## R9. Terminal Claude is unchanged
 
-- The WebSocket transport SHALL behave as it did, with no progress messages.
+- The WebSocket transport SHALL behave as it did, with no progress messages, except that R2's error for a tool that
+  stops itself applies there too.
 
 ## R10. Limits are documented
 

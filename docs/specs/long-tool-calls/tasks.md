@@ -28,10 +28,12 @@ process.
 
 ## Group 3: Real long consult
 
-Requirements: R10, R11
+Requirements: R2, R9, R10, R11
 
-Video: a real native-pane Claude session consults Astra past the 5-minute mark and receives the result.
+Video: a real native-pane Claude session receives a stand-in consult's result past the 5-minute mark, and a real Astra
+review.
 
-- [ ] Correct `agent-consultation.md` and link this spec
-- [ ] Run a consult longer than 5 minutes from a real native-pane Claude session
-- [ ] Observe how real Claude treats a stream that ends with no reply, and record it
+- [x] Correct `agent-consultation.md` and link this spec
+- [x] Run a consult longer than 5 minutes from a real native-pane Claude session
+- [x] Observe how real Claude treats a stream that ends with no reply, and record it
+- [x] Answer a tool that stops itself without the caller cancelling

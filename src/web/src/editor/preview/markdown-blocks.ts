@@ -90,12 +90,13 @@ function trimBlank(lines: string[], start: number, end: number): number {
   return trimmed;
 }
 
-const TAG = /<(\/?)([a-zA-Z][\w-]*)[^>]*?(\/?)>/g;
+// Comments match first, so a tag written inside one never counts.
+const TAG = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w-]*)[^>]*?(\/?)>/g;
 
 function openTags(html: string): number {
   let depth = 0;
-  for (const [, close, name, selfClose] of html.replace(/<!--[\s\S]*?-->/g, "").matchAll(TAG)) {
-    if (selfClose === "" && !UNPAIRED_TAGS.has(name?.toLowerCase() ?? ""))
+  for (const [, close, name, selfClose] of html.matchAll(TAG)) {
+    if (name !== undefined && selfClose === "" && !UNPAIRED_TAGS.has(name.toLowerCase()))
       depth += close === "" ? 1 : -1;
   }
   return depth;

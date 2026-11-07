@@ -1,12 +1,15 @@
 namespace Weavie.Core.Agents;
 
-/// <summary>Whether a background item is a subagent conversation or an agent-owned task.</summary>
+/// <summary>Whether a background item is a subagent conversation, an agent-owned task, or the agent's own turn.</summary>
 public enum AgentBackgroundKind {
 	/// <summary>A read-only subagent conversation the agent spawned.</summary>
 	Subagent,
 
 	/// <summary>A background task such as a shell command or a workflow.</summary>
 	Task,
+
+	/// <summary>A turn the agent started without a prompt, e.g. to answer a finished task; it is the session's own work.</summary>
+	Turn,
 }
 
 /// <summary>The liveness of one background item; a later terminal state replaces an earlier one.</summary>
@@ -76,4 +79,7 @@ public sealed record AgentBackgroundItem {
 
 	/// <summary>Whether the work is still live.</summary>
 	public bool Running => State is AgentBackgroundState.Running or AgentBackgroundState.Paused;
+
+	/// <summary>Whether ending the session now would lose this work's result; the agent's own turn is never orphaned.</summary>
+	public bool Orphanable => Running && Kind != AgentBackgroundKind.Turn;
 }

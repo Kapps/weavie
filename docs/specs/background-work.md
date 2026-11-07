@@ -98,7 +98,9 @@ Running work keeps the session status on Waiting unless it works or needs input,
 
 Unload, delete, Recreate, Restart Agent, `/clear`, and Rewind refuse while background work runs, with
 `{"session":{slot,incarnation},"backgroundWork":[{name,type,state,startedAtMs}]}` as the result data, unless called with
-`stopBackgroundWork: true` (MCP callers see the same refusal). The web
+`stopBackgroundWork: true` (MCP callers see the same refusal, naming the work in its text). A turn the agent started
+without a prompt (Claude's adapter reports it as a task of type `turn`, e.g. answering a finished task) is the session's
+own work, like a prompted turn: it shows in the tray but never refuses. The web
 turns it into a "Stop background work?" confirm whose list follows that session's work live. Its confirm names the
 action ("Stop and restart", "Stop and unload", …) and re-runs with consent; Keep running is the Enter/Esc default. Work
 that finishes while it is open, or whose session goes away, re-runs the action without consent, so anything started

@@ -40,6 +40,16 @@ public sealed class AcpBackgroundTaskTests {
 	}
 
 	[Fact]
+	public async Task AnUnpromptedTurnIsTheSessionsOwnWorkNotOrphanableTask() {
+		await using var fixture = await StartedAsync();
+		fixture.Submit("task-turn");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.ConversationId is null && message.TurnId == "1");
+
+		var turn = fixture.Session.BackgroundWork.Single();
+		Assert.Equal((AgentBackgroundKind.Turn, true, false), (turn.Kind, turn.Running, turn.Orphanable));
+	}
+
+	[Fact]
 	public async Task AFailedTaskCarriesItsErrorOutputFileAndLateAttributedToolCall() {
 		await using var fixture = await StartedAsync();
 		var item = await StartTaskAsync(fixture, "task-failed", "1");

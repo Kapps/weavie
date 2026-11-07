@@ -10,51 +10,21 @@ public sealed partial class McpServer {
 		Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct);
 
 		Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct);
-
-		Task SendRawAsync(string json, CancellationToken ct);
 	}
+
+	private static string ResultJson(string idRaw, string resultJson) =>
+		$"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw},\"result\":{resultJson}}}";
+
+	private static string ErrorJson(string? idRaw, int code, string messageText) =>
+		$"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw ?? "null"},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}";
 
 	private sealed class WebSocketResponder(McpServer server, WebSocket webSocket) : IMcpResponder {
 		public object Client => this;
 
-		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) {
-			if (idRaw is null) {
-				return Task.CompletedTask;
-			}
+		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) =>
+			idRaw is null ? Task.CompletedTask : server.SendRawAsync(webSocket, ResultJson(idRaw, resultJson), ct);
 
-			return server.SendRawAsync(webSocket, $"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw},\"result\":{resultJson}}}", ct);
-		}
-
-		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) {
-			string id = idRaw ?? "null";
-			return server.SendRawAsync(webSocket, $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}", ct);
-		}
-
-		public Task SendRawAsync(string json, CancellationToken ct) => server.SendRawAsync(webSocket, json, ct);
-	}
-
-	private sealed class HttpResponder(string sessionId) : IMcpResponder {
-		public object Client => sessionId;
-
-		public string? ResponseJson { get; private set; }
-
-		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) {
-			if (idRaw is not null) {
-				ResponseJson = $"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw},\"result\":{resultJson}}}";
-			}
-
-			return Task.CompletedTask;
-		}
-
-		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) {
-			string id = idRaw ?? "null";
-			ResponseJson = $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}";
-			return Task.CompletedTask;
-		}
-
-		public Task SendRawAsync(string json, CancellationToken ct) {
-			ResponseJson = json;
-			return Task.CompletedTask;
-		}
+		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) =>
+			server.SendRawAsync(webSocket, ErrorJson(idRaw, code, messageText), ct);
 	}
 }

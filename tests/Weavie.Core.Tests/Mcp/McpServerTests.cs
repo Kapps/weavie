@@ -64,6 +64,18 @@ public sealed class McpServerTests {
 	}
 
 	[Fact]
+	public async Task WebSocket_MalformedJson_ReturnsParseError() {
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		using var ws = await ConnectAsync(server.Start(), Token);
+
+		await SendAsync(ws, "{");
+		using var document = await ReceiveAsync(ws);
+
+		Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("id").ValueKind);
+		Assert.Equal(-32700, document.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+	}
+
+	[Fact]
 	public async Task Connection_WithoutToken_IsRejected() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
 		int port = server.Start();
@@ -151,7 +163,7 @@ public sealed class McpServerTests {
 
 		using var response = await PostHttpAsync(port, Token, Request(21, "initialize",
 			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"acp\",\"version\":\"1\"}}"));
-		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+		using var document = await TestMcp.ReadResponseAsync(response);
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		Assert.Equal("weavie", document.RootElement.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
@@ -163,12 +175,26 @@ public sealed class McpServerTests {
 		int port = server.Start();
 
 		using var response = await PostHttpAsync(port, Token, Request(22, "tools/list", "{}"));
-		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+		using var document = await TestMcp.ReadResponseAsync(response);
 
 		var tools = document.RootElement.GetProperty("result").GetProperty("tools");
 		var names = tools.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Contains("openDiff", names);
 		Assert.Contains("openFile", names);
+	}
+
+	[Fact]
+	public async Task HttpMcp_WritesEachMessageOnOneDataLine() {
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		int port = server.Start();
+
+		using var response = await PostHttpAsync(port, Token, Request(23, "tools/list", "{}"));
+		string[] lines = (await response.Content.ReadAsStringAsync()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+		Assert.Equal(2, lines.Length);
+		Assert.Equal("event: message", lines[0]);
+		using var document = JsonDocument.Parse(lines[1]["data: ".Length..]);
+		Assert.Equal(23, document.RootElement.GetProperty("id").GetInt32());
 	}
 
 	[Fact]
@@ -183,12 +209,23 @@ public sealed class McpServerTests {
 	}
 
 	[Fact]
+	public async Task HttpMcp_FailedNotification_ReturnsAcceptedWithoutRpcBody() {
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		int port = server.Start();
+
+		using var response = await PostHttpAsync(port, Token, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":3}");
+
+		Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+		Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+	}
+
+	[Fact]
 	public async Task HttpMcp_MalformedJson_ReturnsParseError() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
 		int port = server.Start();
 
 		using var response = await PostHttpAsync(port, Token, "{");
-		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+		using var document = await TestMcp.ReadResponseAsync(response);
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		Assert.Equal(-32700, document.RootElement.GetProperty("error").GetProperty("code").GetInt32());
@@ -268,9 +305,6 @@ public sealed class McpServerTests {
 			Task.FromException(new IOException("peer disconnected"));
 
 		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) =>
-			Task.FromException(new IOException("peer disconnected"));
-
-		public Task SendRawAsync(string json, CancellationToken ct) =>
 			Task.FromException(new IOException("peer disconnected"));
 	}
 }

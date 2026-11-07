@@ -89,12 +89,7 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 
 	[Fact]
 	public async Task CancelledNotificationStopsOnlyThatClientsCall() {
-		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_codex.Consult = async (_, ct) => {
-			started.TrySetResult(ct);
-			await Task.Delay(Timeout.Infinite, ct);
-			throw new InvalidOperationException("unreachable");
-		};
+		var started = BlockConsult();
 		using var caller = await ConnectAsync();
 		using var other = await ConnectAsync();
 		await SendAsync(caller, Request(7, "tools/call", """{"name":"consultAgent","arguments":{"provider":"codex","prompt":"x"}}"""));
@@ -109,34 +104,48 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 	}
 
 	[Fact]
-	public async Task HttpClientsGetASessionThatScopesCancellation() {
-		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+	public async Task HttpReplyStartsBeforeALongCallFinishes() {
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		_codex.Consult = async (_, ct) => {
-			started.TrySetResult(ct);
-			await Task.Delay(Timeout.Infinite, ct);
-			throw new InvalidOperationException("unreachable");
+			await release.Task.WaitAsync(ct);
+			return new AgentConsultSuccess { ModelId = "astra", Controls = [], Reply = "Looks right.", Denied = [] };
 		};
+		using var client = new HttpClient();
+
+		using var response = await client.SendAsync(
+			Post(Request(2, "tools/call", """{"name":"consultAgent","arguments":{"provider":"codex","prompt":"x"}}"""), null),
+			HttpCompletionOption.ResponseHeadersRead).WaitAsync(TimeSpan.FromSeconds(5));
+		Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+		release.SetResult();
+
+		using var reply = await TestMcp.ReadResponseAsync(response).WaitAsync(TimeSpan.FromSeconds(5));
+		Assert.Contains("Looks right.", Text(reply), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task HttpCallsRunIndependentlyWhileOneStreams() {
+		var started = BlockConsult();
 		using var client = new HttpClient();
 		using var initialized = await PostAsync(client, Request(1, "initialize", "{}"), null);
 		string session = initialized.Headers.GetValues("Mcp-Session-Id").Single();
-
 		var call = PostAsync(client, Request(2, "tools/call", """{"name":"consultAgent","arguments":{"provider":"codex","prompt":"x"}}"""), session);
 		var token = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-		using (await PostAsync(client, """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}""", session)) { }
 
+		using var listed = await PostAsync(client, Request(3, "tools/call", """{"name":"listAgents","arguments":{}}"""), session).WaitAsync(TimeSpan.FromSeconds(5));
+		using var reply = await TestMcp.ReadResponseAsync(listed);
+		Assert.Contains("codex", Text(reply), StringComparison.Ordinal);
+		using (await PostAsync(client, """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}""", "another-session")) { }
+		Assert.False(token.IsCancellationRequested);
+
+		using (await PostAsync(client, """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}""", session)) { }
 		await WaitCancelledAsync(token);
-		using var cancelled = await call;
-		Assert.Equal(System.Net.HttpStatusCode.Accepted, cancelled.StatusCode);
+		using var cancelled = await call.WaitAsync(TimeSpan.FromSeconds(5));
+		Assert.Equal(string.Empty, await cancelled.Content.ReadAsStringAsync());
 	}
 
 	[Fact]
 	public async Task HttpClientHangingUpStopsItsCall() {
-		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_codex.Consult = async (_, ct) => {
-			started.TrySetResult(ct);
-			await Task.Delay(Timeout.Infinite, ct);
-			throw new InvalidOperationException("unreachable");
-		};
+		var started = BlockConsult();
 		using var client = new HttpClient();
 		using var abort = new CancellationTokenSource();
 
@@ -146,6 +155,17 @@ public sealed class McpAgentToolsTests : IAsyncLifetime {
 
 		await WaitCancelledAsync(token);
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
+	}
+
+	// A consult that runs until cancelled; the result completes with its token once it starts.
+	private TaskCompletionSource<CancellationToken> BlockConsult() {
+		var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_codex.Consult = async (_, ct) => {
+			started.TrySetResult(ct);
+			await Task.Delay(Timeout.Infinite, ct);
+			throw new InvalidOperationException("unreachable");
+		};
+		return started;
 	}
 
 	private static async Task WaitCancelledAsync(CancellationToken token) {

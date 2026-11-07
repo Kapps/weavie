@@ -14,11 +14,11 @@ public sealed class McpStdioProxyTests {
 		var requests = Channel.CreateUnbounded<TaskCompletionSource<string>>();
 		await using var server = await StartServerAsync(async context => {
 			_ = await new StreamReader(context.Request.Body).ReadToEndAsync();
+			await OpenEventStreamAsync(context);
 			var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 			await requests.Writer.WriteAsync(response);
 			string json = await response.Task.WaitAsync(context.RequestAborted);
-			context.Response.ContentType = "application/json";
-			await context.Response.WriteAsync(json);
+			await context.Response.WriteAsync($"event: message\ndata: {json}\n\n");
 		});
 		await WithProxyAsync(server, async process => {
 			await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"openDiff\"}");
@@ -33,11 +33,31 @@ public sealed class McpStdioProxyTests {
 	}
 
 	[Fact]
+	public async Task ProxyRelaysEachEventWhileTheStreamIsOpen() {
+		var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		await using var server = await StartServerAsync(async context => {
+			_ = await new StreamReader(context.Request.Body).ReadToEndAsync();
+			await OpenEventStreamAsync(context);
+			await context.Response.WriteAsync("event: message\ndata: {\"method\":\"notifications/progress\"}\n\n");
+			await context.Response.Body.FlushAsync();
+			await finish.Task.WaitAsync(context.RequestAborted);
+			await context.Response.WriteAsync("event: message\ndata: {\"id\":1,\"result\":{}}\n\n");
+		});
+		await WithProxyAsync(server, async process => {
+			await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"openDiff\"}");
+			Assert.Contains("notifications/progress", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+			finish.SetResult();
+			Assert.Contains("\"id\":1", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+		});
+	}
+
+	[Fact]
 	public async Task ProxyCancelsHeldHttpRequestsWhenItsOwnerClosesStdin() {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		await using var server = await StartServerAsync(async context => {
 			_ = await new StreamReader(context.Request.Body).ReadToEndAsync();
+			await OpenEventStreamAsync(context);
 			using var registration = context.RequestAborted.Register(() => canceled.TrySetResult());
 			entered.TrySetResult();
 			await canceled.Task;
@@ -48,6 +68,12 @@ public sealed class McpStdioProxyTests {
 			process.StandardInput.Close();
 			await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		});
+	}
+
+	private static async Task OpenEventStreamAsync(HttpContext context) {
+		context.Response.ContentType = "text/event-stream";
+		await context.Response.StartAsync();
+		await context.Response.Body.FlushAsync();
 	}
 
 	private static async Task<WebApplication> StartServerAsync(RequestDelegate handler) {

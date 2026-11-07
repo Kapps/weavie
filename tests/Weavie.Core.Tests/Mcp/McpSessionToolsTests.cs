@@ -129,7 +129,7 @@ public sealed class McpSessionToolsTests : IAsyncLifetime {
 		};
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 		using var response = await _client.SendAsync(request);
-		return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+		return await TestMcp.ReadResponseAsync(response);
 	}
 
 	private static bool IsError(JsonDocument response) =>

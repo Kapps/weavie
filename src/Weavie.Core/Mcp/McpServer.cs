@@ -231,42 +231,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private async Task HandleHttpClientAsync(NetworkStream stream, HttpRequestHead request, CancellationToken ct) {
-		if (!IsAuthorized(request.Headers)) {
-			Emit("rejected HTTP MCP request: missing/invalid auth token");
-			await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
-			return;
-		}
-
-		if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) || !IsMcpTarget(request.Target)) {
-			await WebSocketHandshake.WriteStatusAsync(stream, "404 Not Found", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string body = await WebSocketHandshake.ReadBodyAsync(stream, request.Headers, ct).ConfigureAwait(false);
-		// A client without a session is issued one; it scopes that client's request ids for cancellation.
-		string sessionId = request.Headers.TryGetValue("mcp-session-id", out string? presented) && presented.Length > 0
-			? presented
-			: Guid.NewGuid().ToString("N");
-		var responder = new HttpResponder(sessionId);
-		using (var connection = CancellationTokenSource.CreateLinkedTokenSource(ct)) {
-			var watch = CancelOnDisconnectAsync(stream, connection);
-			try {
-				await DispatchAsync(responder, body, connection.Token).ConfigureAwait(false);
-			} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
-				// The client cancelled the call or hung up; it expects no result either way.
-			} finally {
-				await connection.CancelAsync().ConfigureAwait(false);
-				await watch.ConfigureAwait(false);
-			}
-		}
-		if (responder.ResponseJson is { } response) {
-			await WebSocketHandshake.WriteJsonAsync(stream, "200 OK", response, sessionId, ct).ConfigureAwait(false);
-		} else {
-			await WebSocketHandshake.WriteStatusAsync(stream, "202 Accepted", ct).ConfigureAwait(false);
-		}
-	}
-
 	private bool IsAuthorized(IReadOnlyDictionary<string, string> headers) {
 		headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
 		string? bearer = null;
@@ -312,10 +276,22 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task DispatchAsync(IMcpResponder responder, string json, CancellationToken ct) {
-		string? idForError = null;
 		try {
 			using var doc = JsonDocument.Parse(json);
-			var root = doc.RootElement;
+			await DispatchAsync(responder, doc.RootElement, ct).ConfigureAwait(false);
+		} catch (JsonException ex) {
+			await SendParseErrorAsync(responder, ex, ct).ConfigureAwait(false);
+		}
+	}
+
+	private Task SendParseErrorAsync(IMcpResponder responder, JsonException ex, CancellationToken ct) {
+		Emit($"dispatch parse error: {ex.Message}");
+		return responder.SendErrorAsync(null, -32700, "Parse error", ct);
+	}
+
+	private async Task DispatchAsync(IMcpResponder responder, JsonElement root, CancellationToken ct) {
+		string? idForError = null;
+		try {
 			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
 			bool hasId = root.TryGetProperty("id", out var idElement);
 			string? idRaw = hasId ? idElement.GetRawText() : null;
@@ -360,9 +336,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 					break;
 			}
-		} catch (JsonException ex) {
-			Emit($"dispatch parse error: {ex.Message}");
-			await responder.SendErrorAsync(null, -32700, "Parse error", ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			Emit($"dispatch error: {ex.Message}");
 			await responder.SendErrorAsync(idForError, -32603, ex.Message, ct).ConfigureAwait(false);

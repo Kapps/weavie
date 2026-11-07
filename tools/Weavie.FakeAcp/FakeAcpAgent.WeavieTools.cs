@@ -29,7 +29,10 @@ internal sealed partial class FakeAcpAgent {
 		message.Headers.Authorization = AuthenticationHeaderValue.Parse(authorization);
 		using var response = await client.SendAsync(message, ct).ConfigureAwait(false);
 		response.EnsureSuccessStatusCode();
-		using var reply = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+		// The reply is an event stream; its last event is the call's response.
+		string events = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+		string data = events.Split('\n').Last(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
+		using var reply = JsonDocument.Parse(data);
 		var result = reply.RootElement.GetProperty("result");
 		string text = result.GetProperty("content")[0].GetProperty("text").GetString() ?? string.Empty;
 		Message((result.TryGetProperty("isError", out var error) && error.GetBoolean() ? $"{tool} failed: " : $"{tool}: ") + text);

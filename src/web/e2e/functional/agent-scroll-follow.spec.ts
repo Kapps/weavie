@@ -1,7 +1,7 @@
 import { awaitEditorReady, createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-test("precision scrolling and composer resizing preserve a paused reading position", async ({
+test("precision scrolling and composer resizing keep a paused reading position on the bottom", async ({
   page,
 }) => {
   await awaitEditorReady(page);
@@ -9,8 +9,7 @@ test("precision scrolling and composer resizing preserve a paused reading positi
   const surface = page.locator('[data-surface="structured-agent"]');
   const composer = surface.locator("[data-agent-composer] textarea");
   const body = surface.locator(".agent-body");
-  const distanceFromBottom = () =>
-    body.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+  const distanceFromBottom = () => body.evaluate((element) => -element.scrollTop);
 
   for (let turn = 0; turn < 8; turn++) {
     const text = `## Investigation ${turn}\n\n${Array.from(
@@ -76,11 +75,12 @@ test("precision scrolling and composer resizing preserve a paused reading positi
     if (row === undefined) throw new Error("No visible transcript anchor");
     return {
       id: row.dataset.transcriptEntry!,
-      top: row.getBoundingClientRect().top - viewport.top,
+      bottom: row.getBoundingClientRect().top - viewport.bottom,
       height: element.clientHeight,
     };
   });
 
+  // Like a chat, what is being read keeps its distance from the bottom edge as the composer grows.
   await composer.fill(
     "An unsent draft\nwith several lines\nthat grows the composer\nand shrinks history\nwithout changing what I am reading.",
   );
@@ -93,7 +93,9 @@ test("precision scrolling and composer resizing preserve a paused reading positi
       (candidate) => candidate.dataset.transcriptEntry === previous.id,
     );
     if (row === undefined) throw new Error("Resizing the composer lost the reading position");
-    return row.getBoundingClientRect().top - element.getBoundingClientRect().top - previous.top;
+    return (
+      row.getBoundingClientRect().top - element.getBoundingClientRect().bottom - previous.bottom
+    );
   }, anchor);
   expect(Math.abs(displacement)).toBeLessThanOrEqual(1);
   await expect(latest).toBeVisible();

@@ -1,8 +1,9 @@
-import { For, type JSX, onCleanup } from "solid-js";
+import { type JSX, onCleanup } from "solid-js";
 import type { ClientSession } from "../bridge";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import { newestVisibleAgentElement } from "./AgentViewport";
+import { ForEachId } from "./ForEachId";
 
 const nested = ".agent-aside, .agent-entry-subagent";
 const toggles = new Map<HTMLElement, () => void>();
@@ -34,11 +35,11 @@ export function NestedTranscript(props: {
 }): JSX.Element {
   return (
     <div class="agent-aside-transcript">
-      <For each={props.entries}>
+      <ForEachId each={props.entries}>
         {(entry) => (
           <TranscriptEntry
             expandedDetails={props.expandedDetails}
-            entry={entry}
+            entry={entry()}
             keyboardRequestKey={props.keyboardRequestKey}
             latestPromptTurn={null}
             onDetailsToggle={props.onDetailsToggle}
@@ -46,7 +47,7 @@ export function NestedTranscript(props: {
             session={props.session}
           />
         )}
-      </For>
+      </ForEachId>
     </div>
   );
 }

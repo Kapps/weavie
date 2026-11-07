@@ -1,13 +1,17 @@
 import { type Accessor, batch, createSignal } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { paneActivityIdentity } from "./AgentPaneIdentity";
 import { projectAgentTranscript } from "./AgentPaneMessages";
-import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type {
+  AgentActivityStep,
+  AgentTranscriptEntry,
+  AgentTranscriptSnapshot,
+} from "./AgentPaneTranscriptTypes";
 import { orderPendingRequests } from "./AgentPendingRequests";
-import { computeSectionLabels, isResult, latestAgentTurnStartId } from "./AgentTranscriptLabels";
+import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
+import { emptyTranscript, latestResultIndex, shareTranscript } from "./AgentTranscriptSnapshot";
 import { type AgentPlanIdentity, latestCompletedPlan } from "./agent-plan";
 import { submittedPrompts } from "./prompt-history";
 import {
@@ -18,12 +22,9 @@ import {
   pendingRequest,
 } from "./turn-progress";
 
-export type AgentSectionLabel = "Updates" | "Results";
+export type { AgentSectionLabel } from "./AgentPaneTranscriptTypes";
 
 export interface AgentPaneModel {
-  readonly agentTurnStartId: Accessor<string | null>;
-  readonly agentTurnStartIndex: Accessor<number | null>;
-  readonly entries: AgentTranscriptEntry[];
   readonly generation: Accessor<number>;
   readonly history: Accessor<readonly string[]>;
   /** Whether the host's stored transcript has fully loaded. */
@@ -31,15 +32,15 @@ export interface AgentPaneModel {
   readonly interruptible: Accessor<boolean>;
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardRequestKey: Accessor<string | null>;
+  /** Counts published changes to the latest row, the output a reader away from the bottom hasn't seen. */
+  readonly latestOutput: Accessor<number>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
-  /** The final row's index when it is an agent result updated by live output rather than history. */
-  readonly liveResultIndex: Accessor<number | null>;
+  /** Whether the transcript is receiving live output rather than only history. */
+  readonly live: Accessor<boolean>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
-  readonly pendingRowIndexes: Accessor<readonly number[]>;
-  readonly revision: Accessor<number>;
-  readonly sectionLabels: Accessor<ReadonlyMap<string, AgentSectionLabel>>;
   readonly session: ClientSession;
+  readonly transcript: Accessor<AgentTranscriptSnapshot>;
   readonly turnActive: Accessor<boolean>;
   readonly turnStartedAt: Accessor<number | null>;
   setActivityExpanded(id: string, expanded: boolean): void;
@@ -62,9 +63,11 @@ interface ProjectedActivity {
 }
 
 export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
-  const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
+  const [transcript, setTranscript] = createSignal(emptyTranscript);
+  const [latestOutput, setLatestOutput] = createSignal(0);
   const [generation, setGeneration] = createSignal(0);
-  const [revision, setRevision] = createSignal(0);
+  // Steps can change without changing any shown entry, so step readers track projections directly.
+  const [projected, setProjected] = createSignal(undefined, { equals: false });
   const [turnActive, setTurnActive] = createSignal(false);
   const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
@@ -76,13 +79,6 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [historyComplete, setHistoryComplete] = createSignal(false);
   const [live, setLive] = createSignal(false);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
-  const [latestResultIndex, setLatestResultIndex] = createSignal<number | null>(null);
-  const [pendingRowIndexes, setPendingRowIndexes] = createSignal<readonly number[]>([]);
-  const [agentTurnStartId, setAgentTurnStartId] = createSignal<string | null>(null);
-  const [agentTurnStartIndex, setAgentTurnStartIndex] = createSignal<number | null>(null);
-  const [sectionLabels, setSectionLabels] = createSignal<ReadonlyMap<string, AgentSectionLabel>>(
-    new Map(),
-  );
   const activities = new Map<string, ProjectedActivity>();
   const expandedActivities = new Set<string>();
 
@@ -109,8 +105,6 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const visible = ordered.entries;
     const turnStartIndex =
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
-    const labels = computeSectionLabels(visible, active);
-    const last = visible.at(-1);
     activities.clear();
     visitEntries(visible, (entry, path) => {
       const activity = projection.activities.get(entry.id);
@@ -118,22 +112,27 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     });
 
     batch(() => {
-      setEntries(reconcile(visible, { key: "id" }));
+      publishTranscript((previous) =>
+        shareTranscript(previous, {
+          agentTurnStartId: turnStartId,
+          agentTurnStartIndex: turnStartIndex,
+          entries: visible,
+          latestResultIndex: latestResultIndex(visible),
+          pendingRowIndexes: ordered.pendingRowIndexes,
+          sectionLabels: computeSectionLabels(visible, active),
+          turnActive: active,
+        }),
+      );
       setTurnActive(active);
       setInterruptible(canInterrupt);
       setTurnStartedAt(activeTurnStartedAt(updates));
       setPendingRequestKind(request?.kind ?? null);
       setKeyboardApprovalId(approvalId);
       setKeyboardRequestKey(request?.key ?? null);
-      setPendingRowIndexes(ordered.pendingRowIndexes);
       setPendingLegacyImageCount(countPendingLegacyImages(updates));
       setHistory(submittedPrompts(updates));
       setLatestPlan(latestCompletedPlan(updates));
-      setAgentTurnStartId(turnStartId);
-      setAgentTurnStartIndex(turnStartIndex);
-      setLatestResultIndex(last !== undefined && isResult(last) ? visible.length - 1 : null);
-      setSectionLabels(labels);
-      setRevision((value) => value + 1);
+      setProjected();
     });
   };
 
@@ -154,61 +153,61 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       return false;
     }
 
-    const changedActivities = new Set<ProjectedActivity>();
+    const changed = new Map<ProjectedActivity, Set<number>>();
+    for (const { activity, message } of mutations) {
+      const indexes = changed.get(activity) ?? new Set<number>();
+      indexes.add(activity.projection.upsert(message));
+      changed.set(activity, indexes);
+    }
     batch(() => {
-      for (const { activity, message } of mutations) {
-        const index = activity.projection.upsert(message);
-        updateActivity(activity, (entry) => {
-          entry.detailCount = activity.projection.count;
-          if (expandedActivities.has(entry.id)) {
-            entry.details[index] = activity.projection.materializeAt(index);
-          }
-        });
-        changedActivities.add(activity);
-      }
-      for (const activity of changedActivities) {
-        const state = activity.projection.summary();
-        updateActivity(activity, (entry) => Object.assign(entry, state));
-      }
-      setRevision((value) => value + 1);
+      // One copy per changed activity, however many of its steps the batch touched.
+      publishTranscript((previous) => {
+        let entries = previous.entries;
+        for (const [activity, indexes] of changed) {
+          entries = replaceAtPath(entries, activity.path, (entry) => {
+            const details = expandedActivities.has(entry.id) ? [...entry.details] : entry.details;
+            if (details !== entry.details) {
+              for (const index of indexes)
+                details[index] = activity.projection.materializeAt(index);
+            }
+            return {
+              ...entry,
+              ...activity.projection.summary(),
+              detailCount: activity.projection.count,
+              details,
+            };
+          });
+        }
+        return { ...previous, entries };
+      });
+      setProjected();
     });
     return true;
   };
 
-  const updateActivity = (
-    activity: ProjectedActivity,
-    update: (entry: AgentTranscriptEntry) => void,
+  // Output from the agent: the latest row changing is output a reader away from the bottom hasn't seen.
+  const publishTranscript = (
+    next: (previous: AgentTranscriptSnapshot) => AgentTranscriptSnapshot,
   ): void => {
-    setEntries(
-      produce((draft) => {
-        let siblings = draft;
-        for (const [depth, index] of activity.path.entries()) {
-          const entry = siblings[index]!;
-          if (depth === activity.path.length - 1) update(entry);
-          else siblings = entry.asideEntries!;
-        }
-      }),
-    );
+    const latest = transcript().entries.at(-1);
+    setTranscript(next);
+    if (transcript().entries.at(-1) !== latest) setLatestOutput((count) => count + 1);
   };
 
   const model: MutableAgentPaneModel = {
-    agentTurnStartId,
-    agentTurnStartIndex,
-    entries,
     generation,
     history,
     historyComplete,
     interruptible,
     keyboardApprovalId,
     keyboardRequestKey,
+    latestOutput,
     latestPlan,
-    liveResultIndex: () => (live() ? latestResultIndex() : null),
+    live,
     pendingLegacyImageCount,
     pendingRequestKind,
-    pendingRowIndexes,
-    revision,
-    sectionLabels,
     session,
+    transcript,
     turnActive,
     turnStartedAt,
     publish(updates, changes) {
@@ -237,7 +236,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       setGeneration((value) => value + 1);
     },
     activityStep(itemId) {
-      revision();
+      projected();
       for (const activity of activities.values()) {
         const step = activity.projection.step(itemId);
         if (step !== undefined) return step;
@@ -251,9 +250,13 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       }
       if (expanded) expandedActivities.add(id);
       else expandedActivities.delete(id);
-      updateActivity(activity, (entry) => {
-        entry.details = expanded ? activity.projection.materialize() : [];
-      });
+      setTranscript((previous) => ({
+        ...previous,
+        entries: replaceAtPath(previous.entries, activity.path, (entry) => ({
+          ...entry,
+          details: expanded ? activity.projection.materialize() : [],
+        })),
+      }));
     },
   };
   return model;
@@ -271,6 +274,25 @@ function countPendingLegacyImages(messages: readonly AgentPaneUpdate[]): number 
     }
   }
   return count;
+}
+
+// Copies only the entries along `path`, so every other entry keeps its identity.
+function replaceAtPath(
+  entries: readonly AgentTranscriptEntry[],
+  path: readonly number[],
+  update: (entry: AgentTranscriptEntry) => AgentTranscriptEntry,
+): readonly AgentTranscriptEntry[] {
+  const [index, ...rest] = path as [number, ...number[]];
+  const entry = entries[index]!;
+  const copy = [...entries];
+  copy[index] =
+    rest.length === 0
+      ? update(entry)
+      : {
+          ...entry,
+          asideEntries: replaceAtPath(entry.asideEntries!, rest, update) as AgentTranscriptEntry[],
+        };
+  return copy;
 }
 
 function visitEntries(

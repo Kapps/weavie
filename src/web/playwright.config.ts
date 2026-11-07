@@ -55,7 +55,9 @@ export default defineConfig({
       testMatch: [
         "agent-code-copy.spec.ts",
         "agent-markdown-links.spec.ts",
+        "agent-pane-render-budget.spec.ts",
         "agent-scroll-smoothness.spec.ts",
+        "agent-scroll-streaming.spec.ts",
         "bridge.spec.ts",
         "headless-host.spec.ts",
         "host-startup.spec.ts",

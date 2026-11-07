@@ -224,11 +224,7 @@ internal sealed partial class WorkflowTransitions(
 		var kickoff = WorkflowKickoff.Prompt(WorkflowStageBlock.PutToUser(asked, words, openReviewItem));
 		return new WorkflowStep(
 			run with { Phase = WorkflowPhase.Asking, Asked = asked, Kickoff = kickoff },
-			[
-				new WorkflowEffect.Kickoff(kickoff),
-				new WorkflowEffect.Notify($"Workflow {run.WorkflowId} needs your answer at stage \"{run.Stage}\": {asked.Question}"
-					+ (reason.Length == 0 ? "" : $" ({reason})")),
-			]);
+			[new WorkflowEffect.Kickoff(kickoff)]);
 	}
 
 	private static WorkflowStep Pause(WorkflowRun run, string reason) => new(

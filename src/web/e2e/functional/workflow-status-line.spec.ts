@@ -15,8 +15,9 @@ stages:
   - id: implement
     run:
       prompt: hold
+      outputs: { videos: list }
     then:
-      ask: Ship it?
+      ask: "Ship it after reviewing {{implement.videos}}?"
       by: user
       choices:
         approve: ship
@@ -25,6 +26,11 @@ stages:
     run:
       prompt: ship it
 `;
+
+const VIDEOS = Array.from(
+  { length: 12 },
+  (_, index) => `src/web/e2e/.recordings/workflow-header-group-${index + 1}-journey.mp4`,
+);
 
 // The chip's title is `<label> — <status line>`, followed by its switch shortcut when it has one.
 const line = (branch: string, text: string): RegExp => new RegExp(`^${branch} — ${text}(?: \\(|$)`);
@@ -64,8 +70,18 @@ test("the session line follows the run through a user's answer to done", async (
   await writeFile(join(worktree, "release-hold"), "");
   await expect(chip).toHaveAttribute("title", line(branch, "implement · waiting on you"));
 
-  await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "held" }));
+  await submitAcpDraft(
+    surface,
+    tool("completeStage", { outputs: { videos: VIDEOS }, summary: "held" }),
+  );
   await expect(chip).toHaveAttribute("title", line(branch, "implement · needs your answer"));
+  const question = surface.locator(".agent-entry-message.agent-tone-assistant", {
+    hasText: "Weavie now asks the user:",
+  });
+  await expect(question).toContainText(VIDEOS[0]!);
+  await expect(question).toContainText(VIDEOS.at(-1)!);
+  await expect(question).toContainText("answers: approve, revise");
+  await expect(page.locator(".toast-warn")).toHaveCount(0);
   await runCommand(page, "Pin Session Panel");
   await expect(page.locator(".session-panel-group").first()).toHaveText("Needs you");
   await expect(page.locator(".session-panel-row").first()).toContainText(

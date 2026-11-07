@@ -118,7 +118,6 @@ public sealed partial class HostCore {
 			target,
 			request.Number,
 			headRef,
-			pullRequest.BaseSha,
 			pullRequest.BaseRef,
 			ct).ConfigureAwait(false);
 		Step("review armed");
@@ -131,7 +130,6 @@ public sealed partial class HostCore {
 		HostSession session,
 		int number,
 		string headRef,
-		string baseSha,
 		string baseRef,
 		CancellationToken ct) {
 		object request = session.Changes.BeginReviewRequest();
@@ -140,8 +138,9 @@ public sealed partial class HostCore {
 		string? mergeBase = null;
 		string reason = "its head shares no history with it";
 		try {
-			await git.FetchCommitAsync(worktree, "origin", baseSha, ct).ConfigureAwait(false);
-			mergeBase = await git.MergeBaseAsync(worktree, baseSha, headRef, ct).ConfigureAwait(false);
+			// The review follows the base branch from here on, so it opens against that same ref.
+			await git.FetchBranchAsync(worktree, "origin", baseRef, ct).ConfigureAwait(false);
+			mergeBase = await git.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			reason = ex.Message;
 		}
@@ -158,7 +157,6 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
-		// Following the remote base branch, not the fixed SHA, lets a merge of its newer work move the review's base.
 		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, $"origin/{baseRef}", headRef);
 		try {
 			// The page activates this PR's session as this request's answer, landing on its overview.

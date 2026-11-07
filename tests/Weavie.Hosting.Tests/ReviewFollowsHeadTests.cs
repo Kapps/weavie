@@ -56,22 +56,31 @@ public sealed class ReviewFollowsHeadTests {
 	}
 
 	[Fact]
-	public async Task RebasingOntoTheTarget_KeepsTheReviewOpen_AtItsNewMergeBase() {
+	public async Task ARebaseStoppedOnAConflict_LeavesTheReviewOpen_UntilItFinishesAtTheNewMergeBase() {
 		await using var host = await TestHost.StartAsync(repo => {
-			Branch(repo, "topic", "topic.txt");
+			Branch(repo, "topic", "shared.txt");
 			TempGitRepo.Run(repo, "checkout", "-q", "main");
-			Commit(repo, "main.txt", "main moved on");
+			Commit(repo, "shared.txt", "main's side");
 			TempGitRepo.Run(repo, "checkout", "-q", "topic");
 		});
 		var session = host.SelectedSession;
 		await host.SessionRequestAsync<JsonElement>(
 			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
+		await Wait.UntilAsync(() => session.ReviewHead.Latest?.Review is not null);
 
-		TempGitRepo.Run(host.RepoRoot, "rebase", "-q", "main");
+		Assert.ThrowsAny<Exception>(() => TempGitRepo.Run(host.RepoRoot, "rebase", "main"));
+		await Wait.UntilAsync(() => session.ReviewHead.Latest == ReviewHeadSnapshot.Waiting);
+		Assert.NotNull(session.Changes.Review);
+
+		File.WriteAllText(Path.Combine(host.RepoRoot, "shared.txt"), "resolved\n");
+		TempGitRepo.Run(host.RepoRoot, "add", "shared.txt");
+		TempGitRepo.Run(host.RepoRoot, "-c", "core.editor=true", "rebase", "--continue");
 
 		string mergeBase = TempGitRepo.Run(host.RepoRoot, "rev-parse", "main").Trim();
 		await Wait.UntilAsync(() => session.Changes.Review?.MergeBase == mergeBase);
 		Assert.Equal("topic", session.Changes.Review!.Branch);
+		Assert.DoesNotContain(host.Bridge.PostedEvents("notifications", "show"),
+			toast => toast.GetProperty("message").GetString()!.StartsWith("Closed the review", StringComparison.Ordinal));
 	}
 
 	private static void Branch(string repo, string branch, string file) {

@@ -481,3 +481,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.session-reload-button {
+  pointer-events: auto;
+  flex: none;
+  padding: 2px 10px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentcolor;
+  border-radius: 3px;
+  cursor: pointer;
+}

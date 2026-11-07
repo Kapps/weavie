@@ -13,6 +13,16 @@ public sealed class CommandRegistry {
 	/// <summary>Registers a definition. Throws if its <see cref="CommandDefinition.Id"/> is already taken.</summary>
 	public void Register(CommandDefinition definition) {
 		ArgumentNullException.ThrowIfNull(definition);
+		if ((definition.RunsIn == CommandLocation.Core) != definition.OnTimeout.HasValue) {
+			throw new InvalidOperationException(
+				$"Command '{definition.Id}' must declare {nameof(definition.OnTimeout)} exactly when it runs in Core.");
+		}
+
+		if (definition.OnTimeout == OperationSeverity.SessionCritical
+			&& (definition.Scope == CommandScope.Host || definition.Owner == CommandOwner.Client)) {
+			throw new InvalidOperationException($"Host command '{definition.Id}' has no session to make critical.");
+		}
+
 		if (!_definitions.TryAdd(definition.Id, definition)) {
 			throw new InvalidOperationException($"Command '{definition.Id}' is already registered.");
 		}

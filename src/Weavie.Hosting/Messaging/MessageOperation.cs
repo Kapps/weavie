@@ -1,4 +1,4 @@
-using System.Text.Json;
+using Weavie.Core.Commands;
 
 namespace Weavie.Hosting.Messaging;
 
@@ -8,12 +8,14 @@ internal sealed class MessageOperation {
 	private const int TimedOut = 2;
 
 	private readonly PendingPresenter _presenter;
-	private readonly Func<JsonElement, string> _activity;
+	private readonly MessageActivity _activity;
 	private readonly MessageExecutionPolicy _policy;
 	private readonly TimeProvider _time;
 	private readonly Action<MessageOperation> _slow;
-	private readonly Action<MessageOperation, string> _timedOut;
+	private readonly Action<MessageOperation> _stillRunning;
+	private readonly Action<MessageOperation> _timedOut;
 	private readonly Action<MessageOperation, bool> _completed;
+	private readonly Action<MessageOperation> _lateSuccess;
 	private readonly CancellationTokenSource _watchdogStop = new();
 	private readonly CancellationTokenSource _handlerCancellation = new();
 	private readonly object _transition = new();
@@ -22,10 +24,12 @@ internal sealed class MessageOperation {
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly long _startedTimestamp;
 	private string _stage = MessageStage.FeatureQueue;
+	private string? _timeoutDetail;
 	private Func<MessageOperation?> _laneRunning = static () => null;
 	private int _state;
+	private int _entered;
 	private int _slowReported;
-	private int _slowDiagnosticDelivered;
+	private int _stillRunningReported;
 	private int _responseSettled;
 	private int _timeoutOwnsResponse;
 
@@ -34,12 +38,14 @@ internal sealed class MessageOperation {
 		WebPeer peer,
 		MessageEnvelope envelope,
 		PendingPresenter presenter,
-		Func<JsonElement, string> activity,
+		MessageActivity activity,
 		MessageExecutionPolicy policy,
 		TimeProvider time,
 		Action<MessageOperation> slow,
-		Action<MessageOperation, string> timedOut,
-		Action<MessageOperation, bool> completed) {
+		Action<MessageOperation> stillRunning,
+		Action<MessageOperation> timedOut,
+		Action<MessageOperation, bool> completed,
+		Action<MessageOperation> lateSuccess) {
 		Id = id;
 		Peer = peer;
 		Envelope = envelope;
@@ -48,8 +54,10 @@ internal sealed class MessageOperation {
 		_policy = policy;
 		_time = time;
 		_slow = slow;
+		_stillRunning = stillRunning;
 		_timedOut = timedOut;
 		_completed = completed;
+		_lateSuccess = lateSuccess;
 		AcceptedAt = time.GetUtcNow();
 		_startedTimestamp = time.GetTimestamp();
 	}
@@ -65,7 +73,16 @@ internal sealed class MessageOperation {
 	public string NotificationKey => $"message-operation:{Id}";
 
 	/// <summary>What the user is doing, e.g. "Saving a file".</summary>
-	public string Activity => _activity(Envelope.Payload);
+	public string Activity => _activity.Label;
+
+	/// <summary>What reaching the deadline means for this operation.</summary>
+	public OperationSeverity Severity => _activity.Severity;
+
+	/// <summary>True when the handler never started, so the deadline expired while this waited its turn.</summary>
+	public bool NeverRan => Volatile.Read(ref _entered) == 0;
+
+	/// <summary>Completes when the deadline ends this operation.</summary>
+	public Task Expired => _deadline.Task;
 
 	/// <summary>The activity this operation is queued behind in its feature lane, if another is running there.</summary>
 	public string? Blocker => Volatile.Read(ref _laneRunning)() is { } running && running != this ? running.Activity : null;
@@ -89,7 +106,8 @@ internal sealed class MessageOperation {
 		ArgumentException.ThrowIfNullOrEmpty(stage);
 		if (Volatile.Read(ref _state) == Active
 			&& Interlocked.Exchange(ref _stage, stage) != stage
-			&& Volatile.Read(ref _slowReported) != 0) {
+			&& Volatile.Read(ref _slowReported) != 0
+			&& Volatile.Read(ref _stillRunningReported) == 0) {
 			// A busy notice already shown describes the old stage; restate it.
 			_slow(this);
 		}
@@ -97,11 +115,30 @@ internal sealed class MessageOperation {
 
 	public void QueueBehind(Func<MessageOperation?> laneRunning) => Volatile.Write(ref _laneRunning, laneRunning);
 
+	/// <summary>Claims the handler's start; false once the deadline has already ended this operation.</summary>
+	public bool TryEnter() {
+		lock (_transition) {
+			if (Volatile.Read(ref _state) != Active) {
+				return false;
+			}
+
+			Volatile.Write(ref _entered, 1);
+			return true;
+		}
+	}
+
+	/// <summary>Stops a running no-deadline operation at the user's request.</summary>
+	public void Cancel() => _ = _handlerCancellation.CancelAsync();
+
+	/// <summary>Reports that a handler the deadline gave up on finished successfully after all.</summary>
+	public void CompleteLate() => _lateSuccess(this);
+
 	public bool TrySettleResponse() =>
 		Interlocked.CompareExchange(ref _responseSettled, 1, 0) == 0;
 
-	public async Task<T> SuperviseAsync<T>(Func<Task<T>> start) {
+	public async Task<T> SuperviseAsync<T>(Func<Task<T>> start, Action<Task<T>> late) {
 		ArgumentNullException.ThrowIfNull(start);
+		ArgumentNullException.ThrowIfNull(late);
 		if (HasTimedOut) {
 			throw new MessageOperationTimeoutException(TimeoutDetail());
 		}
@@ -112,7 +149,7 @@ internal sealed class MessageOperation {
 			return await running.ConfigureAwait(false);
 		}
 
-		ObserveLate(running);
+		late(running);
 		throw new MessageOperationTimeoutException(TimeoutDetail());
 	}
 
@@ -138,22 +175,8 @@ internal sealed class MessageOperation {
 				return false;
 			}
 
-			_slowDiagnosticDelivered = 1;
 			diagnostic();
 			return true;
-		}
-	}
-
-	public void RunTimeoutDiagnostic(Action slowDiagnostic, Action terminalDiagnostic) {
-		ArgumentNullException.ThrowIfNull(slowDiagnostic);
-		ArgumentNullException.ThrowIfNull(terminalDiagnostic);
-		lock (_diagnostics) {
-			if (_slowDiagnosticDelivered == 0 && _presenter == PendingPresenter.Bus) {
-				_slowDiagnosticDelivered = 1;
-				slowDiagnostic();
-			}
-
-			terminalDiagnostic();
 		}
 	}
 
@@ -173,12 +196,21 @@ internal sealed class MessageOperation {
 		Envelope.Feature,
 		Envelope.Name,
 		Volatile.Read(ref _stage),
+		Severity != OperationSeverity.NoDeadline,
 		AcceptedAt,
 		(long)_time.GetElapsedTime(_startedTimestamp).TotalMilliseconds);
 
-	public string TimeoutDetail() =>
-		$"{Activity} didn't finish within {_policy.Deadline.TotalSeconds:0.###} seconds, so "
-		+ (Envelope.Session is null ? "Weavie" : "this session") + " stopped responding.";
+	/// <summary>Why the deadline ended this operation, as it stood at that moment; a blocker can finish before delivery.</summary>
+	public string TimeoutDetail() => Volatile.Read(ref _timeoutDetail) ?? DescribeTimeout();
+
+	private string DescribeTimeout() => NeverRan
+		? $"{Activity} didn't start within {DeadlineSeconds} seconds"
+			+ (Blocker is { } blocker ? $" because {blocker} is stuck." : ".")
+		: $"{Activity} didn't finish within {DeadlineSeconds} seconds and may still complete.";
+
+	public string StillRunningDetail() => $"{Activity} is still running after {DeadlineSeconds} seconds.";
+
+	private string DeadlineSeconds => _policy.Deadline.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 
 	private async Task WatchSlowAsync() {
 		try {
@@ -205,6 +237,12 @@ internal sealed class MessageOperation {
 			return;
 		}
 
+		if (Severity == OperationSeverity.NoDeadline) {
+			Volatile.Write(ref _stillRunningReported, 1);
+			_stillRunning(this);
+			return;
+		}
+
 		lock (_transition) {
 			if (Volatile.Read(ref _state) != Active) {
 				return;
@@ -214,15 +252,17 @@ internal sealed class MessageOperation {
 				Volatile.Write(ref _timeoutOwnsResponse, 1);
 			}
 
+			Volatile.Write(ref _timeoutDetail, DescribeTimeout());
 			Volatile.Write(ref _state, TimedOut);
 			_deadline.TrySetResult();
 		}
 
 		_ = _handlerCancellation.CancelAsync();
-		_timedOut(this, TimeoutDetail());
+		_timedOut(this);
 	}
 
-	private static void ObserveLate<T>(Task<T> running) =>
+	/// <summary>Observes work the deadline gave up on, which has nothing left to report.</summary>
+	public static void ObserveLate<T>(Task<T> running) =>
 		_ = running.ContinueWith(
 			static task => _ = task.Exception,
 			CancellationToken.None,

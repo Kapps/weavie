@@ -14,6 +14,7 @@ import {
   type SessionStatusName,
   selectedSession,
 } from "../bridge";
+import { clearSlotDrafts } from "../messaging/session-drafts";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 import { windowFocused } from "./window-state";
 
@@ -100,6 +101,13 @@ registerHostFeature((connection) =>
     ) {
       setPendingSelection(null);
     }
+    if (catalog.length > 0) {
+      const live = new Set(catalog.map((entry) => entry.id));
+      const departed = (byBackend().get(connection.id) ?? []).filter((chip) => !live.has(chip.id));
+      for (const chip of departed) {
+        clearSlotDrafts(connection.id, chip.id);
+      }
+    }
     setByBackend((prev) => {
       const next = new Map(prev);
       // Activity and run arrive on each session's own feed, so they carry across catalog pushes by owner.
@@ -125,6 +133,7 @@ registerHostFeature((connection) =>
             unseen: entry.unseen,
             workspaceCheckout: entry.workspaceCheckout,
             external: entry.external,
+            reloadRequired: entry.reloadRequired,
           };
         }),
       );

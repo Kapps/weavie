@@ -39,6 +39,8 @@ export interface SessionChip {
   lastActiveAt: number | null;
   /** A turn finished here that no one has viewed since — the panel's "Finished" section. */
   unseen: boolean;
+  /** Why this session's state can no longer be trusted and it must be reloaded, or null. */
+  reloadRequired: string | null;
   /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
   workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */

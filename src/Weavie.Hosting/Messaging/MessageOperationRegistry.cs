@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Weavie.Core.Commands;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
 internal sealed class MessageOperationRegistry {
 	private readonly ConcurrentDictionary<string, MessageOperation> _active = new();
+	private readonly ConcurrentDictionary<string, int> _failureCounts = new();
 	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 	private readonly DiagnosticWorker _deliveryDiagnostics;
@@ -32,14 +34,12 @@ internal sealed class MessageOperationRegistry {
 		_time = time;
 	}
 
-	public bool Healthy => Volatile.Read(ref _lastFailure) is null;
-
 	public MessageOperation Start(
 		WebPeer peer,
 		MessageEnvelope envelope,
 		PendingPresenter presenter,
-		Func<JsonElement, string> activity,
-		Action<MessageOperation, string> timedOut) {
+		Func<JsonElement, MessageActivity> activity,
+		Action<MessageOperation> timedOut) {
 		ArgumentNullException.ThrowIfNull(envelope);
 		ArgumentNullException.ThrowIfNull(timedOut);
 		long sequence = Interlocked.Increment(ref _sequence);
@@ -48,12 +48,14 @@ internal sealed class MessageOperationRegistry {
 			peer,
 			envelope,
 			presenter,
-			activity,
+			activity(envelope.Payload),
 			_policy,
 			_time,
 			OnSlow,
-			(op, detail) => OnTimedOut(op, detail, timedOut),
-			OnCompleted);
+			OnStillRunning,
+			op => OnTimedOut(op, timedOut),
+			OnCompleted,
+			OnLateSuccess);
 		if (!_active.TryAdd(operation.Id, operation)) {
 			throw new InvalidOperationException($"Message operation sequence {sequence} is already active.");
 		}
@@ -62,8 +64,18 @@ internal sealed class MessageOperationRegistry {
 		return operation;
 	}
 
+	/// <summary>Cancels the active operation <paramref name="id"/>; false when it already ended.</summary>
+	public bool TryCancel(string id) {
+		if (!_active.TryGetValue(id, out var operation)) {
+			return false;
+		}
+
+		operation.Cancel();
+		return true;
+	}
+
 	public MessageHealthSnapshot Snapshot(bool ingressResponsive) => new(
-		ingressResponsive && Healthy,
+		ingressResponsive,
 		ingressResponsive,
 		[.. _active.Values
 			.Select(operation => operation.Snapshot())
@@ -77,19 +89,69 @@ internal sealed class MessageOperationRegistry {
 			SendNotification(operation, "busy", BusyMessage(operation), operation.NotificationKey)));
 	}
 
-	private void OnTimedOut(
-		MessageOperation operation,
-		string detail,
-		Action<MessageOperation, string> timedOut) {
-		var snapshot = operation.Snapshot();
-		Volatile.Write(ref _lastFailure, snapshot);
-		_active.TryRemove(operation.Id, out _);
-		timedOut(operation, detail);
-		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
-		RunDiagnostic(operation.Id, () => operation.RunTimeoutDiagnostic(
-			() => SendNotification(operation, "busy", BusyMessage(operation), operation.NotificationKey),
-			() => SendNotification(operation, "error", detail, operation.NotificationKey)));
+	private void OnStillRunning(MessageOperation operation) {
+		_diagnostics.Report($"[message] still running {Describe(operation.Snapshot())}");
+		RunDiagnostic(operation.Id, () => operation.TryRunSlowDiagnostic(() => SendEvent(
+			operation,
+			"notifications",
+			"show",
+			WireJson.Default.ToastMessage,
+			new ToastMessage(
+				"busy",
+				operation.StillRunningDetail(),
+				operation.NotificationKey,
+				new ToastAction("Cancel", SessionCommands.CancelOperation, CancelArgs(operation))))));
 	}
+
+	private void OnTimedOut(MessageOperation operation, Action<MessageOperation> timedOut) {
+		var snapshot = operation.Snapshot();
+		if (operation.Severity != OperationSeverity.Droppable) {
+			Volatile.Write(ref _lastFailure, snapshot);
+		}
+
+		_active.TryRemove(operation.Id, out _);
+		timedOut(operation);
+		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
+		RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() => {
+			SendEvent(operation, "notifications", "clear", WireJson.Default.ToastKey, new ToastKey(operation.NotificationKey));
+			if (operation.Severity == OperationSeverity.ActionFailed) {
+				SendFailure(operation);
+			}
+		}));
+	}
+
+	private void OnLateSuccess(MessageOperation operation) {
+		_diagnostics.Report($"[message] finished late {Describe(operation.Snapshot())}");
+		string key = FailureKey(operation);
+		// Failures still counted are other operations that didn't land; their notice stays.
+		if (_failureCounts.AddOrUpdate(key, 0, static (_, current) => current - 1) > 0) {
+			return;
+		}
+
+		_failureCounts.TryRemove(key, out _);
+		RunDiagnostic(operation.Id, () =>
+			SendEvent(operation, "notifications", "clear", WireJson.Default.ToastKey, new ToastKey(key)));
+	}
+
+	// One key per handler, so per-keystroke events behind a stuck lane raise one notice with a count.
+	private void SendFailure(MessageOperation operation) {
+		string key = FailureKey(operation);
+		int count = _failureCounts.AddOrUpdate(key, 1, static (_, current) => current + 1);
+		string detail = operation.TimeoutDetail() + (count > 1 ? $" ({count} times)" : string.Empty);
+		var reload = operation.NeverRan && operation.Envelope.Session is not null
+			? new ToastAction("Reload session", SessionCommands.ReloadSessionPrompt, ReloadArgs(operation.Envelope.Session))
+			: null;
+		SendEvent(operation, "notifications", "show", WireJson.Default.ToastMessage, new ToastMessage("error", detail, key, reload));
+	}
+
+	private static string FailureKey(MessageOperation operation) =>
+		$"message-failure:{operation.Snapshot().Endpoint}:{operation.Envelope.Feature}.{operation.Envelope.Name}";
+
+	private static string CancelArgs(MessageOperation operation) =>
+		JsonSerializer.Serialize(new OperationIdArgs(operation.Id), WireJson.Default.OperationIdArgs);
+
+	private static string ReloadArgs(SessionAddress session) =>
+		JsonSerializer.Serialize(new SessionSlotArgs(session.Slot), WireJson.Default.SessionSlotArgs);
 
 	private void OnCompleted(MessageOperation operation, bool wasSlow) {
 		_active.TryRemove(operation.Id, out _);
@@ -144,8 +206,13 @@ internal sealed record MessageOperationSnapshot(
 	string Feature,
 	string Name,
 	string Stage,
+	bool Bounded,
 	DateTimeOffset AcceptedAt,
 	long ElapsedMs);
+
+internal sealed record OperationIdArgs(string Id);
+
+internal sealed record SessionSlotArgs(string Id);
 
 internal sealed record MessageHealthSnapshot(
 	bool Healthy,

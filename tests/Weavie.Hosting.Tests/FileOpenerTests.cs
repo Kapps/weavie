@@ -27,7 +27,7 @@ public sealed class FileOpenerTests {
 				bridge.SessionFeature("notifications"),
 				files,
 				new WorkspaceFileIndex(fs, Workspace),
-				(path, line, preview, scratch, intent) =>
+				(path, line, preview, _, scratch, intent) =>
 					bridge.SessionFeature("editor").Publish(
 						"openFile",
 						TestJson.Default.OpenFileProbe,
@@ -183,6 +183,17 @@ public sealed class FileOpenerTests {
 		await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.NotNull(bridge.LastEvent("view", "focusOmnibar"));
+	}
+
+	[Fact]
+	public async Task AmbiguousBackgroundOpenFailsWithoutTakingTheKeyboard() {
+		var (opener, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
+		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
+
+		Assert.False(await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false, EditorOpenIntent.Background));
+
+		Assert.Null(bridge.LastEvent("view", "focusOmnibar"));
 	}
 
 	[Fact]

@@ -13,10 +13,10 @@ but they reach Claude two different ways — and only one is model-facing:
   tools (openDiff/openFile/getDiagnostics/…). **Claude Code filters the IDE tool list down to a fixed
   allowlist before it reaches the model** (essentially just `getDiagnostics`/`executeCode`), so custom
   tools added here are invisible to the model. This server is for the CLI's own UI, not for
-  user-facing capabilities.
+  user-facing capabilities. `openFile` is therefore advertised on the registry server too.
 - **Registry server** *(`registryMode: true`)* — advertised to the spawned `claude` via a generated
   `--mcp-config` file (`~/.weavie/internals/mcp/weavie-<port>.mcp.json`, a `ws://` + Bearer-token
-  entry; port-scoped so concurrent instances don't collide). Carries **only the capability tools**,
+  entry; port-scoped so concurrent instances don't collide). Carries **the capability tools and `openFile`**,
   which **do** reach the model as `mcp__weavie__*`. This is the channel that makes *"set my weavie
   shell to nushell"* work. The same auth token authorizes both servers (IDE header or `Authorization:
   Bearer`).

@@ -16,7 +16,7 @@ public sealed class FileOpener : IAsyncDisposable {
 	private readonly MessageFeatureChannel _notifications;
 	private readonly FileProviderService _files;
 	private readonly WorkspaceFileIndex _index;
-	private readonly Action<string, int?, bool, bool, EditorOpenIntent> _openFile;
+	private readonly Action<string, int?, bool, bool, bool, EditorOpenIntent> _openFile;
 	private readonly SessionTaskScope _background =
 		new(message => Console.Error.WriteLine($"[weavie] file opener: {message}"));
 
@@ -28,7 +28,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		MessageFeatureChannel notifications,
 		FileProviderService files,
 		WorkspaceFileIndex index,
-		Action<string, int?, bool, bool, EditorOpenIntent> openFile) {
+		Action<string, int?, bool, bool, bool, EditorOpenIntent> openFile) {
 		ArgumentNullException.ThrowIfNull(view);
 		ArgumentNullException.ThrowIfNull(notifications);
 		ArgumentNullException.ThrowIfNull(files);
@@ -41,9 +41,9 @@ public sealed class FileOpener : IAsyncDisposable {
 		_openFile = openFile;
 	}
 
-	/// <summary>Runs <see cref="OpenAsync(string,int?,bool,bool,EditorOpenIntent,CancellationToken)"/> in this opener's owned lifetime.</summary>
+	/// <summary>Runs <see cref="OpenAsync(string,int?,bool,bool,bool,EditorOpenIntent,CancellationToken)"/> in this opener's owned lifetime.</summary>
 	public void Open(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
-		_ = _background.Run(ct => OpenAsync(path, line, preview, scratch, intent, ct));
+		_ = _background.Run(ct => OpenAsync(path, line, preview, rendered: false, scratch, intent, ct));
 
 	/// <summary>
 	/// Pushes an <c>open-file</c> so the web opens the file (Monaco working copy, or the media pane for
@@ -53,27 +53,32 @@ public sealed class FileOpener : IAsyncDisposable {
 	/// untitled buffer shown as "Untitled-N". A relative path that doesn't resolve (a link missing its leading
 	/// folders, or a bare filename) is suffix-matched against the workspace index: one hit opens it, several
 	/// open Go-to-File preloaded with the reference, none toasts (as does an unresolvable rooted path).
+	/// True when the file opened or the user was offered the choice.
 	/// </summary>
-	public Task OpenAsync(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
-		OpenAsync(path, line, preview, scratch, intent, CancellationToken.None);
+	public Task<bool> OpenAsync(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
+		OpenAsync(path, line, preview, rendered: false, scratch, intent, CancellationToken.None);
 
-	/// <summary>As <see cref="OpenAsync(string,int?,bool,bool,EditorOpenIntent)"/>, cancelled with its owning operation.</summary>
-	public async Task OpenAsync(
+	/// <summary>
+	/// As <see cref="OpenAsync(string,int?,bool,bool,EditorOpenIntent)"/>, cancelled with its owning operation.
+	/// <paramref name="rendered"/> shows the file's rendered view when it has one.
+	/// </summary>
+	public async Task<bool> OpenAsync(
 		string path,
 		int? line,
 		bool preview,
+		bool rendered,
 		bool scratch,
 		EditorOpenIntent intent,
 		CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_index.Root, path));
 		if (_files.CanRead(resolved)) {
-			PostOpen(resolved, line, preview, scratch, intent);
-			return;
+			PostOpen(resolved, line, preview, rendered, scratch, intent);
+			return true;
 		}
 
-		if (await TryOpenBySuffixAsync(path, line, preview, scratch, intent, ct).ConfigureAwait(false)) {
-			return;
+		if (await TryOpenBySuffixAsync(path, line, preview, rendered, scratch, intent, ct).ConfigureAwait(false)) {
+			return true;
 		}
 
 		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
@@ -83,18 +88,21 @@ public sealed class FileOpener : IAsyncDisposable {
 			"show",
 			WireJson.Default.ToastMessage,
 			ToastMessage.Plain("warn", $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable."));
+		return false;
 	}
 
 	/// <summary>
 	/// The recovery for a relative reference that didn't resolve: suffix-match it against the workspace index
 	/// (off the calling thread — the walk can be slow on a big worktree). One hit re-opens it; several push
 	/// <c>focus-omnibar</c> so the user picks from Go-to-File preloaded with the reference. False (→ the caller
-	/// toasts) for a rooted path, no match, or a failed walk.
+	/// toasts) for a rooted path, no match, a failed walk, or several matches when a background open can't take
+	/// the keyboard or no page displays the session.
 	/// </summary>
 	private async Task<bool> TryOpenBySuffixAsync(
 		string path,
 		int? line,
 		bool preview,
+		bool rendered,
 		bool scratch,
 		EditorOpenIntent intent,
 		CancellationToken ct) {
@@ -114,20 +122,16 @@ public sealed class FileOpener : IAsyncDisposable {
 
 		if (matches.Count == 1) {
 			// Re-enter with the matched absolute path (rooted, so no recursion).
-			await OpenAsync(matches[0], line, preview, scratch, intent, ct).ConfigureAwait(false);
-			return true;
+			return await OpenAsync(matches[0], line, preview, rendered, scratch, intent, ct).ConfigureAwait(false);
 		}
 
-		if (matches.Count > 1) {
-			_view.TryPublish("focusOmnibar", WireJson.Default.OmnibarFocus, new(PathSuffixMatcher.Normalize(path), Clamp(line)));
-			return true;
-		}
-
-		return false;
+		return matches.Count > 1
+			&& intent != EditorOpenIntent.Background
+			&& _view.TryPublish("focusOmnibar", WireJson.Default.OmnibarFocus, new(PathSuffixMatcher.Normalize(path), Clamp(line)));
 	}
 
-	private void PostOpen(string path, int? line, bool preview, bool scratch, EditorOpenIntent intent) =>
-		_openFile(path, Clamp(line), preview, scratch, intent);
+	private void PostOpen(string path, int? line, bool preview, bool rendered, bool scratch, EditorOpenIntent intent) =>
+		_openFile(path, Clamp(line), preview, rendered, scratch, intent);
 
 	private static int? Clamp(int? line) => line is { } value ? Math.Max(1, value) : null;
 

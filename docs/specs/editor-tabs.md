@@ -36,7 +36,8 @@ An open operation captures its `ClientSession` before doing any asynchronous fil
 - otherwise the tab appends to that session's list.
 
 Exploratory gestures such as a file-tree single click, terminal link, and go-to-definition use preview.
-Intentional gestures such as a double click, Go to File, and agent `openFile` use persistent tabs.
+Intentional gestures such as a double click, Go to File, and agent `openFile` use persistent tabs; `openFile` with
+`preview` uses the preview tab, and with `rendered` it shows a file's rendered view when it has one.
 
 Next/previous tab walks visual order and wraps. Activating a tab snapshots the outgoing Monaco view state
 and restores the incoming tab's state. Back/forward navigation and closed-tab history are also held per

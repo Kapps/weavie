@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
-const { isPreviewMode, toggleViewMode } = await import("./view-mode-store");
+const { isPreviewMode, showPreviewMode, toggleViewMode } = await import("./view-mode-store");
 const owner = {} as ClientSession;
 
 describe("view-mode-store", () => {
@@ -16,6 +16,12 @@ describe("view-mode-store", () => {
     expect(isPreviewMode(owner, path)).toBe(true);
     expect(toggleViewMode(owner, path)).toBe("source");
     expect(isPreviewMode(owner, path)).toBe(false);
+  });
+
+  it("showing preview stays in preview when already there", () => {
+    showPreviewMode(owner, "c:/shown.md");
+    showPreviewMode(owner, "c:/shown.md");
+    expect(isPreviewMode(owner, "c:/shown.md")).toBe(true);
   });
 
   it("keys by canonical fs-path so drive-letter casing doesn't split the entry", () => {

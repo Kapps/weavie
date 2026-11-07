@@ -71,14 +71,15 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		}
 	}
 
-	/// <summary>Reveals the file in Monaco in response to the MCP <c>openFile</c> tool (preview or persistent).</summary>
-	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) =>
+	/// <summary>Opens the file for the MCP <c>openFile</c> tool (preview or persistent) without taking the user's keyboard.</summary>
+	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken) =>
 		_fileOpener.OpenAsync(
 			filePath,
 			line: null,
 			preview: preview,
+			rendered: rendered,
 			scratch: false,
-			EditorOpenIntent.Reveal,
+			EditorOpenIntent.Background,
 			cancellationToken);
 
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>

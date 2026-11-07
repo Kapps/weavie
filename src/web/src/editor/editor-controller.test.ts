@@ -59,6 +59,7 @@ vi.stubGlobal("location", { search: "" });
 vi.stubGlobal("window", { setTimeout, clearTimeout });
 const { activePathFor, openTabFor, openTabsFor, tabOwnerFor } = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
+const { isPreviewMode } = await import("./view-mode-store");
 
 interface FakeFeature {
   handlers: Map<string, Array<(message: unknown) => void>>;
@@ -188,6 +189,42 @@ it("a restored tab superseded during editor init still renders review state, wit
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(onOpenError).not.toHaveBeenCalled();
   expect(env.reviewHistoryBinds).toBe(1);
+  controller.dispose();
+});
+
+it("an agent open in an unselected session waits there without taking the selected one", () => {
+  const selected = fakeSession("reveal-selected");
+  const owner = fakeSession("reveal-owner");
+  env.selected = selected;
+  const onDestinationActivated = vi.fn();
+  const onCurrentFileChanged = vi.fn();
+  const controller = createEditorController({
+    ...dependencies(() => Promise.resolve(true)),
+    onDestinationActivated,
+    onCurrentFileChanged,
+  });
+  for (const install of env.installers) install(selected);
+  for (const install of env.installers) install(owner);
+  openTabFor(selected, "/selected/current.ts");
+  const editor = owner.feature("editor") as unknown as FakeFeature;
+
+  for (const path of ["/owner/one.md", "/owner/two.md"]) {
+    editor.emit("openFile", {
+      path,
+      line: null,
+      preview: true,
+      rendered: true,
+      intent: "background",
+    });
+  }
+
+  expect(activePathFor(owner)).toBe("/owner/two.md");
+  expect(openTabsFor(owner).map((tab) => tab.path)).toEqual(["/owner/two.md"]);
+  expect(isPreviewMode(owner, "/owner/two.md")).toBe(true);
+  expect(isPreviewMode(selected, "/owner/two.md")).toBe(false);
+  expect(activePathFor(selected)).toBe("/selected/current.ts");
+  expect(onDestinationActivated).not.toHaveBeenCalled();
+  expect(onCurrentFileChanged).not.toHaveBeenCalled();
   controller.dispose();
 });
 

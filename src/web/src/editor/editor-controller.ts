@@ -82,6 +82,7 @@ import {
 } from "./session-store";
 import type { EditorSession } from "./session-types";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
+import { showPreviewMode } from "./view-mode-store";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -1338,9 +1339,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         path: string;
         line: number | null;
         preview?: boolean;
+        rendered?: boolean;
         scratch?: boolean;
         intent: EditorOpenIntent;
       }>(session, "openFile", (message) => {
+        if (message.rendered === true) showPreviewMode(session, message.path);
         openFileFor(
           session,
           message.path,

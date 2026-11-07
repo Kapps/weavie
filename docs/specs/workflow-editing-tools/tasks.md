@@ -12,6 +12,7 @@ Satisfies R1, R2, R3.
 - [x] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
 - [x] Change the `validateWorkflow` schema and handler, with the exactly-one check.
 - [x] Replace the path test and add the catalog and MCP tests for R1 to R3.
+- [x] Refuse any other `validateWorkflow` argument, and say structural errors come first in its description.
 
 **Video:** in the real app, an agent validates a broken saved workflow by `id`, then a broken and a fixed proposal as
 `text`, and the file on disk stays unchanged throughout; calling with both arguments shows the error.

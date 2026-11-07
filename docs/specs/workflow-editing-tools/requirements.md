@@ -7,8 +7,9 @@ From [brief.md](brief.md) and [overview.md](overview.md). "Agent" means an embed
 As an agent, I want to check a saved workflow by name, so that I can report what is wrong with a file someone else
 changed.
 
-1. WHEN `validateWorkflow` is called with `id`, THE tool SHALL report every problem in the saved workflow that wins for
-   that id, with its path, line, and column.
+1. WHEN `validateWorkflow` is called with `id`, THE tool SHALL report the problems in the saved workflow that wins for
+   that id, with their path, line, and column. Structural errors stop the later checks, so it SHALL report `Valid.` only
+   once every check has run and every warning has been shown.
 2. WHEN the winning file is broken, THE tool SHALL report its problems rather than refusing it.
 3. WHEN no workflow has that id, THE tool SHALL return an error listing the workflows that exist.
 4. WHEN the winner is a built-in, THE tool SHALL validate its embedded text.
@@ -17,7 +18,8 @@ changed.
 
 As an agent, I want to check proposed YAML before saving it, so that a bad version never reaches the file.
 
-1. WHEN `validateWorkflow` is called with `text`, THE tool SHALL report every problem in that text, including warnings.
+1. WHEN `validateWorkflow` is called with `text`, THE tool SHALL report that text's problems and warnings under the
+   same rule as R1.1.
 2. WHEN `validateWorkflow` is called with `text`, THE tool SHALL NOT read, create, or change any file.
 3. WHEN the text declares a valid `id`, THE tool SHALL NOT report a file-name mismatch.
 4. IF the text's `id` is missing or malformed, THEN THE tool SHALL report that as an ordinary error.
@@ -29,7 +31,8 @@ As an agent, I want one clear contract, so that I can't check the wrong thing.
 
 1. IF `validateWorkflow` is called with neither `id` nor `text`, or with both, THEN THE tool SHALL return an error
    saying exactly one is required.
-2. THE tool SHALL NOT accept `path`, and its schema SHALL list only `id` and `text`.
+2. IF `validateWorkflow` is called with any other argument, such as `path`, THEN THE tool SHALL refuse it, and its
+   schema SHALL list only `id` and `text`.
 
 ## R4. Fork a workflow
 

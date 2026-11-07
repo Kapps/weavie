@@ -389,11 +389,11 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Equal("Valid.", ToolText(goodProposal));
 		Assert.False(File.Exists(Path.Combine(personal, "draft.yaml")));
 
-		foreach (var (id, arguments) in new[] { (8, "{}"), (9, """{"id":"broken","text":"id: a"}"""), (10, """{"path":"broken.yaml"}""") }) {
+		foreach (var (id, arguments) in new[] { (8, "{}"), (9, """{"id":"broken","text":"id: a"}"""), (10, """{"path":"broken.yaml"}"""), (11, """{"id":"broken","path":"/etc/passwd"}"""), (12, """{"id":"broken","text":""}""") }) {
 			await SendAsync(ws, Request(id, "tools/call", $$"""{"name":"validateWorkflow","arguments":{{arguments}}}"""));
 			using var refused = await ReceiveAsync(ws);
 			Assert.True(refused.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
-			Assert.Contains("exactly one of 'id' or 'text'", ToolText(refused), StringComparison.Ordinal);
+			Assert.Contains("takes exactly one of 'id' or 'text'", ToolText(refused), StringComparison.Ordinal);
 		}
 	}
 

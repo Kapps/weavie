@@ -46,7 +46,7 @@ Every refusal is a tool error whose message tells the agent what to do. Nothing 
 
 | Condition | Source | Message shape |
 | --- | --- | --- |
-| Neither or both of `id`, `text` | handler | `validateWorkflow requires exactly one of 'id' or 'text'.` |
+| Neither or both of `id`, `text`, or any other argument | handler | `validateWorkflow takes exactly one of 'id' or 'text', and nothing else.` |
 | Missing `id` or `scope`, or a bad `scope` | handler | `forkWorkflow requires 'id' and a 'scope' of personal or repository.` |
 | Unknown id | `Resolve` | Today's `No workflow "<id>" exists; the workflows are: ...` |
 | Fork of a broken workflow | `Winner` | Today's `Workflow "<id>" (<path>) is invalid: ...` |
@@ -76,7 +76,8 @@ directory:
 
 MCP tests in `tests/Weavie.Core.Tests/Mcp/RegistryMcpTests.cs` drive the real server:
 
-- `validateWorkflow` with `id`, with `text`, with neither, with both; its schema has no `path`.
+- `validateWorkflow` with `id`, with `text`, with neither, with both, or with any other argument; its schema has no
+  `path`.
 - `forkWorkflow` success, refusal, missing arguments, bad scope; no read-only hint.
 - `listWorkflows` returns `folders`.
 - `author-workflow` and the guidance contain the rules that R7 names.

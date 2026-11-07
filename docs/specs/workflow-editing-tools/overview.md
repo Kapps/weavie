@@ -32,8 +32,8 @@ flowchart TD
 // Checks a proposal; no file is read or written
 {"name":"validateWorkflow","arguments":{"text":"id: feature-build\ndescription: ...\nstages: ..."}}
 
-// Neither or both is a tool error
-"validateWorkflow requires exactly one of 'id' or 'text'."
+// Neither, both, or any other argument is a tool error
+"validateWorkflow takes exactly one of 'id' or 'text', and nothing else."
 ```
 
 `forkWorkflow` replies with the path it wrote, which the agent then edits:
@@ -163,8 +163,8 @@ The handlers parse arguments and format replies. The `ScopeName` mapping gains i
 private async Task HandleValidateWorkflowAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 	string id = args.GetStringOrEmpty("id");
 	string text = args.GetStringOrEmpty("text");
-	if ((id.Length == 0) == (text.Length == 0)) {
-		await SendToolErrorAsync(responder, idRaw, $"{ValidateWorkflowTool} requires exactly one of 'id' or 'text'.", ct);
+	if ((id.Length == 0) == (text.Length == 0) || args.EnumerateObject().Count() != 1) {
+		await SendToolErrorAsync(responder, idRaw, $"{ValidateWorkflowTool} takes exactly one of 'id' or 'text', and nothing else.", ct);
 		return;
 	}
 

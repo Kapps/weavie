@@ -59,13 +59,35 @@ public sealed class WorkflowCatalogTests : IDisposable {
 	}
 
 	[Fact]
-	public void ValidateResolvesRelativePathsAgainstTheWorktree() {
+	public void ValidateChecksTheWinnerByIdEvenWhenItIsBroken() {
+		_dir.WriteFile("personal/ok.yaml", "id: ok\ndescription: d\nstages: nope\n");
 		_dir.WriteFile("worktree/.weavie/workflows/ok.yaml", Minimal("ok"));
 		_dir.WriteFile("worktree/.weavie/workflows/bad.yaml", Minimal("other"));
-		Assert.Empty(Catalog().Validate(".weavie/workflows/ok.yaml"));
-		Assert.Contains(Catalog().Validate(_dir.Combine("worktree", ".weavie", "workflows", "bad.yaml")), d => d.Path == "id");
-		Assert.Throws<WorkflowException>(() => Catalog().Validate("missing.yaml"));
-		Assert.Throws<WorkflowException>(() => Catalog().Validate(".weavie/workflows/ok.yml"));
+		Assert.Empty(Catalog().Validate("ok"));
+		Assert.Contains(Catalog().Validate("bad"), d => d.Path == "id");
+		Assert.Empty(Catalog().Validate("quick-fix"));
+	}
+
+	[Fact]
+	public void ValidateNamesTheWorkflowsWhenTheIdIsUnknown() {
+		var ex = Assert.Throws<WorkflowException>(() => Catalog().Validate("missing"));
+		Assert.Contains("quick-fix", ex.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void ValidateTextChecksAProposalWithoutTouchingAnyFile() {
+		_dir.WriteFile("personal/ok.yaml", Minimal("ok"));
+		string[] before = Directory.GetFiles(_dir.Path, "*", SearchOption.AllDirectories);
+		Assert.Empty(Catalog().ValidateText(Minimal("ok")));
+		Assert.Contains(Catalog().ValidateText("id: ok\ndescription: d\nstages: nope\n"), d => d.Path == "stages");
+		Assert.Equal(before, Directory.GetFiles(_dir.Path, "*", SearchOption.AllDirectories));
+		Assert.Equal(Minimal("ok"), File.ReadAllText(_dir.Combine("personal", "ok.yaml")));
+	}
+
+	[Fact]
+	public void ValidateTextReportsWarnings() {
+		string text = "id: w\ndescription: d\nstages:\n  - id: a\n    run: { prompt: go }\n    if: is it ready?\n";
+		Assert.Contains(Catalog().ValidateText(text), d => d.IsWarning);
 	}
 
 	[Fact]

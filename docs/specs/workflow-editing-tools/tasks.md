@@ -8,7 +8,7 @@ Satisfies R1, R2, R3.
 
 - [x] Add `WorkflowReader.ReadProposal` over a shared private `Read`.
 - [x] Extract `WorkflowCatalog.Resolve` and have `Winner` use it.
-- [ ] Add `Validate(id)` and `ValidateText`; delete `Validate(path)`.
+- [x] Add `Validate(id)` and `ValidateText`; delete `Validate(path)`.
 - [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
 - [ ] Change the `validateWorkflow` schema and handler, with the exactly-one check.
 - [ ] Replace the path test and add the catalog and MCP tests for R1 to R3.

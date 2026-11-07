@@ -35,7 +35,7 @@ public sealed record WorkflowCatalogEntry {
 
 /// <summary>
 /// Every workflow visible from one worktree: built-in, personal, and repository files, re-read on each call so
-/// an edit shows at once. Relative paths and file inputs resolve against <paramref name="worktree"/>.
+/// an edit shows at once. File inputs resolve against <paramref name="worktree"/>.
 /// </summary>
 public sealed class WorkflowCatalog(string worktree, string personalDirectory, string repositoryDirectory) {
 	private const string Extension = ".yaml";
@@ -74,19 +74,11 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
 	}
 
-	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
-	public IReadOnlyList<WorkflowDiagnostic> Validate(string path) {
-		string full = System.IO.Path.GetFullPath(System.IO.Path.Combine(worktree, path));
-		if (!full.EndsWith(Extension, StringComparison.Ordinal)) {
-			throw new WorkflowException($"Workflow files end in {Extension}: {full}");
-		}
+	/// <summary>The problems in the saved workflow that wins for <paramref name="id"/>; empty when valid.</summary>
+	public IReadOnlyList<WorkflowDiagnostic> Validate(string id) => Resolve(id).Diagnostics;
 
-		if (!File.Exists(full)) {
-			throw new WorkflowException($"No file at {full}.");
-		}
-
-		return WorkflowReader.Read(File.ReadAllText(full), System.IO.Path.GetFileNameWithoutExtension(full)).Diagnostics;
-	}
+	/// <summary>The problems in proposed workflow <paramref name="text"/>; no file is touched.</summary>
+	public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => WorkflowReader.ReadProposal(text).Diagnostics;
 
 	private static IEnumerable<WorkflowCatalogEntry> Directory(string directory, WorkflowScope scope) =>
 		System.IO.Directory.Exists(directory)

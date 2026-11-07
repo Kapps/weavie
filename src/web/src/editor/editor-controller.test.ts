@@ -320,8 +320,8 @@ it("opens unified review explicitly as a tab while files and proposals use norma
   expect(controller.openReview(session, undefined, undefined)).toBe(true);
   expect(activePathFor(session)).toBe("weavie:review");
 
-  // File reveals activate their own tab and retain Review in the strip.
-  editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "reveal" });
+  // Agent opens activate their own tab and retain Review in the strip.
+  editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "background" });
   expect(activePathFor(session)).toBe("/work/other.ts");
   expect(openTabsFor(session).some((tab) => tab.kind === "review")).toBe(true);
 

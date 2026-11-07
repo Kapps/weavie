@@ -75,3 +75,37 @@ test("openFile in a background session waits there without disturbing the viewed
   await submitAcpDraft(surface, openPreview("ghost.md"));
   await expect(surface.locator(".agent-entry-message").last()).toContainText("openFile failed");
 });
+
+test("openFile leaves a user typing in the viewed session's preview tab where they are", async ({
+  page,
+  weavie,
+}) => {
+  await setFakeAcpMode(page, weavie.home, "no-steering");
+  const surface = await createAcpSession(page, "feature/typing-open");
+  const worktree = sessionWorktrees(weavie.workspace)[0]!;
+  await writeFile(join(worktree, "mine.md"), "# mine\n");
+  await writeFile(join(worktree, "agent.md"), "# agent\n");
+  await submitAcpDraft(
+    surface,
+    `mcp:openFile:${JSON.stringify({ filePath: "mine.md", preview: true })}`,
+  );
+  const mine = page.locator(".editor-tab.preview.active", { hasText: "mine.md" });
+  await expect(mine).toBeVisible();
+
+  await submitAcpDraft(surface, "hold");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+  for (const name of ["agent.md", "mine.md"]) {
+    await submitAcpDraft(surface, openPreview(name));
+    await expect(surface.locator(".agent-compose-queued")).toContainText(name);
+  }
+  // Focused but unedited: an edit would promote the preview tab, and this open must not take it.
+  await focusEditor(page);
+  await writeFile(join(worktree, "release-hold"), "");
+
+  await expect(surface.locator(".agent-entry-message", { hasText: "FILE_OPENED" })).toHaveCount(3);
+  await expect(page.locator(".editor-tab")).toHaveCount(2);
+  await expect(page.locator(".editor-tab.active")).toContainText("mine.md");
+  await expect(page.locator(".editor-tab.preview")).toContainText("agent.md");
+  await page.keyboard.type("uninterrupted");
+  await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("uninterrupted");
+});

@@ -82,12 +82,15 @@ public sealed class FileOpener : IAsyncDisposable {
 		}
 
 		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
-		// reads as the app ignoring them.
+		// reads as the app ignoring them. A background open's caller gets the failure and can retry.
 		Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
-		_notifications.Publish(
-			"show",
-			WireJson.Default.ToastMessage,
-			ToastMessage.Plain("warn", $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable."));
+		if (intent != EditorOpenIntent.Background) {
+			_notifications.Publish(
+				"show",
+				WireJson.Default.ToastMessage,
+				ToastMessage.Plain("warn", $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable."));
+		}
+
 		return false;
 	}
 

@@ -104,6 +104,17 @@ afterEach(() => {
 });
 
 describe("openTab", () => {
+  it("an open that keeps the user in place leaves their preview tab and adds beside it", () => {
+    seed([], null);
+    store.openTab("/mine.md", { preview: true });
+    store.openTabFor(bridgeState.selected!, "/agent.md", { preview: true, activate: false });
+    expect(store.activePath()).toBe("/mine.md");
+    expect(store.openTabs().map((tab) => [tab.path, tab.preview === true])).toEqual([
+      ["/mine.md", false],
+      ["/agent.md", true],
+    ]);
+  });
+
   it("opens a fresh persistent tab, activates it, and pushes the new tab set", () => {
     seed([], null);
     const res = store.openTab("/a.ts", { line: 5 });

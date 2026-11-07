@@ -475,6 +475,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ? { activate: false }
         : { focus: false };
 
+  const typingIn = (session: ClientSession, path: string): boolean =>
+    selectedSession() === session &&
+    activePathFor(session) === path &&
+    evaluateWhen("editorFocused");
+
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) return false;
     if (intent === "background") return !evaluateWhen("editorFocused");
@@ -1341,9 +1346,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         preview?: boolean;
         rendered?: boolean;
         scratch?: boolean;
-        intent: EditorOpenIntent;
+        intent: "navigation" | "background";
       }>(session, "openFile", (message) => {
-        if (message.rendered === true) showPreviewMode(session, message.path);
+        if (message.rendered === true && !typingIn(session, message.path)) {
+          showPreviewMode(session, message.path);
+        }
         openFileFor(
           session,
           message.path,

@@ -194,6 +194,7 @@ public sealed class FileOpenerTests {
 		Assert.False(await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false, EditorOpenIntent.Background));
 
 		Assert.Null(bridge.LastEvent("view", "focusOmnibar"));
+		Assert.Null(bridge.LastEvent("notifications", "show"));
 	}
 
 	[Fact]

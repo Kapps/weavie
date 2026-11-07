@@ -25,6 +25,31 @@ async function openPrReview(page: Page): Promise<void> {
   await expect(overview(page)).toBeVisible();
 }
 
+async function expectColumns(page: Page, stacked: boolean): Promise<void> {
+  await expect
+    .poll(() =>
+      overview(page)
+        .locator(".session-overview-columns")
+        .evaluate((columns) => {
+          const main = columns.querySelector<HTMLElement>(".session-overview-main")!;
+          const side = columns.querySelector<HTMLElement>(".session-overview-side")!;
+          const bounds = columns.getBoundingClientRect();
+          const mainBounds = main.getBoundingClientRect();
+          const sideBounds = side.getBoundingClientRect();
+          return {
+            stacked: sideBounds.top >= mainBounds.bottom,
+            contained:
+              columns.scrollWidth <= columns.clientWidth + 1 &&
+              main.scrollWidth <= main.clientWidth + 1 &&
+              sideBounds.left >= bounds.left &&
+              sideBounds.right <= bounds.right + 1,
+            aligned: sideBounds.left >= mainBounds.right || sideBounds.top >= mainBounds.bottom,
+          };
+        }),
+    )
+    .toEqual({ stacked, contained: true, aligned: true });
+}
+
 test("a PR session's overview shows its discussion, checks, and commits, and posts a PR comment", async ({
   page,
 }) => {
@@ -65,8 +90,14 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
   );
   await expect(section(page, "reviewers")).toContainText("Changes requested");
   await expect(section(page, "reviewers")).toContainText("erin");
-  // A long unbroken line in the description wraps inside its column instead of pushing the sidebar away.
-  await expect(section(page, "checks")).toBeInViewport({ ratio: 1 });
+  // The long unbroken description stays contained as the sidebar wraps below prose in a narrow pane.
+  await expectColumns(page, true);
+  await page.setViewportSize({ width: 2000, height: 800 });
+  await expectColumns(page, false);
+  await page.setViewportSize({ width: 960, height: 800 });
+  await expectColumns(page, true);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expectColumns(page, true);
   await expect(section(page, "commits")).toContainText("pr changes");
   await expect(section(page, "changes")).toContainText("PR #101");
   await expect(section(page, "changes").locator(".unified-review-tree")).toContainText("hello.ts");
@@ -117,7 +148,10 @@ test("a PR session's overview shows its discussion, checks, and commits, and pos
 test("collapsed sections are remembered across sessions and reloads", async ({ page }) => {
   await openPrReview(page);
   const commits = section(page, "commits");
-  await commits.locator(".session-overview-heading").click();
+  const heading = commits.locator(".session-overview-heading");
+  await heading.focus();
+  await expect(heading).toBeInViewport();
+  await page.keyboard.press("Enter");
   await expect(commits.locator(".session-overview-heading")).toHaveAttribute(
     "aria-expanded",
     "false",

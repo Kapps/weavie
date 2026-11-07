@@ -695,6 +695,28 @@ a:has(> .agent-path-dir) {
   font-style: italic;
 }
 
+.github-media {
+  display: block;
+  margin: 0.6em 0;
+}
+
+.github-media > img,
+.github-media > video {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.github-media-status {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.github-media > video {
+  width: 100%;
+}
+
 .agent-entry-message.agent-tone-user {
   margin: 0;
   padding: 7px 9px 8px;

@@ -6,7 +6,8 @@ namespace Weavie.Workflows;
 /// The pure state machine of a run: each transition takes a run and returns the next run plus the effects its
 /// owner must perform. Nothing here touches files, threads, or the agent.
 /// </summary>
-internal sealed partial class WorkflowTransitions(WorkflowDefinition definition, int maxStageAttempts, string worktree, WorkflowVocabulary words) {
+internal sealed partial class WorkflowTransitions(
+	WorkflowDefinition definition, int maxStageAttempts, bool openReviewItem, string worktree, WorkflowVocabulary words) {
 	private const string Yes = "yes";
 	private const string No = "no";
 
@@ -52,7 +53,10 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			Attempts = 0,
 			Kickoff = null,
 		};
-		return new WorkflowCompletion(Advance(run, stage), []);
+		// A question reached here rides the reply to this call, so the agent is owed no turn for it.
+		var step = Advance(run, stage);
+		return new WorkflowCompletion(step.Run.Phase != WorkflowPhase.Asking ? step : new WorkflowStep(
+			step.Run with { Kickoff = null }, [.. step.Effects.Where(e => e is not WorkflowEffect.Kickoff)]), []);
 	}
 
 	/// <summary>The agent can't finish the current stage.</summary>
@@ -214,13 +218,17 @@ internal sealed partial class WorkflowTransitions(WorkflowDefinition definition,
 			})]);
 	}
 
-	// Puts the run's current question to the user; a non-empty reason says why the model didn't answer it.
-	private static WorkflowStep AskUser(WorkflowRun run, string reason) {
+	// Puts the run's current question to the user through the agent; a non-empty reason says why the model didn't answer it.
+	private WorkflowStep AskUser(WorkflowRun run, string reason) {
 		var asked = run.Asked! with { Reason = reason };
+		var kickoff = WorkflowKickoff.Prompt(WorkflowStageBlock.PutToUser(asked, words, openReviewItem));
 		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Asking, Asked = asked, Kickoff = null },
-			[new WorkflowEffect.Notify($"Workflow {run.WorkflowId} needs your answer at stage \"{run.Stage}\": {asked.Question}"
-				+ (reason.Length == 0 ? "" : $" ({reason})"))]);
+			run with { Phase = WorkflowPhase.Asking, Asked = asked, Kickoff = kickoff },
+			[
+				new WorkflowEffect.Kickoff(kickoff),
+				new WorkflowEffect.Notify($"Workflow {run.WorkflowId} needs your answer at stage \"{run.Stage}\": {asked.Question}"
+					+ (reason.Length == 0 ? "" : $" ({reason})")),
+			]);
 	}
 
 	private static WorkflowStep Pause(WorkflowRun run, string reason) => new(

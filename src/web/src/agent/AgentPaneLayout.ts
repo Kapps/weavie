@@ -4,118 +4,75 @@ import {
   type VirtualItem,
   type Virtualizer,
 } from "@tanstack/solid-virtual";
-import {
-  type Accessor,
-  createComputed,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  untrack,
-} from "solid-js";
-import { estimateEntrySize, invalidateEntrySize } from "./AgentPaneEstimate";
-import type { AgentPaneModel } from "./AgentPaneModel";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { type Accessor, createEffect, createMemo, on } from "solid-js";
+import { estimateEntrySize } from "./AgentPaneEstimate";
+import type { AgentTranscriptEntry, AgentTranscriptSnapshot } from "./AgentPaneTranscriptTypes";
 
-interface Layout {
-  generation: number;
-  entries: Map<string, AgentTranscriptEntry>;
-  keys: string[];
-  pendingRows: Map<string, number>;
-}
-
+/** Maps the shown transcript onto the virtualizer, which measures from the bottom: index 0 is the newest row. */
 export function createAgentPaneLayout(
-  model: AgentPaneModel,
-  body: Accessor<HTMLDivElement | undefined>,
+  shown: Accessor<AgentTranscriptSnapshot>,
+  virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
+  onEstimated: (id: string) => void,
 ) {
-  const [layout, setLayout] = createSignal<Layout>({
-    generation: model.generation(),
-    entries: new Map(),
-    keys: [],
-    pendingRows: new Map(),
-  });
-  let beforeChange = (_previous: Layout, _next: Layout): void => {};
-  createComputed(() => {
-    const generation = model.generation();
-    const entries = new Map(model.entries.map((entry) => [`${generation}\0${entry.id}`, entry]));
-    const keys = [...entries.keys()];
-    const next = {
-      generation,
-      entries,
-      keys,
-      pendingRows: new Map(model.pendingRowIndexes().map((index) => [keys[index]!, index])),
-    };
-    untrack(() => beforeChange(layout(), next));
-    setLayout(next);
-  });
+  const indexes = createMemo(
+    () => new Map(shown().entries.map((entry, index) => [entry.id, index])),
+  );
+  const flip = (index: number): number => reverse(shown().entries.length, index);
+  const rowAt = (index: number | null): VirtualItem | undefined =>
+    index === null ? undefined : virtualizer().measurementsCache[flip(index)];
   const itemKey = createMemo(() => {
-    const keys = layout().keys;
-    return (index: number) => keys[index]!;
+    const { entries } = shown();
+    return (virtualIndex: number) => entries[reverse(entries.length, virtualIndex)]!.id;
   });
-  const rangeExtractor = createMemo(() => {
-    const pending = [...layout().pendingRows.values()];
-    // Pending forms own live command handlers and focus even while outside the viewport.
-    return (range: Range) =>
-      [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
-        (left, right) => left - right,
-      );
-  });
+
+  // A changed row that isn't mounted can't be measured again, so it returns to its estimate.
+  createEffect(
+    on(
+      shown,
+      (next, previous) => {
+        const before = new Map(previous?.entries.map((entry) => [entry.id, entry]));
+        next.entries.forEach((entry, index) => {
+          const old = before.get(entry.id);
+          if (
+            old !== undefined &&
+            old !== entry &&
+            virtualizer().elementsCache.get(entry.id)?.isConnected !== true
+          ) {
+            onEstimated(entry.id);
+            virtualizer().resizeItem(flip(index), estimateEntrySize(entry));
+          }
+        });
+      },
+      { defer: true },
+    ),
+  );
 
   return {
-    count: () => layout().keys.length,
-    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry =>
-      layout().entries.get(String(key))!,
-    itemKey,
-    rangeExtractor,
-    observe(
-      virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
-      scroll: {
-        followingLatest: Accessor<boolean>;
-        restoreReadingPosition: (offset: number) => void;
-      },
-    ): void {
-      let anchor: { key: string; offset: number } | null = null;
-      beforeChange = (previous, next) => {
-        const element = body();
-        if (
-          element === undefined ||
-          scroll.followingLatest() ||
-          previous.generation !== next.generation
-        ) {
-          anchor = null;
-          return;
-        }
-        const row = virtualizer.getVirtualItemForOffset(element.scrollTop);
-        anchor =
-          row === undefined
-            ? null
-            : { key: String(row.key), offset: element.scrollTop - row.start };
-      };
-      createEffect(
-        on(layout, (next, previous) => {
-          if (previous !== undefined) {
-            for (const key of previous.pendingRows.keys()) {
-              if (next.pendingRows.has(key)) continue;
-              const index = next.keys.indexOf(key);
-              const entry = model.entries[index];
-              if (entry === undefined) continue;
-              invalidateEntrySize(entry);
-              const element = virtualizer.elementsCache.get(key);
-              if (element?.isConnected) virtualizer.measureElement(element);
-              else virtualizer.resizeItem(index, estimateEntrySize(entry));
-            }
-          }
-          if (anchor !== null) {
-            const index = next.keys.indexOf(anchor.key);
-            const row = virtualizer.measurementsCache[index];
-            if (row !== undefined)
-              scroll.restoreReadingPosition(
-                row.start + Math.min(anchor.offset, Math.max(0, row.size - 1)),
-              );
-            anchor = null;
-          }
-        }),
-      );
+    count: () => shown().entries.length,
+    entryAt: (virtualIndex: number): AgentTranscriptEntry | undefined =>
+      shown().entries[flip(virtualIndex)],
+    entryForKey: (key: VirtualItem["key"]): AgentTranscriptEntry | undefined => {
+      const index = indexes().get(String(key));
+      return index === undefined ? undefined : shown().entries[index];
     },
+    /** The measured row at transcript `index`. */
+    rowAt,
+    /** The measured row of the entry with `id`, if the shown transcript has it. */
+    rowOf: (id: string): VirtualItem | undefined => rowAt(indexes().get(id) ?? null),
+    itemKey,
+    // Pending forms own live command handlers, so they stay mounted.
+    rangeExtractor: createMemo(() => {
+      const { entries, pendingRowIndexes } = shown();
+      const pending = pendingRowIndexes.map((index) => reverse(entries.length, index));
+      return (range: Range) =>
+        [...new Set([...defaultRangeExtractor(range), ...pending])].sort(
+          (left, right) => left - right,
+        );
+    }),
   };
+}
+
+// The one place transcript order and virtual order meet; the mapping is its own inverse.
+function reverse(count: number, index: number): number {
+  return count - 1 - index;
 }

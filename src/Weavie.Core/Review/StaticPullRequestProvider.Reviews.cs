@@ -15,17 +15,21 @@ public sealed partial class StaticPullRequestProvider {
 	/// <summary>Every review submitted so far, in order, for tests to assert on.</summary>
 	public List<(int Number, ReviewVerdict Verdict, string Body)> SubmittedReviews { get; } = [];
 
+	/// <summary>Awaited before each load, so a harness can hold one open the way an unresponsive forge would.</summary>
+	public Func<Task> BeforeLoad { get; set; } = static () => Task.CompletedTask;
+
 	/// <inheritdoc/>
-	public Task<PullRequestReview> LoadAsync(RepoRef repo, int number, CancellationToken ct = default) {
+	public async Task<PullRequestReview> LoadAsync(RepoRef repo, int number, CancellationToken ct = default) {
+		await BeforeLoad().WaitAsync(ct).ConfigureAwait(false);
 		lock (_gate) {
-			return Task.FromResult(new PullRequestReview(
+			return new PullRequestReview(
 				PullRequestId(number),
 				_viewer,
 				ViewerIsAuthor(number),
 				PendingReviews.GetValueOrDefault(number),
 				[.. _threads.Where(t => t.Number == number).Select(t => t.Thread with {
 					Comments = [.. t.Thread.Comments.Select(c => c with { Mine = IsViewer(c.Author) })],
-				})]));
+				})]);
 		}
 	}
 

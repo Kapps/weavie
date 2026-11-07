@@ -7,9 +7,16 @@ import { type MiddleClickScrollSurface, middleClickSurfaceAt } from "./middle-cl
 // Pointer travel that scrolls at zero speed, so a press without a deliberate drag holds still.
 const DEAD_ZONE = 5;
 
+// The surface being autoscrolled; one gesture runs at a time, app-wide.
+let surface: MiddleClickScrollSurface | null = null;
+
+/** Whether a middle-click autoscroll is moving `element`. */
+export function isAutoscrolling(element: Element): boolean {
+  return surface?.y?.element === element || surface?.x?.element === element;
+}
+
 /** Installs the app-wide middle-click autoscroll; returns a teardown. */
 export function installMiddleClickAutoscroll(): () => void {
-  let surface: MiddleClickScrollSurface | null = null;
   let frame = 0;
   let lastFrame = 0;
   let originX = 0;

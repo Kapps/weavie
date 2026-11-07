@@ -64,7 +64,10 @@ test("middle-click autoscrolls the agent transcript and responds live", async ({
   const { host, body } = await openAutoscrollPane(page, "autoscroll");
 
   try {
-    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    // The transcript opens at its bottom, where scrollTop is 0 and every position above is negative.
+    await expect
+      .poll(() => body.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(0);
     const initialTop = await body.evaluate((element) => element.scrollTop);
     const origin = await paneOrigin(body);
 

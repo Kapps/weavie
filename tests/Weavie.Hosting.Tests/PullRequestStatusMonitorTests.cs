@@ -15,6 +15,7 @@ public sealed class PullRequestStatusMonitorTests {
 			background,
 			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
 			(_, _) => Task.CompletedTask,
+			_ => Task.CompletedTask,
 			delay.WaitAsync,
 			TimeSpan.FromSeconds(30));
 
@@ -48,6 +49,7 @@ public sealed class PullRequestStatusMonitorTests {
 				return Snapshot(calls);
 			},
 			(_, _) => Task.CompletedTask,
+			_ => Task.CompletedTask,
 			Task.Delay,
 			TimeSpan.FromSeconds(30));
 
@@ -60,6 +62,42 @@ public sealed class PullRequestStatusMonitorTests {
 		releaseFirst.TrySetResult();
 		await Wait.UntilAsync(() => calls == 2);
 		Assert.Equal(2, calls);
+	}
+
+	[Fact]
+	public async Task ReloadsDuringAStalledReload_CoalesceWithoutProbing() {
+		await using var background = new SessionTaskScope(_ => { });
+		var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int reloads = 0;
+		int probes = 0;
+		var monitor = new PullRequestStatusMonitor(
+			background,
+			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref probes))),
+			(_, _) => Task.CompletedTask,
+			async ct => {
+				if (Interlocked.Increment(ref reloads) == 1) {
+					firstStarted.TrySetResult();
+					await releaseFirst.Task.WaitAsync(ct);
+				}
+			},
+			Task.Delay,
+			TimeSpan.FromSeconds(30));
+
+		monitor.RequestReload();
+		await firstStarted.Task;
+		monitor.RequestReload();
+		monitor.RequestReload();
+		Assert.Equal(1, reloads);
+
+		releaseFirst.TrySetResult();
+		await Wait.UntilAsync(() => reloads == 2);
+		Assert.Equal(0, probes);
+
+		// Signals drain in order, so this probe proves no third reload was left queued.
+		monitor.RequestRefresh();
+		await Wait.UntilAsync(() => probes == 1);
+		Assert.Equal(2, reloads);
 	}
 
 	[Fact]
@@ -81,6 +119,7 @@ public sealed class PullRequestStatusMonitorTests {
 				published.Add(snapshot);
 				return Task.CompletedTask;
 			},
+			_ => Task.CompletedTask,
 			Task.Delay,
 			TimeSpan.FromSeconds(30));
 

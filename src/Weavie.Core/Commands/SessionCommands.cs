@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Sessions;
 
@@ -271,14 +270,6 @@ public static class SessionCommands {
 				+ "\"incarnation\":{\"type\":\"string\",\"description\":\"Exact live session incarnation; stale values are declined\"}}",
 		});
 
-		// ctrl+Shift+1..9 → switch to the Nth session. Literal ctrl (not $mod) to stay Ctrl on macOS, where
-		// Cmd+Shift+3/4/5 are screenshot shortcuts. Keybinding-only; each binding carries its own index argument.
-		var indexBindings = new List<CommandKeybinding>(9);
-		for (int i = 1; i <= 9; i++) {
-			string n = i.ToString(CultureInfo.InvariantCulture);
-			indexBindings.Add(new CommandKeybinding { Key = $"ctrl+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = SelectSessionByIndex,
 			Title = "Switch to Session by Number",
@@ -286,7 +277,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the Nth session on the rail (1-based, in rail order).",
 			Aliases = ["switch to session", "select session", "go to session number"],
-			DefaultKeybindings = indexBindings,
+			// Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+Shift+3/4/5 are screenshot shortcuts.
+			DefaultKeybindings = CoreCommands.IndexedKeybindings("ctrl+Shift"),
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based session number in rail order\"}}",
 		});

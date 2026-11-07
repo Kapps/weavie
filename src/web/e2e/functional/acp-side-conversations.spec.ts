@@ -130,18 +130,16 @@ test("multiple BTW threads overlap the primary and route independent replies", a
   await expect(second).toContainText("Choose a value");
   await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
 
-  await second.getByRole("radio", { name: "Two", exact: false }).check();
-  await second.getByRole("button", { name: "Submit answers", exact: true }).click();
+  await second.locator(".agent-choice-row", { hasText: "Two" }).click();
   await expect(second).toContainText("input: two");
-  await expect(first.getByRole("button", { name: "Submit answers", exact: true })).toBeVisible();
+  await expect(first.locator(".agent-choice-row", { hasText: "One" })).toBeVisible();
   await second.getByRole("button", { name: "Reply", exact: true }).click();
   const secondReply = second.getByRole("textbox", { name: "Reply to BTW" });
   await secondReply.fill("identify-session");
   await secondReply.press("Enter");
   await expect(second).toContainText("session: fake-fork-fake-session-3");
 
-  await first.getByRole("radio", { name: "One", exact: false }).check();
-  await first.getByRole("button", { name: "Submit answers", exact: true }).click();
+  await first.locator(".agent-choice-row", { hasText: "One" }).click();
   await expect(first).toContainText("input: one");
   await expect(first).not.toContainText("input: two");
   await expect(second).not.toContainText("input: one");

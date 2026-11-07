@@ -9,7 +9,7 @@ export function subagentForTab(
   path: string,
 ): AgentTranscriptEntry | undefined {
   const conversationId = subagentConversationId(path);
-  return agentPaneModel(session)?.entries.find(
-    (entry) => entry.kind === "subagent" && entry.conversationId === conversationId,
-  );
+  return agentPaneModel(session)
+    ?.transcript()
+    .entries.find((entry) => entry.kind === "subagent" && entry.conversationId === conversationId);
 }

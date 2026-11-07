@@ -8,6 +8,10 @@ export function isPreviewMode(session: ClientSession, path: string): boolean {
   return modes.get(session)?.has(canonicalFsPath(path)) ?? false;
 }
 
+export function showPreviewMode(session: ClientSession, path: string): void {
+  modes.update(session, (current) => new Set(current).add(canonicalFsPath(path)));
+}
+
 export function toggleViewMode(session: ClientSession, path: string): "source" | "preview" {
   const key = canonicalFsPath(path);
   const next = new Set(modes.get(session));

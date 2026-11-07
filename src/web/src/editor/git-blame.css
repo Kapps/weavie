@@ -6,7 +6,7 @@
 .weavie-blame {
   font-size: var(--font-metadata-size);
   font-style: italic;
-  color: var(--dim, #6f7884);
+  color: var(--dim);
   opacity: 0.62;
   cursor: pointer;
 }
@@ -30,13 +30,13 @@
   width: 560px;
   max-height: 70vh;
   overflow: hidden;
-  background: var(--bar, #101319);
-  border: 1px solid var(--border, #191c21);
+  background: var(--bar);
+  border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   font-family: var(--font-chrome-family);
   font-size: var(--font-chrome-size);
-  color: var(--fg, #cdd5dc);
+  color: var(--fg);
 }
 
 .weavie-blame-popover:focus-visible {
@@ -48,7 +48,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border, #191c21);
+  border-bottom: 1px solid var(--border);
 }
 
 .weavie-blame-subject {
@@ -63,7 +63,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  color: var(--dim, #6f7884);
+  color: var(--dim);
   font-size: var(--font-hint-size);
 }
 
@@ -81,10 +81,10 @@
 
 .weavie-blame-link {
   padding: 2px 8px;
-  border: 1px solid var(--border, #191c21);
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
-  color: var(--fg, #cdd5dc);
+  color: var(--fg);
   font: inherit;
   font-size: var(--font-hint-size);
   cursor: pointer;
@@ -92,9 +92,9 @@
 }
 
 .weavie-blame-link:hover {
-  background: var(--list-hover-bg, #111419);
-  border-color: var(--accent, #54c6a4);
-  color: var(--accent, #54c6a4);
+  background: var(--list-hover-bg);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* The change itself: the hunk of the shown commit that covers this line. The whole point of the panel, so it
@@ -119,26 +119,26 @@
 
 .weavie-blame-added {
   background: rgba(111, 220, 102, 0.12);
-  color: var(--ok, #6fdc66);
+  color: var(--ok);
 }
 
 .weavie-blame-removed {
   background: rgba(224, 122, 122, 0.12);
-  color: var(--bad, #e07a7a);
+  color: var(--bad);
 }
 
 .weavie-blame-context {
-  color: var(--dim, #6f7884);
+  color: var(--dim);
 }
 
 /* The line the popover was opened from, marked so the change reads against the code it explains. */
 .weavie-blame-focus {
-  box-shadow: inset 2px 0 0 var(--accent, #54c6a4);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .weavie-blame-note {
   padding: 12px;
-  color: var(--dim, #6f7884);
+  color: var(--dim);
 }
 
 /* History: the other commits that touched this line or this file. Picking one re-points the panel above at it,
@@ -146,7 +146,7 @@
 .weavie-blame-history {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border, #191c21);
+  border-top: 1px solid var(--border);
   /* A share of the viewport, like the hunk above: a percentage never resolved here, since the panel's own
      height is content-driven up to its max. */
   max-height: 24vh;
@@ -164,18 +164,18 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--dim, #6f7884);
+  color: var(--dim);
   font: inherit;
   cursor: pointer;
 }
 
 .weavie-blame-tab:hover {
-  color: var(--fg, #cdd5dc);
+  color: var(--fg);
 }
 
 .weavie-blame-tab[aria-selected="true"] {
-  color: var(--fg, #cdd5dc);
-  border-bottom-color: var(--accent, #54c6a4);
+  color: var(--fg);
+  border-bottom-color: var(--accent);
 }
 
 .weavie-blame-list {
@@ -191,25 +191,25 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--fg, #cdd5dc);
+  color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .weavie-blame-entry:hover {
-  background: var(--list-hover-bg, #111419);
+  background: var(--list-hover-bg);
 }
 
 .weavie-blame-entry[aria-current="true"] {
-  background: var(--list-active-bg, #161a21);
-  color: var(--list-active-fg, #eef2f8);
+  background: var(--list-active-bg);
+  color: var(--list-active-fg);
 }
 
 .weavie-blame-entry-when {
   flex: 0 0 auto;
   width: 90px;
-  color: var(--dim, #6f7884);
+  color: var(--dim);
   font-size: var(--font-hint-size);
 }
 

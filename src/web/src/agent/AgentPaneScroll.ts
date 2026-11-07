@@ -294,11 +294,14 @@ export function createAgentPaneScroll(
     },
     /** The rendered rows were mounted, measured, or changed, which can move what is below the reader. */
     onLayout: (): void => settle(false),
-    /** The viewport's height, from a resize observer; a resized viewport keeps its bottom edge, like a chat. */
+    /**
+     * The viewport's height, from a resize observer; a resized viewport keeps its bottom edge, like a chat, except
+     * that a reply placed at the top to be read from its start stays at the top.
+     */
     onResize(height: number): void {
       viewport = height;
       measureLineHeight();
-      if (!following()) pickAnchor();
+      if (!following() && !anchor.keepTop(viewport)) pickAnchor();
       // A remount shows the transcript as the reader left it, then applies what arrived once the viewport is known.
       syncHold();
       settle(true);

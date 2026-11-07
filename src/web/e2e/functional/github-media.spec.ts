@@ -44,6 +44,10 @@ test("GitHub attachment links decode inline, play, and release media when collap
   await expect(video).toHaveJSProperty("videoWidth", 16);
   await expect(video).toHaveAttribute("controls", "");
   await expect(video).not.toHaveAttribute("autoplay");
+  const videoWidth = (await video.boundingBox())!.width;
+  const bodyWidth = (await comment.locator(".agent-markdown").boundingBox())!.width;
+  expect(videoWidth).toBeGreaterThan(500);
+  expect(Math.abs(videoWidth - bodyWidth)).toBeLessThanOrEqual(1);
   await expect(comment.getByRole("link", { name: "Picture", exact: true })).toHaveAttribute(
     "href",
     asset(1),
@@ -60,14 +64,17 @@ test("GitHub attachment links decode inline, play, and release media when collap
     .toBeGreaterThan(0);
 
   const retired = await video.elementHandle();
-  await conversation(page).locator(".session-overview-heading").click();
+  const heading = conversation(page).locator(".session-overview-heading");
+  await heading.focus();
+  await expect(heading).toBeInViewport();
+  await page.keyboard.press("Enter");
   await expect(video).toHaveCount(0);
   expect(
     await retired!.evaluate(
       (element: HTMLVideoElement) => element.paused && !element.hasAttribute("src"),
     ),
   ).toBe(true);
-  await conversation(page).locator(".session-overview-heading").click();
+  await page.keyboard.press("Enter");
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(video).toHaveJSProperty("videoWidth", 16);
   await expect(comment.locator(".github-media")).toHaveCount(2);

@@ -713,6 +713,10 @@ a:has(> .agent-path-dir) {
   font-size: var(--font-metadata-size);
 }
 
+.github-media > video {
+  width: 100%;
+}
+
 .agent-entry-message.agent-tone-user {
   margin: 0;
   padding: 7px 9px 8px;

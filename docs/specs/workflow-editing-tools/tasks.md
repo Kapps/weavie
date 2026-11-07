@@ -36,11 +36,11 @@ a broken workflow. The clip also shows what review displays for the repository f
 
 Satisfies R7.
 
-- [ ] Rewrite the `AuthorWorkflowPrompt` steps as the overview shows.
-- [ ] Add the `listWorkflows` rule to `EmbeddedAgentGuidance`.
-- [ ] Update the `validateWorkflow` and `getWorkflowSchema` descriptions.
-- [ ] Update `docs/specs/workflows.md`, including "Built so far", Authoring, and forking.
-- [ ] Add the tests for the prompt and guidance rules.
+- [x] Rewrite the `AuthorWorkflowPrompt` steps as the overview shows.
+- [x] Add the `listWorkflows` rule to `EmbeddedAgentGuidance`.
+- [x] Update the `validateWorkflow` and `getWorkflowSchema` descriptions.
+- [x] Update `docs/specs/workflows.md`, including "Built so far", Authoring, and forking.
+- [x] Add the tests for the prompt and guidance rules.
 
 **Video:** in the real app, asking an agent to change a workflow's stage shows `runPrompt`, then `listWorkflows`,
 `validateWorkflow` with `text`, and a normal edit in the agent pane, with the changed workflow still valid afterwards.

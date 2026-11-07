@@ -37,8 +37,8 @@ in `McpServer.cs`.
 No new types and no persisted state. `WorkflowScope` order (`BuiltIn < Personal < Repository`) is what "more specific"
 compares, so the existing enum carries the fork rule. `folders` is written first in the `listWorkflows` object.
 
-Fork copies `SourceText` byte for byte: comments and folded prompts survive, and the copy's `id` already equals its new
-file name.
+Fork copies `SourceText`: comments, folded prompts, and line endings survive, and the copy's `id` already equals its new
+file name. A leading byte-order mark is dropped, which has no effect on a workflow.
 
 ## Error handling
 
@@ -80,7 +80,9 @@ MCP tests in `tests/Weavie.Core.Tests/Mcp/RegistryMcpTests.cs` drive the real se
   `path`.
 - `forkWorkflow` success, refusal, missing arguments, bad scope; no read-only hint.
 - `listWorkflows` returns `folders`.
-- `author-workflow` and the guidance contain the rules that R7 names.
+
+`tests/Weavie.Core.Tests/Mcp/AuthorWorkflowPromptTests.cs` checks the prompt contains the rules R7 names, and
+`HostRuntimeInfoTests.cs` does the same for the guidance.
 
 Proof in the real app, with a fake agent at the process seam and an isolated Weavie root, covers the tools end to end.
 

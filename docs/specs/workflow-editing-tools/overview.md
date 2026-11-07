@@ -13,7 +13,7 @@ flowchart TD
     List --> Kind{What kind of change?}
     Kind -->|existing file| Propose[Compose the complete proposed YAML]
     Kind -->|new file| Propose
-    Kind -->|built-in or less specific scope| Fork[forkWorkflow id, scope]
+    Kind -->|built-in, or personal for this repository only| Fork[forkWorkflow id, scope]
     Fork --> Propose
     Propose --> Text[validateWorkflow text]
     Text -->|errors| Propose
@@ -183,16 +183,20 @@ private async Task HandleForkWorkflowAsync(IMcpResponder responder, JsonElement 
 
 ### Prompt and guidance
 
-`AuthorWorkflowPrompt` replaces step 3 and step 12's validation, and step 2's fork wording points at `forkWorkflow`:
+`AuthorWorkflowPrompt` replaces step 3, moves step 12's validation and summary into new steps 13 and 14, and limits step 2's fork wording to
+creating a process, through `forkWorkflow`:
 
 ```text
-3. Find an existing workflow's file with `listWorkflows`. Write a new one in the personal folder `listWorkflows`
-   reports, unless the user says it belongs to this repository; never assume a folder. The `id` must equal the
-   file name.
+3. A change goes in the winning file: the entry `listWorkflows` shows with no `shadowedBy`. A new workflow goes in
+   `<id>.yaml` in the personal folder `listWorkflows` reports, or its repository folder if the user says the process
+   belongs to this repository; never assume a folder. The `id` must equal the file name. To change a built-in, or a
+   personal workflow for this repository only, call `forkWorkflow` first and change the copy, forking a built-in to
+   `personal` unless the user says it belongs to this repository; never edit a built-in in place. A fork keeps its
+   id; a variant under a new id is a new workflow, not a fork.
 
-   To change a workflow: pass the complete proposed YAML to `validateWorkflow` as `text` and fix every error,
-   then save it with your normal edit or write tool, not a script. To change a built-in or a less specific
-   scope's workflow, call `forkWorkflow` first; never edit a built-in in place.
+13. Before saving any new or changed workflow, pass the complete proposed YAML to `validateWorkflow` as `text`. Fix
+   every error and validate again until it reports `Valid.`, because later checks and all warnings only run once
+   structural errors are gone. Heed its warnings. Then save with your normal edit or write tool, not a script.
 ```
 
 `EmbeddedAgentGuidance` keeps its trigger line and adds that workflows are found through `listWorkflows`, not by
@@ -213,6 +217,8 @@ assuming a folder. The `getWorkflowSchema` and `validateWorkflow` tool descripti
 | `docs/specs/workflows.md` | Tools, prompt rules, and forking |
 | `tests/Weavie.Workflows.Tests/WorkflowCatalogTests.cs` | Replace the path test; cover fork scopes, broken winners, proposals, and refused overwrites |
 | `tests/Weavie.Core.Tests/Mcp/RegistryMcpTests.cs` | Neither or both arguments, fork, folders, and fork's missing read-only hint |
+| `tests/Weavie.Core.Tests/Mcp/AuthorWorkflowPromptTests.cs` | The prompt's editing rules |
+| `tests/Weavie.Core.Tests/Mcp/HostRuntimeInfoTests.cs` | The guidance's workflow rule |
 
 ## Risks
 

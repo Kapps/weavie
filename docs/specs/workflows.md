@@ -8,7 +8,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
 
 - **Definitions** — YAML from all three scopes (parsed with YamlDotNet's low-level parser, AOT-safe), one field table
   that drives both the JSON Schema and positioned diagnostics, `listWorkflows` / `getWorkflowSchema` /
-  `validateWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
+  `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, and stages with `if`, `run` (`prompt` or `skill`, `args`, `outputs`), and `then` (stage id,
   `done`, or a decision with `ask`, `choices`, `limit`, `by`). Every other field is rejected as an unknown key.
@@ -93,20 +93,28 @@ flowchart LR
 | Personal | `~/.weavie/workflows/*.yaml` | |
 | Repository | `<repo>/.weavie/workflows/*.yaml` | |
 
-A matching `id` in a more specific scope overrides a less specific one: a repository applies to one project, personal
-to every project, built-in to everyone (repository > personal > built-in). Forking is the agent copying a file into a
-more specific scope. A shadowed workflow stays visible in `listWorkflows` and the picker, labelled with what shadows
-it. Weavie treats every opened folder as trusted, so repository workflows run like any repository file; a trust flag
-for repositories is deferred.
+A matching `id` in a more specific scope overrides a less specific one: a repository applies to one project, personal to
+every project, built-in to everyone (repository > personal > built-in). Forking copies a valid workflow into a more
+specific scope under the same id, through `forkWorkflow`; it never overwrites. A shadowed workflow stays visible in
+`listWorkflows` and the picker, labelled with what shadows it. Weavie treats every opened folder as trusted, so
+repository workflows run like any repository file; a trust flag for repositories is deferred.
 
 ### Authoring
 
 Workflows are written by the agent, not by hand. The registry exposes:
 
 - `getWorkflowSchema` — the JSON Schema of the format, so the agent reads the real field list instead of recalling one.
-- `validateWorkflow(path)` — exact errors (`unknown key "runs-on" at stages[2]`) and warnings (a model question that
-  references no values); the agent calls it before finishing. Warnings never make a file invalid.
-- `listWorkflows` — every resolved workflow with scope, path, and validity.
+- `validateWorkflow(id | text)` — exact errors (`unknown key "runs-on" at stages[2]`) and warnings (a model question that
+  references no values). `text` checks proposed YAML without touching any file; `id` checks the saved workflow that
+  wins. Structural errors stop the later checks, so `Valid.` means every check ran. Warnings never make a file invalid.
+- `listWorkflows` — every resolved workflow with scope, path, and validity, plus the personal and repository folders
+  this host reads.
+- `forkWorkflow(id, scope)` — copies a valid workflow, including a built-in, into a more specific scope and returns the
+  path. The host writes the file, so a repository fork shows in the Uncommitted and Branch views, not the agent-edits
+  review.
+
+Agents edit workflow YAML with their normal edit tools; nothing enforces how. See
+[workflow-editing-tools](workflow-editing-tools/design.md).
 
 The vocabulary is deliberately small and unlike GitHub Actions, so an agent has nothing similar to drift toward.
 
@@ -118,7 +126,8 @@ request that lands on the same prompt. It holds guidance only; the field list st
 never drift. It tells the agent to:
 
 - Interview the user about how they actually work, and model that process. Built-ins are references for the format,
-  not templates; fork one only when it already matches what the user described.
+  not templates; when creating a process, fork one only when it already matches what the user described.
+- Change the winning file, find folders through `listWorkflows`, and fork a built-in rather than editing it in place.
 - Prefer the user's existing skills as stage steps over restating them as prompts.
 - Write personal workflows unless the user says the process belongs to the repository.
 - Leave `agent` unset unless the user names a model, so a workflow stays portable across providers.
@@ -132,8 +141,9 @@ never drift. It tells the agent to:
 - Persist to a file anything a later stage needs from every visit of a repeated stage; a revisit overwrites its outputs.
 - Only use commands and flags verified to exist, and check that every file or value a stage uses is produced earlier
   and reachable where it's used.
-- Walk through a run stage by stage, then call `validateWorkflow`, fix every error, and heed its warnings; with run
-  history, cite the evidence for each change.
+- Walk through a run stage by stage; with run history, cite the evidence for each change.
+- Before saving, pass the complete proposed YAML to `validateWorkflow` as `text`, fix every error, and heed its warnings;
+  then save with a normal edit or write tool, not a script.
 
 **Edit Workflow** opens the YAML in the editor; the same schema drives inline diagnostics. Saving is never blocked.
 An invalid file is listed as broken (with its error) in the picker and cannot start; a run executes the definition

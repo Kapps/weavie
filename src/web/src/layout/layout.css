@@ -249,8 +249,10 @@
 }
 
 .pane-label {
+  flex: none;
   color: var(--dim);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .left-pane.active .pane-label {
@@ -263,8 +265,26 @@
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  overflow: hidden;
   color: var(--dim);
   white-space: pre;
+}
+
+.pane-run-text {
+  display: flex;
+  overflow: hidden;
+}
+
+.pane-run-workflow,
+.pane-run-stage {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The stage keeps its width, so the workflow name gives way first. */
+.pane-run-stage {
+  flex: none;
+  max-width: 100%;
 }
 
 .pane-body {
@@ -398,6 +418,12 @@
   font-size: 10px;
   line-height: 16px;
   user-select: none;
+}
+
+/* Beside a run the badge drops its own auto margin, or the two would split the free space between them. */
+.pane-run + .pane-shortcut {
+  flex: none;
+  margin-left: 0;
 }
 
 /* Focused pane: accent the border and its label / badge. */

@@ -5,7 +5,7 @@ using Weavie.Workflows;
 
 namespace Weavie.Core.Mcp;
 
-// Workflow tools: authoring (list, schema, validate) and the session's run (complete or fail its open stage).
+// Workflow tools: authoring (list, schema, validate, fork) and the session's run (complete or fail its open stage).
 // See docs/specs/workflows.md.
 public sealed partial class McpServer {
 	/// <summary>The tool that lists the workflows visible to the session.</summary>
@@ -19,12 +19,14 @@ public sealed partial class McpServer {
 
 	private const string GetWorkflowSchemaTool = "getWorkflowSchema";
 	private const string ValidateWorkflowTool = "validateWorkflow";
+	private const string ForkWorkflowTool = "forkWorkflow";
 
 	private const string WorkflowToolEntries =
 		$$$$"""
           {"name":"{{{{ListWorkflowsTool}}}}","description":"List every Weavie workflow visible to this session (built-in, personal ~/.weavie/workflows, and this repository's .weavie/workflows), with its id, description, scope, file path, inputs, whether it is valid (and its errors), and which scope shadows it when a more specific file has the same id.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}},
           {"name":"{{{{GetWorkflowSchemaTool}}}}","description":"Get the JSON Schema of Weavie workflow YAML files. Read it before writing or editing a workflow; never write fields it doesn't list.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true}},
           {"name":"{{{{ValidateWorkflowTool}}}}","description":"Validate a Weavie workflow and get its problems with path, line, and column. Structural errors come first; the remaining checks and all warnings run once those are fixed, so re-validate until it reports Valid. Pass exactly one of 'text', the complete proposed YAML, checked without touching any file; or 'id', the saved workflow that wins for that id. Validate the proposed text and fix every problem before saving.","inputSchema":{"type":"object","properties":{"id":{"type":"string","description":"A workflow id from listWorkflows."},"text":{"type":"string","description":"The complete proposed workflow YAML."}}},"annotations":{"readOnlyHint":true}},
+          {"name":"{{{{ForkWorkflowTool}}}}","description":"Copy a valid Weavie workflow, including a built-in, into a more specific scope under the same id, and get the new file's path. It never overwrites. Fork before changing a built-in or a less specific scope's workflow; a repository fork is an ordinary change to commit.","inputSchema":{"type":"object","properties":{"id":{"type":"string","description":"A workflow id from listWorkflows."},"scope":{"type":"string","enum":["personal","repository"]}},"required":["id","scope"]}},
           {"name":"{{{{CompleteStageTool}}}}","description":"Complete the open stage of this session's Weavie workflow run, reporting the stage's declared outputs and a summary. Call it only when the stage's work is truly finished, then end your turn; Weavie starts the next stage. A rejection lists what to fix.","inputSchema":{"type":"object","properties":{"outputs":{"type":"object","description":"The stage's declared outputs by name; {} when it declares none."},"summary":{"type":"string","description":"A few sentences on what the stage did and found. The model deciding what comes next reads it, and has no other view of your work."}},"required":["outputs","summary"]}},
           {"name":"{{{{FailStageTool}}}}","description":"Report that you can't finish the open stage of this session's Weavie workflow run. The run pauses for the user with your reason.","inputSchema":{"type":"object","properties":{"reason":{"type":"string"}},"required":["reason"]}}
         """;
@@ -73,7 +75,7 @@ public sealed partial class McpServer {
 		IReadOnlyList<WorkflowDiagnostic> diagnostics;
 		try {
 			diagnostics = id.Length > 0 ? _workflows.Validate(id) : _workflows.ValidateText(text);
-		} catch (Exception ex) when (ex is WorkflowException or IOException or UnauthorizedAccessException) {
+		} catch (Exception ex) when (IsWorkflowRefusal(ex)) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;
 		}
@@ -83,6 +85,29 @@ public sealed partial class McpServer {
 		await SendToolTextAsync(responder, idRaw, diagnostics.Count == 0
 			? verdict
 			: $"{verdict}\n{string.Join("\n", diagnostics.Select(d => $"- {d}"))}", ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleForkWorkflowAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+		string id = args.GetStringOrEmpty("id");
+		WorkflowScope? scope = args.GetStringOrEmpty("scope") switch {
+			"personal" => WorkflowScope.Personal,
+			"repository" => WorkflowScope.Repository,
+			_ => null,
+		};
+		if (id.Length == 0 || scope is not { } target) {
+			await SendToolErrorAsync(responder, idRaw, $"{ForkWorkflowTool} requires 'id' and a 'scope' of personal or repository.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string path;
+		try {
+			path = _workflows.Fork(id, target);
+		} catch (Exception ex) when (IsWorkflowRefusal(ex)) {
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
+			return;
+		}
+
+		await SendToolTextAsync(responder, idRaw, $"Forked {id} to {path}.", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleCompleteStageAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -119,6 +144,8 @@ public sealed partial class McpServer {
 
 		await SendToolTextAsync(responder, idRaw, "The run is paused for the user. End your turn.", ct).ConfigureAwait(false);
 	}
+
+	private static bool IsWorkflowRefusal(Exception ex) => ex is WorkflowException or IOException or UnauthorizedAccessException;
 
 	private static string ScopeName(WorkflowScope scope) => scope switch {
 		WorkflowScope.BuiltIn => "built-in",

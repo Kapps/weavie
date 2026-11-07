@@ -511,6 +511,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case ValidateWorkflowTool:
 				await HandleValidateWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case ForkWorkflowTool:
+				await HandleForkWorkflowAsync(responder, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			case CompleteStageTool:
 				await HandleCompleteStageAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;

@@ -23,7 +23,7 @@ Satisfies R4, R5, R6.
 
 - [x] Add `WorkflowCatalog.Folder` and `Fork`.
 - [x] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
-- [ ] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
+- [x] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
 - [ ] Add `folders` to `listWorkflows`.
 - [ ] Add the catalog and MCP tests for R4 to R6.
 - [ ] Check in the real app whether a repository fork appears in review, and record the result in this spec.

@@ -61,6 +61,8 @@ export interface LaunchOptions {
   automaticInference: boolean;
   // Seeds settings.toml with gettingStarted.completed so the first-run setup doesn't open over the journey.
   setupCompleted: boolean;
+  /** The seeded `editor.markdownView`. */
+  markdownView: "preview" | "source";
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
@@ -211,9 +213,11 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const fakeLogPath = join(home, "fake-claude.log");
   const weavieRoot = join(home, ".weavie");
   await mkdir(join(weavieRoot, "acp"), { recursive: true });
-  if (options.setupCompleted) {
-    await writeFile(join(weavieRoot, "settings.toml"), "[gettingStarted]\ncompleted = true\n");
-  }
+  // Most journeys drive Monaco on the seeded README.md, so they pin source; preview specs opt back in.
+  await writeFile(
+    join(weavieRoot, "settings.toml"),
+    `[editor]\nmarkdownView = "${options.markdownView}"\n${options.setupCompleted ? "[gettingStarted]\ncompleted = true\n" : ""}`,
+  );
   await writeFile(
     join(weavieRoot, "acp", "custom.json"),
     JSON.stringify({

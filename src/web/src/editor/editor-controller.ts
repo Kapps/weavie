@@ -37,10 +37,12 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
+import { createPreviewDocument, type PreviewDocument } from "./preview/preview-document";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
+import { setViewMode } from "./view-mode-store";
 
 export type { TabActions } from "./tab-actions";
 
@@ -193,7 +195,10 @@ export interface EditorController {
   filePresenter(
     tab: TabOwner,
     content: () => HTMLElement | undefined,
+    placed: (line: number | undefined) => void,
   ): Omit<TabPresenter, "signal">;
+  /** The tab's own working copy, for Preview's in-place block edits. */
+  previewDocument(tab: TabOwner): PreviewDocument;
   captureTab(tab: TabOwner): void;
   readonly review: {
     scope: ReviewScopeState;
@@ -382,6 +387,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const filePresenter = (
     tab: TabOwner,
     content: () => HTMLElement | undefined,
+    placed: (line: number | undefined) => void,
   ): Omit<TabPresenter, "signal"> => ({
     text: content() === undefined,
     capture: () => {
@@ -404,6 +410,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
       if (shown.kind === "superseded")
         throw new DOMException("Tab activation cancelled", "AbortError");
+      placed(
+        "line" in placement
+          ? placement.line
+          : "selection" in placement
+            ? placement.selection.startLineNumber
+            : undefined,
+      );
     },
     focus: () => {
       const element = content();
@@ -784,6 +797,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     navigation.depart(session);
+    setViewMode(session, file.path, "source");
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
   };
@@ -1563,6 +1577,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openReview,
     hostReady: editorHostReady,
     filePresenter,
+    previewDocument: (tab) => createPreviewDocument(() => editorContexts.forTab(tab)),
     captureTab: (tab) => {
       captureLocation(tab);
     },

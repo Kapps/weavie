@@ -75,18 +75,29 @@ internal sealed class SettingsFileLayer : IDisposable {
 				node.Value = BuildValueSyntax(definition, coerced);
 			}
 		} else {
-			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), BuildValueSyntax(definition, coerced)) {
+			// A root dotted key beside a hand-written [table] of the same name would redefine the table.
+			var table = OwningTable(document, definition.Key);
+			string name = table?.Name is { } tableName
+				? definition.Key[(DottedKeyName(tableName).Length + 1)..]
+				: definition.Key;
+			var keyValue = new KeyValueSyntax(BuildKeySyntax(name), BuildValueSyntax(definition, coerced)) {
 				// Self-document a newly written key with its description; existing lines are never touched.
 				LeadingTrivia = [
 					new SyntaxTrivia(TokenKind.Comment, "# " + definition.Description),
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),
 				],
 			};
-			document.KeyValues.Add(keyValue);
+			(table?.Items ?? document.KeyValues).Add(keyValue);
 		}
 
 		SaveAtomic(document);
 	}
+
+	// The most specific [table] header that `key` falls under, if any.
+	private static TableSyntaxBase? OwningTable(DocumentSyntax document, string key) =>
+		document.Tables
+			.Where(table => table.Name is { } name && key.StartsWith(DottedKeyName(name) + ".", StringComparison.Ordinal))
+			.MaxBy(table => DottedKeyName(table.Name!).Length);
 
 	// Removes every user entry for `key` — the root-level dotted form and entries nested under a
 	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.

@@ -243,6 +243,18 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Set_NewKeyUnderAnExistingTable_JoinsThatTable() {
+		// A root `t.num` beside a [t] header would redefine the table and invalidate the whole file.
+		File.WriteAllText(FilePath, "[t]\nunrelated = 1\n[other]\nx = 2\n");
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+
+		store.Set("t.num", Json("7"));
+
+		using var reloaded = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		Assert.Equal(7L, reloaded.Resolve("t.num").Value);
+	}
+
+	[Fact]
 	public void Set_AtomicWrite_LeavesNoTempFileAndParses() {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Set("t.num", Json("123"));

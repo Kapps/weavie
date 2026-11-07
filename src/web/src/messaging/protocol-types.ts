@@ -312,6 +312,7 @@ export interface EditorOptionsSpec {
   hoverDelay: number;
   suggestExpandDocs: boolean;
   commentProse: CommentProseMode;
+  markdownView: "preview" | "source";
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;

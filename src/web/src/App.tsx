@@ -128,6 +128,7 @@ import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
 import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
+import { focusedBlockEditor } from "./editor/preview/block-editor";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -1649,6 +1650,14 @@ export default function App(): JSX.Element {
           return () => action?.() ?? false;
         }),
       ),
+      registerCapturedCommand(CommandIds.previewEditBlock, () => {
+        const blocks = focusedBlockEditor();
+        return () => blocks?.editFocused() ?? false;
+      }),
+      registerCapturedCommand(CommandIds.previewFinishBlock, () => {
+        const blocks = focusedBlockEditor();
+        return () => blocks?.finish() ?? false;
+      }),
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),
       registerPrCommentCommands(),
@@ -1657,7 +1666,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, (_args, { session }) => {
         if (session !== null) editor.newFile(session);
       }),
-      registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
+      // An open preview block keeps its native redo, which shares this chord on some platforms.
+      registerCommand(CommandIds.zoomEmbed, () =>
+        focusedBlockEditor()?.editing === true ? false : zoomActiveEmbed(),
+      ),
       registerCommand(CommandIds.rotateMedia, (_args, { session }) =>
         runMediaAction(session, "rotate"),
       ),

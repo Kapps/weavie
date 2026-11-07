@@ -191,3 +191,62 @@
   border: 0;
   background: #fff;
 }
+
+/* In-place block editing: a block's source replaces it, on the same line of the page. */
+.editor-preview-body:empty::before {
+  content: "Click to start writing";
+  color: var(--dim);
+}
+
+.editor-preview-body .md-unit:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.editor-preview-body li.md-editing {
+  list-style: none;
+}
+
+/* The hidden copy sizes the grid cell to the text, so typing never measures the textarea. */
+.wv-preview-block-box {
+  display: grid;
+}
+
+.wv-preview-block-box::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre-wrap;
+}
+
+.wv-preview-block-input,
+.wv-preview-block-box::after {
+  grid-area: 1 / 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.3em 0.5em;
+  border: 1px solid var(--accent);
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: inherit;
+}
+
+.wv-preview-block-input {
+  resize: none;
+  overflow: hidden;
+  color: var(--fg);
+  background: var(--bar);
+  border-radius: 4px;
+  outline: none;
+}
+
+.wv-preview-block-box[data-code] {
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
+}
+
+.wv-preview-block-hint {
+  margin: 0.2em 0 0.6em;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}

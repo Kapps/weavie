@@ -6,6 +6,7 @@ import { editorContexts, type TextEditorConnection } from "../editor-context";
 import { type FixItem, fixLine, fixWith } from "../FixPrompt";
 import { activeTabFor } from "../session-store";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../session-uri-owner";
+import { setViewMode } from "../view-mode-store";
 import type { PlacedHint } from "./hint-anchor";
 import { type HintPosition, stepHint } from "./hint-order";
 import {
@@ -77,6 +78,7 @@ function step(session: ClientSession, direction: 1 | -1, revealFile: RevealFile)
     notify("info", "There are no review hints.", "review-hints");
     return;
   }
+  setViewMode(session, target.path, "source");
   openHint(session, { id: target.id, owner: null, pinned: true });
   if (local.some((entry) => entry.hint.id === target.id)) return;
   if (activeTabFor(session)?.presentation?.actions()?.revealLine?.(target.path, target.line))

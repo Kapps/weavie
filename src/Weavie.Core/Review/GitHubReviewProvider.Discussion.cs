@@ -5,14 +5,16 @@ namespace Weavie.Core.Review;
 
 // The PR overview in one GraphQL query; a connection longer than a page continues by node id, so nothing is cut off.
 public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
-	private const string ReviewStates = "states:[APPROVED,CHANGES_REQUESTED,COMMENTED]";
+	private const string ReviewStates = "states:[APPROVED,CHANGES_REQUESTED,COMMENTED,DISMISSED]";
 	private const string Actor = "author{login avatarUrl}";
 	private const string CommentNode = "id body createdAt url " + Actor;
-	private const string ReviewNode = "id body state submittedAt url " + Actor;
+	private const string LineCommentNode = "id body url path line " + Actor;
 	private const string OpinionNode = "state " + Actor;
 	private const string RequestNode = "requestedReviewer{__typename ... on User{login avatarUrl} ... on Bot{login avatarUrl}"
 		+ " ... on Mannequin{login avatarUrl} ... on Team{slug avatarUrl}}";
 	private const string CheckNode = "__typename ... on CheckRun{name status conclusion detailsUrl} ... on StatusContext{context state targetUrl}";
+
+	private static readonly string ReviewNode = "id body state submittedAt url " + Actor + Page("comments", string.Empty, LineCommentNode);
 
 	private static readonly string DetailQuery =
 		"query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
@@ -47,6 +49,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 				.ConfigureAwait(false)
 			: [];
 		var reviews = await All("reviews", ReviewStates, ReviewNode).ConfigureAwait(false);
+		var lineComments = await Task.WhenAll(reviews.Select(r => AllNodesAsync(
+			repo, String(r, "id"), "PullRequestReview", "comments", string.Empty, LineCommentNode, r.GetProperty("comments"), ct))).ConfigureAwait(false);
 		return new PullRequestDetail(
 			id,
 			Int(pr, "number"),
@@ -64,9 +68,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 				await All("latestOpinionatedReviews", string.Empty, OpinionNode).ConfigureAwait(false),
 				await All("reviewRequests", string.Empty, RequestNode).ConfigureAwait(false)),
 			[.. (await All("comments", string.Empty, CommentNode).ConfigureAwait(false))
-				.Select(c => new PullRequestConversationItem(String(c, "id"), Author(c), String(c, "body"), null, String(c, "createdAt"), String(c, "url")))
-				.Concat(reviews.Select(r => new PullRequestConversationItem(
-					String(r, "id"), Author(r), String(r, "body"), ReviewerStateFor(String(r, "state")), String(r, "submittedAt"), String(r, "url"))))
+				.Select(c => new PullRequestConversationItem(String(c, "id"), Author(c), String(c, "body"), null, String(c, "createdAt"), String(c, "url"), null))
+				.Concat(reviews.Zip(lineComments, ReviewEntries).SelectMany(entries => entries))
 				.OrderBy(item => item.CreatedAt, StringComparer.Ordinal)],
 			[.. checks.Select(ParseCheck)]);
 	}
@@ -91,7 +94,8 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 		JsonElement page,
 		CancellationToken ct) {
 		var nodes = page.GetProperty("nodes").EnumerateArray().ToList();
-		string query = $"query($id:ID!,$after:String){{node(id:$id){{... on {type}{{{Page(connection, args, fields).Replace("first:100", "first:100,after:$after", StringComparison.Ordinal)}}}}}}}";
+		string continued = args.Length == 0 ? "after:$after" : $"after:$after,{args}";
+		string query = $"query($id:ID!,$after:String){{node(id:$id){{... on {type}{{{Page(connection, continued, fields)}}}}}}}";
 		while (NextCursor(page) is { } after) {
 			var data = await GraphQlAsync(repo, query, new JsonObject { ["id"] = id, ["after"] = after }, ct).ConfigureAwait(false);
 			page = data.GetProperty("node").GetProperty(connection);
@@ -101,6 +105,19 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 		return nodes;
 	}
 
+	// A line comment is dated by its review: it went public then, however long it sat as a draft. A dismissed review
+	// has no verdict left to show, but its line comments stand.
+	private static IEnumerable<PullRequestConversationItem> ReviewEntries(JsonElement review, IReadOnlyList<JsonElement> lineComments) {
+		string submittedAt = String(review, "submittedAt");
+		var comments = lineComments.Select(c => new PullRequestConversationItem(
+			String(c, "id"), Author(c), String(c, "body"), null, submittedAt, String(c, "url"),
+			new(String(c, "path"), c.GetProperty("line").ValueKind == JsonValueKind.Number ? Int(c, "line") : null)));
+		return ReviewerStateFor(String(review, "state")) is { } verdict
+			? PullRequestConversationItem.ForReview(
+				new(String(review, "id"), Author(review), String(review, "body"), verdict, submittedAt, String(review, "url"), null), comments)
+			: comments;
+	}
+
 	/// <summary>Each reviewer's standing: a pending request, else their latest verdict, else that they commented. Pure, for tests.</summary>
 	public static IReadOnlyList<PullRequestReviewer> Reviewers(
 		string author,
@@ -108,7 +125,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 		IReadOnlyList<JsonElement> opinions,
 		IReadOnlyList<JsonElement> requests) {
 		var standing = new Dictionary<string, PullRequestReviewer>(StringComparer.OrdinalIgnoreCase);
-		foreach (var review in reviews.Where(r => Author(r).Login != author)) {
+		foreach (var review in reviews.Where(r => Author(r).Login != author && ReviewerStateFor(String(r, "state")) is not null)) {
 			standing.TryAdd(Author(review).Login, new(Author(review), ReviewerState.Commented));
 		}
 

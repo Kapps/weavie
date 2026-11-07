@@ -26,7 +26,7 @@ public interface IPullRequestDiscussion {
 /// <param name="Author">The PR's author.</param>
 /// <param name="CreatedAt">ISO-8601 creation timestamp.</param>
 /// <param name="Reviewers">Each reviewer's latest standing, requested reviewers included.</param>
-/// <param name="Conversation">PR-level comments and submitted reviews, oldest first.</param>
+/// <param name="Conversation">PR-level comments, submitted reviews, and their line comments, oldest first.</param>
 /// <param name="Checks">The head commit's checks and statuses.</param>
 public sealed record PullRequestDetail(
 	string Id,
@@ -77,20 +77,34 @@ public enum ReviewerState {
 	ChangesRequested,
 }
 
-/// <summary>A PR-level comment, or a submitted review shown in the conversation.</summary>
+/// <summary>A PR-level comment, a submitted review, or a review's line comment, shown in the conversation.</summary>
 /// <param name="Id">The forge's opaque id.</param>
 /// <param name="Author">Who wrote it.</param>
-/// <param name="Body">Markdown, possibly empty for a review with only line comments.</param>
+/// <param name="Body">Markdown, possibly empty for a verdict given without a summary.</param>
 /// <param name="Review">The review's verdict, or null for a plain comment.</param>
 /// <param name="CreatedAt">ISO-8601 timestamp it was posted or submitted.</param>
 /// <param name="Url">Its web page.</param>
+/// <param name="Location">Where a line comment sits, or null for anything else.</param>
 public sealed record PullRequestConversationItem(
 	string Id,
 	ForgeUser Author,
 	string Body,
 	ReviewerState? Review,
 	string CreatedAt,
-	string Url);
+	string Url,
+	PullRequestCommentLocation? Location) {
+	/// <summary>
+	/// A review's entries: itself, then its line comments. A bodiless comment-only review says nothing of its own,
+	/// which is how a forge files a lone line comment or reply, so only its line comments show.
+	/// </summary>
+	public static IEnumerable<PullRequestConversationItem> ForReview(
+		PullRequestConversationItem review,
+		IEnumerable<PullRequestConversationItem> lineComments) =>
+		review is { Review: ReviewerState.Commented, Body: "" } ? lineComments : lineComments.Prepend(review);
+}
+
+/// <summary>The file a line comment is on, and its line there; null for a file comment or an outdated anchor.</summary>
+public sealed record PullRequestCommentLocation(string Path, int? Line);
 
 /// <summary>One check run or commit status on the PR head.</summary>
 public sealed record PullRequestCheck(string Name, CheckState State, string Url);

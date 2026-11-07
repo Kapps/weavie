@@ -28,6 +28,14 @@ function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.
           <span class={`session-overview-verdict-${props.item.review ?? "comment"}`}>
             {props.item.review === null ? "commented" : VERDICTS[props.item.review]}
           </span>
+          <Show when={props.item.location}>
+            {(location) => (
+              <span class="session-overview-comment-where">
+                on {location().path}
+                {location().line === null ? "" : `:${location().line}`}
+              </span>
+            )}
+          </Show>
           <span class="session-overview-when">
             <RelativeTime seconds={Date.parse(props.item.createdAt) / 1000} />
           </span>
@@ -48,7 +56,7 @@ function Item(props: { session: ClientSession; item: PrConversationItem }): JSX.
   );
 }
 
-/** PR-level comments and submitted reviews, oldest first, with a composer that posts immediately. */
+/** PR-level comments, submitted reviews, and their line comments, oldest first, with a composer that posts immediately. */
 export function OverviewConversation(props: {
   session: ClientSession;
   detail: PrDetail;

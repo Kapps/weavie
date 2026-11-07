@@ -216,8 +216,8 @@ assuming a folder. The `getWorkflowSchema` and `validateWorkflow` tool descripti
 
 ## Risks
 
-- **Review visibility is unknown.** A repository fork is written by the host, so no Edit or Write hook fires. Whether it
-  appears in review has to be checked in the real app. A repository that ignores `.weavie` wouldn't show it either way.
+- **A repository fork is missing from the agent-edits review.** The host writes it, so only the Uncommitted and Branch
+  views and `git status` show it. See [design.md](design.md#repository-forks-in-review).
 - **An id and file name can disagree.** Proposal `b` passes `text` validation, then is saved as `a.yaml`. The prompt
   says they must match, and a mismatch shows as broken in `listWorkflows` and can't start.
 - **A failed fork write can leave a partial file.** A full disk could do this, and the file then blocks a retry. The

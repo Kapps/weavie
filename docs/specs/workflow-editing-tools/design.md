@@ -82,8 +82,15 @@ MCP tests in `tests/Weavie.Core.Tests/Mcp/RegistryMcpTests.cs` drive the real se
 - `listWorkflows` returns `folders`.
 - `author-workflow` and the guidance contain the rules that R7 names.
 
-Proof in the real app, with a fake agent at the process seam and an isolated Weavie root, covers the tools end to end and
-answers the open question: whether a repository fork written by the host appears in review.
+Proof in the real app, with a fake agent at the process seam and an isolated Weavie root, covers the tools end to end.
+
+## Repository forks in review
+
+Observed in the real app. A repository fork is written by the host, so the agent-edits review never hears of it: it lists
+"0 changed files", and Review Changes isn't offered while the fork is the only change. The Uncommitted and Branch views
+list it as a new file with its content, because they diff against git, and `git status` shows it at once. An agent's
+later edit of the fork enters the agent-edits review as a change to the copy, not as a new file. An open Uncommitted view
+doesn't refresh for a fork until it is picked again.
 
 ## Rollout
 

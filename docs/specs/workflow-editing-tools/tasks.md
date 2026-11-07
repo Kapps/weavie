@@ -26,7 +26,7 @@ Satisfies R4, R5, R6.
 - [x] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
 - [x] Add `folders` to `listWorkflows`.
 - [x] Add the catalog and MCP tests for R4 to R6.
-- [ ] Check in the real app whether a repository fork appears in review, and record the result in this spec.
+- [x] Check in the real app whether a repository fork appears in review, and record the result in this spec.
 
 **Video:** in the real app, an agent lists the folders, forks the `quick-fix` built-in into personal and then
 repository, shows `listWorkflows` marking the originals as shadowed, and is refused when forking again and when forking

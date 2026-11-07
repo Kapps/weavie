@@ -1,12 +1,10 @@
 import type { Page } from "@playwright/test";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { CLIP_WEBM, ZOOM_IMAGE_SRC } from "../harness/git-workspace";
+import { githubAsset as asset, CLIP_WEBM, ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 
 test.use({ prScenario: true });
 
-const asset = (id: number): string =>
-  `https://github.com/user-attachments/assets/00000000-0000-4000-8000-${String(id).padStart(12, "0")}`;
 const imageBytes = Buffer.from(ZOOM_IMAGE_SRC.split(",")[1]!, "base64");
 const conversation = (page: Page) =>
   page.locator('.session-overview-section[data-section="conversation"]');
@@ -33,9 +31,11 @@ test("GitHub attachment links decode inline, play, and release media when collap
   await page.route(asset(1), (route) =>
     route.fulfill({ contentType: "image/png", body: imageBytes }),
   );
-  await page.route(asset(2), (route) =>
-    route.fulfill({ contentType: "video/webm", body: CLIP_WEBM }),
-  );
+  const videoRequestTypes = new Set<string>();
+  await page.route(asset(2), (route) => {
+    videoRequestTypes.add(route.request().resourceType());
+    return route.fulfill({ contentType: "video/webm", body: CLIP_WEBM });
+  });
   await postComment(page, `Attachment previews\n\n[Picture](${asset(1)})\n\n${asset(2)}`);
   const comment = conversation(page).locator(".session-overview-comment").last();
   const image = comment.locator(".github-media > img");
@@ -43,6 +43,7 @@ test("GitHub attachment links decode inline, play, and release media when collap
   await expect(image).toHaveJSProperty("naturalWidth", 200);
   await expect(video).toHaveJSProperty("videoWidth", 16);
   await expect(video).toHaveAttribute("controls", "");
+  expect(videoRequestTypes).toEqual(new Set(["media"]));
   await expect(video).not.toHaveAttribute("autoplay");
   const videoWidth = (await video.boundingBox())!.width;
   const bodyWidth = (await comment.locator(".agent-markdown").boundingBox())!.width;
@@ -89,11 +90,7 @@ test("unavailable attachments report errors while other links and code stay unto
   const requests: string[] = [];
   await page.route("https://github.com/**", (route) => {
     requests.push(route.request().url());
-    return route.fulfill({
-      status: route.request().url() === asset(4) ? 404 : 200,
-      contentType: "text/plain",
-      body: "This is not media",
-    });
+    return route.abort();
   });
   await page.route(outside, (route) => {
     requests.push(route.request().url());
@@ -126,5 +123,5 @@ test("unavailable attachments report errors while other links and code stay unto
     ordinary,
   );
   await expect(comment.locator("a > img")).toHaveJSProperty("naturalWidth", 200);
-  expect(new Set(requests)).toEqual(new Set([asset(3), asset(4)]));
+  expect(requests).toEqual([]);
 });

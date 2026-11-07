@@ -75,6 +75,22 @@ public sealed partial class GitHubReviewProvider : IPullRequestDiscussion {
 	}
 
 	/// <inheritdoc/>
+	public async Task<AttachmentKind> AttachmentKindAsync(Uri url, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(url);
+		if (url.Scheme != Uri.UriSchemeHttps || !url.IsDefaultPort || url.UserInfo.Length > 0
+			|| url.Host is not ("github.com" or "user-images.githubusercontent.com")) {
+			throw new ArgumentException($"{url} is not a GitHub attachment.", nameof(url));
+		}
+		using var request = new HttpRequestMessage(HttpMethod.Get, url);
+		request.Headers.Range = new(0, 0);
+		using var response = await ExchangeAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+		string type = response.IsSuccessStatusCode ? response.Content.Headers.ContentType?.MediaType ?? string.Empty : string.Empty;
+		return type.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? AttachmentKind.Image
+			: type.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ? AttachmentKind.Video
+			: AttachmentKind.Unsupported;
+	}
+
+	/// <inheritdoc/>
 	public Task AddCommentAsync(RepoRef repo, string pullRequestId, string body, CancellationToken ct = default) =>
 		MutateAsync(repo, "addComment", "AddCommentInput", "clientMutationId", new JsonObject {
 			["subjectId"] = pullRequestId,

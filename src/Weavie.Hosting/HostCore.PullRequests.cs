@@ -156,9 +156,7 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
-		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
-		if (session.Changes.Review is { } existing && existing.SameSource(review))
-			review = review with { MergeBase = existing.MergeBase };
+		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree, baseSha, headRef);
 		try {
 			// The page activates this PR's session as this request's answer, landing on its overview.
 			await SeedAndArmReviewAsync(

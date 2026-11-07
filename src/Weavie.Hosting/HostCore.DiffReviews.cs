@@ -48,9 +48,8 @@ public sealed partial class HostCore {
 				return ReviewOpened.No;
 			}
 
-			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
-			if (session.Changes.Review is { } existing && existing.SameSource(review))
-				review = review with { MergeBase = existing.MergeBase };
+			string branch = await git.GetCurrentBranchAsync(worktree, ct).ConfigureAwait(false) ?? string.Empty;
+			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree, reference, branch);
 			changes = await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't diff against '{reference}': {ex.Message}");
@@ -162,14 +161,21 @@ public sealed partial class HostCore {
 		string? replaces,
 		CancellationToken ct) {
 		bool resuming = session.Changes.Review is { } existing && existing.SameSource(review);
+		// A review moving to a new merge-base re-reads every tracked file there, not only the changed ones.
+		var paths = changes.Select(change => change.Path).ToList();
+		if (resuming && session.Changes.Review!.MergeBase != review.MergeBase) {
+			paths.AddRange(session.Changes.TrackedPaths()
+				.Select(path => Path.GetRelativePath(review.Worktree, path).Replace('\\', '/'))
+				.Except(paths, StringComparer.Ordinal));
+		}
 
 		var git = new GitService();
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
 		try {
-			foreach (var change in changes) {
-				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, change.Path));
+			foreach (string path in paths) {
+				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, path));
 				var baseline = await git
-					.ReadFileAtRefAsync(review.Worktree, review.MergeBase, change.Path, ct)
+					.ReadFileAtRefAsync(review.Worktree, review.MergeBase, path, ct)
 					.ConfigureAwait(false);
 				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
 				seeds.Add((absolute, baseline, current));

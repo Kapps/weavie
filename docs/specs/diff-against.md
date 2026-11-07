@@ -47,10 +47,22 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   since the ref **deletes** it. A current-side deletion stays in the unified review as a read-only Monaco
   snapshot from the tracked current text, so a rename's delete side and a true deletion never depend on a
   warm working copy. Keep-all / undo-all / the undo history are all the turn-review ones.
-- **Arming preserves decisions.** First attachment extends the existing baseline through disjoint regions;
-  overlap with kept changes reports a conflict without resetting the board. Reopening the same source
-  retains its original anchor and reconciles new disk changes as pending. Empty Git diffs do not erase
-  rejected proposals or undo history.
+- **Arming preserves decisions.** First attachment extends the existing baseline through disjoint regions; a
+  file whose new base overlaps its kept changes starts over against the new base, so those lines show as
+  pending again. Empty Git diffs do not erase rejected proposals or undo history.
+- **A review belongs to its branch.** Its source is the branch, the target, and (for a PR) its number; the
+  merge-base is derived, never part of its identity. Weavie re-derives it whenever Git metadata changes
+  (`HostCore.ReviewHead.cs`):
+
+  ```mermaid
+  stateDiagram-v2
+    Open --> Open: commit on the branch (merge-base unchanged)
+    Open --> Open: merge or rebase moves the merge-base (re-seed every tracked file there, decisions kept)
+    Open --> Closed: another branch, or detached HEAD, is checked out
+  ```
+
+  Closing on a branch change finishes the review the way Close does and says so in a toast. A review against
+  `HEAD` or `HEAD^` follows HEAD, so committing reviewed work moves it out of that review.
 
 ## The shared review-diff surface
 

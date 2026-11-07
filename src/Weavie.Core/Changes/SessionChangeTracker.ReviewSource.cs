@@ -1,3 +1,4 @@
+using Weavie.Core.FileSystem;
 using Weavie.Core.Review;
 
 namespace Weavie.Core.Changes;
@@ -11,6 +12,22 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Reserves a source-opening request, replacing any earlier request still reading its files.</summary>
 	public object BeginReviewRequest() {
 		lock (_gate) return _reviewRequest = new object();
+	}
+
+	/// <summary>Every path the tracker holds, which a review rebased onto a new merge-base must seed.</summary>
+	public IReadOnlyCollection<string> TrackedPaths() {
+		lock (_gate) return [.. _baseline.Keys];
+	}
+
+	/// <summary>Closes <paramref name="expected"/> like <see cref="CloseReview"/>; another open review is left alone.</summary>
+	public bool RetireReview(ReviewContext expected) {
+		lock (_gate) {
+			if (_review != expected) return false;
+			ReconcileReviewDisk();
+			CloseReviewLocked();
+			Checkpoint();
+			return true;
+		}
 	}
 
 	/// <summary>Finishes the review at its current contents, clearing its source and decision history.</summary>
@@ -56,9 +73,12 @@ public sealed partial class SessionChangeTracker {
 			if (!ReferenceEquals(_reviewRequest, request)) return false;
 			if (_review is { } existing && !existing.SameSource(review))
 				throw new InvalidOperationException("This worktree already has a review against a different source.");
-			var prepared = seeds.Where(seed => _review is null || !_baseline.ContainsKey(seed.Path)).Select(PrepareSeed).ToArray();
+			bool rebase = _review is { } open && open.MergeBase != review.MergeBase;
+			if (rebase && _baseline.Keys.Except(seeds.Select(seed => NormalizePath(seed.Path)), PathIdentity.Comparer).Any())
+				throw new InvalidOperationException("A review moving to a new merge-base needs a seed for every tracked path.");
+			var prepared = seeds.Where(seed => _review is null || rebase || !_baseline.ContainsKey(seed.Path)).Select(PrepareSeed).ToArray();
 			foreach (var state in prepared) RestoreState(state);
-			SynchronizeHistory(external: false, except: null);
+			SynchronizeHistory(external: rebase, except: null);
 			SetReview(review);
 			ReconcileReviewDisk();
 			Checkpoint();
@@ -118,7 +138,8 @@ public sealed partial class SessionChangeTracker {
 		var from = new TextValue(state.Baseline, state.BaselineExists);
 		var to = new TextValue(seed.Baseline, seed.BaselineExists);
 		var hunks = LineHunker.Hunks(TextLines(from), TextLines(to));
-		TextValue Extend(TextValue target) {
+		// Null when the base change overlaps kept changes: the new base then wins for the whole file.
+		TextValue? Extend(TextValue target) {
 			if (target == from) return to;
 			var mapping = LineHunker.Hunks(TextLines(from), TextLines(target));
 			var transport = new TransportIndex(TextLines(from), mapping);
@@ -129,14 +150,15 @@ public sealed partial class SessionChangeTracker {
 					|| transport.Ambiguous(hunk.BeforeRange)
 					|| !TryGetSlice(TextLines(target), range, out var actual)
 					|| !actual.SequenceEqual(Lines(TextLines(from), hunk.BeforeRange)))
-					throw new InvalidOperationException("The requested base overlaps kept changes. Your existing review was preserved.");
+					return null;
 				patches.Add(new(path, ReviewPart.Review, range, [.. actual], [.. Lines(TextLines(to), hunk.AfterRange)],
 					target.Exists, seed.BaselineExists, null, null));
 			}
 			return patches.Count == 0 ? target : ApplyPatches(target, patches, undo: false);
 		}
-		var boundary = Extend(new(state.ReviewBaseline, state.ReviewBaselineExists));
-		var anchor = Extend(new(state.AcceptedAnchor, state.AcceptedAnchorExists));
+		var extended = (Boundary: Extend(new(state.ReviewBaseline, state.ReviewBaselineExists)),
+			Anchor: Extend(new(state.AcceptedAnchor, state.AcceptedAnchorExists)));
+		var (boundary, anchor) = extended is ( { } b, { } a) ? (b, a) : (to, to);
 		return state with {
 			Baseline = seed.Baseline,
 			BaselineExists = seed.BaselineExists,

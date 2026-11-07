@@ -11,7 +11,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
 	private static readonly ReviewContext Review = new(101, "#101", "topic", "base", "head",
-		new("github.com", "test", "repo"), Root);
+		new("github.com", "test", "repo"), Root, "base", "topic");
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
 		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 
@@ -65,28 +65,27 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 	}
 
 	[Fact]
-	public void OverlappingBaseExtension_PreservesTheWholeBoardAndSourceAtomically() {
+	public void OverlappingBaseExtension_RependsTheFileAgainstTheNewBase() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();
 		files.WriteAllText(File, "session baseline\n");
 		var tracker = Tracker(files, persistence);
-		ReviewTestChanges.AddPendingFile(tracker, files, Path.Combine(Root, "pending.txt"));
 		tracker.CaptureBaseline(File);
 		files.WriteAllText(File, "kept proposal\n");
 		tracker.RecordChange(File);
 		tracker.KeepFile(File);
-		var before = tracker.GetTurn(File);
-		var document = persistence.Read();
 		string other = Path.Combine(Root, "other.txt");
 		files.WriteAllText(other, "new file\n");
 
-		Assert.Throws<InvalidOperationException>(() => tracker.ArmReview(Review, [
+		tracker.ArmReview(Review, [
 			new(other, "", "new file\n", false, true), new(File, "earlier base\n", "kept proposal\n", true, true),
-		]));
-		Assert.Null(tracker.Review);
-		Assert.Null(tracker.GetTurn(other));
-		Assert.Equal(before, tracker.GetTurn(File));
-		Assert.Equal(document, persistence.Read());
+		]);
+
+		Assert.Equal(Review, tracker.Review);
+		var change = tracker.GetTurn(File)!;
+		Assert.Equal("earlier base\n", change.BaselineText);
+		Assert.Equal("earlier base\n", change.AcceptedBaselineText);
+		Assert.NotNull(tracker.GetTurn(other));
 		Assert.Equal("kept proposal\n", files.ReadAllText(File));
 	}
 
@@ -129,5 +128,59 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		Assert.Equal("kept\nspace\nnew head edit\n", change.CurrentText);
 		Assert.True(tracker.UndoLastKeep().Acted);
 		Assert.Equal("kept\nspace\nnew head edit\n", files.ReadAllText(File));
+	}
+
+	[Fact]
+	public void AReviewOnAnotherBranchIsAnotherSource() {
+		Assert.True(Review.SameSource(Review with { MergeBase = "moved", HeadSha = "newer" }));
+		Assert.False(Review.SameSource(Review with { Branch = "other" }));
+	}
+
+	[Fact]
+	public void AMovedMergeBase_RebasesTheReview_KeepingDecisionsItDoesNotTouch() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		const string original = "a\nspace1\nb\nspace2\nc\n";
+		files.WriteAllText(File, "A\nspace1\nb\nspace2\nc\n");
+		var tracker = Tracker(files, persistence);
+		tracker.ArmReview(Review, [new(File, original, files.ReadAllText(File), true, true)]);
+		Assert.True(tracker.KeepHunk(File, new(1, 2), new(1, 2), "A"));
+
+		// The target's merged change to the last line is now part of the base, not of this branch's review.
+		files.WriteAllText(File, "A\nspace1\nb\nspace2\nC\n");
+		tracker.RecordChange(File);
+		var before = tracker.GetTurn(File)!;
+		tracker.ArmReview(Review with { MergeBase = "merged" }, [new(File, "a\nspace1\nb\nspace2\nC\n", files.ReadAllText(File), true, true)]);
+
+		var change = tracker.GetTurn(File)!;
+		Assert.Equal("merged", tracker.Review!.MergeBase);
+		Assert.Equal(before.AcceptedBaselineText.Replace("c\n", "C\n"), change.AcceptedBaselineText);
+		Assert.Equal(before.BaselineText.Replace("c\n", "C\n"), change.BaselineText);
+		Assert.StartsWith("A\n", change.BaselineText);
+		Assert.Equal(change.CurrentText, change.BaselineText); // nothing left pending: the kept line and the merged base
+	}
+
+	[Fact]
+	public void AMovedMergeBase_NeedsASeedForEveryTrackedPath() {
+		var files = new InMemoryFileSystem();
+		var tracker = Tracker(files, new MemoryReviewPersistence());
+		files.WriteAllText(File, "changed\n");
+		tracker.ArmReview(Review, [new(File, "base\n", "changed\n", true, true)]);
+
+		Assert.Throws<InvalidOperationException>(() => tracker.ArmReview(Review with { MergeBase = "merged" }, []));
+		Assert.Equal("base", tracker.Review!.MergeBase);
+	}
+
+	[Fact]
+	public void RetireReview_ClosesOnlyTheReviewItExpects() {
+		var files = new InMemoryFileSystem();
+		var tracker = Tracker(files, new MemoryReviewPersistence());
+		files.WriteAllText(File, "changed\n");
+		tracker.ArmReview(Review, [new(File, "base\n", "changed\n", true, true)]);
+
+		Assert.False(tracker.RetireReview(Review with { MergeBase = "stale" }));
+		Assert.NotNull(tracker.Review);
+		Assert.True(tracker.RetireReview(Review));
+		Assert.Null(tracker.Review);
 	}
 }

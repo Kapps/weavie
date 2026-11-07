@@ -22,7 +22,7 @@ Satisfies R1, R2, R3.
 Satisfies R4, R5, R6.
 
 - [x] Add `WorkflowCatalog.Folder` and `Fork`.
-- [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
+- [x] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
 - [ ] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
 - [ ] Add `folders` to `listWorkflows`.
 - [ ] Add the catalog and MCP tests for R4 to R6.

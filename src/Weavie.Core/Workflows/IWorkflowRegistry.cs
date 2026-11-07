@@ -15,6 +15,12 @@ public interface IWorkflowRegistry {
 	/// <summary>The problems in proposed workflow <paramref name="text"/>; no file is touched.</summary>
 	IReadOnlyList<WorkflowDiagnostic> ValidateText(string text);
 
+	/// <summary>Copies the valid workflow <paramref name="id"/> into the more specific <paramref name="scope"/>; returns the new path.</summary>
+	string Fork(string id, WorkflowScope scope);
+
+	/// <summary>The folder holding <paramref name="scope"/>'s workflow files, which may not exist yet.</summary>
+	string Folder(WorkflowScope scope);
+
 	/// <summary>Completes the session's open stage with <paramref name="outputs"/> and a <paramref name="summary"/>; returns the reply for the agent.</summary>
 	string CompleteStage(JsonElement outputs, string summary);
 
@@ -34,6 +40,10 @@ public static class WorkflowRegistry {
 
 		public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => throw Error();
 
+		public string Fork(string id, WorkflowScope scope) => throw Error();
+
+		public string Folder(WorkflowScope scope) => throw Error();
+
 		public string CompleteStage(JsonElement outputs, string summary) => throw Error();
 
 		public void FailStage(string reason) => throw Error();
@@ -52,6 +62,12 @@ public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRun
 
 	/// <inheritdoc/>
 	public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => catalog.ValidateText(text);
+
+	/// <inheritdoc/>
+	public string Fork(string id, WorkflowScope scope) => catalog.Fork(id, scope);
+
+	/// <inheritdoc/>
+	public string Folder(WorkflowScope scope) => catalog.Folder(scope);
 
 	/// <inheritdoc/>
 	public string CompleteStage(JsonElement outputs, string summary) => runner.CompleteStage(outputs, summary);

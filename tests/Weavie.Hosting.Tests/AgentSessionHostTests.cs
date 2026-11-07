@@ -176,6 +176,7 @@ public sealed partial class AgentSessionHostTests {
 			ExecutableMode = AgentExecutableMode.SearchPath,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
 			OutputCapture = new AgentOutputCapture.Disabled(),
+			HangUpOnStop = false,
 		}, cancellation.Token);
 		fixture.Bridge.Clear();
 

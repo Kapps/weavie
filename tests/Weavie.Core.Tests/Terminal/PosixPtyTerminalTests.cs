@@ -30,6 +30,48 @@ public sealed class PosixPtyTerminalTests {
 		}
 	}
 
+	private static int StopOnceReady(TerminalStartInfo info) {
+		using var terminal = new PosixPtyTerminal();
+		using var ready = new ManualResetEventSlim();
+		int exitCode = -1;
+		terminal.Output += data => {
+			if (Encoding.UTF8.GetString(data).Contains("ready", StringComparison.Ordinal)) {
+				ready.Set();
+			}
+		};
+		terminal.Exited += code => exitCode = code;
+		terminal.Start(info);
+		Assert.True(ready.Wait(TimeSpan.FromSeconds(10)), "child never reported ready");
+		terminal.Dispose();
+		return exitCode;
+	}
+
+	[Fact]
+	public void Dispose_HangsUpAnInteractiveShell_InsteadOfKillingIt() {
+		if (OperatingSystem.IsWindows()) return;
+
+		int exitCode = StopOnceReady(new TerminalStartInfo {
+			Command = "/bin/bash",
+			Arguments = ["--noprofile", "--norc", "-i"],
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["PS1"] = "ready> " },
+			HangUpOnStop = true,
+		});
+
+		Assert.Equal(129, exitCode);
+	}
+
+	[Fact]
+	public void Dispose_DoesNotHangUpAChildThatStopsOnSigterm() {
+		if (OperatingSystem.IsWindows()) return;
+
+		int exitCode = StopOnceReady(new TerminalStartInfo {
+			Command = "/bin/sh",
+			Arguments = ["-c", "trap 'exit 7' TERM; trap 'exit 9' HUP; echo ready; while :; do sleep 0.05; done"],
+		});
+
+		Assert.Equal(7, exitCode);
+	}
+
 	[Fact]
 	public void Dispose_StopsOnlyTheOwnedTerminal_AndAllowsReplacement() {
 		if (OperatingSystem.IsWindows()) return;

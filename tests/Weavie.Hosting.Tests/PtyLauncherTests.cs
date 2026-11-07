@@ -14,6 +14,7 @@ public sealed class PtyLauncherTests {
 		ExecutableMode = mode,
 		WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
 		OutputCapture = new AgentOutputCapture.Disabled(),
+		HangUpOnStop = false,
 	};
 
 	[Fact]

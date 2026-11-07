@@ -57,6 +57,9 @@ public sealed record AgentLaunch {
 
 	/// <summary>Provider-owned raw-output capture behavior.</summary>
 	public required AgentOutputCapture OutputCapture { get; init; }
+
+	/// <summary>Whether stopping also hangs up the child: an interactive shell ignores SIGTERM.</summary>
+	public required bool HangUpOnStop { get; init; }
 }
 
 /// <summary>A PTY exit observed before the process supervisor applies its restart policy.</summary>

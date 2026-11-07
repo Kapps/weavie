@@ -110,6 +110,7 @@ public sealed class TerminalControllerCwdTests {
 			Arguments = launch.Arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 

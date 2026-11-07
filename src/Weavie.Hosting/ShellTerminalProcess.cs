@@ -35,6 +35,7 @@ public sealed class ShellTerminalProcess : ITerminalProcess {
 			ExecutableMode = AgentExecutableMode.Direct,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.FollowReported,
 			OutputCapture = new AgentOutputCapture.Disabled(),
+			HangUpOnStop = true,
 		};
 	}
 

@@ -1,6 +1,6 @@
 # CI duration: measurements and proposals
 
-Status: #1, #3, #5 and #6 implemented; #2 deferred (see its section); the rest are proposals.
+Status: #1, #3, #4, #5 and #6 implemented; #2 deferred (see its section); the rest are proposals.
 
 ## Summary
 
@@ -11,8 +11,8 @@ by 9 min (p90 11 min).
 
 The e2e shards are badly unbalanced. Playwright splits tests by **count**, not duration, so shard 1 runs
 3.7 min of tests and shard 6 runs 9.1 min. A duration-balanced split of the same six shards finishes in
-7.1 min. More than half of all e2e time (56%) goes to the per-test `weavie` fixture booting and tearing
-down a host, not to test bodies.
+7.1 min. More than half of all e2e time (56%) goes to the per-test `weavie` fixture, not to test bodies,
+though #4 shows little of that is the host itself.
 
 Dependency caches already hit, so caching is not a lever. The ranked proposals below would take the
 median from ~15.3 to ~11.5 min without dropping any coverage.
@@ -116,14 +116,14 @@ makespan; the largest is 103s), so it keeps `beforeAll` and file-level `serial` 
 
 | Bucket | Seconds | Share |
 |---|---|---|
-| `Before Hooks` (mostly `weavie` fixture: host boot to splash cleared) | 1129 | 44% |
+| `Before Hooks` (mostly the `weavie` fixture; see #4 for what's inside it) | 1129 | 44% |
 | `After Hooks` (host teardown) | 301 | 12% |
 | Test bodies | ~1120 | 44% |
 
 The median test takes 3.9s. Only 4 tests run longer than 20s; the slowest is
 `unified-review-wheel.spec.ts` › "wheel scrolling preserves file order…" at 48s. Per project:
 headless 2032s, chromium 312s, remote 137s, mobile 70s. Each test owns a fresh host by design, and host
-reuse was rejected earlier (see the e2e teardown work), so the lever is a cheaper boot, not sharing hosts.
+reuse was rejected earlier (see the e2e teardown work), so the lever is a cheaper fixture, not sharing hosts.
 
 ### Inside the bundle job (run 41571164267, `Publish self-contained test bundle` = 230s)
 
@@ -231,15 +231,23 @@ returns shrink while queue risk grows.
   the shard queue p90; if it rises above the ~100s this saves, go back to 6. On a public repo, standard
   runner minutes cost nothing; the cap is concurrency, not money.
 
-### 4. Cut the per-test host boot: ~−50s for each 0.5s saved per test
+### 4. Cut the per-test fixture cost: implemented
 
-56% of e2e time is the `weavie` fixture: ~2.0s boot and ~0.5s teardown per test. That's the shipped
-Headless AOT host's startup plus the web client's first paint, so the win carries over to real users
-too. Profile one fixture boot (process spawn, Kestrel bind, Core graph, wwwroot first paint, splash
-clear) and cut the largest phase. Each 0.5s/test saves ~565 × 0.5 / 6 ≈ 47s per shard at 6 shards.
+Profiling one test's lifecycle, pinned to 4 cores, showed that host boot is not the cost: the AOT host
+listens in ~75ms and the splash clears ~470ms later. The fixture time went to two other things.
 
-- **Tradeoffs:** unknown effort until profiled. This is product work, not CI config. Keep one host per
-  test (isolation is non-negotiable; host reuse was rejected).
+| Cost | Per test | After | Cause |
+|---|---|---|---|
+| Trace DOM snapshots | ~0.5s of setup, and more in every test step | ~0 | `trace: "retain-on-failure"` records a DOM snapshot around every action, passing or not |
+| Host shutdown | 603ms | 107ms | Interactive shells ignore SIGTERM, so each shell pane sat out the PTY's 500ms grace period before SIGKILL |
+
+- **Traces** keep per-action screenshots and sources but drop DOM snapshots (`snapshots: false`). A failure's
+  DOM now needs a local rerun with `--trace on`; see [e2e-flake-policy](e2e-flake-policy.md).
+- **Shutdown:** a launch that sets `HangUpOnStop` (only the shell pane) also gets SIGHUP, as a closing
+  terminal would send. Agents keep SIGTERM alone so they can finish their own shutdown. Closing a shell pane
+  gets 500ms faster for users too.
+
+Together these took an 18-test sample (`session.spec.ts`, `close-review.spec.ts`) from 73–84s to 42–45s.
 
 ### 5. Stop the macOS job re-verifying what Linux already verified: −1.3 min on macOS
 
@@ -310,7 +318,6 @@ alongside would save ~30s.
 | #1 balanced, 6 shards | 255s | ~470s | 35s | ~13.3 min |
 | + #3 8 shards | 255s | ~365s | 35s | ~11.6 min |
 | + #5 macOS format split | — | — | — | p90 stays e2e-bound |
-| + #4 −0.5s boot | 255s | ~330s | 35s | ~11.0 min |
 
 ## Measured results (#1, #3, #5, #6)
 

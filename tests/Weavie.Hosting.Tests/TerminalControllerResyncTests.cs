@@ -138,6 +138,7 @@ public sealed class TerminalControllerResyncTests {
 			Arguments = launch.Arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 

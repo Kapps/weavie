@@ -349,6 +349,7 @@ public sealed class TerminalController : IDisposable {
 				WorkingDirectory = workspace,
 				RemoveEnvironment = resolved.RemoveEnvironment,
 				Environment = resolved.Environment,
+				HangUpOnStop = resolved.HangUpOnStop,
 				Columns = _columns,
 				Rows = _rows,
 			});

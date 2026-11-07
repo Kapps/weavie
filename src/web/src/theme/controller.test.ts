@@ -84,9 +84,35 @@ it("themes editor surfaces from the editor slot and the chrome from the app slot
   expect(editorProperties.get("--bg")).toBe("#fafafa");
   expect(editorProperties.get("--weavie-editor-background")).toBe("#fafafa");
   expect(editorProperties.get("color-scheme")).toBe("light");
-  expect(editorProperties.get("--diff-added-line")).toBe("initial");
+  expect(editorProperties.get("--weavie-sideBar-background")).toBe("initial");
   expect(controller.currentMonacoTheme().theme.type).toBe("light");
   expect(controller.currentXtermTheme().background).not.toBe("#fafafa");
+});
+
+it("backs chrome colors a theme omits with its own polarity's built-ins", async () => {
+  const { WEAVIE_DARK } = await import("./builtin/weavie-dark");
+  const { WEAVIE_LIGHT } = await import("./builtin/weavie-light");
+  await import("./controller");
+  const sparse = (type: "light" | "dark") => ({
+    id: "sparse",
+    theme: { name: "Sparse", type, colors: { "editor.background": "#fafafa" }, tokenColors: [] },
+  });
+  receiveTheme({
+    mode: "dark",
+    light: { id: "weavie-light" },
+    dark: sparse("dark"),
+    editorDark: sparse("light"),
+  });
+  expect(properties.get("--bar")).toBe(WEAVIE_DARK.colors["editorWidget.background"]);
+  expect(editorProperties.get("--bar")).toBe(WEAVIE_LIGHT.colors["editorWidget.background"]);
+  expect(editorProperties.get("--busy")).toBe(WEAVIE_LIGHT.colors["terminal.ansiBlue"]);
+});
+
+it("has a built-in color for every chrome var in both polarities", async () => {
+  const { CHROME_COLORS, chromeVars } = await import("./chrome-vars");
+  for (const polarity of ["light", "dark"] as const) {
+    expect(Object.keys(chromeVars({}, polarity))).toEqual(Object.keys(CHROME_COLORS));
+  }
 });
 
 it("previews an editor theme on the editor surfaces only", async () => {

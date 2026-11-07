@@ -120,6 +120,7 @@ export const CommandIds = {
   agentDeclineInput: "weavie.agent.declineInput",
   agentCancelInput: "weavie.agent.cancelInput",
   agentAcceptInput: "weavie.agent.acceptInput",
+  agentAnswerByIndex: "weavie.agent.answerByIndex",
   agentAuthenticate: "weavie.agent.authenticate",
   terminalClear: "weavie.terminal.clear",
   editorCopy: "weavie.editor.copy",

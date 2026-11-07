@@ -196,6 +196,7 @@ const agentCommand = (id: string, title: string, when: string, keys: string[]): 
 
 const approvalWhen = "agentFocused && agentApprovalPending";
 const inputWhen = "agentFocused && agentInputPending";
+const choiceWhen = "agentFocused && agentChoicePending";
 const turnNavigationWhen = "agentFocused && agentTurnNavigable";
 const catalog = {
   commands: [
@@ -232,6 +233,12 @@ const catalog = {
     agentCommand("weavie.agent.declineInput", "Decline Agent Input Request", inputWhen, ["alt+n"]),
     agentCommand("weavie.agent.cancelInput", "Cancel Agent Input Request", inputWhen, []),
     agentCommand("weavie.agent.acceptInput", "Submit Agent Input", inputWhen, ["alt+enter"]),
+    agentCommand(
+      "weavie.agent.answerByIndex",
+      "Answer Agent Question by Number",
+      choiceWhen,
+      Array.from({ length: 9 }, (_, index) => `alt+${index + 1}`),
+    ),
     agentCommand("weavie.pr.openCurrent", "Open Current Pull Request", "pullRequestAvailable", [
       "$mod+shift+g",
     ]),
@@ -256,6 +263,12 @@ const catalog = {
     { key: "alt+n", command: "weavie.agent.decline", when: approvalWhen },
     { key: "alt+n", command: "weavie.agent.declineInput", when: inputWhen },
     { key: "alt+enter", command: "weavie.agent.acceptInput", when: inputWhen },
+    ...Array.from({ length: 9 }, (_, index) => ({
+      key: `alt+${index + 1}`,
+      command: "weavie.agent.answerByIndex",
+      when: choiceWhen,
+      args: { index: index + 1 },
+    })),
     {
       key: "$mod+shift+g",
       command: "weavie.pr.openCurrent",
@@ -1022,6 +1035,115 @@ test.describe("ACP composer", () => {
     });
   });
 
+  test("a single-choice question answers from its rows, Alt+N, and Other", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const choice = (itemId: string) =>
+      paneMessage({
+        type: "input-requested",
+        itemId,
+        requestId: itemId,
+        status: "pending",
+        text: "Where should the session live?",
+        questions: [
+          {
+            ...freeformQuestion,
+            id: "store",
+            header: "Session store",
+            question: "Where should the session live?",
+            required: false,
+            allowsOther: true,
+            options: [
+              { value: "cookie", label: "Cookie", description: "Signed, httpOnly cookie." },
+              { value: "redis", label: "Redis", description: "Server-side session." },
+            ],
+          },
+        ],
+      });
+    publishPane(choice("choice-older"));
+    publishPane(
+      paneMessage({
+        type: "input-requested",
+        itemId: "form-newer",
+        requestId: "form-newer",
+        status: "pending",
+        questions: [freeformQuestion],
+      }),
+    );
+
+    const card = page.locator(".agent-body .agent-entry-waiting", {
+      has: page.locator(".agent-choice-prompt"),
+    });
+    const rows = page.locator(".agent-choice-row");
+    await expect(card.locator(".agent-entry-label")).toHaveText("Question");
+    await expect(card.locator(".agent-choice-prompt")).toHaveText("Where should the session live?");
+    await expect(card.locator(".agent-choice-prompt")).toHaveAttribute("title", "Session store");
+    await expect(card.locator(".agent-entry-text")).toHaveCount(0);
+    await expect(rows.first()).toHaveClass(/default/);
+    // The newer form owns the keys, so the older card advertises none.
+    await expect(card.locator(".agent-choice-key")).toHaveText(["", ""]);
+    await expect(card.locator(".agent-choice-keys")).toHaveCount(0);
+    await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(1);
+    const labelLeft = async (): Promise<number | undefined> =>
+      (await card.locator(".agent-choice-label").first().boundingBox())?.x;
+    const unkeyedLeft = await labelLeft();
+    await page.locator("[data-agent-composer] textarea").focus();
+    await page.keyboard.press("Alt+1");
+    await page.keyboard.press("Alt+N");
+    expect(await waitForAgentPayload("input")).toMatchObject({
+      requestId: "form-newer",
+      action: "decline",
+    });
+    publishPane(paneMessage({ type: "input-resolved", itemId: "form-newer", status: "declined" }));
+
+    await expect(card.locator(".agent-choice-key")).toHaveText(["1", "2"]);
+    expect(await labelLeft()).toBe(unkeyedLeft);
+    await expect(card.locator(".agent-choice-keys")).toHaveText("Alt+1–2");
+    await expect(rows.first()).toHaveAttribute(
+      "title",
+      "Cookie — Signed, httpOnly cookie. (Alt+1, Alt+Enter)",
+    );
+    await expect(card.getByRole("button", { name: "Decline", exact: true })).toHaveAttribute(
+      "title",
+      "Decline request (Alt+N)",
+    );
+    await card.screenshot({ path: join(shotsDir, "17-choice-request.png") });
+    let checkpoint = host.checkpoint();
+    await page.keyboard.press("Alt+2");
+    expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
+      requestId: "choice-older",
+      action: "accept",
+      answers: { store: ["redis"] },
+    });
+    publishPane(
+      paneMessage({ type: "input-resolved", itemId: "choice-older", status: "accepted" }),
+    );
+    await expect(rows).toHaveCount(0);
+
+    publishPane(choice("choice-other"));
+    const other = page.locator(".agent-choice-other");
+    await other.fill("Postgres");
+    checkpoint = host.checkpoint();
+    await other.press("Enter");
+    expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
+      requestId: "choice-other",
+      action: "accept",
+      answers: { store: ["Postgres"] },
+    });
+    publishPane(
+      paneMessage({ type: "input-resolved", itemId: "choice-other", status: "accepted" }),
+    );
+    await expect(rows).toHaveCount(0);
+
+    publishPane(choice("choice-click"));
+    checkpoint = host.checkpoint();
+    await page.locator(".agent-choice-row", { hasText: "Cookie" }).click();
+    expect(await waitForAgentPayload("input", checkpoint)).toMatchObject({
+      requestId: "choice-click",
+      answers: { store: ["cookie"] },
+    });
+  });
+
   test("a resolved input request reopens its prompt, options, and answer", async ({ page }) => {
     await mountAgent(page);
     publishPane(
@@ -1052,8 +1174,7 @@ test.describe("ACP composer", () => {
     const request = page.locator(".agent-body .agent-entry-request");
     await expect(request.getByText("Ship the whole feature.", { exact: true })).toBeVisible();
     await request.screenshot({ path: join(shotsDir, "15-input-request.png") });
-    await page.getByRole("radio", { name: "Everything" }).check();
-    await request.getByRole("button", { name: "Submit answers" }).click();
+    await request.locator(".agent-choice-row", { hasText: "Everything" }).click();
     expect(await waitForAgentPayload("input")).toMatchObject({
       requestId: "input-review",
       answers: { scope: ["all"] },

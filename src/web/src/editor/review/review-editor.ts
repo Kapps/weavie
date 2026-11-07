@@ -191,6 +191,11 @@ export function createReviewEditor(options: {
     active: options.active,
     toolbarHost: options.toolbarHost,
     revealLine,
+    focus: () => editor.focus(),
+    changes: (next) => next.hunks,
+    confirmTarget: () => true,
+    cleared: () => {},
+    toolbarItems: () => [],
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
       const bounds = viewport.bounds();

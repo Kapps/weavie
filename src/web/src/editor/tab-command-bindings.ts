@@ -5,11 +5,11 @@ import { CommandIds } from "../commands/types";
 import { fileIndexFor } from "../files/session-files";
 import type { EditorController } from "./editor-controller";
 import { basename, repoRelativePath } from "./fs-path";
-import { canPreview } from "./preview/preview-registry";
+import { canPreview, previewKindOf } from "./preview/preview-registry";
 import { activeTabFor } from "./session-store";
 import { openSourceInBrowser } from "./source/source-links";
 import { isFileTab } from "./tab-entry";
-import { toggleViewMode } from "./view-mode-store";
+import { toggleChangesOnly, toggleViewMode } from "./view-mode-store";
 
 export const commandPath = (args: unknown): string | undefined => {
   const path = (args as { path?: unknown } | undefined)?.path;
@@ -69,6 +69,13 @@ export function tabCommandBindings(editor: EditorController): [string, CommandCa
           () =>
             target !== undefined && openSourceInBrowser(target.session, target.entry),
       ),
+    ],
+    [
+      CommandIds.previewChangesOnly,
+      file((tab) => {
+        if (previewKindOf(tab.entry.path) !== "markdown") return false;
+        toggleChangesOnly(tab.session, tab.entry.path);
+      }),
     ],
     [
       CommandIds.toggleEditorPreview,

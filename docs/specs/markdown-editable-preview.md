@@ -2,9 +2,9 @@
 
 Markdown is how plans and specs get reviewed, so it opens rendered (`editor.markdownView`, default `preview`)
 and stays editable there. Clicking a block shows its Markdown in place; the rest of the document stays rendered.
-The Source/Preview toggle (and `setViewMode` when a review opens a file's diff) overrides the default per file.
-A file with pending agent changes stays rendered until the review flow opens it, because reading the rendered
-document is how a new plan gets reviewed; its review toolbar and shortcuts keep working there.
+The Source/Preview toggle overrides the default per file.
+A file with pending agent changes stays rendered and is reviewed there; see
+[Pending changes in the rendered Markdown preview](markdown-preview-changes.md).
 
 ## Model
 
@@ -44,6 +44,6 @@ adjacent block, and Backspace in an empty block leaves it. A block left empty is
 
 ## Limits
 
-Reference definitions and other lines that render nothing have no block; edit them in Source. Preview has no
-inline diff, PR comments, or review hints, so opening a file's review or stepping to a hint switches it to
-Source. Find and Go to Symbol work on Monaco only, so they need Source too.
+Reference definitions and other lines that render nothing have no block; edit them in Source. Review hints and
+PR comments are Monaco-only, so stepping to a hint switches the file to Source; Find and Go to Symbol need Source
+too.

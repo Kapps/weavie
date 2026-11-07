@@ -131,8 +131,18 @@ export interface InlineDiffPresentation {
   active(): boolean;
   toolbarHost(): HTMLElement | null;
   revealLine(line: number): void;
+  /** Takes the keyboard to where a revealed change is shown. */
+  focus(): void;
   reviewLine(): number;
   prepareGeometry(markers: DiffMarkers | null): void;
+  /** The changes the surface reviews: the line hunks, or coarser ones that each cover whole line hunks. */
+  changes(markers: DiffMarkers, original: string, model: monaco.editor.ITextModel): DiffHunk[];
+  /** Controls the surface adds to the review toolbar, after the change navigation. */
+  toolbarItems(): HTMLElement[];
+  /** The rendered diff is gone; whatever the surface drew from it goes too. */
+  cleared(): void;
+  /** Whether `hunk` is on screen to act on; false shows it instead, so nothing is kept or reverted unseen. */
+  confirmTarget(hunk: DiffHunk): boolean;
   painted(): void;
   /** Keeps geometry-induced scroll changes inside the owning presentation. */
   updateGeometry(change: () => void): void;
@@ -175,6 +185,8 @@ export interface InlineDiff {
   setReviewHistory(state: ReviewHistoryState): void;
   /** Set (or clear) the parked-navigator summary; it surfaces when no changed file is in view. */
   setParkedReview(summary: ParkedReview | undefined): void;
+  /** Re-renders the active diff, after the surface that groups its changes appears or goes. */
+  regroup(): void;
   /** Tear down listeners + any rendered markers (never disposes a model). */
   dispose(): void;
 }
@@ -338,6 +350,7 @@ export function createInlineDiff(
     clearPaint();
     clearControls();
     renderedUri = undefined;
+    presentation.cleared();
   };
   const clearRender = (): void => {
     clearRenderState();
@@ -415,7 +428,7 @@ export function createInlineDiff(
 
   const reveal = (line: number): void => {
     editor.setPosition({ lineNumber: line, column: 1 });
-    editor.focus();
+    presentation.focus();
     presentation.revealLine(line);
   };
 
@@ -555,7 +568,7 @@ export function createInlineDiff(
     }
     const hunk = hunkAtReviewLine();
     if (hunk !== undefined) {
-      keepHunkNow(hunk);
+      if (presentation.confirmTarget(hunk)) keepHunkNow(hunk);
     } else if (!geometryStale() && currentOptions.onNextPendingFile?.() !== true) {
       // Nothing left at "change 0/0" nor in any other file: Keep finishes the review.
       currentOptions.onKeepAll?.();
@@ -569,7 +582,7 @@ export function createInlineDiff(
       return false;
     }
     const hunk = hunkAtReviewLine();
-    if (hunk !== undefined) {
+    if (hunk !== undefined && presentation.confirmTarget(hunk)) {
       revertHunkNow(hunk);
     }
     // At "change 0/0" consume the key rather than fall through to the editor.
@@ -848,7 +861,7 @@ export function createInlineDiff(
     dotsNode = document.createElement("span");
     dotsNode.className = "weavie-inline-dots";
     bar.appendChild(dotsNode);
-    bar.append(...navButtons());
+    bar.append(...navButtons(), ...presentation.toolbarItems());
     const divider = document.createElement("span");
     divider.className = "weavie-inline-divider";
     bar.appendChild(divider);
@@ -1108,7 +1121,7 @@ export function createInlineDiff(
       replacePaint(markers);
 
       currentOptions = options;
-      currentHunks = hunks;
+      currentHunks = presentation.changes(markers, options.original, model);
       renderedVersion = version;
       showingParked = false;
       if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
@@ -1452,6 +1465,7 @@ export function createInlineDiff(
         renderActive();
       }
     },
+    regroup: renderActive,
     clearAll() {
       diffs.clear();
       appliedKeys.clear();

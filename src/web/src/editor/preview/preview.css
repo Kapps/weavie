@@ -252,9 +252,230 @@
   top: 100%;
   right: 0;
   z-index: 1;
+  display: flex;
+  gap: 0.8em;
+  align-items: center;
   padding: 0 0.4em;
   color: var(--dim);
   background: var(--bg);
   font-size: var(--font-hint-size);
   line-height: 1.6;
+}
+
+/* Pending agent changes, read as margin bars; the shown change marks its words. */
+.wv-md-banner,
+.editor-preview-body .wv-md-removed-chip,
+.editor-preview-body .wv-md-fold,
+.editor-preview-body .wv-md-note {
+  color: var(--dim);
+  font: var(--font-metadata-size) / 1.5 var(--font-chrome-family);
+}
+
+.wv-md-banner {
+  display: flex;
+  gap: 1em;
+  max-width: 48rem;
+  margin: 0 auto 1.4em;
+  padding: 0.5em 0.9em;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.wv-md-banner strong {
+  color: var(--fg);
+}
+
+/* Text buttons: the banner and fold links, and the edit box footer. */
+.wv-md-action,
+.wv-preview-block-footer-action {
+  padding: 0;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wv-md-action {
+  margin-left: auto;
+}
+
+.wv-md-action:hover {
+  text-decoration: underline;
+}
+
+.wv-preview-block-footer-action {
+  color: var(--fg);
+}
+
+.weavie-inline-toolbar .weavie-inline-changes-only[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Room below the last block for the review toolbar that floats over the pane's bottom. */
+.editor-preview:has(.wv-md-mark) .editor-preview-body {
+  padding-bottom: 4em;
+}
+
+.editor-preview-body .wv-md-changed,
+.editor-preview-body .wv-md-added,
+.editor-preview-body .wv-md-removed {
+  position: relative;
+}
+
+.editor-preview-body .wv-md-bar {
+  position: absolute;
+  top: 0.2em;
+  bottom: 0.2em;
+  width: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--warn);
+  cursor: pointer;
+}
+
+.editor-preview-body .wv-md-bar:hover,
+.editor-preview-body .wv-md-bar:focus-visible {
+  width: 5px;
+  outline: none;
+}
+
+.editor-preview-body .wv-md-added > .wv-md-bar {
+  background: var(--diff-added);
+}
+
+.editor-preview-body .wv-md-removed > .wv-md-bar {
+  background: var(--diff-removed);
+}
+
+/* A list item's bar marks its own line, not the nested items under it. */
+.editor-preview-body li:has(> ul, > ol) > .wv-md-bar {
+  bottom: auto;
+  height: 1.2em;
+}
+
+.wv-md-ins,
+.wv-md-del {
+  border-radius: 3px;
+}
+
+.wv-md-ins {
+  text-decoration: none;
+  background: var(--diff-added-text);
+}
+
+.wv-md-del {
+  color: var(--dim);
+  background: var(--diff-removed-text);
+  text-decoration-color: var(--diff-removed);
+}
+
+.wv-md-del + .wv-md-ins {
+  margin-left: 0.2em;
+}
+
+.editor-preview-body .wv-md-note {
+  margin-left: 0.6em;
+}
+
+/* A removal reads as a quiet chip where its blocks were; shown, it opens into their struck-through text. */
+.editor-preview-body .wv-md-removed {
+  --removed-tint: color-mix(in srgb, var(--diff-removed) 7%, transparent);
+  --removed-edge: color-mix(in srgb, var(--diff-removed) 28%, transparent);
+  list-style: none;
+  margin: 0.5em 0;
+}
+
+.editor-preview-body .wv-md-removed-chip,
+.editor-preview-body .wv-md-removed-body {
+  background: var(--removed-tint);
+  border: 1px solid var(--removed-edge);
+}
+
+.editor-preview-body .wv-md-removed-chip {
+  display: inline-flex;
+  gap: 0.55em;
+  max-width: 100%;
+  padding: 0.1em 0.75em;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.editor-preview-body .wv-md-removed-chip:hover {
+  border-color: var(--diff-removed);
+}
+
+.editor-preview-body .wv-md-removed-label {
+  color: var(--diff-removed);
+  font-weight: 600;
+}
+
+.editor-preview-body .wv-md-removed-summary {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.editor-preview-body .wv-md-removed-body {
+  padding: 0.45em 0.9em 0.1em;
+  color: var(--dim);
+  border-radius: 6px;
+}
+
+.editor-preview-body .wv-md-removed-body > .wv-md-removed-label {
+  display: block;
+  font: var(--font-hint-size) / 1.4 var(--font-chrome-family);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-preview-body .wv-md-removed-body > :not(.wv-md-removed-label) {
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-removed);
+}
+
+.editor-preview-body .wv-md-removed-body p {
+  margin: 0.3em 0 0.5em;
+}
+
+.editor-preview-body .wv-md-folded {
+  display: none;
+}
+
+/* A fold reads as a dashed divider where the unchanged blocks were. */
+.editor-preview-body .wv-md-fold {
+  display: flex;
+  gap: 0.7em;
+  align-items: center;
+  margin: 1em 0;
+}
+
+.editor-preview-body .wv-md-fold::before,
+.editor-preview-body .wv-md-fold::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--border);
+}
+
+.editor-preview-body .wv-md-fold .wv-md-action {
+  margin-left: 0;
+}
+
+/* The agent's original, inside the edit box of a block it changed. */
+.wv-preview-block-original {
+  grid-area: 2 / 1;
+  padding: 0.3em 0.5em;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.wv-preview-block-hint > * + *::before {
+  content: "·";
+  margin-right: 0.8em;
+  color: var(--dim);
 }

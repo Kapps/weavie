@@ -11,7 +11,6 @@ public sealed record WorktreeStatus {
 	/// <summary>The short branch name checked out here, or <c>null</c> when detached.</summary>
 	public string? Branch { get; init; }
 
-
 	/// <summary>The agent provider Weavie recorded for this worktree-backed session, when known.</summary>
 	public string? AgentProviderId { get; init; }
 

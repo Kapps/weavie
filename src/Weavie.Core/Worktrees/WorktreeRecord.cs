@@ -5,8 +5,11 @@ namespace Weavie.Core.Worktrees;
 /// if this recoverable record is lost.
 /// </summary>
 public sealed record WorktreeRecord {
-	/// <summary>The branch git last reported checked out here; refreshed whenever Weavie lists worktrees.</summary>
-	public required string Branch { get; init; }
+	/// <summary>
+	/// The branch git last reported checked out here (<c>null</c> while detached); refreshed whenever Weavie lists
+	/// worktrees.
+	/// </summary>
+	public required string? Branch { get; init; }
 
 	/// <summary>Absolute path to the worktree's working directory (normalized).</summary>
 	public required string Path { get; init; }

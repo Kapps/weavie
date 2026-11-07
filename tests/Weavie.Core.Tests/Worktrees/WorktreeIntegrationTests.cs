@@ -68,6 +68,18 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ADetachedWorktree_ReleasesItsBranchName() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("first", "main", "acp");
+		TempGitRepo.Run(record.Path, "switch", "-q", "--detach");
+
+		await manager.ListAsync();
+
+		Assert.Null(manager.Registry.FindByPath(record.Path)!.Branch);
+		Assert.Null(manager.Registry.FindByBranch("first"));
+	}
+
+	[Fact]
 	public async Task DirtyWorktree_RemovalGuarded() {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("wip", "main", "acp");

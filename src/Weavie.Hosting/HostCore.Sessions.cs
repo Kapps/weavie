@@ -1223,6 +1223,14 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
 		}
 
+		// The branch may have been switched to inside a worktree a session already holds: switch to that session.
+		if (!freshWorktree && _sessions?.Slots.FirstOrDefault(slot => PathIdentity.Equals(slot.WorktreePath, record.Path)) is { } owner) {
+			if (ExistingSessionInputError(input) is { } error) {
+				return error;
+			}
+			return await LoadExistingAsync(owner, branch, ct).ConfigureAwait(false);
+		}
+
 		string slotProviderId = record.AgentProviderId;
 
 		if (freshWorktree) {

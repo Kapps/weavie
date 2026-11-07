@@ -91,14 +91,8 @@ public sealed class WorktreeManager {
 	}
 
 	// Git owns which branch a worktree has checked out; a record follows it whenever git is asked.
-	private void SyncBranches(IReadOnlyList<GitWorktree> gitWorktrees) {
-		foreach (var worktree in gitWorktrees) {
-			if (worktree.Branch is { } branch && Registry.FindByPath(PathIdentity.Normalize(worktree.Path)) is { } record
-				&& record.Branch != branch) {
-				Registry.Add(record with { Branch = branch });
-			}
-		}
-	}
+	private void SyncBranches(IReadOnlyList<GitWorktree> gitWorktrees) =>
+		Registry.SyncBranches([.. gitWorktrees.Where(w => !w.IsBare).Select(w => (PathIdentity.Normalize(w.Path), w.Branch))]);
 
 	/// <summary>
 	/// Returns every worktree, treating the dedicated worktree directory as authoritative for ownership and the
@@ -218,8 +212,8 @@ public sealed class WorktreeManager {
 		}
 		// else: untracked and already gone — nothing to remove; fall through to drop the stale registry row.
 
-		if (deleteBranch && record is not null) {
-			await _git.DeleteBranchAsync(_repositoryRoot, record.Branch, force, ct).ConfigureAwait(false);
+		if (deleteBranch && record?.Branch is { } branch) {
+			await _git.DeleteBranchAsync(_repositoryRoot, branch, force, ct).ConfigureAwait(false);
 		}
 
 		Registry.Remove(normalized);

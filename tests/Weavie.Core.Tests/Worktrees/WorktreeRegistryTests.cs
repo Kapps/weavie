@@ -126,4 +126,14 @@ public sealed class WorktreeRegistryTests {
 		Assert.Equal(0, count);
 		Assert.False(fs.FileExists(RegistryPath));
 	}
+
+	[Fact]
+	public void SyncBranches_UpdatesRecordedPathsOnly() {
+		var registry = new WorktreeRegistry(new InMemoryFileSystem(), "/w/worktrees.json");
+		registry.Add(Record("old", "/w/a"));
+
+		registry.SyncBranches([("/w/a", "new"), ("/w/removed", "ghost")]);
+
+		Assert.Equal("new", Assert.Single(registry.Items).Branch);
+	}
 }

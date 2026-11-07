@@ -219,6 +219,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 				ExecutableMode = AgentExecutableMode.Direct,
 				WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
 				OutputCapture = new AgentOutputCapture.Disabled(),
+				HangUpOnStop = false,
 			};
 
 			public void ObserveTerminalOutput(ReadOnlyMemory<byte> data) { }

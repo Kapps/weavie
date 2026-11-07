@@ -75,6 +75,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 			OutputCapture = string.IsNullOrEmpty(logPath)
 				? new AgentOutputCapture.Disabled()
 				: new AgentOutputCapture.File(logPath),
+			HangUpOnStop = false,
 		};
 	}
 

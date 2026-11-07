@@ -8,6 +8,7 @@ import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { onPreviewThemeChanged } from "../theme/controller";
 import { decorateAgentCodeBlocks, installAgentCodeCopy } from "./agent-code-copy";
 import { installAgentMermaid } from "./agent-mermaid";
+import { hydrateGithubMedia } from "./github-media";
 
 /** `agent` is model output; `github` is GitHub-authored prose, with GitHub's allowlisted HTML and https images. */
 export type MarkdownFlavor = "agent" | "github";
@@ -45,8 +46,10 @@ export function AgentMarkdown(props: {
   let host: HTMLDivElement | undefined;
   let generation = 0;
   let unsubscribeTheme: (() => void) | undefined;
+  let disposeMedia: (() => void) | undefined;
 
   const render = (): void => {
+    disposeMedia?.();
     generation += 1;
     const currentGeneration = generation;
     const shouldHydrate = props.renderMermaid;
@@ -65,6 +68,8 @@ export function AgentMarkdown(props: {
       unsubscribeTheme = undefined;
     }
     host?.replaceChildren(...rendered.childNodes);
+    disposeMedia =
+      host !== undefined && props.flavor === "github" ? hydrateGithubMedia(host) : undefined;
     if (host !== undefined && hasMermaid && shouldHydrate) {
       void hydrateMermaid(host, () => currentGeneration === generation).then((blocks) => {
         if (currentGeneration === generation) {
@@ -78,6 +83,7 @@ export function AgentMarkdown(props: {
   onCleanup(() => {
     generation += 1;
     unsubscribeTheme?.();
+    disposeMedia?.();
   });
 
   onMount(() => {

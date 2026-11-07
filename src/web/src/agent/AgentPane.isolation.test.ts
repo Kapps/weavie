@@ -27,15 +27,15 @@ describe("agent pane model isolation", () => {
       const answer = message("answer", "Streamed answer");
       model.noteLive();
       model.publish([answer], [answer]);
-      expect(model.liveResultIndex()).toBe(0);
+      expect(model.live() && model.transcript().latestResultIndex).toBe(0);
 
       model.setHistoryComplete(true);
-      expect(model.liveResultIndex()).toBe(0);
+      expect(model.live() && model.transcript().latestResultIndex).toBe(0);
 
       model.setHistoryComplete(false);
       model.replace([answer]);
       model.setHistoryComplete(true);
-      expect(model.liveResultIndex()).toBeNull();
+      expect(model.live()).toBe(false);
       dispose();
     });
   });
@@ -46,11 +46,14 @@ describe("agent pane model isolation", () => {
       const first = message("first", "First answer");
       model.replace([first]);
 
-      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
+      expect(model.transcript().entries.map((entry) => entry.text)).toEqual(["First answer"]);
 
       const second = message("second", "Second answer");
       model.replace([first, second]);
-      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer", "Second answer"]);
+      expect(model.transcript().entries.map((entry) => entry.text)).toEqual([
+        "First answer",
+        "Second answer",
+      ]);
       dispose();
     });
   });
@@ -60,15 +63,13 @@ describe("agent pane model isolation", () => {
       const foreground = createAgentPaneModel({} as ClientSession);
       const background = createAgentPaneModel({} as ClientSession);
       foreground.replace([message("first", "First answer")]);
-      const foregroundEntry = foreground.entries[0];
-      const foregroundRevision = foreground.revision();
+      const foregroundTranscript = foreground.transcript();
 
       const second = message("second", "Second answer");
       background.replace([second]);
 
-      expect(background.entries.map((entry) => entry.text)).toEqual(["Second answer"]);
-      expect(foreground.revision()).toBe(foregroundRevision);
-      expect(foreground.entries[0]).toBe(foregroundEntry);
+      expect(background.transcript().entries.map((entry) => entry.text)).toEqual(["Second answer"]);
+      expect(foreground.transcript()).toBe(foregroundTranscript);
       dispose();
     });
   });
@@ -93,15 +94,15 @@ describe("agent pane model isolation", () => {
       }
 
       expect(transcriptCalls).not.toHaveBeenCalled();
-      expect(model.entries[1]?.summary).toBe("ran 1000 commands");
-      expect(model.entries[1]?.detailCount).toBe(1_000);
-      expect(model.entries[1]?.details).toEqual([]);
+      expect(model.transcript().entries[1]?.summary).toBe("ran 1000 commands");
+      expect(model.transcript().entries[1]?.detailCount).toBe(1_000);
+      expect(model.transcript().entries[1]?.details).toEqual([]);
       expect(model.activityStep("command-500")?.label).toContain("command-500");
       expect(model.activityStep("command-missing")).toBeUndefined();
-      model.setActivityExpanded(model.entries[1]!.id, true);
-      expect(model.entries[1]?.details).toHaveLength(1_000);
-      model.setActivityExpanded(model.entries[1]!.id, false);
-      expect(model.entries[1]?.details).toEqual([]);
+      model.setActivityExpanded(model.transcript().entries[1]!.id, true);
+      expect(model.transcript().entries[1]?.details).toHaveLength(1_000);
+      model.setActivityExpanded(model.transcript().entries[1]!.id, false);
+      expect(model.transcript().entries[1]?.details).toEqual([]);
       dispose();
     });
   });
@@ -126,7 +127,9 @@ describe("agent pane model isolation", () => {
       ]);
       model.replace(updates);
       const activity = (index: number) =>
-        model.entries[index]!.asideEntries!.find((entry) => entry.kind === "activity")!;
+        model
+          .transcript()
+          .entries[index]!.asideEntries!.find((entry) => entry.kind === "activity")!;
       expect(activity(0).details).toEqual([]);
       expect(activity(1).details).toEqual([]);
       model.setActivityExpanded(activity(0).id, true);
@@ -157,13 +160,13 @@ describe("agent pane model isolation", () => {
         second,
       ];
       model.replace(updates);
-      expect(model.entries[1]?.summary).toBe("running command: command-2");
+      expect(model.transcript().entries[1]?.summary).toBe("running command: command-2");
 
       const completed = command("command-2");
       updates[2] = completed;
       model.publish([...updates], [completed]);
 
-      expect(model.entries[1]?.summary).toBe("running command: command-1");
+      expect(model.transcript().entries[1]?.summary).toBe("running command: command-1");
       dispose();
     });
   });
@@ -190,9 +193,9 @@ describe("agent pane model isolation", () => {
       }
 
       expect(transcriptCalls).not.toHaveBeenCalled();
-      expect(model.entries[1]?.details).toEqual([]);
-      model.setActivityExpanded(model.entries[1]!.id, true);
-      expect(model.entries[1]?.details[0]).toMatchObject({
+      expect(model.transcript().entries[1]?.details).toEqual([]);
+      model.setActivityExpanded(model.transcript().entries[1]!.id, true);
+      expect(model.transcript().entries[1]?.details[0]).toMatchObject({
         detailText: "x".repeat(999),
         status: "running",
       });
@@ -204,7 +207,7 @@ describe("agent pane model isolation", () => {
       };
       updates[1] = finalDelta;
       model.publish([...updates], [finalDelta]);
-      expect(model.entries[1]?.details[0]).toMatchObject({
+      expect(model.transcript().entries[1]?.details[0]).toMatchObject({
         detailText: "x".repeat(1_000),
         status: "running",
       });
@@ -237,7 +240,7 @@ describe("agent pane model isolation", () => {
       model.publish([...updates], [completed]);
 
       expect(transcriptCalls).toHaveBeenCalledTimes(1);
-      expect(model.entries.find((entry) => entry.kind === "plan")).toMatchObject({
+      expect(model.transcript().entries.find((entry) => entry.kind === "plan")).toMatchObject({
         label: "Plan",
         summary: "Ready to review in the editor",
       });

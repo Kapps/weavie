@@ -3,7 +3,7 @@ import type { SessionRun } from "../bridge";
 import type { RailSession } from "./session-store";
 import { panelOrder, sessionDetail, sessionGroup, sessionSubtitle } from "./session-summary";
 
-vi.mock("../commands/registry", () => ({ getKeybindings: () => [] }));
+vi.mock("../commands/registry", () => ({ getKeybindings: () => [], onCommandsChanged: () => {} }));
 
 const NOW = Date.UTC(2026, 9, 12, 12, 0);
 const session = (patch: Partial<RailSession>): RailSession => ({
@@ -24,6 +24,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   unseen: false,
   workspaceCheckout: false,
   external: false,
+  reloadRequired: null,
   backendId: "local",
   locationName: "default",
   isLocal: true,

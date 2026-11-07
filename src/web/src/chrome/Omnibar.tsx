@@ -11,7 +11,7 @@ import {
   untrack,
 } from "solid-js";
 import { selectedSession } from "../bridge";
-import { evaluateWhen, paneFocusContext } from "../commands/context";
+import { evaluateWhen, paneFocusContext, setContext } from "../commands/context";
 import { captureCommandRunner, getCommands, onCommandsChanged } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
@@ -73,6 +73,7 @@ export function Omnibar(props: {
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
+  createEffect(() => setContext("omnibarOpen", open()));
   const nav = createListNavigation({
     count: () => activeLen(),
     edges: "clamp",

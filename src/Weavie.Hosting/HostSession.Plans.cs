@@ -14,7 +14,7 @@ public sealed partial class HostSession {
 			State.Set("editor", path, "agentPlan", WireJson.Default.AgentPlanShown, AgentPlanProtocol.Show(plan, path));
 			OpenEditorOverlay(path, "plan");
 		})
-		|| Agent.WithPlanFile(threadId, turnId, itemId, path => PublishEditorFileOpen(path, null, preview: false, scratch: false, EditorOpenIntent.Navigation));
+		|| Agent.WithPlanFile(threadId, turnId, itemId, path => PublishEditorFileOpen(path, null, preview: false, rendered: false, scratch: false, EditorOpenIntent.Navigation));
 
 	private void UpdateAgentPlans(AgentPlansSnapshot plans, bool autoOpen) {
 		var documents = plans.Documents.ToDictionary(AgentPlanProtocol.Path, StringComparer.Ordinal);
@@ -30,7 +30,7 @@ public sealed partial class HostSession {
 		if (!autoOpen) return;
 		foreach (var review in plans.Reviews) {
 			if (_openedPlanReviews.Add(review.RequestId)) {
-				PublishEditorFileOpen(review.Path, null, preview: false, scratch: false, EditorOpenIntent.Background);
+				PublishEditorFileOpen(review.Path, null, preview: false, rendered: false, scratch: false, EditorOpenIntent.Background);
 			}
 		}
 	}

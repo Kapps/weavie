@@ -1,3 +1,5 @@
+using Weavie.Core.Commands;
+
 namespace Weavie.Hosting.Messaging;
 
 internal partial class MessageBus {
@@ -63,15 +65,15 @@ internal partial class MessageBus {
 		lock (_lifecycle) {
 			Volatile.Write(ref _accepting, 0);
 			CancelDispatches();
-			return PendingDispatchesLocked();
+			return Task.WhenAll(PendingDispatchesLocked()
+				.Where(dispatch => dispatch.Operation.Severity != OperationSeverity.NoDeadline)
+				.Select(dispatch => dispatch.Completion.Task));
 		}
 	}
 
-	private Task PendingDispatchesLocked() {
+	private List<DispatchLifetime> PendingDispatchesLocked() {
 		var current = _afterResponseContext.Value;
-		return Task.WhenAll(_dispatches
-			.Where(dispatch => !ReferenceEquals(dispatch, current))
-			.Select(dispatch => dispatch.Completion.Task));
+		return [.. _dispatches.Where(dispatch => !ReferenceEquals(dispatch, current))];
 	}
 
 	public async ValueTask DisposeAsync() {
@@ -96,6 +98,5 @@ internal partial class MessageBus {
 		}
 
 		_featureLanes.Clear();
-		_dispatchCancellation.Dispose();
 	}
 }

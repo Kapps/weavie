@@ -253,9 +253,9 @@ public sealed class BackendManagerTests {
 
 	[Fact]
 	public async Task HealthProbe_ReportsTheExactTimedOutMessageOperation() {
-		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(
-				"""{"healthy":false,"lastFailure":{"id":"msg-7","endpoint":"session:mobile/i2","feature":"lifecycle","name":"sync","stage":"handler","elapsedMs":60001}}"""),
+				"""{"healthy":true,"activeOperations":[],"lastFailure":{"id":"msg-7","endpoint":"session:mobile/i2","feature":"lifecycle","name":"sync","stage":"handler","elapsedMs":60001}}"""),
 		}));
 		await using var manager = new BackendManager(
 			Options(),
@@ -266,8 +266,8 @@ public sealed class BackendManagerTests {
 
 		var health = await manager.ProbeHealthAsync(backend, CancellationToken.None);
 
-		Assert.Equal(WorkerHealthState.Unhealthy, health.State);
-		Assert.Equal("msg-7 session:mobile/i2 lifecycle.sync stuck in handler for 60001 ms", health.Detail);
+		Assert.Equal(WorkerHealthState.Degraded, health.State);
+		Assert.Equal("worker timed out an operation: msg-7 session:mobile/i2 lifecycle.sync stuck in handler for 60001 ms", health.Detail);
 	}
 
 	[Fact]
@@ -365,6 +365,8 @@ public sealed class BackendManagerTests {
 
 	[Theory]
 	[InlineData(HttpStatusCode.OK, "{\"healthy\":true,\"activeOperations\":[]}", "Healthy")]
+	[InlineData(HttpStatusCode.OK, "{\"healthy\":true,\"activeOperations\":[],\"lastFailure\":{\"id\":\"msg-7\"}}", "Degraded")]
+	[InlineData(HttpStatusCode.OK, "{\"healthy\":true,\"activeOperations\":[{\"id\":\"msg-8\",\"bounded\":false}]}", "Healthy")]
 	[InlineData(HttpStatusCode.OK,
 		"{\"healthy\":true,\"activeOperations\":[{\"id\":\"msg-1\",\"endpoint\":\"host\",\"feature\":\"sessions\",\"name\":\"load\",\"stage\":\"handler\",\"elapsedMs\":11000}]}",
 		"Busy")]

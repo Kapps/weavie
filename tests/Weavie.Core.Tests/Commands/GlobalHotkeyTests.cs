@@ -63,12 +63,14 @@ public sealed class GlobalHotkeyTests {
 			Id = "weavie.window.toggle",
 			Title = "Focus Window",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+`", Global = true }],
 		});
 		registry.Register(new CommandDefinition {
 			Id = "weavie.terminal.reopen",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+shift+t" }], // not global
 		});
 

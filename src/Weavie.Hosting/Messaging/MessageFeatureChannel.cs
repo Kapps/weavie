@@ -22,7 +22,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a serialized request handler and returns its lifetime.</summary>
 	public IDisposable Handle<TRequest, TResponse>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
@@ -34,7 +34,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// </summary>
 	internal IDisposable HandleWithCallerProgress<TRequest, TResponse>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
@@ -42,7 +42,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
@@ -50,7 +50,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string name,
-		Func<TRequest, string> activity,
+		Func<TRequest, MessageActivity> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -59,14 +59,14 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler) =>
 		_bus.HandleAfterEvent(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) =>
@@ -75,21 +75,21 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a serialized event handler and returns its lifetime.</summary>
 	public IDisposable Handle<TEvent>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
 		_bus.Handle(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
 		_bus.HandleOwned(_feature, name, activity, eventType, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TEvent>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler) =>
@@ -103,7 +103,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers a request handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TRequest, TResponse>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
@@ -111,7 +111,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string name,
-		Func<TRequest, string> activity,
+		Func<TRequest, MessageActivity> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -121,7 +121,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	/// <summary>Registers an event handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TEvent>(
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler) =>
 		_bus.Handle(_feature, name, activity, eventType, handler, SessionExecution.Concurrent);

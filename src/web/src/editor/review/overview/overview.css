@@ -142,13 +142,19 @@
 }
 
 .session-overview-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 4em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.1em 4em;
 }
 
-.session-overview-columns.single {
-  grid-template-columns: minmax(0, 1fr);
+.session-overview-main {
+  flex: 1 1 480px;
+  min-width: 0;
+}
+
+.session-overview-side {
+  flex: 0 1 260px;
+  min-width: 0;
 }
 
 .session-overview-section {

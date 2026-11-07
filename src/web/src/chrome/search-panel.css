@@ -142,7 +142,7 @@
 }
 
 .search-summary.warn {
-  color: var(--warn, var(--accent));
+  color: var(--warn);
 }
 
 .search-error {

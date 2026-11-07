@@ -15,9 +15,10 @@ public interface IDiffPresenter {
 
 	/// <summary>
 	/// Reveals a file in the editor (the MCP <c>openFile</c> tool). <paramref name="preview"/> opens it as a
-	/// reusable preview tab; <c>false</c> opens a persistent tab.
+	/// reusable preview tab; <c>false</c> opens a persistent tab. <paramref name="rendered"/> shows the file's
+	/// rendered view when it has one. False when the file couldn't be opened.
 	/// </summary>
-	Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken);
+	Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken);
 
 	/// <summary>Closes the editor tab for <paramref name="filePath"/> (the MCP <c>close_tab</c> tool).</summary>
 	Task CloseTabAsync(string filePath, CancellationToken cancellationToken);
@@ -55,9 +56,9 @@ public sealed class FakeDiffPresenter : IDiffPresenter {
 	}
 
 	/// <inheritdoc/>
-	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) {
+	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken) {
 		Opened.Add(filePath);
-		return Task.CompletedTask;
+		return Task.FromResult(true);
 	}
 
 	/// <inheritdoc/>

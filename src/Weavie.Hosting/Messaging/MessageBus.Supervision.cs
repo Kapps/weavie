@@ -1,3 +1,5 @@
+using Weavie.Core.Commands;
+
 namespace Weavie.Hosting.Messaging;
 
 internal partial class MessageBus {
@@ -25,16 +27,27 @@ internal partial class MessageBus {
 		Func<CancellationToken, Task> afterResponse,
 		DispatchLifetime lifetime) {
 		_afterResponseContext.Value = lifetime;
-		using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+		var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
 			_dispatchCancellation.Token,
 			lifetime.Operation.TimeoutToken);
+		bool started = false;
+		bool outlived = false;
 		try {
 			lifetime.Operation.MarkStage(MessageStage.AfterResponse);
 			await lifetime.Operation.SuperviseAsync(async () => {
+				started = true;
 				await afterResponse(cancellation.Token).ConfigureAwait(false);
 				return true;
+			}, running => {
+				outlived = true;
+				_ = FinishLateAsync(running, lifetime.Operation, cancellation);
 			}).ConfigureAwait(false);
+		} catch (MessageOperationTimeoutException) when (started) {
 		} catch (MessageOperationTimeoutException) {
+			// It still owes its releases: command leases, ordered completions.
+			var skipped = RunAfterDeadlineAsync(afterResponse);
+			outlived = true;
+			_ = FinishLateAsync(skipped, lifetime.Operation, cancellation);
 		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
 		} catch (Exception ex) {
 			LogDiagnostic($"[bridge] after-response work failed: {ex}");
@@ -42,6 +55,9 @@ internal partial class MessageBus {
 			_afterResponseContext.Value = null;
 			lifetime.Operation.Complete();
 			SettleDispatch(lifetime);
+			if (!outlived) {
+				cancellation.Dispose();
+			}
 		}
 	}
 
@@ -52,23 +68,45 @@ internal partial class MessageBus {
 		lifetime.Completion.TrySetResult();
 	}
 
-	private void OnOperationTimedOut(MessageOperation operation, string detail) {
-		Fault(detail);
+	private void OnOperationTimedOut(MessageOperation operation) {
+		if (operation.Severity == OperationSeverity.SessionCritical) {
+			RequireReload(operation.TimeoutDetail());
+		}
+
 		if (operation.Envelope.Kind == MessageKind.Request && operation.TimeoutOwnsResponse) {
-			TrySendResponse(operation.Peer, operation.Envelope, default, detail);
+			TrySendResponse(operation.Peer, operation.Envelope, default, operation.TimeoutDetail());
 		}
 	}
 
-	private void Fault(string reason) {
-		if (Interlocked.Exchange(ref _isFaulted, 1) != 0) {
-			return;
+	private void RequireReload(string reason) {
+		if (Interlocked.CompareExchange(ref _reloadReason, reason, null) is null) {
+			ReloadRequiredChanged?.Invoke();
 		}
+	}
 
-		Volatile.Write(ref _faultReason, reason);
-		Volatile.Write(ref _accepting, 0);
-		CancelDispatches();
-		foreach (var request in _requests.Values) {
-			_ = request.Cancellation.CancelAsync();
+	// The deadline gave up on this handler, but what it owns must still release: command leases, ordered completions.
+	private Task FinishLateAsync(Task<HandlerResponse> running, MessageOperation operation, CancellationTokenSource request) =>
+		FinishLateAsync(RunResponseAfterDeadlineAsync(running), operation, request);
+
+	private static async Task<bool> RunResponseAfterDeadlineAsync(Task<HandlerResponse> running) {
+		var response = await running.ConfigureAwait(false);
+		return response.AfterResponse is not { } afterResponse || await RunAfterDeadlineAsync(afterResponse).ConfigureAwait(false);
+	}
+
+	private static async Task<bool> RunAfterDeadlineAsync(Func<CancellationToken, Task> afterResponse) {
+		await afterResponse(new CancellationToken(canceled: true)).ConfigureAwait(false);
+		return true;
+	}
+
+	private async Task FinishLateAsync(Task<bool> running, MessageOperation operation, CancellationTokenSource cancellation) {
+		try {
+			await running.ConfigureAwait(false);
+			operation.CompleteLate();
+		} catch (OperationCanceledException) {
+		} catch (Exception ex) {
+			LogDiagnostic($"[bridge] late {operation.Envelope.Feature}.{operation.Envelope.Name} failed: {ex}");
+		} finally {
+			cancellation.Dispose();
 		}
 	}
 

@@ -70,6 +70,7 @@ public sealed partial class BackendManager {
 					var health = await ProbeHealthAsync(backend, _healthCancellation.Token).ConfigureAwait(false);
 					switch (health.State) {
 						case WorkerHealthState.Healthy:
+						case WorkerHealthState.Degraded:
 							state.ClearUnhealthyStreak();
 							supervisor.ReportHealthy(state.Generation);
 							break;
@@ -170,13 +171,23 @@ public sealed partial class BackendManager {
 				return new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
 			}
 
-			if (active.GetArrayLength() == 0) {
+			if (root.TryGetProperty("lastFailure", out var failure) && failure.ValueKind == JsonValueKind.Object) {
+				return new WorkerHealth(WorkerHealthState.Degraded, $"worker timed out an operation: {OperationDetail(failure)}");
+			}
+
+			// An operation with no deadline may wait on a person, so it cannot hold a worker on probation.
+			var bounded = active.EnumerateArray()
+				.Where(operation => operation.ValueKind != JsonValueKind.Object
+					|| !operation.TryGetProperty("bounded", out var flag)
+					|| flag.ValueKind != JsonValueKind.False)
+				.ToArray();
+			if (bounded.Length == 0) {
 				return new WorkerHealth(WorkerHealthState.Healthy, "healthy");
 			}
 
-			return active[0].ValueKind == JsonValueKind.Object
+			return bounded[0].ValueKind == JsonValueKind.Object
 				? new WorkerHealth(WorkerHealthState.Busy,
-					$"worker has an active message operation: {OperationDetail(active[0])}")
+					$"worker has an active message operation: {OperationDetail(bounded[0])}")
 				: new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
 		} catch (JsonException) {
 			return new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
@@ -191,11 +202,6 @@ public sealed partial class BackendManager {
 				return "worker reported unhealthy with a malformed health payload";
 			}
 
-			if (root.TryGetProperty("lastFailure", out var failure)
-				&& failure.ValueKind == JsonValueKind.Object) {
-				return OperationDetail(failure);
-			}
-
 			if (root.TryGetProperty("ingressResponsive", out var ingress)
 				&& ingress.ValueKind == JsonValueKind.False) {
 				if (root.TryGetProperty("activeOperations", out var active)
@@ -208,7 +214,7 @@ public sealed partial class BackendManager {
 				return "worker message ingress is unresponsive with no active message operation";
 			}
 
-			return "worker reported unhealthy without a message-operation failure";
+			return "worker reported unhealthy with responsive message ingress";
 		} catch (JsonException) {
 			return "worker reported unhealthy with a malformed health payload";
 		}
@@ -231,6 +237,9 @@ public sealed partial class BackendManager {
 internal enum WorkerHealthState {
 	Healthy,
 	Busy,
+
+	/// <summary>Responsive, but an operation timed out: left running, yet not good enough to confirm an update.</summary>
+	Degraded,
 	Unhealthy,
 }
 

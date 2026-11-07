@@ -24,6 +24,7 @@ public sealed class WorkflowRunner : IDisposable {
 	private readonly IWorkflowDecider _decider;
 	private readonly IWorkflowRunPort _port;
 	private readonly Func<int> _maxStageAttempts;
+	private readonly Func<bool> _openReviewItem;
 	private readonly string _worktree;
 	private readonly WorkflowVocabulary _words;
 	private WorkflowRun? _run;
@@ -34,12 +35,13 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
 		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
-		Func<int> maxStageAttempts, string worktree, WorkflowVocabulary words) {
+		Func<int> maxStageAttempts, Func<bool> openReviewItem, string worktree, WorkflowVocabulary words) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
 		_port = port;
 		_maxStageAttempts = maxStageAttempts;
+		_openReviewItem = openReviewItem;
 		_worktree = worktree;
 		_words = words;
 		_run = store.Run;
@@ -126,8 +128,7 @@ public sealed class WorkflowRunner : IDisposable {
 			}
 
 			return _run!.Phase switch {
-				WorkflowPhase.Asking => $"Complete. {_words.Host} now asks the user: {_run.Asked!.Question} (answers: {string.Join(", ", _run.Asked.Choices)}). "
-					+ "Put that question to the user with what they need to answer it, and end your turn.",
+				WorkflowPhase.Asking => $"Complete. {WorkflowStageBlock.PutToUser(_run.Asked!, _words, _openReviewItem())}",
 				WorkflowPhase.Done => "Complete. The workflow is finished.",
 				_ => "Complete. The next stage starts after this turn — end your turn now.",
 			};
@@ -189,7 +190,7 @@ public sealed class WorkflowRunner : IDisposable {
 		: _run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
 
 	private WorkflowTransitions Transitions() =>
-		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _worktree, _words);
+		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _worktree, _words);
 
 	private void Apply(WorkflowStep step) {
 		_pending?.Dispose();

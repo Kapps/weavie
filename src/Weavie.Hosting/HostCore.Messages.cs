@@ -18,7 +18,7 @@ public sealed partial class HostCore {
 
 		var connection = _messages.Host.Feature("connection");
 		connection.HandleAfterResponse(
-			"hello", "Connecting to Weavie", WireJson.Default.EmptyPayload, WireJson.Default.HostHello,
+			"hello", MessageActivity.ActionFailed("Connecting to Weavie"), WireJson.Default.EmptyPayload, WireJson.Default.HostHello,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
 				BuildHello(),
 				_ => {
@@ -34,15 +34,15 @@ public sealed partial class HostCore {
 				})));
 
 		var clipboard = _messages.Host.Feature("clipboard");
-		clipboard.Handle("write", "Copying to the clipboard", WireJson.Default.ClipboardWrite, (message, _) => {
+		clipboard.Handle("write", MessageActivity.ActionFailed("Copying to the clipboard"), WireJson.Default.ClipboardWrite, (message, _) => {
 			_platform.WriteClipboard(message.Text);
 			return Task.CompletedTask;
 		});
 		clipboard.Handle(
-			"read", "Reading the clipboard", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardText,
+			"read", MessageActivity.ActionFailed("Reading the clipboard"), WireJson.Default.EmptyPayload, WireJson.Default.ClipboardText,
 			(_, _) => Task.FromResult(new ClipboardText(_platform.ReadClipboard())));
 		clipboard.Handle(
-			"readImage", "Reading an image from the clipboard", WireJson.Default.EmptyPayload, WireJson.Default.ClipboardImage,
+			"readImage", MessageActivity.ActionFailed("Reading an image from the clipboard"), WireJson.Default.EmptyPayload, WireJson.Default.ClipboardImage,
 			(_, _) => {
 				var image = _platform.ReadClipboardImage();
 				return Task.FromResult(new ClipboardImage(
@@ -50,7 +50,7 @@ public sealed partial class HostCore {
 					Convert.ToBase64String(image.Bytes)));
 			});
 
-		_messages.Host.Feature("platform").Handle("openUrl", "Opening a link", WireJson.Default.OpenUrlMessage, (message, _) => {
+		_messages.Host.Feature("platform").Handle("openUrl", MessageActivity.ActionFailed("Opening a link"), WireJson.Default.OpenUrlMessage, (message, _) => {
 			if (IsHttpUrl(message.Url)) {
 				_platform.OpenExternalUrl(message.Url);
 			} else {
@@ -60,57 +60,57 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("layout").Handle("tool", "Updating the layout", WireJson.Default.ToolLayoutMessage, WireJson.Default.Boolean, (message, _) => {
+		_messages.Host.Feature("layout").Handle("tool", MessageActivity.ActionFailed("Updating the layout"), WireJson.Default.ToolLayoutMessage, WireJson.Default.Boolean, (message, _) => {
 			_layout.ChangeTool(message.Kind, message.Action);
 			return Task.FromResult(true);
 		});
-		_messages.Host.Feature("layout").Handle("resize", "Resizing the layout", WireJson.Default.LayoutResizeMessage, WireJson.Default.Boolean, (message, _) => {
+		_messages.Host.Feature("layout").Handle("resize", MessageActivity.ActionFailed("Resizing the layout"), WireJson.Default.LayoutResizeMessage, WireJson.Default.Boolean, (message, _) => {
 			_layout.Resize(message.Expected, message.Root);
 			return Task.FromResult(true);
 		});
 
-		_messages.Host.Feature("suggestions").Handle("dismiss", "Dismissing a suggestion", WireJson.Default.SuggestionDismissal, (message, _) => {
+		_messages.Host.Feature("suggestions").Handle("dismiss", MessageActivity.ActionFailed("Dismissing a suggestion"), WireJson.Default.SuggestionDismissal, (message, _) => {
 			DismissSuggestion(message.Id, message.Forever);
 			return Task.CompletedTask;
 		});
 
 		var remoteAgents = _messages.Host.Feature("remoteAgents");
-		remoteAgents.Handle("add", "Adding a remote agent", WireJson.Default.RemoteAgentMessage, (message, _) => {
+		remoteAgents.Handle("add", MessageActivity.ActionFailed("Adding a remote agent"), WireJson.Default.RemoteAgentMessage, (message, _) => {
 			if (!string.IsNullOrWhiteSpace(message.Name)) {
 				_remoteAgents.Add(new RemoteAgent(message.Name, message.Url, message.Token));
 			}
 
 			return Task.CompletedTask;
 		});
-		remoteAgents.Handle("remove", "Removing a remote agent", WireJson.Default.RemoteAgentName, (message, _) => {
+		remoteAgents.Handle("remove", MessageActivity.ActionFailed("Removing a remote agent"), WireJson.Default.RemoteAgentName, (message, _) => {
 			_remoteAgents.Remove(message.Name);
 			return Task.CompletedTask;
 		});
 
 		var rail = _messages.Host.Feature("rail");
-		rail.Handle("setLastLocation", "Saving the rail location", WireJson.Default.RailLocation, (message, _) => {
+		rail.Handle("setLastLocation", MessageActivity.ActionFailed("Saving the rail location"), WireJson.Default.RailLocation, (message, _) => {
 			_railState.SetLastLocation(message.Location);
 			return Task.CompletedTask;
 		});
-		rail.Handle("setParkedCollapsed", "Folding parked sessions", WireJson.Default.RailParkedCollapsed, (message, _) => {
+		rail.Handle("setParkedCollapsed", MessageActivity.ActionFailed("Folding parked sessions"), WireJson.Default.RailParkedCollapsed, (message, _) => {
 			_railState.SetParkedCollapsed(message.Collapsed);
 			return Task.CompletedTask;
 		});
-		rail.Handle("setPanelPinned", "Pinning the session panel", WireJson.Default.RailPanelPinned, (message, _) => {
+		rail.Handle("setPanelPinned", MessageActivity.ActionFailed("Pinning the session panel"), WireJson.Default.RailPanelPinned, (message, _) => {
 			_railState.SetPanelPinned(message.Pinned);
 			return Task.CompletedTask;
 		});
-		rail.Handle("setPanelWidth", "Resizing the session panel", WireJson.Default.RailPanelWidth, (message, _) => {
+		rail.Handle("setPanelWidth", MessageActivity.ActionFailed("Resizing the session panel"), WireJson.Default.RailPanelWidth, (message, _) => {
 			_railState.SetPanelWidth(message.Width);
 			return Task.CompletedTask;
 		});
-		rail.Handle("setSelected", "Saving the rail selection", WireJson.Default.RailSelectionMessage, (message, _) => {
+		rail.Handle("setSelected", MessageActivity.ActionFailed("Saving the rail selection"), WireJson.Default.RailSelectionMessage, (message, _) => {
 			_railState.SetSelected(message.BackendId, message.Slot);
 			return Task.CompletedTask;
 		});
 
 		var search = _messages.Host.Feature("search");
-		search.Handle("setOptions", "Saving search options", WireJson.Default.SearchOptionsMessage, (message, _) => {
+		search.Handle("setOptions", MessageActivity.ActionFailed("Saving search options"), WireJson.Default.SearchOptionsMessage, (message, _) => {
 			_searchState.SetOptions(new GrepOptions {
 				CaseSensitive = message.CaseSensitive,
 				WholeWord = message.WholeWord,
@@ -121,31 +121,31 @@ public sealed partial class HostCore {
 			});
 			return Task.CompletedTask;
 		});
-		search.Handle("addRecent", "Saving a recent search", WireJson.Default.SearchTerm, (message, _) => {
+		search.Handle("addRecent", MessageActivity.ActionFailed("Saving a recent search"), WireJson.Default.SearchTerm, (message, _) => {
 			_searchState.AddRecentTerm(message.Term);
 			return Task.CompletedTask;
 		});
 
 		_messages.Host.Feature("reviewOverview").Handle(
-			"setCollapsed", "Saving the overview's collapsed sections", WireJson.Default.ReviewOverviewCollapse, (message, _) => {
+			"setCollapsed", MessageActivity.ActionFailed("Saving the overview's collapsed sections"), WireJson.Default.ReviewOverviewCollapse, (message, _) => {
 				_reviewOverviewState.SetCollapsed(message.Section, message.Collapsed);
 				return Task.CompletedTask;
 			});
 
 		var acpRegistry = _messages.Host.Feature("acpRegistry");
-		acpRegistry.Handle("remove", "Removing an agent", WireJson.Default.AcpAgentMessage, (message, _) => {
+		acpRegistry.Handle("remove", MessageActivity.ActionFailed("Removing an agent"), WireJson.Default.AcpAgentMessage, (message, _) => {
 			EnsureProviderCanBeRemoved(message.Id);
 			_acpAgents.Remove(message.Id);
 			return Task.CompletedTask;
 		});
-		acpRegistry.Handle("reload", "Reloading agents", WireJson.Default.EmptyPayload, (_, _) => {
+		acpRegistry.Handle("reload", MessageActivity.ActionFailed("Reloading agents"), WireJson.Default.EmptyPayload, (_, _) => {
 			var currentIds = _acpAgents.ProviderIds;
 			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
 			return Task.CompletedTask;
 		});
 
 		_messages.Host.Feature("git").Handle(
-			"branches", "Listing branches", WireJson.Default.EmptyPayload, WireJson.Default.StringArray,
+			"branches", MessageActivity.ActionFailed("Listing branches"), WireJson.Default.EmptyPayload, WireJson.Default.StringArray,
 			(_, ct) => ListBranchesAsync(ct));
 
 		_messages.Host.Feature("sessions").HandleKeyed(
@@ -154,7 +154,7 @@ public sealed partial class HostCore {
 			async (message, ct) => CommandWireResult.From(
 				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
 		_messages.Host.Feature("sessionCreation").HandleWithCallerProgress(
-			"previewBranch", "Suggesting a branch name", WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
+			"previewBranch", MessageActivity.Droppable("Suggesting a branch name"), WireJson.Default.HostBranchPreviewRequest, WireJson.Default.BranchPreviewResult,
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
 		_messages.Host.Feature("commands").HandleKeyed(
 			"invoke", CommandActivity, WireJson.Default.CommandRequest, WireJson.Default.CommandWireResult,
@@ -163,7 +163,7 @@ public sealed partial class HostCore {
 				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
 
 		_messages.Host.Feature("applicationMenu").HandleOwned(
-			"state", "Updating the application menu", WireJson.Default.ApplicationMenuState,
+			"state", MessageActivity.ActionFailed("Updating the application menu"), WireJson.Default.ApplicationMenuState,
 			(message, peer, _) => {
 				_applicationMenuOwner = peer;
 				_platform.ApplicationMenu.Apply(message);
@@ -171,15 +171,15 @@ public sealed partial class HostCore {
 			});
 
 		var window = _messages.Host.Feature("window");
-		window.Handle("control", "Controlling the window", WireJson.Default.JsonElement, (message, _) => {
+		window.Handle("control", MessageActivity.ActionFailed("Controlling the window"), WireJson.Default.JsonElement, (message, _) => {
 			_shell?.HandleWindowControl(message);
 			return Task.CompletedTask;
 		});
-		window.Handle("resize", "Resizing the window", WireJson.Default.JsonElement, (message, _) => {
+		window.Handle("resize", MessageActivity.ActionFailed("Resizing the window"), WireJson.Default.JsonElement, (message, _) => {
 			_shell?.HandleWindowResize(message);
 			return Task.CompletedTask;
 		});
-		window.Handle("menu", "Running a menu action", WireJson.Default.JsonElement, (message, _) => {
+		window.Handle("menu", MessageActivity.ActionFailed("Running a menu action"), WireJson.Default.JsonElement, (message, _) => {
 			_menuActions.Enqueue(() => (_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
 				.HandleMenuAction(message));
 			return Task.CompletedTask;
@@ -208,6 +208,9 @@ public sealed partial class HostCore {
 			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
 			SessionCommands.RecreateSession => await RecreateSessionAsync(
 				null, id, ReadString(args, "agentProviderId"), ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+			SessionCommands.ReloadSession => await ReloadSessionAsync(
+				null, id, ReadBool(args, "stopBackgroundWork"), new CommandInvocationContext(), ct).ConfigureAwait(false),
+			SessionCommands.CancelOperation => await CancelOperationAsync(id).ConfigureAwait(false),
 			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
 			SessionCommands.UnloadSession => await UnloadSessionAsync(
 				null,
@@ -243,10 +246,10 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 	}
 
-	private string CommandActivity(CommandRequest message) =>
+	private MessageActivity CommandActivity(CommandRequest message) =>
 		_commandRegistry.TryGet(message.Id, out var definition)
-			? $"Running “{definition.Title}”"
-			: $"Running “{message.Id}”";
+			? MessageActivity.Of($"Running “{definition.Title}”", definition.OnTimeout ?? OperationSeverity.ActionFailed)
+			: MessageActivity.ActionFailed($"Running “{message.Id}”");
 
 	private string CommandExecutionLane(CommandRequest message) =>
 		_commandRegistry.TryGet(message.Id, out var definition)

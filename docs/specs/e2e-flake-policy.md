@@ -28,9 +28,10 @@ that long — and then the justification is the measured duration of that work, 
 ## Fix it instead
 
 1. **Get the failure datum.** The CI failure artifacts carry it: `viewport-layout.json`, `console-errors.txt`,
-   `weavie-host.log`, and the Playwright trace. The trace's `trace.zip` holds a screenshot per action and a
-   serialized DOM per action — that pair usually settles the question outright, and it beats any amount of
-   reasoning from the assertion message.
+   `weavie-host.log`, and the Playwright trace. The trace's `trace.zip` holds a screenshot per action, which
+   beats any amount of reasoning from the assertion message. It has no DOM snapshots: they added ~25% to the
+   suite. When the DOM matters, rerun the test locally with `--trace on`, which records them. A failure that
+   only reproduces on a hosted runner has no DOM record; push a temporary `--trace on` to capture one.
 2. **Find the mechanism, then say it in one sentence.** "The click target is the full-content-height
    `.view-lines`, so Playwright's pre-click reveal scrolls the editor to its last line" is a root cause.
    "Windows CI is slow" is not.

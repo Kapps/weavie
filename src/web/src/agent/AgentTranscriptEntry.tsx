@@ -1,6 +1,6 @@
 import { RotateCcw } from "lucide-solid";
 import { type JSX, Match, Show, Switch } from "solid-js";
-import type { ClientSession } from "../bridge";
+import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -9,16 +9,20 @@ import { fileIndexFor } from "../files/session-files";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AsideEntry } from "./AgentAsideEntry";
 import { Disclosure } from "./AgentDisclosure";
+import { InputRequestActions } from "./AgentInputActions";
 import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
+import { ApprovalActions, AuthenticationActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText, AgentPathLink } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { isPendingRequest } from "./AgentPendingRequests";
 import { AgentSubagentEntry } from "./AgentSubagentEntry";
 import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
+import { singleChoiceQuestion } from "./input-questions";
+import { DismissButtons } from "./input-request";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -61,6 +65,8 @@ export function TranscriptEntry(props: {
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
+        "agent-entry-waiting": isPendingRequest(props.entry),
+        "agent-entry-question": props.entry.actionMessage?.type === "input-requested",
       }}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
@@ -70,8 +76,23 @@ export function TranscriptEntry(props: {
               ? `${props.sectionLabel} · Plan`
               : (props.sectionLabel ?? entryLabel(props.entry))}
           </span>
-          <Show when={props.entry.status !== null}>
-            <small class="agent-entry-status">{props.entry.status}</small>
+          <Show
+            when={pendingChoice(props.entry)}
+            fallback={
+              <Show when={props.entry.status !== null}>
+                <small class="agent-entry-status">{props.entry.status}</small>
+              </Show>
+            }
+          >
+            {(message) => (
+              <div class="agent-choice-dismiss">
+                <DismissButtons
+                  session={props.session}
+                  message={message()}
+                  answersToKeys={props.entry.id === props.keyboardRequestKey}
+                />
+              </div>
+            )}
           </Show>
           <Show when={agentControlState(props.session).rewindable && props.entry.promptTurnId}>
             {(turnId) => (
@@ -163,12 +184,28 @@ function entryText(props: {
   entry: AgentTranscriptEntry;
   session: ClientSession;
 }): ConciseToolInput | null {
-  if (props.entry.actionMessage?.type !== "approval-requested")
+  const message = props.entry.actionMessage;
+  // A one-choice question shows its own prompt, so request text that only repeats it is dropped.
+  if (
+    message?.type === "input-requested" &&
+    singleChoiceQuestion(message)?.question === props.entry.text
+  )
+    return null;
+  if (message?.type !== "approval-requested")
     return props.entry.text ? { text: props.entry.text, path: null } : null;
   const { root, home } = fileIndexFor(props.session);
   return conciseToolInput(props.entry.text, props.entry.summary, (path) =>
     displayPath(path, root, home),
   );
+}
+
+function pendingChoice(entry: AgentTranscriptEntry): AgentPaneUpdate | null {
+  const message = entry.actionMessage;
+  return isPendingRequest(entry) &&
+    message?.type === "input-requested" &&
+    singleChoiceQuestion(message) !== null
+    ? message
+    : null;
 }
 
 function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
@@ -257,7 +294,7 @@ function EntryActions(props: {
 }
 
 function AgentMedia(props: {
-  message: import("../bridge").AgentPaneUpdate | null;
+  message: AgentPaneUpdate | null;
   session: ClientSession;
 }): JSX.Element {
   const source = (): string | null => {

@@ -18,6 +18,9 @@ public sealed record TerminalStartInfo {
 	/// <summary>Environment variable names to remove from the child (e.g. ANTHROPIC_API_KEY).</summary>
 	public IReadOnlyList<string> RemoveEnvironment { get; init; } = [];
 
+	/// <summary>Whether stopping sends SIGHUP as well as SIGTERM, as a closing terminal would. POSIX only.</summary>
+	public bool HangUpOnStop { get; init; }
+
 	/// <summary>Initial PTY width in columns.</summary>
 	public int Columns { get; init; } = 80;
 

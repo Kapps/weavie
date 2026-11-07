@@ -145,6 +145,7 @@ describe("notification intake", () => {
     action?.run();
     expect(commands.run).toHaveBeenCalledWith("remote:mobile", "weavie.inference.enableAutomatic", {
       source: "notification",
+      backendId: "remote:mobile",
     });
     dispose();
   });

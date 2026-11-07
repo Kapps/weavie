@@ -243,7 +243,8 @@ function durableEntry(
       const key = paneItemIdentity(message);
       const answers = key === null ? null : (resolved.get(key)?.answers ?? null);
       const request = answers === null ? message : { ...message, answers };
-      return entry(request, sequence, "request", "pending", "Input", status);
+      const label = message.itemType === "url" ? "Link" : "Question";
+      return entry(request, sequence, "request", "pending", label, status);
     }
     case "interrupted":
       return entry(message, sequence, "notice", "warning", "Interrupted", status);

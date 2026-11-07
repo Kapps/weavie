@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ClientSession, HostConnection, SessionRun } from "../bridge";
 import type { SessionCatalogEntry } from "../messaging/host-connection";
 import type { RailSession } from "./session-store";
@@ -35,6 +35,8 @@ const harness = vi.hoisted(() => ({
   published: [] as string[],
   setFocused: (_focused: boolean): void => {},
 }));
+
+vi.stubGlobal("window", { sessionStorage: {} });
 
 vi.mock("./window-state", () => {
   const [focused, setFocused] = createSignal(true);
@@ -186,6 +188,7 @@ function deliverCatalog(
         lastActiveAt: null,
         unseen: unseen.includes(slot),
         workspaceCheckout: false,
+        reloadRequired: null,
         external: false,
       }) as SessionCatalogEntry,
   );
@@ -300,12 +303,43 @@ const chip = (id: string, active: boolean): RailSession => ({
   lastActiveAt: null,
   unseen: false,
   workspaceCheckout: false,
+  reloadRequired: null,
   external: false,
   backendId: "local",
   locationName: "default",
   isLocal: true,
   pending: false,
   offline: false,
+});
+
+describe("session drafts", () => {
+  const drafts = (): string[] => {
+    const cleared: string[] = [];
+    onTestFinished(() => {
+      vi.stubGlobal("window", { sessionStorage: {} });
+    });
+    vi.stubGlobal("window", {
+      sessionStorage: Object.create(
+        { removeItem: (key: string) => cleared.push(key) },
+        {
+          "weavie-session-draft:composer:drafts:gone": { value: "x", enumerable: true },
+          "weavie-session-draft:composer:drafts:kept": { value: "x", enumerable: true },
+        },
+      ),
+    });
+    return cleared;
+  };
+
+  it("survive the empty catalog a page starts with, and go only with their slot", () => {
+    const cleared = drafts();
+    deliverCatalog("drafts", []);
+    deliverCatalog("drafts", ["gone", "kept"]);
+    deliverCatalog("drafts", []);
+    expect(cleared).toEqual([]);
+    deliverCatalog("drafts", ["gone", "kept"]);
+    deliverCatalog("drafts", ["kept"]);
+    expect(cleared).toEqual(["weavie-session-draft:composer:drafts:gone"]);
+  });
 });
 
 describe("stepRailTarget", () => {

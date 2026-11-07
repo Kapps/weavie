@@ -24,7 +24,7 @@ when the run ends.
 Satisfies R6, R7, R8.
 
 - [x] Add the truncation and badge rules to `layout.css`, and stop `.pane-label` shrinking
-- [ ] Add `.app.compact .pane-run` to `mobile.css`
+- [x] Add `.app.compact .pane-run` to `mobile.css`
 - [ ] E2e: badge order with and without the badge
 - [ ] E2e: narrow pane truncates the workflow first, then the stage
 - [ ] E2e: `mobile.spec.ts` hidden assertion

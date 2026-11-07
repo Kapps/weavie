@@ -31,7 +31,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new NoPort(), () => 3, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
+			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new NoPort(), () => 3, () => true, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
 		runner.Activate();
 		return runner;
 	}

@@ -5,9 +5,6 @@ public enum EditorOpenIntent {
 	/// <summary>The user navigated here: the file takes the pane, leaving whatever surface covered it.</summary>
 	Navigation,
 
-	/// <summary>Something revealed the file on the user's behalf: it opens behind a review they are in.</summary>
-	Reveal,
-
 	/// <summary>Opened for the user while they work elsewhere: it neither takes focus nor switches their view.</summary>
 	Background,
 }

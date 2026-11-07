@@ -3,11 +3,19 @@ namespace Weavie.Core.Mcp;
 // The tools/list JSON entries advertised to Claude, grouped by capability. The constructor stitches the
 // relevant groups into one {"tools":[...]} payload per server mode (IDE vs registry) and the wired stores.
 public sealed partial class McpServer {
+	/// <summary>The tool that opens a file in the session's editor.</summary>
+	public const string OpenFileTool = "openFile";
+
+	// Advertised on both servers: Claude Code filters it from the IDE server, so its model reaches it on the registry.
+	private const string OpenFileToolEntry =
+		$$$$"""
+          {"name":"{{{{OpenFileTool}}}}","description":"Open a file in your session's editor, without taking the user's keyboard. 'preview' reuses the session's preview tab; 'rendered' shows the file's rendered view when it has one (such as Markdown).","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"rendered":{"type":"boolean"}},"required":["filePath"]}}
+        """;
+
 	// IDE RPC tools. openDiff is the star (blocking review); the rest give Claude IDE context.
 	private const string IdeToolEntries =
 		"""
           {"name":"openDiff","description":"Open an editable diff for the user to review proposed changes to a file. Blocks until the user accepts (FILE_SAVED) or rejects (DIFF_REJECTED).","inputSchema":{"type":"object","properties":{"old_file_path":{"type":"string"},"new_file_path":{"type":"string"},"new_file_contents":{"type":"string"},"tab_name":{"type":"string"}},"required":["old_file_path","new_file_path","new_file_contents","tab_name"]}},
-          {"name":"openFile","description":"Open/reveal a file in the editor.","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"startText":{"type":"string"},"endText":{"type":"string"}},"required":["filePath"]}},
           {"name":"getWorkspaceFolders","description":"Get the workspace folders open in the IDE.","inputSchema":{"type":"object","properties":{}}},
           {"name":"getOpenEditors","description":"Get the list of open editor tabs.","inputSchema":{"type":"object","properties":{}}},
           {"name":"getCurrentSelection","description":"Get the current text selection in the active editor.","inputSchema":{"type":"object","properties":{}}},

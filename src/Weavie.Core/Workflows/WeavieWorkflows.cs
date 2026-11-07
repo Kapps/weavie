@@ -12,6 +12,7 @@ public static class WeavieWorkflows {
 		CompleteStage = McpServer.CompleteStageTool,
 		FailStage = McpServer.FailStageTool,
 		RunCommand = McpServer.RunCommandTool,
+		OpenFile = McpServer.OpenFileTool,
 		Answer = CoreCommands.WorkflowAnswer,
 		Resume = CoreCommands.WorkflowResume,
 		JumpToStage = CoreCommands.WorkflowJumpToStage,

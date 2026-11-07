@@ -104,6 +104,7 @@ public sealed partial class HostSession {
 				message.Path,
 				message.Line,
 				message.Preview,
+				rendered: false,
 				scratch: false,
 				EditorOpenIntent.Navigation,
 				ct));

@@ -35,6 +35,7 @@ public sealed partial class HostSession {
 			new InferenceWorkflowDecider(inference, workspaceRoot),
 			new WorkflowPort(this),
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
+			() => settings.RequireBool(WorkflowSettings.OpenReviewItem),
 			workspaceRoot,
 			WeavieWorkflows.Vocabulary);
 

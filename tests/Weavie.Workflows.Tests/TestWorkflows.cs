@@ -6,6 +6,7 @@ internal static class TestWorkflows {
 		CompleteStage = "completeStage",
 		FailStage = "failStage",
 		RunCommand = "runCommand",
+		OpenFile = "openFile",
 		Answer = "workflow.answer",
 		Resume = "workflow.resume",
 		JumpToStage = "workflow.jumpToStage",

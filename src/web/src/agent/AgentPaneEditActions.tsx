@@ -2,7 +2,7 @@ import { For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import { setViewMode } from "../editor/view-mode-store";
+import { showForReview } from "../editor/view-mode-store";
 import { revealFileIn } from "../files/reveal";
 import { planIdentity } from "./agent-plan";
 
@@ -24,7 +24,7 @@ export function EditLocationActions(props: {
   };
 
   const review = (location: { path: string; line: number | undefined }): void => {
-    if (props.session !== null) setViewMode(props.session, location.path, "source");
+    if (props.session !== null) showForReview(props.session, location.path);
     revealFileIn(props.session, location.path, location.line, true);
   };
 

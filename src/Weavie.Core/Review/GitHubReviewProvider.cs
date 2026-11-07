@@ -103,9 +103,12 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	/// <inheritdoc/>
 	public string CommitUrl(RepoRef repo, string sha) => WebCommitUrl(repo, sha);
 
-	private async Task<HttpResponseMessage> ExchangeAsync(HttpRequestMessage request, CancellationToken ct) {
+	private Task<HttpResponseMessage> ExchangeAsync(HttpRequestMessage request, CancellationToken ct) =>
+		ExchangeAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+
+	private async Task<HttpResponseMessage> ExchangeAsync(HttpRequestMessage request, HttpCompletionOption completion, CancellationToken ct) {
 		try {
-			return await _http.SendAsync(request, ct).ConfigureAwait(false);
+			return await _http.SendAsync(request, completion, ct).ConfigureAwait(false);
 		} catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException) {
 			throw new HttpRequestException($"GitHub didn't respond within {_http.Timeout.TotalSeconds:0.###} seconds.", ex);
 		}

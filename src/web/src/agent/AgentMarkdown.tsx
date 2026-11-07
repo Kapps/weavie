@@ -69,7 +69,9 @@ export function AgentMarkdown(props: {
     }
     host?.replaceChildren(...rendered.childNodes);
     disposeMedia =
-      host !== undefined && props.flavor === "github" ? hydrateGithubMedia(host) : undefined;
+      host !== undefined && props.flavor === "github" && props.session !== null
+        ? hydrateGithubMedia(host, props.session)
+        : undefined;
     if (host !== undefined && hasMermaid && shouldHydrate) {
       void hydrateMermaid(host, () => currentGeneration === generation).then((blocks) => {
         if (currentGeneration === generation) {

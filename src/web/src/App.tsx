@@ -129,7 +129,6 @@ import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
 import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
-import { focusedBlockEditor } from "./editor/preview/block-editor-focus";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -137,6 +136,7 @@ import {
   zoomActiveEmbed,
   zoomedEmbed,
 } from "./editor/preview/embed-zoom";
+import { focusedBlockEditor, focusedPreviewReview } from "./editor/preview/preview-panes";
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
 import { ReviewViewSwitch } from "./editor/review/ReviewViewSwitch";
@@ -1669,6 +1669,14 @@ export default function App(): JSX.Element {
       registerCapturedCommand(CommandIds.previewFinishBlock, () => {
         const blocks = focusedBlockEditor();
         return () => blocks?.finish() ?? false;
+      }),
+      registerCapturedCommand(CommandIds.previewShowOriginal, () => {
+        const blocks = focusedBlockEditor();
+        return () => blocks?.toggleOriginal() ?? false;
+      }),
+      registerCapturedCommand(CommandIds.previewHideChange, () => {
+        const review = focusedPreviewReview();
+        return () => review?.dismiss() ?? false;
       }),
       ...reviewCommandBindings(editor).map(([id, capture]) => registerCapturedCommand(id, capture)),
       editorCommands.register(),

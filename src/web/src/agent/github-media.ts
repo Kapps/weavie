@@ -1,3 +1,5 @@
+import type { ClientSession } from "../bridge";
+
 const ASSET_ID = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
 const GITHUB_ASSET = new RegExp(
   `^/(?:user-attachments/assets|[^/]+/[^/]+/assets/\\d+)/${ASSET_ID}$`,
@@ -17,9 +19,12 @@ export function isGithubMediaUrl(href: string): boolean {
   }
 }
 
-/** Probes with native decoders: GitHub's extensionless redirects do not permit CORS MIME queries. */
-export function hydrateGithubMedia(root: HTMLElement): () => void {
-  const disposers: (() => void)[] = [];
+type AttachmentKind = "image" | "video" | "unsupported";
+
+/** Asks the host what each attachment is: WebKit hangs decoding a video given to an <img>, and plays images as video. */
+export function hydrateGithubMedia(root: HTMLElement, session: ClientSession): () => void {
+  const lifetime = new AbortController();
+  const media: (HTMLImageElement | HTMLVideoElement)[] = [];
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
     const href = anchor.getAttribute("href") ?? "";
     if (
@@ -29,72 +34,70 @@ export function hydrateGithubMedia(root: HTMLElement): () => void {
     ) {
       continue;
     }
-    disposers.push(previewAttachment(anchor, href));
+    const holder = document.createElement("span");
+    holder.className = "github-media";
+    const status = document.createElement("span");
+    status.className = "github-media-status";
+    status.setAttribute("role", "status");
+    status.textContent = "Loading attachment preview…";
+    holder.append(status);
+    anchor.after(holder);
+    const unavailable = (): void => {
+      status.textContent = "Attachment preview unavailable: unsupported media or failed to load.";
+      holder.replaceChildren(status);
+    };
+    session
+      .feature("pullRequests")
+      .request<{ kind: AttachmentKind }, { url: string }>(
+        "attachmentKind",
+        { url: href },
+        lifetime.signal,
+      )
+      .then(({ kind }) => {
+        if (lifetime.signal.aborted) return;
+        if (kind === "unsupported") return unavailable();
+        const element = kind === "video" ? videoFor(anchor) : imageFor(anchor);
+        media.push(element);
+        element.onerror = () => {
+          release(element);
+          unavailable();
+        };
+        element.src = href;
+        holder.replaceChildren(element);
+      })
+      .catch(() => {
+        if (!lifetime.signal.aborted) unavailable();
+      });
   }
   return () => {
-    for (const dispose of disposers) dispose();
+    lifetime.abort();
+    for (const element of media) release(element);
   };
 }
 
-function previewAttachment(anchor: HTMLAnchorElement, href: string): () => void {
-  const holder = document.createElement("span");
-  holder.className = "github-media";
-  const status = document.createElement("span");
-  status.className = "github-media-status";
-  status.setAttribute("role", "status");
-  status.textContent = "Loading attachment preview…";
-  holder.append(status);
-  anchor.after(holder);
+const label = (anchor: HTMLAnchorElement): string =>
+  anchor.textContent?.trim() || "GitHub attachment";
 
+function imageFor(anchor: HTMLAnchorElement): HTMLImageElement {
   const image = document.createElement("img");
-  image.alt = anchor.textContent?.trim() || "GitHub attachment";
+  image.alt = label(anchor);
+  return image;
+}
+
+function videoFor(anchor: HTMLAnchorElement): HTMLVideoElement {
   const video = document.createElement("video");
   video.controls = true;
   video.preload = "metadata";
   video.playsInline = true;
-  video.setAttribute("aria-label", image.alt);
-  let disposed = false;
-  let selected: HTMLImageElement | HTMLVideoElement | undefined;
-  const failed = new Set<Element>();
+  video.setAttribute("aria-label", label(anchor));
+  return video;
+}
 
-  const stop = (media: HTMLImageElement | HTMLVideoElement): void => {
-    media.onload = null;
-    media.onerror = null;
-    if (media instanceof HTMLVideoElement) {
-      media.onloadedmetadata = null;
-      media.pause();
-    }
-    media.removeAttribute("src");
-    if (media instanceof HTMLVideoElement) media.load();
-  };
-  const fail = (media: HTMLImageElement | HTMLVideoElement): void => {
-    if (disposed) return;
-    failed.add(media);
-    stop(media);
-    if (selected === media || (selected === undefined && failed.size === 2)) {
-      status.textContent = "Attachment preview unavailable: unsupported media or failed to load.";
-      holder.replaceChildren(status);
-    }
-  };
-  const show = (media: HTMLImageElement | HTMLVideoElement): void => {
-    if (disposed || selected !== undefined) return;
-    selected = media;
-    stop(media === image ? video : image);
-    holder.replaceChildren(media);
-  };
-  image.onload = () => show(image);
-  image.onerror = () => fail(image);
-  video.onloadedmetadata = () => {
-    if (video.videoWidth > 0 && video.videoHeight > 0) show(video);
-    else fail(video);
-  };
-  video.onerror = () => fail(video);
-  image.src = href;
-  video.src = href;
-
-  return () => {
-    disposed = true;
-    stop(image);
-    stop(video);
-  };
+function release(media: HTMLImageElement | HTMLVideoElement): void {
+  media.onerror = null;
+  media.removeAttribute("src");
+  if (media instanceof HTMLVideoElement) {
+    media.pause();
+    media.load();
+  }
 }

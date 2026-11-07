@@ -10,6 +10,11 @@ export interface PreviewDocument {
   checkpoint(): void;
   undo(): void;
   redo(): void;
+  /** The working copy's model URI, while it's loaded. */
+  uri(): string | undefined;
+  /** The 1-based line of the cursor in the editor under the preview: the review position. */
+  cursorLine(): number;
+  setCursor(line: number): void;
 }
 
 export function createPreviewDocument(
@@ -74,6 +79,9 @@ export function createPreviewDocument(
     },
     undo: () => trigger("undo"),
     redo: () => trigger("redo"),
+    uri: () => connection()?.model.uri.toString(),
+    cursorLine: () => connection()?.editor.getPosition()?.lineNumber ?? 1,
+    setCursor: (line) => connection()?.editor.setPosition({ lineNumber: line, column: 1 }),
   };
 }
 

@@ -96,6 +96,9 @@ public static class EditorSettings {
 	/// <summary>Whether Markdown files open rendered (and editable in place) or as source.</summary>
 	public const string MarkdownView = "editor.markdownView";
 
+	/// <summary>Whether a rendered Markdown file shows word changes on the current change only, or on every change.</summary>
+	public const string MarkdownChangeMarks = "editor.markdownChangeMarks";
+
 	/// <summary>Whether the session overview remembers collapsed sections for all sessions or per session.</summary>
 	public const string ReviewOverviewCollapse = "editor.reviewOverviewCollapse";
 
@@ -106,7 +109,7 @@ public static class EditorSettings {
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView,
+		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView, MarkdownChangeMarks,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -252,6 +255,14 @@ public static class EditorSettings {
 				"edit markdown preview"],
 			["preview", "source"], "preview"));
 
+		registry.Register(Choice(MarkdownChangeMarks,
+			"How a rendered Markdown file with pending agent changes marks changed words. 'current' (the default) "
+				+ "marks only the change you're looking at; every other changed block shows a margin bar. 'all' marks "
+				+ "the words of every changed block at once.",
+			["markdown change marks", "markdown diff words", "show all word changes", "markdown word diff",
+				"rendered diff"],
+			["current", "all"], "current"));
+
 		registry.Register(Toggle(PaneShortcutHints,
 			"Show the Ctrl+N pane-switch shortcut hint badges in the pane headers and the editor tab bar. "
 				+ "On by default; turn it off to hide them once the shortcuts are familiar.",
@@ -326,6 +337,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
 		writer.WriteString("markdownView", store.RequireString(MarkdownView));
+		writer.WriteString("markdownChangeMarks", store.RequireString(MarkdownChangeMarks));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));

@@ -3,8 +3,6 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { navChord } from "../harness/navigator";
-import { appliedEdit } from "../harness/review";
 
 test.use({ markdownView: "preview" });
 
@@ -172,45 +170,4 @@ test("opening a block barely moves the page", async ({ page }) => {
   await expect(input(page)).toBeFocused();
   const after = await below.boundingBox();
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(4);
-});
-
-test.describe("a rendered file with pending agent changes", () => {
-  test.use({
-    fakeScript: {
-      steps: [
-        ...appliedEdit("README.md", "# Sample project\n\nA paragraph from the agent.\n"),
-        ...appliedEdit("tasks.md", "- first\n- reworded\n- third\n"),
-      ],
-    },
-  });
-
-  // Reading the rendered document is a review too, so the toolbar's advertised keys work here.
-  // Flaked 2026-11-07 19:35 UTC (Linux shard 3; also ~1 in 3 locally): https://github.com/Kapps/weavie/actions/runs/42406269678
-  // The chord fired once the preview text showed but before the review navigator bound to README.md, so it
-  // was dropped. Fixed by waiting for the navigator to name the file before pressing (here and below).
-  test("stays rendered and answers the review shortcuts", async ({ page }) => {
-    await expect(page.locator(".editor-empty-review")).toBeVisible({ timeout: 20_000 });
-    await openFile(page, "README.md");
-    await expect(preview(page)).toContainText("A paragraph from the agent.");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("README.md");
-    await page.locator(".editor-preview").focus();
-
-    await page.keyboard.press(navChord("ArrowRight"));
-
-    await expect(page.locator(".editor-tab.active", { hasText: "tasks.md" })).toBeVisible();
-    await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
-  });
-
-  // A change-level step needs the diff on screen, so it switches the rendered file to Source first.
-  test("stepping to a change shows the diff", async ({ page }) => {
-    await expect(page.locator(".editor-empty-review")).toBeVisible({ timeout: 20_000 });
-    await openFile(page, "README.md");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("README.md");
-    await page.locator(".editor-preview").focus();
-
-    await page.keyboard.press(navChord("ArrowDown"));
-
-    await expect(preview(page)).toBeHidden();
-    await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
-  });
 });

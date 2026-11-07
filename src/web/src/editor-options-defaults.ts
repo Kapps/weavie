@@ -25,6 +25,7 @@ export const DEFAULT_EDITOR_OPTIONS: EditorOptionsSpec = {
   suggestExpandDocs: true,
   commentProse: "documentation",
   markdownView: "preview",
+  markdownChangeMarks: "current",
   paneShortcutHints: true,
   videoAutoplay: true,
   gitBlame: "currentLine",

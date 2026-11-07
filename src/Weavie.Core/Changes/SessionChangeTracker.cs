@@ -261,7 +261,7 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(refContent);
 		ArgumentNullException.ThrowIfNull(diskContent);
 		lock (_gate) {
-			RestoreState(PrepareSeed(new(path, refContent, diskContent, existedAtRef, existsOnDisk)));
+			RestoreState(PrepareSeed(new(path, refContent, diskContent, existedAtRef, existsOnDisk), []));
 			SynchronizeHistory(external: false, except: null);
 			Checkpoint();
 		}

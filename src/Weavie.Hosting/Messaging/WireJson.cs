@@ -189,6 +189,8 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(HostCore.PullRequestSubmitRequest))]
 [JsonSerializable(typeof(HostCore.PullRequestNumberRequest))]
 [JsonSerializable(typeof(HostCore.PullRequestIssueCommentRequest))]
+[JsonSerializable(typeof(HostCore.AttachmentKindRequest))]
+[JsonSerializable(typeof(HostCore.AttachmentKindResult))]
 [JsonSerializable(typeof(PullRequestOverviewSnapshot))]
 [JsonSerializable(typeof(HostCore.PullRequestQuery))]
 [JsonSerializable(typeof(HostCore.PullRequestReference))]

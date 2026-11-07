@@ -46,3 +46,15 @@ describe("carried edits", () => {
     expect(carriedEdits(incarnation("new"))).toEqual({});
   });
 });
+
+describe("carried edits when storage is full", () => {
+  it("stays in memory for as long as the page lives", () => {
+    const setItem = window.sessionStorage.setItem;
+    window.sessionStorage.setItem = () => {
+      throw new Error("quota");
+    };
+    storeCarriedEdits(incarnation("old"), { "b.ts": "large" });
+    window.sessionStorage.setItem = setItem;
+    expect(carriedEdits(incarnation("new"))).toEqual({ "b.ts": "large" });
+  });
+});

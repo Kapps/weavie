@@ -20,12 +20,11 @@ export function sessionNeedsReload(session: ClientSession): boolean {
   );
 }
 
-/** True when the catalog now points `session`'s slot at a newer incarnation. */
+/** True when `session`'s slot lives on without it: replaced, or left dormant by a failed replacement. */
 export function sessionReplaced(session: ClientSession): boolean {
   return session.connection.currentCatalog.some(
     (entry) =>
       entry.id === session.address.slot &&
-      entry.address !== null &&
-      entry.address.incarnation !== session.address.incarnation,
+      entry.address?.incarnation !== session.address.incarnation,
   );
 }

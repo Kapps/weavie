@@ -101,5 +101,5 @@ processes keep their own `ProcessSupervisor` lifecycle.
 
 - A write stuck inside an OS call cannot be cancelled and can land after Reload, over restored text.
 - Reload can hang if a session file-activity consumer is wedged; only an app restart recovers that.
-- Unsaved text is lost if its page closes for good while a reload is pending. A refresh is safe.
+- Unsaved text is lost if its page closes for good while a reload is pending. A refresh is safe unless the text overflowed `sessionStorage`, which is reported.
 - An action reported as failed can still land, so a retry can repeat it.

@@ -74,9 +74,14 @@ public sealed partial class HostCore {
 					_fileRoutes.Unregister(session.Incarnation);
 				}
 
-				prepare();
-				PersistSessionState();
-				LoadSlotInBackground(target);
+				try {
+					prepare();
+					LoadSlotInBackground(target);
+				} finally {
+					PushSessionList();
+					PersistSessionState();
+				}
+
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false);
 		}

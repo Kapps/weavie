@@ -526,9 +526,11 @@ export async function createEditorHost(
   // Each entry leaves the draft once its own write lands, and only if nothing newer replaced it.
   const restoreEdits = async (session: ClientSession): Promise<void> => {
     for (const [path, text] of Object.entries(carriedEdits(session))) {
+      if (session.signal.aborted) return;
       const uri = sessionFileUri(session, path);
       try {
-        const model = (await acquireRef(refs, uri, () => true))?.object.textEditorModel;
+        const model = (await acquireRef(refs, uri, () => !session.signal.aborted))?.object
+          .textEditorModel;
         if (model !== undefined && model.getValue() !== text) {
           model.setValue(text);
         }

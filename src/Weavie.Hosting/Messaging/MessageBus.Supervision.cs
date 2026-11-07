@@ -27,21 +27,27 @@ internal partial class MessageBus {
 		Func<CancellationToken, Task> afterResponse,
 		DispatchLifetime lifetime) {
 		_afterResponseContext.Value = lifetime;
-		using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+		var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
 			_dispatchCancellation.Token,
 			lifetime.Operation.TimeoutToken);
 		bool started = false;
+		bool outlived = false;
 		try {
 			lifetime.Operation.MarkStage(MessageStage.AfterResponse);
 			await lifetime.Operation.SuperviseAsync(async () => {
 				started = true;
 				await afterResponse(cancellation.Token).ConfigureAwait(false);
 				return true;
-			}, MessageOperation.ObserveLate).ConfigureAwait(false);
+			}, running => {
+				outlived = true;
+				_ = FinishLateAsync(running, lifetime.Operation, cancellation);
+			}).ConfigureAwait(false);
 		} catch (MessageOperationTimeoutException) when (started) {
 		} catch (MessageOperationTimeoutException) {
 			// It still owes its releases: command leases, ordered completions.
-			await afterResponse(new CancellationToken(canceled: true)).ConfigureAwait(false);
+			var skipped = RunAfterDeadlineAsync(afterResponse);
+			outlived = true;
+			_ = FinishLateAsync(skipped, lifetime.Operation, cancellation);
 		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
 		} catch (Exception ex) {
 			LogDiagnostic($"[bridge] after-response work failed: {ex}");
@@ -49,6 +55,9 @@ internal partial class MessageBus {
 			_afterResponseContext.Value = null;
 			lifetime.Operation.Complete();
 			SettleDispatch(lifetime);
+			if (!outlived) {
+				cancellation.Dispose();
+			}
 		}
 	}
 
@@ -76,19 +85,28 @@ internal partial class MessageBus {
 	}
 
 	// The deadline gave up on this handler, but what it owns must still release: command leases, ordered completions.
-	private async Task FinishLateAsync(Task<HandlerResponse> running, MessageOperation operation, CancellationTokenSource request) {
-		try {
-			var response = await running.ConfigureAwait(false);
-			if (response.AfterResponse is { } afterResponse) {
-				await afterResponse(new CancellationToken(canceled: true)).ConfigureAwait(false);
-			}
+	private Task FinishLateAsync(Task<HandlerResponse> running, MessageOperation operation, CancellationTokenSource request) =>
+		FinishLateAsync(RunResponseAfterDeadlineAsync(running), operation, request);
 
+	private static async Task<bool> RunResponseAfterDeadlineAsync(Task<HandlerResponse> running) {
+		var response = await running.ConfigureAwait(false);
+		return response.AfterResponse is not { } afterResponse || await RunAfterDeadlineAsync(afterResponse).ConfigureAwait(false);
+	}
+
+	private static async Task<bool> RunAfterDeadlineAsync(Func<CancellationToken, Task> afterResponse) {
+		await afterResponse(new CancellationToken(canceled: true)).ConfigureAwait(false);
+		return true;
+	}
+
+	private async Task FinishLateAsync(Task<bool> running, MessageOperation operation, CancellationTokenSource cancellation) {
+		try {
+			await running.ConfigureAwait(false);
 			operation.CompleteLate();
 		} catch (OperationCanceledException) {
 		} catch (Exception ex) {
 			LogDiagnostic($"[bridge] late {operation.Envelope.Feature}.{operation.Envelope.Name} failed: {ex}");
 		} finally {
-			request.Dispose();
+			cancellation.Dispose();
 		}
 	}
 

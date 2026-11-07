@@ -1148,9 +1148,14 @@ export default function App(): JSX.Element {
     const fields = args as { id?: string; backendId?: string } | undefined;
     const id = fields?.id ?? context.session?.address.slot;
     const backendId = fields?.backendId ?? context.session?.connection.id;
+    const target = sessions().find((entry) => entry.id === id && entry.backendId === backendId);
+    if (target === undefined) {
+      addToast("warn", "That session is no longer here.");
+      return;
+    }
     const confirmed = await confirm({
       title: "Reload this session?",
-      body: "Its shells and any running agent turn will stop. The conversation and your unsaved edits are kept.",
+      body: `Shells and any running agent turn in ${target.label} will stop. The conversation and your unsaved edits are kept.`,
       confirmLabel: "Reload",
     });
     if (!confirmed) {

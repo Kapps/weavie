@@ -37,6 +37,7 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
+import { focusedBlockEditor } from "./preview/block-editor-focus";
 import { createPreviewDocument, type PreviewDocument } from "./preview/preview-document";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
@@ -425,7 +426,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         editorContexts.forTab(tab)?.editor.focus();
       } else focusTabContent(element);
     },
-    actions: () => (content() === undefined ? inlineDiff?.captureActions() : undefined),
+    // A rendered file still shows its review toolbar; only an open block keeps the keys for itself.
+    actions: () => (focusedBlockEditor()?.editing ? undefined : inlineDiff?.captureActions()),
   });
   const applyActive = (
     session: ClientSession,

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { navChord } from "../harness/navigator";
+import { appliedEdit } from "../harness/review";
 
 test.use({ markdownView: "preview" });
 
@@ -158,4 +160,40 @@ test("an open block follows outside edits and yields when overwritten", async ({
   await expect(page.getByText("changed outside the preview")).toBeVisible();
   await expect(input(page)).toBeHidden();
   await expect(preview(page)).toContainText("All replaced");
+});
+
+// Opening a block keeps it on the page: the text below stays put and a heading stays heading-sized.
+test("opening a block barely moves the page", async ({ page }) => {
+  await openFile(page, "README.md");
+  await expect(preview(page).locator(".mermaid-rendered > svg")).toBeVisible({ timeout: 15_000 });
+  const below = preview(page).locator("pre.hljs").first();
+  const before = await below.boundingBox();
+  await preview(page).locator("strong").click();
+  await expect(input(page)).toBeFocused();
+  const after = await below.boundingBox();
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(4);
+});
+
+test.describe("a rendered file with pending agent changes", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("README.md", "# Sample project\n\nA paragraph from the agent.\n"),
+        ...appliedEdit("tasks.md", "- first\n- reworded\n- third\n"),
+      ],
+    },
+  });
+
+  // Reading the rendered document is a review too, so the toolbar's advertised keys work here.
+  test("stays rendered and answers the review shortcuts", async ({ page }) => {
+    await expect(page.locator(".editor-empty-review")).toBeVisible({ timeout: 20_000 });
+    await openFile(page, "README.md");
+    await expect(preview(page)).toContainText("A paragraph from the agent.");
+    await page.locator(".editor-preview").focus();
+
+    await page.keyboard.press(navChord("ArrowRight"));
+
+    await expect(page.locator(".editor-tab.active", { hasText: "tasks.md" })).toBeVisible();
+    await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
+  });
 });

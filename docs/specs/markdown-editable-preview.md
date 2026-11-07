@@ -3,6 +3,8 @@
 Markdown is how plans and specs get reviewed, so it opens rendered (`editor.markdownView`, default `preview`)
 and stays editable there. Clicking a block shows its Markdown in place; the rest of the document stays rendered.
 The Source/Preview toggle (and `setViewMode` when a review opens a file's diff) overrides the default per file.
+A file with pending agent changes stays rendered until the review flow opens it, because reading the rendered
+document is how a new plan gets reviewed; its review toolbar and shortcuts keep working there.
 
 ## Model
 

@@ -209,7 +209,9 @@
 
 /* The hidden copy sizes the grid cell to the text, so typing never measures the textarea. */
 .wv-preview-block-box {
+  position: relative;
   display: grid;
+  margin-inline: -0.5em;
 }
 
 .wv-preview-block-box::after {
@@ -223,8 +225,8 @@
   grid-area: 1 / 1;
   min-width: 0;
   box-sizing: border-box;
-  padding: 0.3em 0.5em;
-  border: 1px solid var(--accent);
+  padding: 0 0.5em;
+  border: 0;
   overflow-wrap: anywhere;
   font: inherit;
   line-height: inherit;
@@ -236,7 +238,7 @@
   color: var(--fg);
   background: var(--bar);
   border-radius: 4px;
-  outline: none;
+  outline: 1px solid var(--accent);
 }
 
 .wv-preview-block-box[data-code] {
@@ -246,7 +248,13 @@
 }
 
 .wv-preview-block-hint {
-  margin: 0.2em 0 0.6em;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  padding: 0 0.4em;
   color: var(--dim);
+  background: var(--bg);
   font-size: var(--font-hint-size);
+  line-height: 1.6;
 }

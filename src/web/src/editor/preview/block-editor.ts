@@ -7,6 +7,7 @@ import { findCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { notify } from "../../notify/notify";
 import { gapInsertion, isBareMarker, nextListMarker, relocate, sourceOffset } from "./block-edit";
+import { registerBlockEditor } from "./block-editor-focus";
 import { BlockList, type RenderedBlock } from "./block-list";
 import { markdownBlocks, splitLines } from "./markdown-blocks";
 import type { PreviewDocument } from "./preview-document";
@@ -20,21 +21,12 @@ interface OpenBlock {
   block: RenderedBlock;
   textarea: HTMLTextAreaElement;
   box: HTMLElement;
-  hint: HTMLElement;
   hidden: HTMLElement;
   start: number;
   lines: string[];
   originalLength: number;
   /** A list item this editor created is dropped again if nothing was typed into it. */
   created: boolean;
-}
-
-const editors = new WeakMap<Element, BlockEditor>();
-
-/** The block editor holding keyboard focus, for commands to target. */
-export function focusedBlockEditor(): BlockEditor | undefined {
-  const pane = document.activeElement?.closest(".editor-preview");
-  return pane == null ? undefined : editors.get(pane);
 }
 
 export class BlockEditor {
@@ -51,7 +43,7 @@ export class BlockEditor {
     private readonly rendered: () => void,
   ) {
     this.list = new BlockList(body, editHint);
-    editors.set(host, this);
+    registerBlockEditor(host, this);
     host.addEventListener("pointerdown", () => {
       this.pointerDown = true;
     });
@@ -203,6 +195,7 @@ export class BlockEditor {
     const hint = document.createElement("div");
     hint.className = HINT.slice(1);
     hint.textContent = finishHint();
+    matchRendered(box, unit);
     const hidden = document.createElement("div");
     hidden.hidden = true;
     hidden.append(
@@ -211,9 +204,10 @@ export class BlockEditor {
       ),
     );
     unit.classList.add("md-editing");
-    unit.prepend(hidden, box, hint);
+    box.append(hint);
+    unit.prepend(hidden, box);
     const originalLength = lines.length;
-    this.open = { unit, block, textarea, box, hint, hidden, start, lines, originalLength, created };
+    this.open = { unit, block, textarea, box, hidden, start, lines, originalLength, created };
     textarea.addEventListener("input", () => this.input());
     textarea.addEventListener("keydown", (event) => this.key(event));
     textarea.focus();
@@ -311,7 +305,6 @@ export class BlockEditor {
     this.open = undefined;
     open.unit.classList.remove("md-editing");
     open.box.remove();
-    open.hint.remove();
     open.hidden.replaceWith(...open.hidden.childNodes);
     const text = open.lines.join("\n");
     const empty = text.trim() === "" || (open.created && isBareMarker(text));
@@ -332,6 +325,18 @@ export class BlockEditor {
     this.document.replaceLines(open.start, through, []);
     return through - open.start;
   }
+}
+
+// The source sits where the rendered block did, at its size, so opening it barely moves the page.
+function matchRendered(box: HTMLElement, unit: HTMLElement): void {
+  const first = unit.firstElementChild;
+  if (first === null || first.matches("ul, ol")) return;
+  const style = getComputedStyle(first);
+  box.style.marginBlock = `${style.marginTop} ${style.marginBottom}`;
+  if (box.hasAttribute("data-code")) return;
+  box.style.fontSize = style.fontSize;
+  box.style.fontWeight = style.fontWeight;
+  box.style.lineHeight = style.lineHeight;
 }
 
 // The rendered text before the click, which sourceOffset maps back onto the block's markdown.

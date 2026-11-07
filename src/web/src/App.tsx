@@ -128,7 +128,7 @@ import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
 import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
-import { focusedBlockEditor } from "./editor/preview/block-editor";
+import { focusedBlockEditor } from "./editor/preview/block-editor-focus";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,

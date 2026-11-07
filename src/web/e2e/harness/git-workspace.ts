@@ -35,6 +35,7 @@ const SEED: Record<string, string | Buffer> = {
     "# Sample project\n\nHello **world** — this is _markdown_.\n\n" +
     "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n" +
     "```ts\nconst answer: number = 42;\n```\n",
+  "tasks.md": "- first\n- second\n- third\n",
   "zoom.md": `# Zoomables\n\n![block](${ZOOM_IMAGE_SRC})\n\n\`\`\`mermaid\ngraph LR\n  A[One] --> B[Two]\n\`\`\`\n`,
   "sample.svg":
     '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">\n' +

@@ -3,9 +3,11 @@ import type { ClientSession } from "../../bridge";
 import { installContentNavigation } from "../../content-navigation";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { basename } from "../fs-path";
+import { previewScroll, rememberPreviewScroll } from "../view-mode-store";
+import { BlockEditor } from "./block-editor";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import HtmlPreview from "./HtmlPreview";
-import { renderMarkdown } from "./preview-markdown";
+import type { PreviewDocument } from "./preview-document";
 import { previewKindOf } from "./preview-registry";
 
 // Rendered-file overlay shown over the (still-mounted) Monaco host when the active file is in Preview mode.
@@ -23,6 +25,9 @@ export interface PreviewProps {
   session: () => ClientSession;
   path: () => string;
   content: () => string;
+  document: PreviewDocument;
+  /** Registers what runs once the tab is placed, with the line an open targeted (undefined when none). */
+  onPlaced(handler: (line: number | undefined) => void): void;
   bind(element: HTMLElement): () => void;
 }
 
@@ -30,6 +35,7 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
   let host!: HTMLDivElement;
   let body!: HTMLDivElement;
   let svgUrl: string | undefined;
+  let blocks: BlockEditor | undefined;
   // Each render bumps the generation; hydrateMermaid checks it after every await so an async diagram render
   // that resolves after a newer edit (or theme switch) is dropped instead of landing in stale DOM.
   let generation = 0;
@@ -41,7 +47,7 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     }
   };
 
-  const render = (): void => {
+  const render = (rebuild: boolean): void => {
     generation += 1;
     if (previewKindOf(props.path()) === "svg") {
       releaseSvg();
@@ -66,18 +72,33 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
 
     releaseSvg();
     body.classList.remove("editor-preview-svg");
+    blocks?.render(props.content(), rebuild);
+  };
+  const hydrate = (): void => {
     const gen = generation;
-    body.replaceChildren(renderMarkdown(props.content()));
     installEmbedZoomAndMermaid(body, props.session(), () => gen === generation);
   };
 
-  createEffect(render);
+  onMount(() => {
+    if (previewKindOf(props.path()) === "markdown")
+      blocks = new BlockEditor(host, body, props.document, hydrate);
+    props.onPlaced((line) => {
+      if (line !== undefined) blocks?.reveal(line - 1);
+      else host.scrollTop = previewScroll(props.session(), props.path());
+    });
+    createEffect(() => render(false));
+    onCleanup(() => {
+      rememberPreviewScroll(props.session(), props.path(), host.scrollTop);
+      props.onPlaced(() => {});
+      blocks?.dispose();
+    });
+  });
   onMount(() => onCleanup(installContentNavigation(body, props.session, props.path)));
   onMount(() => onCleanup(props.bind(host)));
   // Mermaid bakes the theme into its SVG, so re-render diagrams when the active theme switches.
   const unsubscribeTheme = onPreviewThemeChanged(() => {
     if (previewKindOf(props.path()) === "markdown") {
-      render();
+      render(true);
     }
   });
   onCleanup(() => {

@@ -1,6 +1,6 @@
-import { createMarkdownRenderer } from "./markdown-renderer";
+import { createMarkdownEngine } from "./markdown-renderer";
 
-export const renderMarkdown = createMarkdownRenderer({
+export const previewEngine = createMarkdownEngine({
   html: "any",
   allowImages: true,
   allowMermaid: true,

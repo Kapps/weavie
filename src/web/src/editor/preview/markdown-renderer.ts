@@ -13,7 +13,22 @@ export interface MarkdownProfile {
   safeLinksOnly: boolean;
 }
 
+/** A profile's configured parser plus the sanitizer every piece of its output must pass through. */
+export interface MarkdownEngine {
+  markdown: MarkdownIt;
+  sanitize(html: string): DocumentFragment;
+}
+
 export function createMarkdownRenderer(profile: MarkdownProfile): (content: string) => HTMLElement {
+  const { markdown, sanitize } = createMarkdownEngine(profile);
+  return (content: string): HTMLElement => {
+    const element = document.createElement("div");
+    element.append(sanitize(markdown.render(content)));
+    return element;
+  };
+}
+
+export function createMarkdownEngine(profile: MarkdownProfile): MarkdownEngine {
   const markdown = new MarkdownIt({
     html: profile.html !== "none",
     linkify: true,
@@ -42,14 +57,12 @@ export function createMarkdownRenderer(profile: MarkdownProfile): (content: stri
     markdown.normalizeLink = (url) => normalize(isFileLineReference(url) ? `./${url}` : url);
   }
 
-  const sanitize =
-    profile.html === "github"
-      ? sanitizeGithubHtml
-      : (html: string) => DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
-  return (content: string): HTMLElement => {
-    const element = document.createElement("div");
-    element.append(sanitize(markdown.render(content)));
-    return element;
+  return {
+    markdown,
+    sanitize:
+      profile.html === "github"
+        ? sanitizeGithubHtml
+        : (html: string) => DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true }),
   };
 }
 

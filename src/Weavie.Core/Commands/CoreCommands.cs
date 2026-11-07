@@ -400,6 +400,12 @@ public static partial class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Opens the focused block of a Markdown preview for in-place editing (web-handled, block-editor.ts); bound to <c>Enter</c>.</summary>
+	public const string PreviewEditBlock = "weavie.editor.previewEditBlock";
+
+	/// <summary>Finishes the open Markdown preview block, returning the keyboard to it (web-handled, block-editor.ts); bound to <c>Escape</c>.</summary>
+	public const string PreviewFinishBlock = "weavie.editor.previewFinishBlock";
+
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
 
@@ -2340,6 +2346,27 @@ public static partial class CoreCommands {
 				+ "or anything the in-Weavie viewer doesn't do.",
 			Aliases = ["open notion", "open notion in browser", "open page in browser", "view in notion"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+o" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewEditBlock,
+			Title = "Edit Preview Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Edit the focused block of a Markdown preview in place.",
+			Aliases = ["edit block", "edit markdown block", "edit preview block"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewFinishBlock,
+			Title = "Finish Preview Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Finish editing the open Markdown preview block; its edits are already in the file.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			ShowInPalette = false,
 		});
 
 		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline

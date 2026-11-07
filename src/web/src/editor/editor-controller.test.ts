@@ -53,6 +53,10 @@ vi.mock("./inline-diff", () => ({
 }));
 vi.mock("./comment-prose", () => ({ createCommentProse: stub }));
 vi.mock("./revise-marks", () => ({ sharedReviseMarks: stub() }));
+vi.mock("../editor-options", () => ({
+  currentEditorOptions: () => ({ markdownView: "source" }),
+  onEditorOptionsChanged: () => () => {},
+}));
 vi.mock("../splash", () => ({ dismissSplash: () => {} }));
 
 vi.stubGlobal("location", { search: "" });

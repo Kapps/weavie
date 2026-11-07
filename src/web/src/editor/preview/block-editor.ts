@@ -7,7 +7,6 @@ import { CommandIds } from "../../commands/types";
 import { notify } from "../../notify/notify";
 import { gapInsertion, isBareMarker, nextListMarker, relocate, sourceOffset } from "./block-edit";
 import { buildEditBox, HINT, SHOW_ORIGINAL, toggleOriginal } from "./block-editor-box";
-import { registerBlockEditor } from "./block-editor-focus";
 import { BlockList, type RenderedBlock } from "./block-list";
 import { markdownBlocks, splitLines } from "./markdown-blocks";
 import type { PreviewDocument } from "./preview-document";
@@ -54,7 +53,6 @@ export class BlockEditor {
     private readonly rendered: () => void,
   ) {
     this.list = new BlockList(body, editHint);
-    registerBlockEditor(host, this);
     host.addEventListener("pointerdown", () => {
       this.pointerDown = true;
     });
@@ -360,7 +358,7 @@ function renderedPrefix(unit: HTMLElement, event: MouseEvent): string {
   range.selectNodeContents(unit);
   range.setEnd(point.node, point.offset);
   const before = range.cloneContents();
-  for (const mark of before.querySelectorAll(".wv-md-del, .wv-md-mark")) mark.remove();
+  for (const mark of before.querySelectorAll(".wv-md-mark")) mark.remove();
   return before.textContent ?? "";
 }
 

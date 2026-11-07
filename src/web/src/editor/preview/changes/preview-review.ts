@@ -7,12 +7,17 @@ import { keyHint } from "../../../commands/key-hint";
 import { CommandIds } from "../../../commands/types";
 import type { DiffHunk, DiffMarkers } from "../../review/diff-markers";
 import type { BlockList } from "../block-list";
-import { type LineRange, markdownBlocks, markdownUnits, splitLines } from "../markdown-blocks";
+import {
+  type LineRange,
+  type MarkdownBlock,
+  markdownBlocks,
+  markdownUnits,
+  splitLines,
+} from "../markdown-blocks";
 import type { PreviewDocument } from "../preview-document";
 import { previewEngine } from "../preview-markdown";
 import { type BlockChange, blockChanges, mostlyRewritten } from "./block-changes";
 import { ChangeMarks } from "./change-marks";
-import type { PreviewReviewHandle } from "./registry";
 
 export interface PreviewReviewOptions {
   showSource(): void;
@@ -24,13 +29,21 @@ export interface PreviewReviewOptions {
   editing(): boolean;
 }
 
-export class PreviewReview implements PreviewReviewHandle {
+export class PreviewReview {
   private readonly marks: ChangeMarks;
   private changes: BlockChange[] = [];
-  private rewritten: { label: string } | undefined;
-  private baseline = "";
-  private oldSide: { text: string; units: LineRange[]; lines: string[] } | undefined;
-  private baselineBlocks: { text: string; blocks: ReturnType<typeof markdownBlocks> } | undefined;
+  private rewritten: string | undefined;
+  // The baseline moves only on Keep or Revert, so its parse and render are kept until it does.
+  private baseline: {
+    text: string;
+    units: LineRange[];
+    lines: string[];
+    blocks?: MarkdownBlock[];
+  } = {
+    text: "",
+    units: [],
+    lines: [""],
+  };
   private showing = false;
   private changesOnlyToggle: HTMLElement | undefined;
 
@@ -45,27 +58,18 @@ export class PreviewReview implements PreviewReviewHandle {
   }
 
   group(markers: DiffMarkers, original: string, model: monaco.editor.ITextModel): DiffHunk[] {
-    const side = (text: string) => ({
-      units: markdownUnits(previewEngine.markdown, text),
-      lines: splitLines(text),
-    });
     const current = side(model.getValue());
-    // The baseline only moves on Keep or Revert, so its parse is reused across renders.
-    if (this.oldSide?.text !== original) this.oldSide = { text: original, ...side(original) };
-    const found = blockChanges(markers.hunks, current, this.oldSide);
-    const rewritten = mostlyRewritten(found, current.units.length, markers.isNewFile);
+    if (this.baseline.text !== original) this.baseline = { text: original, ...side(original) };
+    const found = blockChanges(markers.hunks, current, this.baseline);
     const marked = found.reduce((sum, c) => sum + c.modified.length + c.added.length, 0);
-    this.rewritten = !rewritten
+    this.rewritten = !mostlyRewritten(found, current.units.length, markers.isNewFile)
       ? undefined
-      : {
-          label: markers.isNewFile
-            ? "New file"
-            : `Mostly rewritten · ${marked} of ${current.units.length} blocks changed`,
-        };
-    this.changes = rewritten ? [] : found;
-    this.baseline = original;
+      : markers.isNewFile
+        ? "New file"
+        : `Mostly rewritten · ${marked} of ${current.units.length} blocks changed`;
+    this.changes = this.rewritten === undefined ? found : [];
     this.paint();
-    return rewritten ? markers.hunks : found.map((change) => change.hunk);
+    return this.rewritten === undefined ? found.map((change) => change.hunk) : markers.hunks;
   }
 
   // Clearing between renders keeps the shown change, so a re-render lands on the same one.
@@ -75,6 +79,7 @@ export class PreviewReview implements PreviewReviewHandle {
     this.marks.clear();
   }
 
+  /** Shows the change at `line`; false when the file is reviewed in Source instead. */
   revealLine(line: number): boolean {
     if (this.rewritten !== undefined) {
       this.options.showSource();
@@ -90,12 +95,9 @@ export class PreviewReview implements PreviewReviewHandle {
     this.host.focus();
   }
 
+  /** Whether `hunk` is the change on screen; otherwise shows it, so nothing is kept or reverted unseen. */
   confirmTarget(hunk: DiffHunk): boolean {
-    if (this.rewritten !== undefined) {
-      this.options.showSource();
-      return false;
-    }
-    if (this.showing && this.current()?.hunk === hunk) return true;
+    if (this.rewritten === undefined && this.showing && this.current()?.hunk === hunk) return true;
     this.document.setCursor(hunk.anchorLine);
     this.revealLine(hunk.anchorLine);
     return false;
@@ -112,7 +114,7 @@ export class PreviewReview implements PreviewReviewHandle {
   /** The agent's source for the unit starting at `line`, when the unit is a change from it. */
   originalOf(line: number): string | undefined {
     const pair = this.changes.flatMap((c) => c.modified).find((m) => m.current.start === line);
-    return pair === undefined ? undefined : text(splitLines(this.baseline), pair.baseline);
+    return pair && this.baseline.lines.slice(pair.baseline.start, pair.baseline.end).join("\n");
   }
 
   /** Repaints the marks for the page as rendered now; a block open for editing keeps the page as it is. */
@@ -120,18 +122,16 @@ export class PreviewReview implements PreviewReviewHandle {
     this.changesOnlyToggle?.setAttribute("aria-pressed", String(this.options.changesOnly()));
     if (this.options.editing()) return;
     const current = this.showing ? this.current() : undefined;
-    const shown = new Set(
-      this.options.marksAll() ? this.changes : current === undefined ? [] : [current],
-    );
     this.marks.paint({
       changes: this.changes,
       rewritten: this.rewritten,
-      shown,
+      shown: new Set(
+        this.options.marksAll() ? this.changes : current === undefined ? [] : [current],
+      ),
       changesOnly: this.options.changesOnly(),
-      baselineBlocks: () => this.oldBlocks(),
-      titles: {
-        show: `Show changes${keyHint(CommandIds.nextChange)}`,
-        source: `Show diff in Source${keyHint(CommandIds.toggleEditorPreview)}`,
+      baselineBlocks: () => {
+        this.baseline.blocks ??= markdownBlocks(previewEngine.markdown, this.baseline.text);
+        return this.baseline.blocks;
       },
       onShow: (change) => {
         this.document.setCursor(change.hunk.anchorLine);
@@ -166,16 +166,9 @@ export class PreviewReview implements PreviewReviewHandle {
     const line = this.document.cursorLine();
     return this.changes.findLast((change) => change.hunk.anchorLine <= line) ?? this.changes[0];
   }
-
-  private oldBlocks(): ReturnType<typeof markdownBlocks> {
-    if (this.baselineBlocks?.text !== this.baseline)
-      this.baselineBlocks = {
-        text: this.baseline,
-        blocks: markdownBlocks(previewEngine.markdown, this.baseline),
-      };
-    return this.baselineBlocks.blocks;
-  }
 }
 
-const text = (lines: string[], range: LineRange): string =>
-  lines.slice(range.start, range.end).join("\n");
+const side = (text: string) => ({
+  units: markdownUnits(previewEngine.markdown, text),
+  lines: splitLines(text),
+});

@@ -12,12 +12,11 @@ import {
   toggleChangesOnly,
 } from "../view-mode-store";
 import { BlockEditor } from "./block-editor";
-import { registerPaneReview } from "./block-editor-focus";
 import { PreviewReview } from "./changes/preview-review";
-import { registerPreviewReview } from "./changes/registry";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import HtmlPreview from "./HtmlPreview";
 import type { PreviewDocument } from "./preview-document";
+import { registerPreviewPane } from "./preview-panes";
 import { previewKindOf } from "./preview-registry";
 
 // Rendered-file overlay shown over the (still-mounted) Monaco host when the active file is in Preview mode.
@@ -47,7 +46,6 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
   let svgUrl: string | undefined;
   let blocks: BlockEditor | undefined;
   let review: PreviewReview | undefined;
-  let reviewing: { uri: string; release: () => void } | undefined;
   // Each render bumps the generation; hydrateMermaid checks it after every await so an async diagram render
   // that resolves after a newer edit (or theme switch) is dropped instead of landing in stale DOM.
   let generation = 0;
@@ -91,15 +89,8 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     installEmbedZoomAndMermaid(body, props.session(), () => gen === generation);
   };
 
-  // The file's pending changes are reviewed here once its working copy is known, keyed by that model.
   const rendered = (): void => {
     hydrate();
-    const uri = props.document.uri();
-    if (review !== undefined && uri !== reviewing?.uri) {
-      reviewing?.release();
-      reviewing =
-        uri === undefined ? undefined : { uri, release: registerPreviewReview(uri, review) };
-    }
     review?.paint();
   };
 
@@ -122,8 +113,8 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
         marksAll: () => markdownChangeMarks() === "all",
         editing: () => editor.editing,
       });
-      registerPaneReview(host, review);
       blocks = editor;
+      onCleanup(registerPreviewPane({ host, editor, review, uri: props.document.uri }));
       createEffect(() => {
         isChangesOnly(props.session(), props.path());
         markdownChangeMarks();
@@ -138,7 +129,6 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     onCleanup(() => {
       rememberPreviewScroll(props.session(), props.path(), host.scrollTop);
       props.onPlaced(() => {});
-      reviewing?.release();
       review?.clear();
       blocks?.dispose();
     });

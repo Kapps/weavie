@@ -129,7 +129,6 @@ import { FixPrompt } from "./editor/FixPrompt";
 import { runMediaAction } from "./editor/media/media-commands";
 import { PlanReviewBar } from "./editor/plan/PlanReviewBar";
 import { registerPrCommentCommands } from "./editor/pr-comments/pr-comment-commands";
-import { focusedBlockEditor, focusedPreviewReview } from "./editor/preview/block-editor-focus";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -137,6 +136,7 @@ import {
   zoomActiveEmbed,
   zoomedEmbed,
 } from "./editor/preview/embed-zoom";
+import { focusedBlockEditor, focusedPreviewReview } from "./editor/preview/preview-panes";
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
 import { ReviewViewSwitch } from "./editor/review/ReviewViewSwitch";

@@ -38,9 +38,12 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
-import { focusedBlockEditor } from "./preview/block-editor-focus";
-import { onPreviewReviewsChanged, previewReviewFor } from "./preview/changes/registry";
 import { createPreviewDocument, type PreviewDocument } from "./preview/preview-document";
+import {
+  focusedBlockEditor,
+  onPreviewPanesChanged,
+  previewReviewFor,
+} from "./preview/preview-panes";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
@@ -797,7 +800,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           painted: () => {},
           updateGeometry: (change) => change(),
         });
-        previewReviewSub = onPreviewReviewsChanged(() => inlineDiff?.regroup());
+        previewReviewSub = onPreviewPanesChanged(() => inlineDiff?.regroup());
         // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
         const syncContent = (): void => {
           setActiveContent(created.editor.getModel()?.getValue() ?? "");

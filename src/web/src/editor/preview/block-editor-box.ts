@@ -3,6 +3,7 @@
 
 import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
+import { removedText, tooManyChangesNote } from "./changes/change-marks";
 import { wordDiff } from "./changes/word-diff";
 
 export const HINT = "wv-preview-block-hint";
@@ -55,20 +56,11 @@ export function toggleOriginal(box: HTMLElement, current: string, original: stri
   const removed = diff?.inserted ?? [];
   let at = 0;
   for (const { start, end } of removed) {
-    view.append(original.slice(at, start));
-    const del = document.createElement("del");
-    del.className = "wv-md-del";
-    del.textContent = original.slice(start, end);
-    view.append(del);
+    view.append(original.slice(at, start), removedText(original.slice(start, end)));
     at = end;
   }
   view.append(original.slice(at));
-  if (diff === null) {
-    const note = document.createElement("span");
-    note.className = "wv-md-note";
-    note.textContent = " Too many changes to mark words";
-    view.append(note);
-  }
+  if (diff === null) view.append(" ", tooManyChangesNote());
   box.querySelector(`.${HINT}`)?.before(view);
 }
 

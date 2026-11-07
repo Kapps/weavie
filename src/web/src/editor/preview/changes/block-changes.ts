@@ -40,8 +40,7 @@ export function blockChanges(
     be: h.baselineEndExclusive - 1,
   }));
   const units = { current: current.units, baseline: baseline.units };
-  const across = (from: Side, x: number, edge: "start" | "end"): number =>
-    mapLine(line, from, x, edge);
+  const across: Across = (from, x, edge) => mapLine(line, from, x, edge);
   let spans = line.map((span) => ({ ...span }));
   let changed = true;
   while (changed) {
@@ -61,45 +60,23 @@ export function blockChanges(
 const touches = (unit: LineRange, start: number, end: number): boolean =>
   start === end ? unit.start < start && start < unit.end : unit.start < end && start < unit.end;
 
-// Widens a span to every unit it touches on one side, mapping the new edges across unchanged lines.
-function grow(
-  span: Span,
-  side: Side,
-  units: LineRange[],
-  across: (from: Side, x: number, edge: "start" | "end") => number,
-): boolean {
-  const [s, e] = side === "current" ? [span.cs, span.ce] : [span.bs, span.be];
-  let [start, end] = [s, e];
+const KEYS = ["cs", "ce", "bs", "be"] as const;
+
+type Across = (from: Side, x: number, edge: "start" | "end") => number;
+
+// Widens a span to every unit it touches on one side.
+function grow(span: Span, side: Side, units: LineRange[], across: Across): boolean {
+  let [start, end] = side === "current" ? [span.cs, span.ce] : [span.bs, span.be];
   for (const unit of units) {
     if (!touches(unit, start, end)) continue;
     start = Math.min(start, unit.start);
     end = Math.max(end, unit.end);
   }
-  if (start === s && end === e) return false;
-  const [os, oe] = [across(side, start, "start"), across(side, end, "end")];
-  if (side === "current")
-    Object.assign(span, {
-      cs: start,
-      ce: end,
-      bs: Math.min(span.bs, os),
-      be: Math.max(span.be, oe),
-    });
-  else
-    Object.assign(span, {
-      bs: start,
-      be: end,
-      cs: Math.min(span.cs, os),
-      ce: Math.max(span.ce, oe),
-    });
-  return true;
+  return widen(span, side, start, end, across);
 }
 
 // A change touching no unit on either side (blank lines, link definitions) joins the next unit, else the last.
-function adopt(
-  span: Span,
-  units: Record<Side, LineRange[]>,
-  across: (from: Side, x: number, edge: "start" | "end") => number,
-): boolean {
+function adopt(span: Span, units: Record<Side, LineRange[]>, across: Across): boolean {
   const covers = (list: LineRange[], s: number, e: number) =>
     list.some((u) => u.start < e && s < u.end);
   if (covers(units.current, span.cs, span.ce) || covers(units.baseline, span.bs, span.be))
@@ -107,16 +84,19 @@ function adopt(
   const host =
     units.current.find((u) => u.start >= span.ce) ??
     units.current.findLast((u) => u.end <= span.cs);
-  if (host === undefined) return false;
-  const start = Math.min(span.cs, host.start);
-  const end = Math.max(span.ce, host.end);
-  Object.assign(span, {
-    cs: start,
-    ce: end,
-    bs: Math.min(span.bs, across("current", start, "start")),
-    be: Math.max(span.be, across("current", end, "end")),
-  });
-  return true;
+  return host !== undefined && widen(span, "current", host.start, host.end, across);
+}
+
+// Takes `[start, end)` into the span on one side, and its edges, mapped across unchanged lines, on the other.
+function widen(span: Span, side: Side, start: number, end: number, across: Across): boolean {
+  const before = { ...span };
+  const [s, e, os, oe] =
+    side === "current" ? KEYS : ([...KEYS.slice(2), ...KEYS.slice(0, 2)] as const);
+  span[s] = Math.min(span[s], start);
+  span[e] = Math.max(span[e], end);
+  span[os] = Math.min(span[os], across(side, span[s], "start"));
+  span[oe] = Math.max(span[oe], across(side, span[e], "end"));
+  return KEYS.some((key) => span[key] !== before[key]);
 }
 
 function merge(spans: Span[]): Span[] {

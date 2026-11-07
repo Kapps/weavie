@@ -7,6 +7,9 @@ import { previewEngine } from "../preview-markdown";
 import type { BlockChange } from "./block-changes";
 import { type WordDiff, wordDiff } from "./word-diff";
 
+// How far left of the text column the margin bars sit, in pixels.
+const BAR_GAP = 14;
+
 /** Marks are never edit targets; the block editor ignores clicks inside them. */
 export const MARK = "wv-md-mark";
 
@@ -77,6 +80,18 @@ export class ChangeMarks {
       if (change.removed.length > 0) this.notch(change, shown, state, marked);
     }
     if (state.changesOnly) this.fold(marked);
+    this.alignBars();
+  }
+
+  // Every bar sits in one gutter left of the text column, however deep its list item is nested.
+  private alignBars(): void {
+    const bars = this.added.filter((element) => element.classList.contains("wv-md-bar"));
+    if (bars.length === 0) return;
+    const gutter = this.body.getBoundingClientRect().left - BAR_GAP;
+    for (const bar of bars) {
+      const unit = bar.parentElement as HTMLElement;
+      (bar as HTMLElement).style.left = `${gutter - unit.getBoundingClientRect().left}px`;
+    }
   }
 
   private header(state: MarksState): void {
@@ -109,6 +124,7 @@ export class ChangeMarks {
     this.classed.push(unit);
     const bar = this.button(state.titles.show, "", () => state.onShow(change));
     bar.className = `${MARK} wv-md-bar`;
+    this.added.push(bar);
     bar.setAttribute("aria-label", state.titles.show);
     unit.prepend(bar);
     marked.add(this.topLevel(unit));

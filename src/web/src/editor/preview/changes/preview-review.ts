@@ -81,7 +81,7 @@ export class PreviewReview implements PreviewReviewHandle {
     }
     this.showing = true;
     this.paint();
-    this.list.unitNear(line - 1)?.scrollIntoView({ block: "center" });
+    this.list.unitNear(line - 1)?.scrollIntoView({ block: "nearest" });
     return true;
   }
 

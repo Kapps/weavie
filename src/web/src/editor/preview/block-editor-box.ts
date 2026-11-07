@@ -76,8 +76,8 @@ function footerButton(className: string, label: string, command: string): HTMLBu
   const button = document.createElement("button");
   button.type = "button";
   button.className = `wv-preview-block-footer-action ${className}`.trim();
-  button.textContent = label;
-  button.title = `${label}${keyHint(command)}`;
+  button.textContent = `${label}${keyHint(command)}`;
+  button.title = button.textContent;
   return button;
 }
 

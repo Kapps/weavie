@@ -263,6 +263,7 @@
 }
 
 /* Pending agent changes, read as margin bars; the shown change marks its words. */
+/* Spans the pane, so nothing scrolled shows around it; its content lines up with the text column. */
 .wv-md-header {
   position: sticky;
   top: -1.5em;
@@ -270,12 +271,16 @@
   display: flex;
   gap: 0.8em;
   align-items: center;
-  max-width: 48rem;
-  margin: -1.5em auto 0.8em;
-  padding: 0.4em 0;
+  margin: -1.5em -2em 0.8em;
+  padding: 1.9em max(2em, calc((100% - 48rem) / 2)) 0.4em;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   color: var(--dim);
+}
+
+/* The header keeps the pane's font size, so its em offsets match the pane's padding exactly. */
+.wv-md-header > *,
+.wv-md-header > .wv-md-action {
   font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
 }
 
@@ -316,8 +321,10 @@
   cursor: pointer;
 }
 
-.editor-preview-body li > .wv-md-bar {
-  left: -2.2em;
+/* A list item's bar marks its own line, not the nested items under it. */
+.editor-preview-body li:has(> ul, > ol) > .wv-md-bar {
+  bottom: auto;
+  height: calc(1lh - 0.3em);
 }
 
 .editor-preview-body .wv-md-added > .wv-md-bar {
@@ -369,6 +376,15 @@
   border-radius: 3px;
 }
 
+.wv-md-del + .wv-md-ins {
+  margin-left: 0.2em;
+}
+
+/* Room below the last block for the review toolbar that floats over the pane's bottom. */
+.editor-preview:has(.wv-md-header) .editor-preview-body {
+  padding-bottom: 4em;
+}
+
 .editor-preview-body del.wv-md-del,
 .wv-md-del {
   color: var(--dim);
@@ -407,6 +423,12 @@
   color: var(--dim);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.wv-preview-block-hint > * + *::before {
+  content: "·";
+  margin-right: 0.8em;
+  color: var(--dim);
 }
 
 .wv-preview-block-footer-action {

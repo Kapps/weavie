@@ -85,7 +85,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		int port = server.Start();
 
 		using var listed = await PostHttpAsync(port, Request(1, "tools/list", "{}"));
-		using var listDocument = JsonDocument.Parse(await listed.Content.ReadAsStringAsync());
+		using var listDocument = await TestMcp.ReadResponseAsync(listed);
 		var names = listDocument.RootElement.GetProperty("result").GetProperty("tools")
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Contains("listSettings", names);
@@ -93,7 +93,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("getCurrentSelection", names);
 
 		using var called = await PostHttpAsync(port, Request(2, "tools/call", "{\"name\":\"getCurrentSelection\",\"arguments\":{}}"));
-		using var callDocument = JsonDocument.Parse(await called.Content.ReadAsStringAsync());
+		using var callDocument = await TestMcp.ReadResponseAsync(called);
 		string text = callDocument.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 		using var payload = JsonDocument.Parse(text);
 		Assert.True(payload.RootElement.GetProperty("success").GetBoolean());

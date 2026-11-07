@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -10,6 +11,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workflows;
 using Weavie.Workflows;
+using Xunit;
 
 namespace Weavie.Core.Tests;
 
@@ -64,5 +66,17 @@ internal static class TestMcp {
 			AgentConsultation.None,
 			ReviewHintSink.None,
 			WorkflowRegistry.None);
+	}
+
+	/// <summary>The JSON-RPC response carried by an MCP event-stream reply (the event with an <c>id</c>).</summary>
+	internal static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response) {
+		Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+		string body = await response.Content.ReadAsStringAsync();
+		foreach (string block in body.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)) {
+			var document = JsonDocument.Parse(block.Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..]);
+			if (document.RootElement.TryGetProperty("id", out _)) return document;
+			document.Dispose();
+		}
+		throw new InvalidOperationException($"No JSON-RPC response in: {body}");
 	}
 }

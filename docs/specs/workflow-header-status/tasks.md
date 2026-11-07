@@ -7,8 +7,8 @@ Built in this order. Each group builds and tests on its own. Requirements: [requ
 Satisfies R1, R3, R4, R5, R9, R10.
 
 - [x] Add `chipOf` and `sessionRun` to `session-store.ts`, and use `chipOf` in `watchedUnseen`
-- [ ] Add `runDotColor` and `runTooltip` to `session-summary.ts`
-- [ ] Unit test both, plus `sessionRun`
+- [x] Add `runDotColor` and `runTooltip` to `session-summary.ts`
+- [x] Unit test both, plus `sessionRun`
 - [ ] Create `WorkflowRunStatus.tsx`
 - [ ] Render it in `AgentPane.tsx` before the shortcut `<Show>`
 - [ ] Add the base `.pane-run` styles to `layout.css`

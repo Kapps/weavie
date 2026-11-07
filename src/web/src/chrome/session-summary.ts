@@ -1,4 +1,4 @@
-import type { SessionRunState, SessionStatusName } from "../bridge";
+import type { SessionRun, SessionRunState, SessionStatusName } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { findCommand } from "../commands/registry";
@@ -60,6 +60,27 @@ const RUN_PHRASE: Record<SessionRunState, string> = {
   paused: "paused",
   stalled: "stalled",
 };
+
+const RUN_DOT_COLOR: Record<SessionRunState, string> = {
+  working: "var(--busy)",
+  waitingOnYou: "var(--ok)",
+  needsAnswer: "var(--warn)",
+  watching: "var(--busy)",
+  deciding: "var(--busy)",
+  paused: "var(--warn)",
+  stalled: "var(--bad)",
+};
+
+/** The CSS color of a run's header dot. */
+export function runDotColor(state: SessionRunState): string {
+  return RUN_DOT_COLOR[state];
+}
+
+/** A run's header tooltip: workflow, stage and state, then its reason on a second line when it has one. */
+export function runTooltip(run: SessionRun): string {
+  const summary = `${run.workflow} · ${run.stage} · ${RUN_PHRASE[run.state]}`;
+  return run.reason === "" ? summary : `${summary}\n${run.reason}`;
+}
 
 /** A loaded session's state: its status, with an unseen finished turn told apart from plain idle. */
 function loadedState(session: RailSession): SessionStatusName | "finished" {

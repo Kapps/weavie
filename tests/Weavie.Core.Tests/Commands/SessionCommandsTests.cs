@@ -267,6 +267,12 @@ public sealed class SessionCommandsTests {
 			string? sessionId, string? agentProviderId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct) =>
 			Task.FromResult(CommandResult.Success());
 
+		public Task<CommandResult> ReloadSessionAsync(
+			string? sessionId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct = default) =>
+			Task.FromResult(CommandResult.Success());
+
+		public Task<CommandResult> CancelOperationAsync(string? operationId) => Task.FromResult(CommandResult.Success());
+
 		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default) {
 			LoadCalled = true;
 			LastLoadedId = sessionId;

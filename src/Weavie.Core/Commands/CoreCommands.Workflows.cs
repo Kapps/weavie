@@ -35,6 +35,7 @@ public static partial class CoreCommands {
 				Id = id,
 				Title = title,
 				RunsIn = CommandLocation.Core,
+				OnTimeout = OperationSeverity.ActionFailed,
 				Category = "Workflow",
 				Description = description,
 				ShowInPalette = false,

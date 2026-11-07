@@ -84,7 +84,7 @@ export function SessionOverview(props: {
       />
       <Show when={pr()?.error}>{(error) => <p class="session-overview-error">{error()}</p>}</Show>
       <Show when={detail() !== null || commits() !== null}>
-        <div class="session-overview-columns" classList={{ single: detail() === null }}>
+        <div class="session-overview-columns">
           <div class="session-overview-main">
             <Show when={detail()} fallback={commitsSection()}>
               {(pull) => (

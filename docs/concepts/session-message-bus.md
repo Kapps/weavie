@@ -109,6 +109,10 @@ Session shutdown has two phases:
 2. flush and drain [session file activity](session-file-activity.md), allow final owned events, then close the
    endpoint and remaining session resources.
 
+A timed-out operation ends alone; it never closes its endpoint. Each handler declares what its deadline means, and a
+session-critical failure asks the user for a reload rather than stopping the session. See
+[message-operation-supervision.md](../specs/message-operation-supervision.md).
+
 Removing a catalog address closes the corresponding `ClientSession`, its handlers, pending requests,
 models, LSP channels, and background work as one ownership unit.
 

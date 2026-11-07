@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Sessions;
 
@@ -66,6 +65,15 @@ public static class SessionCommands {
 	/// <summary>Recreates a named session with a fresh agent conversation.</summary>
 	public const string RecreateSession = "weavie.session.recreate";
 
+	/// <summary>Replaces a session's backend, resuming its conversation and keeping each page's unsaved edits.</summary>
+	public const string ReloadSession = "weavie.session.reload";
+
+	/// <summary>Confirms and reloads a session: the selected one, or the <c>id</c> arg.</summary>
+	public const string ReloadSessionPrompt = "weavie.session.reloadPrompt";
+
+	/// <summary>Cancels a running operation (arg <c>id</c>) from its "still running" notice.</summary>
+	public const string CancelOperation = "weavie.operation.cancel";
+
 	/// <summary>Opens the agent picker and recreation confirmation.</summary>
 	public const string RecreateSessionPrompt = "weavie.session.recreatePrompt";
 
@@ -95,6 +103,7 @@ public static class SessionCommands {
 			Scope = CommandScope.Host,
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'main' (the repository's "
 				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
@@ -219,6 +228,7 @@ public static class SessionCommands {
 			LanePerSession = true,
 			Title = "Fork Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Fork the invoking session into a new worktree branched off its HEAD, carrying a handoff "
 				+ "brief to the new session's agent. 'branch' is required. 'handoff' is the "
@@ -271,14 +281,6 @@ public static class SessionCommands {
 				+ "\"incarnation\":{\"type\":\"string\",\"description\":\"Exact live session incarnation; stale values are declined\"}}",
 		});
 
-		// ctrl+Shift+1..9 → switch to the Nth session. Literal ctrl (not $mod) to stay Ctrl on macOS, where
-		// Cmd+Shift+3/4/5 are screenshot shortcuts. Keybinding-only; each binding carries its own index argument.
-		var indexBindings = new List<CommandKeybinding>(9);
-		for (int i = 1; i <= 9; i++) {
-			string n = i.ToString(CultureInfo.InvariantCulture);
-			indexBindings.Add(new CommandKeybinding { Key = $"ctrl+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = SelectSessionByIndex,
 			Title = "Switch to Session by Number",
@@ -286,7 +288,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the Nth session on the rail (1-based, in rail order).",
 			Aliases = ["switch to session", "select session", "go to session number"],
-			DefaultKeybindings = indexBindings,
+			// Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+Shift+3/4/5 are screenshot shortcuts.
+			DefaultKeybindings = CoreCommands.IndexedKeybindings("ctrl+Shift"),
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based session number in rail order\"}}",
 		});
@@ -298,6 +301,7 @@ public static class SessionCommands {
 			Scope = CommandScope.Host,
 			Title = "Load Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Session",
 			Description = "Load a dormant session's backend (agent / terminals / LSP) in the background, by 'id', "
 				+ "WITHOUT switching the page to it — so its agent runs and reports status while you stay where you "
@@ -315,6 +319,7 @@ public static class SessionCommands {
 			Scope = CommandScope.Host,
 			Title = "Unload Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Unload the invoking session, or the session named by 'id', into a dormant chip: tear its live "
 				+ "backend (agent / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
@@ -332,6 +337,7 @@ public static class SessionCommands {
 			Scope = CommandScope.Host,
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
 				+ "removed but its branch is kept, whoever created that worktree. The session on the workspace's own "
@@ -357,10 +363,48 @@ public static class SessionCommands {
 			Scope = CommandScope.Host,
 			Title = "Recreate Session",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Category = "Session",
 			Description = "Recreate the session named by required 'id' with required 'agentProviderId'. Starts a fresh conversation, stops agent and shell work, and keeps the checkout, edits, and editor state.",
 			ShowInPalette = false,
 			ArgsSchemaJson = """{"id":{"type":"string"},"agentProviderId":{"type":"string"},""" + StopBackgroundWorkArg + "}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReloadSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			LanePerSession = true,
+			Scope = CommandScope.Host,
+			Title = "Reload Session",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
+			Category = "Session",
+			Description = "Replace a session's backend, resuming its conversation and keeping unsaved edits. Stops its "
+				+ "shells and any running turn. Needed when an operation left the session in a state Weavie can't trust.",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to reload\"}," + StopBackgroundWorkArg + "}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReloadSessionPrompt,
+			Title = "Reload Session…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Confirm and reload a session, resuming its conversation and keeping unsaved edits.",
+			Aliases = ["reload session", "restart session", "reconnect session"],
+			ArgsSchemaJson = """{"id":{"type":"string","description":"Session to reload; omit for the selected session"}}""",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CancelOperation,
+			Scope = CommandScope.Host,
+			Title = "Cancel Operation",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "Session",
+			Description = "Cancel a running operation by id, from its still-running notice.",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Operation id\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -422,6 +466,9 @@ public static class SessionCommands {
 				ct)),
 			dispatcher.RegisterContextualHandler(RecreateSession, (argsJson, context, ct) => host.RecreateSessionAsync(
 				GetString(argsJson, "id"), GetString(argsJson, "agentProviderId"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
+			dispatcher.RegisterContextualHandler(ReloadSession, (argsJson, context, ct) => host.ReloadSessionAsync(
+				GetString(argsJson, "id"), GetBool(argsJson, "stopBackgroundWork"), context, ct)),
+			dispatcher.RegisterHandler(CancelOperation, (argsJson, _) => host.CancelOperationAsync(GetString(argsJson, "id"))),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,

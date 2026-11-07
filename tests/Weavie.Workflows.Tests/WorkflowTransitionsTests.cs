@@ -36,7 +36,7 @@ public sealed class WorkflowTransitionsTests {
 	private static readonly WorkflowDefinition Definition = WorkflowReader.Read(Flow, "flow").Definition
 		?? throw new InvalidOperationException(string.Join("\n", WorkflowReader.Read(Flow, "flow").Diagnostics));
 
-	private static readonly WorkflowTransitions Machine = new(Definition, 2, Path.GetTempPath(), TestWorkflows.Words);
+	private static readonly WorkflowTransitions Machine = new(Definition, 2, true, Path.GetTempPath(), TestWorkflows.Words);
 
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
@@ -139,7 +139,28 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Equal(WorkflowPhase.Asking, step.Run.Phase);
 		Assert.Equal("blocking in auth?", Asked(step).Question);
 		Assert.Contains(reason, Asked(step).Reason);
+		Assert.Contains("blocking in auth?", step.Run.Kickoff!.Text);
 		Assert.Equal(WorkflowPhase.Done, Machine.Answer(step.Run, "no", "").Run.Phase);
+	}
+
+	[Fact]
+	public void AUserQuestionAfterAnAnswerOwesTheAgentATurnACancelRetires() {
+		var read = WorkflowReader.Read("""
+			id: flow
+			description: d
+			stages:
+			  - id: a
+			    run: { prompt: "do a" }
+			    then: { ask: "go?", by: user, choices: { yes: b, no: done } }
+			  - id: b
+			    if: { ask: "really?", by: user }
+			    run: { prompt: "do b" }
+			""", "flow");
+		var machine = new WorkflowTransitions(read.Definition!, 3, true, Path.GetTempPath(), TestWorkflows.Words);
+		var asking = machine.Complete(machine.Start("r-1", "p", []).Run, Json("{}"), "s").Step.Run;
+		var next = machine.Answer(asking, "yes", "");
+		Assert.Contains("really?", next.Run.Kickoff!.Text);
+		Assert.Null(machine.Cancel(next.Run).Run.Kickoff);
 	}
 
 	[Fact]
@@ -162,7 +183,7 @@ public sealed class WorkflowTransitionsTests {
 			      ask: "anything left in {{a.left}}?"
 			      choices: { yes: a, no: done }
 			""", "loop").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath(), TestWorkflows.Words);
+		var machine = new WorkflowTransitions(definition, 3, true, Path.GetTempPath(), TestWorkflows.Words);
 		var deciding = machine.Complete(machine.Start("r-3", "p", []).Run, Json("""{"left":["x"]}"""), "one left").Step;
 		var again = machine.Resolve(deciding.Run, WorkflowDecisionResult.Chose("yes"));
 		Assert.Equal(("a", WorkflowPhase.Open), (again.Run.Stage, again.Run.Phase));
@@ -214,7 +235,7 @@ public sealed class WorkflowTransitionsTests {
 			  - id: b
 			    run: { prompt: "use {{a.x}}" }
 			""", "refs").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, Path.GetTempPath(), TestWorkflows.Words);
+		var machine = new WorkflowTransitions(definition, 3, true, Path.GetTempPath(), TestWorkflows.Words);
 		var run = machine.Start("r-2", "p", []).Run;
 		var paused = machine.Jump(run, "b");
 		Assert.Equal(WorkflowPhase.Paused, paused.Run.Phase);

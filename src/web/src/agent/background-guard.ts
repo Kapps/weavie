@@ -33,6 +33,7 @@ const confirmLabels = new Map<string, string>([
   [CommandIds.unloadSession, "Stop and unload"],
   [CommandIds.deleteSession, "Stop and delete"],
   [CommandIds.recreateSession, "Stop and recreate"],
+  [CommandIds.reloadSession, "Stop and reload"],
   [CommandIds.restartAgent, "Stop and restart"],
   [CommandIds.clearAgentConversation, "Stop and clear"],
   [CommandIds.rewindAgentConversation, "Stop and rewind"],

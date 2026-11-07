@@ -1,4 +1,6 @@
 import { ICodeEditorService } from "@codingame/monaco-vscode-api/vscode/vs/editor/browser/services/codeEditorService.service";
+import { evaluateWhen } from "../commands/context";
+import { carriedEdits, sessionNeedsReload, storeCarriedEdits } from "./carried-edits";
 import type { TextEditorConnection } from "./editor-context";
 // Monaco + the monaco-vscode-api service layer are the heaviest code in the app, so this module is dynamically
 // imported (App.tsx onMount) into a chunk that loads after the shell paints. The shell reaches everything
@@ -113,6 +115,12 @@ export interface EditorHost {
   clear(): void;
   /** Releases working copies no longer owned by one of the session's open file tabs. */
   reconcileSession(session: ClientSession, openPaths: readonly string[]): void;
+  /** Stores `session`'s unsaved text in its slot draft, so a replacement incarnation can take it over. */
+  carryEdits(session: ClientSession): void;
+  /** Carries `session`'s unsaved text and leaves its closing working copies clean. */
+  retireEdits(session: ClientSession): void;
+  /** Writes text carried from `session`'s previous incarnation through its own working copies. */
+  restoreEdits(session: ClientSession): Promise<void>;
   /**
    * Begins an inline review of an openDiff proposal in a transient model (the working copy is left untouched),
    * shows `proposed` revealed at 1-based `line`, and returns the model's URI so the caller renders the diff over it.
@@ -285,7 +293,10 @@ export async function createEditorHost(
     const name = key.split("/").pop() ?? key;
     const message = `Couldn't save ${name}: ${String(error)}`;
     log("error", message);
-    onSaveError(message);
+    const owner = sessionForUri(monaco.Uri.parse(key));
+    if (owner === undefined || !sessionNeedsReload(owner)) {
+      onSaveError(message);
+    }
   };
 
   const flushSave = (key: string): void => {
@@ -428,13 +439,15 @@ export async function createEditorHost(
         editor.revealPositionInCenter(position, REVEAL_SCROLL);
         editor.setPosition(position);
         // focus: false = reveal only (the search panel's live preview keeps typing in its own input).
-        if (placement.focus !== false) {
+        if (placement.focus !== false && !evaluateWhen("omnibarOpen")) {
           editor.focus();
         }
       } else if ("selection" in placement) {
         editor.setSelection(placement.selection);
         editor.revealRangeInCenterIfOutsideViewport(placement.selection, REVEAL_SCROLL);
-        editor.focus();
+        if (!evaluateWhen("omnibarOpen")) {
+          editor.focus();
+        }
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }
@@ -485,6 +498,56 @@ export async function createEditorHost(
     // Disposing a model doesn't reliably fire onDidChangeDirty(false), so a discarded (or error-held) dirty
     // file would leave a phantom `*` in the dirty store that resurrects on reopen. Clear it explicitly.
     setDirtyPath(session, path, false);
+  };
+
+  const carryEdits = (session: ClientSession): void => {
+    const edits = carriedEdits(session);
+    for (const model of textFileService.files.models) {
+      const uri = model.resource;
+      if (!sessionOwnsUri(session, uri)) continue;
+      const path = sessionUriHostPath(uri);
+      if (textFileService.isDirty(uri) && model.textEditorModel !== null) {
+        cancelPendingSave(uri.toString());
+        edits[path] = model.textEditorModel.getValue();
+      } else {
+        delete edits[path];
+      }
+    }
+    storeCarriedEdits(session, edits);
+  };
+
+  // The text lives in the draft now, so the retiring working copy can go clean and be disposed.
+  const retireEdits = (session: ClientSession): void => {
+    carryEdits(session);
+    for (const model of textFileService.files.models) {
+      if (sessionOwnsUri(session, model.resource) && textFileService.isDirty(model.resource)) {
+        void model.revert({ soft: true });
+      }
+    }
+  };
+
+  // Each entry leaves the draft once its own write lands, and only if nothing newer replaced it.
+  const restoreEdits = async (session: ClientSession): Promise<void> => {
+    for (const [path, text] of Object.entries(carriedEdits(session))) {
+      if (session.signal.aborted) return;
+      const uri = sessionFileUri(session, path);
+      try {
+        const model = (await acquireRef(refs, uri, () => !session.signal.aborted))?.object
+          .textEditorModel;
+        if (model !== undefined && model.getValue() !== text) {
+          model.setValue(text);
+        }
+        cancelPendingSave(uri.toString());
+        await textFileService.save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true });
+        const remaining = carriedEdits(session);
+        if (remaining[path] === text) {
+          delete remaining[path];
+          storeCarriedEdits(session, remaining);
+        }
+      } catch (error) {
+        reportSaveError(uri.toString(), error);
+      }
+    }
   };
 
   // The current text of an open working copy (seeds a scratch "save as" and decides whether a scratch close
@@ -612,7 +675,11 @@ export async function createEditorHost(
     for (const model of textFileService.files.models) {
       const uri = model.resource;
       const key = uri.toString();
-      if (owner !== null && sessionForUri(uri) !== owner) {
+      const session = sessionForUri(uri);
+      // A session awaiting reload can't save; its text waits for the reload and must not hold others hostage.
+      if (
+        owner === null ? session !== undefined && sessionNeedsReload(session) : session !== owner
+      ) {
         continue;
       }
       cancelPendingSave(key);
@@ -778,6 +845,9 @@ export async function createEditorHost(
     show,
     closeFile,
     reconcileSession,
+    carryEdits,
+    retireEdits,
+    restoreEdits,
     contentOf,
     cancelSave,
     flush,

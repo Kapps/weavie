@@ -71,6 +71,16 @@ public interface ISessionHost {
 	Task<CommandResult> RecreateSessionAsync(
 		string? sessionId, string? agentProviderId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct = default);
 
+	/// <summary>
+	/// Replaces a loaded session's backend, resuming its conversation. Running background work refuses it, listing that
+	/// work, unless <paramref name="stopBackgroundWork"/>.
+	/// </summary>
+	Task<CommandResult> ReloadSessionAsync(
+		string? sessionId, bool stopBackgroundWork, CommandInvocationContext context, CancellationToken ct = default);
+
+	/// <summary>Cancels the running operation <paramref name="operationId"/>.</summary>
+	Task<CommandResult> CancelOperationAsync(string? operationId);
+
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
 	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
 

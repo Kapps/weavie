@@ -201,7 +201,8 @@ public sealed class AcpRewindTests {
 	private static async Task SubmitTurnsAsync(AcpAgentSessionFixture fixture, params string[] prompts) {
 		foreach (string prompt in prompts) {
 			fixture.Submit(prompt);
-			await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: " + prompt);
+			var reply = await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "echo: " + prompt);
+			await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == reply.TurnId);
 		}
 	}
 

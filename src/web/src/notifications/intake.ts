@@ -28,7 +28,9 @@ function toastAction(backendId: string, action: NotificationAction): ToastAction
     label: `${action.label}${keyHintInCatalog(backendId, action.commandId)}`,
     run: () => {
       try {
-        const args = action.argsJson == null ? undefined : JSON.parse(action.argsJson);
+        // The host naming an action can't know which backend this page calls it.
+        const args =
+          action.argsJson == null ? undefined : { ...JSON.parse(action.argsJson), backendId };
         void runCommandFromCatalogWithFeedback(backendId, action.commandId, args);
       } catch (error) {
         notify("error", `Couldn't run notification action: ${String(error)}`);

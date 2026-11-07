@@ -14,6 +14,9 @@ public sealed record WorkflowVocabulary {
 	/// <summary>The tool that runs a host command by id.</summary>
 	public required string RunCommand { get; init; }
 
+	/// <summary>The tool that opens a file in the editor.</summary>
+	public required string OpenFile { get; init; }
+
 	/// <summary>The command that answers the question a run is asking the user.</summary>
 	public required string Answer { get; init; }
 

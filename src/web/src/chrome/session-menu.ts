@@ -25,6 +25,9 @@ export function sessionMenuAt(
 export function sessionMenuEntries(session: RailSession): ContextMenuEntry[] {
   const args = { id: session.id, backendId: session.backendId };
   const entries: ContextMenuEntry[] = [
+    ...(session.reloadRequired === null
+      ? []
+      : [{ commandId: CommandIds.reloadSessionPrompt, args, label: "Reload session" }]),
     session.loaded
       ? { commandId: CommandIds.unloadSession, args, label: "Unload session" }
       : { commandId: CommandIds.loadSession, args, label: "Load session" },

@@ -30,6 +30,7 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 			Arguments = arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 

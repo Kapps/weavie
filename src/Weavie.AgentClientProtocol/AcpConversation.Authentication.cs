@@ -151,6 +151,7 @@ internal sealed partial class AcpConversation {
 				: AgentExecutableMode.SearchPath,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
 			OutputCapture = new AgentOutputCapture.Disabled(),
+			HangUpOnStop = false,
 		};
 	}
 }

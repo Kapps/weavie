@@ -25,6 +25,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private readonly Port _port = new();
 	private readonly Decider _decider = new();
 	private readonly MemoryStore _store = new();
+	private bool _openReviewItem = true;
 
 	public WorkflowRunnerTests() {
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow);
@@ -35,7 +36,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, _port, () => 3, _dir.Combine("worktree"), TestWorkflows.Words);
+			_store, _decider, _port, () => 3, () => _openReviewItem, _dir.Combine("worktree"), TestWorkflows.Words);
 		runner.Activate();
 		return runner;
 	}
@@ -62,6 +63,60 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.Contains("runCommand workflow.answer with run", runner.StageBlock());
 		Assert.Contains("Never answer for the user", runner.StageBlock());
 		Assert.Single(_port.Notices);
+	}
+
+	[Fact]
+	public void AUserQuestionTellsTheAgentToOpenItsMainItemInItsReplyAlone() {
+		using var runner = Runner();
+		runner.Start("flow", Json("{}"));
+		string reply = runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		Assert.Contains("call openFile with preview and rendered true on the main one only, and link any others", reply);
+		Assert.Equal(["do a"], _port.Kickoffs);
+		Assert.Null(runner.Current!.Kickoff);
+		Assert.DoesNotContain("openFile", runner.StageBlock());
+	}
+
+	[Fact]
+	public void TheSettingTurnsOffOpeningWhileTheQuestionStillReachesTheUser() {
+		_openReviewItem = false;
+		using var runner = Runner();
+		runner.Start("flow", Json("{}"));
+		string reply = runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		Assert.Contains("approve n?", reply);
+		Assert.DoesNotContain("openFile", reply);
+	}
+
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public async Task AModelDecisionFallingBackToTheUserOwesTheAgentATurnThatFollowsTheSetting(bool open) {
+		_openReviewItem = open;
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		runner.Answer(run.Id, "approve", "");
+		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+		runner.CompleteStage(Json("{}"), "s");
+		_decider.Next.SetResult(WorkflowDecisionResult.Chose(WorkflowDecision.Unsure));
+		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Asking);
+
+		string turn = _port.Kickoffs[^1];
+		Assert.Contains("again after n?", turn);
+		Assert.Equal(open, turn.Contains("openFile", StringComparison.Ordinal));
+		Assert.True(runner.TryClaimKickoff(WorkflowKickoff.Prompt(turn)));
+	}
+
+	[Fact]
+	public async Task AQuestionTheModelAnswersAndAStageThatJustRunsOpenNothing() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("""{"note":"n"}"""), "s");
+		runner.Answer(run.Id, "approve", "");
+		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+		Assert.DoesNotContain("openFile", runner.CompleteStage(Json("{}"), "s"));
+		_decider.Next.SetResult(WorkflowDecisionResult.Chose("yes"));
+		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Open);
+		Assert.DoesNotContain(_port.Kickoffs, turn => turn.Contains("openFile", StringComparison.Ordinal));
 	}
 
 	[Fact]

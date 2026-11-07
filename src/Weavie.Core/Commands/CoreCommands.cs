@@ -208,6 +208,9 @@ public static partial class CoreCommands {
 	/// <summary>Accepts the agent's newest pending input request with its current answers.</summary>
 	public const string AgentAcceptInput = "weavie.agent.acceptInput";
 
+	/// <summary>Answers the agent's newest pending choice question with the option at an index.</summary>
+	public const string AgentAnswerByIndex = "weavie.agent.answerByIndex";
+
 	/// <summary>Starts the first advertised authentication method on the newest authentication request.</summary>
 	public const string AgentAuthenticate = "weavie.agent.authenticate";
 
@@ -524,6 +527,7 @@ public static partial class CoreCommands {
 			Id = SpellSetLocale,
 			Title = "Set Spelling Locale",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Editor",
 			Description = "Select a spelling dictionary on this backend. Defaults to mixed US/Canadian/British English (en) with technical vocabulary. Mixed English is bundled; regional dictionaries and other languages download on selection. Omit locale to list available locale codes; ask the agent to select one.",
 			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code: en accepts US/Canadian/British English; en-US, en-CA, en-GB download a regional dictionary; fr, de and others download another language. Omit to list available codes."}}""",
@@ -538,9 +542,6 @@ public static partial class CoreCommands {
 			When = "editorFocused",
 		});
 
-		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
-		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.
-		var focusBindings = new List<CommandKeybinding>(9);
 		foreach (var (id, title, keys, when) in new (string, string, string[], string)[] {
 			(DockFileBrowser, "Toggle File Browser Stay Open", [], ""),
 			(FilterFileBrowser, "Filter Files", ["$mod+shift+b"], ""),
@@ -558,11 +559,6 @@ public static partial class CoreCommands {
 				DefaultKeybindings = [.. keys.Select(key => new CommandKeybinding { Key = key })],
 			});
 		}
-		for (int i = 1; i <= 9; i++) {
-			string n = i.ToString(CultureInfo.InvariantCulture);
-			focusBindings.Add(new CommandKeybinding { Key = $"ctrl+{n}", ArgsJson = $"{{\"index\":{n}}}" });
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = FocusPaneByIndex,
 			Title = "Focus Pane by Number",
@@ -570,7 +566,8 @@ public static partial class CoreCommands {
 			Category = "View",
 			Description = "Move keyboard focus to the Nth pane (1-based, in layout order).",
 			Aliases = ["focus pane", "switch pane", "go to pane"],
-			DefaultKeybindings = focusBindings,
+			// Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides with app/window shortcuts.
+			DefaultKeybindings = IndexedKeybindings("ctrl"),
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based pane number in layout order\"}}",
 		});
@@ -813,6 +810,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Restart a shell terminal tab (the exact 'id', or the session's primary terminal). Kills any running command.",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
@@ -824,6 +822,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "New Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Create and activate a new shell terminal tab in this session.",
 			Aliases = ["new terminal", "new shell", "add terminal", "open terminal tab"],
@@ -838,6 +837,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Close Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Close an exact shell terminal tab. A foreground job requires 'force': true.",
 			Aliases = ["close terminal", "close shell", "close terminal tab"],
@@ -886,6 +886,7 @@ public static partial class CoreCommands {
 			Id = RestartAgent,
 			Title = "Restart Agent",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
@@ -896,6 +897,7 @@ public static partial class CoreCommands {
 			Id = ClearAgentConversation,
 			Title = "Start Fresh Agent Conversation",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
@@ -917,6 +919,7 @@ public static partial class CoreCommands {
 			Id = AskAgentAside,
 			Title = "Ask Agent Aside",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
 			Aliases = ["btw", "ask aside", "side question"],
@@ -928,6 +931,7 @@ public static partial class CoreCommands {
 			Id = RewindAgentConversation,
 			Title = "Rewind Agent Conversation",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Continue the agent conversation from just before a prompt, with that prompt back in the composer. "
 				+ "Files are not changed.",
@@ -964,6 +968,7 @@ public static partial class CoreCommands {
 			Id = RestartForUpdate,
 			Title = "Restart Now for Update",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Update",
 			Description = "Apply the pending update immediately instead of waiting for sessions to go idle — running shell jobs are killed.",
 			Aliases = ["restart for update", "apply update", "update now", "restart now"],
@@ -974,6 +979,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Test",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Tests",
 			Description = "Run tests for a file using this workspace's test profile — writes the command into the "
 				+ "shell pane. Pass 'name' to run a single test, omit it to run the whole file.",
@@ -987,6 +993,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Tests in File",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Tests",
 			Description = "Run every test in a file (the given 'file', or the active editor file) via the workspace test profile.",
 			Aliases = ["run tests in file", "run file tests", "test this file", "run all tests in file"],
@@ -1114,6 +1121,7 @@ public static partial class CoreCommands {
 			Id = StopBackgroundTask,
 			Title = "Stop Background Task",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Stop one of the agent's background tasks, or the most recently started one that can be stopped.",
 			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
@@ -1336,6 +1344,19 @@ public static partial class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = AgentAnswerByIndex,
+			Title = "Answer Agent Question by Number",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Answer the agent's pending choice question with its Nth option (1-based).",
+			Aliases = ["answer question", "choose option", "pick answer"],
+			DefaultKeybindings = IndexedKeybindings("alt"),
+			When = "agentFocused && agentChoicePending",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based option number\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = AgentAuthenticate,
 			Title = "Authenticate Agent",
 			RunsIn = CommandLocation.Web,
@@ -1459,6 +1480,7 @@ public static partial class CoreCommands {
 			Id = ToggleWindow,
 			Title = "Toggle Weavie Window",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Toggle the Weavie window: bring it to the foreground when another app is in front, "
@@ -1594,6 +1616,7 @@ public static partial class CoreCommands {
 			Id = ToggleBlame,
 			Title = "Toggle Git Blame Annotations",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Git",
 			Description = "Show or hide the faded blame annotations (the 'editor.gitBlame' setting). Turning them "
@@ -2146,6 +2169,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Increase Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Increase the editor and terminal font size by one pixel.",
@@ -2158,6 +2182,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Decrease Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Decrease the editor and terminal font size by one pixel.",
@@ -2170,6 +2195,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Reset Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Reset the editor and terminal font size to the default.",
@@ -2184,6 +2210,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from Open VSX",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from the Open VSX registry by 'namespace' (publisher) "
@@ -2199,6 +2226,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from File…",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from a local .vsix file. With no 'path', opens a file "
@@ -2235,6 +2263,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Cycle Theme Mode",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Cycle the appearance mode: system (match OS) → light → dark → system. Light mode shows "
@@ -2248,6 +2277,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Undo Theme Override",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Undo the most recent color override on the active theme, or on the given 'theme' id (e.g. the editor theme).",
@@ -2260,6 +2290,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Reset Theme Overrides",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Clear ALL color overrides on the active theme, or on the given 'theme' id (e.g. the editor theme), returning it to its authored colors.",
@@ -2271,6 +2302,7 @@ public static partial class CoreCommands {
 			Id = SetupWorkspace,
 			Title = "Set Up This Workspace with Claude",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Workspace",
 			Description = "Have Claude inspect the repository and configure this workspace's settings — the command to ready a fresh checkout and how to run its tests — on your confirmation.",
 			Aliases = ["set up workspace", "configure workspace", "suggest setup command", "configure test runner", "how to run tests", "worktree setup command"],
@@ -2282,6 +2314,7 @@ public static partial class CoreCommands {
 			Id = LearnFromCorrections,
 			Title = "Learn From My Corrections",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Workspace",
 			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
 				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the invoking session for your "
@@ -2296,6 +2329,7 @@ public static partial class CoreCommands {
 			Id = ConnectNotion,
 			Title = "Connect Notion",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Source",
 			Description = "Connect your Notion account so you can open Notion docs (read-only). Opens Notion's token "
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
@@ -2375,6 +2409,7 @@ public static partial class CoreCommands {
 			Id = ViewLogs,
 			Title = "View Logs",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "View",
 			Description = "Open Weavie's captured console output (the host's stdout/stderr) in a read-only tab — the "
 				+ "diagnostics log. When Claude runs it, the most recent lines come back too, so it can see errors that "
@@ -2393,4 +2428,10 @@ public static partial class CoreCommands {
 
 	// The same chord answers the plan review bar's newest review while the editor holds focus.
 	private static CommandKeybinding PlanReviewBinding(string key) => new() { Key = key, When = "editorFocused && planReviewShown" };
+
+	/// <summary>Default bindings for an index-taking command: <paramref name="modifiers"/>+1..9, each carrying its index.</summary>
+	internal static IReadOnlyList<CommandKeybinding> IndexedKeybindings(string modifiers) => [.. Enumerable.Range(1, 9).Select(index => {
+		string n = index.ToString(CultureInfo.InvariantCulture);
+		return new CommandKeybinding { Key = $"{modifiers}+{n}", ArgsJson = $"{{\"index\":{n}}}" };
+	})];
 }

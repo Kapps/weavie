@@ -13,7 +13,7 @@ vi.mock("../editor-options", () => ({
     return () => {};
   },
 }));
-const { isPreviewMode, toggleViewMode } = await import("./view-mode-store");
+const { isPreviewMode, setViewMode, toggleViewMode } = await import("./view-mode-store");
 const owner = {} as ClientSession;
 
 describe("view-mode-store", () => {
@@ -36,6 +36,12 @@ describe("view-mode-store", () => {
     expect(isPreviewMode(owner, path)).toBe(true);
     expect(toggleViewMode(owner, path)).toBe("source");
     expect(isPreviewMode(owner, path)).toBe(false);
+  });
+
+  it("setting preview stays in preview when already there", () => {
+    setViewMode(owner, "c:/shown.md", "preview");
+    setViewMode(owner, "c:/shown.md", "preview");
+    expect(isPreviewMode(owner, "c:/shown.md")).toBe(true);
   });
 
   it("keys by canonical fs-path so drive-letter casing doesn't split the entry", () => {

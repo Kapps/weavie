@@ -282,7 +282,7 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
   drain-complete callback — so every host gets it. HTTP surface: token-gated `/control/drain` + `/control/status`
   (reports `BuildNumber`) in `src/Weavie.Headless/Program.cs`, covered by its existing
   default-deny middleware; exit via `IHostApplicationLifetime.StopApplication`. Status reports the worker's
-  compiled spawn contract; contract 2 requires the authenticated `/control/health` endpoint.
+  compiled spawn contract; contract 3 requires the authenticated `/control/health` endpoint, where a responsive worker with a timed-out operation answers 200 with `lastFailure`: left running, but not confirmable.
 - **Runner:** `UpdatePoller` + `VersionStore` (layout, `state.json`, symlink, realpath resolve);
   orchestration methods on `BackendManager` behind `_gate`; `HeadlessLauncher` takes the
   spawn-time path provider; `RunnerOptions` gains the two flags; `RunnerStatusPage` surfaces

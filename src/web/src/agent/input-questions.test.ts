@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inputQuestions } from "./input-questions";
+import { inputQuestions, sharedKeyPrefix } from "./input-questions";
 
 describe("inputQuestions", () => {
   it("reads normalized provider-neutral questions", () => {
@@ -28,5 +28,17 @@ describe("inputQuestions", () => {
 
   it("returns no questions when the normalized field is absent", () => {
     expect(inputQuestions({ type: "input-requested", providerId: "acp" })).toEqual([]);
+  });
+});
+
+describe("sharedKeyPrefix", () => {
+  it("finds the modifier of keys numbered in option order", () => {
+    expect(sharedKeyPrefix(["Alt+1", "Alt+2", "Alt+3"])).toBe("Alt+");
+  });
+
+  it("refuses rebound or missing keys, which rows must show in full", () => {
+    expect(sharedKeyPrefix(["Alt+1", "Ctrl+Q"])).toBeNull();
+    expect(sharedKeyPrefix(["Alt+1", "Alt+3"])).toBeNull();
+    expect(sharedKeyPrefix([])).toBeNull();
   });
 });

@@ -36,6 +36,10 @@ load it only when you need it.
   on both sides of the bridge. Domain messages route to that owner by construction; client selection
   only chooses what to render and never gates state mutation. See
   [docs/concepts/session-message-bus.md](docs/concepts/session-message-bus.md).
+- **Operation severity** — every message handler declares what its deadline means: droppable, action failed, session
+  critical (a persistent Reload that carries unsaved edits across), or no deadline. A timeout ends one operation, never
+  its session or worker; only unresponsive ingress restarts a worker. See
+  [docs/specs/message-operation-supervision.md](docs/specs/message-operation-supervision.md).
 - **Session file activity** — each loaded session orders completed buffer saves, known file changes/deletions,
   and watcher invalidations through one drainable stream. Facts describe boundaries, never who caused a change;
   review, corrections, spellcheck, and persistence remain separate domain concerns. See

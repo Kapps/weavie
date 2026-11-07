@@ -3,9 +3,19 @@
 // theme. Higher-level names complementing apply.ts, which publishes the raw --weavie-<key> vars.
 
 import { cssVarName } from "./apply";
+import { WEAVIE_DARK } from "./builtin/weavie-dark";
+import { WEAVIE_LIGHT } from "./builtin/weavie-light";
+
+/** A palette's polarity, which picks the built-in colors behind any key it omits. */
+export type Polarity = "light" | "dark";
+
+const POLARITY_DEFAULTS: Readonly<Record<Polarity, Readonly<Record<string, string>>>> = {
+  light: WEAVIE_LIGHT.colors,
+  dark: WEAVIE_DARK.colors,
+};
 
 // Each chrome variable and the VS Code color ids it resolves from, first match wins.
-const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
+export const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--bg": ["editor.background"],
   // The "bar" surface (title bar, pane heads, menus, toolbars, popovers): an elevated panel distinct
   // from the editor background.
@@ -29,7 +39,7 @@ const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--busy": ["terminal.ansiBlue", "charts.blue", "focusBorder"],
   // Diff surfaces (inline change review) mapped to the standard VS Code diff color ids so they track the
   // active theme instead of hardcoding green/red: solid markers from the gutter ids, line/char washes from
-  // the diffEditor ids. diff.css consumes these (with fallbacks for themes that omit a key).
+  // the diffEditor ids. diff.css consumes these.
   "--diff-added": ["editorGutter.addedBackground"],
   "--diff-removed": ["editorGutter.deletedBackground"],
   "--diff-added-line": ["diffEditor.insertedLineBackground"],
@@ -38,12 +48,15 @@ const CHROME_COLORS: Readonly<Record<string, readonly string[]>> = {
   "--diff-removed-text": ["diffEditor.removedTextBackground"],
 };
 
-/** The chrome's semantic CSS variables resolved from a palette; variables the palette can't supply are omitted. */
-export function chromeVars(colors: Readonly<Record<string, string>>): Record<string, string> {
+/** The chrome's semantic CSS variables from a palette; a variable it can't supply takes its polarity's built-in color. */
+export function chromeVars(
+  colors: Readonly<Record<string, string>>,
+  polarity: Polarity,
+): Record<string, string> {
   const vars: Record<string, string> = {};
   for (const [name, keys] of Object.entries(CHROME_COLORS)) {
-    const value = keys
-      .map((key) => colors[key])
+    const value = [colors, POLARITY_DEFAULTS[polarity]]
+      .flatMap((palette) => keys.map((key) => palette[key]))
       .find((color) => color !== undefined && color !== "");
     if (value !== undefined) {
       vars[name] = value;
@@ -53,21 +66,20 @@ export function chromeVars(colors: Readonly<Record<string, string>>): Record<str
 }
 
 /** Every CSS variable a palette publishes: the raw `--weavie-<key>` ids plus the chrome's semantic vars. */
-export function paletteVars(colors: Readonly<Record<string, string>>): Record<string, string> {
+export function paletteVars(
+  colors: Readonly<Record<string, string>>,
+  polarity: Polarity,
+): Record<string, string> {
   const raw = Object.entries(colors).map(([key, value]) => [cssVarName(key), value]);
-  return { ...Object.fromEntries(raw), ...chromeVars(colors) };
+  return { ...Object.fromEntries(raw), ...chromeVars(colors, polarity) };
 }
 
 /** Sets the chrome's semantic CSS variables on :root from a resolved palette. */
-export function deriveChromeVars(colors: Readonly<Record<string, string>>): void {
-  const root = document.documentElement;
-  const vars = chromeVars(colors);
-  for (const name of Object.keys(CHROME_COLORS)) {
-    const value = vars[name];
-    if (value !== undefined) {
-      root.style.setProperty(name, value);
-    } else {
-      root.style.removeProperty(name);
-    }
+export function deriveChromeVars(
+  colors: Readonly<Record<string, string>>,
+  polarity: Polarity,
+): void {
+  for (const [name, value] of Object.entries(chromeVars(colors, polarity))) {
+    document.documentElement.style.setProperty(name, value);
   }
 }

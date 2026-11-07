@@ -10,12 +10,12 @@ public sealed partial class HostCore {
 	private void WireReviewHints(HostSession session) {
 		var hints = session.ReviewHints;
 		var feature = session.Bus.Feature("reviewHints");
-		feature.Handle("dismiss", "Dismissing a review hint", WireJson.Default.ReviewHintDismissRequest, (message, _) => {
+		feature.Handle("dismiss", MessageActivity.ActionFailed("Dismissing a review hint"), WireJson.Default.ReviewHintDismissRequest, (message, _) => {
 			hints.Dismiss(message.Id);
 			return Task.CompletedTask;
 		});
 		feature.HandleConcurrent(
-			"source", "Loading a review hint's source", WireJson.Default.ReviewHintSourceRequest, WireJson.Default.ReviewHintSource,
+			"source", MessageActivity.ActionFailed("Loading a review hint's source"), WireJson.Default.ReviewHintSourceRequest, WireJson.Default.ReviewHintSource,
 			(message, _) => Task.FromResult(new ReviewHintSource(hints.Source(
 				WorktreeRelativePath(session, message.Path) ?? throw new InvalidOperationException(NotInWorktree(session, message.Path)),
 				message.Hash))));

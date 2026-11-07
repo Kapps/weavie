@@ -92,15 +92,40 @@ public sealed class TerminalControllerResyncTests {
 	private static string DecodeData(System.Text.Json.JsonElement message) =>
 		System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(message.GetProperty("dataB64").GetString()!));
 
+	[Fact]
+	public void Restart_DeliversTheStoppedChildsLastOutputBeforeTheReset() {
+		using var h = new Harness("shell", withScrollback: false, outputCoalesceMs: 60_000);
+		h.Controller.OnReady(80, 24);
+		h.Launcher.Terminal!.OutputOnDispose = "bye"u8.ToArray();
+
+		h.Controller.Restart();
+
+		var posted = h.Bridge.Posted.ToList();
+		int output = posted.FindIndex(message => message.Contains(Convert.ToBase64String("bye"u8), StringComparison.Ordinal));
+		int reset = posted.FindIndex(message => message.Contains("respawn", StringComparison.Ordinal));
+		Assert.InRange(output, 0, reset - 1);
+	}
+
+	[Fact]
+	public void Launch_ForwardsHangUpOnStopToTheTerminal() {
+		using var h = new Harness("shell", withScrollback: false);
+
+		h.Controller.OnReady(80, 24);
+
+		Assert.True(h.Launcher.Terminal!.HangUpOnStop);
+	}
+
 	/// <summary>A real controller over a resize-recording PTY launcher; temp files torn down on dispose.</summary>
 	private sealed class Harness : IDisposable {
 		private readonly SettingsStore _settings;
 		private readonly TempDirectory _root = new("weavie-resync");
 
-		public Harness(string session, bool withScrollback) {
+		public Harness(string session, bool withScrollback) : this(session, withScrollback, 0L) { }
+
+		public Harness(string session, bool withScrollback, long outputCoalesceMs) {
 			_settings = CoreSettings.CreateStore(_root.Combine("settings.toml"), enableWatcher: false);
-			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
-			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
+			// Zero posts output inline (no batching), so each emitted chunk is its own frame for synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(outputCoalesceMs));
 			Launcher = new RecordingPtyLauncher();
 			Controller = new TerminalController(
 				Bridge.SessionFeature($"terminal.{session}"),
@@ -138,6 +163,7 @@ public sealed class TerminalControllerResyncTests {
 			Arguments = launch.Arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = true,
 		};
 	}
 
@@ -153,8 +179,15 @@ public sealed class TerminalControllerResyncTests {
 		/// <summary>Every (columns, rows) passed to <see cref="Resize"/>, in order.</summary>
 		public List<(int Columns, int Rows)> Resizes { get; } = [];
 
+		/// <summary>Whether the launch asked for a hang-up on stop.</summary>
+		public bool HangUpOnStop { get; private set; }
+
+		/// <summary>What the child writes as it stops, if anything.</summary>
+		public byte[]? OutputOnDispose { get; set; }
+
 		public void Start(TerminalStartInfo startInfo) {
 			IsRunning = true;
+			HangUpOnStop = startInfo.HangUpOnStop;
 			_ = Exited;
 		}
 
@@ -167,6 +200,11 @@ public sealed class TerminalControllerResyncTests {
 
 		public void Resize(int columns, int rows) => Resizes.Add((columns, rows));
 
-		public void Dispose() => IsRunning = false;
+		public void Dispose() {
+			IsRunning = false;
+			if (OutputOnDispose is { } output) {
+				Output?.Invoke(output);
+			}
+		}
 	}
 }

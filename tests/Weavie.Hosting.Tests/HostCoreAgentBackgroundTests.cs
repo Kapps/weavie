@@ -28,6 +28,19 @@ public sealed class HostCoreAgentBackgroundTests {
 			new { id = session.SlotId, stopBackgroundWork = true }, CancellationToken.None)).Ok);
 	}
 
+	// /finish-session deletes its own session from the turn a finished CI watch started.
+	[Theory]
+	[InlineData(SessionCommands.UnloadSession)]
+	[InlineData(SessionCommands.DeleteSession)]
+	public async Task TheAgentsOwnUnpromptedTurnNeverRefuses(string command) {
+		await using var host = await TestHost.StartAsync();
+		var session = await StartBackgroundAsync(host, "unprompted", FakeStructuredAgentProvider.AutonomousTurnPrompt);
+
+		var result = await host.InvokeCommandAsync(session.SlotId, command, new { id = session.SlotId, force = true }, CancellationToken.None);
+
+		Assert.True(result.Ok, result.Error);
+	}
+
 	[Fact]
 	public async Task StopCommandStopsTheMostRecentStoppableTaskAndThenNothingRefuses() {
 		await using var host = await TestHost.StartAsync();
@@ -56,11 +69,14 @@ public sealed class HostCoreAgentBackgroundTests {
 		Assert.False(session.Agent.Background!.BackgroundWork.Single().Running);
 	}
 
-	private static async Task<HostSession> StartBackgroundAsync(TestHost host, string branch) {
+	private static Task<HostSession> StartBackgroundAsync(TestHost host, string branch) =>
+		StartBackgroundAsync(host, branch, FakeStructuredAgentProvider.BackgroundPrompt);
+
+	private static async Task<HostSession> StartBackgroundAsync(TestHost host, string branch, string prompt) {
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = branch, Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session(branch);
 		host.SessionEvent(session, "agent", "submit",
-			new { id = "", prompt = FakeStructuredAgentProvider.BackgroundPrompt, kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
+			new { id = "", prompt, kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 		Assert.True(session.Agent.Background!.BackgroundWork.Single().Running);
 		return session;
 	}

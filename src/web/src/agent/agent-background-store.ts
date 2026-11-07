@@ -5,7 +5,7 @@ import type { SessionAddress } from "../messaging/message-envelope";
 /** One subagent or background task a structured agent runs beside its turns. */
 export interface AgentBackgroundItem {
   id: string;
-  kind: "subagent" | "task";
+  kind: "subagent" | "task" | "turn";
   name: string;
   type: string;
   detail: string | null;

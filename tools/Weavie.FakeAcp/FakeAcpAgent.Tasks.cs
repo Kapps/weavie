@@ -44,6 +44,10 @@ internal sealed partial class FakeAcpAgent {
 					["outputFilePath"] = output,
 				});
 				break;
+			// Claude's adapter reports a turn it started without a prompt as a task of type "turn".
+			case "task-turn":
+				SpawnTask(_sessionId!, "autonomous-turn-" + Guid.NewGuid().ToString("N")[..8], "Claude is working", "turn", null);
+				break;
 			case "task-in-subagent":
 				string child = NextSubagent();
 				SpawnSubagent(_sessionId!, child, "Runner", "Run in background");

@@ -1,0 +1,45 @@
+# Workflow editing tools: tasks
+
+Groups are in build order. Each builds and tests on its own.
+
+## Group 1: Validate by id or text
+
+Satisfies R1, R2, R3.
+
+- [ ] Add `WorkflowReader.ReadProposal` over a shared private `Read`.
+- [ ] Extract `WorkflowCatalog.Resolve` and have `Winner` use it.
+- [ ] Add `Validate(id)` and `ValidateText`; delete `Validate(path)`.
+- [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
+- [ ] Change the `validateWorkflow` schema and handler, with the exactly-one check.
+- [ ] Replace the path test and add the catalog and MCP tests for R1 to R3.
+
+**Video:** in the real app, an agent validates a broken saved workflow by `id`, then a broken and a fixed proposal as
+`text`, and the file on disk stays unchanged throughout; calling with both arguments shows the error.
+
+## Group 2: Fork and folders
+
+Satisfies R4, R5, R6.
+
+- [ ] Add `WorkflowCatalog.Folder` and `Fork`.
+- [ ] Update `IWorkflowRegistry`, `Unavailable`, and `SessionWorkflowRegistry`.
+- [ ] Add the `forkWorkflow` tool, handler, scope parsing, and dispatch case.
+- [ ] Add `folders` to `listWorkflows`.
+- [ ] Add the catalog and MCP tests for R4 to R6.
+- [ ] Check in the real app whether a repository fork appears in review, and record the result in this spec.
+
+**Video:** in the real app, an agent lists the folders, forks the `quick-fix` built-in into personal and then
+repository, shows `listWorkflows` marking the originals as shadowed, and is refused when forking again and when forking
+a broken workflow. The clip also shows what review displays for the repository fork.
+
+## Group 3: Prompt, guidance, and docs
+
+Satisfies R7.
+
+- [ ] Rewrite the `AuthorWorkflowPrompt` steps as the overview shows.
+- [ ] Add the `listWorkflows` rule to `EmbeddedAgentGuidance`.
+- [ ] Update the `validateWorkflow` and `getWorkflowSchema` descriptions.
+- [ ] Update `docs/specs/workflows.md`, including "Built so far", Authoring, and forking.
+- [ ] Add the tests for the prompt and guidance rules.
+
+**Video:** in the real app, asking an agent to change a workflow's stage shows `runPrompt`, then `listWorkflows`,
+`validateWorkflow` with `text`, and a normal edit in the agent pane, with the changed workflow still valid afterwards.

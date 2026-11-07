@@ -127,8 +127,9 @@ flowchart LR
   T -. "uiTheme" .-> BASE["Monaco base:<br/>vs / vs-dark / hc-*"]
 ```
 
-Chrome CSS consumes `var(...)` named after VS Code keys, with fallbacks for keys a theme omits (many
-themes skip `terminal.*` — derive from `editor.*` or a default ANSI palette).
+Chrome CSS consumes `var(...)` named after VS Code keys. A semantic chrome var whose keys a theme omits
+(many themes skip `terminal.*` and `editorWidget.*`) takes the built-in Weavie color of the theme's own
+polarity, so every chrome and editor surface always has a value that suits it.
 
 ## 6. Theme overrides (user tweaks, Claude-driven)
 

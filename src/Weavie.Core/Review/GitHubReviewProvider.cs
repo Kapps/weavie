@@ -16,6 +16,10 @@ namespace Weavie.Core.Review;
 /// </summary>
 public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReviewCommentStore {
 	private const string DefaultHost = "github.com";
+
+	// A dead network black-holes requests, and a user's write waits on them inside the message deadline.
+	private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
+
 	private readonly HttpClient _http;
 	private readonly IGitHubTokenSource _tokenSource;
 	private readonly ConcurrentDictionary<(string Host, string Owner, string Repo, int Number), Lazy<Task<PullRequestSummary?>>> _pullRequestFetches = new();
@@ -26,7 +30,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	/// <param name="tokenSource">Resolves the API token.</param>
 	public GitHubReviewProvider(HttpClient? http, IGitHubTokenSource tokenSource) {
 		ArgumentNullException.ThrowIfNull(tokenSource);
-		_http = http ?? new HttpClient(new SlowRequestHandler());
+		_http = http ?? new HttpClient(new SlowRequestHandler()) { Timeout = RequestTimeout };
 		_tokenSource = tokenSource;
 	}
 
@@ -99,6 +103,14 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	/// <inheritdoc/>
 	public string CommitUrl(RepoRef repo, string sha) => WebCommitUrl(repo, sha);
 
+	private async Task<HttpResponseMessage> ExchangeAsync(HttpRequestMessage request, CancellationToken ct) {
+		try {
+			return await _http.SendAsync(request, ct).ConfigureAwait(false);
+		} catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException) {
+			throw new HttpRequestException($"GitHub didn't respond within {_http.Timeout.TotalSeconds:0.###} seconds.", ex);
+		}
+	}
+
 	private async Task<string> SendAsync(
 		RepoRef repo,
 		HttpMethod method,
@@ -106,7 +118,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 		string? jsonBody,
 		CancellationToken ct) {
 		using var request = await BuildRequestAsync(method, ApiBase(repo.Host) + path, jsonBody, ct).ConfigureAwait(false);
-		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		using var response = await ExchangeAsync(request, ct).ConfigureAwait(false);
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		ThrowForFailure(response, repo, body);
 		return body;
@@ -114,7 +126,7 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 
 	private async Task<string?> SendOrNullAsync(RepoRef repo, string path, CancellationToken ct) {
 		using var request = await BuildRequestAsync(HttpMethod.Get, ApiBase(repo.Host) + path, null, ct).ConfigureAwait(false);
-		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		using var response = await ExchangeAsync(request, ct).ConfigureAwait(false);
 		if (response.StatusCode == HttpStatusCode.NotFound) {
 			return null;
 		}

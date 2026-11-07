@@ -5,13 +5,14 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
-/// <summary>Owns one session incarnation's coalesced pull-request refresh and active-turn polling loop.</summary>
+/// <summary>Owns one session incarnation's coalesced pull-request probes, forge reloads, and active-turn polling loop.</summary>
 internal sealed class PullRequestStatusMonitor {
 	private readonly Lock _snapshotGate = new();
-	private readonly Channel<bool?> _signals = Channel.CreateUnbounded<bool?>(
+	private readonly Channel<Signal> _signals = Channel.CreateUnbounded<Signal>(
 		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 	private readonly Func<CancellationToken, Task<PullRequestStatusSnapshot>> _resolve;
 	private readonly Func<PullRequestStatusSnapshot, CancellationToken, Task> _publish;
+	private readonly Func<CancellationToken, Task> _reload;
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 	private readonly TimeSpan _pollInterval;
 	private PullRequestStatusSnapshot? _latest;
@@ -20,11 +21,13 @@ internal sealed class PullRequestStatusMonitor {
 		SessionTaskScope background,
 		Func<CancellationToken, Task<PullRequestStatusSnapshot>> resolve,
 		Func<PullRequestStatusSnapshot, CancellationToken, Task> publish,
+		Func<CancellationToken, Task> reload,
 		Func<TimeSpan, CancellationToken, Task> delay,
 		TimeSpan pollInterval) {
 		ArgumentNullException.ThrowIfNull(background);
 		ArgumentNullException.ThrowIfNull(resolve);
 		ArgumentNullException.ThrowIfNull(publish);
+		ArgumentNullException.ThrowIfNull(reload);
 		ArgumentNullException.ThrowIfNull(delay);
 		if (pollInterval <= TimeSpan.Zero) {
 			throw new ArgumentOutOfRangeException(nameof(pollInterval));
@@ -32,6 +35,7 @@ internal sealed class PullRequestStatusMonitor {
 
 		_resolve = resolve;
 		_publish = publish;
+		_reload = reload;
 		_delay = delay;
 		_pollInterval = pollInterval;
 		_ = background.Run(RunAsync);
@@ -46,37 +50,40 @@ internal sealed class PullRequestStatusMonitor {
 	}
 
 	public void UpdateStatus(SessionStatus status) =>
-		_signals.Writer.TryWrite(status is SessionStatus.Working or SessionStatus.Waiting);
+		_signals.Writer.TryWrite(status is SessionStatus.Working or SessionStatus.Waiting ? Signal.Active : Signal.Idle);
 
-	public void RequestRefresh() => _signals.Writer.TryWrite(null);
+	public void RequestRefresh() => _signals.Writer.TryWrite(Signal.Probe);
+
+	/// <summary>Asks for the followed PR's comments and overview to be re-read, without re-resolving which PR it is.</summary>
+	public void RequestReload() => _signals.Writer.TryWrite(Signal.Reload);
 
 	private async Task RunAsync(CancellationToken ct) {
 		bool active = false;
-		bool refresh = false;
 		while (true) {
-			if (!refresh) {
-				if (active && await PollElapsedBeforeSignalAsync(ct).ConfigureAwait(false)) {
-					refresh = true;
-				} else {
-					Apply(await _signals.Reader.ReadAsync(ct).ConfigureAwait(false), ref active, ref refresh);
+			bool probe = false;
+			bool reload = false;
+			if (active && await PollElapsedBeforeSignalAsync(ct).ConfigureAwait(false)) {
+				probe = true;
+			} else {
+				Apply(await _signals.Reader.ReadAsync(ct).ConfigureAwait(false), ref active, ref probe, ref reload);
+			}
+
+			while (_signals.Reader.TryRead(out var signal)) {
+				Apply(signal, ref active, ref probe, ref reload);
+			}
+
+			if (probe) {
+				var snapshot = PreserveLastGood(await _resolve(ct).ConfigureAwait(false));
+				lock (_snapshotGate) {
+					_latest = snapshot;
 				}
+
+				await _publish(snapshot, ct).ConfigureAwait(false);
 			}
 
-			while (_signals.Reader.TryRead(out bool? signal)) {
-				Apply(signal, ref active, ref refresh);
+			if (reload) {
+				await _reload(ct).ConfigureAwait(false);
 			}
-
-			if (!refresh) {
-				continue;
-			}
-
-			refresh = false;
-			var snapshot = PreserveLastGood(await _resolve(ct).ConfigureAwait(false));
-			lock (_snapshotGate) {
-				_latest = snapshot;
-			}
-
-			await _publish(snapshot, ct).ConfigureAwait(false);
 		}
 	}
 
@@ -106,15 +113,26 @@ internal sealed class PullRequestStatusMonitor {
 		return ReferenceEquals(winner, poll);
 	}
 
-	private static void Apply(bool? signal, ref bool active, ref bool refresh) {
-		if (signal is { } nextActive) {
-			if (nextActive != active) {
-				active = nextActive;
-				refresh = true;
-			}
-		} else {
-			refresh = true;
+	private static void Apply(Signal signal, ref bool active, ref bool probe, ref bool reload) {
+		switch (signal) {
+			case Signal.Reload:
+				reload = true;
+				break;
+			case Signal.Probe:
+				probe = true;
+				break;
+			default:
+				probe |= active != (signal == Signal.Active);
+				active = signal == Signal.Active;
+				break;
 		}
+	}
+
+	private enum Signal {
+		Active,
+		Idle,
+		Probe,
+		Reload,
 	}
 }
 

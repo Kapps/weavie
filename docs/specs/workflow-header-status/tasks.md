@@ -11,7 +11,7 @@ Satisfies R1, R3, R4, R5, R9, R10.
 - [x] Unit test both, plus `sessionRun`
 - [x] Create `WorkflowRunStatus.tsx`
 - [x] Render it in `AgentPane.tsx` before the shortcut `<Show>`
-- [ ] Add the base `.pane-run` styles to `layout.css`
+- [x] Add the base `.pane-run` styles to `layout.css`
 - [ ] Extend `workflow-status-line.spec.ts`: text, dot colors, tooltip, run end, second session, reload, no stage count
 - [ ] Record the "detail on demand" outcome in `docs/specs/workflows.md`
 

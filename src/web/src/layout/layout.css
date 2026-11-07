@@ -257,6 +257,16 @@
   color: var(--accent);
 }
 
+/* A session's live workflow run in an agent pane head. */
+.pane-run {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--dim);
+  white-space: pre;
+}
+
 .pane-body {
   position: relative;
   flex: 1 1 0;

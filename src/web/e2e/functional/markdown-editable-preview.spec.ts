@@ -196,4 +196,16 @@ test.describe("a rendered file with pending agent changes", () => {
     await expect(page.locator(".editor-tab.active", { hasText: "tasks.md" })).toBeVisible();
     await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
   });
+
+  // A change-level step needs the diff on screen, so it switches the rendered file to Source first.
+  test("stepping to a change shows the diff", async ({ page }) => {
+    await expect(page.locator(".editor-empty-review")).toBeVisible({ timeout: 20_000 });
+    await openFile(page, "README.md");
+    await page.locator(".editor-preview").focus();
+
+    await page.keyboard.press(navChord("ArrowDown"));
+
+    await expect(preview(page)).toBeHidden();
+    await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
+  });
 });

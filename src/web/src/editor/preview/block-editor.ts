@@ -327,11 +327,12 @@ export class BlockEditor {
   }
 }
 
+const PROSE_BLOCK = "p, h1, h2, h3, h4, h5, h6, pre, blockquote, table, hr, .mermaid-rendered";
+
 // The source sits where the rendered block did, at its size, so opening it barely moves the page.
 function matchRendered(box: HTMLElement, unit: HTMLElement): void {
   const first = unit.firstElementChild;
-  if (first === null || first.matches("ul, ol")) return;
-  const style = getComputedStyle(first);
+  const style = getComputedStyle(first?.matches(PROSE_BLOCK) ? first : unit);
   box.style.marginBlock = `${style.marginTop} ${style.marginBottom}`;
   if (box.hasAttribute("data-code")) return;
   box.style.fontSize = style.fontSize;

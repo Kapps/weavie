@@ -426,8 +426,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         editorContexts.forTab(tab)?.editor.focus();
       } else focusTabContent(element);
     },
-    // A rendered file still shows its review toolbar; only an open block keeps the keys for itself.
-    actions: () => (focusedBlockEditor()?.editing ? undefined : inlineDiff?.captureActions()),
+    // A rendered file keeps its review keys, but a change-level action shows the diff before it acts.
+    actions: () => {
+      if (focusedBlockEditor()?.editing) return undefined;
+      const actions = inlineDiff?.captureActions();
+      if (actions === undefined || content() === undefined) return actions;
+      const inSource = (run: () => boolean) => () => {
+        setViewMode(tab.session, tab.entry.path, "source");
+        return run();
+      };
+      const show = () => true;
+      return {
+        ...actions,
+        nextChange: inSource(actions.nextChange),
+        prevChange: inSource(actions.prevChange),
+        accept: inSource(show),
+        reject: inSource(show),
+      };
+    },
   });
   const applyActive = (
     session: ClientSession,

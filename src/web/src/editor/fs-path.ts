@@ -35,8 +35,6 @@ export function normalizePath(path: string): string {
   );
 }
 
-/// True when both strings name the same on-disk file, ignoring drive-letter case, separators, the WSL
-/// `/mnt/<drive>/` prefix, a trailing slash, and filename case. Use for every "already open?" tab comparison.
 /** Collapses `.` and `..` segments, as a link relative to a document produces. */
 export function collapseDotSegments(path: string): string {
   const parts: string[] = [];
@@ -48,6 +46,8 @@ export function collapseDotSegments(path: string): string {
   return parts.join("");
 }
 
+/// True when both strings name the same on-disk file, ignoring drive-letter case, separators, the WSL
+/// `/mnt/<drive>/` prefix, a trailing slash, and filename case. Use for every "already open?" tab comparison.
 export function samePath(a: string, b: string): boolean {
   return normalizePath(a) === normalizePath(b);
 }

@@ -89,6 +89,7 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     createEffect(() => render(false));
     onCleanup(() => {
       rememberPreviewScroll(props.session(), props.path(), host.scrollTop);
+      props.onPlaced(() => {});
       blocks?.dispose();
     });
   });

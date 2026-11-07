@@ -87,10 +87,22 @@ internal sealed class SettingsFileLayer : IDisposable {
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),
 				],
 			};
-			(table?.Items ?? document.KeyValues).Add(keyValue);
+			Append(table?.Items ?? document.KeyValues, keyValue);
 		}
 
 		SaveAtomic(document);
+	}
+
+	// The blank lines and comments after a list's last line belong to what follows, so they move below the new key.
+	private static void Append(SyntaxList<KeyValueSyntax> items, KeyValueSyntax keyValue) {
+		keyValue.EndOfLineToken = new SyntaxToken(TokenKind.NewLine, "\n");
+		if (items.ChildrenCount > 0 && items.GetChild(items.ChildrenCount - 1) is { } last) {
+			last.EndOfLineToken ??= new SyntaxToken(TokenKind.NewLine, "\n");
+			keyValue.EndOfLineToken.TrailingTrivia = last.EndOfLineToken.TrailingTrivia;
+			last.EndOfLineToken.TrailingTrivia = null;
+		}
+
+		items.Add(keyValue);
 	}
 
 	// The most specific [table] header that `key` falls under, if any.

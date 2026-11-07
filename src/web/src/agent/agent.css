@@ -827,7 +827,8 @@ a:has(> .agent-path-dir) {
 /* Rows run edge to edge like a palette list; the gutter holds each option's key. */
 .agent-choice-request {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* The gutter keeps its width with no keys, so labels stay put when a card takes them over. */
+  grid-template-columns: minmax(1ch, auto) minmax(0, 1fr);
   margin: 0 -10px -9px;
   font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
 }
@@ -858,6 +859,7 @@ a:has(> .agent-path-dir) {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;
+  align-items: baseline;
   column-gap: 12px;
   row-gap: 1px;
   padding: 5px 10px 5px 8px;
@@ -916,6 +918,7 @@ a:has(> .agent-path-dir) {
 
 .agent-choice-other:focus {
   border-top-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
   outline: 0;
 }
 

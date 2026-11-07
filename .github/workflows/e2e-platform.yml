@@ -234,7 +234,9 @@ jobs:
         id: playwright
         working-directory: src/web
         shell: bash
-        run: pnpm run e2e:ci --test-list "$WEAVIE_E2E_BUNDLE/shards/${{ matrix.shard }}.txt"
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm run e2e:ci --test-list "$WEAVIE_E2E_BUNDLE/shards/$SHARD.txt"
 
       - name: Upload Playwright blob report
         if: ${{ !cancelled() && steps.playwright.outcome != 'skipped' }}

@@ -1409,11 +1409,11 @@ label.agent-input-choice:hover {
 }
 
 .agent-status-diff-added {
-  color: var(--diff-added, #5a9a6a);
+  color: var(--diff-added);
 }
 
 .agent-status-diff-removed {
-  color: var(--diff-removed, #c47a7a);
+  color: var(--diff-removed);
 }
 
 /* Hints that the totals open a menu of the session's other diffs. */

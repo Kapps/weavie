@@ -10,7 +10,7 @@ import { hostInjected, registerHostFeature } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
-import { deriveChromeVars, paletteVars } from "./chrome-vars";
+import { chromeVars, deriveChromeVars, type Polarity, paletteVars } from "./chrome-vars";
 import { type OverrideOp, type ResolvedTheme, resolveTheme } from "./overrides";
 import type { VsCodeColorTheme } from "./vscode-theme";
 import { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";
@@ -62,6 +62,9 @@ interface ThemeState {
   editorLight: Slot | undefined;
   editorDark: Slot | undefined;
 }
+
+const polarityOf = (slot: Slot): Polarity =>
+  slot.base.type === "light" || slot.base.type === "hcLight" ? "light" : "dark";
 
 /** True when the OS currently prefers a dark color scheme (defaults to dark where matchMedia is absent). */
 function prefersDark(): boolean {
@@ -116,10 +119,10 @@ const [appearance, setAppearance] = createSignal(appearanceOf(state));
 /** The saved mode and per-polarity theme ids, updated live as the host pushes changes. */
 export const savedAppearance = appearance;
 
-/** One polarity's saved palette, updated live, for previewing a theme without applying it. */
-export function savedPalette(type: "light" | "dark"): Readonly<Record<string, string>> {
+/** One polarity's saved chrome vars, updated live, for previewing a theme without applying it. */
+export function savedChromeVars(type: Polarity): Record<string, string> {
   appearance();
-  return state[type].resolved.colors;
+  return chromeVars(state[type].resolved.colors, polarityOf(state[type]));
 }
 
 /** Which theme a picker selects: the app theme, or the code-editor theme. */
@@ -228,9 +231,6 @@ export function onPreviewThemeChanged(handler: () => void): () => void {
   };
 }
 
-const polarityOf = (slot: Slot): "light" | "dark" =>
-  slot.base.type === "light" || slot.base.type === "hcLight" ? "light" : "dark";
-
 let editorRule: CSSStyleDeclaration | undefined;
 
 /** Republishes the editor palette's CSS vars on the `[data-editor-theme]` rule, shadowing :root's. */
@@ -242,14 +242,16 @@ function applyEditorTheme(): void {
     editorRule = (element.sheet!.cssRules[0] as CSSStyleRule).style;
   }
   const slot = editorSlot();
-  const vars = paletteVars(slot.resolved.colors);
-  // A var the editor palette lacks resets to `initial`, so CSS fallbacks apply instead of the app's value.
+  const polarity = polarityOf(slot);
+  const vars = paletteVars(slot.resolved.colors, polarity);
+  // A raw color the editor palette lacks resets to `initial` rather than inheriting the app's value.
+  const app = displayedSlot();
   const names = new Set([
-    ...Object.keys(paletteVars(displayedSlot().resolved.colors)),
+    ...Object.keys(paletteVars(app.resolved.colors, polarityOf(app))),
     ...Object.keys(vars),
   ]);
   editorRule.cssText = "";
-  editorRule.setProperty("color-scheme", polarityOf(slot));
+  editorRule.setProperty("color-scheme", polarity);
   for (const name of names) {
     editorRule.setProperty(name, vars[name] ?? "initial");
   }
@@ -260,7 +262,8 @@ export function applyChromeTheme(): void {
   const slot = displayedSlot();
   applyEditorTheme();
   applyColorsToCssVars(slot.resolved.colors);
-  deriveChromeVars(slot.resolved.colors);
+  const polarity = polarityOf(slot);
+  deriveChromeVars(slot.resolved.colors, polarity);
   const background = slot.resolved.colors["editor.background"];
   if (background !== undefined) {
     document
@@ -269,7 +272,6 @@ export function applyChromeTheme(): void {
   }
   // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
   // the active polarity; mirror it onto data-theme-type so polarity-specific CSS can target it.
-  const polarity = polarityOf(slot);
   document.documentElement.style.colorScheme = polarity;
   document.documentElement.dataset.themeType = polarity;
 }

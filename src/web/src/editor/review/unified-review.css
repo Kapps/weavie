@@ -82,11 +82,11 @@
 }
 
 .unified-review-added {
-  color: var(--diff-added, #5a9a6a);
+  color: var(--diff-added);
 }
 
 .unified-review-removed {
-  color: var(--diff-removed, #c47a7a);
+  color: var(--diff-removed);
 }
 
 .unified-review-action,
@@ -119,12 +119,12 @@
 
 .unified-review-action.keep,
 .unified-review-file-action.keep {
-  color: var(--diff-added, #5a9a6a);
+  color: var(--diff-added);
 }
 
 .unified-review-action.revert,
 .unified-review-file-action.revert {
-  color: var(--diff-removed, #c47a7a);
+  color: var(--diff-removed);
 }
 
 .unified-review-file-toggle:focus-visible,
@@ -277,7 +277,7 @@
   border: 0;
   background: linear-gradient(
     90deg,
-    var(--diff-added, #5a9a6a) var(--reviewed),
+    var(--diff-added) var(--reviewed),
     var(--track) var(--reviewed)
   );
   cursor: pointer;
@@ -512,11 +512,11 @@
 }
 
 :is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row) .unified-review-added {
-  color: color-mix(in srgb, var(--diff-added, #5a9a6a) 80%, var(--fg));
+  color: color-mix(in srgb, var(--diff-added) 80%, var(--fg));
 }
 
 :is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row) .unified-review-removed {
-  color: color-mix(in srgb, var(--diff-removed, #c47a7a) 80%, var(--fg));
+  color: color-mix(in srgb, var(--diff-removed) 80%, var(--fg));
 }
 
 :is(.unified-review-tree-row, .unified-review-switcher .tb-omnibar-row).reviewed:not(.current)

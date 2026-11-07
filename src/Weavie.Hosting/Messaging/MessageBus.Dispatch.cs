@@ -12,6 +12,7 @@ internal partial class MessageBus {
 		MessageOperation operation) {
 		CancellationTokenSource? request = null;
 		bool requestRegistered = false;
+		bool handlerOutlived = false;
 		try {
 			if (!Accepting) {
 				throw new OperationCanceledException("The endpoint is closing.");
@@ -30,7 +31,10 @@ internal partial class MessageBus {
 			requestRegistered = envelope.RequestId is not null;
 
 			var response = await registration
-				.InvokeAsync(owner, envelope.Payload, request.Token, admitted, _handlerExecutor, operation)
+				.InvokeAsync(owner, envelope.Payload, request.Token, admitted, _handlerExecutor, operation, running => {
+					handlerOutlived = true;
+					_ = FinishLateAsync(running, operation, request);
+				})
 				.ConfigureAwait(false);
 			if (envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
 				TrySendResponse(peer, envelope, response.Payload, null);
@@ -61,7 +65,10 @@ internal partial class MessageBus {
 				_requests.TryRemove((peer, requestId), out _);
 			}
 
-			request?.Dispose();
+			// A handler that outlives its deadline keeps its token, so the deadline's cancel still reaches it.
+			if (!handlerOutlived) {
+				request?.Dispose();
+			}
 		}
 	}
 
@@ -156,7 +163,7 @@ internal partial class MessageBus {
 
 		public HandlerRegistration(
 			Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
-			Func<JsonElement, string> activity,
+			Func<JsonElement, MessageActivity> activity,
 			Func<JsonElement, FeatureLane?> lane,
 			Func<MessagePeer, bool> admit,
 			PendingPresenter presenter) {
@@ -169,7 +176,7 @@ internal partial class MessageBus {
 
 		private readonly Func<MessagePeer, bool> _admit;
 
-		public Func<JsonElement, string> Activity { get; }
+		public Func<JsonElement, MessageActivity> Activity { get; }
 
 		public PendingPresenter Presenter { get; }
 
@@ -181,79 +188,25 @@ internal partial class MessageBus {
 			CancellationToken ct,
 			Task admitted,
 			IMessageHandlerExecutor handlerExecutor,
-			MessageOperation operation) {
+			MessageOperation operation,
+			Action<Task<HandlerResponse>> late) {
 			async Task<HandlerResponse> InvokeAdmittedAsync() {
 				await admitted.ConfigureAwait(false);
 				operation.MarkStage(MessageStage.HandlerDispatch);
-				return await operation.SuperviseAsync(() => handlerExecutor
-					.InvokeAsync(() => {
-						operation.MarkStage(MessageStage.Handler);
-						return _handler(peer, payload, ct);
-					}, ct)).ConfigureAwait(false);
+				return await handlerExecutor.InvokeAsync(() => {
+					if (!operation.TryEnter()) {
+						throw new OperationCanceledException("The operation expired before its handler started.");
+					}
+
+					operation.MarkStage(MessageStage.Handler);
+					return _handler(peer, payload, ct);
+				}, ct).ConfigureAwait(false);
 			}
 
 			var lane = _lane(payload);
-			if (lane is null) {
-				return InvokeAdmittedAsync();
-			}
-
-			return lane.Enqueue(operation, InvokeAdmittedAsync);
-		}
-	}
-
-	private sealed class FeatureLane : IDisposable {
-		private readonly object _gate = new();
-		private readonly Func<MessageOperation?> _runningOperation;
-		private Task _tail = Task.CompletedTask;
-		private MessageOperation? _running;
-		private bool _disposed;
-
-		public FeatureLane() {
-			_runningOperation = () => {
-				lock (_gate) {
-					return _running;
-				}
-			};
-		}
-
-		public Task<HandlerResponse> Enqueue(MessageOperation operation, Func<Task<HandlerResponse>> work) {
-			lock (_gate) {
-				ObjectDisposedException.ThrowIf(_disposed, this);
-				operation.QueueBehind(_runningOperation);
-				var queued = RunAfterAsync(_tail, operation, work);
-				_tail = queued;
-				return queued;
-			}
-		}
-
-		public void Dispose() {
-			lock (_gate) {
-				_disposed = true;
-			}
-		}
-
-		private async Task<HandlerResponse> RunAfterAsync(
-			Task predecessor,
-			MessageOperation operation,
-			Func<Task<HandlerResponse>> work) {
-			try {
-				await predecessor.ConfigureAwait(false);
-			} catch (Exception) {
-				// Each dispatch reports its own failure; the lane only preserves admission order.
-			}
-
-			lock (_gate) {
-				_running = operation;
-			}
-			try {
-				return await work().ConfigureAwait(false);
-			} finally {
-				lock (_gate) {
-					if (_running == operation) {
-						_running = null;
-					}
-				}
-			}
+			return operation.SuperviseAsync(
+				() => lane is null ? InvokeAdmittedAsync() : lane.Enqueue(operation, InvokeAdmittedAsync, ct),
+				late);
 		}
 	}
 

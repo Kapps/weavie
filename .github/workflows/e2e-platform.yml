@@ -29,6 +29,9 @@ jobs:
   bundle:
     name: bundle
     runs-on: ${{ inputs.os }}
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      playwright: ${{ steps.plan.outputs.playwright }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
@@ -76,6 +79,31 @@ jobs:
             -c Release -r ${{ inputs.rid }} --self-contained \
             -o artifacts/e2e-bundle/fake-acp
 
+      # The newest green Linux run's per-file times, shared by every platform: relative cost is what
+      # balances shards, and only Linux runs on every push.
+      - name: Restore e2e timings
+        uses: actions/cache/restore@v4
+        with:
+          path: e2e-timings.json
+          key: e2e-timings-${{ github.run_id }}
+          restore-keys: e2e-timings-
+          enableCrossOsArchive: true
+
+      # Plans once so every shard runs from the same partition of the listed tests.
+      - name: Plan e2e shards
+        id: plan
+        shell: bash
+        working-directory: src/web
+        env:
+          SHARDS: 8
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-list.json
+        run: |
+          pnpm exec playwright test --list --reporter=json > /dev/null
+          python3 ../../temp/workflow/.github/scripts/plan_e2e_shards.py plan \
+            "$PLAYWRIGHT_JSON_OUTPUT_FILE" ../../e2e-timings.json "$SHARDS" ../../artifacts/e2e-bundle/shards
+          echo "shards=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
+          echo "playwright=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Verify test bundle
         shell: bash
         run: |
@@ -103,19 +131,21 @@ jobs:
 
   # Every platform runs the complete Playwright project set against one immutable build. Shards add
   # machines without increasing the worker count that starved hosted macOS and Windows.
+  # Linux runs in Playwright's image, whose browsers and OS dependencies are baked in, so no shard
+  # waits on an apt mirror.
   e2e:
-    name: shard (${{ matrix.shard }}/${{ matrix.shards }})
+    name: shard (${{ matrix.shard }})
     needs: bundle
     runs-on: ${{ inputs.os }}
+    container:
+      image: ${{ inputs.platform == 'linux' && format('mcr.microsoft.com/playwright:v{0}-noble', needs.bundle.outputs.playwright) || '' }}
+      options: --user 1001
     env:
       NODE_OPTIONS: --max-old-space-size=4096
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
-      WEAVIE_E2E_BUNDLE: ${{ github.workspace }}/.e2e-bundle
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
-        shards: [6]
+        shard: ${{ fromJSON(needs.bundle.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,6 +153,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - *trusted-infrastructure
+      # Playwright's image has no Python for the release checkout helper.
+      - uses: actions/setup-python@v5
+        if: inputs.ref
+        with:
+          python-version: '3.x'
       - name: Authorize and check out release source
         if: inputs.ref
         env:
@@ -162,6 +197,13 @@ jobs:
           if [[ "${{ runner.os }}" == macOS ]]; then
             chmod +x .e2e-bundle/runner/worker/weavie-pty-launcher
           fi
+          echo "WEAVIE_E2E_BUNDLE=$GITHUB_WORKSPACE/.e2e-bundle" >> "$GITHUB_ENV"
+          # A container step inherits no login shell, and the host's shell panes launch $SHELL.
+          if [[ "${{ runner.os }}" == Linux ]]; then
+            echo "SHELL=/bin/bash" >> "$GITHUB_ENV"
+          else
+            echo "PLAYWRIGHT_BROWSERS_PATH=$GITHUB_WORKSPACE/.pw-browsers" >> "$GITHUB_ENV"
+          fi
           mkdir -p src/web/dist
           for attempt in 1 2 3; do
             if cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/; then
@@ -176,53 +218,12 @@ jobs:
           done
 
       - name: Cache Playwright browsers
-        if: inputs.cache-write
+        if: inputs.cache-write && runner.os != 'Linux'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.pw-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-
-      # Hang, 2026-08-19 ~19:52 UTC: https://github.com/Kapps/weavie/actions/runs/32295180447 —
-      # 5/6 Linux shards stuck here for over an hour. `--with-deps` shells out to `sudo apt-get`,
-      # which can stall indefinitely on a flaky archive mirror on hosted Ubuntu runners (known
-      # upstream: actions/runner-images#11347, microsoft/playwright#20665/#41133) — not caused by
-      # this repo's code.
-      #
-      # Follow-up, 2026-08-19 ~21:05 UTC: https://github.com/Kapps/weavie/actions/runs/32301304438/job/96224774374
-      # First bounded-retry attempt (`timeout 5m`, no cleanup) correctly killed the stuck attempt,
-      # but `timeout` only signals the `pnpm exec` process it launched directly — the `sudo
-      # apt-get` grandchild it spawns survives as an orphan holding the dpkg lock, so every retry
-      # after the first failed instantly with "Could not get lock /var/lib/dpkg/lock-frontend".
-      # Clearing that lock (and any surviving apt-get/dpkg process) before each retry lets the
-      # retry actually retry.
-      #
-      # Follow-up, 2026-08-19 ~21:48 UTC: https://github.com/Kapps/weavie/actions/runs/32303798223/job/96234015439
-      # With the lock cleared, all 3 attempts genuinely retried apt-get from scratch — but all 3 still
-      # hit the 5m timeout. Root cause this time wasn't a true hang: `azure.archive.ubuntu.com` (the
-      # runner's default mirror) failed outright each attempt (`Ign:` lines), apt fell back to
-      # `archive.ubuntu.com` after ~2m of retries against the dead mirror, leaving too little of the
-      # 5m budget for the actual package fetch (already slow: ~56 kB/s observed in the prior run).
-      # Widened to 10m so a genuinely-progressing-but-slow attempt (mirror fallback + a throttled
-      # fetch) fits inside one attempt instead of being killed and retried for no reason.
-      - name: Install Playwright Chromium (Linux)
-        if: runner.os == 'Linux'
-        working-directory: src/web
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 10m pnpm exec playwright install --with-deps chromium; then
-              break
-            fi
-            if [[ $attempt == 3 ]]; then
-              echo "playwright install --with-deps timed out after $attempt attempts" >&2
-              exit 1
-            fi
-            echo "playwright install --with-deps timed out (attempt $attempt); clearing the apt lock left behind by the timeout and retrying..." >&2
-            sudo pkill -9 -f 'apt-get|dpkg' || true
-            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
-            sudo dpkg --configure -a || true
-          done
 
       - name: Install Playwright Chromium (macOS / Windows)
         if: runner.os != 'Linux'
@@ -232,13 +233,16 @@ jobs:
       - name: Run Playwright shard
         id: playwright
         working-directory: src/web
-        run: pnpm run e2e:ci --shard=${{ matrix.shard }}/${{ matrix.shards }}
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm run e2e:ci --test-list "$WEAVIE_E2E_BUNDLE/shards/$SHARD.txt"
 
       - name: Upload Playwright blob report
         if: ${{ !cancelled() && steps.playwright.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-blob-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          name: e2e-blob-${{ inputs.platform }}-${{ matrix.shard }}
           path: src/web/blob-report/
           if-no-files-found: error
           retention-days: 1
@@ -252,7 +256,7 @@ jobs:
         if: ${{ !cancelled() && steps.playwright.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-traces-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          name: e2e-traces-${{ inputs.platform }}-${{ matrix.shard }}
           path: src/web/test-results/
           if-no-files-found: ignore
           retention-days: 14
@@ -292,6 +296,23 @@ jobs:
       - name: Merge shard reports
         working-directory: src/web
         run: pnpm exec playwright merge-reports --config=playwright.merge.config.ts ../../blob-reports
+
+      - name: Record e2e timings
+        if: inputs.platform == 'linux' && inputs.cache-write && needs.e2e.result == 'success'
+        working-directory: src/web
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-report.json
+        run: |
+          pnpm exec playwright merge-reports --config=playwright.merge.config.ts --reporter=json ../../blob-reports > /dev/null
+          python3 ../../temp/workflow/.github/scripts/plan_e2e_shards.py timings "$PLAYWRIGHT_JSON_OUTPUT_FILE" ../../e2e-timings.json
+
+      - name: Save e2e timings
+        if: inputs.platform == 'linux' && inputs.cache-write && needs.e2e.result == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: e2e-timings.json
+          key: e2e-timings-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
 
       - name: Upload merged report
         if: ${{ !cancelled() }}

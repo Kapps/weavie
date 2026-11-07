@@ -18,6 +18,7 @@ public sealed class WindowsPtyLauncher : IPtyLauncher {
 			Arguments = arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 

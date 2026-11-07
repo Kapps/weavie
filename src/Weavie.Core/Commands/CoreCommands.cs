@@ -400,6 +400,12 @@ public static partial class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Opens the focused block of a Markdown preview for in-place editing (web-handled, block-editor.ts); bound to <c>Enter</c>.</summary>
+	public const string PreviewEditBlock = "weavie.editor.previewEditBlock";
+
+	/// <summary>Finishes the open Markdown preview block, returning the keyboard to it (web-handled, block-editor.ts); bound to <c>Escape</c>.</summary>
+	public const string PreviewFinishBlock = "weavie.editor.previewFinishBlock";
+
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
 
@@ -521,6 +527,7 @@ public static partial class CoreCommands {
 			Id = SpellSetLocale,
 			Title = "Set Spelling Locale",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Editor",
 			Description = "Select a spelling dictionary on this backend. Defaults to mixed US/Canadian/British English (en) with technical vocabulary. Mixed English is bundled; regional dictionaries and other languages download on selection. Omit locale to list available locale codes; ask the agent to select one.",
 			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code: en accepts US/Canadian/British English; en-US, en-CA, en-GB download a regional dictionary; fr, de and others download another language. Omit to list available codes."}}""",
@@ -803,6 +810,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Restart a shell terminal tab (the exact 'id', or the session's primary terminal). Kills any running command.",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
@@ -814,6 +822,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "New Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Create and activate a new shell terminal tab in this session.",
 			Aliases = ["new terminal", "new shell", "add terminal", "open terminal tab"],
@@ -828,6 +837,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Close Terminal",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Terminal",
 			Description = "Close an exact shell terminal tab. A foreground job requires 'force': true.",
 			Aliases = ["close terminal", "close shell", "close terminal tab"],
@@ -876,6 +886,7 @@ public static partial class CoreCommands {
 			Id = RestartAgent,
 			Title = "Restart Agent",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
@@ -886,6 +897,7 @@ public static partial class CoreCommands {
 			Id = ClearAgentConversation,
 			Title = "Start Fresh Agent Conversation",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
@@ -907,6 +919,7 @@ public static partial class CoreCommands {
 			Id = AskAgentAside,
 			Title = "Ask Agent Aside",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
 			Aliases = ["btw", "ask aside", "side question"],
@@ -918,6 +931,7 @@ public static partial class CoreCommands {
 			Id = RewindAgentConversation,
 			Title = "Rewind Agent Conversation",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Continue the agent conversation from just before a prompt, with that prompt back in the composer. "
 				+ "Files are not changed.",
@@ -954,6 +968,7 @@ public static partial class CoreCommands {
 			Id = RestartForUpdate,
 			Title = "Restart Now for Update",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Update",
 			Description = "Apply the pending update immediately instead of waiting for sessions to go idle — running shell jobs are killed.",
 			Aliases = ["restart for update", "apply update", "update now", "restart now"],
@@ -964,6 +979,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Test",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Tests",
 			Description = "Run tests for a file using this workspace's test profile — writes the command into the "
 				+ "shell pane. Pass 'name' to run a single test, omit it to run the whole file.",
@@ -977,6 +993,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Tests in File",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Tests",
 			Description = "Run every test in a file (the given 'file', or the active editor file) via the workspace test profile.",
 			Aliases = ["run tests in file", "run file tests", "test this file", "run all tests in file"],
@@ -1104,6 +1121,7 @@ public static partial class CoreCommands {
 			Id = StopBackgroundTask,
 			Title = "Stop Background Task",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Agent",
 			Description = "Stop one of the agent's background tasks, or the most recently started one that can be stopped.",
 			Aliases = ["stop task", "kill background", "stop workflow", "stop background shell"],
@@ -1462,6 +1480,7 @@ public static partial class CoreCommands {
 			Id = ToggleWindow,
 			Title = "Toggle Weavie Window",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Toggle the Weavie window: bring it to the foreground when another app is in front, "
@@ -1597,6 +1616,7 @@ public static partial class CoreCommands {
 			Id = ToggleBlame,
 			Title = "Toggle Git Blame Annotations",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Git",
 			Description = "Show or hide the faded blame annotations (the 'editor.gitBlame' setting). Turning them "
@@ -2149,6 +2169,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Increase Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Increase the editor and terminal font size by one pixel.",
@@ -2161,6 +2182,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Decrease Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Decrease the editor and terminal font size by one pixel.",
@@ -2173,6 +2195,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = FontExecutionLane,
 			Title = "Reset Font Size",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Reset the editor and terminal font size to the default.",
@@ -2187,6 +2210,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from Open VSX",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from the Open VSX registry by 'namespace' (publisher) "
@@ -2202,6 +2226,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from File…",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.NoDeadline,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from a local .vsix file. With no 'path', opens a file "
@@ -2238,6 +2263,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Cycle Theme Mode",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Cycle the appearance mode: system (match OS) → light → dark → system. Light mode shows "
@@ -2251,6 +2277,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Undo Theme Override",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Undo the most recent color override on the active theme, or on the given 'theme' id (e.g. the editor theme).",
@@ -2263,6 +2290,7 @@ public static partial class CoreCommands {
 			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Reset Theme Overrides",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Clear ALL color overrides on the active theme, or on the given 'theme' id (e.g. the editor theme), returning it to its authored colors.",
@@ -2274,6 +2302,7 @@ public static partial class CoreCommands {
 			Id = SetupWorkspace,
 			Title = "Set Up This Workspace with Claude",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Workspace",
 			Description = "Have Claude inspect the repository and configure this workspace's settings — the command to ready a fresh checkout and how to run its tests — on your confirmation.",
 			Aliases = ["set up workspace", "configure workspace", "suggest setup command", "configure test runner", "how to run tests", "worktree setup command"],
@@ -2285,6 +2314,7 @@ public static partial class CoreCommands {
 			Id = LearnFromCorrections,
 			Title = "Learn From My Corrections",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Workspace",
 			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
 				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the invoking session for your "
@@ -2299,6 +2329,7 @@ public static partial class CoreCommands {
 			Id = ConnectNotion,
 			Title = "Connect Notion",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "Source",
 			Description = "Connect your Notion account so you can open Notion docs (read-only). Opens Notion's token "
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
@@ -2315,6 +2346,27 @@ public static partial class CoreCommands {
 				+ "or anything the in-Weavie viewer doesn't do.",
 			Aliases = ["open notion", "open notion in browser", "open page in browser", "view in notion"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+o" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewEditBlock,
+			Title = "Edit Preview Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Edit the focused block of a Markdown preview in place.",
+			Aliases = ["edit block", "edit markdown block", "edit preview block"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewFinishBlock,
+			Title = "Finish Preview Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Finish editing the open Markdown preview block; its edits are already in the file.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			ShowInPalette = false,
 		});
 
 		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
@@ -2357,6 +2409,7 @@ public static partial class CoreCommands {
 			Id = ViewLogs,
 			Title = "View Logs",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Category = "View",
 			Description = "Open Weavie's captured console output (the host's stdout/stderr) in a read-only tab — the "
 				+ "diagnostics log. When Claude runs it, the most recent lines come back too, so it can see errors that "

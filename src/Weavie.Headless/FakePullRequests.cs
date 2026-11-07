@@ -81,7 +81,8 @@ internal static class FakePullRequests {
 					Str(c, "body"),
 					Str(c, "review") is { Length: > 0 } review ? Enum.Parse<ReviewerState>(review, ignoreCase: true) : null,
 					Str(c, "createdAt"),
-					string.Empty))],
+					string.Empty,
+					null))],
 				[.. Items(overview, "checks").Select(c => new PullRequestCheck(
 					Str(c, "name"), Enum.Parse<CheckState>(Str(c, "state"), ignoreCase: true), Str(c, "url")))]);
 		}

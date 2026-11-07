@@ -1,3 +1,4 @@
+import { sessionNeedsReload, sessionReplaced } from "./carried-edits";
 // Owns the Monaco editor lifecycle and diff/review orchestration on App's behalf. Drives the editor host +
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
@@ -37,10 +38,13 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
+import { focusedBlockEditor } from "./preview/block-editor-focus";
+import { createPreviewDocument, type PreviewDocument } from "./preview/preview-document";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
+import { setViewMode } from "./view-mode-store";
 
 export type { TabActions } from "./tab-actions";
 
@@ -82,7 +86,6 @@ import {
 } from "./session-store";
 import type { EditorSession } from "./session-types";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
-import { showPreviewMode } from "./view-mode-store";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -194,7 +197,10 @@ export interface EditorController {
   filePresenter(
     tab: TabOwner,
     content: () => HTMLElement | undefined,
+    placed: (line: number | undefined) => void,
   ): Omit<TabPresenter, "signal">;
+  /** The tab's own working copy, for Preview's in-place block edits. */
+  previewDocument(tab: TabOwner): PreviewDocument;
   captureTab(tab: TabOwner): void;
   readonly review: {
     scope: ReviewScopeState;
@@ -383,6 +389,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const filePresenter = (
     tab: TabOwner,
     content: () => HTMLElement | undefined,
+    placed: (line: number | undefined) => void,
   ): Omit<TabPresenter, "signal"> => ({
     text: content() === undefined,
     capture: () => {
@@ -405,6 +412,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
       if (shown.kind === "superseded")
         throw new DOMException("Tab activation cancelled", "AbortError");
+      placed(
+        "line" in placement
+          ? placement.line
+          : "selection" in placement
+            ? placement.selection.startLineNumber
+            : undefined,
+      );
     },
     focus: () => {
       const element = content();
@@ -413,7 +427,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         editorContexts.forTab(tab)?.editor.focus();
       } else focusTabContent(element);
     },
-    actions: () => (content() === undefined ? inlineDiff?.captureActions() : undefined),
+    // A rendered file keeps its review keys, but a change-level action shows the diff before it acts.
+    actions: () => {
+      if (focusedBlockEditor()?.editing) return undefined;
+      const actions = inlineDiff?.captureActions();
+      if (actions === undefined || content() === undefined) return actions;
+      const inSource = (run: () => boolean) => () => {
+        setViewMode(tab.session, tab.entry.path, "source");
+        return run();
+      };
+      const show = () => true;
+      return {
+        ...actions,
+        nextChange: inSource(actions.nextChange),
+        prevChange: inSource(actions.prevChange),
+        accept: inSource(show),
+        reject: inSource(show),
+      };
+    },
   });
   const applyActive = (
     session: ClientSession,
@@ -435,7 +466,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         validity.throwIfAborted();
         const location = captureLocation(tab);
         if (location !== undefined) navigation.record(session, location);
-        if (!("focus" in result.placement) || result.placement.focus !== false) presenter.focus();
+        // An activation can land long after it began; the keyboard stays with a palette opened meanwhile.
+        const focus = !("focus" in result.placement) || result.placement.focus !== false;
+        if (focus && !evaluateWhen("omnibarOpen")) presenter.focus();
         return editorContexts.forTab(tab);
       })(),
     );
@@ -710,7 +743,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host = created;
         for (const session of editorSessions) {
           reconcileOpenFiles(session);
+          void created.restoreEdits(session);
         }
+        window.addEventListener("pagehide", () => {
+          for (const session of editorSessions) {
+            if (sessionNeedsReload(session)) {
+              created.carryEdits(session);
+            }
+          }
+        });
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
         const [diff, prose, marks] = await Promise.all([
@@ -790,6 +831,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     navigation.depart(session);
+    setViewMode(session, file.path, "source");
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
   };
@@ -1349,7 +1391,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         intent: "navigation" | "background";
       }>(session, "openFile", (message) => {
         if (message.rendered === true && !typingIn(session, message.path)) {
-          showPreviewMode(session, message.path);
+          setViewMode(session, message.path, "preview");
         }
         openFileFor(
           session,
@@ -1415,6 +1457,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (restored?.session.review != null) {
           reviews.restore(session, restored.session.review);
         }
+        if (restored !== null) {
+          void host?.restoreEdits(session);
+        }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session, "restore the editor session");
         }
@@ -1429,6 +1474,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editorSessions.delete(session);
       pendingReconciliations.delete(session);
       if (!disposing) {
+        if (sessionReplaced(session)) {
+          host?.retireEdits(session);
+        }
         host?.reconcileSession(session, []);
       }
     };
@@ -1573,6 +1621,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openReview,
     hostReady: editorHostReady,
     filePresenter,
+    previewDocument: (tab) => createPreviewDocument(() => editorContexts.forTab(tab)),
     captureTab: (tab) => {
       captureLocation(tab);
     },

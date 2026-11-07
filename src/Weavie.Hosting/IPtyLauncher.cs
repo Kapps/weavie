@@ -25,4 +25,7 @@ public sealed record PtyLaunch {
 
 	/// <summary>Environment variables added or overridden for the child.</summary>
 	public required IReadOnlyDictionary<string, string> Environment { get; init; }
+
+	/// <summary>Whether stopping also hangs up the child; see <see cref="AgentLaunch.HangUpOnStop"/>.</summary>
+	public required bool HangUpOnStop { get; init; }
 }

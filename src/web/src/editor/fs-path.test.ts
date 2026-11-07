@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   canonicalFsPath,
+  collapseDotSegments,
   displayPath,
   isOutsideWorkspace,
   normalizePath,
@@ -165,5 +166,14 @@ describe("displayPath", () => {
   it("keeps a path outside both whole", () => {
     expect(displayPath("/tmp/scratch.ts", "/home/user/proj", "/home/user")).toBe("/tmp/scratch.ts");
     expect(displayPath("/home/user/a.ts", null, null)).toBe("/home/user/a.ts");
+  });
+});
+
+describe("collapseDotSegments", () => {
+  it("resolves a document-relative link to a plain path", () => {
+    expect(collapseDotSegments("/repo/docs/./a.md")).toBe("/repo/docs/a.md");
+    expect(collapseDotSegments("/repo/docs/../a.md")).toBe("/repo/a.md");
+    expect(collapseDotSegments("C:\\repo\\docs\\..\\a.md")).toBe("C:\\repo\\a.md");
+    expect(collapseDotSegments("/repo/a.md")).toBe("/repo/a.md");
   });
 });

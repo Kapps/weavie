@@ -18,6 +18,7 @@ type WeavieOptions = {
   automaticInference: boolean;
   // False boots with first-run setup pending, so Getting Started opens over the workspace.
   setupCompleted: boolean;
+  markdownView: "preview" | "source";
   dismissInferenceOffer: boolean;
   dismissStartupTip: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
@@ -92,6 +93,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
   inference: ["disabled", { option: true }],
   automaticInference: [false, { option: true }],
   setupCompleted: [true, { option: true }],
+  markdownView: ["source", { option: true }],
   dismissInferenceOffer: [true, { option: true }],
   dismissStartupTip: [true, { option: true }],
   preNavigate: [null, { option: true }],
@@ -106,6 +108,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         inference,
         automaticInference,
         setupCompleted,
+        markdownView,
         dismissInferenceOffer,
         dismissStartupTip,
         preNavigate,
@@ -138,11 +141,12 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         inference,
         automaticInference,
         setupCompleted,
+        markdownView,
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });
       // Collect the page's console errors for the failure dump: a browser-side error that disrupts boot
-      // (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the DOM snapshot
+      // (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the screenshot
       // but is the first thing needed to root-cause an editor/diff render timeout.
       const consoleErrors: string[] = [];
       page.on("console", (msg) => {

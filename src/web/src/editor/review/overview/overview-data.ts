@@ -30,6 +30,8 @@ export interface PrConversationItem {
   review: ReviewerState | null;
   createdAt: string;
   url: string;
+  /** Where a line comment sits; `line` is null for a file comment or an outdated anchor. */
+  location: { path: string; line: number | null } | null;
 }
 
 export interface PrDetail {

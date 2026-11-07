@@ -13,6 +13,7 @@ public static class InferenceCommands {
 			Id = CoreCommands.EnableAutomaticInference,
 			Title = "Enable Automatic Inference",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 			Owner = CommandOwner.Client,
 			Category = "AI",
 			Description = "Allow Weavie to make isolated automatic model calls for small product suggestions. "

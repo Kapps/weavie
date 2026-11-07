@@ -22,7 +22,7 @@ public sealed class CommandTests {
 		new() { Id = id, Title = id, RunsIn = CommandLocation.Web };
 
 	private static CommandDefinition Core(string id) =>
-		new() { Id = id, Title = id, RunsIn = CommandLocation.Core };
+		new() { Id = id, Title = id, RunsIn = CommandLocation.Core, OnTimeout = OperationSeverity.ActionFailed };
 
 	private static CommandDefinition ClientCore(string id) =>
 		Core(id) with { Owner = CommandOwner.Client };

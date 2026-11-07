@@ -243,6 +243,35 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Set_NewKeyUnderAnExistingTable_JoinsThatTable() {
+		// A root `t.num` beside a [t] header would redefine the table and invalidate the whole file.
+		File.WriteAllText(FilePath, "[t]\nunrelated = 1\n[other]\nx = 2\n");
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+
+		store.Set("t.num", Json("7"));
+
+		using var reloaded = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		Assert.Equal(7L, reloaded.Resolve("t.num").Value);
+	}
+
+	[Theory]
+	[InlineData("[t]\nunrelated = 1\n\n# Other settings\n[other]\nx = 2\n")]
+	[InlineData("[t]\nunrelated = 1")]
+	public void Set_NewKeyUnderAnExistingTable_LeavesNeighborsAlone(string original) {
+		File.WriteAllText(FilePath, original);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+
+		store.Set("t.num", Json("7"));
+
+		string written = File.ReadAllText(FilePath);
+		Assert.Contains("unrelated = 1\n#", written, StringComparison.Ordinal);
+		Assert.Contains("num = 7\n", written, StringComparison.Ordinal);
+		if (original.Contains("[other]", StringComparison.Ordinal)) {
+			Assert.Contains("num = 7\n\n# Other settings\n[other]", written, StringComparison.Ordinal);
+		}
+	}
+
+	[Fact]
 	public void Set_AtomicWrite_LeavesNoTempFileAndParses() {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Set("t.num", Json("123"));

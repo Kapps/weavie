@@ -718,7 +718,8 @@ public sealed partial class HostCore {
 				? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, ct).ConfigureAwait(false)
 				: null;
 
-			if (string.IsNullOrEmpty(target)) {
+			// The dialog can outlive its session: teardown doesn't wait for it.
+			if (string.IsNullOrEmpty(target) || ct.IsCancellationRequested) {
 				return new ScratchSaveResult(scratchPath, string.Empty);
 			}
 

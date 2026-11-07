@@ -120,6 +120,9 @@ public sealed record CommandDefinition {
 	/// <summary>Which world executes the handler.</summary>
 	public required CommandLocation RunsIn { get; init; }
 
+	/// <summary>What reaching the message deadline means; required on a Core-run command, absent on a Web-run one.</summary>
+	public OperationSeverity? OnTimeout { get; init; }
+
 	/// <summary>Which connected host owns execution, metadata, and keybindings.</summary>
 	public CommandOwner Owner { get; init; }
 

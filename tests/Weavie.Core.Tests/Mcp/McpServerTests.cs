@@ -251,6 +251,7 @@ public sealed class McpServerTests {
 			Id = commandId,
 			Title = "Close endpoint",
 			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
 		});
 		var dispatcher = new CommandDispatcher(registry);
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

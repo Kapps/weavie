@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Weavie.Core.Commands;
 using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
@@ -25,8 +26,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	private int _dispatchCancellationRequested;
 	private long _requestSequence;
 	private int _isClosed;
-	private int _isFaulted;
-	private string? _faultReason;
+	private string? _reloadReason;
 
 	public MessageBus(
 		MessageScope scope,
@@ -65,7 +65,12 @@ internal partial class MessageBus : IAsyncDisposable {
 
 	internal event Action<MessagePeer>? PeerDisconnected;
 
-	public bool Closed => Volatile.Read(ref _isClosed) != 0 || Volatile.Read(ref _isFaulted) != 0;
+	public bool Closed => Volatile.Read(ref _isClosed) != 0;
+
+	/// <summary>Why this session can no longer be trusted and needs reloading; null while it is fine.</summary>
+	public string? ReloadReason => Volatile.Read(ref _reloadReason);
+
+	internal event Action? ReloadRequiredChanged;
 
 	private bool Accepting => Volatile.Read(ref _accepting) != 0;
 
@@ -77,7 +82,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable Handle<TRequest, TResponse>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler,
@@ -89,7 +94,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
-			_ => activity,
+			Fixed(activity),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -106,7 +111,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleKeyed<TRequest, TResponse>(
 		string feature,
 		string name,
-		Func<TRequest, string> activity,
+		Func<TRequest, MessageActivity> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -116,7 +121,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
-			payload => activity(DeserializePayload(payload, requestType, feature, name)),
+			Keyed(activity, requestType, feature, name),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -131,7 +136,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler,
@@ -142,7 +147,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
-			_ => activity,
+			Fixed(activity),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -159,7 +164,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
 		string feature,
 		string name,
-		Func<TRequest, string> activity,
+		Func<TRequest, MessageActivity> activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, string> lane,
@@ -169,7 +174,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
-			payload => activity(DeserializePayload(payload, requestType, feature, name)),
+			Keyed(activity, requestType, feature, name),
 			async (_, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, ct).ConfigureAwait(false);
@@ -186,7 +191,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler,
 		SessionExecution execution) =>
@@ -204,7 +209,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler,
@@ -226,7 +231,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TRequest, TResponse>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TRequest> requestType,
 		JsonTypeInfo<TResponse> responseType,
 		Func<MessagePeer, bool> admit,
@@ -239,7 +244,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		return RegisterHandler(
 			feature,
 			name,
-			_ => activity,
+			Fixed(activity),
 			async (peer, payload, ct) => {
 				var request = DeserializePayload(payload, requestType, feature, name);
 				var response = await handler(request, peer, ct).ConfigureAwait(false);
@@ -256,7 +261,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	private IDisposable RegisterHandler(
 		string feature,
 		string name,
-		Func<JsonElement, string> activity,
+		Func<JsonElement, MessageActivity> activity,
 		Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
 		SessionExecution execution,
 		Func<JsonElement, string>? lane,
@@ -293,6 +298,27 @@ internal partial class MessageBus : IAsyncDisposable {
 		});
 	}
 
+	private Func<JsonElement, MessageActivity> Fixed(MessageActivity activity) {
+		if (Scope == MessageScope.Host && activity.Severity == OperationSeverity.SessionCritical) {
+			throw new ArgumentException($"{activity.Label} has no session to make critical.", nameof(activity));
+		}
+
+		return _ => activity;
+	}
+
+	// A malformed payload fails in its handler; admission only needs something to call it.
+	private static Func<JsonElement, MessageActivity> Keyed<T>(
+		Func<T, MessageActivity> activity,
+		JsonTypeInfo<T> type,
+		string feature,
+		string name) => payload => {
+			try {
+				return activity(DeserializePayload(payload, type, feature, name));
+			} catch (JsonException) {
+				return MessageActivity.ActionFailed($"Handling {feature}.{name}");
+			}
+		};
+
 	private static T DeserializePayload<T>(JsonElement payload, JsonTypeInfo<T> type, string feature, string name) =>
 		payload.Deserialize(type)
 		?? throw new JsonException($"Session handler {feature}.{name} received a null payload.");
@@ -300,7 +326,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable Handle<TEvent>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, CancellationToken, Task> handler,
 		SessionExecution execution) {
@@ -324,7 +350,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwned<TEvent>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
 		SessionExecution execution) {
@@ -347,7 +373,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleOwnedWhen<TEvent>(
 		string feature,
 		string name,
-		string activity,
+		MessageActivity activity,
 		JsonTypeInfo<TEvent> eventType,
 		Func<MessagePeer, bool> admit,
 		Func<TEvent, MessagePeer, CancellationToken, Task> handler,
@@ -503,12 +529,11 @@ internal partial class MessageBus : IAsyncDisposable {
 		}
 
 		if (envelope.Kind == MessageKind.Request) {
-			string closingError = Volatile.Read(ref _faultReason) ?? "The target endpoint is closing.";
 			SendFailure(
 				peer,
 				envelope,
 				closing
-					? closingError
+					? "The target endpoint is closing."
 					: $"No handler is registered for {envelope.Feature}.{envelope.Name}.");
 		} else if (!closing) {
 			LogDiagnostic($"[bridge] no handler for endpoint event {envelope.Feature}.{envelope.Name}");
@@ -522,7 +547,7 @@ internal partial class MessageBus : IAsyncDisposable {
 
 	internal Task DrainAsync() {
 		lock (_lifecycle) {
-			return PendingDispatchesLocked();
+			return Task.WhenAll(PendingDispatchesLocked().Select(dispatch => dispatch.Completion.Task));
 		}
 	}
 

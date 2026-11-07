@@ -57,6 +57,7 @@ function ActiveTabContent(props: {
     !controller.reviewActive();
   const overlay = () => !file || media || preview();
   const [host] = createResource(() => controller.hostReady);
+  let placed: (line: number | undefined) => void = () => {};
   createEffect(() => {
     const ready = host();
     if (
@@ -68,7 +69,11 @@ function ActiveTabContent(props: {
       return;
     const presenter =
       file && !media
-        ? controller.filePresenter(tab, () => (overlay() ? view() : undefined))
+        ? controller.filePresenter(
+            tab,
+            () => (overlay() ? view() : undefined),
+            (line) => placed(line),
+          )
         : {
             text: false,
             capture: () => ({ state: null, text: null }),
@@ -142,6 +147,10 @@ function ActiveTabContent(props: {
               session={() => tab.session}
               path={() => tab.entry.path}
               content={controller.activeContent}
+              document={controller.previewDocument(tab)}
+              onPlaced={(handler) => {
+                placed = handler;
+              }}
               bind={bind}
             />
           </Match>

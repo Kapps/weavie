@@ -31,6 +31,7 @@ const SELECTED_SESSION_TARGETS = new Set<string>([
   CommandIds.loadSession,
   CommandIds.unloadSession,
   CommandIds.deleteSession,
+  CommandIds.reloadSession,
 ]);
 const SESSION_LIFECYCLE = new Set([...SELECTED_SESSION_TARGETS, CommandIds.recreateSession]);
 

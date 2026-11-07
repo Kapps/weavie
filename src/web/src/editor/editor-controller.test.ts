@@ -53,10 +53,14 @@ vi.mock("./inline-diff", () => ({
 }));
 vi.mock("./comment-prose", () => ({ createCommentProse: stub }));
 vi.mock("./revise-marks", () => ({ sharedReviseMarks: stub() }));
+vi.mock("../editor-options", () => ({
+  currentEditorOptions: () => ({ markdownView: "source" }),
+  onEditorOptionsChanged: () => () => {},
+}));
 vi.mock("../splash", () => ({ dismissSplash: () => {} }));
 
 vi.stubGlobal("location", { search: "" });
-vi.stubGlobal("window", { setTimeout, clearTimeout });
+vi.stubGlobal("window", { setTimeout, clearTimeout, addEventListener: vi.fn() });
 const { activePathFor, openTabFor, openTabsFor, tabOwnerFor } = await import("./session-store");
 const { createEditorController } = await import("./editor-controller");
 const { isPreviewMode } = await import("./view-mode-store");

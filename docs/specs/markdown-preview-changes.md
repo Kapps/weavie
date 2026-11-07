@@ -6,13 +6,14 @@ It builds on [the editable preview](markdown-editable-preview.md).
 ## What the user sees
 
 - **Reading:** a thin bar left of each changed block (amber for changed, green for new) and a red notch where a
-  block was removed. The page otherwise reads as the final document. A header line counts the changes.
+  block was removed, shown as a quiet "Removed" chip with the start of its text. The page otherwise reads as the
+  final document; the review toolbar counts the changes.
 - **The current change:** one block at a time shows its words marked, old struck through and new highlighted, in
   the rendered text. Clicking a bar, or Next/Previous Change, makes a change current; a current removal shows its
   old content struck through. Hide Change Marks (Escape) returns it to a bar. `editor.markdownChangeMarks = "all"`
   marks every changed block at once; there is no button or shortcut for it.
-- **Changes only:** the header's toggle (and Toggle Changes Only) folds runs of untouched blocks into
-  "… N unchanged blocks · Show".
+- **Changes only:** the review toolbar's toggle (and Toggle Changes Only) folds runs of untouched blocks into a
+  dashed divider reading "N unchanged blocks · Show".
 - **Mostly rewritten:** when more than half the blocks changed, or the file is new, one banner replaces the
   per-block marks and offers the line diff in Source. Change-level steps then switch to Source.
 - **Editing a changed block:** the edit box footer reads "Changed by agent · Show original · Done (Esc)"; Show
@@ -28,7 +29,7 @@ flowchart TD
   G -->|no: Source| L[line hunks]
   G -->|yes| B[blockChanges: whole units, both sides]
   B --> H[block-aligned hunks: Next, counter, Keep, Revert]
-  B --> M[ChangeMarks: bars, notches, words, folds, header]
+  B --> M[ChangeMarks: bars, notches, words, folds, banner]
   C[Next / Keep / Revert / bar click] -->|cursor = review position| H
 ```
 

@@ -11,6 +11,8 @@ export interface PreviewReviewHandle {
   revealLine(line: number): boolean;
   focus(): void;
   confirmTarget(hunk: DiffHunk): boolean;
+  /** The preview's own review controls for the toolbar. */
+  toolbarItems(): HTMLElement[];
 }
 
 const reviews = new Map<string, PreviewReviewHandle>();

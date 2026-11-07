@@ -195,6 +195,7 @@ export function createReviewEditor(options: {
     changes: (next) => next.hunks,
     confirmTarget: () => true,
     cleared: () => {},
+    toolbarItems: () => [],
     reviewLine: () => {
       const cursor = editor.getPosition()?.lineNumber ?? 1;
       const bounds = viewport.bounds();

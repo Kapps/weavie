@@ -58,7 +58,7 @@ test.describe("pending agent changes in a rendered Markdown file", () => {
     await expect(preview(page).locator(".wv-md-added")).toHaveCount(2);
     await expect(preview(page).locator(".wv-md-removed")).toContainText("Events land in a queue.");
     await expect(preview(page).locator(".wv-md-ins")).toHaveCount(0);
-    await expect(page.locator(".wv-md-header")).toContainText("4 changes");
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("/4");
   });
 
   // Next Change shows one change's words in the rendered text; Escape returns it to a bar.
@@ -110,7 +110,11 @@ test.describe("pending agent changes in a rendered Markdown file", () => {
   // Changes only folds the untouched blocks behind a row that brings them back.
   test("folds unchanged blocks on request", async ({ page }) => {
     await openPlan(page);
-    await page.locator(".wv-md-header").getByRole("button", { name: "Changes only" }).click();
+    await page.locator(".weavie-inline-changes-only").click();
+    await expect(page.locator(".weavie-inline-changes-only")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     const fold = preview(page).locator(".wv-md-fold").first();
     await expect(fold).toContainText("unchanged blocks");
     await fold.getByRole("button", { name: "Show" }).click();
@@ -139,11 +143,11 @@ test.describe("a mostly rewritten Markdown file", () => {
   test("shows one banner instead of per-block marks", async ({ page }) => {
     await expect(page.locator(".editor-empty-review")).toBeVisible({ timeout: 20_000 });
     await openFile(page, "plan.md");
-    await expect(page.locator(".wv-md-header")).toContainText("Mostly rewritten");
+    await expect(page.locator(".wv-md-banner")).toContainText("Mostly rewritten");
     await expect(preview(page).locator(".wv-md-bar")).toHaveCount(0);
     await page
-      .locator(".wv-md-header")
-      .getByRole("button", { name: "Show diff in Source" })
+      .locator(".wv-md-banner")
+      .getByRole("button", { name: "Show the diff in Source" })
       .click();
     await expect(preview(page)).toBeHidden();
     await expect(page.locator(".weavie-inline-added").first()).toBeVisible();

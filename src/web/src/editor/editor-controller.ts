@@ -793,6 +793,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           },
           prepareGeometry: () => {},
           cleared: () => activePreviewReview()?.clear(),
+          toolbarItems: () => activePreviewReview()?.toolbarItems() ?? [],
           painted: () => {},
           updateGeometry: (change) => change(),
         });

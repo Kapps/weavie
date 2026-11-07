@@ -137,6 +137,8 @@ export interface InlineDiffPresentation {
   prepareGeometry(markers: DiffMarkers | null): void;
   /** The changes the surface reviews: the line hunks, or coarser ones that each cover whole line hunks. */
   changes(markers: DiffMarkers, original: string, model: monaco.editor.ITextModel): DiffHunk[];
+  /** Controls the surface adds to the review toolbar, after the change navigation. */
+  toolbarItems(): HTMLElement[];
   /** The rendered diff is gone; whatever the surface drew from it goes too. */
   cleared(): void;
   /** Whether `hunk` is on screen to act on; false shows it instead, so nothing is kept or reverted unseen. */
@@ -859,7 +861,7 @@ export function createInlineDiff(
     dotsNode = document.createElement("span");
     dotsNode.className = "weavie-inline-dots";
     bar.appendChild(dotsNode);
-    bar.append(...navButtons());
+    bar.append(...navButtons(), ...presentation.toolbarItems());
     const divider = document.createElement("span");
     divider.className = "weavie-inline-divider";
     bar.appendChild(divider);

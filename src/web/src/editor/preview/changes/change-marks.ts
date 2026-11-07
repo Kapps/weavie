@@ -1,5 +1,5 @@
 // Paints a preview's changes: margin bars, removal notches, word marks on the shown change, folds, and the
-// header. Everything it adds is tracked and removed on the next paint, so the keyed block nodes stay clean.
+// rewritten banner. Everything it adds is tracked and removed on the next paint, so the keyed block nodes stay clean.
 
 import type { BlockList } from "../block-list";
 import { ITEM_END, ITEM_START, type LineRange, type MarkdownBlock } from "../markdown-blocks";
@@ -21,9 +21,8 @@ export interface MarksState {
   shown: ReadonlySet<BlockChange>;
   changesOnly: boolean;
   baselineBlocks: () => MarkdownBlock[];
-  titles: { show: string; changesOnly: string; source: string };
+  titles: { show: string; source: string };
   onShow(change: BlockChange): void;
-  onChangesOnly(): void;
   onSource(): void;
 }
 
@@ -67,8 +66,10 @@ export class ChangeMarks {
   paint(state: MarksState): void {
     this.clear();
     if (state.changes.length === 0 && state.rewritten === undefined) return;
-    this.header(state);
-    if (state.rewritten !== undefined) return;
+    if (state.rewritten !== undefined) {
+      this.banner(state.rewritten.label, state);
+      return;
+    }
     const marked = new Set<Element>();
     for (const change of state.changes) {
       const shown = state.shown.has(change);
@@ -94,21 +95,14 @@ export class ChangeMarks {
     }
   }
 
-  private header(state: MarksState): void {
-    const bar = this.element("div", "wv-md-header");
-    if (state.rewritten !== undefined) {
-      bar.append(this.text("span", "wv-md-header-label", state.rewritten.label));
-      bar.append(this.button(state.titles.source, "Show diff in Source", state.onSource));
-    } else {
-      const count = state.changes.length;
-      bar.append(
-        this.text("span", "wv-md-header-label", `${count} change${count === 1 ? "" : "s"}`),
-      );
-      const toggle = this.button(state.titles.changesOnly, "Changes only", state.onChangesOnly);
-      toggle.setAttribute("aria-pressed", String(state.changesOnly));
-      bar.append(toggle);
-    }
-    this.host.insertBefore(bar, this.body);
+  // One quiet note above the document when marking it block by block would mark nearly all of it.
+  private banner(label: string, state: MarksState): void {
+    const banner = this.element("div", "wv-md-banner");
+    banner.append(
+      this.text("strong", "", label),
+      this.button(state.titles.source, "Show the diff in Source", state.onSource),
+    );
+    this.host.insertBefore(banner, this.body);
   }
 
   private mark(
@@ -122,11 +116,7 @@ export class ChangeMarks {
     if (unit === undefined) return undefined;
     unit.classList.add(kind);
     this.classed.push(unit);
-    const bar = this.button(state.titles.show, "", () => state.onShow(change));
-    bar.className = `${MARK} wv-md-bar`;
-    this.added.push(bar);
-    bar.setAttribute("aria-label", state.titles.show);
-    unit.prepend(bar);
+    unit.prepend(this.bar(change, state));
     marked.add(this.topLevel(unit));
     return unit;
   }
@@ -145,13 +135,19 @@ export class ChangeMarks {
       .map((unit) => unit.textContent ?? "")
       .join(" ")
       .trim();
-    notch.append(
-      this.button(state.titles.show, `Removed: ${clip(summary)}`, () => state.onShow(change)),
-    );
+    notch.append(this.bar(change, state));
     if (shown) {
       const body = this.element("div", "wv-md-removed-body");
-      body.append(...old);
+      body.append(this.text("div", "wv-md-removed-label", "Removed"), ...old);
       notch.append(body);
+    } else {
+      const chip = this.button(state.titles.show, "", () => state.onShow(change));
+      chip.className = `${MARK} wv-md-removed-chip`;
+      chip.append(
+        this.text("span", "wv-md-removed-label", "Removed"),
+        this.text("span", "wv-md-removed-summary", summary),
+      );
+      notch.append(chip);
     }
     if (next === undefined) this.body.append(notch);
     else next.before(notch);
@@ -171,7 +167,7 @@ export class ChangeMarks {
           this.classed.push(node);
         }
         const row = this.element("div", "wv-md-fold");
-        row.append(this.text("span", "", `… ${blocks.length} unchanged blocks`));
+        row.append(this.text("span", "", `${blocks.length} unchanged blocks`));
         row.append(
           this.button("Show these blocks", "Show", () => {
             this.expanded.add(first);
@@ -221,6 +217,15 @@ export class ChangeMarks {
     return item;
   }
 
+  // The gutter mark a change is shown from; aligned with every other bar after paint.
+  private bar(change: BlockChange, state: MarksState): HTMLButtonElement {
+    const bar = this.button(state.titles.show, "", () => state.onShow(change));
+    bar.className = `${MARK} wv-md-bar`;
+    bar.setAttribute("aria-label", state.titles.show);
+    this.added.push(bar);
+    return bar;
+  }
+
   private topLevel(element: Element): Element {
     let node = element;
     while (node.parentElement !== null && node.parentElement !== this.body)
@@ -255,8 +260,6 @@ export class ChangeMarks {
     return button;
   }
 }
-
-const clip = (text: string): string => (text.length > 60 ? `${text.slice(0, 57)}…` : text);
 
 // The text a unit renders itself: a list item's nested lists and every mark belong to other units.
 function ownTextNodes(unit: Element): Text[] {

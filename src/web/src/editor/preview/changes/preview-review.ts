@@ -32,6 +32,7 @@ export class PreviewReview implements PreviewReviewHandle {
   private oldSide: { text: string; units: LineRange[]; lines: string[] } | undefined;
   private baselineBlocks: { text: string; blocks: ReturnType<typeof markdownBlocks> } | undefined;
   private showing = false;
+  private changesOnlyToggle: HTMLElement | undefined;
 
   constructor(
     private readonly list: BlockList,
@@ -116,6 +117,7 @@ export class PreviewReview implements PreviewReviewHandle {
 
   /** Repaints the marks for the page as rendered now; a block open for editing keeps the page as it is. */
   paint(): void {
+    this.changesOnlyToggle?.setAttribute("aria-pressed", String(this.options.changesOnly()));
     if (this.options.editing()) return;
     const current = this.showing ? this.current() : undefined;
     const shown = new Set(
@@ -129,7 +131,6 @@ export class PreviewReview implements PreviewReviewHandle {
       baselineBlocks: () => this.oldBlocks(),
       titles: {
         show: `Show changes${keyHint(CommandIds.nextChange)}`,
-        changesOnly: `Changes only${keyHint(CommandIds.previewChangesOnly)}`,
         source: `Show diff in Source${keyHint(CommandIds.toggleEditorPreview)}`,
       },
       onShow: (change) => {
@@ -137,9 +138,22 @@ export class PreviewReview implements PreviewReviewHandle {
         this.revealLine(change.hunk.anchorLine);
         this.focus();
       },
-      onChangesOnly: () => this.options.toggleChangesOnly(),
       onSource: () => this.options.showSource(),
     });
+  }
+
+  /** The review toolbar's Changes only toggle, while there are block changes to fold around. */
+  toolbarItems(): HTMLElement[] {
+    if (this.changes.length === 0) return [];
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "weavie-inline-nav weavie-inline-changes-only";
+    toggle.textContent = "Changes only";
+    toggle.title = `Show only the changed blocks${keyHint(CommandIds.previewChangesOnly)}`;
+    toggle.setAttribute("aria-pressed", String(this.options.changesOnly()));
+    toggle.addEventListener("click", () => this.options.toggleChangesOnly());
+    this.changesOnlyToggle = toggle;
+    return [toggle];
   }
 
   /** Takes the marks off `unit` so it can open on its own text; the rest of the page stays put. */

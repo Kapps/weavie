@@ -233,6 +233,8 @@ export const CommandIds = {
   newSession: "weavie.session.new",
   loadSession: "weavie.session.load",
   recreateSession: "weavie.session.recreate",
+  reloadSession: "weavie.session.reload",
+  reloadSessionPrompt: "weavie.session.reloadPrompt",
   recreateSessionPrompt: "weavie.session.recreatePrompt",
   unloadSession: "weavie.session.unload",
   deleteSession: "weavie.session.delete",

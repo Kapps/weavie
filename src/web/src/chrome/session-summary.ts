@@ -22,7 +22,10 @@ export function sessionGroup(session: RailSession): SessionGroup {
   if (!session.loaded) {
     return "parked";
   }
-  if (session.run !== null && RUN_NEEDS_USER.has(session.run.state)) {
+  if (
+    session.reloadRequired !== null ||
+    (session.run !== null && RUN_NEEDS_USER.has(session.run.state))
+  ) {
     return "needs";
   }
   switch (loadedState(session)) {
@@ -78,13 +81,16 @@ export function sessionDetail(session: RailSession): string {
   if (!session.loaded) {
     return "";
   }
-  return session.run?.reason || session.workflowProblem;
+  return session.reloadRequired ?? (session.run?.reason || session.workflowProblem);
 }
 
 /** The line under a session's name: its run's stage, else what its agent is doing, else its state and age. */
 export function sessionSubtitle(session: RailSession, now: number): string {
   if (session.offline) {
     return "connection lost";
+  }
+  if (session.reloadRequired !== null) {
+    return "needs reload";
   }
   // Status arrives before the coalesced activity, so a line is shown only while it can still be current.
   const busy = session.status === "working" || session.status === "needsInput";
@@ -109,7 +115,13 @@ export function sessionSubtitle(session: RailSession, now: number): string {
 
 /** The status-dot modifier: `offline` while its backend is unreachable, `unloaded` when dormant, else its status. */
 export function statusDot(session: RailSession): string {
-  return session.offline ? "offline" : session.loaded ? loadedState(session) : "unloaded";
+  if (session.offline) {
+    return "offline";
+  }
+  if (session.reloadRequired !== null) {
+    return "error";
+  }
+  return session.loaded ? loadedState(session) : "unloaded";
 }
 
 /** The switch shortcut for the rail session at `index` (0-based); only the first nine have one. */

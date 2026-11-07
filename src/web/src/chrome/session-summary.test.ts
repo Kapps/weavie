@@ -24,6 +24,7 @@ const session = (patch: Partial<RailSession>): RailSession => ({
   unseen: false,
   workspaceCheckout: false,
   external: false,
+  reloadRequired: null,
   backendId: "local",
   locationName: "default",
   isLocal: true,

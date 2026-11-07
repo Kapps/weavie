@@ -18,6 +18,7 @@ export interface SessionCatalogEntry {
   unseen: boolean;
   workspaceCheckout: boolean;
   external: boolean;
+  reloadRequired: string | null;
 }
 
 export interface HostHello {

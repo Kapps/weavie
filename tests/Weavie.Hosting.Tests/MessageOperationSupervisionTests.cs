@@ -20,12 +20,12 @@ public sealed partial class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var fast = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		using var blocked = router.Host.Feature("blocked").Handle("run", "Running a test operation", OperationSupervisionJson.Default.Empty, (_, _) => {
+		using var blocked = router.Host.Feature("blocked").Handle("run", MessageActivity.ActionFailed("Running a test operation"), OperationSupervisionJson.Default.Empty, (_, _) => {
 			entered.TrySetResult();
 			release.Task.GetAwaiter().GetResult();
 			return Task.CompletedTask;
 		});
-		using var responsive = router.Host.Feature("responsive").Handle("run", "Running a test operation", OperationSupervisionJson.Default.Empty, (_, _) => {
+		using var responsive = router.Host.Feature("responsive").Handle("run", MessageActivity.ActionFailed("Running a test operation"), OperationSupervisionJson.Default.Empty, (_, _) => {
 			fast.TrySetResult();
 			return Task.CompletedTask;
 		});
@@ -101,7 +101,7 @@ public sealed partial class MessageOperationSupervisionTests {
 	}
 
 	[Fact]
-	public async Task TimedOutHandlerIsDiagnosedSettledAndFencesItsEndpoint() {
+	public async Task TimedOutHandlerIsDiagnosedAndSettledButLeavesItsEndpointOpen() {
 		var transport = new RecordingTransport();
 		var logs = new ConcurrentQueue<string>();
 		var time = new ManualTimeProvider();
@@ -117,7 +117,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
-			"sync", "Syncing the session", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"sync", MessageActivity.ActionFailed("Syncing the session"), OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				entered.TrySetResult();
 				await release.Task;
@@ -140,22 +140,18 @@ public sealed partial class MessageOperationSupervisionTests {
 			// RouteAsync returning. Wait for it instead of racing the scheduler -- still exactly one response.
 			await Wait.UntilAsync(() => transport.Envelopes(MessageKind.Response).Any());
 			var response = Assert.Single(transport.Envelopes(MessageKind.Response));
-			const string timedOut = "Syncing the session didn't finish within 0.15 seconds, so this session stopped responding.";
+			const string timedOut = "Syncing the session didn't finish within 0.15 seconds and may still complete.";
 			Assert.Equal(timedOut, response.Error);
 			await Wait.UntilAsync(() => transport.Events("notifications", "show")
 				.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
-			var busy = Assert.Single(
-				transport.Events("notifications", "show"),
-				eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
-			Assert.Equal("Syncing the session is taking longer than usual…", busy.GetProperty("message").GetString());
 			Assert.Contains(
 				transport.Events("notifications", "show"),
 				eventPayload => eventPayload.GetProperty("level").GetString() == "error"
 					&& eventPayload.GetProperty("message").GetString() == timedOut);
 			await Wait.UntilAsync(() => logs.Any(line => line.Contains("stage=handler", StringComparison.Ordinal)));
-			Assert.True(endpoint.Bus.Closed);
+			Assert.False(endpoint.Bus.Closed);
 			var health = router.Health(ingressResponsive: true);
-			Assert.False(health.Healthy);
+			Assert.True(health.Healthy);
 			Assert.Equal("handler", health.LastFailure!.Stage);
 			Assert.Equal("lifecycle", health.LastFailure.Feature);
 		} finally {
@@ -174,7 +170,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("naming").HandleWithCallerProgress(
-			"preview", "Suggesting a branch name", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"preview", MessageActivity.ActionFailed("Suggesting a branch name"), OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				entered.TrySetResult();
 				await release.Task;
@@ -221,14 +217,14 @@ public sealed partial class MessageOperationSupervisionTests {
 		var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var read = feature.Handle(
-			"read", "Reading a file", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"read", MessageActivity.ActionFailed("Reading a file"), OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				firstEntered.TrySetResult();
 				await releaseFirst.Task;
 				return new Result(true);
 			});
 		using var save = feature.Handle(
-			"save", "Saving a file", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"save", MessageActivity.ActionFailed("Saving a file"), OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			async (_, _) => {
 				secondEntered.TrySetResult();
 				await releaseSecond.Task;
@@ -279,7 +275,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
 		endpoint.Activate();
 		using var handler = endpoint.Bus.Feature("lifecycle").Handle(
-			"sync", "Running a test operation", OperationSupervisionJson.Default.Empty,
+			"sync", MessageActivity.ActionFailed("Running a test operation"), OperationSupervisionJson.Default.Empty,
 			async (_, _) => {
 				handlerEntered.TrySetResult();
 				await releaseHandler.Task;
@@ -300,7 +296,7 @@ public sealed partial class MessageOperationSupervisionTests {
 			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
 			await Wait.UntilAsync(() => transport.Events("notifications", "show")
 				.Any(payload => payload.GetProperty("level").GetString() == "error"));
-			Assert.False(router.Health(ingressResponsive: true).Healthy);
+			Assert.NotNull(router.Health(ingressResponsive: true).LastFailure);
 		} finally {
 			releaseSlowLog.TrySetResult();
 			releaseHandler.TrySetResult();
@@ -322,7 +318,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		endpoint.Activate();
 		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var handler = endpoint.Bus.Feature("lifecycle").HandleAfterResponse(
-			"finish", "Running a test operation", OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
+			"finish", MessageActivity.ActionFailed("Running a test operation"), OperationSupervisionJson.Default.Empty, OperationSupervisionJson.Default.Result,
 			(_, _) => Task.FromResult(new ResponseWithCompletion<Result>(
 				new Result(true),
 				async _ => await release.Task)));
@@ -341,7 +337,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		await Wait.UntilAsync(() => router.Health(ingressResponsive: true).LastFailure is not null);
 
 		var health = router.Health(ingressResponsive: true);
-		Assert.False(health.Healthy);
+		Assert.True(health.Healthy);
 		Assert.Equal("after-response", health.LastFailure!.Stage);
 		Assert.Single(transport.Envelopes(MessageKind.Response));
 		release.TrySetResult();
@@ -365,17 +361,19 @@ public sealed partial class MessageOperationSupervisionTests {
 				"blockedDiagnostics",
 				JsonSerializer.SerializeToElement(new Empty())),
 			PendingPresenter.Bus,
-			_ => "Running a test operation",
+			MessageActivity.ActionFailed("Running a test operation"),
 			policy,
 			time,
 			_ => {
 				slowEntered.TrySetResult();
 				releaseSlow.Task.GetAwaiter().GetResult();
 			},
-			(_, _) => timedOut.TrySetResult(),
-			(_, _) => { });
+			_ => { },
+			_ => timedOut.TrySetResult(),
+			(_, _) => { },
+			_ => { });
 		operation.StartWatchdog();
-		var supervised = operation.SuperviseAsync(() => handler.Task);
+		var supervised = operation.SuperviseAsync(() => handler.Task, MessageOperation.ObserveLate);
 
 		try {
 			time.Advance(policy.SlowAfter);
@@ -407,15 +405,17 @@ public sealed partial class MessageOperationSupervisionTests {
 				"complete",
 				JsonSerializer.SerializeToElement(new Empty())),
 			PendingPresenter.Bus,
-			_ => "Running a test operation",
+			MessageActivity.ActionFailed("Running a test operation"),
 			policy,
 			time,
 			_ => {
 				slowEntered.TrySetResult();
 				releaseSlow.Task.GetAwaiter().GetResult();
 			},
-			(_, _) => { },
-			(_, wasSlow) => completed.TrySetResult(wasSlow));
+			_ => { },
+			_ => { },
+			(_, wasSlow) => completed.TrySetResult(wasSlow),
+			_ => { });
 		operation.StartWatchdog();
 
 		try {
@@ -445,15 +445,17 @@ public sealed partial class MessageOperationSupervisionTests {
 				"responseRace",
 				JsonSerializer.SerializeToElement(new Empty())),
 			PendingPresenter.Bus,
-			_ => "Running a test operation",
+			MessageActivity.ActionFailed("Running a test operation"),
 			policy,
 			time,
 			_ => { },
-			(_, _) => {
+			_ => { },
+			_ => {
 				timeoutEntered.TrySetResult();
 				releaseTimeout.Task.GetAwaiter().GetResult();
 			},
-			(_, _) => { });
+			(_, _) => { },
+			_ => { });
 		operation.StartWatchdog();
 
 		try {

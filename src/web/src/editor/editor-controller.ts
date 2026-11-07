@@ -1,3 +1,4 @@
+import { sessionNeedsReload, sessionReplaced } from "./carried-edits";
 // Owns the Monaco editor lifecycle and diff/review orchestration on App's behalf. Drives the editor host +
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
@@ -710,7 +711,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host = created;
         for (const session of editorSessions) {
           reconcileOpenFiles(session);
+          void created.restoreEdits(session);
         }
+        window.addEventListener("pagehide", () => {
+          for (const session of editorSessions) {
+            if (sessionNeedsReload(session)) {
+              created.carryEdits(session);
+            }
+          }
+        });
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
         const [diff, prose, marks] = await Promise.all([
@@ -1415,6 +1424,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (restored?.session.review != null) {
           reviews.restore(session, restored.session.review);
         }
+        if (restored !== null) {
+          void host?.restoreEdits(session);
+        }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session, "restore the editor session");
         }
@@ -1429,6 +1441,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       editorSessions.delete(session);
       pendingReconciliations.delete(session);
       if (!disposing) {
+        if (sessionReplaced(session)) {
+          host?.retireEdits(session);
+        }
         host?.reconcileSession(session, []);
       }
     };

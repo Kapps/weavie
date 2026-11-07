@@ -23,6 +23,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   unseen: false,
   workspaceCheckout: false,
   external: false,
+  reloadRequired: null,
 });
 
 const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHello => ({

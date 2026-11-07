@@ -9,8 +9,28 @@ export type ViewMode = "source" | "preview";
 
 const modes = createSessionOwnedState<ReadonlyMap<string, ViewMode>>(() => new Map());
 const scrolls = new WeakMap<ClientSession, Map<string, number>>();
+const changesOnly = createSessionOwnedState<ReadonlySet<string>>(() => new Set());
 const [markdownView, setMarkdownView] = createSignal(currentEditorOptions().markdownView);
-onEditorOptionsChanged((options) => setMarkdownView(options.markdownView));
+const [changeMarks, setChangeMarks] = createSignal(currentEditorOptions().markdownChangeMarks);
+onEditorOptionsChanged((options) => {
+  setMarkdownView(options.markdownView);
+  setChangeMarks(options.markdownChangeMarks);
+});
+
+/** Whether a rendered file's changes show word marks on every block or only the current one (reactive). */
+export const markdownChangeMarks = changeMarks;
+
+/** Whether `path`'s preview folds the blocks its pending changes don't touch. */
+export function isChangesOnly(session: ClientSession, path: string): boolean {
+  return changesOnly.get(session)?.has(canonicalFsPath(path)) ?? false;
+}
+
+export function toggleChangesOnly(session: ClientSession, path: string): void {
+  const key = canonicalFsPath(path);
+  const next = new Set(changesOnly.get(session));
+  if (!next.delete(key)) next.add(key);
+  changesOnly.update(session, () => next);
+}
 
 /** A file shows its explicitly chosen mode; Markdown otherwise follows `editor.markdownView`. */
 export function isPreviewMode(session: ClientSession, path: string): boolean {
@@ -22,6 +42,11 @@ export function setViewMode(session: ClientSession, path: string, mode: ViewMode
   const next = new Map(modes.get(session));
   next.set(canonicalFsPath(path), mode);
   modes.update(session, () => next);
+}
+
+/** A file opened to review its changes: Markdown reviews them rendered; any other rendered view needs Source. */
+export function showForReview(session: ClientSession, path: string): void {
+  if (previewKindOf(path) !== "markdown") setViewMode(session, path, "source");
 }
 
 export function toggleViewMode(session: ClientSession, path: string): ViewMode {

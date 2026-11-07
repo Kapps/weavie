@@ -3,8 +3,18 @@ import type { ClientSession } from "../../bridge";
 import { installContentNavigation } from "../../content-navigation";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { basename } from "../fs-path";
-import { previewScroll, rememberPreviewScroll } from "../view-mode-store";
+import {
+  isChangesOnly,
+  markdownChangeMarks,
+  previewScroll,
+  rememberPreviewScroll,
+  setViewMode,
+  toggleChangesOnly,
+} from "../view-mode-store";
 import { BlockEditor } from "./block-editor";
+import { registerPaneReview } from "./block-editor-focus";
+import { PreviewReview } from "./changes/preview-review";
+import { registerPreviewReview } from "./changes/registry";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import HtmlPreview from "./HtmlPreview";
 import type { PreviewDocument } from "./preview-document";
@@ -36,6 +46,8 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
   let body!: HTMLDivElement;
   let svgUrl: string | undefined;
   let blocks: BlockEditor | undefined;
+  let review: PreviewReview | undefined;
+  let reviewing: { uri: string; release: () => void } | undefined;
   // Each render bumps the generation; hydrateMermaid checks it after every await so an async diagram render
   // that resolves after a newer edit (or theme switch) is dropped instead of landing in stale DOM.
   let generation = 0;
@@ -79,9 +91,45 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     installEmbedZoomAndMermaid(body, props.session(), () => gen === generation);
   };
 
+  // The file's pending changes are reviewed here once its working copy is known, keyed by that model.
+  const rendered = (): void => {
+    hydrate();
+    const uri = props.document.uri();
+    if (review !== undefined && uri !== reviewing?.uri) {
+      reviewing?.release();
+      reviewing =
+        uri === undefined ? undefined : { uri, release: registerPreviewReview(uri, review) };
+    }
+    review?.paint();
+  };
+
   onMount(() => {
-    if (previewKindOf(props.path()) === "markdown")
-      blocks = new BlockEditor(host, body, props.document, hydrate);
+    if (previewKindOf(props.path()) === "markdown") {
+      const editor = new BlockEditor(
+        host,
+        body,
+        props.document,
+        {
+          clearMarks: (unit) => review?.clearMarks(unit),
+          originalOf: (line) => review?.originalOf(line),
+        },
+        rendered,
+      );
+      review = new PreviewReview(editor.list, host, body, props.document, {
+        showSource: () => setViewMode(props.session(), props.path(), "source"),
+        toggleChangesOnly: () => toggleChangesOnly(props.session(), props.path()),
+        changesOnly: () => isChangesOnly(props.session(), props.path()),
+        marksAll: () => markdownChangeMarks() === "all",
+        editing: () => editor.editing,
+      });
+      registerPaneReview(host, review);
+      blocks = editor;
+      createEffect(() => {
+        isChangesOnly(props.session(), props.path());
+        markdownChangeMarks();
+        review?.paint();
+      });
+    }
     props.onPlaced((line) => {
       if (line !== undefined) blocks?.reveal(line - 1);
       else host.scrollTop = previewScroll(props.session(), props.path());
@@ -90,6 +138,8 @@ function DocumentPreview(props: PreviewProps): JSX.Element {
     onCleanup(() => {
       rememberPreviewScroll(props.session(), props.path(), host.scrollTop);
       props.onPlaced(() => {});
+      reviewing?.release();
+      review?.clear();
       blocks?.dispose();
     });
   });

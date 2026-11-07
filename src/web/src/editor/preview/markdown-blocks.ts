@@ -31,11 +31,34 @@ export const splitLines = (content: string): string[] => content.split(/\r?\n/);
 export function markdownBlocks(markdown: MarkdownIt, content: string): MarkdownBlock[] {
   const env = {};
   const lines = splitLines(content);
-  const blocks: MarkdownBlock[] = [];
+  return runs(markdown.parse(content, env)).map((run) => renderRun(markdown, run, lines, env));
+}
+
+/** The editable units of `content` — each list item's own lines, else each top-level block — parsed only. */
+export function markdownUnits(markdown: MarkdownIt, content: string): LineRange[] {
+  const lines = splitLines(content);
+  return runs(markdown.parse(content, {})).flatMap((run) => {
+    const items = run.flatMap((token, index) =>
+      token.type === "list_item_open" && token.map !== null
+        ? [{ start: token.map[0], end: ownEnd(run, index, lines) }]
+        : [],
+    );
+    return items.length > 0 ? items : [runLines(run, lines)];
+  });
+}
+
+/** 0-based source lines `[start, end)`. */
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+// Top-level token runs; an HTML block left open joins everything up to its closing tag.
+function runs(tokens: Token[]): Token[][] {
+  const result: Token[][] = [];
   let run: Token[] = [];
   let depth = 0;
   let begin = 0;
-  const tokens = markdown.parse(content, env);
   for (const [index, token] of tokens.entries()) {
     if (token.level !== 0 || token.nesting > 0) continue;
     const group = tokens.slice(begin, index + 1);
@@ -43,12 +66,20 @@ export function markdownBlocks(markdown: MarkdownIt, content: string): MarkdownB
     run.push(...group);
     if (group[0]?.type === "html_block") depth = Math.max(0, depth + openTags(group[0].content));
     if (depth === 0) {
-      blocks.push(renderRun(markdown, run, lines, env));
+      result.push(run);
       run = [];
     }
   }
-  if (run.length > 0) blocks.push(renderRun(markdown, run, lines, env));
-  return blocks;
+  if (run.length > 0) result.push(run);
+  return result;
+}
+
+function runLines(run: Token[], lines: string[]): LineRange {
+  const start = run[0]?.map?.[0] ?? 0;
+  return {
+    start,
+    end: trimBlank(lines, start, Math.max(...run.map((token) => token.map?.[1] ?? 0))),
+  };
 }
 
 function renderRun(
@@ -57,8 +88,7 @@ function renderRun(
   lines: string[],
   env: object,
 ): MarkdownBlock {
-  const start = run[0]?.map?.[0] ?? 0;
-  const end = trimBlank(lines, start, Math.max(...run.map((token) => token.map?.[1] ?? 0)));
+  const { start, end } = runLines(run, lines);
   for (const [index, token] of run.entries()) {
     if (token.type !== "list_item_open" || token.map === null) continue;
     token.attrSet(ITEM_START, String(token.map[0] - start));

@@ -39,12 +39,13 @@ import type {
 } from "./inline-diff";
 import type { NavLocation, TextLocation } from "./nav-history";
 import { focusedBlockEditor } from "./preview/block-editor-focus";
+import { onPreviewReviewsChanged, previewReviewFor } from "./preview/changes/registry";
 import { createPreviewDocument, type PreviewDocument } from "./preview/preview-document";
 import { reviewHistoryHandlers } from "./review/review-history-handlers";
 import { createTabActions, type TabActions } from "./tab-actions";
 import { isFileTab, REVIEW_TAB_KEY, tabKind } from "./tab-entry";
 import { focusTabContent, isAbortError, type TabOwner, type TabPresenter } from "./tab-owner";
-import { setViewMode } from "./view-mode-store";
+import { setViewMode, showForReview } from "./view-mode-store";
 
 export type { TabActions } from "./tab-actions";
 
@@ -266,6 +267,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const pendingActivations = new WeakMap<ClientSession, Promise<unknown>>();
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
+  let previewReviewSub: (() => void) | undefined;
   let editorMounted = false;
   const reviews = createReviewStore(captureReviewFor);
   const reviewTexts = createReviewTexts((session, path, revision) =>
@@ -427,24 +429,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         editorContexts.forTab(tab)?.editor.focus();
       } else focusTabContent(element);
     },
-    // A rendered file keeps its review keys, but a change-level action shows the diff before it acts.
-    actions: () => {
-      if (focusedBlockEditor()?.editing) return undefined;
-      const actions = inlineDiff?.captureActions();
-      if (actions === undefined || content() === undefined) return actions;
-      const inSource = (run: () => boolean) => () => {
-        setViewMode(tab.session, tab.entry.path, "source");
-        return run();
-      };
-      const show = () => true;
-      return {
-        ...actions,
-        nextChange: inSource(actions.nextChange),
-        prevChange: inSource(actions.prevChange),
-        accept: inSource(show),
-        reject: inSource(show),
-      };
-    },
+    // An open preview block keeps the review keys for its own typing.
+    actions: () => (focusedBlockEditor()?.editing ? undefined : inlineDiff?.captureActions()),
   });
   const applyActive = (
     session: ClientSession,
@@ -759,22 +745,58 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           import("./comment-prose"),
           import("./revise-marks"),
         ]);
+        const activePreviewReview = () =>
+          previewReviewFor(created.editor.getModel()?.uri.toString());
+        // A rendered view with no change review of its own (HTML, SVG) shows the diff in Source; true if it did.
+        const showUnderPreviewSource = (): boolean => {
+          const connection = editorContexts.fromEditor(created.editor);
+          if (connection === undefined || connection.tab.presentation?.text !== false) return false;
+          setViewMode(connection.session, connection.tab.entry.path, "source");
+          return true;
+        };
         inlineDiff = diff.createInlineDiff(created.editor, {
           scope: reviewScope,
+          // A rendered preview reviewing this model counts as showing it.
           active: () => {
             const connection = editorContexts.fromEditor(created.editor);
-            return connection !== undefined && editorContexts.displayed(connection);
+            return (
+              connection !== undefined &&
+              (editorContexts.displayed(connection) || activePreviewReview() !== undefined)
+            );
           },
           toolbarHost: () =>
             editorContexts.fromEditor(created.editor) === undefined
               ? null
               : created.editor.getDomNode(),
-          revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
-          reviewLine: () => diff.inlineReviewLine(created.editor),
+          revealLine: (line) => {
+            if (activePreviewReview()?.revealLine(line)) return;
+            showUnderPreviewSource();
+            created.editor.revealLineInCenter(line, REVEAL_SCROLL);
+          },
+          focus: () => {
+            const preview = activePreviewReview();
+            if (preview === undefined) created.editor.focus();
+            else preview.focus();
+          },
+          // The editor under a reviewing preview isn't on screen, so its cursor alone is the review position.
+          reviewLine: () =>
+            activePreviewReview() === undefined
+              ? diff.inlineReviewLine(created.editor)
+              : (created.editor.getPosition()?.lineNumber ?? 1),
+          // A rendered preview reviews whole blocks; Source reviews the line hunks.
+          changes: (markers, original, model) =>
+            previewReviewFor(model.uri.toString())?.group(markers, original, model) ??
+            markers.hunks,
+          confirmTarget: (hunk) => {
+            const preview = activePreviewReview();
+            return preview === undefined ? !showUnderPreviewSource() : preview.confirmTarget(hunk);
+          },
           prepareGeometry: () => {},
+          cleared: () => activePreviewReview()?.clear(),
           painted: () => {},
           updateGeometry: (change) => change(),
         });
+        previewReviewSub = onPreviewReviewsChanged(() => inlineDiff?.regroup());
         // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
         const syncContent = (): void => {
           setActiveContent(created.editor.getModel()?.getValue() ?? "");
@@ -831,7 +853,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     navigation.depart(session);
-    setViewMode(session, file.path, "source");
+    showForReview(session, file.path);
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
   };
@@ -1765,6 +1787,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       for (const sub of contentSubs) {
         sub.dispose();
       }
+      previewReviewSub?.();
       commentProse?.dispose();
       reviseMarks?.dispose();
       inlineDiff?.dispose();

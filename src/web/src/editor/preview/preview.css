@@ -252,9 +252,168 @@
   top: 100%;
   right: 0;
   z-index: 1;
+  display: flex;
+  gap: 0.8em;
+  align-items: center;
   padding: 0 0.4em;
   color: var(--dim);
   background: var(--bg);
   font-size: var(--font-hint-size);
   line-height: 1.6;
+}
+
+/* Pending agent changes, read as margin bars; the shown change marks its words. */
+.wv-md-header {
+  position: sticky;
+  top: -1.5em;
+  z-index: 2;
+  display: flex;
+  gap: 0.8em;
+  align-items: center;
+  max-width: 48rem;
+  margin: -1.5em auto 0.8em;
+  padding: 0.4em 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--dim);
+  font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
+}
+
+.wv-md-header-label {
+  flex: 1;
+}
+
+.wv-md-action {
+  padding: 0.1em 0.6em;
+  color: var(--fg);
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wv-md-action[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.editor-preview-body .wv-md-changed,
+.editor-preview-body .wv-md-added {
+  position: relative;
+}
+
+.editor-preview-body .wv-md-bar {
+  position: absolute;
+  top: 0.2em;
+  bottom: 0.2em;
+  left: -1.1em;
+  width: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--warn);
+  cursor: pointer;
+}
+
+.editor-preview-body li > .wv-md-bar {
+  left: -2.2em;
+}
+
+.editor-preview-body .wv-md-added > .wv-md-bar {
+  background: var(--diff-added);
+}
+
+.editor-preview-body .wv-md-bar:hover,
+.editor-preview-body .wv-md-bar:focus-visible {
+  width: 5px;
+  outline: none;
+}
+
+.editor-preview-body .wv-md-removed {
+  position: relative;
+  list-style: none;
+  margin: 0.4em 0;
+}
+
+.editor-preview-body .wv-md-removed > .wv-md-action {
+  padding: 0;
+  color: var(--diff-removed);
+  background: none;
+  border: 0;
+  font: var(--font-hint-size) / 1.4 var(--font-chrome-family);
+}
+
+.editor-preview-body .wv-md-removed::before {
+  content: "";
+  position: absolute;
+  top: 0.15em;
+  left: -1.3em;
+  border: 5px solid transparent;
+  border-left: 7px solid var(--diff-removed);
+}
+
+.editor-preview-body .wv-md-removed-body {
+  margin-top: 0.3em;
+  padding: 0.1em 0.8em;
+  border-left: 3px solid var(--diff-removed);
+  background: var(--diff-removed-line);
+  text-decoration: line-through;
+  text-decoration-color: var(--diff-removed);
+}
+
+.editor-preview-body ins.wv-md-ins,
+.wv-md-ins {
+  text-decoration: none;
+  background: var(--diff-added-text);
+  border-radius: 3px;
+}
+
+.editor-preview-body del.wv-md-del,
+.wv-md-del {
+  color: var(--dim);
+  background: var(--diff-removed-text);
+  text-decoration-color: var(--diff-removed);
+  border-radius: 3px;
+}
+
+.editor-preview-body .wv-md-note {
+  margin-left: 0.6em;
+  color: var(--dim);
+  font: var(--font-hint-size) / 1.4 var(--font-chrome-family);
+}
+
+.editor-preview-body .wv-md-folded {
+  display: none;
+}
+
+.editor-preview-body .wv-md-fold {
+  display: flex;
+  gap: 0.8em;
+  align-items: center;
+  margin: 0.6em 0;
+  padding: 0.2em 0.7em;
+  color: var(--dim);
+  background: var(--bar);
+  border-radius: 4px;
+  font: var(--font-metadata-size) / 1.4 var(--font-chrome-family);
+}
+
+/* The agent's original, inside the edit box of a block it changed. */
+.wv-preview-block-original {
+  grid-area: 2 / 1;
+  padding: 0.3em 0.5em;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.wv-preview-block-footer-action {
+  padding: 0;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
 }

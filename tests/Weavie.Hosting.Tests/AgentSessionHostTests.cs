@@ -10,8 +10,10 @@ using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
+using Weavie.Workflows;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -520,7 +522,8 @@ public sealed partial class AgentSessionHostTests {
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			NoSessionPeers.Instance,
 			AgentConsultation.None,
-			ReviewHintSink.None);
+			ReviewHintSink.None,
+			WorkflowRegistry.None);
 		var session = new FakeStructuredSession { Saved = saved };
 		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
 			? new AgentAuthenticationTerminal(
@@ -544,6 +547,7 @@ public sealed partial class AgentSessionHostTests {
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
 				AuthenticationTerminal = authenticationTerminal,
+				TurnContext = AgentTurnContext.None,
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),

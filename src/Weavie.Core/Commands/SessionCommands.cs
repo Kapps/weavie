@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Sessions;
 
@@ -100,13 +99,14 @@ public static class SessionCommands {
 				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
+				+ "Alternatively 'workflow' (an id from listWorkflows) with 'inputs' starts that workflow in the new session, its first stage as the first input. "
 				+ "'agentProviderId' is any provider advertised by the current host; "
 				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions surface.",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
 			// Hidden from the palette: the human-facing entry is the Sessions surface. Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"workflow\":{\"type\":\"string\"},\"inputs\":{\"type\":\"object\"},\"agentProviderId\":{\"type\":\"string\",\"description\":\"Provider id advertised by the current host\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -270,14 +270,6 @@ public static class SessionCommands {
 				+ "\"incarnation\":{\"type\":\"string\",\"description\":\"Exact live session incarnation; stale values are declined\"}}",
 		});
 
-		// ctrl+Shift+1..9 → switch to the Nth session. Literal ctrl (not $mod) to stay Ctrl on macOS, where
-		// Cmd+Shift+3/4/5 are screenshot shortcuts. Keybinding-only; each binding carries its own index argument.
-		var indexBindings = new List<CommandKeybinding>(9);
-		for (int i = 1; i <= 9; i++) {
-			string n = i.ToString(CultureInfo.InvariantCulture);
-			indexBindings.Add(new CommandKeybinding { Key = $"ctrl+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = SelectSessionByIndex,
 			Title = "Switch to Session by Number",
@@ -285,7 +277,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the Nth session on the rail (1-based, in rail order).",
 			Aliases = ["switch to session", "select session", "go to session number"],
-			DefaultKeybindings = indexBindings,
+			// Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+Shift+3/4/5 are screenshot shortcuts.
+			DefaultKeybindings = CoreCommands.IndexedKeybindings("ctrl+Shift"),
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based session number in rail order\"}}",
 		});
@@ -467,6 +460,8 @@ public static class SessionCommands {
 			Attachments = GetAttachments(args),
 			AgentProviderId = GetString(args, "agentProviderId"),
 			Existing = GetBool(args, "existing"),
+			Workflow = GetString(args, "workflow"),
+			Inputs = args.TryGetProperty("inputs", out var inputs) && inputs.ValueKind != JsonValueKind.Null ? inputs.Clone() : null,
 		};
 	}
 

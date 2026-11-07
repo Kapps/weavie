@@ -7,6 +7,8 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
+using Weavie.Workflows;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -43,7 +45,29 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("getSetting", names);
 		Assert.Contains("setSetting", names);
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
-		Assert.DoesNotContain("openFile", names);
+	}
+
+	[Fact]
+	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools() {
+		using var store = NewStore();
+		var presenter = FakeDiffPresenter.AlwaysKeep();
+		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], "weavie", store, registryMode: true);
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+
+		await SendAsync(ws, Request(1, "tools/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		var names = list.RootElement.GetProperty("result").GetProperty("tools")
+			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
+		Assert.Single(names, name => name == McpServer.OpenFileTool);
+
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"openFile","arguments":{"filePath":"plan.md","preview":true}}"""));
+		using var opened = await ReceiveAsync(ws);
+		Assert.Equal("FILE_OPENED", ToolText(opened));
+		Assert.Equal(["plan.md"], presenter.Opened);
+
+		await SendAsync(ws, Request(3, "tools/call", """{"name":"openFile","arguments":{}}"""));
+		using var missing = await ReceiveAsync(ws);
+		Assert.True(missing.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}
 
 	[Fact]
@@ -189,6 +213,35 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ClaudeIntegration_AttachesTheTurnContextToSubmittedPrompts() {
+		using var store = NewStore();
+		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
+		await using var ide = new Weavie.Core.Agents.Claude.ClaudeIdeIntegration(
+			registry,
+			FakeDiffPresenter.AlwaysKeep(),
+			[_dir.Path],
+			"weavie",
+			store,
+			new EditorStore(),
+			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			new FixedTurnContext("[Weavie workflow] stage build"),
+			_ => Weavie.Core.Agents.AgentEventFeedback.None,
+			(_, _) => { });
+
+		using var client = new System.IO.Pipes.NamedPipeClientStream(
+			".", Weavie.Core.Hooks.HookProtocol.PipeName(ide.Port), System.IO.Pipes.PipeDirection.InOut,
+			System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+		await client.ConnectAsync(5000);
+		await Weavie.Core.Hooks.HookProtocol.WriteFramedAsync(
+			client, Encoding.UTF8.GetBytes("""{"hook_event_name":"UserPromptSubmit","session_id":"s","prompt":"go"}"""), CancellationToken.None);
+		byte[] reply = await Weavie.Core.Hooks.HookProtocol.ReadFramedAsync(client, CancellationToken.None) ?? [];
+
+		using var output = JsonDocument.Parse(reply);
+		Assert.Equal("[Weavie workflow] stage build",
+			output.RootElement.GetProperty("hookSpecificOutput").GetProperty("additionalContext").GetString());
+	}
+
+	[Fact]
 	public async Task ClaudeIntegration_WritesPortScopedRegistryConfig() {
 		using var store = NewStore();
 		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
@@ -200,6 +253,7 @@ public sealed class RegistryMcpTests : IDisposable {
 			store,
 			new EditorStore(),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			Weavie.Core.Agents.AgentTurnContext.None,
 			_ => Weavie.Core.Agents.AgentEventFeedback.None,
 			(_, _) => { });
 
@@ -273,13 +327,13 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("--repo Kapps/weavie", text, StringComparison.Ordinal);
 		int readiness = text.IndexOf("gh auth status --hostname github.com", StringComparison.Ordinal);
 		Assert.InRange(readiness, 0, text.IndexOf("Prepare the exact public title", StringComparison.Ordinal));
-		await SendAsync(ws, Request(3, "tools/call", JsonSerializer.Serialize(new { name = "runWorkflow", arguments = new { name } })));
+		await SendAsync(ws, Request(3, "tools/call", JsonSerializer.Serialize(new { name = "runPrompt", arguments = new { name } })));
 		using var called = await ReceiveAsync(ws);
 		Assert.Equal(text, called.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
 	}
 
 	[Fact]
-	public async Task RunWorkflowAdvertisesEveryCatalogPromptAndRejectsUnknownNames() {
+	public async Task RunPromptAdvertisesEveryCatalogPromptAndRejectsUnknownNames() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
@@ -287,7 +341,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
 		using var list = await ReceiveAsync(ws);
 		var tool = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
-			.Single(t => t.GetProperty("name").GetString() == "runWorkflow");
+			.Single(t => t.GetProperty("name").GetString() == "runPrompt");
 		string description = tool.GetProperty("description").GetString()!;
 		var names = tool.GetProperty("inputSchema").GetProperty("properties").GetProperty("name").GetProperty("enum")
 			.EnumerateArray().Select(n => n.GetString());
@@ -295,10 +349,66 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.All(McpPromptCatalog.All, p => Assert.Contains($"- {p.Name}: {p.Description}", description, StringComparison.Ordinal));
 		Assert.True(tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean());
 
-		await SendAsync(ws, Request(2, "tools/call", """{"name":"runWorkflow","arguments":{"name":"nope"}}"""));
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"runPrompt","arguments":{"name":"nope"}}"""));
 		using var called = await ReceiveAsync(ws);
 		Assert.True(called.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}
+
+	[Fact]
+	public async Task WorkflowToolsListPublishTheSchemaAndValidateFiles() {
+		using var store = NewStore();
+		string personal = Path.Combine(_dir.Path, "personal");
+		File.WriteAllText(Path.Combine(_dir.Path, "broken.yaml"), "id: broken\ndescription: d\nstages: []\n");
+		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
+		using var runner = new WorkflowRunner(
+			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
+			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
+			workflows: new SessionWorkflowRegistry(catalog, runner));
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+
+		await SendAsync(ws, Request(1, "tools/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		var tools = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
+			.Where(t => t.GetProperty("name").GetString() is "listWorkflows" or "getWorkflowSchema" or "validateWorkflow").ToList();
+		Assert.Equal(3, tools.Count);
+		Assert.All(tools, t => Assert.True(t.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()));
+
+		await SendAsync(ws, Request(2, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
+		using var listed = await ReceiveAsync(ws);
+		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
+		Assert.Equal("built-in", quickFix.GetProperty("scope").GetString());
+		Assert.True(quickFix.GetProperty("valid").GetBoolean());
+		Assert.Equal("text", quickFix.GetProperty("inputs").GetProperty("task").GetString());
+
+		await SendAsync(ws, Request(3, "tools/call", """{"name":"getWorkflowSchema","arguments":{}}"""));
+		using var schema = await ReceiveAsync(ws);
+		Assert.Equal(WorkflowSchema.Json, ToolText(schema));
+
+		await SendAsync(ws, Request(4, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"broken.yaml"}}"""));
+		using var invalid = await ReceiveAsync(ws);
+		Assert.Contains("expected a non-empty list at stages", ToolText(invalid), StringComparison.Ordinal);
+
+		await SendAsync(ws, Request(5, "tools/call", """{"name":"validateWorkflow","arguments":{"path":"missing.yaml"}}"""));
+		using var missing = await ReceiveAsync(ws);
+		Assert.True(missing.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+	}
+
+	[Fact]
+	public async Task WorkflowToolsAreUnavailableWithoutARegistry() {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
+		using var ws = await ConnectBearerAsync(server.Start(), Token);
+		await SendAsync(ws, Request(1, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
+		using var called = await ReceiveAsync(ws);
+		Assert.True(called.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+	}
+
+	private static string ToolText(JsonDocument response) =>
+		response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 
 	[Fact]
 	public async Task RegistryMode_GetUnknownPrompt_Errors() {
@@ -360,5 +470,20 @@ public sealed class RegistryMcpTests : IDisposable {
 		};
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 		return await client.SendAsync(request);
+	}
+
+	private sealed class UnusedDecider : IWorkflowDecider {
+		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) =>
+			throw new InvalidOperationException("No decision is expected.");
+	}
+
+	private sealed class UnusedPort : IWorkflowRunPort {
+		public void Kickoff(WorkflowKickoff turn) => throw new InvalidOperationException("No kickoff is expected.");
+
+		public void Notify(string message) => throw new InvalidOperationException("No notice is expected.");
+	}
+
+	private sealed class FixedTurnContext(string text) : Weavie.Core.Agents.IAgentTurnContext {
+		public string Compose() => text;
 	}
 }

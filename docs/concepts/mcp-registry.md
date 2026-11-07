@@ -13,10 +13,10 @@ but they reach Claude two different ways — and only one is model-facing:
   tools (openDiff/openFile/getDiagnostics/…). **Claude Code filters the IDE tool list down to a fixed
   allowlist before it reaches the model** (essentially just `getDiagnostics`/`executeCode`), so custom
   tools added here are invisible to the model. This server is for the CLI's own UI, not for
-  user-facing capabilities.
+  user-facing capabilities. `openFile` is therefore advertised on the registry server too.
 - **Registry server** *(`registryMode: true`)* — advertised to the spawned `claude` via a generated
   `--mcp-config` file (`~/.weavie/internals/mcp/weavie-<port>.mcp.json`, a `ws://` + Bearer-token
-  entry; port-scoped so concurrent instances don't collide). Carries **only the capability tools**,
+  entry; port-scoped so concurrent instances don't collide). Carries **the capability tools and `openFile`**,
   which **do** reach the model as `mcp__weavie__*`. This is the channel that makes *"set my weavie
   shell to nushell"* work. The same auth token authorizes both servers (IDE header or `Authorization:
   Bearer`).
@@ -34,10 +34,10 @@ MCP tools *on the registry server*. There are three kinds.
   invokable MCP tools (`listCommands`/`runCommand`), so the user can ask Claude to run them — and the
   same declaration drives keybindings and the omnibar command palette. Design:
   [docs/specs/commands.md](../specs/commands.md).
-- **Workflows** *(implemented)* — bundled instruction prompts (`McpPromptCatalog`: report a Weavie bug,
+- **Prompts** *(implemented)* — bundled instruction prompts (`McpPromptCatalog`: report a Weavie bug,
   request a Weavie feature, set up the workspace). They are prompts, not actions: Weavie performs nothing, the
   agent follows the text. The user starts one as a slash command (MCP `prompts/get`, or the native slash menu);
-  an agent asked in plain language starts the same text through the read-only `runWorkflow` tool, whose
+  an agent asked in plain language starts the same text through the read-only `runPrompt` tool, whose
   description and name enum are generated from the catalog.
 
 ## The shared pattern

@@ -7,6 +7,7 @@ import { AgentLinkedText } from "./AgentPaneLinks";
 import { normalizeText } from "./AgentPaneMessageFormat";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentToolOutput } from "./AgentToolOutput";
+import { ForEachId } from "./ForEachId";
 import { loadToolOutput } from "./pane-store";
 
 export function ActivityDetails(props: {
@@ -24,30 +25,30 @@ export function ActivityDetails(props: {
       onToggle={props.onToggle}
     >
       <div class="agent-activity-list">
-        <For each={props.steps}>
+        <ForEachId each={props.steps}>
           {(step) => (
-            <div class={`agent-activity-step agent-step-${step.tone}`}>
-              <span class="agent-step-status">{step.status ?? "done"}</span>
-              <span class="agent-step-label" title={step.label}>
-                {step.label}
+            <div class={`agent-activity-step agent-step-${step().tone}`}>
+              <span class="agent-step-status">{step().status ?? "done"}</span>
+              <span class="agent-step-label" title={step().label}>
+                {step().label}
               </span>
-              <Show when={hasReviewTarget(step)}>
+              <Show when={hasReviewTarget(step())}>
                 <span class="agent-step-actions">
-                  <Show when={step.actionMessage}>
+                  <Show when={step().actionMessage}>
                     {(message) => (
                       <EditLocationActions session={props.session} message={message()} />
                     )}
                   </Show>
                 </span>
               </Show>
-              <Show when={hasOutput(step)}>
+              <Show when={hasOutput(step())}>
                 <AgentToolOutput
-                  renderOutput={() => <ActivityStepOutput session={props.session} step={step} />}
+                  renderOutput={() => <ActivityStepOutput session={props.session} step={step()} />}
                 />
               </Show>
             </div>
           )}
-        </For>
+        </ForEachId>
       </div>
     </Disclosure>
   );

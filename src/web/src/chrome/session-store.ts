@@ -10,6 +10,7 @@ import {
   registerHostFeature,
   registerSessionFeature,
   type SessionChip,
+  type SessionRun,
   type SessionStatusName,
   selectedSession,
 } from "../bridge";
@@ -101,10 +102,8 @@ registerHostFeature((connection) =>
     }
     setByBackend((prev) => {
       const next = new Map(prev);
-      // Activity arrives on each session's own feed, so it carries across catalog pushes by owner.
-      const activity = new Map(
-        (prev.get(connection.id) ?? []).map((chip) => [chip.owner, chip.activity] as const),
-      );
+      // Activity and run arrive on each session's own feed, so they carry across catalog pushes by owner.
+      const carried = new Map((prev.get(connection.id) ?? []).map((chip) => [chip.owner, chip]));
       next.set(
         connection.id,
         catalog.map((entry) => {
@@ -119,7 +118,9 @@ registerHostFeature((connection) =>
             agentSurface: entry.agentSurface,
             agentInputProtocol: entry.agentInputProtocol,
             status: entry.status,
-            activity: owner === null ? null : (activity.get(owner) ?? null),
+            activity: owner === null ? null : (carried.get(owner)?.activity ?? null),
+            run: owner === null ? null : (carried.get(owner)?.run ?? null),
+            workflowProblem: owner === null ? "" : (carried.get(owner)?.workflowProblem ?? ""),
             lastActiveAt: entry.lastActiveAt,
             unseen: entry.unseen,
             workspaceCheckout: entry.workspaceCheckout,
@@ -156,9 +157,13 @@ registerSessionFeature((session) => {
   const offActivity = status.on<{ activity: string | null }>("activity", (message) =>
     patchOwned(session, { activity: message.activity }),
   );
+  const offRun = status.on<{ run: SessionRun | null; problem: string }>("run", (message) =>
+    patchOwned(session, { run: message.run, workflowProblem: message.problem }),
+  );
   return () => {
     offStatus();
     offActivity();
+    offRun();
   };
 });
 

@@ -9,6 +9,9 @@ namespace Weavie.Core.Review;
 /// validates and writes comments, drafts, and reviews against the exact head the user saw, and publishes each snapshot.
 /// </summary>
 public sealed class PullRequestComments : PullRequestOwner<PullRequestCommentsSnapshot> {
+	// Bounded because it runs holding the gate, and a write queued behind it must still beat the message deadline.
+	private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(20);
+
 	private readonly GitService _git = new();
 	private readonly string _worktree;
 	private readonly IReviewCommentStore _store;
@@ -130,11 +133,9 @@ public sealed class PullRequestComments : PullRequestOwner<PullRequestCommentsSn
 				await post(target, set.Review).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
 				return CommandResult.Failure(ex.Message);
-			} finally {
-				// A failed write may still have changed the forge (a review created before its reply failed).
-				await RefreshLockedAsync(ct).ConfigureAwait(false);
 			}
 
+			await RefreshLockedAsync(ct).ConfigureAwait(false);
 			return CommandResult.Success();
 		} finally {
 			Gate.Release();
@@ -169,12 +170,22 @@ public sealed class PullRequestComments : PullRequestOwner<PullRequestCommentsSn
 			return cached;
 		}
 
-		await _git.FetchCommitAsync(_worktree, target.Remote, target.HeadSha, ct).ConfigureAwait(false);
-		await _git.FetchCommitAsync(_worktree, target.Remote, target.BaseSha, ct).ConfigureAwait(false);
+		await FetchCommitsAsync(target, ct).ConfigureAwait(false);
 		string mergeBase = await _git.MergeBaseAsync(_worktree, target.BaseSha, target.HeadSha, ct).ConfigureAwait(false)
 			?? throw new InvalidOperationException($"its head shares no history with its base {target.BaseSha[..7]}.");
 		var changes = await _git.DiffRefsAsync(_worktree, mergeBase, target.HeadSha, ct).ConfigureAwait(false);
 		return _diff = new PullRequestDiff(target.Number, target.HeadSha, target.BaseSha, mergeBase, [.. changes.Select(c => c.Path)]);
+	}
+
+	private async Task FetchCommitsAsync(PullRequestTarget target, CancellationToken ct) {
+		using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		bounded.CancelAfter(FetchTimeout);
+		try {
+			await _git.FetchCommitAsync(_worktree, target.Remote, target.HeadSha, bounded.Token).ConfigureAwait(false);
+			await _git.FetchCommitAsync(_worktree, target.Remote, target.BaseSha, bounded.Token).ConfigureAwait(false);
+		} catch (OperationCanceledException ex) when (!ct.IsCancellationRequested) {
+			throw new TimeoutException($"fetching its commits from {target.Remote} took over {FetchTimeout.TotalSeconds:0} seconds.", ex);
+		}
 	}
 
 	private static string Stale(int number) => $"PR #{number} has new commits — comments reloaded; try again.";

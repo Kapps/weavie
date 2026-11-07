@@ -149,6 +149,18 @@ static async Task RunScriptAsync(string scriptPath, string? mcpConfigPath) {
 						Emit($"waitFile -> {path}");
 						break;
 					}
+				case "waitInput": {
+						// Blocks until a submitted line typed into the PTY contains "text" — how Weavie delivers a turn to a
+						// running TUI — so a script can act after Weavie sends it. No deadline, as with waitFile.
+						string expected = step.GetProperty("text").GetString()!;
+						string line;
+						do {
+							line = await ReadInputLineAsync().ConfigureAwait(false);
+						} while (!line.Contains(expected, StringComparison.Ordinal));
+
+						Emit($"input {line}");
+						break;
+					}
 				case "edit":
 					await File.WriteAllTextAsync(step.GetProperty("path").GetString()!, step.GetProperty("content").GetString()).ConfigureAwait(false);
 					Emit($"edit -> {step.GetProperty("path").GetString()}");
@@ -185,6 +197,22 @@ static async Task RunScriptAsync(string scriptPath, string? mcpConfigPath) {
 			}
 		}
 	}
+}
+
+// One submitted line of PTY input: everything up to a carriage return or newline.
+static async Task<string> ReadInputLineAsync() {
+	StringBuilder line = new();
+	char[] buffer = new char[1];
+	while (await Console.In.ReadAsync(buffer.AsMemory()).ConfigureAwait(false) == 1) {
+		if (buffer[0] is '\r' or '\n') {
+			if (line.Length > 0) return line.ToString();
+			continue;
+		}
+
+		line.Append(buffer[0]);
+	}
+
+	throw new EndOfStreamException("Input closed before the expected line arrived.");
 }
 
 // Connects to the registry MCP server named in the --mcp-config file, replicating its headers verbatim

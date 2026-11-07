@@ -1,4 +1,22 @@
-import { expect, type Locator } from "@playwright/test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { runCommand } from "./actions";
+
+/** Sets the fake ACP agent's mode for sessions created afterwards. */
+export async function setFakeAcpMode(page: Page, home: string, mode: string): Promise<void> {
+  const registryPath = join(home, ".weavie", "acp", "custom.json");
+  const registry = JSON.parse(await readFile(registryPath, "utf8"));
+  registry.agents[0].env.WEAVIE_FAKE_ACP_MODE = mode;
+  await writeFile(registryPath, JSON.stringify(registry));
+  await runCommand(page, "Manage ACP Agents…");
+  const dialog = page.locator(".acp-registry-dialog");
+  await dialog.getByRole("button", { name: "Reload", exact: true }).click();
+  await expect(
+    page.locator(".toast", { hasText: "ACP agent definitions were reloaded." }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+}
 
 export async function createAcpSession(page: import("@playwright/test").Page, branch: string) {
   await page.locator(".session-rail-add").click();

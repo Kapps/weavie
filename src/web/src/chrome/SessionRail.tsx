@@ -11,7 +11,7 @@ import {
 } from "./SessionTools";
 import { cancelSessionPanelHover } from "./session-panel-hover";
 import type { RailSession } from "./session-store";
-import { sessionSubtitle, switchShortcut } from "./session-summary";
+import { sessionDetail, sessionSubtitle, switchShortcut } from "./session-summary";
 
 /** The session panel's list behavior, applied to the rail while it stands in for the unpinned panel. */
 export interface SessionListHandlers {
@@ -39,7 +39,9 @@ export function SessionRail(props: {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
     const shortcut = switchShortcut(index);
     const base = `${session.label}${where} — ${sessionSubtitle(session, Date.now())}`;
-    return shortcut !== "" ? `${base} (${shortcut})` : base;
+    const titled = shortcut !== "" ? `${base} (${shortcut})` : base;
+    const detail = sessionDetail(session);
+    return detail !== "" ? `${titled}\n${detail}` : titled;
   };
 
   const menu = createSessionMenu();

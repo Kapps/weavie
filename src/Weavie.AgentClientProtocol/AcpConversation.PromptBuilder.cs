@@ -10,7 +10,10 @@ internal sealed partial class AcpConversation {
 			lock (_gate) {
 				var command = ResolveProviderCommandLocked(submission.CommandName);
 				string text = CanonicalCommandText(submission.Text, command.Name);
-				return new(new JsonArray(AcpContent.Text(text)), []);
+				// The command stays the first block, which is how agents recognize it; context may follow it.
+				return submission.CarriesTurnContext && _context.TurnContext.Compose() is { Length: > 0 } stage
+					? new(new JsonArray(AcpContent.Text(text), AcpContent.AssistantText(stage)), [])
+					: new(new JsonArray(AcpContent.Text(text)), []);
 			}
 		}
 
@@ -60,6 +63,8 @@ internal sealed partial class AcpConversation {
 
 		if (_spec.Side) {
 			blocks.Add(AcpContent.AssistantText(EmbeddedAgentGuidance.SideConversationInstructions));
+		} else if (_context.TurnContext.Compose() is { Length: > 0 } turnContext) {
+			blocks.Add(AcpContent.AssistantText(turnContext));
 		}
 
 		return new([.. blocks], images);

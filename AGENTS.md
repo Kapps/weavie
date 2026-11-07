@@ -17,7 +17,7 @@ load it only when you need it.
 - **Claude-facing capability registry** — Weavie embeds Claude Code and exposes its own
   capabilities back to it over the IDE-MCP server, so the user can drive Weavie by talking to
   Claude. Capabilities are *registered* in Core and surfaced as MCP tools: **settings**, **commands**
-  (named actions), and **workflows** (bundled prompts an agent starts via `runWorkflow`). See
+  (named actions), and **prompts** (bundled instructions an agent starts via `runPrompt`). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
 - **Hook bridge** — the spawned `claude` runs a standalone relay binary (`Weavie.HookRelay`, co-located with the host
   by the build) as its hooks — PermissionRequest (the permission gate, fires only when a tool would prompt)
@@ -87,6 +87,10 @@ load it only when you need it.
   propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
   contextual-suggestion card nudges once enough accumulate. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
+- **Workflows** — user-defined, agent-authored YAML processes (stages that run a prompt or skill, typed outputs,
+  `if`/`then` decisions answered by a model or the user) that a session runs; Weavie owns the run and the agent does
+  each stage. The engine is the standalone `Weavie.Workflows` project; Core holds only adapters. See
+  [docs/specs/workflows.md](docs/specs/workflows.md).
 
 ## Keyboard-first navigation
 

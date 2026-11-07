@@ -15,27 +15,27 @@ describe("pending requests in the agent transcript", () => {
       const authentication = request("authentication", "authentication-1");
       const updates = [output("first"), input, output("second"), approval, authentication];
       model.replace(updates);
-      expect(model.entries.map((entry) => entry.id)).toEqual(
+      expect(model.transcript().entries.map((entry) => entry.id)).toEqual(
         [updates[0]!, updates[2]!, input, approval, authentication].map(paneItemIdentity),
       );
-      expect(model.pendingRowIndexes()).toEqual([2, 3, 4]);
+      expect(model.transcript().pendingRowIndexes).toEqual([2, 3, 4]);
       expect(model.keyboardRequestKey()).toBe(paneItemIdentity(authentication));
 
       const later = output("third");
       updates.push(later);
       model.publish(updates, [later]);
-      expect(model.entries.map((entry) => entry.id)).toEqual(
+      expect(model.transcript().entries.map((entry) => entry.id)).toEqual(
         [updates[0]!, updates[2]!, later, input, approval, authentication].map(paneItemIdentity),
       );
 
       const resolved = { ...input, type: "input-resolved", status: "accepted" };
       updates.push(resolved);
       model.publish(updates, [resolved]);
-      expect(model.entries[1]?.status).toBe("accepted");
-      expect(model.entries.map((entry) => entry.id)).toEqual(
+      expect(model.transcript().entries[1]?.status).toBe("accepted");
+      expect(model.transcript().entries.map((entry) => entry.id)).toEqual(
         [updates[0]!, input, updates[2]!, later, approval, authentication].map(paneItemIdentity),
       );
-      expect(model.pendingRowIndexes()).toEqual([4, 5]);
+      expect(model.transcript().pendingRowIndexes).toEqual([4, 5]);
       expect(model.keyboardRequestKey()).toBe(paneItemIdentity(authentication));
       dispose();
     });
@@ -68,16 +68,18 @@ describe("pending requests in the agent transcript", () => {
         output("later-primary"),
       ];
       model.replace(updates);
-      const index = model.entries.findIndex((entry) => entry.kind === "aside");
+      const index = model.transcript().entries.findIndex((entry) => entry.kind === "aside");
       expect(index).toBeGreaterThanOrEqual(0);
-      expect(model.entries.filter((entry) => entry.kind === "request")).toEqual([]);
-      expect(model.entries[index]?.asideEntries?.at(-1)?.id).toBe(paneItemIdentity(question));
-      expect(model.pendingRowIndexes()).toEqual([index]);
+      expect(model.transcript().entries.filter((entry) => entry.kind === "request")).toEqual([]);
+      expect(model.transcript().entries[index]?.asideEntries?.at(-1)?.id).toBe(
+        paneItemIdentity(question),
+      );
+      expect(model.transcript().pendingRowIndexes).toEqual([index]);
       expect(model.keyboardRequestKey()).toBe(paneItemIdentity(question));
 
       const resolved = { ...question, type: "input-resolved", status: "accepted" };
       model.publish([...updates, resolved], [resolved]);
-      expect(model.pendingRowIndexes()).toEqual([]);
+      expect(model.transcript().pendingRowIndexes).toEqual([]);
       expect(model.keyboardRequestKey()).toBeNull();
       dispose();
     });
@@ -91,12 +93,12 @@ describe("pending requests in the agent transcript", () => {
         { type: "user-message", providerId: "acp", turnId: "next-turn", text: "Next prompt" },
       ];
       model.replace(updates);
-      expect(model.agentTurnStartId()).toBeNull();
-      expect(model.agentTurnStartIndex()).toBeNull();
+      expect(model.transcript().agentTurnStartId).toBeNull();
+      expect(model.transcript().agentTurnStartIndex).toBeNull();
       const answer = { ...output("next-answer"), turnId: "next-turn" };
       model.replace([...updates, answer]);
-      expect(model.agentTurnStartId()).toBe(paneItemIdentity(answer));
-      expect(model.agentTurnStartIndex()).toBe(1);
+      expect(model.transcript().agentTurnStartId).toBe(paneItemIdentity(answer));
+      expect(model.transcript().agentTurnStartIndex).toBe(1);
       dispose();
     });
   });
@@ -117,12 +119,12 @@ describe("pending requests in the agent transcript", () => {
       };
       const updates = [input, command];
       model.replace(updates);
-      expect(model.entries[0]?.kind).toBe("activity");
-      model.setActivityExpanded(model.entries[0]!.id, true);
+      expect(model.transcript().entries[0]?.kind).toBe("activity");
+      model.setActivityExpanded(model.transcript().entries[0]!.id, true);
       const completed = { ...command, type: "item-completed", status: "completed", text: "clean" };
       model.publish([input, completed], [completed]);
-      expect(model.entries[0]?.details[0]?.detailText).toBe("clean");
-      expect(model.entries[1]?.id).toBe(paneItemIdentity(input));
+      expect(model.transcript().entries[0]?.details[0]?.detailText).toBe("clean");
+      expect(model.transcript().entries[1]?.id).toBe(paneItemIdentity(input));
       dispose();
     });
   });

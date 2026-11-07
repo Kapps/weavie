@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Weavie.Workflows.Tests" />
+    <EmbeddedResource Include="BuiltIn/*.yaml" LogicalName="Weavie.Workflows.BuiltIn.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

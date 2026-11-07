@@ -13,8 +13,7 @@ import { defaultAgentProvider } from "../chrome/agent-default";
 import { liveKeyLabel } from "../commands/keys-live";
 import { findCommandInCatalog } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { chromeVars } from "../theme/chrome-vars";
-import { savedAppearance, savedPalette } from "../theme/controller";
+import { savedAppearance, savedChromeVars } from "../theme/controller";
 import { type ThemeChoice, themeRequest } from "../theme/picker-state";
 import { SuggestionProfile } from "./SuggestionProfile";
 import { browseThemes, readSetting, writeSetting } from "./state";
@@ -38,7 +37,7 @@ const MODES: { mode: ThemeMode; label: string }[] = [
 // A miniature window painted in one saved theme's own chrome colors.
 function ThemeMock(props: { type: "light" | "dark"; class: string }): JSX.Element {
   return (
-    <span class={`gs-mock ${props.class}`} style={chromeVars(savedPalette(props.type))}>
+    <span class={`gs-mock ${props.class}`} style={savedChromeVars(props.type)}>
       <span class="gs-mock-bar" />
       <span class="gs-mock-side" />
       <span class="gs-mock-lines">

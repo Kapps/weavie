@@ -1,11 +1,8 @@
 import { createEffect, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
-import { registerCommand, runCommandWithFeedback } from "../commands/registry";
+import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
-import { AgentQuestionControl } from "./AgentQuestionControl";
-import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
   session: ClientSession | null;
@@ -80,6 +77,7 @@ export function ApprovalActions(props: {
     return (
       <button
         type="button"
+        classList={{ default: bound().get(value) === CommandIds.agentApprove }}
         title={key() === "" ? label : `${label} (${key()})`}
         onClick={() => choose(value)}
       >
@@ -139,179 +137,5 @@ export function AuthenticationActions(props: {
         )}
       </For>
     </div>
-  );
-}
-
-export function UrlInputActions(props: {
-  session: ClientSession;
-  message: AgentPaneUpdate;
-  answersToKeys: boolean;
-}): JSX.Element {
-  const resolve = (action: "accept" | "decline" | "cancel"): boolean => {
-    const requestId = props.message.requestId;
-    if (requestId === null || requestId === undefined || requestId.length === 0) {
-      return false;
-    }
-    props.session.feature("agent").publish("input", { requestId, action, answers: {} });
-    return true;
-  };
-  createEffect(() => {
-    if (!props.answersToKeys) {
-      return;
-    }
-    const offDecline = registerCommand(CommandIds.agentDeclineInput, () => resolve("decline"));
-    const offCancel = registerCommand(CommandIds.agentCancelInput, () => resolve("cancel"));
-    onCleanup(() => {
-      offDecline();
-      offCancel();
-    });
-  });
-  const open = async (): Promise<void> => {
-    const url = props.message.resourceUri;
-    const requestId = props.message.requestId;
-    if (url === null || url === undefined || requestId === null || requestId === undefined) {
-      return;
-    }
-    const result = await runCommandWithFeedback(CommandIds.openUrlExternal, { url });
-    if (result.ok) {
-      resolve("accept");
-    }
-  };
-  const declineKey = (): string =>
-    props.answersToKeys ? liveKeyLabel(CommandIds.agentDeclineInput) : "";
-  const cancelKey = (): string =>
-    props.answersToKeys ? liveKeyLabel(CommandIds.agentCancelInput) : "";
-  return (
-    <div class="agent-approval-actions">
-      <button
-        type="button"
-        title={`Open link in your browser${liveKeyLabel(CommandIds.openUrlExternal) === "" ? "" : ` (${liveKeyLabel(CommandIds.openUrlExternal)})`}`}
-        onClick={() => void open()}
-      >
-        {props.message.actions?.[0]?.label ?? "Open link"}
-      </button>
-      <button
-        type="button"
-        title={declineKey() === "" ? "Decline request" : `Decline request (${declineKey()})`}
-        onClick={() => resolve("decline")}
-      >
-        Decline
-      </button>
-      <button
-        type="button"
-        title={cancelKey() === "" ? "Cancel request" : `Cancel request (${cancelKey()})`}
-        onClick={() => resolve("cancel")}
-      >
-        Cancel
-      </button>
-    </div>
-  );
-}
-
-export function InputRequestActions(props: {
-  session: ClientSession;
-  message: AgentPaneUpdate;
-  answersToKeys: boolean;
-}): JSX.Element {
-  if (props.message.itemType === "url") {
-    return (
-      <UrlInputActions
-        session={props.session}
-        message={props.message}
-        answersToKeys={props.answersToKeys}
-      />
-    );
-  }
-  const questions = createMemo(() => inputQuestions(props.message));
-  const requestKey = agentInputRequestKey(props.message);
-  const draft = agentInputDraft(props.session, requestKey, questions());
-  let form: HTMLFormElement | undefined;
-
-  const resolve = (
-    action: "accept" | "decline" | "cancel",
-    answers: Record<string, string[]>,
-  ): boolean => {
-    const requestId = props.message.requestId;
-    if (requestId === null || requestId === undefined || requestId.length === 0) {
-      return false;
-    }
-    props.session.feature("agent").publish("input", { requestId, action, answers });
-    return true;
-  };
-  const submit = (): boolean => resolve("accept", draft.answers());
-  const requestSubmit = (): boolean => {
-    if (form === undefined) return false;
-    form.requestSubmit();
-    return true;
-  };
-  createEffect(() => {
-    if (!props.answersToKeys) {
-      return;
-    }
-    const offDecline = registerCommand(CommandIds.agentDeclineInput, () => resolve("decline", {}));
-    const offCancel = registerCommand(CommandIds.agentCancelInput, () => resolve("cancel", {}));
-    const offAccept = registerCommand(CommandIds.agentAcceptInput, requestSubmit);
-    onCleanup(() => {
-      offDecline();
-      offCancel();
-      offAccept();
-    });
-  });
-  const declineKey = (): string =>
-    props.answersToKeys ? liveKeyLabel(CommandIds.agentDeclineInput) : "";
-  const cancelKey = (): string =>
-    props.answersToKeys ? liveKeyLabel(CommandIds.agentCancelInput) : "";
-  const acceptKey = (): string =>
-    props.answersToKeys ? liveKeyLabel(CommandIds.agentAcceptInput) : "";
-
-  const setAnswer = (id: string, values: string[]): void => {
-    draft.setAnswers({ ...draft.answers(), [id]: values });
-  };
-
-  return (
-    <form
-      ref={form}
-      class="agent-input-request"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-    >
-      <For each={questions()}>
-        {(question) => (
-          <fieldset class="agent-input-question">
-            <legend>{question.header.length > 0 ? question.header : question.question}</legend>
-            <small>{question.question}</small>
-            <AgentQuestionControl
-              question={question}
-              values={draft.answers()[question.id] ?? []}
-              setValues={(values) => setAnswer(question.id, values)}
-            />
-          </fieldset>
-        )}
-      </For>
-      <div class="agent-approval-actions">
-        <button
-          type="submit"
-          title={acceptKey() === "" ? "Submit answers" : `Submit answers (${acceptKey()})`}
-        >
-          Submit answers
-        </button>
-        <button
-          type="button"
-          title={declineKey() === "" ? "Decline request" : `Decline request (${declineKey()})`}
-          onClick={() => resolve("decline", {})}
-        >
-          Decline
-        </button>
-        <button
-          type="button"
-          title={cancelKey() === "" ? "Cancel request" : `Cancel request (${cancelKey()})`}
-          onClick={() => resolve("cancel", {})}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
   );
 }

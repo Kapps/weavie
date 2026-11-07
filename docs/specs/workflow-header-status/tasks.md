@@ -25,10 +25,10 @@ Satisfies R6, R7, R8.
 
 - [x] Add the truncation and badge rules to `layout.css`, and stop `.pane-label` shrinking
 - [x] Add `.app.compact .pane-run` to `mobile.css`
-- [ ] E2e: badge order with and without the badge
-- [ ] E2e: narrow pane truncates the workflow first, then the stage
-- [ ] E2e: `mobile.spec.ts` hidden assertion
-- [ ] Check truncation on WebKit
+- [x] E2e: badge order with and without the badge
+- [x] E2e: narrow pane truncates the workflow first, then the stage
+- [x] E2e: hidden in the compact layout (in `workflow-status-line.spec.ts`, by narrowing the viewport)
+- [x] Check truncation on WebKit
 
 **Video:** drag the pane narrower with a long workflow and stage name, showing the workflow shorten while the stage stays
 whole, the badge staying at the far right, and the run line gone in the mobile layout.

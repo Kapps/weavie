@@ -61,10 +61,10 @@ host already publishes them on the `status` feed.
 `src/web/src/layout/layout.css`
 
 ```css
-.pane-label { flex: none; white-space: nowrap; }
+.pane-label { flex: none; }
 .pane-run { display: flex; align-items: center; gap: 6px; margin-left: auto;
   overflow: hidden; color: var(--dim); white-space: pre; }
-.pane-run + .pane-shortcut { flex: none; margin-left: 0; }
+.pane-run + .pane-shortcut { margin-left: 0; }
 .pane-run-text { display: flex; overflow: hidden; }
 .pane-run-workflow, .pane-run-stage { overflow: hidden; text-overflow: ellipsis; }
 .pane-run-stage { flex: none; max-width: 100%; }
@@ -75,7 +75,7 @@ host already publishes them on the `status` feed.
   stage and triggers its ellipsis early.
 - Two auto margins would float the run mid-header, so the badge's is zeroed beside a run.
 - Font and weight are inherited. Weight 600 and the accent color apply only to `.pane-label`.
-- `.pane-label` is shared with the other panes. It gains only `flex: none; white-space: nowrap`.
+- `.pane-label` is shared with the other panes. It gains only `flex: none`, which also keeps it from wrapping.
 
 `src/web/src/mobile/mobile.css` adds `.app.compact .pane-run` to the `display: none` list.
 

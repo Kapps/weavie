@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { createAcpSession, submitAcpDraft } from "../harness/acp-session";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -44,14 +44,18 @@ async function runId(home: string): Promise<string> {
   throw new Error("No workflow run was persisted.");
 }
 
-async function startTwoStep(page: Page, workspace: string, branch: string) {
+// Starts TWO_STEP under `workflow` (its id and file name) and waits for its first stage to hold.
+async function startTwoStep(page: Page, workspace: string, branch: string, workflow: string) {
   const surface = await createAcpSession(page, branch);
   const worktree = sessionWorktrees(workspace)[0]!;
   await mkdir(join(worktree, ".weavie", "workflows"), { recursive: true });
-  await writeFile(join(worktree, ".weavie", "workflows", "two-step.yaml"), TWO_STEP);
+  await writeFile(
+    join(worktree, ".weavie", "workflows", `${workflow}.yaml`),
+    TWO_STEP.replace("id: two-step", `id: ${workflow}`),
+  );
   await submitAcpDraft(
     surface,
-    tool("runCommand", { id: "weavie.workflow.run", args: { workflow: "two-step", inputs: {} } }),
+    tool("runCommand", { id: "weavie.workflow.run", args: { workflow, inputs: {} } }),
   );
   await expect.poll(() => existsSync(join(worktree, "hold-started"))).toBe(true);
   return { surface, worktree };
@@ -72,7 +76,7 @@ test("the session line follows the run through a user's answer to done", async (
   weavie,
 }) => {
   const branch = "workflow-status-line";
-  const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch);
+  const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch, "two-step");
   const chip = page.locator(".session-chip.active");
 
   await expect(chip).toHaveAttribute("title", new RegExp(`^${branch} — implement · `));
@@ -105,7 +109,7 @@ test("the session line follows the run through a user's answer to done", async (
 
 test("the pane header shows the session's own run until it ends", async ({ page, weavie }) => {
   const branch = "workflow-header";
-  const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch);
+  const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch, "two-step");
   const run = surface.locator(".pane-head .pane-run");
   const dot = run.locator(".session-status");
 
@@ -154,4 +158,69 @@ test("the pane header shows the session's own run until it ends", async ({ page,
 
   await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "shipped" }));
   await expect(run).toHaveCount(0);
+});
+
+// Whether `locator`'s text is cut off, which its ellipsis then marks.
+const truncated = (locator: Locator): Promise<boolean> =>
+  locator.evaluate((element) => element.scrollWidth > element.clientWidth);
+
+test("the header run line keeps its place and its stage as space runs out", async ({
+  page,
+  weavie,
+}) => {
+  const workflow = "a-workflow-whose-name-is-long-enough-to-crowd-the-agent-pane-header";
+  const { surface } = await startTwoStep(page, weavie.workspace, "workflow-header-fit", workflow);
+  const head = surface.locator(".pane-head");
+  const label = head.locator(".pane-label");
+  const run = head.locator(".pane-run");
+  const badge = head.locator(".pane-shortcut");
+  const box = async (locator: Locator) => (await locator.boundingBox())!;
+  const right = async (locator: Locator) => (await box(locator)).x + (await box(locator)).width;
+  const style = (property: "columnGap" | "paddingRight") =>
+    head.evaluate((element, name) => parseFloat(getComputedStyle(element)[name]), property);
+  const contentEdge = async () => (await right(head)) - (await style("paddingRight"));
+  await expect(run).toHaveText(`${workflow} · implement`);
+
+  await expect(badge).toBeVisible();
+  // Wider than the line needs, so free space would split between two auto margins.
+  await head.evaluate((element) => {
+    element.style.width = "2000px";
+  });
+  expect(
+    Math.abs((await box(badge)).x - (await right(run)) - (await style("columnGap"))),
+  ).toBeLessThan(2);
+  expect(Math.abs((await right(badge)) - (await contentEdge()))).toBeLessThan(2);
+
+  const labelBox = await box(label);
+  for (const width of ["320px", "150px"]) {
+    await head.evaluate((element, value) => {
+      element.style.width = value;
+    }, width);
+    await expect.poll(() => truncated(run.locator(".pane-run-workflow"))).toBe(true);
+    expect(await truncated(run.locator(".pane-run-stage"))).toBe(width === "150px");
+    expect(await box(label)).toMatchObject({ width: labelBox.width, height: labelBox.height });
+  }
+  await head.evaluate((element) => {
+    element.style.width = "";
+  });
+
+  await writeFile(
+    join(weavie.home, ".weavie", "keybindings.json"),
+    JSON.stringify(
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((index) => ({
+        key: `ctrl+${index}`,
+        command: "-weavie.pane.focusByIndex",
+        args: { index },
+      })),
+    ),
+  );
+  await expect(badge).toHaveCount(0);
+  expect(Math.abs((await right(run)) - (await contentEdge()))).toBeLessThan(2);
+
+  await page.setViewportSize({ width: 700, height: 800 });
+  await expect(page.locator(".app.compact")).toHaveCount(1);
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect(head).toBeVisible();
+  await expect(run).toHaveCSS("display", "none");
+  await expect(label).toBeVisible();
 });

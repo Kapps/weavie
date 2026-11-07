@@ -197,6 +197,8 @@ export const CommandIds = {
   saveFile: "weavie.editor.save",
   openRecentFiles: "weavie.editor.recentFiles",
   toggleEditorPreview: "weavie.editor.togglePreview",
+  previewEditBlock: "weavie.editor.previewEditBlock",
+  previewFinishBlock: "weavie.editor.previewFinishBlock",
   zoomEmbed: "weavie.editor.zoomEmbed",
   rotateMedia: "weavie.editor.rotateMedia",
   toggleMediaFullscreen: "weavie.editor.toggleMediaFullscreen",

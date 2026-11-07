@@ -51,10 +51,12 @@ public sealed class HostCorePullRequestCommentsTests {
 		await CommentsAsync(host, set => set.GetProperty("pending").ValueKind == JsonValueKind.Null
 			&& !set.GetProperty("threads")[1].GetProperty("comments")[0].GetProperty("pending").GetBoolean());
 		Assert.Equal([(42, ReviewVerdict.RequestChanges, "fix it")], provider.SubmittedReviews);
-		var review = (await OverviewAsync(host, detail => detail.GetProperty("conversation").GetArrayLength() == 1))
-			.GetProperty("conversation")[0];
-		Assert.Equal("fix it", review.GetProperty("body").GetString());
-		Assert.Equal("changesRequested", review.GetProperty("review").GetString());
+		var conversation = (await OverviewAsync(host, detail => detail.GetProperty("conversation").GetArrayLength() == 2))
+			.GetProperty("conversation");
+		Assert.Equal("fix it", conversation[0].GetProperty("body").GetString());
+		Assert.Equal("changesRequested", conversation[0].GetProperty("review").GetString());
+		Assert.Equal("because", conversation[1].GetProperty("body").GetString());
+		Assert.Equal(1, conversation[1].GetProperty("location").GetProperty("line").GetInt32());
 	}
 
 	[Fact]

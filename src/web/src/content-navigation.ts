@@ -1,5 +1,6 @@
 import type { ClientSession } from "./bridge";
 import { parseFileReference } from "./content-links";
+import { collapseDotSegments } from "./editor/fs-path";
 import { isSafeAgentLink } from "./editor/preview/markdown-renderer";
 import { openLink } from "./editor/source/source-links";
 import { revealFileIn } from "./files/reveal";
@@ -37,7 +38,9 @@ export function installContentNavigation(
         let { path, line } = parseFileReference(target);
         const source = documentPath();
         if (source !== null && !/^(?:[A-Za-z]:|[\\/]|~)/.test(path)) {
-          path = source.replace(/[\\/][^\\/]*$/, "/") + decodeURIComponent(path);
+          path = collapseDotSegments(
+            source.replace(/[\\/][^\\/]*$/, "/") + decodeURIComponent(path),
+          );
         }
         revealFileIn(session(), path, line, true);
       }

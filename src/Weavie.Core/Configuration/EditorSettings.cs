@@ -93,6 +93,9 @@ public static class EditorSettings {
 	/// <summary>The longest file, in lines, that is blamed — Git's cost scales with file size times history.</summary>
 	public const string GitBlameMaxLines = "editor.gitBlameMaxLines";
 
+	/// <summary>Whether Markdown files open rendered (and editable in place) or as source.</summary>
+	public const string MarkdownView = "editor.markdownView";
+
 	/// <summary>Whether the session overview remembers collapsed sections for all sessions or per session.</summary>
 	public const string ReviewOverviewCollapse = "editor.reviewOverviewCollapse";
 
@@ -103,7 +106,7 @@ public static class EditorSettings {
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, StickyScrollMaxLines, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse,
+		VideoAutoplay, GitBlame, GitBlameMaxLines, ReviewOverviewCollapse, MarkdownView,
 	];
 
 	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
@@ -241,6 +244,14 @@ public static class EditorSettings {
 				"format comments"],
 			["none", "documentation", "multiline", "all"], "documentation"));
 
+		registry.Register(Choice(MarkdownView,
+			"How Markdown files open. 'preview' (the default) shows the rendered document, where clicking a block "
+				+ "edits its Markdown in place; 'source' opens the raw text. The Source/Preview toggle still "
+				+ "switches any one file.",
+			["markdown view", "markdown preview", "open markdown", "default markdown mode", "markdown source",
+				"edit markdown preview"],
+			["preview", "source"], "preview"));
+
 		registry.Register(Toggle(PaneShortcutHints,
 			"Show the Ctrl+N pane-switch shortcut hint badges in the pane headers and the editor tab bar. "
 				+ "On by default; turn it off to hide them once the shortcuts are familiar.",
@@ -314,6 +325,7 @@ public static class EditorSettings {
 		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
+		writer.WriteString("markdownView", store.RequireString(MarkdownView));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteString("gitBlame", store.RequireString(GitBlame));

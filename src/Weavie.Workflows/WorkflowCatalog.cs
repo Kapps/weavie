@@ -62,10 +62,14 @@ public sealed class WorkflowCatalog(string worktree, string personalDirectory, s
 		return new WorkflowLaunch(definition, entry.Path, WorkflowTransitions.ReadInputs(definition, inputs, worktree));
 	}
 
-	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
+	private WorkflowCatalogEntry Resolve(string id) {
 		var winners = List().Where(e => e.ShadowedBy is null).ToList();
-		var entry = winners.FirstOrDefault(e => e.Id == id)
+		return winners.FirstOrDefault(e => e.Id == id)
 			?? throw new WorkflowException($"No workflow \"{id}\" exists; the workflows are: {string.Join(", ", winners.Select(e => e.Id))}.");
+	}
+
+	private (WorkflowCatalogEntry Entry, WorkflowDefinition Definition) Winner(string id) {
+		var entry = Resolve(id);
 		return (entry, entry.Definition ?? throw new WorkflowException(
 			$"Workflow \"{id}\" ({entry.Path}) is invalid: {string.Join("; ", entry.Diagnostics.Where(d => !d.IsWarning))}"));
 	}

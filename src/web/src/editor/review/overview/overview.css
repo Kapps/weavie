@@ -308,6 +308,7 @@ button.session-overview-row:not(:disabled):hover .session-overview-row-text {
 
 .session-overview-comment-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.45em;
   color: var(--dim);

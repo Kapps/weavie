@@ -46,7 +46,10 @@ public sealed partial class GitHubReviewCommentsTests {
 					    { "id": "RC_1", "body": "lone", "url": "c1", "path": "a.ts", "line": 3, "author": { "login": "mira", "avatarUrl": "" } } ] } },
 					{ "id": "PRR_2", "body": "fix these", "state": "CHANGES_REQUESTED", "submittedAt": "2026-01-04T00:00:00Z", "url": "r2",
 					  "author": { "login": "kapps", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": true, "endCursor": "cursor-line" }, "nodes": [
-					    { "id": "RC_2", "body": "stale", "url": "c2", "path": "b.ts", "line": null, "author": { "login": "kapps", "avatarUrl": "" } } ] } }
+					    { "id": "RC_2", "body": "stale", "url": "c2", "path": "b.ts", "line": null, "author": { "login": "kapps", "avatarUrl": "" } } ] } },
+					{ "id": "PRR_3", "body": "withdrawn", "state": "DISMISSED", "submittedAt": "2026-01-05T00:00:00Z", "url": "r3",
+					  "author": { "login": "dana", "avatarUrl": "" }, "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
+					    { "id": "RC_4", "body": "kept", "url": "c4", "path": "d.ts", "line": 1, "author": { "login": "dana", "avatarUrl": "" } } ] } }
 					""")),
 			Ok("""
 				{ "data": { "node": { "comments": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [
@@ -65,9 +68,11 @@ public sealed partial class GitHubReviewCommentsTests {
 				("PRR_2", ReviewerState.ChangesRequested, null),
 				("RC_2", null, new PullRequestCommentLocation("b.ts", null)),
 				("RC_3", null, new PullRequestCommentLocation("c.ts", 9)),
+				("RC_4", null, new PullRequestCommentLocation("d.ts", 1)),
 			],
 			detail.Conversation.Select(item => (item.Id, item.Review, item.Location)));
 		Assert.Equal("2026-01-04T00:00:00Z", detail.Conversation[4].CreatedAt);
+		Assert.DoesNotContain(detail.Reviewers, r => r.User.Login == "dana");
 	}
 
 	[Fact]

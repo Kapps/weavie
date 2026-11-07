@@ -99,8 +99,8 @@ Steps:
    `mkdtemp` profile dir and the project's `use` options (viewport). Override the built-in `page`
    fixture to create a fresh page from that context per test (and close it after).
 3. **Hand-rolled tracing.** Overriding `context` bypasses Playwright's built-in tracing fixture —
-   the config's `trace: "retain-on-failure"` will silently stop applying. Reimplement it in the
-   fixture: `context.tracing.start({ screenshots: true, snapshots: true, sources: true })` once per
+   the config's `retain-on-failure` trace will silently stop applying. Reimplement it in the
+   fixture: `context.tracing.start({ screenshots: true, snapshots: false, sources: true })` once per
    worker, `tracing.startChunk()` before each test, `stopChunk({ path })` after, attach the file
    only when `testInfo.status !== testInfo.expectedStatus`. Verify a forced failure still yields a
    working trace.zip AND the existing attachments (weavie-host.log, fake-claude.log,

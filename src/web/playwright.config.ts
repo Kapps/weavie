@@ -45,7 +45,7 @@ export default defineConfig({
   use: {
     headless: true,
     // Per-action DOM snapshots add ~25% to the suite; a failure's DOM is one traced local rerun away.
-    trace: { mode: "retain-on-failure", snapshots: false, screenshots: true, sources: true },
+    trace: { mode: "retain-on-failure", snapshots: false },
     // Same override capture.mjs honors: run on a preinstalled Chromium (e.g. a sandbox's /opt/pw-browsers)
     // instead of the version-pinned download. Unset in normal use.
     launchOptions: { executablePath: process.env.WEAVIE_CHROMIUM || undefined },

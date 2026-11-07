@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -16,6 +17,17 @@ public sealed class PtyLauncherTests {
 		OutputCapture = new AgentOutputCapture.Disabled(),
 		HangUpOnStop = false,
 	};
+
+	[Fact]
+	public void ShellPane_HangsUpOnStop_ThroughEitherLauncher() {
+		using var root = new TempDirectory("weavie-shell-launch");
+		using var settings = CoreSettings.CreateStore(root.Combine("settings.toml"), enableWatcher: false);
+		var launch = new ShellTerminalProcess(settings, root.Path).ResolveLaunch();
+
+		Assert.True(launch.HangUpOnStop);
+		Assert.True(new PosixPtyLauncher().Resolve(launch).HangUpOnStop);
+		Assert.True(new WindowsPtyLauncher().Resolve(launch).HangUpOnStop);
+	}
 
 	[Fact]
 	public void Windows_CommandShim_PreservesArgumentsAndEnvironment() {

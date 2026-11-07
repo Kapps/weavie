@@ -245,7 +245,13 @@ listens in ~75ms and the splash clears ~470ms later. The fixture time went to tw
   DOM now needs a local rerun with `--trace on`; see [e2e-flake-policy](e2e-flake-policy.md).
 - **Shutdown:** a launch that sets `HangUpOnStop` (only the shell pane) also gets SIGHUP, as a closing
   terminal would send. Agents keep SIGTERM alone so they can finish their own shutdown. Closing a shell pane
-  gets 500ms faster for users too.
+  gets 500ms faster for users too. Background jobs now end with the pane, as in any terminal that closes:
+  bash forwards the hangup to them, so `npm run dev &` no longer outlives its pane unless it uses `nohup`
+  or `disown`. The close confirmation and update drain hold still only look at foreground jobs.
+
+Dropping the snapshots also removed the delay that hid a real race: a palette opened while a review undo
+was in flight closed when the undo's reveal took focus. Opens now leave the keyboard with an open palette,
+and `review-history-delivery.spec.ts` pins it by holding the undo's reply.
 
 Together these took an 18-test sample (`session.spec.ts`, `close-review.spec.ts`) from 73–84s to 42–45s.
 

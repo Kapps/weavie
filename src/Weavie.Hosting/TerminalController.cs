@@ -274,6 +274,7 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	public void Restart() {
 		_supervisor.Stop();
+		_coalescer.Flush(); // a hung-up shell's last output must land before the reset, not on the cleared pane
 		Console.WriteLine($"[weavie] terminal[{_pane}] restarting");
 		Console.Out.Flush();
 		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.

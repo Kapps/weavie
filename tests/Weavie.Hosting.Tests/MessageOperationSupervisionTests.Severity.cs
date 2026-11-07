@@ -132,7 +132,7 @@ public sealed partial class MessageOperationSupervisionTests {
 		var queued = h.Send("save");
 		h.Time.Advance(SeverityPolicy.Deadline);
 		await Task.WhenAll(running, queued).WaitAsync(TimeSpan.FromSeconds(2));
-		await Wait.UntilAsync(() => h.Endpoint.Bus.ReloadReason is not null);
+		await Wait.UntilAsync(() => Volatile.Read(ref changes) == 1);
 
 		Assert.Equal("Saving a file didn't start within 0.1 seconds because Reading a file is stuck.", h.Endpoint.Bus.ReloadReason);
 		Assert.Equal(1, changes);

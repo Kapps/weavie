@@ -186,8 +186,8 @@ jobs:
         if: matrix.platform.name == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth apparmor-profiles
-          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config dbus-daemon gstreamer1.0-plugins-good libwebkitgtk-6.0-4 xvfb xauth apparmor
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
 
       # Restores the one solution-wide format workspace that can evaluate every platform project.
       - uses: ./temp/workflow/.github/actions/setup-macos-workload

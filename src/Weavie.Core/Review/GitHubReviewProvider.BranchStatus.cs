@@ -48,7 +48,7 @@ public sealed partial class GitHubReviewProvider {
 			request.Headers.TryAddWithoutValidation("If-None-Match", entityTag);
 		}
 
-		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		using var response = await ExchangeAsync(request, ct).ConfigureAwait(false);
 		if (response.StatusCode == HttpStatusCode.NotModified) {
 			return cached is not null
 				? cached.PullRequest

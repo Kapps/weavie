@@ -225,7 +225,7 @@ public sealed class PullRequestCommentsTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task FailedWrite_StillReloadsWhatTheForgeChanged() {
+	public async Task FailedWrite_FailsWithoutWaitingOnAnotherLoad() {
 		var store = new GatedStore(Store()) { FailReply = true };
 		var comments = Create(store);
 		await comments.TrackAsync(Target, CancellationToken.None);
@@ -233,6 +233,9 @@ public sealed class PullRequestCommentsTests : IDisposable {
 		var result = await comments.ReplyAsync(Number, "t1", "queued", CommentMode.Review, CancellationToken.None);
 
 		Assert.Equal("GitHub is down", result.Error);
+		Assert.Null(Review(comments).Pending);
+
+		await comments.RefreshAsync(CancellationToken.None);
 		Assert.NotNull(Review(comments).Pending);
 	}
 

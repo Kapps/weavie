@@ -33,6 +33,9 @@ public sealed record HookDecision {
 	/// </summary>
 	public string? SystemMessage { get; init; }
 
+	/// <summary>Context Claude adds to the submitted prompt (<c>UserPromptSubmit</c> only); empty for none.</summary>
+	public string AdditionalContext { get; init; } = "";
+
 	/// <summary>Defer to Claude's normal flow.</summary>
 	public static HookDecision PassThrough { get; } = new() { Kind = HookDecisionKind.PassThrough };
 
@@ -53,7 +56,8 @@ public sealed record HookDecision {
 	public string? ToHookOutputJson(HookEventKind evt) {
 		bool emitDecision = Kind != HookDecisionKind.PassThrough && evt is HookEventKind.PreToolUse or HookEventKind.PermissionRequest;
 		bool emitMessage = !string.IsNullOrEmpty(SystemMessage);
-		if (!emitDecision && !emitMessage) {
+		bool emitContext = evt == HookEventKind.UserPromptSubmit && AdditionalContext.Length > 0;
+		if (!emitDecision && !emitMessage && !emitContext) {
 			return null;
 		}
 
@@ -62,6 +66,13 @@ public sealed record HookDecision {
 			writer.WriteStartObject();
 			if (emitMessage) {
 				writer.WriteString("systemMessage", SystemMessage);
+			}
+
+			if (emitContext) {
+				writer.WriteStartObject("hookSpecificOutput");
+				writer.WriteString("hookEventName", "UserPromptSubmit");
+				writer.WriteString("additionalContext", AdditionalContext);
+				writer.WriteEndObject();
 			}
 
 			if (emitDecision) {

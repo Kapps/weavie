@@ -9,36 +9,40 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private void HandlePullRequestComments(HostSession session, MessageFeatureChannel pullRequests) {
 		var comments = session.PullRequestComments;
-		// A thread or review write can change the overview too: a submitted review joins the PR's conversation.
-		async Task<CommandWireResult> Write(Task<CommandResult> write, CancellationToken ct) {
+		// A write can change more than it reports: a submitted review joins the overview, and a failed one may have
+		// half-landed (a review created before its reply failed).
+		async Task<CommandWireResult> Write(Task<CommandResult> write) {
 			var result = await write.ConfigureAwait(false);
-			await session.PullRequestOverview.RefreshAsync(ct).ConfigureAwait(false);
+			session.PullRequestStatus.RequestReload();
 			return CommandWireResult.From(result);
 		}
 
 		pullRequests.Handle(
 			"comment", "Posting a pull request comment", WireJson.Default.PullRequestCommentRequest, WireJson.Default.CommandWireResult,
 			(message, ct) => WorktreeRelativePath(session, message.Path) is { } path
-				? Write(comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, message.Mode, ct), ct)
+				? Write(comments.CommentAsync(message.Number, message.HeadSha, path, message.Line, message.Body, message.Mode, ct))
 				: Task.FromResult(CommandWireResult.From(CommandResult.Failure(NotInWorktree(session, message.Path)))));
 		pullRequests.Handle(
 			"reply", "Posting a pull request reply", WireJson.Default.PullRequestReplyRequest, WireJson.Default.CommandWireResult,
-			(message, ct) => Write(comments.ReplyAsync(message.Number, message.ThreadId, message.Body, message.Mode, ct), ct));
+			(message, ct) => Write(comments.ReplyAsync(message.Number, message.ThreadId, message.Body, message.Mode, ct)));
 		pullRequests.Handle(
 			"editComment", "Editing a pull request comment", WireJson.Default.PullRequestEditRequest, WireJson.Default.CommandWireResult,
-			(message, ct) => Write(comments.EditAsync(message.Number, message.Id, message.Body, ct), ct));
+			(message, ct) => Write(comments.EditAsync(message.Number, message.Id, message.Body, ct)));
 		pullRequests.Handle(
 			"discardComment", "Discarding a pending comment", WireJson.Default.PullRequestCommentIdRequest, WireJson.Default.CommandWireResult,
-			(message, ct) => Write(comments.DiscardCommentAsync(message.Number, message.Id, ct), ct));
+			(message, ct) => Write(comments.DiscardCommentAsync(message.Number, message.Id, ct)));
 		pullRequests.Handle(
 			"submitReview", "Submitting a pull request review", WireJson.Default.PullRequestSubmitRequest, WireJson.Default.CommandWireResult,
-			(message, ct) => Write(comments.SubmitReviewAsync(message.Number, message.HeadSha, message.Verdict, message.Body, ct), ct));
+			(message, ct) => Write(comments.SubmitReviewAsync(message.Number, message.HeadSha, message.Verdict, message.Body, ct)));
 		pullRequests.Handle(
 			"discardReview", "Discarding a pending review", WireJson.Default.PullRequestNumberRequest, WireJson.Default.CommandWireResult,
-			(message, ct) => Write(comments.DiscardReviewAsync(message.Number, ct), ct));
+			(message, ct) => Write(comments.DiscardReviewAsync(message.Number, ct)));
 		// The web asks while the user can see the PR; its comments and checks aren't tied to the agent's activity.
-		pullRequests.Handle("refresh", "Refreshing the pull request", WireJson.Default.EmptyPayload, (_, ct) =>
-			Task.WhenAll(comments.RefreshAsync(ct), session.PullRequestOverview.RefreshAsync(ct)));
+		// Only the request crosses the bus: a load waits on the network, which must never count against the session.
+		pullRequests.Handle("refresh", "Refreshing the pull request", WireJson.Default.EmptyPayload, (_, _) => {
+			session.PullRequestStatus.RequestReload();
+			return Task.CompletedTask;
+		});
 		pullRequests.Handle(
 			"issueComment", "Commenting on the pull request", WireJson.Default.PullRequestIssueCommentRequest, WireJson.Default.CommandWireResult,
 			async (message, ct) => CommandWireResult.From(

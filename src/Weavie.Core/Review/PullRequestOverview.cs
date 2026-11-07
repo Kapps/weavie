@@ -29,10 +29,9 @@ public sealed class PullRequestOverview : PullRequestOwner<PullRequestOverviewSn
 				await _discussion.AddCommentAsync(target.Repo, detail.Id, body, ct).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
 				return CommandResult.Failure(ex.Message);
-			} finally {
-				await RefreshLockedAsync(ct).ConfigureAwait(false);
 			}
 
+			await RefreshLockedAsync(ct).ConfigureAwait(false);
 			return CommandResult.Success();
 		} finally {
 			Gate.Release();

@@ -28,6 +28,12 @@ public sealed record NewSessionRequest {
 	/// <summary>Images submitted atomically with <see cref="Prompt"/> as the new session's first input.</summary>
 	public IReadOnlyList<NewSessionAttachment> Attachments { get; set; } = [];
 
+	/// <summary>A workflow id the new session starts running; its first stage is the session's first input.</summary>
+	public string? Workflow { get; init; }
+
+	/// <summary>The <see cref="Workflow"/>'s inputs, an object keyed by input name; <c>null</c> for none.</summary>
+	public System.Text.Json.JsonElement? Inputs { get; init; }
+
 	/// <summary>The provider for this new session; <c>null</c> means the host's default provider setting.</summary>
 	public string? AgentProviderId { get; init; }
 

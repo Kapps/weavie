@@ -1,6 +1,6 @@
 namespace Weavie.Core.Mcp;
 
-/// <summary>Bundled issue-reporting workflows for the public Weavie issue tracker.</summary>
+/// <summary>Bundled issue-reporting prompts for the public Weavie issue tracker.</summary>
 public static class IssueReportingPrompts {
 	private const string ReadinessCheck = """
 		Before searching for duplicates or drafting anything, confirm you can publish: run

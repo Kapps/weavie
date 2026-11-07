@@ -31,6 +31,10 @@ export interface SessionChip {
   status: SessionStatusName;
   /** What the agent is doing (`running pnpm test`, `wants to edit App.tsx`), or null when only the status applies. */
   activity: string | null;
+  /** The session's live workflow run, or null when none is running. */
+  run: SessionRun | null;
+  /** Why the session's saved workflow run couldn't be loaded, or empty. */
+  workflowProblem: string;
   /** When the agent last started or finished work (Unix ms), or null if it never has. */
   lastActiveAt: number | null;
   /** A turn finished here that no one has viewed since — the panel's "Finished" section. */
@@ -39,6 +43,25 @@ export interface SessionChip {
   workspaceCheckout: boolean;
   /** A worktree Weavie didn't create (another tool or agent made it), so it may still be in use elsewhere. */
   external: boolean;
+}
+
+export type SessionRunState =
+  | "working"
+  | "waitingOnYou"
+  | "needsAnswer"
+  | "watching"
+  | "deciding"
+  | "paused"
+  | "stalled";
+
+/** A live workflow run as the session list shows it. */
+export interface SessionRun {
+  id: string;
+  workflow: string;
+  stage: string;
+  state: SessionRunState;
+  /** Why a paused run stopped, or the question awaiting the user (and why the model handed it over); empty otherwise. */
+  reason: string;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";

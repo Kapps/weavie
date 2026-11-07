@@ -24,6 +24,7 @@ public sealed partial class HostCore {
 				session.ReviewCommits.RequestRefresh();
 				return Task.WhenAll(comments.TrackAsync(status.Target, ct), overview.TrackAsync(status.Target, ct));
 			},
+			ct => Task.WhenAll(comments.RefreshAsync(ct), overview.RefreshAsync(ct)),
 			Task.Delay,
 			PullRequestPollInterval);
 		session.AttachPullRequestStatus(monitor, comments, overview);

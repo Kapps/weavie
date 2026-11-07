@@ -2365,6 +2365,7 @@ public static partial class CoreCommands {
 		});
 
 		RegisterReviewHints(registry);
+		RegisterWorkflows(registry);
 		InferenceCommands.Register(registry);
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

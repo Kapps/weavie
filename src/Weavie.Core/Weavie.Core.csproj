@@ -14,6 +14,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Weavie.Workflows\Weavie.Workflows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Core.Tests" />
     <EmbeddedResource Include="Spelling/Resources/*" />
     <Content Include="../../third-party/spelling/*" Link="third-party/spelling/%(Filename)%(Extension)"

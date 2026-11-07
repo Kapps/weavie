@@ -8,6 +8,8 @@ using Weavie.Core.Mcp;
 using Weavie.Core.Review.Hints;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
+using Weavie.Workflows;
 
 namespace Weavie.Core.Tests;
 
@@ -34,8 +36,9 @@ internal static class TestMcp {
 		ThemeOverridesStore? themeOverrides = null,
 		ISessionPeers? sessions = null,
 		AgentConsultation? agents = null,
-		IReviewHintSink? reviewHints = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None);
+		IReviewHintSink? reviewHints = null,
+		IWorkflowRegistry? workflows = null) =>
+		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, sessions ?? NoSessionPeers.Instance, agents ?? AgentConsultation.None, reviewHints ?? ReviewHintSink.None, workflows ?? WorkflowRegistry.None);
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -59,6 +62,7 @@ internal static class TestMcp {
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			NoSessionPeers.Instance,
 			AgentConsultation.None,
-			ReviewHintSink.None);
+			ReviewHintSink.None,
+			WorkflowRegistry.None);
 	}
 }

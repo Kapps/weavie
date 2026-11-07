@@ -104,6 +104,12 @@ public static class WeaviePaths {
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 
+	/// <summary>The user's personal workflow files (<c>~/.weavie/workflows/*.yaml</c>).</summary>
+	public static string WorkflowsDir { get; } = Path.Combine(Root, "workflows");
+
+	/// <summary>A repository's own workflows, under <paramref name="worktree"/>.</summary>
+	public static string RepositoryWorkflowsDir(string worktree) => Path.Combine(worktree, ".weavie", "workflows");
+
 	/// <summary>Root for host-internal caches (e.g. the WebView2 user-data folder): <c>~/.weavie/internals</c>.</summary>
 	public static string Internals { get; } = Path.Combine(Root, "internals");
 
@@ -171,6 +177,9 @@ public static class WeaviePaths {
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/suggestions.json</c>. See <see cref="Suggestions.SuggestionDismissals"/>.
 	/// </summary>
 	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
+
+	/// <summary>A session worktree's workflow run: <c>~/.weavie/workspaces/&lt;id&gt;/workflow-run.json</c>.</summary>
+	public static string WorkspaceWorkflowRunFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "workflow-run.json");
 
 	/// <summary>
 	/// A workspace's recorded post-turn corrections (JSONL ring, oldest first):

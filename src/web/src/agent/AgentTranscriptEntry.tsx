@@ -1,6 +1,6 @@
 import { RotateCcw } from "lucide-solid";
 import { type JSX, Match, Show, Switch } from "solid-js";
-import type { ClientSession } from "../bridge";
+import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -22,6 +22,7 @@ import { AgentWorkflowEntry } from "./AgentWorkflowEntry";
 import { agentControlState } from "./agent-controls-store";
 import { type ConciseToolInput, conciseToolInput, formattedToolInput } from "./approval-input";
 import { singleChoiceQuestion } from "./input-questions";
+import { DismissButtons } from "./input-request";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -75,8 +76,23 @@ export function TranscriptEntry(props: {
               ? `${props.sectionLabel} · Plan`
               : (props.sectionLabel ?? entryLabel(props.entry))}
           </span>
-          <Show when={props.entry.status !== null}>
-            <small class="agent-entry-status">{props.entry.status}</small>
+          <Show
+            when={pendingChoice(props.entry)}
+            fallback={
+              <Show when={props.entry.status !== null}>
+                <small class="agent-entry-status">{props.entry.status}</small>
+              </Show>
+            }
+          >
+            {(message) => (
+              <div class="agent-choice-dismiss">
+                <DismissButtons
+                  session={props.session}
+                  message={message()}
+                  answersToKeys={props.entry.id === props.keyboardRequestKey}
+                />
+              </div>
+            )}
           </Show>
           <Show when={agentControlState(props.session).rewindable && props.entry.promptTurnId}>
             {(turnId) => (
@@ -183,6 +199,15 @@ function entryText(props: {
   );
 }
 
+function pendingChoice(entry: AgentTranscriptEntry): AgentPaneUpdate | null {
+  const message = entry.actionMessage;
+  return isPendingRequest(entry) &&
+    message?.type === "input-requested" &&
+    singleChoiceQuestion(message) !== null
+    ? message
+    : null;
+}
+
 function RewindAction(props: { latest: boolean; turnId: string }): JSX.Element {
   const key = (): string => (props.latest ? liveKeyLabel(CommandIds.rewindAgentConversation) : "");
   return (
@@ -269,7 +294,7 @@ function EntryActions(props: {
 }
 
 function AgentMedia(props: {
-  message: import("../bridge").AgentPaneUpdate | null;
+  message: AgentPaneUpdate | null;
   session: ClientSession;
 }): JSX.Element {
   const source = (): string | null => {

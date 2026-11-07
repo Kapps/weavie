@@ -824,66 +824,105 @@ a:has(> .agent-path-dir) {
   font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
 }
 
+/* Rows run edge to edge like a palette list; the gutter holds each option's key. */
 .agent-choice-request {
   display: grid;
-  gap: 4px;
-  max-inline-size: 720px;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0 -10px -9px;
   font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
 }
 
+.agent-choice-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 7px;
+}
+
 .agent-choice-prompt {
-  margin: 0 0 3px;
+  min-width: 0;
+  margin: 0;
   color: var(--fg);
   overflow-wrap: break-word;
 }
 
+.agent-choice-keys {
+  flex: none;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
 .agent-choice-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--bar) 84%, white);
+  grid-template-columns: subgrid;
+  column-gap: 12px;
+  row-gap: 1px;
+  padding: 5px 10px 5px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
   color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
+.agent-choice-row.default {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
 .agent-choice-row:hover,
 .agent-choice-row:focus-visible {
-  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.agent-choice-key {
+  grid-area: 1 / 1;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--font-metadata-size);
 }
 
 .agent-choice-label {
-  font-weight: 600;
+  grid-area: 1 / 2;
+  font-weight: 500;
 }
 
 .agent-choice-description {
-  overflow: hidden;
+  grid-area: 2 / 2;
   color: var(--dim);
   font-size: var(--font-metadata-size);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.agent-choice-request form {
+  grid-column: 1 / -1;
 }
 
 .agent-choice-other {
   box-sizing: border-box;
   width: 100%;
-  padding: 4px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 2px;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   background: transparent;
   color: var(--fg);
   font: inherit;
 }
 
+.agent-choice-other:focus {
+  border-top-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  outline: 0;
+}
+
 .agent-choice-dismiss {
   display: flex;
-  justify-content: flex-end;
   gap: 10px;
+  margin-left: auto;
 }
 
 .agent-choice-dismiss button {
@@ -898,12 +937,6 @@ a:has(> .agent-path-dir) {
 
 .agent-choice-dismiss button:hover {
   color: var(--fg);
-}
-
-.agent-choice-other:focus {
-  border-style: solid;
-  border-color: var(--accent);
-  outline: 0;
 }
 
 /* The command under review stays code; a question's own text reads as prose. */
@@ -1394,8 +1427,7 @@ label.agent-input-choice:hover {
   margin-top: 7px;
 }
 
-.agent-entry-waiting .agent-approval-actions button.default,
-.agent-choice-row.default {
+.agent-entry-waiting .agent-approval-actions button.default {
   border-color: var(--warn);
 }
 

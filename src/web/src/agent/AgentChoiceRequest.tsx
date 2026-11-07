@@ -4,8 +4,8 @@ import { setContext } from "../commands/context";
 import { liveIndexedKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
+import { sharedKeyPrefix } from "./input-questions";
 import {
-  DismissButtons,
   type InputRequestProps,
   ownedKeyLabel,
   resolveInput,
@@ -13,7 +13,7 @@ import {
   withKey,
 } from "./input-request";
 
-/** One pick-one question: each option is a row that answers on click or Alt+N; "Other" is typed below. */
+/** One pick-one question: each option is a row that answers on click or its key; "Other" is typed below. */
 export function ChoiceRequestActions(
   props: InputRequestProps & { question: AgentInputQuestion },
 ): JSX.Element {
@@ -50,6 +50,15 @@ export function ChoiceRequestActions(
 
   const indexKey = (index: number): string =>
     props.answersToKeys ? liveIndexedKeyLabel(CommandIds.agentAnswerByIndex, index + 1) : "";
+  const boundKeys = (): string[] =>
+    props.question.options.map((_, index) => indexKey(index)).filter((key) => key !== "");
+  const keyPrefix = (): string | null => sharedKeyPrefix(boundKeys());
+  const gutterKey = (index: number): string => indexKey(index).slice(keyPrefix()?.length ?? 0);
+  const keyRange = (): string => {
+    const [first, ...rest] = boundKeys();
+    if (first === undefined || keyPrefix() === null) return "";
+    return rest.length === 0 ? first : `${first}–${rest.length + 1}`;
+  };
   const rowKeys = (index: number, value: string): string =>
     [
       indexKey(index),
@@ -60,9 +69,14 @@ export function ChoiceRequestActions(
 
   return (
     <div class="agent-choice-request">
-      <p class="agent-choice-prompt" title={props.question.header}>
-        {props.question.question}
-      </p>
+      <div class="agent-choice-head">
+        <p class="agent-choice-prompt" title={props.question.header}>
+          {props.question.question}
+        </p>
+        <Show when={keyRange()}>
+          {(range) => <small class="agent-choice-keys">{range()}</small>}
+        </Show>
+      </div>
       <For each={props.question.options}>
         {(option, index) => (
           <button
@@ -75,10 +89,12 @@ export function ChoiceRequestActions(
             )}
             onClick={() => answer(option.value)}
           >
+            <Show when={gutterKey(index())}>
+              {(key) => <kbd class="agent-choice-key">{key()}</kbd>}
+            </Show>
             <span class="agent-choice-label">{option.label}</span>
-            <span class="agent-choice-description">{option.description}</span>
-            <Show when={indexKey(index())}>
-              {(key) => <kbd class="agent-key-chip">{key()}</kbd>}
+            <Show when={option.description}>
+              <span class="agent-choice-description">{option.description}</span>
             </Show>
           </button>
         )}
@@ -100,9 +116,6 @@ export function ChoiceRequestActions(
           />
         </form>
       </Show>
-      <div class="agent-choice-dismiss">
-        <DismissButtons {...props} />
-      </div>
     </div>
   );
 }

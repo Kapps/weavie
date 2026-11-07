@@ -51,6 +51,35 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ABranchSwitchedInsideTheWorktree_IsTheOneItsRecordAttachesAndDeletes() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("first", "main", "acp");
+		TempGitRepo.Run(record.Path, "switch", "-q", "-c", "second", "main");
+
+		var (attached, created) = await manager.AttachAsync("second", "acp");
+
+		Assert.False(created);
+		Assert.Equal(record.Path, attached.Path);
+		Assert.Equal("second", attached.Branch);
+		Assert.Null(manager.Registry.FindByBranch("first"));
+		await manager.RemoveAsync(record.Path, deleteBranch: true, force: false);
+		Assert.False(await _git.BranchExistsAsync(_repo, "second"));
+		Assert.True(await _git.BranchExistsAsync(_repo, "first"));
+	}
+
+	[Fact]
+	public async Task ADetachedWorktree_ReleasesItsBranchName() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("first", "main", "acp");
+		TempGitRepo.Run(record.Path, "switch", "-q", "--detach");
+
+		await manager.ListAsync();
+
+		Assert.Null(manager.Registry.FindByPath(record.Path)!.Branch);
+		Assert.Null(manager.Registry.FindByBranch("first"));
+	}
+
+	[Fact]
 	public async Task DirtyWorktree_RemovalGuarded() {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("wip", "main", "acp");
@@ -137,7 +166,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		// A branch that exists but isn't checked out anywhere.
 		TempGitRepo.Run(_repo, "branch", "existing", "main");
 
-		var record = await manager.AttachAsync("existing", "acp");
+		var (record, _) = await manager.AttachAsync("existing", "acp");
 
 		Assert.Equal("existing", record.Branch);
 		Assert.True(Directory.Exists(record.Path));

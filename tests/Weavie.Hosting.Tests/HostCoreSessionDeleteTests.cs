@@ -431,6 +431,23 @@ public sealed class HostCoreSessionDeleteTests {
 	}
 
 	[Fact]
+	public async Task CheckingOutABranchSwitchedToInsideASessionsWorktreeLoadsThatSession() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		TempGitRepo.Run(host.Session("feature").WorkspaceRoot, "switch", "-q", "-c", "renamed");
+		var before = SessionIds(host);
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "renamed",
+			Existing = true,
+		}).WaitAsync(TimeSpan.FromSeconds(10));
+
+		Assert.True(result.Ok, result.Error);
+		Assert.Equal("Loaded the existing session for 'renamed'.", result.Message);
+		Assert.Equal(before, SessionIds(host));
+	}
+
+	[Fact]
 	public async Task ShutdownCancelsSelfDeleteWaitingToEnterTheUiLane() {
 		var dispatcher = new ManualUiDispatcher(paused: false);
 		await using var host = TestHost.CreateUnstarted(dispatcher);

@@ -1215,12 +1215,20 @@ public sealed partial class HostCore {
 		}
 
 		// Only run setup on a freshly-created worktree; a branch Weavie already tracks reuses its existing one.
-		bool freshWorktree = worktrees.Registry.FindByBranch(branch) is null;
 		WorktreeRecord record;
+		bool freshWorktree;
 		try {
-			record = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
+			(record, freshWorktree) = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
+		}
+
+		// The branch may have been switched to inside a worktree a session already holds: switch to that session.
+		if (!freshWorktree && _sessions?.Slots.FirstOrDefault(slot => PathIdentity.Equals(slot.WorktreePath, record.Path)) is { } owner) {
+			if (ExistingSessionInputError(input) is { } error) {
+				return error;
+			}
+			return await LoadExistingAsync(owner, branch, ct).ConfigureAwait(false);
 		}
 
 		string slotProviderId = record.AgentProviderId;

@@ -6,7 +6,7 @@ Built in this order. Each group builds and tests on its own. Requirements: [requ
 
 Satisfies R1, R3, R4, R5, R9, R10.
 
-- [ ] Add `chipOf` and `sessionRun` to `session-store.ts`, and use `chipOf` in `watchedUnseen`
+- [x] Add `chipOf` and `sessionRun` to `session-store.ts`, and use `chipOf` in `watchedUnseen`
 - [ ] Add `runDotColor` and `runTooltip` to `session-summary.ts`
 - [ ] Unit test both, plus `sessionRun`
 - [ ] Create `WorkflowRunStatus.tsx`

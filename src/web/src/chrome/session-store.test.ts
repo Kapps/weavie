@@ -242,6 +242,22 @@ describe("session run", () => {
     session("local", "main").run?.({ run: null, problem: "" });
     expect(store.sessions().find((s) => s.id === "main")?.run).toBeNull();
   });
+
+  it("answers sessionRun only for the session that owns the run", () => {
+    const run: SessionRun = {
+      id: "r-1",
+      workflow: "quick-fix",
+      stage: "pr",
+      state: "working",
+      reason: "",
+    };
+    deliverCatalog("local", ["main", "other"]);
+    session("local", "main").run?.({ run, problem: "" });
+    expect(store.sessionRun(session("local", "main").client)).toEqual(run);
+    expect(store.sessionRun(session("local", "other").client)).toBeNull();
+    expect(store.sessionRun(null)).toBeNull();
+    session("local", "main").run?.({ run: null, problem: "" });
+  });
 });
 
 describe("unseen finished turns", () => {

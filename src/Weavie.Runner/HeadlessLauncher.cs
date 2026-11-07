@@ -106,7 +106,7 @@ public sealed class HeadlessLauncher {
 		}
 	}
 
-	private OwnedProcess Spawn(WorkspaceBackend backend) {
+	internal ProcessStartInfo BuildStartInfo(WorkspaceBackend backend) {
 		string workerPath = _workerPath();
 		bool isDll = workerPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 		var info = new ProcessStartInfo {
@@ -134,7 +134,11 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add("--spawn-contract");
 		info.ArgumentList.Add(RunnerIdentity.SpawnContract.ToString());
 
-		var process = OwnedProcess.Start(info);
+		return info;
+	}
+
+	private OwnedProcess Spawn(WorkspaceBackend backend) {
+		var process = OwnedProcess.Start(BuildStartInfo(backend));
 		static void Echo(string? line) {
 			if (line is not null) {
 				Console.WriteLine($"[backend] {line}");

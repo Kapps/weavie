@@ -119,6 +119,33 @@ public sealed class VersionStoreTests : IDisposable {
 		Assert.True(reopened.IsKnownDigest("sha256:aa"));
 	}
 
+	[Theory]
+	[InlineData("", false)]
+	[InlineData("", true)]
+	[InlineData("worker", false)]
+	[InlineData("worker", true)]
+	public void WorkerLayoutSurvivesStageConfirmReopenAndRollback(string subdirectory, bool native) {
+		string extracted = MakeExtractedVersion(100);
+		string name = native
+			? (OperatingSystem.IsWindows() ? "Weavie.Headless.exe" : "Weavie.Headless")
+			: "Weavie.Headless.dll";
+		File.Delete(Path.Combine(extracted, "worker", "Weavie.Headless.dll"));
+		File.WriteAllText(Path.Combine(extracted, subdirectory, name), "bin");
+		string expected = _root.Combine("versions", "100", subdirectory, name);
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
+
+		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, extracted, "sha256:aa");
+		Assert.Equal(expected, store.ActiveWorkerPath());
+		store.MarkConfirmedGood(100);
+		store = VersionStore.OpenAt(_root.Path, _ => { });
+		Assert.Equal(100, store.ConfirmedGoodBuild);
+		Assert.Equal(expected, store.ActiveWorkerPath());
+
+		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 1 }, MakeExtractedVersion(101), "sha256:bb");
+		Assert.Equal(100, store.RollbackToConfirmed(1).Build);
+		Assert.Equal(expected, VersionStore.OpenAt(_root.Path, _ => { }).ActiveWorkerPath());
+	}
+
 	[Fact]
 	public void Rollback_RestoresConfirmedGood_AndBlacklistsTheBadDigest() {
 		var store = VersionStore.OpenAt(_root.Path, _ => { });

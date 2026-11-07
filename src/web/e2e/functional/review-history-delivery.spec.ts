@@ -1,12 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 const pauseHistory = new WeakMap<Page, () => void>();
+const holdUndoReply = new WeakMap<Page, () => () => void>();
+const spellChecks = new WeakMap<Page, () => number>();
 
 const baseline = ["first", ...Array.from({ length: 10 }, (_, i) => `context ${i}`), "last"].join(
   "\n",
@@ -22,10 +24,33 @@ test.use({
       pauseHistory.set(page, () => {
         paused = true;
       });
+      let heldReplies: (() => void)[] | null = null;
+      let undoRequest: unknown = null;
+      let spellCheckCount = 0;
+      spellChecks.set(page, () => spellCheckCount);
+      holdUndoReply.set(page, () => {
+        heldReplies = [];
+        return () => {
+          const held = heldReplies ?? [];
+          heldReplies = null;
+          for (const release of held) release();
+        };
+      });
       await page.routeWebSocket("**/*", (socket) => {
         const server = socket.connectToServer();
+        socket.onMessage((data) => {
+          const message = JSON.parse(decodeTestWebSocketMessage(data as Buffer));
+          if (message.kind === "request" && message.feature === "review" && message.name === "undo")
+            undoRequest = message.id;
+          if (message.feature === "spelling") spellCheckCount++;
+          server.send(data);
+        });
         server.onMessage((data) => {
           const message = JSON.parse(decodeTestWebSocketMessage(data));
+          if (heldReplies !== null && message.kind === "response" && message.id === undoRequest) {
+            heldReplies.push(() => socket.send(data));
+            return;
+          }
           // Hold history availability after undo; file mutations and command replies still arrive.
           if (
             paused &&
@@ -69,6 +94,31 @@ test("undo revert survives redo before history availability arrives", async ({ p
   await expect.poll(contents).toBe(reverted);
   await runCommand(page, "Undo Revert (Review)");
   await expect.poll(contents).toBe(changed);
+});
+
+test("a palette opened while an undo is in flight keeps the keyboard when the undo lands", async ({
+  page,
+  weavie,
+}) => {
+  await openFile(page, "notes.txt");
+  const pending = page.locator(".weavie-inline-pending-keep");
+  await expect(pending).toHaveCount(2);
+  await page.locator(".weavie-inline-pending-revert").last().click();
+  await expect(pending).toHaveCount(1);
+  await expect(page.locator(".weavie-inline-hist").first()).toBeEnabled();
+
+  const release = holdUndoReply.get(page)!();
+  await runCommand(page, "Undo Revert (Review)");
+  await expect.poll(() => readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(changed);
+  await openCommandPalette(page);
+  const checksBefore = spellChecks.get(page)!();
+  release();
+
+  await expect(pending).toHaveCount(2);
+  // The revealed editor checks spelling once it has settled, which is after it would take focus.
+  await expect.poll(() => spellChecks.get(page)!()).toBeGreaterThan(checksBefore);
+  await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
+  await expect(page.locator(".tb-omnibar-input")).toBeFocused();
 });
 
 test.describe("ordinary editing without review history", () => {

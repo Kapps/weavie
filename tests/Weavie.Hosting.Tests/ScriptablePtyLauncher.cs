@@ -27,6 +27,7 @@ internal sealed class ScriptablePtyLauncher : IPtyLauncher {
 			Arguments = launch.Arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 }
@@ -52,6 +53,7 @@ internal sealed class TestTerminalProcess : ITerminalProcess {
 		ExecutableMode = AgentExecutableMode.Direct,
 		WorkingDirectoryMode = _cwdMode,
 		OutputCapture = new AgentOutputCapture.Disabled(),
+		HangUpOnStop = false,
 	};
 
 	public void ObserveTerminalOutput(ReadOnlyMemory<byte> data) { }

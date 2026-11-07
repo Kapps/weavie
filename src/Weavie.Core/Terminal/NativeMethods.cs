@@ -24,6 +24,7 @@ internal static partial class NativeMethods {
 
 	// Child-teardown signals (same numbers on both kernels), sent to the negated pid to reach the whole
 	// process group (see PosixPtyTerminal.Dispose).
+	internal const int SIGHUP = 1;
 	internal const int SIGTERM = 15;
 	internal const int SIGKILL = 9;
 

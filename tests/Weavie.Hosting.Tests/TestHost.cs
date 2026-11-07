@@ -784,6 +784,7 @@ internal sealed class NoopPtyLauncher : IPtyLauncher {
 			Arguments = launch.Arguments,
 			RemoveEnvironment = launch.RemoveEnvironment,
 			Environment = launch.Environment,
+			HangUpOnStop = launch.HangUpOnStop,
 		};
 	}
 }

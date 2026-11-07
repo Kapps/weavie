@@ -15,6 +15,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 	private readonly Lock _gate = new();
 	private int _masterFd = -1;
 	private int _pid = -1;
+	private bool _hangUpOnStop;
 	private Thread? _readThread;
 	private volatile bool _running;
 	private int _exitRaised;
@@ -55,6 +56,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 			}
 
 			(_masterFd, _pid) = OpenAndSpawn(startInfo);
+			_hangUpOnStop = startInfo.HangUpOnStop;
 			_running = true;
 
 			Resize(startInfo.Columns, startInfo.Rows);
@@ -268,10 +270,12 @@ public sealed class PosixPtyTerminal : ITerminal {
 	public void Dispose() {
 		int pid;
 		bool running;
+		bool hangUp;
 		Thread? readThread;
 		lock (_gate) {
 			pid = _pid;
 			running = _running;
+			hangUp = _hangUpOnStop;
 			readThread = _readThread;
 			_running = false;
 		}
@@ -281,6 +285,9 @@ public sealed class PosixPtyTerminal : ITerminal {
 		// macOS's close() blocks forever on that in-flight read. SIGTERM first, escalating to SIGKILL on timeout.
 		if (pid > 0 && running) {
 			kill(-pid, SIGTERM);
+			if (hangUp) {
+				kill(-pid, SIGHUP);
+			}
 		}
 
 		bool readThreadDone = readThread is null || readThread.Join(TimeSpan.FromMilliseconds(500));

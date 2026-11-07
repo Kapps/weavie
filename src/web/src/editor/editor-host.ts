@@ -1,4 +1,5 @@
 import { ICodeEditorService } from "@codingame/monaco-vscode-api/vscode/vs/editor/browser/services/codeEditorService.service";
+import { evaluateWhen } from "../commands/context";
 import { carriedEdits, sessionNeedsReload, storeCarriedEdits } from "./carried-edits";
 import type { TextEditorConnection } from "./editor-context";
 // Monaco + the monaco-vscode-api service layer are the heaviest code in the app, so this module is dynamically
@@ -438,13 +439,15 @@ export async function createEditorHost(
         editor.revealPositionInCenter(position, REVEAL_SCROLL);
         editor.setPosition(position);
         // focus: false = reveal only (the search panel's live preview keeps typing in its own input).
-        if (placement.focus !== false) {
+        if (placement.focus !== false && !evaluateWhen("omnibarOpen")) {
           editor.focus();
         }
       } else if ("selection" in placement) {
         editor.setSelection(placement.selection);
         editor.revealRangeInCenterIfOutsideViewport(placement.selection, REVEAL_SCROLL);
-        editor.focus();
+        if (!evaluateWhen("omnibarOpen")) {
+          editor.focus();
+        }
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }

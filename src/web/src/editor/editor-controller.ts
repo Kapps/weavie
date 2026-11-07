@@ -436,7 +436,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         validity.throwIfAborted();
         const location = captureLocation(tab);
         if (location !== undefined) navigation.record(session, location);
-        if (!("focus" in result.placement) || result.placement.focus !== false) presenter.focus();
+        // An activation can land long after it began; the keyboard stays with a palette opened meanwhile.
+        const focus = !("focus" in result.placement) || result.placement.focus !== false;
+        if (focus && !evaluateWhen("omnibarOpen")) presenter.focus();
         return editorContexts.forTab(tab);
       })(),
     );

@@ -365,6 +365,9 @@ public sealed class RegistryMcpTests : IDisposable {
 		await SendAsync(ws, Request(2, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
 		using var listed = await ReceiveAsync(ws);
 		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var folders = workflows.RootElement.GetProperty("folders");
+		Assert.Equal(personal, folders.GetProperty("personal").GetString());
+		Assert.Equal(WeaviePaths.RepositoryWorkflowsDir(_dir.Path), folders.GetProperty("repository").GetString());
 		var quickFix = workflows.RootElement.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("id").GetString() == "quick-fix");
 		Assert.Equal("built-in", quickFix.GetProperty("scope").GetString());
 		Assert.True(quickFix.GetProperty("valid").GetBoolean());
@@ -424,6 +427,14 @@ public sealed class RegistryMcpTests : IDisposable {
 		string path = Path.Combine(personal, "quick-fix.yaml");
 		Assert.Equal($"Forked quick-fix to {path}.", ToolText(forked));
 		Assert.True(File.Exists(path));
+
+		await SendAsync(ws, Request(9, "tools/call", """{"name":"listWorkflows","arguments":{}}"""));
+		using var listed = await ReceiveAsync(ws);
+		using var workflows = JsonDocument.Parse(ToolText(listed));
+		var copies = workflows.RootElement.GetProperty("workflows").EnumerateArray()
+			.Where(w => w.GetProperty("id").GetString() == "quick-fix").ToList();
+		Assert.False(copies.Single(w => w.GetProperty("scope").GetString() == "personal").TryGetProperty("shadowedBy", out _));
+		Assert.Equal("personal", copies.Single(w => w.GetProperty("scope").GetString() == "built-in").GetProperty("shadowedBy").GetString());
 
 		foreach (var (id, arguments, message) in new[] {
 			(3, """{"id":"quick-fix","scope":"personal"}""", "would not override it"),

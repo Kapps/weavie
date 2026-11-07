@@ -15,6 +15,8 @@ export interface AgentBackgroundItem {
   usage: { totalTokens: number | null; toolUses: number | null; durationMs: number | null } | null;
   state: "running" | "paused" | "completed" | "failed" | "stopped";
   canStop: boolean;
+  /** The host's answer to whether stopping the session now loses this work; the agent's own turn never is. */
+  orphanable: boolean;
   startedAtMs: number;
   endedAtMs: number | null;
   transcriptItemId: string | null;
@@ -62,14 +64,14 @@ export function runningBackgroundOf(
       session.address.slot === address.slot &&
       session.address.incarnation === address.incarnation,
   );
-  return entry === undefined ? null : entry[1].filter(backgroundRunning);
+  return entry === undefined ? null : entry[1].filter((item) => item.orphanable);
 }
 
 /** Running background work on this machine's sessions, which quitting Weavie stops; remote work keeps running. */
 export function runningLocalBackground(): AgentBackgroundItem[] {
   return [...bySession()]
     .filter(([session]) => session.connection.id === LOCAL_BACKEND_ID)
-    .flatMap(([, items]) => items.filter(backgroundRunning));
+    .flatMap(([, items]) => items.filter((item) => item.orphanable));
 }
 
 export function backgroundRunning(item: AgentBackgroundItem): boolean {

@@ -9,8 +9,11 @@ public interface IWorkflowRegistry {
 	/// <summary>Every workflow file visible to the session, including shadowed and broken ones.</summary>
 	IReadOnlyList<WorkflowCatalogEntry> List();
 
-	/// <summary>The problems in the workflow file at <paramref name="path"/> (relative to the worktree); empty when valid.</summary>
-	IReadOnlyList<WorkflowDiagnostic> Validate(string path);
+	/// <summary>The problems in the saved workflow that wins for <paramref name="id"/>; empty when valid.</summary>
+	IReadOnlyList<WorkflowDiagnostic> Validate(string id);
+
+	/// <summary>The problems in proposed workflow <paramref name="text"/>; no file is touched.</summary>
+	IReadOnlyList<WorkflowDiagnostic> ValidateText(string text);
 
 	/// <summary>Completes the session's open stage with <paramref name="outputs"/> and a <paramref name="summary"/>; returns the reply for the agent.</summary>
 	string CompleteStage(JsonElement outputs, string summary);
@@ -27,7 +30,9 @@ public static class WorkflowRegistry {
 	private sealed class Unavailable : IWorkflowRegistry {
 		public IReadOnlyList<WorkflowCatalogEntry> List() => throw Error();
 
-		public IReadOnlyList<WorkflowDiagnostic> Validate(string path) => throw Error();
+		public IReadOnlyList<WorkflowDiagnostic> Validate(string id) => throw Error();
+
+		public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => throw Error();
 
 		public string CompleteStage(JsonElement outputs, string summary) => throw Error();
 
@@ -43,7 +48,10 @@ public sealed class SessionWorkflowRegistry(WorkflowCatalog catalog, WorkflowRun
 	public IReadOnlyList<WorkflowCatalogEntry> List() => catalog.List();
 
 	/// <inheritdoc/>
-	public IReadOnlyList<WorkflowDiagnostic> Validate(string path) => catalog.Validate(path);
+	public IReadOnlyList<WorkflowDiagnostic> Validate(string id) => catalog.Validate(id);
+
+	/// <inheritdoc/>
+	public IReadOnlyList<WorkflowDiagnostic> ValidateText(string text) => catalog.ValidateText(text);
 
 	/// <inheritdoc/>
 	public string CompleteStage(JsonElement outputs, string summary) => runner.CompleteStage(outputs, summary);

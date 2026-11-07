@@ -782,6 +782,179 @@ a:has(> .agent-path-dir) {
   background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
+/* A request waiting on the user: a --warn frame with a tinted header band over a neutral body. */
+.agent-entry-request.agent-entry-waiting {
+  padding: 0;
+  border: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--bar) 58%, var(--bg));
+  /* Inset: the card is flush with the pane, which would clip an outer glow. */
+  box-shadow: inset 0 0 10px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.agent-entry-waiting .agent-entry-head {
+  align-items: center;
+  margin: 0;
+  padding: 3px 9px;
+  font-family: var(--font-chrome-family);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+.agent-entry-waiting .agent-entry-head::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.agent-entry-waiting .agent-entry-label {
+  color: var(--warn);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.agent-entry-waiting .agent-entry-status {
+  margin-left: auto;
+}
+
+.agent-entry-waiting .agent-entry-main {
+  padding: 7px 10px 9px;
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+}
+
+/* Rows run edge to edge like a palette list; the gutter holds each option's key. */
+.agent-choice-request {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0 -10px -9px;
+  font: var(--font-chrome-size) / 1.4 var(--font-chrome-family);
+}
+
+.agent-choice-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 7px;
+}
+
+.agent-choice-prompt {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.agent-choice-keys {
+  flex: none;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.agent-choice-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 1px;
+  padding: 5px 10px 5px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-choice-row.default {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.agent-choice-row:hover,
+.agent-choice-row:focus-visible {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+/* Holds its width while empty, so labels stay put when a card takes over the keys. */
+.agent-choice-key {
+  grid-area: 1 / 1;
+  min-width: 1ch;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--font-metadata-size);
+}
+
+.agent-choice-label {
+  grid-area: 1 / 2;
+  font-weight: 500;
+}
+
+.agent-choice-description {
+  grid-area: 2 / 2;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.agent-choice-request form {
+  grid-column: 1 / -1;
+}
+
+.agent-choice-other {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.agent-choice-other:focus {
+  border-top-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  outline: 0;
+}
+
+.agent-choice-dismiss {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.agent-choice-dismiss button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--font-metadata-size);
+  cursor: pointer;
+}
+
+.agent-choice-dismiss button:hover {
+  color: var(--fg);
+}
+
+/* The command under review stays code; a question's own text reads as prose. */
+.agent-entry-waiting .agent-entry-text {
+  font: var(--font-content-size) / 1.4 var(--font-content-family);
+}
+
+.agent-entry-question.agent-entry-waiting .agent-entry-text {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+}
+
 .agent-entry-notice.agent-tone-system {
   border-left-color: var(--accent);
 }
@@ -926,8 +1099,16 @@ a:has(> .agent-path-dir) {
   border: 0;
 }
 
+.agent-input-question legend {
+  padding: 0;
+}
+
 .agent-input-question small {
   color: var(--dim);
+}
+
+.agent-input-question > input[type="checkbox"] {
+  justify-self: start;
 }
 
 .agent-input-choices {
@@ -994,6 +1175,11 @@ label.agent-input-choice:hover {
 .agent-input-review .agent-input-choice.chosen::before {
   color: var(--accent);
   content: "\25cf";
+}
+
+.agent-input-question input:not([type="radio"], [type="checkbox"]),
+.agent-input-question textarea {
+  font: inherit;
 }
 
 .agent-input-question input:not([type="radio"], [type="checkbox"]) {
@@ -1239,6 +1425,14 @@ label.agent-input-choice:hover {
 
 .agent-step-actions .agent-approval-actions {
   justify-content: flex-end;
+}
+
+.agent-entry-waiting .agent-approval-actions {
+  margin-top: 7px;
+}
+
+.agent-entry-waiting .agent-approval-actions button.default {
+  border-color: var(--warn);
 }
 
 .agent-compose button,

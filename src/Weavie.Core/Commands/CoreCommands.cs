@@ -208,6 +208,9 @@ public static partial class CoreCommands {
 	/// <summary>Accepts the agent's newest pending input request with its current answers.</summary>
 	public const string AgentAcceptInput = "weavie.agent.acceptInput";
 
+	/// <summary>Answers the agent's newest pending choice question with the option at an index.</summary>
+	public const string AgentAnswerByIndex = "weavie.agent.answerByIndex";
+
 	/// <summary>Starts the first advertised authentication method on the newest authentication request.</summary>
 	public const string AgentAuthenticate = "weavie.agent.authenticate";
 
@@ -532,9 +535,6 @@ public static partial class CoreCommands {
 			When = "editorFocused",
 		});
 
-		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
-		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.
-		var focusBindings = new List<CommandKeybinding>(9);
 		foreach (var (id, title, keys, when) in new (string, string, string[], string)[] {
 			(DockFileBrowser, "Toggle File Browser Stay Open", [], ""),
 			(FilterFileBrowser, "Filter Files", ["$mod+shift+b"], ""),
@@ -552,11 +552,6 @@ public static partial class CoreCommands {
 				DefaultKeybindings = [.. keys.Select(key => new CommandKeybinding { Key = key })],
 			});
 		}
-		for (int i = 1; i <= 9; i++) {
-			string n = i.ToString(CultureInfo.InvariantCulture);
-			focusBindings.Add(new CommandKeybinding { Key = $"ctrl+{n}", ArgsJson = $"{{\"index\":{n}}}" });
-		}
-
 		registry.Register(new CommandDefinition {
 			Id = FocusPaneByIndex,
 			Title = "Focus Pane by Number",
@@ -564,7 +559,8 @@ public static partial class CoreCommands {
 			Category = "View",
 			Description = "Move keyboard focus to the Nth pane (1-based, in layout order).",
 			Aliases = ["focus pane", "switch pane", "go to pane"],
-			DefaultKeybindings = focusBindings,
+			// Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides with app/window shortcuts.
+			DefaultKeybindings = IndexedKeybindings("ctrl"),
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based pane number in layout order\"}}",
 		});
@@ -1327,6 +1323,19 @@ public static partial class CoreCommands {
 			Aliases = ["submit agent input", "answer question", "accept input"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+enter" }],
 			When = "agentFocused && agentInputPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentAnswerByIndex,
+			Title = "Answer Agent Question by Number",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Answer the agent's pending choice question with its Nth option (1-based).",
+			Aliases = ["answer question", "choose option", "pick answer"],
+			DefaultKeybindings = IndexedKeybindings("alt"),
+			When = "agentFocused && agentChoicePending",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based option number\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -2366,4 +2375,10 @@ public static partial class CoreCommands {
 
 	// The same chord answers the plan review bar's newest review while the editor holds focus.
 	private static CommandKeybinding PlanReviewBinding(string key) => new() { Key = key, When = "editorFocused && planReviewShown" };
+
+	/// <summary>Default bindings for an index-taking command: <paramref name="modifiers"/>+1..9, each carrying its index.</summary>
+	internal static IReadOnlyList<CommandKeybinding> IndexedKeybindings(string modifiers) => [.. Enumerable.Range(1, 9).Select(index => {
+		string n = index.ToString(CultureInfo.InvariantCulture);
+		return new CommandKeybinding { Key = $"{modifiers}+{n}", ArgsJson = $"{{\"index\":{n}}}" };
+	})];
 }

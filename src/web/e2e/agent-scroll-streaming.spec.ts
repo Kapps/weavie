@@ -398,6 +398,8 @@ test.describe("touch on iOS", () => {
   });
 
   // Engines send no scrollend for a scroll the layout caused, so such a scroll must never hold past the lift.
+  // Flaked on Linux CI (2026-11-07 07:54Z, run https://github.com/Kapps/weavie/actions/runs/42352676339): the
+  // scroll listener was attached by an un-awaited evaluate and could miss the clamp it waited for; it is now armed first.
   test("a layout clamp under a finger that dragged without scrolling releases as it lifts", async ({
     page,
     openPanes,
@@ -417,14 +419,15 @@ test.describe("touch on iOS", () => {
     expect(await scrollHeight(body)).toBe(resting);
     // A drag the pane doesn't follow (a nested scroller, an edge), then a clamp, no scrollend.
     await send(body, "touchmove", true);
-    const clamped = body.evaluate(
-      (element) =>
-        new Promise<number>((resolve) =>
-          element.addEventListener("scroll", () => resolve(element.scrollTop), { once: true }),
-        ),
-    );
+    // Returning the promise wrapped in an object resolves this call once the listener is attached, so the
+    // resize below can never scroll before it is listening.
+    const clamped = await body.evaluateHandle((element) => ({
+      scrolled: new Promise<number>((resolve) =>
+        element.addEventListener("scroll", () => resolve(element.scrollTop), { once: true }),
+      ),
+    }));
     await page.setViewportSize({ width: viewport.width, height: viewport.height + 120 });
-    await clamped;
+    await clamped.evaluate((armed) => armed.scrolled);
     await send(body, "touchend", false);
     await expect.poll(() => scrollHeight(body)).toBeGreaterThan(resting);
   });

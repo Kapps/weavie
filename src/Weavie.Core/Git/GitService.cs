@@ -345,6 +345,18 @@ public sealed partial class GitService : IGitService {
 		}
 	}
 
+	/// <summary>Fetches <paramref name="branch"/> from <paramref name="remote"/> into its remote-tracking ref.</summary>
+	public async Task FetchBranchAsync(string repositoryDirectory, string remote, string branch, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(remote);
+		if (!IsValidBranchName(branch)) {
+			throw new GitException($"'{branch}' isn't a branch name.");
+		}
+
+		await RunCheckedAsync(repositoryDirectory,
+			["fetch", "--no-write-fetch-head", remote, $"+refs/heads/{branch}:refs/remotes/{remote}/{branch}"], ct).ConfigureAwait(false);
+	}
+
 	/// <inheritdoc/>
 	public async Task<string?> RemoteBranchCommitAsync(string repositoryDirectory, string remote, string branch, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);

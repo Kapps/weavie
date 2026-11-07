@@ -45,6 +45,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private PullRequestOverview? _pullRequestOverview;
 	private CoalescedSnapshotMonitor<GitStatusSnapshot>? _gitStatus;
 	private CoalescedSnapshotMonitor<ReviewCommitsSnapshot>? _reviewCommits;
+	private CoalescedSnapshotMonitor<ReviewHeadSnapshot>? _reviewHead;
 	private string? _workspaceFailure;
 	private string? _observedPathsFailure;
 	private int _workspaceRootVanished;
@@ -402,6 +403,16 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	internal CoalescedSnapshotMonitor<ReviewCommitsSnapshot> ReviewCommits =>
 		_reviewCommits ?? throw new InvalidOperationException("Review commits were not attached.");
+
+	internal CoalescedSnapshotMonitor<ReviewHeadSnapshot> ReviewHead =>
+		_reviewHead ?? throw new InvalidOperationException("Review head was not attached.");
+
+	internal void AttachReviewHead(CoalescedSnapshotMonitor<ReviewHeadSnapshot> monitor) {
+		ArgumentNullException.ThrowIfNull(monitor);
+		if (Interlocked.CompareExchange(ref _reviewHead, monitor, null) is not null) {
+			throw new InvalidOperationException("Review head is already attached.");
+		}
+	}
 
 	internal void AttachReviewCommits(CoalescedSnapshotMonitor<ReviewCommitsSnapshot> monitor) {
 		ArgumentNullException.ThrowIfNull(monitor);

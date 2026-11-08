@@ -10,6 +10,8 @@ export function createWidthDrag(options: {
   const [dragWidth, setDragWidth] = createSignal<number | null>(null);
   const start = (event: PointerEvent): void => {
     if (event.button !== 0) return;
+    // Cancelling the press keeps focus (and text selection) where it was.
+    event.preventDefault();
     const handle = event.currentTarget as HTMLElement;
     const widthAt = options.measure(event);
     handle.setPointerCapture(event.pointerId);

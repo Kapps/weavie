@@ -2068,7 +2068,6 @@ export default function App(): JSX.Element {
                 <div
                   class={`split-handle vertical fullscreen-edge ${side}`}
                   onPointerDown={fullscreenDrag.start}
-                  onMouseDown={(event) => event.preventDefault()}
                 />
               )}
             </For>

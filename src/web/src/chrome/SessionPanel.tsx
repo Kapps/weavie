@@ -148,7 +148,6 @@ export function SessionPanel(props: {
     props.onSwitch(session);
   };
 
-  // Dragging the pinned panel's right edge.
   const resize = createWidthDrag({
     saved: panelWidth,
     save: setPanelWidth,

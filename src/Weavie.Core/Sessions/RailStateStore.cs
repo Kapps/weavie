@@ -20,6 +20,9 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	/// <summary>The fullscreen pane's centered column width before the user drags it.</summary>
 	public const int DefaultFullscreenWidth = 1200;
 
+	/// <summary>The <see cref="FullscreenWidth"/> meaning the column fills the pane area at any window size.</summary>
+	public const int FillFullscreenWidth = 0;
+
 	private string _lastLocation = DefaultLocation;
 	private (string BackendId, string Slot)? _selected;
 	private bool _panelPinned;
@@ -105,7 +108,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		Changed?.Invoke();
 	}
 
-	/// <summary>The fullscreen pane's centered column width in CSS pixels; wider than the window fills it.</summary>
+	/// <summary>The fullscreen pane's centered column width in CSS pixels, or <see cref="FillFullscreenWidth"/>.</summary>
 	public int FullscreenWidth {
 		get { lock (Gate) { return _fullscreenWidth; } }
 	}

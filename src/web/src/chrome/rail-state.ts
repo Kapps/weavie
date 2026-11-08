@@ -2,9 +2,9 @@ import { createSignal } from "solid-js";
 import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 
 // App-global chrome UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
-// backend a session was last created on, the session panel's layout, and the fullscreen column's width. Setters update the local signal
-// optimistically and tell the host, which echoes the canonical state back. Registered at module load, before
-// main.tsx sends `ready`.
+// backend a session was last created on, the session panel's layout, and the fullscreen column's width.
+// Setters update the local signal optimistically and tell the host, which echoes the canonical state back.
+// Registered at module load, before main.tsx sends `ready`.
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [panelPinnedSig, setPanelPinnedSig] = createSignal(false);
@@ -80,7 +80,7 @@ export function setParkedCollapsed(collapsed: boolean): void {
   publish("setParkedCollapsed", { collapsed });
 }
 
-/** The fullscreen pane's centered column width in CSS pixels (reactive); wider than the pane area fills it. */
+/** The fullscreen pane's centered column width in CSS pixels (reactive); 0 fills the pane area. */
 export const fullscreenWidth = fullscreenWidthSig;
 
 /** Remember the fullscreen column's dragged width. */

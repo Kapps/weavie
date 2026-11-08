@@ -71,6 +71,17 @@ test("fullscreen centers the pane in a draggable column", async ({ page }) => {
   await page.reload();
   await page.locator(".pane-fullscreen").first().click();
   await expect.poll(async () => (await column.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
+
+  // Dragging out to the pane area's edge snaps to filling it.
+  const narrowEdge = await page.locator(".fullscreen-edge.right").boundingBox();
+  if (narrowEdge === null) throw new Error("no fullscreen edge");
+  await page.mouse.move(narrowEdge.x + narrowEdge.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(areaBox.x + areaBox.width - 2, y, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await column.boundingBox())?.width ?? 0)
+    .toBeCloseTo(areaBox.width, 0);
   await page.locator(".pane-fullscreen:visible").click();
   await expect(area).not.toHaveClass(/fullscreen/);
 });

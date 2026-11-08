@@ -238,6 +238,10 @@ setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
 const MIN_FULLSCREEN_WIDTH = 480;
+// The saved fullscreen width meaning "fill the pane area" (mirrors RailStateStore.FillFullscreenWidth).
+const FILL_WIDTH = 0;
+// How close to the pane area's edge a drag snaps to filling it.
+const FILL_SNAP = 16;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
@@ -1293,7 +1297,6 @@ export default function App(): JSX.Element {
                     <X size={14} /> Close Diff
                   </button>
                 </Show>
-                {/* Pane-switch badge: its own cell at the right of the tab bar. */}
                 {paneHeadEnd("editor")}
               </>
             }
@@ -1485,17 +1488,22 @@ export default function App(): JSX.Element {
     setFullscreen((on) => !on);
   };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
-  // Dragging either edge of the centered fullscreen column resizes it symmetrically, up to filling the pane area.
+  // Dragging either edge of the centered fullscreen column resizes it symmetrically; reaching the pane area's
+  // edge saves FILL_WIDTH, so the column keeps filling at any window size.
   const fullscreenDrag = createWidthDrag({
     saved: fullscreenWidth,
     save: setFullscreenWidth,
     measure: (start) => {
       const area = (start.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
       const center = area.left + area.width / 2;
-      return (move) =>
-        Math.min(area.width, Math.max(MIN_FULLSCREEN_WIDTH, 2 * Math.abs(move.clientX - center)));
+      return (move) => {
+        const width = 2 * Math.abs(move.clientX - center);
+        return width >= area.width - FILL_SNAP ? FILL_WIDTH : Math.max(MIN_FULLSCREEN_WIDTH, width);
+      };
     },
   });
+  const fullscreenColumn = (): string =>
+    fullscreenDrag.width() === FILL_WIDTH ? "100%" : `${fullscreenDrag.width()}px`;
   // The end of a pane's head: its fullscreen toggle (targeting this pane) and its Ctrl+N badge.
   const paneHeadEnd = (kind: string): JSX.Element => (
     <>
@@ -2040,7 +2048,7 @@ export default function App(): JSX.Element {
             offline: activeBackendOffline(),
             fullscreen: fullscreen() && !compact(),
           }}
-          style={{ "--fullscreen-width": `${fullscreenDrag.width()}px` }}
+          style={{ "--fullscreen-width": fullscreenColumn() }}
           on:touchstart={mobileBackSwipe.onTouchStart}
           on:touchmove={{ handleEvent: mobileBackSwipe.onTouchMove, passive: false }}
           on:touchend={mobileBackSwipe.onTouchEnd}
@@ -2061,14 +2069,6 @@ export default function App(): JSX.Element {
               class="split-handle vertical fullscreen-edge right"
               onPointerDown={fullscreenDrag.start}
             />
-            <button
-              type="button"
-              class="fullscreen-exit"
-              onClick={() => toggleFullscreen()}
-              title={`Exit fullscreen${fullscreenKeyHint()}`}
-            >
-              Exit Fullscreen{fullscreenKeyHint()}
-            </button>
           </Show>
           <Show when={activeBackendOffline()}>
             <output class="connection-banner">

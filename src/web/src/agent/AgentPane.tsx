@@ -16,7 +16,7 @@ export function AgentPane(props: {
   model: AgentPaneModel;
   providerId: string | null;
   active: boolean;
-  shortcut: string;
+  headEnd: JSX.Element;
   onFocus: () => void;
   backendId: string;
 }): JSX.Element {
@@ -96,9 +96,7 @@ export function AgentPane(props: {
           <AgentStatusLine compact session={props.model.session} />
         </Show>
         <WorkflowRunStatus session={props.model.session} />
-        <Show when={props.shortcut !== ""}>
-          <span class="pane-shortcut">{props.shortcut}</span>
-        </Show>
+        {props.headEnd}
       </div>
       <AgentPaneBody
         active={props.active}

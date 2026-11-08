@@ -321,6 +321,27 @@
   transition: opacity 0.15s ease;
 }
 
+/* Fullscreen centers the pane in a column (persisted width) whose edges drag symmetrically; a column wider
+   than the pane area fills it. */
+.pane-area.fullscreen > .layout-root {
+  flex: 0 1 var(--fullscreen-width);
+  margin: 0 auto;
+  border-inline: 1px solid var(--border);
+}
+
+.fullscreen-edge {
+  top: 0;
+  bottom: 0;
+}
+
+.fullscreen-edge.left {
+  left: calc(50% - min(var(--fullscreen-width), 100%) / 2);
+}
+
+.fullscreen-edge.right {
+  left: calc(50% + min(var(--fullscreen-width), 100%) / 2);
+}
+
 .pane-slot {
   position: absolute;
   overflow: hidden;
@@ -419,8 +440,33 @@
   user-select: none;
 }
 
-/* Beside a run the badge drops its own auto margin, or the two would split the free space between them. */
-.pane-run + .pane-shortcut {
+/* A pane head's fullscreen toggle leads its trailing controls; anything after it drops its own auto margin,
+   or the two would split the free space between them. */
+.pane-fullscreen {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.pane-fullscreen:hover,
+.pane-fullscreen[aria-pressed="true"] {
+  color: var(--fg);
+}
+
+.pane-fullscreen:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.pane-run + .pane-fullscreen,
+.pane-fullscreen + .pane-shortcut {
   margin-left: 0;
 }
 

@@ -44,3 +44,33 @@ test("fullscreen pane toggle hides the other panes and restores them", async ({ 
   await runCommand(page, "Toggle Fullscreen Pane");
   await expect.poll(visibleSlots, { timeout: 10_000 }).toBe(initial);
 });
+
+// Fullscreen centers the pane in a column whose edges drag symmetrically; the width survives a reload.
+test("fullscreen centers the pane in a draggable column", async ({ page }) => {
+  const area = page.locator(".pane-area");
+  const column = page.locator(".layout-root");
+  await page.locator(".pane-fullscreen").first().click();
+  await expect(area).toHaveClass(/fullscreen/);
+  const areaBox = await area.boundingBox();
+  const initial = await column.boundingBox();
+  if (areaBox === null || initial === null) throw new Error("no pane area");
+  const leftGap = initial.x - areaBox.x;
+  const rightGap = areaBox.x + areaBox.width - (initial.x + initial.width);
+  expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1);
+
+  const edge = await page.locator(".fullscreen-edge.right").boundingBox();
+  if (edge === null) throw new Error("no fullscreen edge");
+  const y = edge.y + edge.height / 2;
+  await page.mouse.move(edge.x + edge.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2 - 100, y, { steps: 5 });
+  await page.mouse.up();
+  const resized = (await column.boundingBox())?.width ?? 0;
+  expect(resized).toBeLessThan(Math.min(initial.width, areaBox.width) - 150);
+
+  await page.reload();
+  await page.locator(".pane-fullscreen").first().click();
+  await expect.poll(async () => (await column.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
+  await page.locator(".pane-fullscreen:visible").click();
+  await expect(area).not.toHaveClass(/fullscreen/);
+});

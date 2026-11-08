@@ -5,8 +5,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Selected"/>,
-/// <see cref="PanelPinned"/>, <see cref="PanelWidth"/>, and <see cref="ParkedCollapsed"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
+/// The window chrome's app-global UI state (<see cref="LastLocation"/>, <see cref="Selected"/>,
+/// <see cref="PanelPinned"/>, <see cref="PanelWidth"/>, <see cref="ParkedCollapsed"/>, and
+/// <see cref="FullscreenWidth"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
@@ -16,10 +17,14 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 	/// <summary>The pinned session panel's width before the user resizes it.</summary>
 	public const int DefaultPanelWidth = 300;
 
+	/// <summary>The fullscreen pane's centered column width before the user drags it.</summary>
+	public const int DefaultFullscreenWidth = 1200;
+
 	private string _lastLocation = DefaultLocation;
 	private (string BackendId, string Slot)? _selected;
 	private bool _panelPinned;
 	private int _panelWidth = DefaultPanelWidth;
+	private int _fullscreenWidth = DefaultFullscreenWidth;
 	private bool _parkedCollapsed = true;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
@@ -100,6 +105,25 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		Changed?.Invoke();
 	}
 
+	/// <summary>The fullscreen pane's centered column width in CSS pixels; wider than the window fills it.</summary>
+	public int FullscreenWidth {
+		get { lock (Gate) { return _fullscreenWidth; } }
+	}
+
+	/// <summary>Records the fullscreen column's dragged width. No-op (no write, no event) when unchanged.</summary>
+	public void SetFullscreenWidth(int width) {
+		lock (Gate) {
+			if (_fullscreenWidth == width) {
+				return;
+			}
+
+			_fullscreenWidth = width;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
+	}
+
 	/// <summary>Records the backend a session was just created on. No-op (no write, no event) when unchanged.</summary>
 	public void SetLastLocation(string location) {
 		string next = string.IsNullOrWhiteSpace(location) ? DefaultLocation : location;
@@ -144,6 +168,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 		_panelPinned = document.PanelPinned;
 		_panelWidth = document.PanelWidth;
 		_parkedCollapsed = document.ParkedCollapsed;
+		_fullscreenWidth = document.FullscreenWidth;
 	}
 
 	/// <inheritdoc/>
@@ -157,6 +182,7 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 			PanelPinned = _panelPinned,
 			PanelWidth = _panelWidth,
 			ParkedCollapsed = _parkedCollapsed,
+			FullscreenWidth = _fullscreenWidth,
 		},
 		RailStateStoreJson.Default.Document);
 
@@ -178,6 +204,9 @@ public sealed partial class RailStateStore : JsonDocumentStore {
 
 		[JsonPropertyName("parkedCollapsed")]
 		public bool ParkedCollapsed { get; set; } = true;
+
+		[JsonPropertyName("fullscreenWidth")]
+		public int FullscreenWidth { get; set; } = DefaultFullscreenWidth;
 	}
 
 	private sealed class SelectionEntry {

@@ -588,9 +588,11 @@ public static partial class CoreCommands {
 			Title = "Toggle Fullscreen Pane",
 			RunsIn = CommandLocation.Web,
 			Category = "View",
-			Description = "Expand the active pane to fill the window, hiding the other panes (the session rail stays). "
+			Description = "Expand the active pane into a centered reading column, hiding the other panes (the session "
+				+ "rail stays). Drag the column's edges to resize it; dragged to the window's width it fills it. "
 				+ "Switching panes keeps fullscreen; run again to restore the previous layout.",
-			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode"],
+			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode",
+				"reading mode", "center pane", "focus mode"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+Enter" }],
 		});
 

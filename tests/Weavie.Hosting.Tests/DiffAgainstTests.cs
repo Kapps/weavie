@@ -295,25 +295,38 @@ public sealed class DiffAgainstTests {
 		var session = host.SelectedSession;
 
 		var head = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
-		Assert.True(head.GetProperty("opened").GetBoolean());
+		Assert.Equal("opened", head.GetProperty("outcome").GetString());
 
 		// A different source isn't opened over the current review without the user's say-so.
 		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = (string?)null });
-		Assert.False(refused.GetProperty("opened").GetBoolean());
+		Assert.Equal("none", refused.GetProperty("outcome").GetString());
 		Assert.Equal("vs HEAD", refused.GetProperty("replaces").GetString());
 		Assert.Equal("vs HEAD^", refused.GetProperty("label").GetString());
 		Assert.Equal("vs HEAD", host.Bridge.LastEvent(session.Address, "review", "changes")!.Value.GetProperty("label").GetString());
 
 		// A confirm that names a different review than the one open is refused again, naming the open one.
 		var stale = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = "vs main" });
-		Assert.False(stale.GetProperty("opened").GetBoolean());
+		Assert.Equal("none", stale.GetProperty("outcome").GetString());
 		Assert.Equal("vs HEAD", stale.GetProperty("replaces").GetString());
 
 		var replaced = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD^", replaces = "vs HEAD" });
-		Assert.True(replaced.GetProperty("opened").GetBoolean());
+		Assert.Equal("opened", replaced.GetProperty("outcome").GetString());
 		var changes = await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes") is { } last
 			&& last.GetProperty("label").GetString() == "vs HEAD^" ? last : (JsonElement?)null);
 		Assert.Contains("readme.txt", changes.GetProperty("files").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+	}
+
+	[Fact]
+	public async Task RequestingTheOpenReviewAgain_ResumesIt() {
+		await using var host = await TestHost.StartAsync();
+		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
+		var session = host.SelectedSession;
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+
+		var again = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+
+		Assert.Equal("resumed", again.GetProperty("outcome").GetString());
+		Assert.Equal(JsonValueKind.Null, again.GetProperty("replaces").ValueKind);
 	}
 
 	[Fact]
@@ -326,7 +339,7 @@ public sealed class DiffAgainstTests {
 
 		var answer = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
 
-		Assert.False(answer.GetProperty("opened").GetBoolean());
+		Assert.Equal("none", answer.GetProperty("outcome").GetString());
 		Assert.Equal(JsonValueKind.Null, answer.GetProperty("replaces").ValueKind);
 	}
 
@@ -383,7 +396,7 @@ public sealed class DiffAgainstTests {
 
 		// Refused while another review is open: declining to replace it changes nothing.
 		var refused = await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "feature-a", replaces = (string?)null });
-		Assert.False(refused.GetProperty("opened").GetBoolean());
+		Assert.Equal("none", refused.GetProperty("outcome").GetString());
 		Assert.Equal("main", await DefaultRefAsync(host, session));
 
 		host.Bridge.Clear();

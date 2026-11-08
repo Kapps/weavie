@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { createAcpSession } from "../harness/acp-session";
-import { runCommand } from "../harness/actions";
+import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -216,6 +216,12 @@ test("the terminal footer's branch opens the branch's diff on the overview with 
   );
   const commit = section(page, "commits").locator("li", { hasText: "Add the branch file" });
   await expect(commit).not.toHaveClass(/session-overview-outside/);
+
+  // Asking again for the review already open brings its tab back from behind another.
+  await openFile(page, "README.md");
+  await expect(overview(page)).toBeHidden();
+  await branch.click();
+  await expect(overview(page)).toBeVisible();
 
   // A narrower review still lists the branch's commits, dimming the ones it doesn't span.
   await writeFile(join(weavie.workspace, "branch.txt"), "on the branch\nand uncommitted\n");

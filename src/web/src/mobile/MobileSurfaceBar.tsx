@@ -2,15 +2,15 @@ import { For, type JSX } from "solid-js";
 import { startsOnBrowserEdge } from "./browser-edge";
 import { SWIPE_INTENT_DISTANCE } from "./mobile-back-swipe";
 
-export type MobileSurface = "inbox" | "terminal:claude" | "terminal:shell" | "editor";
+export type MobileSurface = "inbox" | "terminal:claude" | "editor" | "terminal:shell";
 
 export type MobileSwipeDirection = -1 | 1;
 
 const SURFACES: ReadonlyArray<{ id: MobileSurface; label: string }> = [
   { id: "inbox", label: "Sessions" },
   { id: "terminal:claude", label: "Agent" },
-  { id: "terminal:shell", label: "Shell" },
   { id: "editor", label: "Code" },
+  { id: "terminal:shell", label: "Shell" },
 ];
 
 /** Compact navigation. Swipes are scoped to the bar so editor and terminal gestures remain untouched. */

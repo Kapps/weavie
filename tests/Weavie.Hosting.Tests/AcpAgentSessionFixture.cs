@@ -510,6 +510,12 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		}
 	}
 
+	public Task<AgentPaneMessage> WaitForHeldToolAsync() => WaitForHeldToolAsync(_ => true);
+
+	public Task<AgentPaneMessage> WaitForHeldToolAsync(Func<AgentPaneMessage, bool> predicate) =>
+		WaitForMessageAsync(message => message.Type == "item-started" && message.ItemType == "tool"
+			&& message.Summary == "Waiting for steering" && predicate(message));
+
 	public Task<AgentControlState> WaitForControlsAsync(Func<AgentControlState, bool> predicate) =>
 		ReadAsync(_controls.Reader, predicate);
 

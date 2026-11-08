@@ -339,16 +339,12 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is null);
+		await fixture.WaitForHeldToolAsync(message => message.ConversationId is null);
 
 		fixture.AskAside("hold");
-		var first = await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		var first = await fixture.WaitForHeldToolAsync(message => message.ConversationId is not null);
 		fixture.AskAside("hold");
-		var second = await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-started" && message.ItemId == "tool:hold"
-			&& message.ConversationId is not null && message.ConversationId != first.ConversationId);
+		var second = await fixture.WaitForHeldToolAsync(message => message.ConversationId is not null && message.ConversationId != first.ConversationId);
 		fixture.Session.Interrupt();
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
 			&& message.ConversationId is null && message.Status == "cancelled");
@@ -388,8 +384,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.AskAside("hold");
-		await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		await fixture.WaitForHeldToolAsync(message => message.ConversationId is not null);
 
 		fixture.Session.StartNewConversation();
 		int reset = fixture.Messages.ToList().FindLastIndex(message => message.Type == "transcript-reset");
@@ -668,7 +663,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		await fixture.WaitForHeldToolAsync();
 		fixture.Submit("new direction");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "steered: new direction");
@@ -1323,7 +1318,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		await fixture.WaitForHeldToolAsync();
 		fixture.Session.Interrupt();
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
@@ -1338,7 +1333,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold-cancel-error");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		await fixture.WaitForHeldToolAsync();
 		fixture.SubmitCommand("compact", "/compact");
 		fixture.Session.Interrupt();
 		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
@@ -1392,7 +1387,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		await fixture.WaitForHeldToolAsync();
 		fixture.Session.Restart();
 		await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "model"));
 		fixture.Submit("after active restart");

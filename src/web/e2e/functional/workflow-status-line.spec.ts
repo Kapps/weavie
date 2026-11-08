@@ -10,6 +10,8 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // A session running a workflow shows its stage and run state in the session list's status line and its pane header,
 // and a question awaiting the user's answer moves the session under "Needs you". See docs/specs/workflows.md.
 
+const APPROVAL_QUESTION = "Ship it after reviewing {{implement.videos}}?";
+
 const TWO_STEP = `id: two-step
 description: Hold in a stage the user approves, then ship.
 stages:
@@ -18,7 +20,7 @@ stages:
       prompt: hold
       outputs: { videos: list }
     then:
-      ask: "Ship it after reviewing {{implement.videos}}?"
+      ask: "${APPROVAL_QUESTION}"
       by: user
       choices:
         approve: ship
@@ -154,8 +156,18 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   await expect(run).toHaveAttribute("title", "two-step · implement · waiting on you");
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--ok"));
 
-  await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "held" }));
-  await expect(run).toHaveAttribute("title", "two-step · implement · needs your answer\nShip it?");
+  await submitAcpDraft(
+    surface,
+    tool("completeStage", { outputs: { videos: VIDEOS }, summary: "held" }),
+  );
+  const question = APPROVAL_QUESTION.replace(
+    "{{implement.videos}}",
+    VIDEOS.map((video) => `- ${video}`).join("\n"),
+  );
+  await expect(run).toHaveAttribute(
+    "title",
+    `two-step · implement · needs your answer\n${question}`,
+  );
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
   await expect(dot).toHaveCSS("box-shadow", "none");
 

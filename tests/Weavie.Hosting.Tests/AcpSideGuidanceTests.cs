@@ -118,11 +118,9 @@ public sealed class AcpSideGuidanceTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.Type == "item-started"
-			&& message.ItemId == "tool:hold" && message.ConversationId is null);
+		await fixture.WaitForHeldToolAsync(message => message.ConversationId is null);
 		fixture.AskAside("hold");
-		var held = await fixture.WaitForMessageAsync(message => message.Type == "item-started"
-			&& message.ItemId == "tool:hold" && message.ConversationId is not null);
+		var held = await fixture.WaitForHeldToolAsync(message => message.ConversationId is not null);
 		string conversation = Assert.IsType<string>(held.ConversationId);
 		fixture.ReplyAside(conversation, "answer only the side question");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"

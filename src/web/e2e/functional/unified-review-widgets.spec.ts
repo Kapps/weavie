@@ -139,7 +139,12 @@ test("scrolled review rename accepts and cancels while a definition peek is open
     has: page.locator(".unified-review-file-name", { hasText: paths[1] }),
   });
   await expect(section.locator(".view-line").first()).toBeVisible();
-  await page.getByRole("scrollbar", { name: "Review scroll position" }).press("PageDown");
+  // PageDown lands asynchronously; a line read before it lands scrolls out of the DOM before it's clicked.
+  // Flaked 2026-11-07 (Linux CI shard 2; ~1 in 20 locally): https://github.com/Kapps/weavie/pull/1150
+  const scrollbar = page.getByRole("scrollbar", { name: "Review scroll position" });
+  const top = await scrollbar.getAttribute("aria-valuenow");
+  await scrollbar.press("PageDown");
+  await expect(scrollbar).not.toHaveAttribute("aria-valuenow", top ?? "");
   const original = await section
     .locator(".view-line")
     .nth(3)

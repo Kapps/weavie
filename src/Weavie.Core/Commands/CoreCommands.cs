@@ -581,7 +581,7 @@ public static partial class CoreCommands {
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based pane number in layout order\"}}",
 		});
 
-		// Fullscreen the active pane: it fills the whole pane area (the session rail stays). Switching panes keeps
+		// Fullscreen the active pane in a centered, draggable column (the session rail stays). Switching panes keeps
 		// fullscreen; toggling again restores the saved layout. Web-handled (pure layout-view state).
 		registry.Register(new CommandDefinition {
 			Id = ToggleFullscreenPane,

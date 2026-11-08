@@ -15,9 +15,9 @@ public sealed class AcpTranscriptRecoveryTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.Type == "item-started" && message.ItemId == "tool:hold");
+		var primary = await fixture.WaitForHeldToolAsync();
 		fixture.AskAside("hold");
-		var side = await fixture.WaitForMessageAsync(message => message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		var side = await fixture.WaitForHeldToolAsync(message => message.ConversationId is not null);
 		string parentId = Assert.IsType<string>(fixture.Sessions.Resolve("fake", fixture.Workspace));
 		using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = fixture.Sessions.FilePath, Pooling = false }.ToString());
 		connection.Open();
@@ -37,11 +37,11 @@ public sealed class AcpTranscriptRecoveryTests {
 		Assert.Equal(parentId, fixture.Sessions.Resolve("fake", fixture.Workspace));
 		Assert.Equal(side.ThreadId, Assert.Single(fixture.Sessions.ReadConversations("fake", fixture.Workspace),
 			state => state.ConversationId == side.ConversationId).SessionId);
-		foreach (string threadId in new[] { parentId, Assert.IsType<string>(side.ThreadId) }) {
+		foreach (var (threadId, itemId) in new[] { (parentId, primary.ItemId), (Assert.IsType<string>(side.ThreadId), side.ItemId) }) {
 			Assert.Contains(fixture.Messages, message => message.ThreadId == threadId
 				&& message.Type == "turn-completed" && message.Status == "cancelled");
 			Assert.Contains(fixture.Messages, message => message.ThreadId == threadId
-				&& message.ItemId == "tool:hold" && message.Type == "item-completed" && message.Status == "cancelled");
+				&& message.ItemId == itemId && message.Type == "item-completed" && message.Status == "cancelled");
 		}
 		command.CommandText = "DROP TRIGGER reject_clear";
 		command.ExecuteNonQuery();

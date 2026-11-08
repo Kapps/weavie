@@ -28,7 +28,7 @@ internal static class WorkflowStageBlock {
 	public static string PutToUser(WorkflowAsked asked, WorkflowVocabulary words, bool openItem) =>
 		$"{words.Host} now asks the user: {asked.Question} (answers: {string.Join(", ", asked.Choices)}). "
 		+ (openItem
-			? $"If the question is about a document or file, call {words.OpenFile} with preview and rendered true on the main one only, and link any others in your reply. "
+			? $"If the question is about a document or file, call {words.OpenFile} with preview, rendered, and focus true on the main one only, and link any others in your reply. "
 			: "")
 		+ "Put that question to the user with what they need to answer it, and end your turn.";
 

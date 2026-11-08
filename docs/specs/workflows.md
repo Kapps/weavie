@@ -315,12 +315,13 @@ typed-inference providers ([ad-hoc-inference.md](../concepts/ad-hoc-inference.md
 Every question reaches the user through the agent. A question asked as a stage completes rides the `completeStage`
 reply; any other (a model decision handed over, an `if`, one reached by an answer, resume, or jump) is a turn the run
 owes the agent, retired like a stage's. Both carry one instruction: when `workflow.openReviewItem` is on, the agent
-opens the main file the question is about with `openFile`, `preview: true`, and `rendered: true`, and links any others
+opens the main file the question is about with `openFile`, `preview: true`, `rendered: true`, and `focus: true`, and links any others
 in its reply. `rendered` shows a file's rendered view when it has one (Markdown, HTML, SVG); any other file shows its source.
 Stages that just run and decisions the model answers open nothing, and workflow authors write nothing for this.
 The preview tab is reused across opens. `openFile` lands in the agent's own session: in a session the user isn't
-viewing, the tab waits there and shows when they switch to it. In the session they are viewing it shows without taking
-the keyboard, so they can answer straight away; while they type in the editor it only joins the tab strip.
+viewing, the tab waits there and shows when they switch to it. In the session they are viewing, `focus: true`
+selects the requested tab and focuses the editor, including when another tab is being edited. Without `focus`,
+`openFile` preserves keyboard focus and only adds the tab while the user is typing in the editor.
 
 ## Child runs
 

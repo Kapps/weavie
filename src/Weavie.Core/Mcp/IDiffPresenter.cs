@@ -16,9 +16,10 @@ public interface IDiffPresenter {
 	/// <summary>
 	/// Reveals a file in the editor (the MCP <c>openFile</c> tool). <paramref name="preview"/> opens it as a
 	/// reusable preview tab; <c>false</c> opens a persistent tab. <paramref name="rendered"/> shows the file's
-	/// rendered view when it has one. False when the file couldn't be opened.
+	/// rendered view when it has one. <paramref name="focus"/> selects the tab and activates the editor in its session.
+	/// False when the file couldn't be opened.
 	/// </summary>
-	Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken);
+	Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, bool focus, CancellationToken cancellationToken);
 
 	/// <summary>Closes the editor tab for <paramref name="filePath"/> (the MCP <c>close_tab</c> tool).</summary>
 	Task CloseTabAsync(string filePath, CancellationToken cancellationToken);
@@ -43,8 +44,8 @@ public sealed class FakeDiffPresenter : IDiffPresenter {
 	/// <summary>Every proposal passed to <see cref="PresentDiffAsync"/>, in order, for test assertions.</summary>
 	public List<DiffProposal> Presented { get; } = [];
 
-	/// <summary>Every path passed to <see cref="OpenFileAsync"/>, in order, for test assertions.</summary>
-	public List<string> Opened { get; } = [];
+	/// <summary>Every request passed to <see cref="OpenFileAsync"/>, in order, for test assertions.</summary>
+	public List<(string Path, bool Preview, bool Rendered, bool Focus)> Opened { get; } = [];
 
 	/// <summary>Every path passed to <see cref="CloseTabAsync"/>, in order, for test assertions.</summary>
 	public List<string> ClosedTabs { get; } = [];
@@ -56,8 +57,8 @@ public sealed class FakeDiffPresenter : IDiffPresenter {
 	}
 
 	/// <inheritdoc/>
-	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken) {
-		Opened.Add(filePath);
+	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, bool focus, CancellationToken cancellationToken) {
+		Opened.Add((filePath, preview, rendered, focus));
 		return Task.FromResult(true);
 	}
 

@@ -421,8 +421,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
 				if (string.IsNullOrEmpty(path)) {
 					await SendToolErrorAsync(responder, idRaw, $"{OpenFileTool} requires 'filePath'.", ct).ConfigureAwait(false);
-				} else if (await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ReadLenientBool(args, "rendered"), ct).ConfigureAwait(false)) {
-					// Both flags default to false (a persistent source tab), coerced leniently: embedded Claude sends scalars as strings.
+				} else if (await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ReadLenientBool(args, "rendered"), ReadLenientBool(args, "focus"), ct).ConfigureAwait(false)) {
+					// Flags default to false and accept strings because embedded Claude sends scalars as strings.
 					await SendToolTextAsync(responder, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
 				} else {
 					await SendToolErrorAsync(responder, idRaw, $"Couldn't open {path}: it's missing, unreadable, or matches several files. Use its full path.", ct).ConfigureAwait(false);

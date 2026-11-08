@@ -621,6 +621,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 
 	// "hold-unreported-cancel" ends a cancelled turn without a final tool update, as claude-agent-acp does.
 	private async Task<JsonNode> HoldAsync(string mode, CancellationToken ct) {
+		string toolCallId = $"hold-{Guid.NewGuid():N}";
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
 		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
@@ -631,7 +632,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		}, ct);
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call",
-			["toolCallId"] = "hold",
+			["toolCallId"] = toolCallId,
 			["title"] = "Waiting for steering",
 			["kind"] = "execute",
 			["status"] = "in_progress",
@@ -642,7 +643,7 @@ internal sealed partial class FakeAcpAgent : IAcpAgent {
 		if (result == "cancelled" && mode == "hold-unreported-cancel") return new JsonObject { ["stopReason"] = "cancelled" };
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call_update",
-			["toolCallId"] = "hold",
+			["toolCallId"] = toolCallId,
 			["status"] = result == "cancelled" ? "failed" : "completed",
 		});
 		Message("steered: " + result);

@@ -17,7 +17,7 @@ public sealed class AcpInterruptTests {
 			: AcpAgentSessionFixture.CreateWithoutSteeringAdapter();
 		await fixture.StartAsync();
 		fixture.Submit(heldPrompt);
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		var held = await fixture.WaitForHeldToolAsync();
 		fixture.SubmitCommand("compact", "/compact");
 		fixture.SubmitCommand("review", "/review queued work");
 		if (!supportsSteering) fixture.Submit("queued message");
@@ -38,7 +38,7 @@ public sealed class AcpInterruptTests {
 		Assert.Equal("cancelled", Assert.Single(fixture.Messages,
 			message => message.Type == "turn-completed" && message.TurnId == "1").Status);
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
-		Assert.Equal("cancelled", fixture.Messages.Last(message => message.ItemId == "tool:hold").Status);
+		Assert.Equal("cancelled", fixture.Messages.Last(message => message.ItemId == held.ItemId).Status);
 		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "command-steered")));
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
@@ -48,7 +48,7 @@ public sealed class AcpInterruptTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		await fixture.WaitForHeldToolAsync();
 		fixture.SubmitCommand("compact", "/compact");
 		fixture.Submit("held-steering");
 		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "steering-started")));
@@ -71,7 +71,7 @@ public sealed class AcpInterruptTests {
 		await using var fixture = AcpAgentSessionFixture.CreateWithoutSteeringAdapter();
 		await fixture.StartAsync();
 		fixture.AskAside("hold");
-		var held = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
+		var held = await fixture.WaitForHeldToolAsync();
 		string conversationId = Assert.IsType<string>(held.ConversationId);
 		fixture.ReplyAside(conversationId, "queued side reply");
 

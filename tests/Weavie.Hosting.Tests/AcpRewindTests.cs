@@ -169,7 +169,7 @@ public sealed class AcpRewindTests {
 		await fixture.StartAsync();
 		await SubmitTurnsAsync(fixture, "alpha");
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.Type == "item-started" && message.ItemId == "tool:hold");
+		await fixture.WaitForHeldToolAsync();
 
 		var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Session.RewindBeforeAsync("1"));
 

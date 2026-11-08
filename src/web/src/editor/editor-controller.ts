@@ -1416,7 +1416,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         scratch?: boolean;
         intent: "navigation" | "background";
       }>(session, "openFile", (message) => {
-        if (message.rendered === true && !typingIn(session, message.path)) {
+        if (
+          message.rendered === true &&
+          (message.intent === "navigation" || !typingIn(session, message.path))
+        ) {
           setViewMode(session, message.path, "preview");
         }
         openFileFor(

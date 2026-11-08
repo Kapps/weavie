@@ -20,11 +20,24 @@ public static class ProcessCapture {
 	private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
 	/// <summary>
+	/// Traces each run as an activity named after its executable and tagged with its working directory and
+	/// arguments, so operation budgets can count the processes an operation starts.
+	/// </summary>
+	public static ActivitySource Activities { get; } = new("Weavie.Processes");
+
+	/// <summary>
 	/// Runs <paramref name="request"/> to completion. If <paramref name="ct"/> fires first the child's process tree
 	/// is killed and a <see cref="ProcessCanceledException"/> carries out what it had printed.
 	/// </summary>
 	public static async Task<ProcessCaptureResult> RunAsync(ProcessCaptureRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
+		// Tags go in at creation so a listener sees them when the run starts, not only when it stops.
+		using var activity = Activities.HasListeners()
+			? Activities.StartActivity(request.FileName, ActivityKind.Internal, default(ActivityContext), [
+				new("process.working_directory", request.WorkingDirectory),
+				new("process.arguments", string.Join(' ', request.Arguments)),
+			])
+			: null;
 		OwnedProcess process;
 		try {
 			process = OwnedProcess.Start(StartInfo(request));

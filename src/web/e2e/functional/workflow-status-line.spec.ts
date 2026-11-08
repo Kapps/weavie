@@ -128,6 +128,9 @@ test("the session line follows the run through a user's answer to done", async (
   await expect(chip).toHaveAttribute("title", line(branch, "idle · .+"));
 });
 
+// Failed on main 2026-11-08 00:39 UTC (https://github.com/Kapps/weavie/actions/runs/42429395501): #1153 made `implement`
+// declare a `videos` output and reword its question while #1151 merged this test with `outputs: {}`, so completeStage
+// was rejected and the run never asked. Fixed by completing the stage with its declared output and the new question.
 test("the pane header shows the session's own run until it ends", async ({ page, weavie }) => {
   const branch = "workflow-header";
   const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch, "two-step");
@@ -154,8 +157,14 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   await expect(run).toHaveAttribute("title", "two-step · implement · waiting on you");
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--ok"));
 
-  await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "held" }));
-  await expect(run).toHaveAttribute("title", "two-step · implement · needs your answer\nShip it?");
+  await submitAcpDraft(
+    surface,
+    tool("completeStage", { outputs: { videos: VIDEOS }, summary: "held" }),
+  );
+  await expect(run).toHaveAttribute(
+    "title",
+    /^two-step · implement · needs your answer\nShip it after reviewing [\s\S]*\?$/,
+  );
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
   await expect(dot).toHaveCSS("box-shadow", "none");
 

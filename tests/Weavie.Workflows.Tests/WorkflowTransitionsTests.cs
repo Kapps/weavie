@@ -91,7 +91,7 @@ public sealed class WorkflowTransitionsTests {
 		Assert.Empty(done.Errors);
 		Assert.Equal(WorkflowPhase.Asking, done.Step.Run.Phase);
 		Assert.Equal(("approve docs/x?", "approve,revise", ""), (Asked(done.Step).Question, string.Join(",", Asked(done.Step).Choices), Asked(done.Step).Reason));
-		Assert.IsType<WorkflowEffect.Notify>(Assert.Single(done.Step.Effects));
+		Assert.Empty(done.Step.Effects);
 		Assert.Equal("docs/x", done.Step.Run.Outputs["plan"]["dir"].Text);
 		var approved = Machine.Answer(done.Step.Run, "approve", "");
 		Assert.Equal(("build", "/implement auth"), (approved.Run.Stage, Kickoff(approved)));
@@ -202,6 +202,7 @@ public sealed class WorkflowTransitionsTests {
 	public void FailStagePausesAndResumeRestartsTheStage() {
 		var paused = Machine.Fail(OpenBuild().Run, "no credentials");
 		Assert.Contains("no credentials", paused.Run.PausedReason);
+		Assert.Contains("no credentials", Assert.IsType<WorkflowEffect.Notify>(Assert.Single(paused.Effects)).Message);
 		Assert.Null(paused.Run.Kickoff);
 		Assert.Equal("/implement auth", Kickoff(Machine.Resume(paused.Run)));
 	}

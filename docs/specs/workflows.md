@@ -21,11 +21,11 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
-  answer or paused sits under *Needs you*.
+  answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), the confidence threshold, the new-session workflow picker, the run header and run view, run
-history, suggestions, and model overrides on decisions.
+`wait`, milestones), the confidence threshold, the new-session workflow picker, run history, suggestions, and model
+overrides on decisions.
 
 ## Purpose
 
@@ -370,8 +370,11 @@ A workflow must not take over the standard session experience.
 - **Questions for the user are a conversation, not cards.** The agent asks in its own words, the user replies however
   they like, and the agent relays the chosen answer and any feedback through `weavie.workflow.answer`. The stage
   block tells the agent never to answer for the user.
-- **Detail on demand** is open: a collapsed run header in the agent pane that expands in place is the leading
-  candidate. Opening an editor tab to see run state was rejected as too much friction.
+- **Agent pane header** — a live run shows as `● <workflow> · <stage>` right-aligned in the header, its dot colored by
+  run state and its tooltip spelling out the state and any reason. The compact layout omits it, since the session inbox
+  gives stage and state. There is no stage count, since `if` skips and `then` loops make one misleading. It is display
+  only: there is no expandable run header or run view, and opening an editor tab to see run state was rejected as too
+  much friction. See [workflow-header-status](workflow-header-status/brief.md).
 
 ## Run history and suggestions
 

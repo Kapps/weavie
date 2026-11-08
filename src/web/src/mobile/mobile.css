@@ -22,7 +22,8 @@
   .app.compact .session-panel,
   .app.compact .fullscreen-exit,
   .app.compact .split-handle,
-  .app.compact .pane-shortcut {
+  .app.compact .pane-shortcut,
+  .app.compact .pane-run {
     display: none;
   }
 

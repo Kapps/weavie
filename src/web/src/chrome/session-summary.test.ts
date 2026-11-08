@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionRun } from "../bridge";
 import type { RailSession } from "./session-store";
-import { panelOrder, sessionDetail, sessionGroup, sessionSubtitle } from "./session-summary";
+import {
+  panelOrder,
+  runDotColor,
+  runTooltip,
+  sessionDetail,
+  sessionGroup,
+  sessionSubtitle,
+} from "./session-summary";
 
 vi.mock("../commands/registry", () => ({ getKeybindings: () => [], onCommandsChanged: () => {} }));
 
@@ -139,5 +146,29 @@ describe("sessionSubtitle", () => {
     expect(sessionSubtitle(unreadable, NOW)).toBe("workflow run unreadable");
     expect(sessionDetail(unreadable)).toBe("The saved workflow run couldn't be read");
     expect(sessionDetail(session({ loaded: false, run }))).toBe("");
+  });
+});
+
+describe("run header", () => {
+  it("colors the dot by whether the run needs the user", () => {
+    const colors = (states: SessionRun["state"][]): string[] => states.map(runDotColor);
+    expect(colors(["working", "deciding", "watching"])).toEqual(Array(3).fill("var(--busy)"));
+    expect(runDotColor("waitingOnYou")).toBe("var(--ok)");
+    expect(colors(["needsAnswer", "paused"])).toEqual(Array(2).fill("var(--warn)"));
+    expect(runDotColor("stalled")).toBe("var(--bad)");
+  });
+
+  it("spells out the run, adding its reason on a second line", () => {
+    const run: SessionRun = {
+      id: "r",
+      workflow: "ship-task",
+      stage: "review",
+      state: "needsAnswer",
+      reason: "",
+    };
+    expect(runTooltip(run)).toBe("ship-task · review · needs your answer");
+    expect(runTooltip({ ...run, reason: "Anything blocking?" })).toBe(
+      "ship-task · review · needs your answer\nAnything blocking?",
+    );
   });
 });

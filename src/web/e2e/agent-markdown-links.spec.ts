@@ -254,7 +254,7 @@ test.describe("AgentMarkdown transcript links", () => {
     const composer = page.locator("[data-agent-composer] textarea");
     await composer.fill("Keep typing here");
     await page.keyboard.press("Alt+Shift+Enter");
-    await expect(page.locator(".fullscreen-exit")).toBeVisible();
+    await expect(page.locator(".pane-area.fullscreen")).toBeVisible();
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
     const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");
     expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
@@ -280,7 +280,7 @@ test.describe("AgentMarkdown transcript links", () => {
     ).toBe("editor");
     await expect(page.locator(".editor-surface")).toBeVisible();
     await expect(page.locator(".agent-surface")).toBeHidden();
-    await page.locator(".fullscreen-exit").click();
+    await page.locator(".editor-surface .pane-fullscreen").click();
 
     // An already-mounted media destination also regains focus when its link is opened again.
     host.publishSession(acpSession.address, "editor", "openFile", {

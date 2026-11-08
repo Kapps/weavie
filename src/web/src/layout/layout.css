@@ -166,33 +166,6 @@
   box-shadow: 0 8px 30px rgb(0 0 0 / 55%);
 }
 
-/* "You are fullscreen" badge + exit affordance: a small floating button at the top-right of the pane area
-   while a pane is fullscreened, advertising the toggle shortcut so the way back is always discoverable. */
-.fullscreen-exit {
-  position: absolute;
-  top: 0.6em;
-  right: 0.6em;
-  z-index: 20;
-  padding: 0.35em 0.7em;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bar);
-  color: var(--fg);
-  font: inherit;
-  font-size: 0.85em;
-  cursor: pointer;
-  opacity: 0.8;
-  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
-}
-.fullscreen-exit:hover {
-  opacity: 1;
-  border-color: var(--accent);
-}
-.fullscreen-exit:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 /* Right-hand editor column (and the diff overlay host). */
 .pane {
   position: relative;
@@ -321,6 +294,28 @@
   transition: opacity 0.15s ease;
 }
 
+/* Fullscreen centers the pane in a column (persisted width) whose edges drag symmetrically; a column wider
+   than the pane area, or a saved fill, fills it. */
+.pane-area.fullscreen > .layout-root {
+  flex: 0 1 var(--fullscreen-width);
+  margin: 0 auto;
+  border-inline: 1px solid var(--border);
+}
+
+/* A filled column's edges stay grabbable: inset clear of the frameless window's 6px resize strip. */
+.fullscreen-edge {
+  top: 0;
+  bottom: 0;
+}
+
+.fullscreen-edge.left {
+  left: max(10px, calc(50% - var(--fullscreen-width) / 2));
+}
+
+.fullscreen-edge.right {
+  left: min(calc(100% - 10px), calc(50% + var(--fullscreen-width) / 2));
+}
+
 .pane-slot {
   position: absolute;
   overflow: hidden;
@@ -419,8 +414,33 @@
   user-select: none;
 }
 
-/* Beside a run the badge drops its own auto margin, or the two would split the free space between them. */
-.pane-run + .pane-shortcut {
+/* A pane head's fullscreen toggle leads its trailing controls; anything after it drops its own auto margin,
+   or the two would split the free space between them. */
+.pane-fullscreen {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.pane-fullscreen:hover,
+.pane-fullscreen[aria-pressed="true"] {
+  color: var(--fg);
+}
+
+.pane-fullscreen:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.pane-run + .pane-fullscreen,
+.pane-fullscreen + .pane-shortcut {
   margin-left: 0;
 }
 

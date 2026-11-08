@@ -55,6 +55,16 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
+	public void SetFullscreenWidth_PersistsAcrossReload() {
+		var fs = new InMemoryFileSystem();
+		Assert.Equal(RailStateStore.DefaultFullscreenWidth, new RailStateStore(fs, StorePath).FullscreenWidth);
+
+		new RailStateStore(fs, StorePath).SetFullscreenWidth(900);
+
+		Assert.Equal(900, new RailStateStore(fs, StorePath).FullscreenWidth);
+	}
+
+	[Fact]
 	public void SetLastLocation_BlankFallsBackToLocal() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		store.SetLastLocation("remote:devbox");

@@ -1,4 +1,4 @@
-import { X } from "lucide-solid";
+import { Maximize2, Minimize2, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -66,7 +66,13 @@ import { RecreateSessionPrompt } from "./chrome/RecreateSessionDialog";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
-import { lastLocation, panelPinned, setLastLocation } from "./chrome/rail-state";
+import {
+  fullscreenWidth,
+  lastLocation,
+  panelPinned,
+  setFullscreenWidth,
+  setLastLocation,
+} from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionReloadBar } from "./chrome/SessionReloadBar";
@@ -99,6 +105,7 @@ import {
   surfacePostUpdateNotice,
   updateRestarting,
 } from "./chrome/update-store";
+import { createWidthDrag } from "./chrome/width-drag";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { installClipboardTrimming } from "./clipboard";
 import { hasTextSelection, paneFocusContext, setContext } from "./commands/context";
@@ -230,6 +237,11 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR || LINUX_TITLEBAR;
 setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
+const MIN_FULLSCREEN_WIDTH = 480;
+// The saved fullscreen width meaning "fill the pane area" (mirrors RailStateStore.FillFullscreenWidth).
+const FILL_WIDTH = 0;
+// How close to the pane area's edge a drag snaps to filling it.
+const FILL_SNAP = 16;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
@@ -1285,10 +1297,7 @@ export default function App(): JSX.Element {
                     <X size={14} /> Close Diff
                   </button>
                 </Show>
-                {/* Pane-switch badge: its own cell at the right of the tab bar. */}
-                <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
-                  <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
-                </Show>
+                {paneHeadEnd("editor")}
               </>
             }
           />
@@ -1321,7 +1330,7 @@ export default function App(): JSX.Element {
                 model={model}
                 providerId={activeProviderId()}
                 active={focusedKind() === AGENT_PANE_KIND}
-                shortcut={paneShortcut(numberOf(kind))}
+                headEnd={paneHeadEnd(kind)}
                 onFocus={() => {
                   if (!compact() || mobileSurface() === kind) {
                     focusPane(kind);
@@ -1351,9 +1360,7 @@ export default function App(): JSX.Element {
                 {authenticationTerminalActive() ? "Agent sign in" : "Claude Code"}
               </span>
               <WorkflowRunStatus session={selectedSession()} />
-              <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
-                <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
-              </Show>
+              {paneHeadEnd(kind)}
             </div>
             <div class="pane-body">
               <For each={agentTerminalSessions()}>
@@ -1410,11 +1417,7 @@ export default function App(): JSX.Element {
             const session = activeTermSession();
             return session === null ? `Terminal ${index + 1}` : shellTitle(session, id, index);
           }}
-          trailing={
-            <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
-              <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
-            </Show>
-          }
+          trailing={paneHeadEnd(kind)}
           onSelect={(id) => {
             const session = activeTermSession();
             if (session !== null) {
@@ -1485,6 +1488,47 @@ export default function App(): JSX.Element {
     setFullscreen((on) => !on);
   };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
+  // Dragging either edge of the centered fullscreen column resizes it symmetrically; reaching the pane area's
+  // edge saves FILL_WIDTH, so the column keeps filling at any window size.
+  const fullscreenDrag = createWidthDrag({
+    saved: fullscreenWidth,
+    save: setFullscreenWidth,
+    measure: (start) => {
+      const area = (start.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
+      const center = area.left + area.width / 2;
+      return (move) => {
+        const half = Math.abs(move.clientX - center);
+        return half >= area.width / 2 - FILL_SNAP
+          ? FILL_WIDTH
+          : Math.max(MIN_FULLSCREEN_WIDTH, 2 * half);
+      };
+    },
+  });
+  const fullscreenColumn = (): string =>
+    fullscreenDrag.width() === FILL_WIDTH ? "100%" : `${fullscreenDrag.width()}px`;
+  // The end of a pane's head: its fullscreen toggle (targeting this pane) and its Ctrl+N badge.
+  const paneHeadEnd = (kind: string): JSX.Element => (
+    <>
+      <Show when={!compact()}>
+        <button
+          type="button"
+          class="pane-fullscreen"
+          title={`${fullscreen() ? "Exit fullscreen" : "Fullscreen"}${fullscreenKeyHint()}`}
+          aria-pressed={fullscreen()}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (!fullscreen()) focusPane(kind);
+            toggleFullscreen();
+          }}
+        >
+          {fullscreen() ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+      </Show>
+      <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+        <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
+      </Show>
+    </>
+  );
 
   onMount(() => {
     // Apply the active theme to Weavie's chrome. The controller owns the active theme + override ops and
@@ -2004,7 +2048,9 @@ export default function App(): JSX.Element {
           inert={sessionsModalActive()}
           classList={{
             offline: activeBackendOffline(),
+            fullscreen: fullscreen() && !compact(),
           }}
+          style={{ "--fullscreen-width": fullscreenColumn() }}
           on:touchstart={mobileBackSwipe.onTouchStart}
           on:touchmove={{ handleEvent: mobileBackSwipe.onTouchMove, passive: false }}
           on:touchend={mobileBackSwipe.onTouchEnd}
@@ -2017,14 +2063,14 @@ export default function App(): JSX.Element {
             floating={(kind) => isTool(kind) && toolPanels.floating(kind)}
           />
           <Show when={fullscreen() && !compact()}>
-            <button
-              type="button"
-              class="fullscreen-exit"
-              onClick={() => toggleFullscreen()}
-              title={`Exit fullscreen${fullscreenKeyHint()}`}
-            >
-              Exit Fullscreen{fullscreenKeyHint()}
-            </button>
+            <For each={["left", "right"]}>
+              {(side) => (
+                <div
+                  class={`split-handle vertical fullscreen-edge ${side}`}
+                  onPointerDown={fullscreenDrag.start}
+                />
+              )}
+            </For>
           </Show>
           <Show when={activeBackendOffline()}>
             <output class="connection-banner">

@@ -137,6 +137,7 @@ test.describe("native in-process bridge contract", () => {
               panelPinned: false,
               panelWidth: 300,
               parkedCollapsed: true,
+              fullscreenWidth: 1200,
             },
             search: {
               options: {

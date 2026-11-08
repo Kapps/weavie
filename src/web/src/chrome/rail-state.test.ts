@@ -6,6 +6,7 @@ type RailState = {
   panelPinned: boolean;
   panelWidth: number;
   parkedCollapsed: boolean;
+  fullscreenWidth: number;
 };
 
 const harness = vi.hoisted(() => ({
@@ -57,6 +58,7 @@ const state = (patch: Partial<RailState>): RailState => ({
   panelPinned: false,
   panelWidth: 300,
   parkedCollapsed: true,
+  fullscreenWidth: 1200,
   ...patch,
 });
 
@@ -73,12 +75,14 @@ describe("rail-state host sync", () => {
         panelPinned: true,
         panelWidth: 240,
         parkedCollapsed: false,
+        fullscreenWidth: 900,
       }),
     );
     expect(rail.lastLocation()).toBe("remote:r");
     expect(rail.panelPinned()).toBe(true);
     expect(rail.panelWidth()).toBe(240);
     expect(rail.parkedCollapsed()).toBe(false);
+    expect(rail.fullscreenWidth()).toBe(900);
   });
 
   it("does not install the local rail-state channel on a remote backend", () =>

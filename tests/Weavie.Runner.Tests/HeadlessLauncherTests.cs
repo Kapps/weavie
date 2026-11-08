@@ -15,6 +15,26 @@ public sealed class HeadlessLauncherTests {
 			Token = "token",
 		};
 
+	[Theory]
+	[InlineData("Weavie.Headless", false)]
+	[InlineData("Weavie.Headless.exe", false)]
+	[InlineData("Weavie.Headless.dll", true)]
+	[InlineData("Weavie.Headless.DLL", true)]
+	public void LaunchesExecutablesDirectlyAndDllsThroughDotnet(string name, bool isDll) {
+		string worker = Path.Combine("worker with spaces", name);
+		var launcher = new HeadlessLauncher(() => worker, Loopback, null);
+		var info = launcher.BuildStartInfo(Backend(pinned: true, 8701));
+
+		Assert.Equal(isDll ? "dotnet" : worker, info.FileName);
+		Assert.Equal(new[] {
+			"--remote", "--port", "8701", "--bind", Loopback, "--workspace", "/tmp/workspace",
+			"--token", "token", "--spawn-contract", RunnerIdentity.SpawnContract.ToString(),
+		}, isDll ? info.ArgumentList.Skip(1) : info.ArgumentList);
+		if (isDll) {
+			Assert.Equal(worker, info.ArgumentList[0]);
+		}
+	}
+
 	// The failure this decides (kapps/weavie#461, and again in run 32798395828/job 97654725603): the worker was
 	// handed a port another listener already held, so it never came up, and every relaunch retried that same
 	// doomed port until the supervisor gave up.

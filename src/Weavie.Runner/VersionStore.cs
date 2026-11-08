@@ -209,12 +209,9 @@ public sealed partial class VersionStore {
 
 	private string VersionDir(int build) => Path.Combine(_root, "versions", build.ToString());
 
-	// The apphost executable when the bundle ships one (self-contained linux publish), else the dll
-	// (a dev-staged bundle) — HeadlessLauncher runs either.
-	private static string WorkerExecutable(string versionDir) {
-		string apphost = Path.Combine(versionDir, "worker", "Weavie.Headless");
-		return File.Exists(apphost) ? apphost : Path.Combine(versionDir, "worker", "Weavie.Headless.dll");
-	}
+	private static string WorkerExecutable(string versionDir) =>
+		HeadlessBinary.BundleCandidates(versionDir).FirstOrDefault(File.Exists)
+		?? throw new InvalidDataException($"version is missing its Weavie.Headless worker: {versionDir}");
 
 	// Build the replacement link first, then rename it over current so a crash cannot leave current absent.
 	private void PointCurrentAt(int build) {

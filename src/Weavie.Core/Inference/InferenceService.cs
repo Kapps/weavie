@@ -103,9 +103,6 @@ public sealed class InferenceService : IInferenceService {
 			&& !_settings.RequireBool(InferenceSettings.AllowAutomatic)) {
 			return Failure<TResponse>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
 		}
-		if (Encoding.UTF8.GetByteCount(input.Prompt) > options.MaxPromptBytes) {
-			return Failure<TResponse>(InferenceFailureKind.InputRejected, "The inference prompt exceeds its declared size limit.");
-		}
 		if (input.Images.Count > options.MaxImageCount) {
 			return Failure<TResponse>(
 				InferenceFailureKind.InputRejected,
@@ -211,10 +208,8 @@ public sealed class InferenceService : IInferenceService {
 	private static void ValidateQuery<TResponse>(
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options) {
-		// Image bounds may be zero — a text-only query accepts no images — but a query with no prompt, no output,
-		// or no time is malformed.
-		if (options.MaxPromptBytes <= 0
-			|| options.MaxImageCount < 0
+		// Text-only queries have no image capacity; every query still needs output capacity and time.
+		if (options.MaxImageCount < 0
 			|| options.MaxImageBytes < 0
 			|| options.MaxOutputBytes <= 0
 			|| options.TimeBudget <= TimeSpan.Zero) {

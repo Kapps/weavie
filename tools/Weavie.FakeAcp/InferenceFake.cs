@@ -67,6 +67,20 @@ internal static class InferenceFake {
 					});
 					break;
 				case "session/prompt":
+					if (variant == "workflow") {
+						string prompt = string.Concat(root.GetProperty("params").GetProperty("prompt")
+							.EnumerateArray().Where(block => AcpJson.OptionalString(block, "type") == "text")
+							.Select(block => block.GetProperty("text").GetString()));
+						await File.WriteAllTextAsync(Path.Combine(cwd, "inference-receipt.txt"), prompt).ConfigureAwait(false);
+						if (File.Exists(Path.Combine(cwd, "inference-reject"))) {
+							Write(new JsonObject {
+								["jsonrpc"] = "2.0",
+								["id"] = id,
+								["error"] = new JsonObject { ["code"] = -32602, ["message"] = "The provider rejected the inference prompt." },
+							});
+							break;
+						}
+					}
 					foreach (var block in root.GetProperty("params").GetProperty("prompt").EnumerateArray()) {
 						if (AcpJson.OptionalString(block, "type") != "image") continue;
 						imageMime = AcpJson.OptionalString(block, "mimeType") ?? string.Empty;
@@ -119,6 +133,7 @@ internal static class InferenceFake {
 			// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
 			"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
 			"refusal" => string.Empty,
+			"workflow" => "{\"choice\":\"accept\"}",
 			"image" => JsonSerializer.Serialize(new JsonObject {
 				["branch"] = "feat/fake-branch",
 				["imageMime"] = imageMime,

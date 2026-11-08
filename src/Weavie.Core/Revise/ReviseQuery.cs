@@ -56,7 +56,6 @@ public static class ReviseQuery {
 	/// <param name="origin">Whether a person initiated the revision.</param>
 	public static InferenceQueryOptions OptionsFor(InferenceInvocationOrigin origin) => new() {
 		Origin = origin,
-		MaxPromptBytes = 64 * 1024,
 		MaxImageCount = 0,
 		MaxImageBytes = 0,
 		MaxOutputBytes = 32 * 1024,

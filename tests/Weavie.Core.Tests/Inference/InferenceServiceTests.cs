@@ -129,15 +129,31 @@ public sealed class InferenceServiceTests : IDisposable {
 		Assert.Equal(bytes, image.Bytes.ToArray());
 	}
 
-	[Fact]
-	public async Task OversizedPrompt_IsRejectedBeforeTheProviderRuns() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task LargePrompt_ReachesProviderIntactAndPreservesItsResult(bool rejected) {
 		Enable();
-		var provider = new FakeProvider(Success("{\"value\":\"unused\"}"));
+		var provider = new FakeProvider(rejected
+			? new InferenceProviderFailure {
+				ModelId = "utility-model",
+				Kind = InferenceFailureKind.InputRejected,
+				Detail = "Provider context exceeded.",
+			}
+			: Success("{\"value\":\"accepted\"}"));
+		string prompt = new string('界', 1024 * 1024) + "end-of-prompt 🧶";
 
-		var result = await Query(Service(provider), new string('x', 2048), UserOptions(), CancellationToken.None);
+		var result = await Query(Service(provider), prompt, UserOptions(), CancellationToken.None);
 
-		Assert.Equal(InferenceFailureKind.InputRejected, Assert.IsType<InferenceFailure<TestOutput>>(result).Kind);
-		Assert.Equal(0, provider.Calls);
+		Assert.Equal(prompt, provider.LastRequest!.Prompt);
+		Assert.Equal(1, provider.Calls);
+		if (rejected) {
+			var failure = Assert.IsType<InferenceFailure<TestOutput>>(result);
+			Assert.Equal(InferenceFailureKind.InputRejected, failure.Kind);
+			Assert.Equal("Provider context exceeded.", failure.Detail);
+		} else {
+			Assert.Equal("accepted", Assert.IsType<InferenceSuccess<TestOutput>>(result).Value.Value);
+		}
 	}
 
 	[Fact]
@@ -357,7 +373,6 @@ public sealed class InferenceServiceTests : IDisposable {
 
 	private static InferenceQueryOptions Options(InferenceInvocationOrigin origin, TimeSpan timeBudget) => new() {
 		Origin = origin,
-		MaxPromptBytes = 1024,
 		MaxImageCount = 4,
 		MaxImageBytes = 20 * 1024 * 1024,
 		MaxOutputBytes = 1024,

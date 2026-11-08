@@ -12,7 +12,6 @@ public sealed partial class InferenceWorkflowDecider(IInferenceService inference
 
 	private static readonly InferenceQueryOptions QueryOptions = new() {
 		Origin = InferenceInvocationOrigin.UserInitiated,
-		MaxPromptBytes = 64 * 1024,
 		MaxImageCount = 0,
 		MaxImageBytes = 0,
 		MaxOutputBytes = 1024,

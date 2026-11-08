@@ -7,11 +7,11 @@ Each group leaves a working, testable increment; update affected documentation w
 
 **Requirements:** 7. **Dependencies:** none.
 
-- [ ] Remove `MaxPromptBytes` from typed-inference options, validation, callers, and test factories; retain
+- [x] Remove `MaxPromptBytes` from typed-inference options, validation, callers, and test factories; retain
   unrelated correction-corpus limits and existing image/output/time policies.
-- [ ] Update failure descriptions and affected inference documentation to reflect provider-owned limits.
-- [ ] Extend isolated Claude/ACP process fakes to verify complete large UTF-8 payloads and simulate rejection.
-- [ ] Add service and real-process tests for intact multi-megabyte input on both transports and visible
+- [x] Update failure descriptions and affected inference documentation to reflect provider-owned limits.
+- [x] Extend isolated Claude/ACP process fakes to verify complete large UTF-8 payloads and simulate rejection.
+- [x] Add service and real-process tests for intact multi-megabyte input on both transports and visible
   provider rejection; add the focused real-app journey needed for the demonstration.
 
 **Video:** in the real app, run a workflow decision over a large text output using each inference transport.

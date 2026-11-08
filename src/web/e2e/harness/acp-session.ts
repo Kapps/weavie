@@ -9,6 +9,11 @@ export async function setFakeAcpMode(page: Page, home: string, mode: string): Pr
   const registry = JSON.parse(await readFile(registryPath, "utf8"));
   registry.agents[0].env.WEAVIE_FAKE_ACP_MODE = mode;
   await writeFile(registryPath, JSON.stringify(registry));
+  await reloadAcpProviders(page);
+}
+
+/** Reloads the app's ACP provider catalog after changing isolated test definitions. */
+export async function reloadAcpProviders(page: Page): Promise<void> {
   await runCommand(page, "Manage ACP Agents…");
   const dialog = page.locator(".acp-registry-dialog");
   await dialog.getByRole("button", { name: "Reload", exact: true }).click();

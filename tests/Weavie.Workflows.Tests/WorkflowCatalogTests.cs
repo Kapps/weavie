@@ -161,6 +161,6 @@ public sealed class WorkflowCatalogTests : IDisposable {
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
 		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
 		Assert.Equal(["prompt", "skill", "args", "outputs"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
-		Assert.Equal(["ask", "choices", "limit", "by"], stage["then"]!["oneOf"]![1]!["properties"]!.AsObject().Select(p => p.Key));
+		Assert.Equal(["ask", "choices", "limit", "by", "confidence"], stage["then"]!["oneOf"]![1]!["properties"]!.AsObject().Select(p => p.Key));
 	}
 }

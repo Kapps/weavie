@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { reloadAcpProviders } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
-import { fakeAcpProgram } from "../harness/test-programs";
+import { installWorkflowInference, workflowReceipt } from "../harness/workflows";
 
 const EVIDENCE = `BEGIN\n${"Evidence café α 🧪\n".repeat(100_000)}END`;
 const SUMMARY = `Review all ${Buffer.byteLength(EVIDENCE)} UTF-8 bytes of evidence.`;
@@ -75,17 +74,7 @@ for (const provider of ["claude", "workflow-acp"]) {
         weavie,
       }, testInfo) => {
         if (provider === "workflow-acp") {
-          const registryPath = join(weavie.home, ".weavie", "acp", "custom.json");
-          const registry = JSON.parse(await readFile(registryPath, "utf8"));
-          registry.agents.push({
-            id: provider,
-            name: "Workflow ACP inference",
-            command: fakeAcpProgram.command,
-            args: [...fakeAcpProgram.args, "inference", "workflow"],
-            env: {},
-          });
-          await writeFile(registryPath, JSON.stringify(registry));
-          await reloadAcpProviders(page);
+          await installWorkflowInference(page, weavie.home);
         }
 
         const workflows = join(weavie.workspace, ".weavie", "workflows");
@@ -104,10 +93,7 @@ for (const provider of ["claude", "workflow-acp"]) {
         await expect.poll(() => existsSync(receiptPath)).toBe(true);
         if (rejects) {
           await expect(run).toHaveAttribute("title", /collect · needs your answer/);
-          await expect(run).toHaveAttribute(
-            "title",
-            /decision model failed \(ProviderUnavailable:/,
-          );
+          await expect(run).toHaveAttribute("title", /decision failed \(ProviderUnavailable:/);
           await expect.poll(() => weavie.fakeLog()).toContain("Weavie now asks the user:");
           await expect.poll(() => weavie.fakeLog()).toContain(QUESTION);
         } else {
@@ -117,19 +103,19 @@ for (const provider of ["claude", "workflow-acp"]) {
             .toMatch(/input .*The model accepted the complete evidence\./);
         }
 
-        const receipt = await readFile(receiptPath, "utf8");
-        const inputJson = receipt.split("Input JSON:\n")[1]!.split("\n\nRespond with exactly")[0]!;
-        const input = JSON.parse(inputJson);
+        const input = await workflowReceipt(weavie.workspace);
         expect(input.question).toBe(QUESTION);
-        expect(input.summary).toBe(SUMMARY);
-        expect(Buffer.byteLength(input.outputs.evidence)).toBe(Buffer.byteLength(EVIDENCE));
-        expect(sha256(input.outputs.evidence)).toBe(sha256(EVIDENCE));
+        expect(input.evidence.summary).toBe(SUMMARY);
+        expect(Buffer.byteLength(input.evidence.outputs.evidence)).toBe(
+          Buffer.byteLength(EVIDENCE),
+        );
+        expect(sha256(input.evidence.outputs.evidence)).toBe(sha256(EVIDENCE));
         await testInfo.attach("provider-payload-receipt", {
           body: JSON.stringify({
             provider,
             rejects,
-            bytes: Buffer.byteLength(input.outputs.evidence),
-            sha256: sha256(input.outputs.evidence),
+            bytes: Buffer.byteLength(input.evidence.outputs.evidence),
+            sha256: sha256(input.evidence.outputs.evidence),
           }),
           contentType: "application/json",
         });

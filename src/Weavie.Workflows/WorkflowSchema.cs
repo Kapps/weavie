@@ -41,20 +41,28 @@ public static partial class WorkflowSchema {
 		var ask = new TextShape(
 			"The question. A model answers it with no tools: it sees only this text (with its {{…}} values filled in), "
 			+ "the stage's outputs, and the summary the agent gave when it completed the stage, so reference every value it needs.");
-		var by = new EnumShape("Who answers: model (default; an unsure or failed answer goes to the user) or user.", ["model", "user"]);
+		var by = new EnumShape("Who answers: model (default; a low-confidence, refused, or failed answer goes to the user) or user.", ["model", "user"]);
+		var confidence = new WorkflowField("confidence", new NumberShape("Minimum confidence to route automatically; model decisions only. Omit to use workflow.decisionConfidence.", 0, 1), false);
+		var choice = new TextOrObjectShape("A destination with an optional description of this answer.",
+			new TextShape("A stage id, or done."),
+			new ObjectShape("A described answer.", [
+				new("then", new TextShape("A stage id, or done."), true),
+				new("description", new TextShape("Plain-text criteria distinguishing this answer; recommended for model decisions."), false),
+			]));
 		var condition = new TextOrObjectShape(
 			"Run the stage only if the answer is yes; on no it is skipped and the run moves to the following stage. "
 			+ "Text is a yes/no question for the model.",
 			new TextShape("A yes/no question for the model; may use {{…}} references."),
-			new ObjectShape("A yes/no question.", [new("ask", ask, true), new("by", by, false)]));
+			new ObjectShape("A yes/no question.", [new("ask", ask, true), new("by", by, false), confidence]));
 		var decision = new ObjectShape("A question whose answer picks the next stage.", [
 			new("ask", ask, true),
 			new("choices", new MapShape(
 				"Each answer and the stage id (or done) it leads to; an answer leading back to this stage reopens it with the user's feedback.",
-				IdPattern(), idHint, new TextShape("A stage id, or done.")), true),
+				IdPattern(), idHint, choice), true),
 			new("limit", new IntShape(
 				"How many times in a row the model may answer this decision before the user is asked instead; model decisions only.", 1), false),
 			new("by", by, false),
+			confidence,
 		]);
 		var stage = new ObjectShape("One stage of the run.", [
 			new("id", new TextShape("Unique within the workflow.", IdPattern(), idHint), true),

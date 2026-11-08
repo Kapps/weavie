@@ -178,6 +178,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 		definition.Kind switch {
 			SettingKind.Bool => new BooleanValueSyntax((bool)coerced!),
 			SettingKind.Int => new IntegerValueSyntax((long)coerced!),
+			SettingKind.Number => new FloatValueSyntax((double)coerced!),
 			SettingKind.Path => MakeStringSyntax((string)coerced!, preferLiteral: true),
 			_ => MakeStringSyntax((string)coerced!, preferLiteral: ((string)coerced!).Contains('\\', StringComparison.Ordinal)),
 		};

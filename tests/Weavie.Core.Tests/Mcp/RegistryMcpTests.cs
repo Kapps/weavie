@@ -36,7 +36,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
+			new UnusedDecider(), new UnusedPort(), () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary);
 		_runners.Add(runner);
 		return new SessionWorkflowRegistry(catalog, runner);
 	}

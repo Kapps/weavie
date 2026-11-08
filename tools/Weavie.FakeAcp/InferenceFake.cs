@@ -86,7 +86,9 @@ internal static class InferenceFake {
 						imageMime = AcpJson.OptionalString(block, "mimeType") ?? string.Empty;
 						imageData = AcpJson.OptionalString(block, "data") ?? string.Empty;
 					}
-					Chunk(Reply(
+					bool refusal = variant == "refusal"
+						|| variant == "workflow" && File.Exists(Path.Combine(cwd, "inference-refuse"));
+					Chunk(refusal ? string.Empty : Reply(
 						variant,
 						cwd,
 						refusedProbe,
@@ -98,7 +100,7 @@ internal static class InferenceFake {
 						booleanConfigOptions,
 						mutations));
 					Respond(id, new JsonObject {
-						["stopReason"] = variant == "refusal" ? "refusal" : "end_turn",
+						["stopReason"] = refusal ? "refusal" : "end_turn",
 						["usage"] = new JsonObject {
 							["inputTokens"] = 2,
 							["outputTokens"] = 26,
@@ -132,8 +134,9 @@ internal static class InferenceFake {
 			"empty" => string.Empty,
 			// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
 			"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
-			"refusal" => string.Empty,
-			"workflow" => "{\"choice\":\"accept\"}",
+			"workflow" => File.Exists(Path.Combine(cwd, "inference-answer.json"))
+				? File.ReadAllText(Path.Combine(cwd, "inference-answer.json"))
+				: "{\"choice\":\"accept\",\"confidence\":1}",
 			"image" => JsonSerializer.Serialize(new JsonObject {
 				["branch"] = "feat/fake-branch",
 				["imageMime"] = imageMime,

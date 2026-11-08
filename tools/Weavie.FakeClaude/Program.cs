@@ -34,7 +34,10 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	if (mode == "workflow") {
 		await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
 		if (File.Exists("inference-reject")) return 7;
-		Console.Out.WriteLine("{\"is_error\":false,\"structured_output\":{\"choice\":\"accept\"}}");
+		string answer = File.Exists("inference-answer.json")
+			? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)
+			: "{\"choice\":\"accept\",\"confidence\":1}";
+		Console.Out.WriteLine("{\"is_error\":false,\"structured_output\":" + answer + "}");
 		return 0;
 	}
 	bool vague = mode == "needsDetail"

@@ -38,7 +38,11 @@ public static class AuthorWorkflowPrompt {
 			   stage's outputs, and the summary the agent gives at `completeStage`. It cannot read files, run
 			   commands, or see the conversation. So anything a decision depends on must be a stage output:
 			   shape outputs for the decisions that read them (a `remaining: list` the decision checks, not
-			   "read tasks.md"). When the model is unsure, Weavie asks the user instead.
+			   "read tasks.md"). The model returns a choice with numeric confidence. Below `workflow.decisionConfidence`
+			   (default 0.8), refusal, failure, or an invalid answer asks the user. Model `if` and `then` may set
+			   `confidence:` to override the threshold; user decisions cannot. No implicit `unsure` answer exists.
+			   Choice values may be a destination or `{ then: stage, description: "plain-text criteria" }`;
+			   descriptions are recommended to distinguish choices.
 			8. Put `limit` on every model decision that can loop back: how many times in a row the model may
 			   answer it before the user is asked.
 			9. Never ask a model about something the run already knows, such as whether a stage was skipped or

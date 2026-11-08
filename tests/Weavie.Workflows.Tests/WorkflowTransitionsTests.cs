@@ -36,21 +36,21 @@ public sealed class WorkflowTransitionsTests {
 	private static readonly WorkflowDefinition Definition = WorkflowReader.Read(Flow, "flow").Definition
 		?? throw new InvalidOperationException(string.Join("\n", WorkflowReader.Read(Flow, "flow").Diagnostics));
 
-	private static readonly WorkflowTransitions Machine = new(Definition, 2, true, Path.GetTempPath(), TestWorkflows.Words);
+	private static readonly WorkflowTransitions Machine = new(Definition, 2, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
 
 	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	private static WorkflowStep Started() =>
 		Machine.Start("r-1", "p", WorkflowTransitions.ReadInputs(Definition, Json("""{"task":"auth"}"""), Path.GetTempPath()));
 
-	private static WorkflowDecisionRequest Decision(WorkflowStep step) =>
-		Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Request;
+	private static WorkflowDecisionPlan Decision(WorkflowStep step) =>
+		Assert.IsType<WorkflowEffect.Decide>(Assert.Single(step.Effects)).Plan;
 
 	private static string Kickoff(WorkflowStep step) => Assert.IsType<WorkflowEffect.Kickoff>(Assert.Single(step.Effects)).Turn.Text;
 
-	private static WorkflowStep OpenPlan() => Machine.Resolve(Started().Run, WorkflowDecisionResult.Chose("yes"));
+	private static WorkflowStep OpenPlan() => Machine.Resolve(Started().Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 
-	private static WorkflowStep OpenBuild() => Machine.Resolve(Started().Run, WorkflowDecisionResult.Chose("no"));
+	private static WorkflowStep OpenBuild() => Machine.Resolve(Started().Run, new WorkflowDecisionResult.Answered("no", 1), 0.8);
 
 	private static WorkflowCompletion Complete(WorkflowRun run, string outputs) => Machine.Complete(run, Json(outputs), "did the work");
 
@@ -61,7 +61,7 @@ public sealed class WorkflowTransitionsTests {
 		var step = Started();
 		Assert.Equal((WorkflowPhase.Deciding, WorkflowDecisionKind.If), (step.Run.Phase, step.Run.Decision));
 		Assert.Equal("is auth big?", Decision(step).Question);
-		Assert.Equal(["yes", "no"], Decision(step).Choices);
+		Assert.Equal(["yes", "no"], Decision(step).Choices.Select(c => c.Name));
 	}
 
 	[Fact]
@@ -117,25 +117,25 @@ public sealed class WorkflowTransitionsTests {
 	[Fact]
 	public void ALimitCountsTheModelsAnswersInARowThenAsksTheUserWhoseAnswerResetsIt() {
 		var deciding = Complete(OpenBuild().Run, "{}").Step;
-		var fix = Machine.Resolve(deciding.Run, WorkflowDecisionResult.Chose("yes"));
+		var fix = Machine.Resolve(deciding.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 		Assert.Equal(("fix", 1), (fix.Run.Stage, fix.Run.Streaks["build"]));
 		var again = Complete(Complete(fix.Run, "{}").Step.Run, "{}").Step;
-		var capped = Machine.Resolve(again.Run, WorkflowDecisionResult.Chose("yes"));
+		var capped = Machine.Resolve(again.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 		Assert.Equal(WorkflowPhase.Asking, capped.Run.Phase);
 		Assert.Contains("1 times in a row", Asked(capped).Reason);
 		var answered = Machine.Answer(capped.Run, "yes", "");
 		Assert.Equal("fix", answered.Run.Stage);
 		Assert.Empty(answered.Run.Streaks);
 		var next = Complete(Complete(answered.Run, "{}").Step.Run, "{}").Step;
-		Assert.Equal("fix", Machine.Resolve(next.Run, WorkflowDecisionResult.Chose("yes")).Run.Stage);
+		Assert.Equal("fix", Machine.Resolve(next.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8).Run.Stage);
 	}
 
 	[Theory]
-	[InlineData("unsure", "was unsure")]
-	[InlineData("maybe", "isn't one of the choices")]
-	public void UnsureOrUnknownAnswersGoToTheUser(string answer, string reason) {
+	[InlineData("unsure", "invalid choice")]
+	[InlineData("maybe", "invalid choice")]
+	public void UndeclaredChoicesGoToTheUser(string answer, string reason) {
 		var deciding = Complete(OpenBuild().Run, "{}").Step.Run;
-		var step = Machine.Resolve(deciding, WorkflowDecisionResult.Chose(answer));
+		var step = Machine.Resolve(deciding, new WorkflowDecisionResult.Answered(answer, 1), 0.8);
 		Assert.Equal(WorkflowPhase.Asking, step.Run.Phase);
 		Assert.Equal("blocking in auth?", Asked(step).Question);
 		Assert.Contains(reason, Asked(step).Reason);
@@ -156,7 +156,7 @@ public sealed class WorkflowTransitionsTests {
 			    if: { ask: "really?", by: user }
 			    run: { prompt: "do b" }
 			""", "flow");
-		var machine = new WorkflowTransitions(read.Definition!, 3, true, Path.GetTempPath(), TestWorkflows.Words);
+		var machine = new WorkflowTransitions(read.Definition!, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
 		var asking = machine.Complete(machine.Start("r-1", "p", []).Run, Json("{}"), "s").Step.Run;
 		var next = machine.Answer(asking, "yes", "");
 		Assert.Contains("really?", next.Run.Kickoff!.Text);
@@ -165,7 +165,7 @@ public sealed class WorkflowTransitionsTests {
 
 	[Fact]
 	public void FailedDecisionAsksTheUserTheSameQuestion() {
-		var asking = Machine.Resolve(Started().Run, WorkflowDecisionResult.Failed("TimedOut: slow"));
+		var asking = Machine.Resolve(Started().Run, new WorkflowDecisionResult.Failed("TimedOut: slow"), 0.8);
 		Assert.Equal(("is auth big?", WorkflowPhase.Asking), (Asked(asking).Question, asking.Run.Phase));
 		Assert.Contains("TimedOut: slow", Asked(asking).Reason);
 		Assert.Equal("plan", Machine.Answer(asking.Run, "yes", "").Run.Stage);
@@ -183,9 +183,9 @@ public sealed class WorkflowTransitionsTests {
 			      ask: "anything left in {{a.left}}?"
 			      choices: { yes: a, no: done }
 			""", "loop").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, true, Path.GetTempPath(), TestWorkflows.Words);
+		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
 		var deciding = machine.Complete(machine.Start("r-3", "p", []).Run, Json("""{"left":["x"]}"""), "one left").Step;
-		var again = machine.Resolve(deciding.Run, WorkflowDecisionResult.Chose("yes"));
+		var again = machine.Resolve(deciding.Run, new WorkflowDecisionResult.Answered("yes", 1), 0.8);
 		Assert.Equal(("a", WorkflowPhase.Open), (again.Run.Stage, again.Run.Phase));
 		Assert.StartsWith("Host decided \"yes\"", Kickoff(again));
 	}
@@ -193,7 +193,7 @@ public sealed class WorkflowTransitionsTests {
 	[Fact]
 	public void FinishingTheLastStageEndsTheRun() {
 		var deciding = Complete(OpenBuild().Run, "{}").Step.Run;
-		var done = Machine.Resolve(deciding, WorkflowDecisionResult.Chose("no"));
+		var done = Machine.Resolve(deciding, new WorkflowDecisionResult.Answered("no", 1), 0.8);
 		Assert.Equal(WorkflowPhase.Done, done.Run.Phase);
 		Assert.True(done.Run.IsFinished);
 	}
@@ -220,7 +220,7 @@ public sealed class WorkflowTransitionsTests {
 		var open = OpenBuild().Run;
 		Assert.Throws<WorkflowException>(() => Machine.Answer(open, "yes", ""));
 		Assert.Throws<WorkflowException>(() => Machine.Resume(open));
-		Assert.Throws<WorkflowException>(() => Machine.Resolve(open, WorkflowDecisionResult.Chose("yes")));
+		Assert.Throws<WorkflowException>(() => Machine.Resolve(open, new WorkflowDecisionResult.Answered("yes", 1), 0.8));
 		Assert.Throws<WorkflowException>(() => Machine.Cancel(Machine.Cancel(open).Run));
 	}
 
@@ -236,7 +236,7 @@ public sealed class WorkflowTransitionsTests {
 			  - id: b
 			    run: { prompt: "use {{a.x}}" }
 			""", "refs").Definition!;
-		var machine = new WorkflowTransitions(definition, 3, true, Path.GetTempPath(), TestWorkflows.Words);
+		var machine = new WorkflowTransitions(definition, 3, true, 0.8, Path.GetTempPath(), TestWorkflows.Words);
 		var run = machine.Start("r-2", "p", []).Run;
 		var paused = machine.Jump(run, "b");
 		Assert.Equal(WorkflowPhase.Paused, paused.Run.Phase);

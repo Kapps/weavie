@@ -164,6 +164,9 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>As <see cref="RequireBool"/>, for an integer setting.</summary>
 	public long RequireInt(string key) => Resolve(key).Value is long l ? l : throw WrongKind(key, "int");
 
+	/// <summary>Resolves a finite numeric setting, trusting its registered default.</summary>
+	public double RequireNumber(string key) => Resolve(key).Value is double d ? d : throw WrongKind(key, "number");
+
 	/// <summary>As <see cref="RequireBool"/>, for a string setting.</summary>
 	public string RequireString(string key) => Resolve(key).Value is string s ? s : throw WrongKind(key, "string");
 
@@ -480,6 +483,14 @@ public sealed class SettingsStore : IDisposable {
 				error = $"expected true/false, got '{raw}'";
 				value = null;
 				return false;
+			case SettingKind.Number:
+				if (TryNumber(raw, out double number)) {
+					value = number;
+					return true;
+				}
+				error = "expected a finite number";
+				value = null;
+				return false;
 			case SettingKind.Int:
 				if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)) {
 					value = l;
@@ -519,6 +530,12 @@ public sealed class SettingsStore : IDisposable {
 					return true;
 				}
 
+				break;
+			case SettingKind.Number:
+				if (raw is long or int or double && double.IsFinite(Convert.ToDouble(raw, CultureInfo.InvariantCulture))) {
+					value = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
+					return true;
+				}
 				break;
 			case SettingKind.Int:
 				switch (raw) {
@@ -569,6 +586,13 @@ public sealed class SettingsStore : IDisposable {
 				}
 
 				break;
+			case SettingKind.Number:
+				if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double number) && double.IsFinite(number)
+					|| value.ValueKind == JsonValueKind.String && TryNumber(value.GetString()!, out number)) {
+					coerced = number;
+					return true;
+				}
+				break;
 			case SettingKind.Int:
 				if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long l)) {
 					coerced = l;
@@ -590,6 +614,9 @@ public sealed class SettingsStore : IDisposable {
 		coerced = null;
 		return false;
 	}
+
+	private static bool TryNumber(string raw, out double number) =>
+		double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out number) && double.IsFinite(number);
 
 	private string NormalizePath(string raw, string key) {
 		string expanded = raw;
@@ -744,6 +771,9 @@ public sealed class SettingsStore : IDisposable {
 			case long l:
 				writer.WriteNumberValue(l);
 				break;
+			case double d:
+				writer.WriteNumberValue(d);
+				break;
 			case int i:
 				writer.WriteNumberValue(i);
 				break;
@@ -757,6 +787,7 @@ public sealed class SettingsStore : IDisposable {
 		SettingKind.String => "string",
 		SettingKind.Bool => "bool",
 		SettingKind.Int => "int",
+		SettingKind.Number => "number",
 		SettingKind.Path => "path",
 		_ => kind.ToString().ToLowerInvariant(),
 	};

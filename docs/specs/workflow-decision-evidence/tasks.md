@@ -22,17 +22,17 @@ clip with asserted payload receipts from the isolated fakes; the video alone doe
 
 **Requirements:** 1, 2, 3, 8. **Dependencies:** 1.
 
-- [ ] Add finite numeric settings support through coercion, persistence, catalog output, and typed access;
+- [x] Add finite numeric settings support through coercion, persistence, catalog output, and typed access;
   register live `workflow.decisionConfidence` with default `0.8` and range validation.
-- [ ] Extend workflow schema, reader, and definitions for `confidence:` and both choice forms; validate
+- [x] Extend workflow schema, reader, and definitions for `confidence:` and both choice forms; validate
   user-only/invalid overrides and descriptions.
-- [ ] Replace the choice/`unsure` result contract with choice plus confidence or refusal/failure. Add the
+- [x] Replace the choice/`unsure` result contract with choice plus confidence or refusal/failure. Add the
   decision plan/prepared request contracts; at this increment file evidence is empty.
-- [ ] Request numeric utility confidence with strict source-generated JSON, pass choice descriptions,
+- [x] Request numeric utility confidence with strict source-generated JSON, pass choice descriptions,
   translate refusals/errors, and update every caller/test double together.
-- [ ] Capture each attempt's threshold, enforce engine validation/escalation, and preserve loops, human
+- [x] Capture each attempt's threshold, enforce engine validation/escalation, and preserve loops, human
   answers, feedback, and stale-result protection. Wire the live setting through shared Hosting.
-- [ ] Add focused schema/settings/adapter/engine tests and real-app confidence journeys; update the
+- [x] Add focused schema/settings/adapter/engine tests and real-app confidence journeys; update the
   confidence/choice portions of the workflow spec and guidance.
 
 **Video:** use controlled answers to show `0.8` advancing and `0.79` asking the user, change the live setting

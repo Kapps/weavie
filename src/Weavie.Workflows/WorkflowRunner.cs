@@ -25,6 +25,7 @@ public sealed class WorkflowRunner : IDisposable {
 	private readonly IWorkflowRunPort _port;
 	private readonly Func<int> _maxStageAttempts;
 	private readonly Func<bool> _openReviewItem;
+	private readonly Func<double> _decisionConfidence;
 	private readonly string _worktree;
 	private readonly WorkflowVocabulary _words;
 	private WorkflowRun? _run;
@@ -35,13 +36,14 @@ public sealed class WorkflowRunner : IDisposable {
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
 		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
-		Func<int> maxStageAttempts, Func<bool> openReviewItem, string worktree, WorkflowVocabulary words) {
+		Func<int> maxStageAttempts, Func<bool> openReviewItem, Func<double> decisionConfidence, string worktree, WorkflowVocabulary words) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
 		_port = port;
 		_maxStageAttempts = maxStageAttempts;
 		_openReviewItem = openReviewItem;
+		_decisionConfidence = decisionConfidence;
 		_worktree = worktree;
 		_words = words;
 		_run = store.Run;
@@ -190,7 +192,7 @@ public sealed class WorkflowRunner : IDisposable {
 		: _run is { IsFinished: false } run ? run : throw new WorkflowException("No workflow run is live in this session.");
 
 	private WorkflowTransitions Transitions() =>
-		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _worktree, _words);
+		new(_definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it."), _maxStageAttempts(), _openReviewItem(), _decisionConfidence(), _worktree, _words);
 
 	private void Apply(WorkflowStep step) {
 		_pending?.Dispose();
@@ -205,7 +207,7 @@ public sealed class WorkflowRunner : IDisposable {
 			switch (effect) {
 				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
 				case WorkflowEffect.Notify notify: _port.Notify(notify.Message); break;
-				case WorkflowEffect.Decide decide: _pending = new PendingDecision(this, decide.Request); break;
+				case WorkflowEffect.Decide decide: _pending = new PendingDecision(this, decide.Plan); break;
 			}
 		}
 
@@ -218,31 +220,47 @@ public sealed class WorkflowRunner : IDisposable {
 				return;
 			}
 
-			Apply(Transitions().Resolve(_run!, result));
+			Apply(Transitions().Resolve(_run!, result, decision.MinimumConfidence));
 		}
 	}
 
 	private sealed class PendingDecision : IDisposable {
 		private readonly CancellationTokenSource _cts = new();
+		private readonly Lock _lifetime = new();
+		private bool _finished;
 
-		public PendingDecision(WorkflowRunner owner, WorkflowDecisionRequest request) {
+		public PendingDecision(WorkflowRunner owner, WorkflowDecisionPlan plan) {
+			MinimumConfidence = plan.MinimumConfidence;
+			var token = _cts.Token;
+			var request = new WorkflowDecisionRequest(plan.Question, plan.Choices, new WorkflowDecisionEvidence(plan.Outputs, plan.Summary, []));
 			_ = Task.Run(async () => {
-				WorkflowDecisionResult result;
 				try {
-					result = await owner._decider.DecideAsync(request, _cts.Token).ConfigureAwait(false);
-				} catch (OperationCanceledException) {
-					return;
-				} catch (Exception ex) {
-					result = WorkflowDecisionResult.Failed(ex.Message);
-				}
+					WorkflowDecisionResult result;
+					try {
+						token.ThrowIfCancellationRequested();
+						result = await owner._decider.DecideAsync(request, token).ConfigureAwait(false);
+					} catch (OperationCanceledException) when (token.IsCancellationRequested) {
+						return;
+					} catch (Exception ex) {
+						result = new WorkflowDecisionResult.Failed(ex.Message);
+					}
 
-				owner.Resolve(this, result);
+					owner.Resolve(this, result);
+				} finally {
+					lock (_lifetime) {
+						_finished = true;
+						_cts.Dispose();
+					}
+				}
 			});
 		}
 
+		public double MinimumConfidence { get; }
+
 		public void Dispose() {
-			_cts.Cancel();
-			_cts.Dispose();
+			lock (_lifetime) {
+				if (!_finished) _cts.Cancel();
+			}
 		}
 	}
 }

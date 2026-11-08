@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -108,6 +109,18 @@ internal sealed class IntShape(string description, int minimum) : WorkflowShape(
 	}
 
 	protected override JsonObject SchemaCore() => new() { ["type"] = "integer", ["minimum"] = minimum };
+}
+
+internal sealed class NumberShape(string description, double minimum, double maximum) : WorkflowShape(description) {
+	public override void Check(JsonNode? node, string path, WorkflowCheck check) {
+		if (!IsText(node, out string text)
+			|| !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+			|| !double.IsFinite(value) || value < minimum || value > maximum) {
+			check.Add(path, $"expected a finite number between {minimum} and {maximum}");
+		}
+	}
+
+	protected override JsonObject SchemaCore() => new() { ["type"] = "number", ["minimum"] = minimum, ["maximum"] = maximum };
 }
 
 internal sealed class EnumShape(string description, IReadOnlyList<string> values) : WorkflowShape(description) {

@@ -89,7 +89,7 @@ public sealed record WorkflowWork {
 
 /// <summary>Who answers a decision.</summary>
 public enum WorkflowAnswerer {
-	/// <summary>A tool-less decision model; an unsure or failed answer goes to the user.</summary>
+	/// <summary>A tool-less decision model; a low-confidence or failed answer goes to the user.</summary>
 	Model,
 
 	/// <summary>The user, through the agent.</summary>
@@ -103,6 +103,9 @@ public sealed record WorkflowQuestion {
 
 	/// <summary>Who answers it.</summary>
 	public required WorkflowAnswerer By { get; init; }
+
+	/// <summary>The model confidence override, or null to use the live setting.</summary>
+	public required double? Confidence { get; init; }
 }
 
 /// <summary>What follows a stage.</summary>
@@ -118,4 +121,4 @@ public abstract record WorkflowThen {
 }
 
 /// <summary>One answer of a decision and where it leads.</summary>
-public sealed record WorkflowChoice(string Name, string Target);
+public sealed record WorkflowChoice(string Name, string Target, string? Description);

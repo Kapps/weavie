@@ -44,10 +44,6 @@ internal static class WorkflowSemantics {
 				}
 
 				foreach (var choice in decide.Choices) {
-					if (choice.Name == WorkflowDecision.Unsure) {
-						check.Add($"{path}.then.choices.{choice.Name}", "\"unsure\" is reserved: an unsure model hands the question to the user");
-					}
-
 					CheckTarget(choice.Target, $"{path}.then.choices.{choice.Name}", stageIds, check);
 				}
 
@@ -55,7 +51,7 @@ internal static class WorkflowSemantics {
 					check.Add($"{path}.then.limit", "limit applies only to decisions the model answers");
 				}
 
-				CheckQuestion(definition, decide.Question, $"{path}.then.ask", seesOutputs: work.Outputs.Count > 0, check);
+				CheckQuestion(definition, decide.Question, $"{path}.then", seesOutputs: work.Outputs.Count > 0, check);
 				break;
 		}
 
@@ -66,9 +62,13 @@ internal static class WorkflowSemantics {
 	// A model answering with no references and no stage outputs to read can only judge the question's own text.
 	private static void CheckQuestion(
 		WorkflowDefinition definition, WorkflowQuestion question, string path, bool seesOutputs, WorkflowCheck check) {
-		CheckReferences(definition, question.Ask, path, check);
+		if (question.By == WorkflowAnswerer.User && question.Confidence is not null) {
+			check.Add($"{path}.confidence", "confidence applies only to decisions the model answers");
+		}
+		string askPath = path.EndsWith(".then", StringComparison.Ordinal) ? $"{path}.ask" : path;
+		CheckReferences(definition, question.Ask, askPath, check);
 		if (question.By == WorkflowAnswerer.Model && !seesOutputs && !question.Ask.References.Any()) {
-			check.Warn(path, "the model answering this has no tools and sees only the question, the stage's outputs, and the "
+			check.Warn(askPath, "the model answering this has no tools and sees only the question, the stage's outputs, and the "
 				+ "agent's summary; reference the values it needs with {{…}}");
 		}
 	}

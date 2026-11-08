@@ -11,20 +11,20 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, and stages with `if`, `run` (`prompt` or `skill`, `args`, `outputs`), and `then` (stage id,
-  `done`, or a decision with `ask`, `choices`, `limit`, `by`). Every other field is rejected as an unknown key.
+  `done`, or a decision with `ask`, `choices`, `limit`, `by`, `confidence`). Every other field is rejected as an unknown key.
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow` + `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
   agent, which runs `weavie.workflow.answer`.
 - **Decisions** — answered by the utility model (`by: model`) or the user (`by: user`); a model decision sees its
-  question, the stage's outputs, and the agent's summary. An `unsure`, failed, or out-of-set model answer, or a
+  question, the stage's outputs, and the agent's summary. A low-confidence, refused, failed, or invalid model answer, or a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), the confidence threshold, the new-session workflow picker, run history, suggestions, and model
+`wait`, milestones), the new-session workflow picker, run history, suggestions, and model
 overrides on decisions.
 
 ## Purpose
@@ -288,7 +288,7 @@ flowchart LR
   T -- stage id / done --> N[next stage]
   T -- decision --> D{answered by}
   D -- model --> N
-  D -- "user, or model unsure / failed / at its limit" --> U[asks the user]
+  D -- "user, or model below threshold / refused / failed / at limit" --> U[asks the user]
   U -- answer --> N
 ```
 
@@ -305,12 +305,36 @@ flowchart LR
 
 ### Decisions
 
-Every model decision implicitly allows `unsure`. An `unsure` answer, a failed query, an answer outside the choices,
-a `limit` reached, or confidence below `workflow.decisionConfidence` puts the same question, with the same choices, to
-the user, together with why the model didn't answer it — a run never advances on a guess. A `by: user` decision
-always goes to the user. The agent relays the user's answer with `weavie.workflow.answer` (run id, choice, and the
-user's own words as feedback) and never answers for them. Decision-model providers (Jev, OpenAI Decisions) plug in as
-typed-inference providers ([ad-hoc-inference.md](../concepts/ad-hoc-inference.md)).
+A decider returns an allowed choice and finite numeric confidence in `[0, 1]`, or refusal/failure. The engine
+validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
+or the decision's optional `confidence:` override. Both model `if` and `then` support overrides; `by: user` rejects
+them. Each attempt captures its threshold before inference; changes affect subsequent attempts. Equality routes.
+The threshold is never included in the model prompt.
+
+Lower confidence, refusal, provider failure, invalid choice/confidence, or a reached `limit` puts the same question
+and choices to the user, with the reason. Low-confidence reasons include the value and threshold. Values are never
+clamped. Failed or low-confidence attempts do not count as routed model answers. There is no implicit or reserved
+`unsure` answer: an explicitly declared label of that name behaves like any other choice.
+
+Choices accept plain destinations or descriptions, including mixtures:
+
+```yaml
+then:
+  ask: Does every required check pass?
+  confidence: 0.9
+  choices:
+    approve: { then: build, description: Every required check passes. }
+    revise: draft
+```
+
+Descriptions are optional plain text, recommended to distinguish answer criteria. The model receives labels and
+descriptions, never routing destinations. The current utility model returns strict JSON such as
+`{"choice":"approve","confidence":0.91}`; confidence is estimated from evidence, not assigned a constant.
+
+A `by: user` decision always goes to the user. The agent relays the user's answer with `weavie.workflow.answer`
+(run id, choice, and the user's own words as feedback) and never answers for them. Human answers bypass model
+confidence checks. Future decision-provider adapters translate prepared requests and results; the engine owns
+confidence policy. This change adds no Jev or OpenAI provider.
 
 Every question reaches the user through the agent. A question asked as a stage completes rides the `completeStage`
 reply; any other (a model decision handed over, an `if`, one reached by an answer, resume, or jump) is a turn the run
@@ -392,7 +416,7 @@ rejected at one stage.
 | --- | --- |
 | `workflow.default` | workflow preselected in the new-session composer |
 | `workflow.maxStageAttempts` | rejected completions before a run pauses |
-| `workflow.decisionConfidence` | minimum confidence for a model decision to advance |
+| `workflow.decisionConfidence` | live finite number in `[0, 1]`, default `0.8`; minimum confidence to advance unless the decision overrides it |
 | `workflow.openReviewItem` | the agent opens the main item a question to the user is about (default on) |
 
 ## Naming
@@ -589,7 +613,7 @@ Full-stack on `headless` ([integration-testing-strategy.md](integration-testing-
    `foreach … in: here` walks three tasks with per-item progress in the strip.
 3. **ship-task** — the model sends `review → fix` three times in a row, then the fourth asks the user (`limit: 3`);
    answering continues to `pr-ready`; the `respond` stage shows `watching` while the agent holds background work.
-4. **diagnose** — the routing decision picks `quick`; an `unsure` answer puts the question to the user instead of
+4. **diagnose** — the routing decision picks `quick`; a low-confidence answer puts the question to the user instead of
    advancing.
 5. **status line** (`workflow-status-line.spec.ts`, built) — a fake-ACP session runs a two-stage repository workflow
    whose first stage ends in a `by: user` question; its line moves through `implement · …`,

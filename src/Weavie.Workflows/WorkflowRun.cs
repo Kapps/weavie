@@ -42,7 +42,7 @@ public sealed record WorkflowAsked {
 	/// <summary>The answers the user may give.</summary>
 	public required IReadOnlyList<string> Choices { get; init; }
 
-	/// <summary>Why the model handed it over (unsure, failed, or its limit reached); empty when the user answers by design.</summary>
+	/// <summary>Why the model handed it over (low confidence, refusal, failure, or its limit reached); empty when the user answers by design.</summary>
 	public required string Reason { get; init; }
 }
 

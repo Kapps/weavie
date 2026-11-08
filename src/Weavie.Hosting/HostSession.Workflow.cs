@@ -36,6 +36,7 @@ public sealed partial class HostSession {
 			new WorkflowPort(this),
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
 			() => settings.RequireBool(WorkflowSettings.OpenReviewItem),
+			() => settings.RequireNumber(WorkflowSettings.DecisionConfidence),
 			workspaceRoot,
 			WeavieWorkflows.Vocabulary);
 

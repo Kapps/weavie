@@ -15,6 +15,9 @@ public enum SettingKind {
 	/// <summary>A 64-bit integer; parsed with invariant culture.</summary>
 	Int,
 
+	/// <summary>A finite floating-point number; parsed with invariant culture.</summary>
+	Number,
+
 	/// <summary>A filesystem path: <c>~</c> is expanded and a relative path is resolved against the workspace.</summary>
 	Path,
 }

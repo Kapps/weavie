@@ -8,9 +8,22 @@ public static class WorkflowSettings {
 	/// <summary>Whether the agent opens what a workflow's question to the user is about.</summary>
 	public const string OpenReviewItem = "workflow.openReviewItem";
 
+	/// <summary>The minimum confidence required for a model decision to route automatically.</summary>
+	public const string DecisionConfidence = "workflow.decisionConfidence";
+
 	/// <summary>Registers workflow settings into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+		registry.Register(new SettingDefinition {
+			Key = DecisionConfidence,
+			Kind = SettingKind.Number,
+			Description = "Minimum model confidence for automatic workflow decisions; lower confidence asks you instead.",
+			Aliases = ["workflow confidence", "decision confidence"],
+			Apply = ApplyMode.Live,
+			Default = 0.8,
+			Validate = value => value is double confidence && double.IsFinite(confidence) && confidence is >= 0 and <= 1
+				? ValidationResult.Success : ValidationResult.Failure("must be a finite number between 0 and 1"),
+		});
 		registry.Register(new SettingDefinition {
 			Key = MaxStageAttempts,
 			Kind = SettingKind.Int,

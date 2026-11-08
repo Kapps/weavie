@@ -206,6 +206,7 @@ test("the header run line keeps its place and its stage as space runs out", asyn
   const head = surface.locator(".pane-head");
   const label = head.locator(".pane-label");
   const run = head.locator(".pane-run");
+  const fullscreen = head.locator(".pane-fullscreen");
   const badge = head.locator(".pane-shortcut");
   const box = async (locator: Locator) => (await locator.boundingBox())!;
   const right = async (locator: Locator) => (await box(locator)).x + (await box(locator)).width;
@@ -219,9 +220,9 @@ test("the header run line keeps its place and its stage as space runs out", asyn
   await head.evaluate((element) => {
     element.style.width = "2000px";
   });
-  expect(
-    Math.abs((await box(badge)).x - (await right(run)) - (await style("columnGap"))),
-  ).toBeLessThan(2);
+  const gap = await style("columnGap");
+  expect(Math.abs((await box(fullscreen)).x - (await right(run)) - gap)).toBeLessThan(2);
+  expect(Math.abs((await box(badge)).x - (await right(fullscreen)) - gap)).toBeLessThan(2);
   expect(Math.abs((await right(badge)) - (await contentEdge()))).toBeLessThan(2);
 
   const labelBox = await box(label);
@@ -248,7 +249,7 @@ test("the header run line keeps its place and its stage as space runs out", asyn
     ),
   );
   await expect(badge).toHaveCount(0);
-  expect(Math.abs((await right(run)) - (await contentEdge()))).toBeLessThan(2);
+  expect(Math.abs((await right(fullscreen)) - (await contentEdge()))).toBeLessThan(2);
 
   await page.setViewportSize({ width: 700, height: 800 });
   await expect(page.locator(".app.compact")).toHaveCount(1);

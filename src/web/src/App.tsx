@@ -1497,8 +1497,10 @@ export default function App(): JSX.Element {
       const area = (start.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
       const center = area.left + area.width / 2;
       return (move) => {
-        const width = 2 * Math.abs(move.clientX - center);
-        return width >= area.width - FILL_SNAP ? FILL_WIDTH : Math.max(MIN_FULLSCREEN_WIDTH, width);
+        const half = Math.abs(move.clientX - center);
+        return half >= area.width / 2 - FILL_SNAP
+          ? FILL_WIDTH
+          : Math.max(MIN_FULLSCREEN_WIDTH, 2 * half);
       };
     },
   });
@@ -2061,14 +2063,15 @@ export default function App(): JSX.Element {
             floating={(kind) => isTool(kind) && toolPanels.floating(kind)}
           />
           <Show when={fullscreen() && !compact()}>
-            <div
-              class="split-handle vertical fullscreen-edge left"
-              onPointerDown={fullscreenDrag.start}
-            />
-            <div
-              class="split-handle vertical fullscreen-edge right"
-              onPointerDown={fullscreenDrag.start}
-            />
+            <For each={["left", "right"]}>
+              {(side) => (
+                <div
+                  class={`split-handle vertical fullscreen-edge ${side}`}
+                  onPointerDown={fullscreenDrag.start}
+                  onMouseDown={(event) => event.preventDefault()}
+                />
+              )}
+            </For>
           </Show>
           <Show when={activeBackendOffline()}>
             <output class="connection-banner">

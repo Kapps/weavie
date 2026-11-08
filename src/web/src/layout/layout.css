@@ -302,17 +302,18 @@
   border-inline: 1px solid var(--border);
 }
 
+/* A filled column's edges stay grabbable: inset clear of the frameless window's 6px resize strip. */
 .fullscreen-edge {
   top: 0;
   bottom: 0;
 }
 
 .fullscreen-edge.left {
-  left: calc(50% - min(var(--fullscreen-width), 100%) / 2);
+  left: max(10px, calc(50% - var(--fullscreen-width) / 2));
 }
 
 .fullscreen-edge.right {
-  left: calc(50% + min(var(--fullscreen-width), 100%) / 2);
+  left: min(calc(100% - 10px), calc(50% + var(--fullscreen-width) / 2));
 }
 
 .pane-slot {

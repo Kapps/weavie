@@ -17,6 +17,11 @@ vi.mock("../monaco-setup", async () => {
   return { monaco: { editor: { ScrollType: { Immediate: 1 }, EditorOption: options } } };
 });
 
+// Monaco's touch module binds to the browser window on import.
+vi.mock("@codingame/monaco-vscode-api/vscode/vs/base/browser/touch", () => ({
+  EventType: { Change: "-monaco-gesturechange" },
+}));
+
 function fixture() {
   vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "6" }));
   vi.stubGlobal(

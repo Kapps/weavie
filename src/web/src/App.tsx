@@ -108,7 +108,7 @@ import {
 import { createWidthDrag } from "./chrome/width-drag";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { installClipboardTrimming } from "./clipboard";
-import { hasTextSelection, paneFocusContext, setContext } from "./commands/context";
+import { evaluateWhen, hasTextSelection, paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
 import { installKeybindings } from "./commands/keybindings";
@@ -974,8 +974,8 @@ export default function App(): JSX.Element {
     editor.openReview(session, undefined, undefined);
   };
 
-  // A new review's overview shows only if the user stayed on the same file while the diff computed: their own
-  // navigation in that window is newer, so it wins.
+  // A new review's overview shows only if the user stayed on the same file and isn't choosing something in the
+  // omnibar or a dialog: their own navigation while the diff computed is newer, so it wins.
   const diffAgainst = (session: ClientSession, reference: string): void =>
     openDiff(session, "diffAgainst", { reference });
   // A session holds one review; replacing one against another source closes it like Close Diff, so ask first.
@@ -1001,7 +1001,12 @@ export default function App(): JSX.Element {
     void request(null)
       .then(settle)
       .then(({ opened }) => {
-        if (opened && activePathFor(session) === activeAtRequest) showOverview(session);
+        if (
+          opened &&
+          activePathFor(session) === activeAtRequest &&
+          evaluateWhen("!omnibarOpen && !modalOpen")
+        )
+          showOverview(session);
       })
       .catch((error: unknown) =>
         addToast("warn", error instanceof Error ? error.message : String(error)),

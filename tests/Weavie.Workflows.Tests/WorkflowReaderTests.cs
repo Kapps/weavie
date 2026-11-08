@@ -71,7 +71,7 @@ public sealed class WorkflowReaderTests {
 		Assert.Equal(WorkflowAnswerer.User, build.If!.By);
 		var decide = Assert.IsType<WorkflowThen.Decide>(build.Then);
 		Assert.Equal(3, decide.Limit);
-		Assert.Equal([new WorkflowChoice("yes", "done"), new WorkflowChoice("no", "build")], decide.Choices);
+		Assert.Equal([new WorkflowChoice("yes", "done", null), new WorkflowChoice("no", "build", null)], decide.Choices);
 		Assert.Equal(Valid, definition.SourceText);
 	}
 
@@ -101,7 +101,6 @@ public sealed class WorkflowReaderTests {
 	[InlineData("stages: [{ id: a, else: done, run: { prompt: p } }]", "unknown key \"else\"")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: b }]", "\"b\" is neither a stage id nor done")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done } } }]", "at least two choices")]
-	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, unsure: a } } }]", "reserved")]
 	[InlineData("stages: [{ id: a, run: { prompt: p }, then: { ask: q, by: user, choices: { yes: done, no: a }, limit: 2 } }]", "limit applies only to decisions the model answers")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{inputs.missing}}\" } }]", "names no declared input")]
 	[InlineData("stages: [{ id: a, run: { prompt: \"{{a.out}}\" } }]", "names no output declared")]

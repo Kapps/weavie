@@ -34,9 +34,6 @@ public sealed record InferenceQueryOptions {
 	/// <summary>Whether a person directly initiated the query.</summary>
 	public required InferenceInvocationOrigin Origin { get; init; }
 
-	/// <summary>The maximum prompt size in UTF-8 bytes.</summary>
-	public required int MaxPromptBytes { get; init; }
-
 	/// <summary>The maximum number of native image inputs.</summary>
 	public required int MaxImageCount { get; init; }
 

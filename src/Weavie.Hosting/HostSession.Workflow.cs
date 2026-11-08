@@ -33,9 +33,11 @@ public sealed partial class HostSession {
 			WorkflowCatalog,
 			new WorkflowRunStore(fileSystem, Core.WeaviePaths.WorkspaceWorkflowRunFile(WorkspaceId.ForPath(workspaceRoot))),
 			new InferenceWorkflowDecider(inference, workspaceRoot),
+			new WorkflowFileReader(fileSystem, workspaceRoot),
 			new WorkflowPort(this),
 			() => (int)settings.RequireInt(WorkflowSettings.MaxStageAttempts),
 			() => settings.RequireBool(WorkflowSettings.OpenReviewItem),
+			() => settings.RequireNumber(WorkflowSettings.DecisionConfidence),
 			workspaceRoot,
 			WeavieWorkflows.Vocabulary);
 

@@ -11,20 +11,20 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
 - **Fields** — `inputs`, and stages with `if`, `run` (`prompt` or `skill`, `args`, `outputs`), and `then` (stage id,
-  `done`, or a decision with `ask`, `choices`, `limit`, `by`). Every other field is rejected as an unknown key.
+  `done`, or a decision with `ask`, `choices`, `limit`, `by`, `confidence`). Every other field is rejected as an unknown key.
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow` + `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
   agent, which runs `weavie.workflow.answer`.
 - **Decisions** — answered by the utility model (`by: model`) or the user (`by: user`); a model decision sees its
-  question, the stage's outputs, and the agent's summary. An `unsure`, failed, or out-of-set model answer, or a
+  question, the stage's outputs, and the agent's summary. A low-confidence, refused, failed, or invalid model answer, or a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), the confidence threshold, the new-session workflow picker, run history, suggestions, and model
+`wait`, milestones), the new-session workflow picker, run history, suggestions, and model
 overrides on decisions.
 
 ## Purpose
@@ -105,9 +105,10 @@ repository workflows run like any repository file; a trust flag for repositories
 Workflows are written by the agent, not by hand. The registry exposes:
 
 - `getWorkflowSchema` — the JSON Schema of the format, so the agent reads the real field list instead of recalling one.
-- `validateWorkflow(id | text)` — exact errors (`unknown key "runs-on" at stages[2]`) and warnings (a model question that
-  references no values). `text` checks proposed YAML without touching any file; `id` checks the saved workflow that
-  wins. Structural errors stop the later checks, so `Valid.` means every check ran. Warnings never make a file invalid.
+- `validateWorkflow(id | text)` — positioned errors and advisory warnings. Model questions flag unreferenced `files`
+  outputs and literal/composed paths that supply no contents, as well as questions with no referenced context or
+  stage outputs. `text` checks proposed YAML without touching any file; `id` checks the saved winner. Structural
+  errors stop later checks. Warnings never make a file invalid or prevent saving and running it.
 - `listWorkflows` — every resolved workflow with scope, path, and validity, plus the personal and repository folders
   this host reads.
 - `forkWorkflow(id, scope)` — copies a valid workflow, including a built-in, into a more specific scope and returns the
@@ -136,15 +137,16 @@ never drift. It tells the agent to:
 - Choose each step's `context` by the rule in [Choosing context](#choosing-context).
 - Put a `by: user` decision where the user wants to sign off, `in: new-session` where each item needs its own branch
   and PR, and `limit` on every decision that can loop.
-- Remember a model decision has no tools: it sees only its question, the stage's outputs, and the agent's summary, so
-  anything it depends on must be a stage output, shaped for the decision that reads it.
+- Ask about observable criteria, one concern per question. A model decision sees its rendered question, explicitly
+  referenced file contents, stage output values, and the completion summary with feedback. It has no tools or
+  conversation history. Declare typed values and explicitly reference the files it needs.
 - Never encode facts the run already knows (a skipped stage, an output's presence) as a model decision.
 - Persist to a file anything a later stage needs from every visit of a repeated stage; a revisit overwrites its outputs.
 - Only use commands and flags verified to exist, and check that every file or value a stage uses is produced earlier
   and reachable where it's used.
 - Walk through a run stage by stage; with run history, cite the evidence for each change.
-- Before saving, pass the complete proposed YAML to `validateWorkflow` as `text`, fix every error, and heed its warnings;
-  then save with a normal edit or write tool, not a script.
+- Before saving, pass the complete proposed YAML to `validateWorkflow` as `text` and fix every error. Warnings are
+  flags for judgment; intentional warnings may remain unresolved. Save with a normal edit or write tool, not a script.
 
 **Edit Workflow** opens the YAML in the editor; the same schema drives inline diagnostics. Saving is never blocked.
 An invalid file is listed as broken (with its error) in the picker and cannot start; a run executes the definition
@@ -229,9 +231,9 @@ Ask whether later steps — and the user — need *how* the step did its work, o
 A forked step runs as a background-work card, which the user can watch but not talk to, so a step that expects
 conversation is always `continue`.
 
-A model decision runs with no tools: it sees only its rendered `ask`, the stage's outputs, and the summary the agent
-gave at `completeStage` — never files or the transcript. The summary is the one uniform channel for "what the agent
-just did", for terminal Claude and ACP agents alike.
+A model decision runs with no tools. It sees its rendered `ask`, explicitly referenced file contents, the stage's
+output values, and the completion summary with user feedback. It receives no conversation transcript. The summary
+is the uniform channel for what the agent did, for terminal Claude and ACP agents alike.
 
 ### Agent options
 
@@ -288,7 +290,7 @@ flowchart LR
   T -- stage id / done --> N[next stage]
   T -- decision --> D{answered by}
   D -- model --> N
-  D -- "user, or model unsure / failed / at its limit" --> U[asks the user]
+  D -- "user, or model below threshold / refused / failed / at limit" --> U[asks the user]
   U -- answer --> N
 ```
 
@@ -305,12 +307,72 @@ flowchart LR
 
 ### Decisions
 
-Every model decision implicitly allows `unsure`. An `unsure` answer, a failed query, an answer outside the choices,
-a `limit` reached, or confidence below `workflow.decisionConfidence` puts the same question, with the same choices, to
-the user, together with why the model didn't answer it — a run never advances on a guess. A `by: user` decision
-always goes to the user. The agent relays the user's answer with `weavie.workflow.answer` (run id, choice, and the
-user's own words as feedback) and never answers for them. Decision-model providers (Jev, OpenAI Decisions) plug in as
-typed-inference providers ([ad-hoc-inference.md](../concepts/ad-hoc-inference.md)).
+A decider returns an allowed choice and finite numeric confidence in `[0, 1]`, or refusal/failure. The engine
+validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
+or the decision's optional `confidence:` override. Both model `if` and `then` support overrides; `by: user` rejects
+them. Each attempt captures its threshold before inference; changes affect subsequent attempts. Equality routes.
+The threshold is never included in the model prompt.
+
+Lower confidence, refusal, provider failure, invalid choice/confidence, or a reached `limit` puts the same question
+and choices to the user, with the reason. Low-confidence reasons include the value and threshold. Values are never
+clamped. Failed or low-confidence attempts do not count as routed model answers. There is no implicit or reserved
+`unsure` answer: an explicitly declared label of that name behaves like any other choice.
+
+Choices accept plain destinations or descriptions, including mixtures:
+
+```yaml
+then:
+  ask: Does every required check pass?
+  confidence: 0.9
+  choices:
+    approve: { then: build, description: Every required check passes. }
+    revise: draft
+```
+
+Descriptions are optional plain text, recommended to distinguish answer criteria. The model receives labels and
+descriptions, never routing destinations. The current utility model returns strict JSON such as
+`{"choice":"approve","confidence":0.91}`; confidence is estimated from evidence, not assigned a constant.
+
+A model `ask` that references a `files` input or output receives each file's complete current text as separate,
+path-labelled evidence. Inputs, current-stage outputs, and earlier-stage outputs work alike. Paths resolve inside
+the session worktree and normalized duplicates appear once, in reference order. The question and output values
+keep their path labels. Initial `files` validation still requires existing, non-empty files; a later empty file
+contributes empty text. Text readability uses the shared content decoder, including BOM support, not extensions.
+
+```yaml
+run:
+  prompt: Write the review.
+  outputs: { review: files }
+then:
+  ask: "Does {{draft.review}} document every required check?"
+  choices: { approve: build, revise: draft }
+```
+
+If any referenced file is binary, missing, or unreadable, the whole question goes to the user with its path and
+reason; no partial evidence reaches a model. Absent optional inputs and empty file lists add no contents. Missing
+stage output values retain the existing pause behavior. Invalid file paths escalate instead of escaping the worktree.
+
+Only explicit references to `files` values trigger reads. Literal paths, paths composed from text references,
+unreferenced file outputs, URLs, and document links are not expanded. No workspace scan or linked-resource fetch
+occurs. User decisions do not prepare evidence.
+
+Validation warns at a model `then.ask` for each current-stage `files` output it does not reference. Model `if` and
+`then` questions also flag recognizable literal/composed paths, including `README.md`, `docs/review.md`, Windows
+paths, and `{{draft.directory}}/review.md`. Appending a path or extension to a `files` reference does not select a
+different file. Plain references and HTTP(S) links do not trigger the path flag. These checks inspect declarations
+and template syntax only; they never read files or evaluate runtime values. The heuristic can flag intentional
+prose such as `yes/no`; authors may ignore it. User decisions receive neither evidence flag.
+
+The engine prepares evidence and runs inference under one pending attempt, outside its state lock. Cancellation
+retires the attempt; late reads or model results cannot affect a newer one. File bodies are never persisted in run
+state. Resuming a saved model decision rereads current files and the live confidence setting. Reads are not an
+atomic snapshot across files, synchronous reads cannot be interrupted, and path containment is lexical rather than
+a symlink sandbox. Complete evidence is sent without a local prompt cap; provider rejection reaches the user.
+
+A `by: user` decision always goes to the user. The agent relays the user's answer with `weavie.workflow.answer`
+(run id, choice, and the user's own words as feedback) and never answers for them. Human answers bypass model
+confidence checks. Future decision-provider adapters translate prepared requests and results; the engine owns
+confidence policy. This change adds no Jev or OpenAI provider.
 
 Every question reaches the user through the agent. A question asked as a stage completes rides the `completeStage`
 reply; any other (a model decision handed over, an `if`, one reached by an answer, resume, or jump) is a turn the run
@@ -393,7 +455,7 @@ rejected at one stage.
 | --- | --- |
 | `workflow.default` | workflow preselected in the new-session composer |
 | `workflow.maxStageAttempts` | rejected completions before a run pauses |
-| `workflow.decisionConfidence` | minimum confidence for a model decision to advance |
+| `workflow.decisionConfidence` | live finite number in `[0, 1]`, default `0.8`; minimum confidence to advance unless the decision overrides it |
 | `workflow.openReviewItem` | the agent opens the main item a question to the user is about (default on) |
 
 ## Naming
@@ -590,7 +652,7 @@ Full-stack on `headless` ([integration-testing-strategy.md](integration-testing-
    `foreach … in: here` walks three tasks with per-item progress in the strip.
 3. **ship-task** — the model sends `review → fix` three times in a row, then the fourth asks the user (`limit: 3`);
    answering continues to `pr-ready`; the `respond` stage shows `watching` while the agent holds background work.
-4. **diagnose** — the routing decision picks `quick`; an `unsure` answer puts the question to the user instead of
+4. **diagnose** — the routing decision picks `quick`; a low-confidence answer puts the question to the user instead of
    advancing.
 5. **status line** (`workflow-status-line.spec.ts`, built) — a fake-ACP session runs a two-stage repository workflow
    whose first stage ends in a `by: user` question; its line moves through `implement · …`,

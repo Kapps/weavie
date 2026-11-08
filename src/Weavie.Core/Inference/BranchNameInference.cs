@@ -46,7 +46,6 @@ public static class BranchNameInference {
 	/// <summary>The resource policy for an automatic branch-name query.</summary>
 	public static InferenceQueryOptions QueryOptions { get; } = new() {
 		Origin = InferenceInvocationOrigin.Automatic,
-		MaxPromptBytes = 32 * 1024,
 		MaxImageCount = MaxImages,
 		MaxImageBytes = MaxImages * PastedImageMedia.MaxBytes,
 		MaxOutputBytes = 4 * 1024,

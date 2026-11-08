@@ -31,6 +31,15 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	// draft the query carries grows past a handful of words.
 	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
 	string query = await Console.In.ReadToEndAsync().ConfigureAwait(false);
+	if (mode == "workflow") {
+		await File.WriteAllTextAsync("inference-receipt.txt", query).ConfigureAwait(false);
+		if (File.Exists("inference-reject")) return 7;
+		string answer = File.Exists("inference-answer.json")
+			? await File.ReadAllTextAsync("inference-answer.json").ConfigureAwait(false)
+			: "{\"choice\":\"accept\",\"confidence\":1}";
+		Console.Out.WriteLine("{\"is_error\":false,\"structured_output\":" + answer + "}");
+		return 0;
+	}
 	bool vague = mode == "needsDetail"
 		&& Draft(query)
 			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 20;

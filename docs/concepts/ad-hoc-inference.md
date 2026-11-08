@@ -17,9 +17,11 @@ sees the repository it is reasoning over — including whatever conventions `AGE
 working directory stable across queries also keeps the provider's cached prompt prefix intact.
 
 Features call one internal generic API with complete text and image input, strict response `JsonTypeInfo<T>`,
-invocation origin, and text, image-count, aggregate-image, output, and time bounds. Images remain provider-native
+invocation origin, and image-count, aggregate-image, output, and time bounds. Images remain provider-native
 content rather than being serialized into the text prompt. A shared prompt builder serializes typed feature context
 behind the same untrusted-data framing.
+Prompts reach the provider in full, without a local byte cap or truncation. Provider context-limit failures
+take the calling feature's visible failure path.
 The caller chooses a provider-neutral category (`Utility` or `Reasoning`). A user may also set one provider-native
 model and effort plus a tri-state Fast Mode override for every query. Empty model/effort values retain the
 provider/category default; Fast Mode `inherit` leaves the provider state untouched.

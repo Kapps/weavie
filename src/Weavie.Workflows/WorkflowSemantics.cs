@@ -44,10 +44,6 @@ internal static class WorkflowSemantics {
 				}
 
 				foreach (var choice in decide.Choices) {
-					if (choice.Name == WorkflowDecision.Unsure) {
-						check.Add($"{path}.then.choices.{choice.Name}", "\"unsure\" is reserved: an unsure model hands the question to the user");
-					}
-
 					CheckTarget(choice.Target, $"{path}.then.choices.{choice.Name}", stageIds, check);
 				}
 
@@ -55,7 +51,8 @@ internal static class WorkflowSemantics {
 					check.Add($"{path}.then.limit", "limit applies only to decisions the model answers");
 				}
 
-				CheckQuestion(definition, decide.Question, $"{path}.then.ask", seesOutputs: work.Outputs.Count > 0, check);
+				CheckQuestion(definition, decide.Question, $"{path}.then", seesOutputs: work.Outputs.Count > 0, check);
+				WorkflowEvidenceWarnings.CheckOutputs(definition, stage, decide.Question, $"{path}.then.ask", check);
 				break;
 		}
 
@@ -63,14 +60,14 @@ internal static class WorkflowSemantics {
 		CheckReferences(definition, work.Args, $"{path}.run.args", check);
 	}
 
-	// A model answering with no references and no stage outputs to read can only judge the question's own text.
 	private static void CheckQuestion(
 		WorkflowDefinition definition, WorkflowQuestion question, string path, bool seesOutputs, WorkflowCheck check) {
-		CheckReferences(definition, question.Ask, path, check);
-		if (question.By == WorkflowAnswerer.Model && !seesOutputs && !question.Ask.References.Any()) {
-			check.Warn(path, "the model answering this has no tools and sees only the question, the stage's outputs, and the "
-				+ "agent's summary; reference the values it needs with {{…}}");
+		if (question.By == WorkflowAnswerer.User && question.Confidence is not null) {
+			check.Add($"{path}.confidence", "confidence applies only to decisions the model answers");
 		}
+		string askPath = check.QuestionPath(path);
+		CheckReferences(definition, question.Ask, askPath, check);
+		WorkflowEvidenceWarnings.CheckQuestion(question, askPath, seesOutputs, check);
 	}
 
 	private static void CheckTarget(string target, string path, HashSet<string> stageIds, WorkflowCheck check) {
@@ -81,10 +78,7 @@ internal static class WorkflowSemantics {
 
 	private static void CheckReferences(WorkflowDefinition definition, WorkflowTemplate? template, string path, WorkflowCheck check) {
 		foreach (var reference in template?.References ?? []) {
-			bool declared = reference.IsInput
-				? definition.Inputs.Any(input => input.Name == reference.Name)
-				: definition.Stages.Any(stage => stage.Id == reference.Scope && stage.Run.Outputs.Any(output => output.Name == reference.Name));
-			if (!declared) {
+			if (WorkflowReferences.TypeOf(definition, reference) is null) {
 				check.Add(path, reference.IsInput
 					? $"{reference} names no declared input"
 					: $"{reference} names no output declared by a stage \"{reference.Scope}\"");

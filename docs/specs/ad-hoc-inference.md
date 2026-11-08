@@ -34,7 +34,7 @@ the process start.
 - a caller-selected `InferenceModelCategory`;
 - one complete provider-agnostic text prompt plus exact decoded images;
 - strict `JsonTypeInfo<TResponse>` response metadata;
-- invocation origin, prompt/output byte bounds, image-count and aggregate-image byte bounds, and a one-attempt time
+- invocation origin, output byte bounds, image-count and aggregate-image byte bounds, and a one-attempt time
   budget.
 
 `InferencePrompts.WithJsonInput` is the shared path for typed feature context. It serializes the input through its
@@ -43,8 +43,10 @@ plumbing. Response metadata must reject unknown members and respect required con
 metadata is a programming error. Runtime, CLI, and model failures are values.
 
 The provider seam contains category, the live provider-native profile, owning worktree, final prompt, native image
-inputs, generated JSON Schema, and output byte bound. Images remain outside the prompt-size budget and are never
-serialized into its typed JSON. Providers do not receive a feature or query id and never switch on product behavior:
+inputs, generated JSON Schema, and output byte bound. Prompts have no application byte cap: the complete text
+reaches Claude through stdin or ACP through its prompt transport. A provider's context-limit rejection is surfaced
+to the caller without truncation, summarization, or a retry. Images remain separate and are never serialized into
+the prompt's typed JSON. Providers do not receive a feature or query id and never switch on product behavior:
 
 | Category | Intended work | Terminal Claude profile | ACP agent |
 |---|---|---|---|

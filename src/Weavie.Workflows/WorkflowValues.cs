@@ -85,13 +85,11 @@ internal static class WorkflowValues {
 		Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
 	private static bool IsWorktreeFile(string worktree, string relative) {
-		if (Path.IsPathRooted(relative)) {
+		try {
+			return WorkflowFilePaths.TryResolve(worktree, relative, out _, out string full)
+				&& File.Exists(full) && new FileInfo(full).Length > 0;
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return false;
 		}
-
-		string root = Path.GetFullPath(worktree);
-		string full = Path.GetFullPath(Path.Combine(root, relative));
-		return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-			&& File.Exists(full) && new FileInfo(full).Length > 0;
 	}
 }

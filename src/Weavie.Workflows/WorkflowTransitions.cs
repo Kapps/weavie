@@ -7,7 +7,7 @@ namespace Weavie.Workflows;
 /// owner must perform. Nothing here touches files, threads, or the agent.
 /// </summary>
 internal sealed partial class WorkflowTransitions(
-	WorkflowDefinition definition, int maxStageAttempts, bool openReviewItem, string worktree, WorkflowVocabulary words) {
+	WorkflowDefinition definition, int maxStageAttempts, bool openReviewItem, double decisionConfidence, string worktree, WorkflowVocabulary words) {
 	private const string Yes = "yes";
 	private const string No = "no";
 
@@ -76,20 +76,23 @@ internal sealed partial class WorkflowTransitions(
 	}
 
 	/// <summary>The model's answer to the decision in flight (or why there is none).</summary>
-	public WorkflowStep Resolve(WorkflowRun run, WorkflowDecisionResult result) {
+	public WorkflowStep Resolve(WorkflowRun run, WorkflowDecisionResult result, double minimumConfidence) {
 		Require(run, WorkflowPhase.Deciding, "resolve a decision for");
 		var choices = run.Asked?.Choices ?? [];
-		if (result.Choice is not { } choice) {
-			return AskUser(run, $"the decision model failed ({result.Failure})");
+		if (result is WorkflowDecisionResult.Refused refusal) {
+			return AskUser(run, $"the decision model refused ({refusal.Reason})");
 		}
-
-		if (choice == WorkflowDecision.Unsure) {
-			return AskUser(run, "the decision model was unsure");
+		if (result is WorkflowDecisionResult.Failed failure) {
+			return AskUser(run, $"the decision failed ({failure.Reason})");
 		}
-
-		if (!choices.Contains(choice)) {
-			return AskUser(run, $"the decision model answered \"{choice}\", which isn't one of the choices");
+		if (result is not WorkflowDecisionResult.Answered answer || !choices.Contains(answer.Choice)
+			|| !double.IsFinite(answer.Confidence) || answer.Confidence is < 0 or > 1) {
+			return AskUser(run, "the decision model returned an invalid choice or confidence");
 		}
+		if (answer.Confidence < minimumConfidence) {
+			return AskUser(run, FormattableString.Invariant($"the decision confidence {answer.Confidence} is below the required {minimumConfidence}"));
+		}
+		string choice = answer.Choice;
 
 		if (run.Decision == WorkflowDecisionKind.Then) {
 			var decide = (WorkflowThen.Decide)StageOf(run.Stage).Then;
@@ -172,14 +175,14 @@ internal sealed partial class WorkflowTransitions(
 		var stage = StageOf(target);
 		run = run with { Stage = stage.Id };
 		return stage.If is { } condition
-			? Ask(run, WorkflowDecisionKind.If, condition, [Yes, No], new Dictionary<string, string>())
+			? Ask(run, WorkflowDecisionKind.If, condition, [new(Yes, null), new(No, null)], new Dictionary<string, string>())
 			: Open(run, stage);
 	}
 
 	private WorkflowStep Advance(WorkflowRun run, WorkflowStage stage) => stage.Then switch {
 		WorkflowThen.Goto go => Enter(run, go.Target),
 		WorkflowThen.Decide decide => Ask(
-			run, WorkflowDecisionKind.Then, decide.Question, [.. decide.Choices.Select(c => c.Name)],
+			run, WorkflowDecisionKind.Then, decide.Question, [.. decide.Choices.Select(c => new WorkflowDecisionOption(c.Name, c.Description))],
 			run.Outputs.GetValueOrDefault(stage.Id, []).ToDictionary(o => o.Key, o => o.Value.Render())),
 		_ => Enter(run, Following(stage)),
 	};
@@ -199,23 +202,29 @@ internal sealed partial class WorkflowTransitions(
 	}
 
 	private WorkflowStep Ask(
-		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<string> choices,
+		WorkflowRun run, WorkflowDecisionKind kind, WorkflowQuestion question, IReadOnlyList<WorkflowDecisionOption> choices,
 		IReadOnlyDictionary<string, string> outputs) {
 		if (!TryRender(run, question.Ask, out string rendered, out string missing)) {
 			return Pause(run with { Decision = kind }, missing);
 		}
 
-		run = run with { Decision = kind };
+		run = run with {
+			Decision = kind,
+			Asked = new WorkflowAsked { Question = rendered, Choices = [.. choices.Select(c => c.Name)], Reason = "" },
+		};
 		if (question.By == WorkflowAnswerer.User) {
-			return AskUser(run with { Asked = new WorkflowAsked { Question = rendered, Choices = choices, Reason = "" } }, "");
+			return AskUser(run, "");
+		}
+		if (!TrySelectFiles(run, question.Ask, out var paths, out string error)) {
+			return AskUser(run, $"the decision failed ({error})");
 		}
 
 		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Deciding, Asked = new WorkflowAsked { Question = rendered, Choices = choices, Reason = "" } },
-			[new WorkflowEffect.Decide(new WorkflowDecisionRequest {
-				Question = rendered, Choices = choices, Outputs = outputs,
-				Summary = run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
-			})]);
+			run with { Phase = WorkflowPhase.Deciding },
+			[new WorkflowEffect.Decide(new WorkflowDecisionPlan(
+				rendered, [.. choices], new Dictionary<string, string>(outputs),
+				run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
+				paths, question.Confidence ?? decisionConfidence))]);
 	}
 
 	// Puts the run's current question to the user through the agent; a non-empty reason says why the model didn't answer it.

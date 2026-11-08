@@ -31,7 +31,7 @@ public sealed class WorkflowAdapterTests : IDisposable {
 
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
-			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new NoPort(), () => 3, () => true, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
+			Catalog(), new WorkflowRunStore(new LocalFileSystem(), StorePath), new NoDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Combine("worktree")), new NoPort(), () => 3, () => true, () => 0.8, _dir.Combine("worktree"), WeavieWorkflows.Vocabulary);
 		runner.Activate();
 		return runner;
 	}
@@ -72,9 +72,9 @@ public sealed class WorkflowAdapterTests : IDisposable {
 		var run = runner.Start("flow", Json("{}"));
 		var asking = run with {
 			Phase = WorkflowPhase.Asking,
-			Asked = new WorkflowAsked { Question = "ship it?", Choices = ["yes", "no"], Reason = "the decision model was unsure" },
+			Asked = new WorkflowAsked { Question = "ship it?", Choices = ["yes", "no"], Reason = "the decision confidence 0.7 is below the required 0.8" },
 		};
-		Assert.Equal("ship it? (the decision model was unsure)", WorkflowRunSummary.From(asking, SessionStatus.Idle)!.Reason);
+		Assert.Equal("ship it? (the decision confidence 0.7 is below the required 0.8)", WorkflowRunSummary.From(asking, SessionStatus.Idle)!.Reason);
 		var paused = run with { Phase = WorkflowPhase.Paused, PausedReason = "stuck" };
 		Assert.Equal("stuck", WorkflowRunSummary.From(paused, SessionStatus.Idle)!.Reason);
 	}

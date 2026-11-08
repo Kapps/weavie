@@ -36,7 +36,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		var catalog = new WorkflowCatalog(_dir.Path, personal, WeaviePaths.RepositoryWorkflowsDir(_dir.Path));
 		var runner = new WorkflowRunner(
 			catalog, new WorkflowRunStore(new LocalFileSystem(), Path.Combine(_dir.Path, "run.json")),
-			new UnusedDecider(), new UnusedPort(), () => 3, () => true, _dir.Path, WeavieWorkflows.Vocabulary);
+			new UnusedDecider(), new WorkflowFileReader(new LocalFileSystem(), _dir.Path), new UnusedPort(), () => 3, () => true, () => 0.8, _dir.Path, WeavieWorkflows.Vocabulary);
 		_runners.Add(runner);
 		return new SessionWorkflowRegistry(catalog, runner);
 	}
@@ -405,6 +405,11 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Equal(WorkflowSchema.Json, ToolText(schema));
 
 		var validate = tools.Single(t => t.GetProperty("name").GetString() == "validateWorkflow");
+		Assert.Contains("intentional warnings may be ignored", validate.GetProperty("description").GetString(), StringComparison.Ordinal);
+		var complete = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
+			.Single(t => t.GetProperty("name").GetString() == "completeStage");
+		Assert.Contains("current text of explicitly referenced files", complete.GetProperty("inputSchema").GetProperty("properties")
+			.GetProperty("summary").GetProperty("description").GetString(), StringComparison.Ordinal);
 		Assert.Equal(
 			["id", "text"],
 			validate.GetProperty("inputSchema").GetProperty("properties").EnumerateObject().Select(p => p.Name));

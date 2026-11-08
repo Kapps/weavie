@@ -50,7 +50,7 @@ public sealed class HostCoreWorkflowTests {
 
 	[Fact]
 	public async Task RunDeliversStagesCarriesTheStageBlockAndPublishesTheRunLine() {
-		var decisions = new DecisionStub("yes");
+		var decisions = new DecisionStub("yes", 0.9);
 		await using var host = await StartAsync(decisions);
 		var provider = Assert.IsType<FakeStructuredAgentProvider>(host.AgentProviders.RequireAvailable("structured"));
 		IAgentTurnContext? turnContext = null;
@@ -86,8 +86,8 @@ public sealed class HostCoreWorkflowTests {
 	}
 
 	[Fact]
-	public async Task UnsureDecisionAsksTheUserTheSameQuestion() {
-		var decisions = new DecisionStub("unsure");
+	public async Task LowConfidenceAsksTheUserTheSameQuestion() {
+		var decisions = new DecisionStub("yes", 0.79);
 		await using var host = await StartAsync(decisions);
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session("wf");
@@ -97,14 +97,14 @@ public sealed class HostCoreWorkflowTests {
 		session.Workflow.CompleteStage(Json("{}"), "s");
 
 		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
-			&& line.Value.GetProperty("reason").GetString() == "Is v1 polished? (the decision model was unsure)");
+			&& line.Value.GetProperty("reason").GetString() == "Is v1 polished? (the decision confidence 0.79 is below the required 0.8)");
 		Assert.True((await host.InvokeCommandAsync("wf", CoreCommands.WorkflowAnswer, new { run = run.Id, choice = "yes" }, CancellationToken.None)).Ok);
 		await WaitForRunLineAsync(host, session, line => line is null);
 	}
 
 	[Fact]
 	public async Task NewSessionStartsItsWorkflowAsTheFirstInputAndRefusesBadOnesBeforeCreatingIt() {
-		await using var host = await StartAsync(new DecisionStub("yes"));
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
 
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "wf",
@@ -135,7 +135,7 @@ public sealed class HostCoreWorkflowTests {
 
 	[Fact]
 	public async Task RunSurvivesAnUnloadAndReplaysItsLine() {
-		await using var host = await StartAsync(new DecisionStub("yes"));
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var run = host.Session("wf").Workflow.Start("flow", Json("{}"));
 		host.Session("wf").Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
@@ -153,7 +153,7 @@ public sealed class HostCoreWorkflowTests {
 	[InlineData("cancel")]
 	[InlineData("fail")]
 	public async Task ATurnQueuedWhileTheAgentIsBusyIsNotSentOnceTheRunNoLongerOwesIt(string retire) {
-		await using var host = await StartAsync(new DecisionStub("yes"));
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		var session = host.Session("wf");
 		var run = session.Workflow.Start("flow", Json("{}"));
@@ -173,7 +173,7 @@ public sealed class HostCoreWorkflowTests {
 
 	[Fact]
 	public async Task DeletingASessionForgetsItsRunSoTheBranchCanStartAfresh() {
-		await using var host = await StartAsync(new DecisionStub("yes"));
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
 		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
 		host.Session("wf").Workflow.Start("flow", Json("{}"));
 
@@ -192,7 +192,7 @@ public sealed class HostCoreWorkflowTests {
 
 	[Fact]
 	public async Task NewSessionRunsTheWorkflowResolvedWhereItWasStarted() {
-		await using var host = await StartAsync(new DecisionStub("yes"));
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
 		File.WriteAllText(Path.Combine(host.RepoRoot, ".weavie", "workflows", "local.yaml"), """
 			id: local
 			description: exists only uncommitted in the source checkout
@@ -232,7 +232,7 @@ public sealed class HostCoreWorkflowTests {
 	}
 
 	// Answers every workflow decision with Choice.
-	private sealed class DecisionStub(string choice) : IInferenceService {
+	private sealed class DecisionStub(string choice, double confidence) : IInferenceService {
 		public string Choice { get; set; } = choice;
 
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
@@ -243,7 +243,7 @@ public sealed class HostCoreWorkflowTests {
 			InferenceQueryOptions options,
 			CancellationToken ct) =>
 			Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
-				Value = JsonSerializer.Deserialize($$"""{"choice":"{{Choice}}"}""", responseType)!,
+				Value = JsonSerializer.Deserialize(FormattableString.Invariant($$"""{"choice":"{{Choice}}","confidence":{{confidence}}}"""), responseType)!,
 				Receipt = new InferenceReceipt {
 					ProviderId = "test",
 					Category = category,

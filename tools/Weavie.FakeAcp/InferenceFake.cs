@@ -67,12 +67,28 @@ internal static class InferenceFake {
 					});
 					break;
 				case "session/prompt":
+					if (variant == "workflow") {
+						string prompt = string.Concat(root.GetProperty("params").GetProperty("prompt")
+							.EnumerateArray().Where(block => AcpJson.OptionalString(block, "type") == "text")
+							.Select(block => block.GetProperty("text").GetString()));
+						await File.WriteAllTextAsync(Path.Combine(cwd, "inference-receipt.txt"), prompt).ConfigureAwait(false);
+						if (File.Exists(Path.Combine(cwd, "inference-reject"))) {
+							Write(new JsonObject {
+								["jsonrpc"] = "2.0",
+								["id"] = id,
+								["error"] = new JsonObject { ["code"] = -32602, ["message"] = "The provider rejected the inference prompt." },
+							});
+							break;
+						}
+					}
 					foreach (var block in root.GetProperty("params").GetProperty("prompt").EnumerateArray()) {
 						if (AcpJson.OptionalString(block, "type") != "image") continue;
 						imageMime = AcpJson.OptionalString(block, "mimeType") ?? string.Empty;
 						imageData = AcpJson.OptionalString(block, "data") ?? string.Empty;
 					}
-					Chunk(Reply(
+					bool refusal = variant == "refusal"
+						|| variant == "workflow" && File.Exists(Path.Combine(cwd, "inference-refuse"));
+					Chunk(refusal ? string.Empty : Reply(
 						variant,
 						cwd,
 						refusedProbe,
@@ -84,7 +100,7 @@ internal static class InferenceFake {
 						booleanConfigOptions,
 						mutations));
 					Respond(id, new JsonObject {
-						["stopReason"] = variant == "refusal" ? "refusal" : "end_turn",
+						["stopReason"] = refusal ? "refusal" : "end_turn",
 						["usage"] = new JsonObject {
 							["inputTokens"] = 2,
 							["outputTokens"] = 26,
@@ -118,7 +134,9 @@ internal static class InferenceFake {
 			"empty" => string.Empty,
 			// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
 			"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
-			"refusal" => string.Empty,
+			"workflow" => File.Exists(Path.Combine(cwd, "inference-answer.json"))
+				? File.ReadAllText(Path.Combine(cwd, "inference-answer.json"))
+				: "{\"choice\":\"accept\",\"confidence\":1}",
 			"image" => JsonSerializer.Serialize(new JsonObject {
 				["branch"] = "feat/fake-branch",
 				["imageMime"] = imageMime,

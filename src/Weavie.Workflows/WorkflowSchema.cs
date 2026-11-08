@@ -39,22 +39,32 @@ public static partial class WorkflowSchema {
 			new("outputs", outputs, false),
 		]);
 		var ask = new TextShape(
-			"The question. A model answers it with no tools: it sees only this text (with its {{…}} values filled in), "
-			+ "the stage's outputs, and the summary the agent gave when it completed the stage, so reference every value it needs.");
-		var by = new EnumShape("Who answers: model (default; an unsure or failed answer goes to the user) or user.", ["model", "user"]);
+			"Ask about observable criteria, one concern per question. A model has no tools or conversation history: it sees "
+			+ "this text with referenced values, the current text of explicitly referenced files inputs/outputs, stage output values, "
+			+ "and the completion summary with user feedback. Literal/composed paths, unreferenced files, URLs and document links "
+			+ "supply no contents. Any unreadable referenced file asks the user without calling the model.");
+		var by = new EnumShape("Who answers: model (default; a low-confidence, refused, or failed answer goes to the user) or user.", ["model", "user"]);
+		var confidence = new WorkflowField("confidence", new NumberShape("Minimum confidence to route automatically; model decisions only. Omit to use workflow.decisionConfidence.", 0, 1), false);
+		var choice = new TextOrObjectShape("A destination with an optional description of this answer.",
+			new TextShape("A stage id, or done."),
+			new ObjectShape("A described answer.", [
+				new("then", new TextShape("A stage id, or done."), true),
+				new("description", new TextShape("Plain-text criteria distinguishing this answer; recommended for model decisions."), false),
+			]));
 		var condition = new TextOrObjectShape(
 			"Run the stage only if the answer is yes; on no it is skipped and the run moves to the following stage. "
 			+ "Text is a yes/no question for the model.",
-			new TextShape("A yes/no question for the model; may use {{…}} references."),
-			new ObjectShape("A yes/no question.", [new("ask", ask, true), new("by", by, false)]));
+			ask,
+			new ObjectShape("A yes/no question.", [new("ask", ask, true), new("by", by, false), confidence]));
 		var decision = new ObjectShape("A question whose answer picks the next stage.", [
 			new("ask", ask, true),
 			new("choices", new MapShape(
 				"Each answer and the stage id (or done) it leads to; an answer leading back to this stage reopens it with the user's feedback.",
-				IdPattern(), idHint, new TextShape("A stage id, or done.")), true),
+				IdPattern(), idHint, choice), true),
 			new("limit", new IntShape(
 				"How many times in a row the model may answer this decision before the user is asked instead; model decisions only.", 1), false),
 			new("by", by, false),
+			confidence,
 		]);
 		var stage = new ObjectShape("One stage of the run.", [
 			new("id", new TextShape("Unique within the workflow.", IdPattern(), idHint), true),
@@ -64,7 +74,8 @@ public static partial class WorkflowSchema {
 				"What follows: a stage id, done, or a decision. Without it the run moves to the following stage.",
 				new TextShape("A stage id, or done."), decision), false),
 		]);
-		return new ObjectShape("A workflow: ordered stages the host runs and the agent fills.", [
+		return new ObjectShape("A workflow: ordered stages the host runs and the agent fills. Evidence warnings are flags for judgment; "
+			+ "authors may ignore intentional warnings. Warnings never block saving or running; structural errors remain invalid.", [
 			new("id", new TextShape("The workflow id; must match the file name.", IdPattern(), idHint), true),
 			new("description", new TextShape("One line, shown when choosing a workflow."), true),
 			new("inputs", new MapShape(

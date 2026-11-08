@@ -14,7 +14,7 @@ public enum InferenceFailureKind {
 	/// <summary>The provider cannot serve the requested model category.</summary>
 	CategoryUnavailable,
 
-	/// <summary>The query prompt exceeded its declared size bound.</summary>
+	/// <summary>The input exceeds image bounds or is rejected by the provider.</summary>
 	InputRejected,
 
 	/// <summary>The single model attempt exceeded its declared time budget.</summary>

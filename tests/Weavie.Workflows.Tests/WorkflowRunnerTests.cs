@@ -26,6 +26,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private readonly Decider _decider = new();
 	private readonly MemoryStore _store = new();
 	private bool _openReviewItem = true;
+	private double _confidence = 0.8;
 
 	public WorkflowRunnerTests() {
 		_dir.WriteFile("worktree/.weavie/workflows/flow.yaml", Flow);
@@ -36,7 +37,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, _port, () => 3, () => _openReviewItem, _dir.Combine("worktree"), TestWorkflows.Words);
+			_store, _decider, new UnusedFileReader(), _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words);
 		runner.Activate();
 		return runner;
 	}
@@ -97,7 +98,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		runner.Answer(run.Id, "approve", "");
 		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		runner.CompleteStage(Json("{}"), "s");
-		_decider.Next.SetResult(WorkflowDecisionResult.Chose(WorkflowDecision.Unsure));
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("yes", 0.1));
 		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Asking);
 
 		string turn = _port.Kickoffs[^1];
@@ -115,7 +116,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		runner.Answer(run.Id, "approve", "");
 		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		Assert.DoesNotContain("openFile", runner.CompleteStage(Json("{}"), "s"));
-		_decider.Next.SetResult(WorkflowDecisionResult.Chose("yes"));
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("yes", 1));
 		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Open);
 		Assert.DoesNotContain(_port.Kickoffs, turn => turn.Contains("openFile", StringComparison.Ordinal));
 	}
@@ -142,7 +143,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		_decider.Next = new TaskCompletionSource<WorkflowDecisionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		runner.CompleteStage(Json("{}"), "s");
 		Assert.Equal(WorkflowPhase.Deciding, runner.Current!.Phase);
-		_decider.Next.SetResult(WorkflowDecisionResult.Chose("no"));
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("no", 1));
 		await WaitFor(() => runner.Current!.Phase == WorkflowPhase.Done);
 	}
 
@@ -156,7 +157,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		_decider.Next = late;
 		runner.CompleteStage(Json("{}"), "s");
 		runner.Jump(run.Id, "b");
-		late.SetResult(WorkflowDecisionResult.Chose("yes"));
+		late.SetResult(new WorkflowDecisionResult.Answered("yes", 1));
 		await Task.Delay(100);
 		Assert.Equal(("b", WorkflowPhase.Open), (runner.Current!.Stage, runner.Current.Phase));
 	}
@@ -217,12 +218,73 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	}
 
 	[Fact]
-	public void DecisionAnswersOutsideTheChoicesFail() {
-		var request = new WorkflowDecisionRequest { Question = "q", Choices = ["yes", "no"], Outputs = new Dictionary<string, string>(), Summary = "" };
-		Assert.Equal("yes", WorkflowDecision.Interpret(request, "yes").Choice);
-		Assert.Equal(WorkflowDecision.Unsure, WorkflowDecision.Interpret(request, "unsure").Choice);
-		Assert.Contains("isn't one of yes, no", WorkflowDecision.Interpret(request, "maybe").Failure);
-		Assert.Equal(["yes", "no", WorkflowDecision.Unsure], WorkflowDecision.ModelChoices(request));
+	public async Task ActiveAttemptKeepsItsThresholdAndNextAttemptReadsTheLiveSetting() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("{\"note\":\"n\"}"), "s");
+		runner.Answer(run.Id, "approve", "");
+		runner.CompleteStage(Json("{}"), "s");
+		await _decider.Started.Reader.ReadAsync();
+		_confidence = 0.9;
+		var routed = NextPhase(runner, WorkflowPhase.Open);
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("yes", 0.85));
+		await routed;
+		Assert.Equal("a", runner.Current!.Stage);
+
+		runner.CompleteStage(Json("{\"note\":\"n\"}"), "s");
+		runner.Answer(run.Id, "approve", "");
+		_decider.Next = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		runner.CompleteStage(Json("{}"), "s");
+		await _decider.Started.Reader.ReadAsync();
+		var asking = NextPhase(runner, WorkflowPhase.Asking);
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("no", 0.85));
+		await asking;
+		Assert.Contains("0.9", runner.Current!.Asked!.Reason);
+	}
+
+	[Fact]
+	public async Task ReactivationCapturesFreshThresholdAndRetiresTheOldToken() {
+		var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("{\"note\":\"n\"}"), "s");
+		runner.Answer(run.Id, "approve", "");
+		runner.CompleteStage(Json("{}"), "s");
+		var token = await _decider.Started.Reader.ReadAsync();
+		runner.Dispose();
+		Assert.True(token.IsCancellationRequested);
+		_confidence = 0.95;
+		_decider.Next = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var restored = Runner();
+		await _decider.Started.Reader.ReadAsync();
+		var asking = NextPhase(restored, WorkflowPhase.Asking);
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("no", 0.9));
+		await asking;
+		Assert.Contains("0.95", restored.Current!.Asked!.Reason);
+	}
+
+	[Fact]
+	public async Task UnexpectedProviderCancellationEscalatesInsteadOfStrandingTheRun() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("{\"note\":\"n\"}"), "s");
+		runner.Answer(run.Id, "approve", "");
+		runner.CompleteStage(Json("{}"), "s");
+		await _decider.Started.Reader.ReadAsync();
+		var asking = NextPhase(runner, WorkflowPhase.Asking);
+		_decider.Next.SetException(new OperationCanceledException("provider stopped"));
+		await asking;
+		Assert.Contains("provider stopped", runner.Current!.Asked!.Reason);
+	}
+
+	private static Task NextPhase(WorkflowRunner runner, WorkflowPhase phase) {
+		var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		void OnChanged() {
+			if (runner.Current!.Phase != phase) return;
+			runner.Changed -= OnChanged;
+			changed.SetResult();
+		}
+		runner.Changed += OnChanged;
+		return changed.Task.WaitAsync(TimeSpan.FromSeconds(10));
 	}
 
 	private static async Task WaitFor(Func<bool> condition) {
@@ -250,9 +312,19 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		public void Save(WorkflowRun? run) => Text = WorkflowRunDocument.Write(run);
 	}
 
+	private sealed class UnusedFileReader : IWorkflowFileReader {
+		public WorkflowFileRead Read(string relativePath) => throw new InvalidOperationException("No file read expected.");
+	}
+
 	private sealed class Decider : IWorkflowDecider {
 		public TaskCompletionSource<WorkflowDecisionResult> Next { get; set; } = new();
 
-		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) => Next.Task.WaitAsync(ct);
+		public System.Threading.Channels.Channel<CancellationToken> Started { get; } = System.Threading.Channels.Channel.CreateUnbounded<CancellationToken>();
+
+		public Task<WorkflowDecisionResult> DecideAsync(WorkflowDecisionRequest request, CancellationToken ct) {
+			var answer = Next.Task;
+			Started.Writer.TryWrite(ct);
+			return answer.WaitAsync(ct);
+		}
 	}
 }

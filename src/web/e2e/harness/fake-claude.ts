@@ -2,7 +2,7 @@ import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fakeClaudeProgram, programExists, type TestProgram } from "./test-programs";
 
-export type FakeInference = "disabled" | "failure" | "needsDetail" | "success";
+export type FakeInference = "disabled" | "failure" | "needsDetail" | "success" | "workflow";
 
 export function fakeClaudeBuilt(): boolean {
   return programExists(fakeClaudeProgram);
@@ -44,6 +44,7 @@ export type FakeStep =
   | { op: "edit"; path: string; content: string }
   | { op: "hook"; request: Record<string, unknown> }
   | { op: "waitFile"; path: string }
+  | { op: "waitInput"; text: string }
   | { op: "mcp"; tool: string; args?: Record<string, unknown>; server?: "ide" };
 
 export async function writeFakeScript(dir: string, steps: FakeStep[]): Promise<string> {

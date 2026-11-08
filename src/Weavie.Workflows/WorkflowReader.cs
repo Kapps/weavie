@@ -7,7 +7,7 @@ internal sealed record WorkflowReadResult {
 	/// <summary>The definition when the file is valid; otherwise <see langword="null"/>.</summary>
 	public required WorkflowDefinition? Definition { get; init; }
 
-	/// <summary>Every problem found; empty exactly when <see cref="Definition"/> is set.</summary>
+	/// <summary>Errors and advisory warnings; warnings may accompany a valid definition.</summary>
 	public required IReadOnlyList<WorkflowDiagnostic> Diagnostics { get; init; }
 }
 
@@ -71,7 +71,9 @@ internal static class WorkflowReader {
 				null => new WorkflowThen.Sequential(),
 				JsonObject decide => new WorkflowThen.Decide(
 					Question(decide, $"{path}.then", check),
-					[.. decide["choices"]!.AsObject().Select(choice => new WorkflowChoice(choice.Key, Text(choice.Value)))],
+					[.. decide["choices"]!.AsObject().Select(choice => choice.Value is JsonObject described
+						? new WorkflowChoice(choice.Key, Text(described["then"]), described["description"] is { } description ? Text(description) : null)
+						: new WorkflowChoice(choice.Key, Text(choice.Value), null))],
 					decide["limit"] is null ? null : int.Parse(Text(decide["limit"]), System.Globalization.CultureInfo.InvariantCulture)),
 				var target => new WorkflowThen.Goto(Text(target)),
 			},
@@ -82,9 +84,10 @@ internal static class WorkflowReader {
 	private static WorkflowQuestion Question(JsonNode node, string path, WorkflowCheck check) => node is JsonObject mapping
 		? new WorkflowQuestion {
 			Ask = Template(mapping["ask"], $"{path}.ask", check) ?? WorkflowTemplate.Empty,
+			Confidence = mapping["confidence"] is { } confidence ? double.Parse(Text(confidence), System.Globalization.CultureInfo.InvariantCulture) : null,
 			By = mapping["by"] is { } by && Text(by) == "user" ? WorkflowAnswerer.User : WorkflowAnswerer.Model,
 		}
-		: new WorkflowQuestion { Ask = Template(node, path, check) ?? WorkflowTemplate.Empty, By = WorkflowAnswerer.Model };
+		: new WorkflowQuestion { Ask = Template(node, path, check) ?? WorkflowTemplate.Empty, By = WorkflowAnswerer.Model, Confidence = null };
 
 	private static WorkflowTemplate? Template(JsonNode? node, string path, WorkflowCheck check) {
 		if (node is null) {

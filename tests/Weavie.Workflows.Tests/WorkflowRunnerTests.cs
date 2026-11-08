@@ -70,7 +70,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		using var runner = Runner();
 		runner.Start("flow", Json("{}"));
 		string reply = runner.CompleteStage(Json("""{"note":"n"}"""), "s");
-		Assert.Contains("call openFile with preview and rendered true on the main one only, and link any others", reply);
+		Assert.Contains("call openFile with preview, rendered, and focus true on the main one only, and link any others", reply);
 		Assert.Equal(["do a"], _port.Kickoffs);
 		Assert.Null(runner.Current!.Kickoff);
 		Assert.DoesNotContain("openFile", runner.StageBlock());

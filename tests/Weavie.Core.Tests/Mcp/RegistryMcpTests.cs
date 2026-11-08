@@ -60,8 +60,10 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
 	}
 
-	[Fact]
-	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools(bool focus) {
 		using var store = NewStore();
 		var presenter = FakeDiffPresenter.AlwaysKeep();
 		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], "weavie", store, registryMode: true);
@@ -73,10 +75,13 @@ public sealed class RegistryMcpTests : IDisposable {
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Single(names, name => name == McpServer.OpenFileTool);
 
-		await SendAsync(ws, Request(2, "tools/call", """{"name":"openFile","arguments":{"filePath":"plan.md","preview":true}}"""));
+		await SendAsync(ws, Request(2, "tools/call", JsonSerializer.Serialize(new {
+			name = "openFile",
+			arguments = new { filePath = "plan.md", preview = true, rendered = true, focus },
+		})));
 		using var opened = await ReceiveAsync(ws);
 		Assert.Equal("FILE_OPENED", ToolText(opened));
-		Assert.Equal(["plan.md"], presenter.Opened);
+		Assert.Equal([("plan.md", true, true, focus)], presenter.Opened);
 
 		await SendAsync(ws, Request(3, "tools/call", """{"name":"openFile","arguments":{}}"""));
 		using var missing = await ReceiveAsync(ws);

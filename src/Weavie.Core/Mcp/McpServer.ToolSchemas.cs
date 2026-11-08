@@ -9,7 +9,7 @@ public sealed partial class McpServer {
 	// Advertised on both servers: Claude Code filters it from the IDE server, so its model reaches it on the registry.
 	private const string OpenFileToolEntry =
 		$$$$"""
-          {"name":"{{{{OpenFileTool}}}}","description":"Open a file in your session's editor, without taking the user's keyboard. 'preview' reuses the session's preview tab; 'rendered' shows the file's rendered view when it has one (such as Markdown).","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"rendered":{"type":"boolean"}},"required":["filePath"]}}
+          {"name":"{{{{OpenFileTool}}}}","description":"Open a file in your session's editor. 'focus' selects its tab over other tabs and focuses the editor when your session is viewed; otherwise it waits in your session. Without 'focus', opening preserves the user's keyboard focus. 'preview' reuses the session's preview tab; 'rendered' shows the file's rendered view when it has one (such as Markdown).","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"rendered":{"type":"boolean"},"focus":{"type":"boolean"}},"required":["filePath"]}}
         """;
 
 	// IDE RPC tools. openDiff is the star (blocking review); the rest give Claude IDE context.

@@ -222,6 +222,9 @@ mismatches are rejected, never guessed:
 - **TOML and catalog JSON:** `Number` values remain numeric, including fractional values; integer TOML
   values are accepted as numbers. Ranges such as workflow confidence `[0, 1]` belong to validators.
 
+Consumers read `Number` settings through `SettingsStore.RequireNumber`, which returns a `double`.
+For example, `workflow.decisionConfidence` defaults to numeric `0.8` and applies live to subsequent decisions.
+
 ### Env-var override convention
 
 Every setting's env var is **derived** from its key — `WEAVIE_` + the key uppercased with `.` → `_`:

@@ -105,9 +105,10 @@ repository workflows run like any repository file; a trust flag for repositories
 Workflows are written by the agent, not by hand. The registry exposes:
 
 - `getWorkflowSchema` — the JSON Schema of the format, so the agent reads the real field list instead of recalling one.
-- `validateWorkflow(id | text)` — exact errors (`unknown key "runs-on" at stages[2]`) and warnings (a model question that
-  references no values). `text` checks proposed YAML without touching any file; `id` checks the saved workflow that
-  wins. Structural errors stop the later checks, so `Valid.` means every check ran. Warnings never make a file invalid.
+- `validateWorkflow(id | text)` — positioned errors and advisory warnings. Model questions flag unreferenced `files`
+  outputs and literal/composed paths that supply no contents, as well as questions with no referenced context or
+  stage outputs. `text` checks proposed YAML without touching any file; `id` checks the saved winner. Structural
+  errors stop later checks. Warnings never make a file invalid or prevent saving and running it.
 - `listWorkflows` — every resolved workflow with scope, path, and validity, plus the personal and repository folders
   this host reads.
 - `forkWorkflow(id, scope)` — copies a valid workflow, including a built-in, into a more specific scope and returns the
@@ -136,15 +137,16 @@ never drift. It tells the agent to:
 - Choose each step's `context` by the rule in [Choosing context](#choosing-context).
 - Put a `by: user` decision where the user wants to sign off, `in: new-session` where each item needs its own branch
   and PR, and `limit` on every decision that can loop.
-- Remember a model decision has no tools: it sees only its question, the stage's outputs, and the agent's summary, so
-  anything it depends on must be a stage output, shaped for the decision that reads it.
+- Ask about observable criteria, one concern per question. A model decision sees its rendered question, explicitly
+  referenced file contents, stage output values, and the completion summary with feedback. It has no tools or
+  conversation history. Declare typed values and explicitly reference the files it needs.
 - Never encode facts the run already knows (a skipped stage, an output's presence) as a model decision.
 - Persist to a file anything a later stage needs from every visit of a repeated stage; a revisit overwrites its outputs.
 - Only use commands and flags verified to exist, and check that every file or value a stage uses is produced earlier
   and reachable where it's used.
 - Walk through a run stage by stage; with run history, cite the evidence for each change.
-- Before saving, pass the complete proposed YAML to `validateWorkflow` as `text`, fix every error, and heed its warnings;
-  then save with a normal edit or write tool, not a script.
+- Before saving, pass the complete proposed YAML to `validateWorkflow` as `text` and fix every error. Warnings are
+  flags for judgment; intentional warnings may remain unresolved. Save with a normal edit or write tool, not a script.
 
 **Edit Workflow** opens the YAML in the editor; the same schema drives inline diagnostics. Saving is never blocked.
 An invalid file is listed as broken (with its error) in the picker and cannot start; a run executes the definition
@@ -353,6 +355,13 @@ stage output values retain the existing pause behavior. Invalid file paths escal
 Only explicit references to `files` values trigger reads. Literal paths, paths composed from text references,
 unreferenced file outputs, URLs, and document links are not expanded. No workspace scan or linked-resource fetch
 occurs. User decisions do not prepare evidence.
+
+Validation warns at a model `then.ask` for each current-stage `files` output it does not reference. Model `if` and
+`then` questions also flag recognizable literal/composed paths, including `README.md`, `docs/review.md`, Windows
+paths, and `{{draft.directory}}/review.md`. Appending a path or extension to a `files` reference does not select a
+different file. Plain references and HTTP(S) links do not trigger the path flag. These checks inspect declarations
+and template syntax only; they never read files or evaluate runtime values. The heuristic can flag intentional
+prose such as `yes/no`; authors may ignore it. User decisions receive neither evidence flag.
 
 The engine prepares evidence and runs inference under one pending attempt, outside its state lock. Cancellation
 retires the attempt; late reads or model results cannot affect a newer one. File bodies are never persisted in run

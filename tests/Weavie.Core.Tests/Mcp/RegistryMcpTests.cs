@@ -400,6 +400,11 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Equal(WorkflowSchema.Json, ToolText(schema));
 
 		var validate = tools.Single(t => t.GetProperty("name").GetString() == "validateWorkflow");
+		Assert.Contains("intentional warnings may be ignored", validate.GetProperty("description").GetString(), StringComparison.Ordinal);
+		var complete = list.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
+			.Single(t => t.GetProperty("name").GetString() == "completeStage");
+		Assert.Contains("current text of explicitly referenced files", complete.GetProperty("inputSchema").GetProperty("properties")
+			.GetProperty("summary").GetProperty("description").GetString(), StringComparison.Ordinal);
 		Assert.Equal(
 			["id", "text"],
 			validate.GetProperty("inputSchema").GetProperty("properties").EnumerateObject().Select(p => p.Name));

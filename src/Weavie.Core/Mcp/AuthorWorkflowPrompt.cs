@@ -33,14 +33,16 @@ public static class AuthorWorkflowPrompt {
 			6. Approvals are decisions the user answers: `by: user`, with choices such as `approve` → the next
 			   stage and `revise` → this stage (an answer leading back to the stage reopens it with the user's
 			   feedback). Put one wherever the user wants to sign off.
-			7. A decision answered by the model (`by: model`, the default) runs on a model with no tools — it
+			7. Write questions around observable criteria, one concern per question. A decision answered by
+			   the model (`by: model`, the default) runs on a model with no tools — it
 			   may be a small decision model. It sees only its `ask` text with the `{{…}}` values filled in, the
 			   stage's outputs, and the summary the agent gives at `completeStage`, including user feedback. When
 			   `ask` references a `files` input or output, Weavie supplies its current text as separate evidence.
 			   Any unreadable file sends the whole question to the user without a model call. Literal paths, paths
 			   assembled from text, unreferenced files, URLs, and document links cause no reads. The model has no
 			   commands or conversation history. Shape outputs for the decisions that read them, and explicitly
-			   reference every needed file value. The model returns a choice with numeric confidence. Below `workflow.decisionConfidence`
+			   reference every needed file value. The model returns a choice with numeric confidence. Below
+			   `workflow.decisionConfidence`
 			   (default 0.8), refusal, failure, or an invalid answer asks the user. Model `if` and `then` may set
 			   `confidence:` to override the threshold; user decisions cannot. No implicit `unsure` answer exists.
 			   Choice values may be a destination or `{ then: stage, description: "plain-text criteria" }`;
@@ -59,8 +61,10 @@ public static class AuthorWorkflowPrompt {
 			   and what each decision can see.
 			13. Before saving any new or changed workflow, pass the complete proposed YAML to `validateWorkflow` as
 			   `text`. Fix every error and validate again until it reports `Valid.`, because later checks and all
-			   warnings only run once structural errors are gone. Heed its warnings. Then save with your normal
-			   edit or write tool, not a script.
+			   warnings only run once structural errors are gone. Warnings are flags for judgment; you may ignore
+			   intentional warnings. They never block saving or running. Flags identify unreferenced `files`
+			   outputs and literal/composed paths that supply no file contents. Then save with your normal edit
+			   or write tool, not a script.
 			14. Summarize the workflow's stages for the user and say where the file lives.
 			""",
 	};

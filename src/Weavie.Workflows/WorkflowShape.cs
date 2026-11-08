@@ -36,6 +36,8 @@ internal sealed class WorkflowCheck(IReadOnlyDictionary<string, WorkflowPosition
 
 	public bool HasErrors => _diagnostics.Any(d => !d.IsWarning);
 
+	public string QuestionPath(string path) => positions.ContainsKey($"{path}.ask") ? $"{path}.ask" : path;
+
 	public void Add(string path, string message) => _diagnostics.Add(WorkflowDiagnostic.Error(path, Locate(path), message));
 
 	public void Warn(string path, string message) =>

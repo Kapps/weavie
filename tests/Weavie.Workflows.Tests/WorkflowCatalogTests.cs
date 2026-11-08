@@ -156,11 +156,16 @@ public sealed class WorkflowCatalogTests : IDisposable {
 	public void SchemaDescribesTheFieldTable() {
 		var schema = JsonNode.Parse(WorkflowSchema.Json)!.AsObject();
 		Assert.Equal("Workflow", schema["title"]!.GetValue<string>());
+		Assert.Contains("authors may ignore intentional warnings", schema["description"]!.GetValue<string>(), StringComparison.Ordinal);
 		Assert.False(schema["additionalProperties"]!.GetValue<bool>());
 		Assert.Equal(["id", "description", "stages"], schema["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 		var stage = schema["properties"]!["stages"]!["items"]!["properties"]!.AsObject();
 		Assert.Equal(["id", "if", "run", "then"], stage.Select(p => p.Key));
 		Assert.Equal(["prompt", "skill", "args", "outputs"], stage["run"]!["properties"]!.AsObject().Select(p => p.Key));
 		Assert.Equal(["ask", "choices", "limit", "by", "confidence"], stage["then"]!["oneOf"]![1]!["properties"]!.AsObject().Select(p => p.Key));
+		string ask = stage["then"]!["oneOf"]![1]!["properties"]!["ask"]!["description"]!.GetValue<string>();
+		Assert.Contains("observable criteria, one concern per question", ask, StringComparison.Ordinal);
+		Assert.Contains("current text of explicitly referenced files", ask, StringComparison.Ordinal);
+		Assert.Equal(ask, stage["if"]!["oneOf"]![0]!["description"]!.GetValue<string>());
 	}
 }

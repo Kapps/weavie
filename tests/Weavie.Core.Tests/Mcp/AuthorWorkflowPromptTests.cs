@@ -14,6 +14,11 @@ public sealed class AuthorWorkflowPromptTests {
 	[InlineData("call `forkWorkflow` first")]
 	[InlineData("never edit a built-in in place")]
 	[InlineData("a variant under a new id is a new workflow, not a fork")]
+	[InlineData("observable criteria, one concern per question")]
+	[InlineData("Warnings are flags for judgment; you may ignore intentional warnings")]
+	[InlineData("current text as separate evidence")]
+	[InlineData("without a model call")]
+	[InlineData("commands or conversation history")]
 	public void TeachesTheEditingRules(string rule) =>
 		Assert.Contains(rule, Normalized(AuthorWorkflowPrompt.Prompt.Text), StringComparison.Ordinal);
 

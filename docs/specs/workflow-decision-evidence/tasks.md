@@ -66,14 +66,14 @@ assertions to prove no partial-evidence call and no reads from unreferenced path
 
 **Requirements:** 9, 10. **Dependencies:** 2, 3.
 
-- [ ] Add positioned warnings for unreferenced `files` outputs and recognizable literal/composed paths
+- [x] Add positioned warnings for unreferenced `files` outputs and recognizable literal/composed paths
   in model questions, reusing parsed templates and declared-reference lookup.
-- [ ] Test warning-only validity, runnable workflows, user-decision exclusions, path examples/false
+- [x] Test warning-only validity, runnable workflows, user-decision exclusions, path examples/false
   positives, and continued structural-error rejection.
-- [ ] Finish `author-workflow`, schema guidance, and `docs/specs/workflows.md`: exact evidence visibility,
+- [x] Finish `author-workflow`, schema guidance, and `docs/specs/workflows.md`: exact evidence visibility,
   observable single-concern questions, judgment-based warnings, confidence, and choice descriptions.
   Remove remaining obsolete `unsure`/no-file-content claims; update settings docs for numeric values.
-- [ ] Add a real-app authoring journey using schema/validation tools, verify intentional warnings can
+- [x] Add a real-app authoring journey using schema/validation tools, verify intentional warnings can
   remain unresolved, and check the completed feature against requirements 1–10.
 
 **Video:** in the real app, inspect the authoring guidance and validate a workflow with both evidence

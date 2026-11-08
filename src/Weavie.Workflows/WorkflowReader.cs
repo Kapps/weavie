@@ -7,7 +7,7 @@ internal sealed record WorkflowReadResult {
 	/// <summary>The definition when the file is valid; otherwise <see langword="null"/>.</summary>
 	public required WorkflowDefinition? Definition { get; init; }
 
-	/// <summary>Every problem found; empty exactly when <see cref="Definition"/> is set.</summary>
+	/// <summary>Errors and advisory warnings; warnings may accompany a valid definition.</summary>
 	public required IReadOnlyList<WorkflowDiagnostic> Diagnostics { get; init; }
 }
 

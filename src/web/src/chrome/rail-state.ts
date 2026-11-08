@@ -1,21 +1,23 @@
 import { createSignal } from "solid-js";
 import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 
-// App-global session-rail UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
-// backend a session was last created on and the session panel's layout. Setters update the local signal
-// optimistically and tell the host, which echoes the canonical state back. Registered at module load, before
-// main.tsx sends `ready`.
+// App-global chrome UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
+// backend a session was last created on, the session panel's layout, and the fullscreen column's width.
+// Setters update the local signal optimistically and tell the host, which echoes the canonical state back.
+// Registered at module load, before main.tsx sends `ready`.
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [panelPinnedSig, setPanelPinnedSig] = createSignal(false);
 const [panelWidthSig, setPanelWidthSig] = createSignal(300);
 const [parkedCollapsedSig, setParkedCollapsedSig] = createSignal(true);
+const [fullscreenWidthSig, setFullscreenWidthSig] = createSignal(1200);
 
 interface RailState {
   lastLocation: string;
   panelPinned: boolean;
   panelWidth: number;
   parkedCollapsed: boolean;
+  fullscreenWidth: number;
 }
 
 function applyRailState(state: RailState): void {
@@ -23,6 +25,7 @@ function applyRailState(state: RailState): void {
   setPanelPinnedSig(state.panelPinned);
   setPanelWidthSig(state.panelWidth);
   setParkedCollapsedSig(state.parkedCollapsed);
+  setFullscreenWidthSig(state.fullscreenWidth);
 }
 
 registerHostFeature((connection) => {
@@ -75,4 +78,13 @@ export const parkedCollapsed = parkedCollapsedSig;
 export function setParkedCollapsed(collapsed: boolean): void {
   setParkedCollapsedSig(collapsed);
   publish("setParkedCollapsed", { collapsed });
+}
+
+/** The fullscreen pane's centered column width in CSS pixels (reactive); 0 fills the pane area. */
+export const fullscreenWidth = fullscreenWidthSig;
+
+/** Remember the fullscreen column's dragged width. */
+export function setFullscreenWidth(width: number): void {
+  setFullscreenWidthSig(width);
+  publish("setFullscreenWidth", { width });
 }

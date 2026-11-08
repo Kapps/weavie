@@ -315,6 +315,7 @@ export interface EditorOptionsSpec {
   suggestExpandDocs: boolean;
   commentProse: CommentProseMode;
   markdownView: "preview" | "source";
+  markdownChangeMarks: "current" | "all";
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;

@@ -44,6 +44,32 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 		Changed?.Invoke();
 	}
 
+	/// <summary>
+	/// Sets each recorded worktree's branch to what git reports checked out at its path, in one save; paths with no
+	/// record are skipped, so a removal racing this can't be undone.
+	/// </summary>
+	public void SyncBranches(IReadOnlyList<(string Path, string? Branch)> checkouts) {
+		ArgumentNullException.ThrowIfNull(checkouts);
+		bool changed = false;
+		lock (Gate) {
+			foreach (var (path, branch) in checkouts) {
+				int index = _items.FindIndex(r => PathIdentity.Equals(r.Path, path));
+				if (index >= 0 && _items[index].Branch != branch) {
+					_items[index] = _items[index] with { Branch = branch };
+					changed = true;
+				}
+			}
+
+			if (changed) {
+				PersistLocked();
+			}
+		}
+
+		if (changed) {
+			Changed?.Invoke();
+		}
+	}
+
 	/// <summary>Drops the entry for <paramref name="path"/> (a worktree that was removed).</summary>
 	public void Remove(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
@@ -98,7 +124,6 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 			Worktrees = [.. _items.Select(r => new WorktreeEntry {
 				Branch = r.Branch,
 				Path = r.Path,
-				BaseRef = r.BaseRef,
 				CreatedAt = r.CreatedAtUtc,
 				AgentProviderId = r.AgentProviderId,
 			})],
@@ -107,16 +132,13 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 
 
 	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
-		if (string.IsNullOrWhiteSpace(entry.Branch)
-			|| string.IsNullOrWhiteSpace(entry.Path)
-			|| string.IsNullOrWhiteSpace(entry.BaseRef)
+		if (string.IsNullOrWhiteSpace(entry.Path)
 			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)) {
-			throw new JsonException("Worktree entries require branch, path, baseRef, and agentProviderId.");
+			throw new JsonException("Worktree entries require a path and agentProviderId.");
 		}
 		return new WorktreeRecord {
 			Branch = entry.Branch,
 			Path = entry.Path,
-			BaseRef = entry.BaseRef,
 			CreatedAtUtc = entry.CreatedAt,
 			AgentProviderId = entry.AgentProviderId,
 		};
@@ -132,13 +154,10 @@ public sealed partial class WorktreeRegistry : JsonDocumentStore {
 
 	private sealed class WorktreeEntry {
 		[JsonPropertyName("branch")]
-		public string Branch { get; set; } = string.Empty;
+		public string? Branch { get; set; }
 
 		[JsonPropertyName("path")]
 		public string Path { get; set; } = string.Empty;
-
-		[JsonPropertyName("baseRef")]
-		public string BaseRef { get; set; } = string.Empty;
 
 		[JsonPropertyName("createdAt")]
 		public DateTimeOffset CreatedAt { get; set; }

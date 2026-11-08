@@ -12,6 +12,25 @@ public interface IPullRequestDiscussion {
 
 	/// <summary>Posts a PR-level comment on PR <paramref name="pullRequestId"/>, immediately and outside any review.</summary>
 	Task AddCommentAsync(RepoRef repo, string pullRequestId, string body, CancellationToken ct = default);
+
+	/// <summary>What the forge serves at attachment <paramref name="url"/>, so the page builds only the matching element.</summary>
+	Task<AttachmentKind> AttachmentKindAsync(Uri url, CancellationToken ct = default);
+}
+
+/// <summary>The media a forge attachment holds, by its served content type.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AttachmentKind>))]
+public enum AttachmentKind {
+	/// <summary>An image.</summary>
+	[JsonStringEnumMemberName("image")]
+	Image,
+
+	/// <summary>A video.</summary>
+	[JsonStringEnumMemberName("video")]
+	Video,
+
+	/// <summary>Anything else, or an attachment that failed to load.</summary>
+	[JsonStringEnumMemberName("unsupported")]
+	Unsupported,
 }
 
 /// <summary>One PR's overview as its forge reports it.</summary>

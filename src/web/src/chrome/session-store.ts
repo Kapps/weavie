@@ -197,14 +197,23 @@ onBackendPhase((backendId, phase) => {
 
 onSelectedSession(() => setPendingSelection(null));
 
+const chipOf = (session: ClientSession | null): BackendSession | undefined =>
+  session === null
+    ? undefined
+    : byBackend()
+        .get(session.connection.id)
+        ?.find((chip) => chip.owner === session);
+
+/** The live workflow run `session` owns, or null when it has none. */
+export function sessionRun(session: ClientSession | null): SessionRun | null {
+  return chipOf(session)?.run ?? null;
+}
+
 // The session the user is looking at is seen: its owner clears the host's flag for every client.
 createRoot(() => {
   const watchedUnseen = createMemo(() => {
     const selected = selectedSession();
-    const chip = byBackend()
-      .get(selected?.connection.id ?? "")
-      ?.find((candidate) => candidate.owner === selected);
-    return selected !== null && chip?.unseen === true && windowFocused() ? selected : null;
+    return chipOf(selected)?.unseen === true && windowFocused() ? selected : null;
   });
   createEffect(() => watchedUnseen()?.feature("attention").publish("seen", {}));
 });

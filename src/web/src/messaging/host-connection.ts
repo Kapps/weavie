@@ -33,6 +33,7 @@ export interface HostHello {
     panelPinned: boolean;
     panelWidth: number;
     parkedCollapsed: boolean;
+    fullscreenWidth: number;
   };
   search: {
     options: {

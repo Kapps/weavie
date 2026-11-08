@@ -60,8 +60,10 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
 	}
 
-	[Fact]
-	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task OpenFileReachesTheEditorFromTheRegistryWithoutTheIdeTools(bool focus) {
 		using var store = NewStore();
 		var presenter = FakeDiffPresenter.AlwaysKeep();
 		await using var server = TestMcp.Server(Token, presenter, [_dir.Path], "weavie", store, registryMode: true);
@@ -73,10 +75,13 @@ public sealed class RegistryMcpTests : IDisposable {
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Single(names, name => name == McpServer.OpenFileTool);
 
-		await SendAsync(ws, Request(2, "tools/call", """{"name":"openFile","arguments":{"filePath":"plan.md","preview":true}}"""));
+		await SendAsync(ws, Request(2, "tools/call", JsonSerializer.Serialize(new {
+			name = "openFile",
+			arguments = new { filePath = "plan.md", preview = true, rendered = true, focus },
+		})));
 		using var opened = await ReceiveAsync(ws);
 		Assert.Equal("FILE_OPENED", ToolText(opened));
-		Assert.Equal(["plan.md"], presenter.Opened);
+		Assert.Equal([("plan.md", true, true, focus)], presenter.Opened);
 
 		await SendAsync(ws, Request(3, "tools/call", """{"name":"openFile","arguments":{}}"""));
 		using var missing = await ReceiveAsync(ws);
@@ -98,7 +103,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		int port = server.Start();
 
 		using var listed = await PostHttpAsync(port, Request(1, "tools/list", "{}"));
-		using var listDocument = JsonDocument.Parse(await listed.Content.ReadAsStringAsync());
+		using var listDocument = await TestMcp.ReadResponseAsync(listed);
 		var names = listDocument.RootElement.GetProperty("result").GetProperty("tools")
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Contains("listSettings", names);
@@ -106,7 +111,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("getCurrentSelection", names);
 
 		using var called = await PostHttpAsync(port, Request(2, "tools/call", "{\"name\":\"getCurrentSelection\",\"arguments\":{}}"));
-		using var callDocument = JsonDocument.Parse(await called.Content.ReadAsStringAsync());
+		using var callDocument = await TestMcp.ReadResponseAsync(called);
 		string text = callDocument.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 		using var payload = JsonDocument.Parse(text);
 		Assert.True(payload.RootElement.GetProperty("success").GetBoolean());

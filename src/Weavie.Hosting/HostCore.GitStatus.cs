@@ -12,12 +12,14 @@ public sealed partial class HostCore {
 			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", WireJson.Default.GitStatusSnapshot, status));
 		session.AttachGitStatus(monitor);
 		var commits = AttachReviewCommits(session);
+		var reviewHead = AttachReviewHead(session);
 		_ = new GitMetadataWatcher(
 			session.Background,
 			session.WorkspaceRoot,
 			() => {
 				monitor.RequestRefresh();
 				commits.RequestRefresh();
+				reviewHead.RefreshNow();
 			},
 			error => PostForSession(session, () => {
 				if (!session.EndIfWorkspaceRootIsGone(error.Message)) {

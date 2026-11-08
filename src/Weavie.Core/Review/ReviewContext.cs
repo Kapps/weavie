@@ -1,10 +1,15 @@
 namespace Weavie.Core.Review;
 
-/// <summary>The source of a worktree's durable review; head updates do not create a new review.</summary>
-public sealed record ReviewContext(int PrNumber, string Label, string HeadRef, string MergeBase, string HeadSha, RepoRef? Repo, string Worktree) {
+/// <summary>
+/// The source of a worktree's durable review: one branch compared with <c>Target</c> from their merge-base. New
+/// commits keep the review; a different branch is a different review, and a moved merge-base rebases it.
+/// </summary>
+public sealed record ReviewContext(
+	int PrNumber, string Label, string HeadRef, string MergeBase, string HeadSha, RepoRef? Repo, string Worktree,
+	string Target, string Branch) {
 	/// <summary>Whether two openings refer to the same logical review.</summary>
 	public bool SameSource(ReviewContext other) => PrNumber == other.PrNumber && Repo == other.Repo
-		&& (PrNumber > 0 || Label == other.Label);
+		&& Branch == other.Branch && (PrNumber > 0 || Label == other.Label);
 }
 
 /// <summary>A path's ref and working-tree snapshots, read before arming a review.</summary>

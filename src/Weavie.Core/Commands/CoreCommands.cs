@@ -406,6 +406,15 @@ public static partial class CoreCommands {
 	/// <summary>Finishes the open Markdown preview block, returning the keyboard to it (web-handled, block-editor.ts); bound to <c>Escape</c>.</summary>
 	public const string PreviewFinishBlock = "weavie.editor.previewFinishBlock";
 
+	/// <summary>Shows or hides the agent's original inside the open Markdown preview block (web-handled, block-editor.ts); unbound.</summary>
+	public const string PreviewShowOriginal = "weavie.editor.previewShowOriginal";
+
+	/// <summary>Returns the shown change in a rendered Markdown file to a plain margin bar (web-handled, preview-review.ts); bound to <c>Escape</c>.</summary>
+	public const string PreviewHideChange = "weavie.editor.previewHideChange";
+
+	/// <summary>Folds the blocks a rendered Markdown file's pending changes don't touch, or shows them again (web-handled); unbound.</summary>
+	public const string PreviewChangesOnly = "weavie.editor.previewChangesOnly";
+
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
 
@@ -572,16 +581,18 @@ public static partial class CoreCommands {
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based pane number in layout order\"}}",
 		});
 
-		// Fullscreen the active pane: it fills the whole pane area (the session rail stays). Switching panes keeps
+		// Fullscreen the active pane in a centered, draggable column (the session rail stays). Switching panes keeps
 		// fullscreen; toggling again restores the saved layout. Web-handled (pure layout-view state).
 		registry.Register(new CommandDefinition {
 			Id = ToggleFullscreenPane,
 			Title = "Toggle Fullscreen Pane",
 			RunsIn = CommandLocation.Web,
 			Category = "View",
-			Description = "Expand the active pane to fill the window, hiding the other panes (the session rail stays). "
+			Description = "Expand the active pane into a centered reading column, hiding the other panes (the session "
+				+ "rail stays). Drag the column's edges to resize it; dragged to the window's width it fills it. "
 				+ "Switching panes keeps fullscreen; run again to restore the previous layout.",
-			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode"],
+			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode",
+				"reading mode", "center pane", "focus mode"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+Enter" }],
 		});
 
@@ -2357,6 +2368,35 @@ public static partial class CoreCommands {
 			Aliases = ["edit block", "edit markdown block", "edit preview block"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
 			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewShowOriginal,
+			Title = "Show Original Block Source",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Show or hide the agent's original source inside the Markdown preview block you're editing.",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewHideChange,
+			Title = "Hide Change Marks",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Return the change shown in a rendered Markdown file to a plain margin bar.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PreviewChangesOnly,
+			Title = "Toggle Changes Only",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "In a rendered Markdown file with pending agent changes, fold the blocks the changes don't touch, "
+				+ "or show them again.",
+			Aliases = ["changes only", "hide unchanged", "fold unchanged blocks", "show only changes"],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -62,7 +62,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.Contains("Host now asks the user: approve n?", runner.CompleteStage(Json("""{"note":"n"}"""), "s"));
 		Assert.Contains("runCommand workflow.answer with run", runner.StageBlock());
 		Assert.Contains("Never answer for the user", runner.StageBlock());
-		Assert.Single(_port.Notices);
+		Assert.Empty(_port.Notices);
 	}
 
 	[Fact]
@@ -70,7 +70,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		using var runner = Runner();
 		runner.Start("flow", Json("{}"));
 		string reply = runner.CompleteStage(Json("""{"note":"n"}"""), "s");
-		Assert.Contains("call openFile with preview and rendered true on the main one only, and link any others", reply);
+		Assert.Contains("call openFile with preview, rendered, and focus true on the main one only, and link any others", reply);
 		Assert.Equal(["do a"], _port.Kickoffs);
 		Assert.Null(runner.Current!.Kickoff);
 		Assert.DoesNotContain("openFile", runner.StageBlock());
@@ -104,6 +104,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.Contains("again after n?", turn);
 		Assert.Equal(open, turn.Contains("openFile", StringComparison.Ordinal));
 		Assert.True(runner.TryClaimKickoff(WorkflowKickoff.Prompt(turn)));
+		Assert.Empty(_port.Notices);
 	}
 
 	[Fact]

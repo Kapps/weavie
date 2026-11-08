@@ -10,7 +10,7 @@ namespace Weavie.Core.Tests;
 public sealed class SessionChangeTrackerCloseTests {
 	private static readonly string Root = Path.GetFullPath("/w");
 	private static readonly string File = Path.Combine(Root, "review.txt");
-	private static readonly ReviewContext Review = new(0, "vs main", "", "base", "head", null, Root);
+	private static readonly ReviewContext Review = new(0, "vs main", "", "base", "head", null, Root, "main", "topic");
 	private static SessionChangeTracker Tracker(InMemoryFileSystem files, IReviewPersistence persistence) =>
 		new(files, NoopFileActivitySink.Instance, Root, path => Path.GetDirectoryName(path) == Root, SessionChangeTracker.NothingIgnored, persistence);
 

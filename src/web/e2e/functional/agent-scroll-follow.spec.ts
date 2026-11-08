@@ -128,4 +128,9 @@ test("a long response arriving at once is shown from its start", async ({ page }
   );
   expect(await answerOffset()).toBeLessThanOrEqual(1);
   await expect(surface.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+
+  // A pane that grows after the reply pinned (the composer collapsing late on a slow host) keeps its start in view.
+  // Flaked 2026-11-07 on Linux CI: https://github.com/Kapps/weavie/actions/runs/42414183615
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await expect.poll(answerOffset).toBeLessThanOrEqual(1);
 });

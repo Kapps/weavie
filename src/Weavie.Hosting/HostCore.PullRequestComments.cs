@@ -48,6 +48,9 @@ public sealed partial class HostCore {
 			async (message, ct) => CommandWireResult.From(
 				await session.PullRequestOverview.CommentAsync(message.Number, message.Body, ct).ConfigureAwait(false)));
 		pullRequests.HandleConcurrent(
+			"attachmentKind", MessageActivity.Droppable("Checking a GitHub attachment"), WireJson.Default.AttachmentKindRequest, WireJson.Default.AttachmentKindResult,
+			async (message, ct) => new AttachmentKindResult(await _pullRequestDiscussion.AttachmentKindAsync(new Uri(message.Url), ct).ConfigureAwait(false)));
+		pullRequests.HandleConcurrent(
 			"sources", MessageActivity.ActionFailed("Loading pull request sources"), WireJson.Default.PullRequestSourcesRequest, WireJson.Default.PullRequestSources,
 			(message, ct) => comments.SourcesAsync(
 				WorktreeRelativePath(session, message.Path) ?? throw new InvalidOperationException(NotInWorktree(session, message.Path)),
@@ -87,6 +90,10 @@ public sealed partial class HostCore {
 	internal sealed record PullRequestNumberRequest(int Number);
 
 	internal sealed record PullRequestIssueCommentRequest(int Number, string Body);
+
+	internal sealed record AttachmentKindRequest(string Url);
+
+	internal sealed record AttachmentKindResult(AttachmentKind Kind);
 
 	internal sealed record PullRequestSourcesRequest(string Path, string HeadSha);
 }

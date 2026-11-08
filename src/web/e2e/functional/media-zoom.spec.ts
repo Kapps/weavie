@@ -157,8 +157,16 @@ test("a video tab plays through its own controls, zoomed and rotated, and fullsc
   await pane.getByRole("button", { name: "Exit fullscreen" }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
   await expect(pane).not.toHaveClass(/\bfullscreen\b/);
+  // Flaked 2026-11-07 19:04 and 19:14 UTC (Linux shard 7; palette input never focused on the last command):
+  // https://github.com/Kapps/weavie/actions/runs/42402842992 and .../42403834090. The `fullscreen` class is
+  // only the pane's own signal; the browser grants the request ~100ms later, so Escape and the "no
+  // fullscreenElement" check ran before it and the late grant churned focus under the opening palette.
+  // Fixed by waiting for the grant before leaving fullscreen.
   await runCommand(page, "Toggle Media Fullscreen");
   await expect(pane).toHaveClass(/\bfullscreen\b/);
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.className))
+    .toContain("editor-media");
   await pane.focus();
   await page.keyboard.press("Escape");
   await expect(pane).not.toHaveClass(/\bfullscreen\b/);

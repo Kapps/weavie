@@ -16,7 +16,6 @@ public sealed class WorktreeRegistryTests {
 	private static WorktreeRecord Record(string branch, string path, string agentProviderId) => new() {
 		Branch = branch,
 		Path = path,
-		BaseRef = "main",
 		CreatedAtUtc = DateTimeOffset.UnixEpoch,
 		AgentProviderId = agentProviderId,
 	};
@@ -32,7 +31,6 @@ public sealed class WorktreeRegistryTests {
 		var reloaded = new WorktreeRegistry(fs, RegistryPath);
 		Assert.Single(reloaded.Items);
 		Assert.Equal("feature", reloaded.Items[0].Branch);
-		Assert.Equal("main", reloaded.Items[0].BaseRef);
 	}
 
 	[Fact]
@@ -127,5 +125,15 @@ public sealed class WorktreeRegistryTests {
 
 		Assert.Equal(0, count);
 		Assert.False(fs.FileExists(RegistryPath));
+	}
+
+	[Fact]
+	public void SyncBranches_UpdatesRecordedPathsOnly() {
+		var registry = new WorktreeRegistry(new InMemoryFileSystem(), "/w/worktrees.json");
+		registry.Add(Record("old", "/w/a"));
+
+		registry.SyncBranches([("/w/a", "new"), ("/w/removed", "ghost")]);
+
+		Assert.Equal("new", Assert.Single(registry.Items).Branch);
 	}
 }

@@ -21,11 +21,11 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
-  answer or paused sits under *Needs you*.
+  answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
 Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
-`wait`, milestones), the confidence threshold, the new-session workflow picker, the run header and run view, run
-history, suggestions, and model overrides on decisions.
+`wait`, milestones), the confidence threshold, the new-session workflow picker, run history, suggestions, and model
+overrides on decisions.
 
 ## Purpose
 
@@ -315,12 +315,13 @@ typed-inference providers ([ad-hoc-inference.md](../concepts/ad-hoc-inference.md
 Every question reaches the user through the agent. A question asked as a stage completes rides the `completeStage`
 reply; any other (a model decision handed over, an `if`, one reached by an answer, resume, or jump) is a turn the run
 owes the agent, retired like a stage's. Both carry one instruction: when `workflow.openReviewItem` is on, the agent
-opens the main file the question is about with `openFile`, `preview: true`, and `rendered: true`, and links any others
+opens the main file the question is about with `openFile`, `preview: true`, `rendered: true`, and `focus: true`, and links any others
 in its reply. `rendered` shows a file's rendered view when it has one (Markdown, HTML, SVG); any other file shows its source.
 Stages that just run and decisions the model answers open nothing, and workflow authors write nothing for this.
 The preview tab is reused across opens. `openFile` lands in the agent's own session: in a session the user isn't
-viewing, the tab waits there and shows when they switch to it. In the session they are viewing it shows without taking
-the keyboard, so they can answer straight away; while they type in the editor it only joins the tab strip.
+viewing, the tab waits there and shows when they switch to it. In the session they are viewing, `focus: true`
+selects the requested tab and focuses the editor, including when another tab is being edited. Without `focus`,
+`openFile` preserves keyboard focus and only adds the tab while the user is typing in the editor.
 
 ## Child runs
 
@@ -370,8 +371,11 @@ A workflow must not take over the standard session experience.
 - **Questions for the user are a conversation, not cards.** The agent asks in its own words, the user replies however
   they like, and the agent relays the chosen answer and any feedback through `weavie.workflow.answer`. The stage
   block tells the agent never to answer for the user.
-- **Detail on demand** is open: a collapsed run header in the agent pane that expands in place is the leading
-  candidate. Opening an editor tab to see run state was rejected as too much friction.
+- **Agent pane header** — a live run shows as `● <workflow> · <stage>` right-aligned in the header, its dot colored by
+  run state and its tooltip spelling out the state and any reason. The compact layout omits it, since the session inbox
+  gives stage and state. There is no stage count, since `if` skips and `then` loops make one misleading. It is display
+  only: there is no expandable run header or run view, and opening an editor tab to see run state was rejected as too
+  much friction. See [workflow-header-status](workflow-header-status/brief.md).
 
 ## Run history and suggestions
 

@@ -2,19 +2,25 @@
 // to the working copy, so undo, autosave and review all see ordinary edits and there is no draft to lose.
 // See docs/specs/markdown-editable-preview.md.
 
-import { formatKey } from "../../commands/keybindings";
-import { findCommand } from "../../commands/registry";
+import { keyHint } from "../../commands/key-hint";
 import { CommandIds } from "../../commands/types";
 import { notify } from "../../notify/notify";
 import { gapInsertion, isBareMarker, nextListMarker, relocate, sourceOffset } from "./block-edit";
-import { registerBlockEditor } from "./block-editor-focus";
+import { buildEditBox, HINT, SHOW_ORIGINAL, toggleOriginal } from "./block-editor-box";
 import { BlockList, type RenderedBlock } from "./block-list";
 import { markdownBlocks, splitLines } from "./markdown-blocks";
 import type { PreviewDocument } from "./preview-document";
 import { previewEngine } from "./preview-markdown";
 
-const HINT = ".wv-preview-block-hint";
-const IGNORED_CLICK = "a, button, input, summary, textarea";
+const IGNORED_CLICK = "a, button, input, summary, textarea, .wv-md-mark";
+
+/** What the preview's change review tells a block that opens for editing. */
+export interface BlockReview {
+  /** Takes change marks off the page, so the block opens on its own text. */
+  clearMarks(unit: Element): void;
+  /** The agent's original source for the unit starting at `line`, when the agent changed it. */
+  originalOf(line: number): string | undefined;
+}
 
 interface OpenBlock {
   unit: HTMLElement;
@@ -25,12 +31,15 @@ interface OpenBlock {
   start: number;
   lines: string[];
   originalLength: number;
+  /** The agent's source for this block, when the agent changed it. */
+  original: string | undefined;
   /** A list item this editor created is dropped again if nothing was typed into it. */
   created: boolean;
 }
 
 export class BlockEditor {
-  private readonly list: BlockList;
+  /** The rendered blocks this editor edits, which the change review marks. */
+  readonly list: BlockList;
   private content = "";
   private open: OpenBlock | undefined;
   private writing = false;
@@ -40,10 +49,10 @@ export class BlockEditor {
     private readonly host: HTMLElement,
     body: HTMLElement,
     private readonly document: PreviewDocument,
+    private readonly review: BlockReview,
     private readonly rendered: () => void,
   ) {
     this.list = new BlockList(body, editHint);
-    registerBlockEditor(host, this);
     host.addEventListener("pointerdown", () => {
       this.pointerDown = true;
     });
@@ -94,6 +103,15 @@ export class BlockEditor {
     return this.mount(unit, Number.POSITIVE_INFINITY, false);
   }
 
+  /** Shows or hides the agent's original in the open block; false when there's none to show. */
+  toggleOriginal(): boolean {
+    const open = this.open;
+    if (open?.original === undefined) return false;
+    toggleOriginal(open.box, open.textarea.value, open.original);
+    open.textarea.focus();
+    return true;
+  }
+
   /** Finishes the open block and returns the keyboard to it; false when none is open. */
   finish(): boolean {
     if (this.open === undefined) return false;
@@ -127,7 +145,11 @@ export class BlockEditor {
   private click(event: MouseEvent): void {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest(HINT) !== null) {
+    if (target.closest(`.${SHOW_ORIGINAL}`) !== null) {
+      this.toggleOriginal();
+      return;
+    }
+    if (target.closest(`.${HINT}`) !== null) {
       this.finish();
       return;
     }
@@ -180,22 +202,13 @@ export class BlockEditor {
       return false;
     }
     if (text !== this.content) return false;
+    this.review.clearMarks(unit);
     const block = this.list.blockOf(unit) as RenderedBlock;
     const [start, end] = this.list.lines(unit);
     const lines = splitLines(text).slice(start, end);
-    const textarea = document.createElement("textarea");
-    textarea.className = "wv-preview-block-input";
-    textarea.rows = 1;
-    textarea.value = lines.join("\n");
-    const box = document.createElement("div");
-    box.className = "wv-preview-block-box";
-    box.dataset.value = textarea.value;
-    box.toggleAttribute("data-code", block.node.hasAttribute("data-md-code"));
-    box.append(textarea);
-    const hint = document.createElement("div");
-    hint.className = HINT.slice(1);
-    hint.textContent = finishHint();
-    matchRendered(box, unit);
+    const original = this.review.originalOf(start);
+    const code = block.node.hasAttribute("data-md-code");
+    const { box, textarea } = buildEditBox(unit, lines.join("\n"), code, original);
     const hidden = document.createElement("div");
     hidden.hidden = true;
     hidden.append(
@@ -204,10 +217,20 @@ export class BlockEditor {
       ),
     );
     unit.classList.add("md-editing");
-    box.append(hint);
     unit.prepend(hidden, box);
     const originalLength = lines.length;
-    this.open = { unit, block, textarea, box, hidden, start, lines, originalLength, created };
+    this.open = {
+      unit,
+      block,
+      textarea,
+      box,
+      hidden,
+      start,
+      lines,
+      originalLength,
+      original,
+      created,
+    };
     textarea.addEventListener("input", () => this.input());
     textarea.addEventListener("keydown", (event) => this.key(event));
     textarea.focus();
@@ -327,19 +350,6 @@ export class BlockEditor {
   }
 }
 
-const PROSE_BLOCK = "p, h1, h2, h3, h4, h5, h6, pre, blockquote, table, hr, .mermaid-rendered";
-
-// The source sits where the rendered block did, at its size, so opening it barely moves the page.
-function matchRendered(box: HTMLElement, unit: HTMLElement): void {
-  const first = unit.firstElementChild;
-  const style = getComputedStyle(first?.matches(PROSE_BLOCK) ? first : unit);
-  box.style.marginBlock = `${style.marginTop} ${style.marginBottom}`;
-  if (box.hasAttribute("data-code")) return;
-  box.style.fontSize = style.fontSize;
-  box.style.fontWeight = style.fontWeight;
-  box.style.lineHeight = style.lineHeight;
-}
-
 // The rendered text before the click, which sourceOffset maps back onto the block's markdown.
 function renderedPrefix(unit: HTMLElement, event: MouseEvent): string {
   const point = caretAt(event.clientX, event.clientY);
@@ -347,7 +357,9 @@ function renderedPrefix(unit: HTMLElement, event: MouseEvent): string {
   const range = document.createRange();
   range.selectNodeContents(unit);
   range.setEnd(point.node, point.offset);
-  return range.toString();
+  const before = range.cloneContents();
+  for (const mark of before.querySelectorAll(".wv-md-mark")) mark.remove();
+  return before.textContent ?? "";
 }
 
 // Safari only has the older caretRangeFromPoint; everything else has the standard call.
@@ -360,9 +372,4 @@ function caretAt(x: number, y: number): { node: Node; offset: number } | undefin
   return range === null ? undefined : { node: range.startContainer, offset: range.startOffset };
 }
 
-const shortcut = (id: string): string => {
-  const key = findCommand(id)?.keys[0];
-  return key === undefined ? "" : ` (${formatKey(key)})`;
-};
-const editHint = (): string => `Edit block${shortcut(CommandIds.previewEditBlock)}`;
-const finishHint = (): string => `Done${shortcut(CommandIds.previewFinishBlock)}`;
+const editHint = (): string => `Edit block${keyHint(CommandIds.previewEditBlock)}`;

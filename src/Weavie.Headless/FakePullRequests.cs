@@ -10,7 +10,7 @@ namespace Weavie.Headless;
 /// </summary>
 internal static class FakePullRequests {
 	/// <summary>
-	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], threads: [...], pendingReviews: [...] }</c> — into
+	/// Reads <paramref name="path"/> — <c>{ viewer, viewerAvatarUrl, prs: [...], threads: [...], pendingReviews: [...], attachments: { url: "image"|"video" } }</c> — into
 	/// a static provider that serves the PR list, each PR's review threads, and the viewer's pending reviews (each
 	/// thread's and review's <c>number</c> names its PR) as <c>viewer</c>.
 	/// </summary>
@@ -26,6 +26,15 @@ internal static class FakePullRequests {
 				Str(root, "viewerAvatarUrl")));
 		SeedCommits(provider, prsEl);
 		SeedDetails(provider, prsEl);
+		if (root.TryGetProperty("attachments", out var attachments)) {
+			foreach (var attachment in attachments.EnumerateObject()) {
+				provider.AttachmentKinds[new Uri(attachment.Name)] = attachment.Value.GetString() switch {
+					"image" => AttachmentKind.Image,
+					"video" => AttachmentKind.Video,
+					var kind => throw new InvalidDataException($"{path}: attachment '{attachment.Name}' has unknown kind '{kind}'."),
+				};
+			}
+		}
 		if (root.TryGetProperty("pendingReviews", out var pending)) {
 			foreach (var review in pending.EnumerateArray()) {
 				provider.PendingReviews[Int(review, "number")] = new PendingReview(Str(review, "id"), Str(review, "body"));

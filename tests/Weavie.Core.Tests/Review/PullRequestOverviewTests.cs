@@ -79,5 +79,7 @@ public sealed class PullRequestOverviewTests {
 
 		public Task AddCommentAsync(RepoRef repo, string pullRequestId, string body, CancellationToken ct = default) =>
 			inner.AddCommentAsync(repo, pullRequestId, body, ct);
+
+		public Task<AttachmentKind> AttachmentKindAsync(Uri url, CancellationToken ct = default) => inner.AttachmentKindAsync(url, ct);
 	}
 }

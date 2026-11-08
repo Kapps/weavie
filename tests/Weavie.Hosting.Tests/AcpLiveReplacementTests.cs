@@ -97,7 +97,7 @@ public sealed class AcpLiveReplacementTests {
 		switch (work) {
 			case "prompt":
 				fixture.Submit("hold");
-				await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold");
+				await fixture.WaitForHeldToolAsync();
 				break;
 			case "permission":
 				fixture.Submit("permission");
@@ -118,7 +118,7 @@ public sealed class AcpLiveReplacementTests {
 				break;
 			case "steering":
 				fixture.Submit("hold");
-				await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold");
+				await fixture.WaitForHeldToolAsync();
 				fixture.Submit("held-steering");
 				await WaitForFileAsync(fixture.Workspace, "steering-started", string.Empty);
 				break;

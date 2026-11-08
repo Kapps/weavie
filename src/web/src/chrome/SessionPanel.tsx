@@ -3,7 +3,14 @@ import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { useNow } from "../compact-age";
 import { registerFloatingPanel } from "./floating-panels";
-import { panelPinned, parkedCollapsed, setPanelPinned, setParkedCollapsed } from "./rail-state";
+import {
+  panelPinned,
+  panelWidth,
+  parkedCollapsed,
+  setPanelPinned,
+  setPanelWidth,
+  setParkedCollapsed,
+} from "./rail-state";
 import { type SessionListHandlers, SessionRail } from "./SessionRail";
 import {
   createSessionMenu,
@@ -14,9 +21,12 @@ import {
   SessionTools,
 } from "./SessionTools";
 import { openMode, setOpenMode, trackPointer, trackPointerOut } from "./session-panel-hover";
-import { createPanelResize } from "./session-panel-resize";
 import type { RailSession } from "./session-store";
 import { SESSION_GROUPS, sessionGroup, switchShortcut } from "./session-summary";
+import { createWidthDrag } from "./width-drag";
+
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 520;
 
 // Keyboard-navigable session entries: the pinned panel's rows, or the expanded rail's chips.
 const ROWS = ".session-panel-row, .session-chip";
@@ -138,7 +148,14 @@ export function SessionPanel(props: {
     props.onSwitch(session);
   };
 
-  const resize = createPanelResize(() => panel);
+  const resize = createWidthDrag({
+    saved: panelWidth,
+    save: setPanelWidth,
+    measure: () => {
+      const left = panel?.getBoundingClientRect().left ?? 0;
+      return (move) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, move.clientX - left));
+    },
+  });
 
   const menu = createSessionMenu();
 

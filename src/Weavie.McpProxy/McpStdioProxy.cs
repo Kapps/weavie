@@ -62,7 +62,6 @@ internal static class McpStdioProxy {
 			Content = new StringContent(message, Encoding.UTF8, "application/json"),
 		};
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 		if (session.Id is { } sessionId) {
 			request.Headers.TryAddWithoutValidation(SessionHeader, sessionId);
@@ -76,12 +75,7 @@ internal static class McpStdioProxy {
 		}
 		if (response.StatusCode == HttpStatusCode.Accepted) return;
 		response.EnsureSuccessStatusCode();
-		if (response.Content.Headers.ContentType?.MediaType == "text/event-stream") {
-			await RelayEventsAsync(response, outputGate, cancellationToken).ConfigureAwait(false);
-		} else {
-			string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-			if (body.Length > 0) await WriteAsync(body, outputGate, cancellationToken).ConfigureAwait(false);
-		}
+		await RelayEventsAsync(response, outputGate, cancellationToken).ConfigureAwait(false);
 	}
 
 	private static async Task RelayEventsAsync(

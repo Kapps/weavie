@@ -76,7 +76,9 @@ public sealed partial record RunnerOptions {
 		string? workspace = Arg(args, "--workspace") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_WORKSPACE");
 		string root = string.IsNullOrEmpty(workspace) ? Environment.CurrentDirectory : Path.GetFullPath(workspace);
 
-		var (headlessPath, headlessError) = ResolveHeadlessPath(args);
+		var (headlessPath, headlessError) = ResolveHeadlessPath(
+			Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH"),
+			AppContext.BaseDirectory);
 		if (headlessPath is null) {
 			return (null, headlessError);
 		}
@@ -217,8 +219,7 @@ public sealed partial record RunnerOptions {
 	/// An explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file; otherwise probes
 	/// the known build locations, erroring with every path checked on failure.
 	/// </summary>
-	private static (string? Path, string? Error) ResolveHeadlessPath(string[] args) {
-		string? explicitPath = Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH");
+	internal static (string? Path, string? Error) ResolveHeadlessPath(string? explicitPath, string baseDir) {
 		if (!string.IsNullOrEmpty(explicitPath)) {
 			string full = Path.GetFullPath(explicitPath);
 			return File.Exists(full)
@@ -226,7 +227,7 @@ public sealed partial record RunnerOptions {
 				: (null, $"--headless '{explicitPath}' does not exist (resolved to '{full}').");
 		}
 
-		var candidates = ProbeCandidates();
+		var candidates = ProbeCandidates(baseDir);
 		foreach (string candidate in candidates) {
 			if (File.Exists(candidate)) {
 				return (candidate, null);
@@ -235,27 +236,24 @@ public sealed partial record RunnerOptions {
 
 		return (null,
 			"could not locate the Weavie.Headless worker binary. Checked:\n  " + string.Join("\n  ", candidates)
-			+ "\nBuild Weavie.Headless in the same configuration as the runner, or pass --headless <path-to-Weavie.Headless.dll>.");
+			+ "\nBuild Weavie.Headless in the same configuration as the runner, or pass --headless <path> (Weavie.Headless, Weavie.Headless.exe, or Weavie.Headless.dll).");
 	}
 
 	/// <summary>
-	/// Build locations to probe for the worker dll, nearest-first: dev sibling output, the published
+	/// Build locations to probe for the worker, nearest-first: dev sibling output, the published
 	/// <c>worker/</c> subfolder, then a same-dir co-locate. Only the last <c>Weavie.Runner</c> path segment is
 	/// rewritten, so a checkout under a <c>Weavie.Runner</c> directory can't be corrupted.
 	/// </summary>
-	private static IReadOnlyList<string> ProbeCandidates() {
-		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/ (dev) or the deploy dir
+	private static IReadOnlyList<string> ProbeCandidates(string baseDir) {
 		string sibling = ReplaceLast(
 			baseDir,
 			$"{Path.DirectorySeparatorChar}Weavie.Runner{Path.DirectorySeparatorChar}",
 			$"{Path.DirectorySeparatorChar}Weavie.Headless{Path.DirectorySeparatorChar}");
 
-		string[] candidates = [
-			Path.Combine(sibling, "Weavie.Headless.dll"),
-			Path.Combine(baseDir, "worker", "Weavie.Headless.dll"),
-			Path.Combine(baseDir, "Weavie.Headless.dll"),
-		];
-		return candidates.Distinct(StringComparer.Ordinal).ToList();
+		var bundled = HeadlessBinary.BundleCandidates(baseDir);
+		return sibling == baseDir
+			? [.. bundled]
+			: [.. HeadlessBinary.InDirectory(sibling).Concat(bundled).Distinct(StringComparer.Ordinal)];
 	}
 
 	/// <summary>Replaces the LAST occurrence of <paramref name="find"/> only (or returns the string unchanged).</summary>

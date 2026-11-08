@@ -232,42 +232,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private async Task HandleHttpClientAsync(NetworkStream stream, HttpRequestHead request, CancellationToken ct) {
-		if (!IsAuthorized(request.Headers)) {
-			Emit("rejected HTTP MCP request: missing/invalid auth token");
-			await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
-			return;
-		}
-
-		if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) || !IsMcpTarget(request.Target)) {
-			await WebSocketHandshake.WriteStatusAsync(stream, "404 Not Found", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string body = await WebSocketHandshake.ReadBodyAsync(stream, request.Headers, ct).ConfigureAwait(false);
-		// A client without a session is issued one; it scopes that client's request ids for cancellation.
-		string sessionId = request.Headers.TryGetValue("mcp-session-id", out string? presented) && presented.Length > 0
-			? presented
-			: Guid.NewGuid().ToString("N");
-		var responder = new HttpResponder(sessionId);
-		using (var connection = CancellationTokenSource.CreateLinkedTokenSource(ct)) {
-			var watch = CancelOnDisconnectAsync(stream, connection);
-			try {
-				await DispatchAsync(responder, body, connection.Token).ConfigureAwait(false);
-			} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
-				// The client cancelled the call or hung up; it expects no result either way.
-			} finally {
-				await connection.CancelAsync().ConfigureAwait(false);
-				await watch.ConfigureAwait(false);
-			}
-		}
-		if (responder.ResponseJson is { } response) {
-			await WebSocketHandshake.WriteJsonAsync(stream, "200 OK", response, sessionId, ct).ConfigureAwait(false);
-		} else {
-			await WebSocketHandshake.WriteStatusAsync(stream, "202 Accepted", ct).ConfigureAwait(false);
-		}
-	}
-
 	private bool IsAuthorized(IReadOnlyDictionary<string, string> headers) {
 		headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
 		string? bearer = null;
@@ -313,14 +277,26 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task DispatchAsync(IMcpResponder responder, string json, CancellationToken ct) {
-		string? idForError = null;
 		try {
 			using var doc = JsonDocument.Parse(json);
-			var root = doc.RootElement;
-			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
+			await DispatchAsync(responder, doc.RootElement, ct).ConfigureAwait(false);
+		} catch (JsonException ex) {
+			await SendParseErrorAsync(responder, ex, ct).ConfigureAwait(false);
+		}
+	}
+
+	private Task SendParseErrorAsync(IMcpResponder responder, JsonException ex, CancellationToken ct) {
+		Emit($"dispatch parse error: {ex.Message}");
+		return responder.SendErrorAsync(null, -32700, "Parse error", ct);
+	}
+
+	private async Task DispatchAsync(IMcpResponder responder, JsonElement root, CancellationToken ct) {
+		string? idForError = null;
+		try {
 			bool hasId = root.TryGetProperty("id", out var idElement);
 			string? idRaw = hasId ? idElement.GetRawText() : null;
 			idForError = idRaw;
+			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
 
 			Emit($"recv: method={method ?? "(response)"} id={idRaw ?? "-"}");
 
@@ -345,7 +321,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 					break;
 				case "tools/call":
 					using (var call = BeginCall(responder.Client, idRaw, ct)) {
-						await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+						try {
+							await HandleToolCallAsync(responder, root, idRaw, call.Token).ConfigureAwait(false);
+						} catch (OperationCanceledException) when (!call.Token.IsCancellationRequested) {
+							// A client doesn't notice a closed stream, so a tool that stopped itself still owes an answer.
+							Emit("tool call stopped itself");
+							await responder.SendErrorAsync(idRaw, -32603, "The tool call stopped before it finished.", ct).ConfigureAwait(false);
+						}
 					}
 					break;
 				case "prompts/list":
@@ -361,9 +343,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 					break;
 			}
-		} catch (JsonException ex) {
-			Emit($"dispatch parse error: {ex.Message}");
-			await responder.SendErrorAsync(null, -32700, "Parse error", ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			Emit($"dispatch error: {ex.Message}");
 			await responder.SendErrorAsync(idForError, -32603, ex.Message, ct).ConfigureAwait(false);
@@ -421,8 +400,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
 				if (string.IsNullOrEmpty(path)) {
 					await SendToolErrorAsync(responder, idRaw, $"{OpenFileTool} requires 'filePath'.", ct).ConfigureAwait(false);
-				} else if (await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ReadLenientBool(args, "rendered"), ct).ConfigureAwait(false)) {
-					// Both flags default to false (a persistent source tab), coerced leniently: embedded Claude sends scalars as strings.
+				} else if (await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ReadLenientBool(args, "rendered"), ReadLenientBool(args, "focus"), ct).ConfigureAwait(false)) {
+					// Flags default to false and accept strings because embedded Claude sends scalars as strings.
 					await SendToolTextAsync(responder, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
 				} else {
 					await SendToolErrorAsync(responder, idRaw, $"Couldn't open {path}: it's missing, unreadable, or matches several files. Use its full path.", ct).ConfigureAwait(false);

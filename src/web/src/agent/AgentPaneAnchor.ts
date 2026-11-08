@@ -8,7 +8,9 @@ export function createReadingAnchor(
   virtualizer: () => Virtualizer<HTMLDivElement, HTMLDivElement>,
   rowOf: (id: string) => VirtualItem | undefined,
 ) {
-  let anchor: { id: string; top: number; unsized: Map<string, number> } | null = null;
+  // `atTop`: the row was placed at the viewport top, so it stays there when the viewport resizes.
+  let anchor: { id: string; top: number; unsized: Map<string, number>; atTop: boolean } | null =
+    null;
   // Rows whose size came from their resize observer, even where it matched the estimate.
   const sized = new Set<string>();
 
@@ -32,11 +34,17 @@ export function createReadingAnchor(
         const shown = virtualizer().elementsCache.get(key)?.isConnected === true;
         if (item.index < row.index && shown && !sized.has(key)) unsized.set(key, item.size);
       }
-      anchor = { id, top: row.end - position, unsized };
+      anchor = { id, top: row.end - position, unsized, atTop: false };
     },
     /** Anchors on a row just placed at the viewport top; every measurement moves the position toward it. */
     reveal(row: VirtualItem, position: number): void {
-      anchor = { id: String(row.key), top: row.end - position, unsized: new Map() };
+      anchor = { id: String(row.key), top: row.end - position, unsized: new Map(), atTop: true };
+    },
+    /** Keeps a row placed at the viewport top there in a resized viewport; false when no row was placed. */
+    keepTop(viewport: number): boolean {
+      if (anchor?.atTop !== true) return false;
+      anchor.top = viewport;
+      return true;
     },
     /** Whether every rendered row from the newest through virtual `index` has been measured. */
     measuredThrough: (index: number): boolean =>

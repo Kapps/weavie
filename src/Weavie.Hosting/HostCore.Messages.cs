@@ -104,6 +104,10 @@ public sealed partial class HostCore {
 			_railState.SetPanelWidth(message.Width);
 			return Task.CompletedTask;
 		});
+		rail.Handle("setFullscreenWidth", MessageActivity.ActionFailed("Resizing the fullscreen pane"), WireJson.Default.RailFullscreenWidth, (message, _) => {
+			_railState.SetFullscreenWidth(message.Width);
+			return Task.CompletedTask;
+		});
 		rail.Handle("setSelected", MessageActivity.ActionFailed("Saving the rail selection"), WireJson.Default.RailSelectionMessage, (message, _) => {
 			_railState.SetSelected(message.BackendId, message.Slot);
 			return Task.CompletedTask;
@@ -386,6 +390,8 @@ public sealed partial class HostCore {
 
 	internal sealed record RailPanelWidth(int Width);
 
+	internal sealed record RailFullscreenWidth(int Width);
+
 	internal sealed record SearchOptionsMessage(
 		bool CaseSensitive,
 		bool WholeWord,
@@ -423,7 +429,8 @@ public sealed partial class HostCore {
 		RailSelection? Selected,
 		bool PanelPinned,
 		int PanelWidth,
-		bool ParkedCollapsed);
+		bool ParkedCollapsed,
+		int FullscreenWidth);
 
 	internal sealed record RailSelection(string BackendId, string Slot);
 
@@ -445,7 +452,8 @@ public sealed partial class HostCore {
 		_railState.Selected is { } selected ? new RailSelection(selected.BackendId, selected.Slot) : null,
 		_railState.PanelPinned,
 		_railState.PanelWidth,
-		_railState.ParkedCollapsed);
+		_railState.ParkedCollapsed,
+		_railState.FullscreenWidth);
 
 	private ReviewOverviewSnapshot BuildReviewOverviewSnapshot() => new([.. _reviewOverviewState.Collapsed]);
 

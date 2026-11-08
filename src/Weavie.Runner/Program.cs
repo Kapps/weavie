@@ -1,6 +1,11 @@
 using Weavie.Core.Remote;
 using Weavie.Runner;
 
+if (args.Contains("--help", StringComparer.Ordinal)) {
+	Console.WriteLine(RunnerOptions.HelpText);
+	return 0;
+}
+
 var (options, optionsError) = RunnerOptions.Resolve(args);
 if (options is null) {
 	Console.Error.WriteLine($"[weavie-runner] {optionsError}");

@@ -71,15 +71,15 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		}
 	}
 
-	/// <summary>Opens the file for the MCP <c>openFile</c> tool (preview or persistent) without taking the user's keyboard.</summary>
-	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, CancellationToken cancellationToken) =>
+	/// <summary>Opens the file for the MCP <c>openFile</c> tool, optionally selecting its tab and focusing the editor.</summary>
+	public Task<bool> OpenFileAsync(string filePath, bool preview, bool rendered, bool focus, CancellationToken cancellationToken) =>
 		_fileOpener.OpenAsync(
 			filePath,
 			line: null,
 			preview: preview,
 			rendered: rendered,
 			scratch: false,
-			EditorOpenIntent.Background,
+			focus ? EditorOpenIntent.Navigation : EditorOpenIntent.Background,
 			cancellationToken);
 
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>

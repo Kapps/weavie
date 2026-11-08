@@ -814,6 +814,7 @@ export class MockHost {
         panelPinned: false,
         panelWidth: 300,
         parkedCollapsed: true,
+        fullscreenWidth: 1200,
       },
       search: {
         options: {

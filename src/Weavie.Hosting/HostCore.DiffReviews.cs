@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
@@ -64,17 +65,17 @@ public sealed partial class HostCore {
 		}
 
 		if (session.Changes.Review is { } current && !current.SameSource(review) && current.Label != replaces) {
-			return new(false, current.Label, review.Label);
+			return new(ReviewOutcome.None, current.Label, review.Label);
 		}
 
 		try {
-			bool opened = await SeedAndArmReviewAsync(review, session, changes, seeds => replaces is null
+			var outcome = await SeedAndArmReviewAsync(review, session, changes, seeds => replaces is null
 				? session.Changes.ArmReview(review, seeds, request)
 				: session.Changes.ReplaceReview(review, seeds, request, replaces), ct).ConfigureAwait(false);
 			// Another review took over while this one was computing: ask about that one instead.
-			return !opened && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
-				? new(false, now.Label, review.Label)
-				: new(opened, null, review.Label);
+			return outcome == ReviewOutcome.None && replaces is not null && session.Changes.Review is { } now && !now.SameSource(review)
+				? new(ReviewOutcome.None, now.Label, review.Label)
+				: new(outcome, null, review.Label);
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
 			return ReviewOpened.No;
@@ -153,11 +154,11 @@ public sealed partial class HostCore {
 	/// Seeds the session's change tracker from <paramref name="review"/>'s base→current diff, so the review (a PR
 	/// or a local ref) runs through the same inline accept/reject engine as a turn: each file's baseline is its
 	/// content at the merge-base, its current the worktree file. Records the review, pushes the review set + the
-	/// first file's diff, and answers whether a new review opened (resuming the same source keeps the user's place).
+	/// first file's diff, and answers whether it opened a new review or resumed the same source (keeping the user's place).
 	/// <paramref name="arm"/> attaches the seeds on the UI thread, answering whether the review it was asked for armed.
 	/// Later hunk steps render lazily via <c>get-turn-diff</c>. A diff read failing toasts, leaving the session usable.
 	/// </summary>
-	private async Task<bool> SeedAndArmReviewAsync(
+	private async Task<ReviewOutcome> SeedAndArmReviewAsync(
 		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
@@ -206,13 +207,13 @@ public sealed partial class HostCore {
 			}
 
 			if (!armedReview)
-				return Task.FromResult(false);
+				return Task.FromResult(ReviewOutcome.None);
 
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
 			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
 				PushTurnDiffToWeb(session, path);
-			return Task.FromResult(!resuming && seeds.Count > 0);
+			return Task.FromResult(resuming ? ReviewOutcome.Resumed : seeds.Count > 0 ? ReviewOutcome.Opened : ReviewOutcome.None);
 		}, ct).ConfigureAwait(false);
 	}
 
@@ -238,9 +239,22 @@ public sealed partial class HostCore {
 }
 
 /// <summary>
-/// Whether a request opened its review <c>Label</c>; <c>Replaces</c> names the review it would close when it was
+/// What a request did with its review <c>Label</c>; <c>Replaces</c> names the review it would close when it was
 /// refused for it.
 /// </summary>
-internal sealed record ReviewOpened(bool Opened, string? Replaces, string Label) {
-	public static ReviewOpened No { get; } = new(false, null, string.Empty);
+internal sealed record ReviewOpened(ReviewOutcome Outcome, string? Replaces, string Label) {
+	public static ReviewOpened No { get; } = new(ReviewOutcome.None, null, string.Empty);
+}
+
+/// <summary>Whether a review request armed a new review, resumed the one already open, or showed nothing.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ReviewOutcome>))]
+internal enum ReviewOutcome {
+	[JsonStringEnumMemberName("none")]
+	None,
+
+	[JsonStringEnumMemberName("opened")]
+	Opened,
+
+	[JsonStringEnumMemberName("resumed")]
+	Resumed,
 }

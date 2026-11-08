@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { allowAutomaticInference } from "../harness/actions";
 import { expect, test, touchSession } from "../harness/fixtures";
@@ -694,6 +696,67 @@ test("a compact session row manages its session from a hold and its actions butt
   await expect(row.locator(".session-inbox-status")).toHaveText(/^not loaded/);
 });
 
+// The review scrolls by transform, so the browser can't pan it: a finger drags it through its own scroller.
+test("a finger drag scrolls the review from its overview", async ({ page, weavie }) => {
+  await Promise.all(
+    Array.from({ length: 30 }, (_, index) =>
+      writeFile(
+        join(weavie.workspace, `added-${index}.txt`),
+        Array.from({ length: 30 }, (_, line) => `line ${line}\n`).join(""),
+      ),
+    ),
+  );
+  await page.getByRole("button", { name: "Shell", exact: true }).click();
+  await page.locator('.terminal-surface[data-kind="terminal:shell"] .footer-branch').click();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  const title = page.locator(".session-overview-branch");
+  await expect(page.locator(".unified-review-tree")).toContainText("added-29.txt", {
+    timeout: 20_000,
+  });
+  const top = async () => (await title.boundingBox())!.y;
+  const before = await top();
+  const touch = touchSession(page);
+  const finger = (type: string, y: number) =>
+    touch.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x: 120, y }],
+    });
+  await finger("touchStart", 600);
+  for (const y of [560, 500, 400, 300]) await finger("touchMove", y);
+  await finger("touchEnd", 300);
+  await expect.poll(top).toBeLessThan(before - 250);
+
+  // On code the review alone moves: a drag held still before release scrolls exactly its own length.
+  const lineOnScreen = () =>
+    page.evaluate(() => {
+      const line = [...document.querySelectorAll(".unified-review-diffs .view-line")].find(
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.top > 200 && rect.bottom < 600;
+        },
+      );
+      return line === undefined ? null : line.getBoundingClientRect().top + 8;
+    });
+  const heldDrag = async (from: number, distance: number) => {
+    await finger("touchStart", from);
+    for (const part of [0.1, 0.3, 0.6, 1]) await finger("touchMove", from - distance * part);
+    await page.waitForTimeout(300);
+    await finger("touchEnd", from - distance);
+    await page.waitForTimeout(500);
+  };
+  while ((await lineOnScreen()) === null) await heldDrag(550, 300);
+  const start = (await lineOnScreen())!;
+  expect(
+    await page.evaluate(
+      (y) => document.elementFromPoint(120, y)?.closest(".view-lines") != null,
+      start,
+    ),
+  ).toBe(true);
+  const settled = await top();
+  await heldDrag(start, 150);
+  expect(Math.abs(settled - (await top()) - 150)).toBeLessThan(5);
+});
+
 test("WebM video opens inline in the compact editor", async ({ page }) => {
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByRole("button", { name: "Files" }).click();
@@ -1154,7 +1217,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     fire("touchstart", 80);
     fire("touchmove", 100);
     fire("touchend", 100);
-    document.querySelector<HTMLButtonElement>(".mobile-surface-button:nth-child(3)")!.click();
+    document.querySelector<HTMLButtonElement>(".mobile-surface-button:nth-child(4)")!.click();
   });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
   await expect.poll(navigationStack).toEqual(["inbox", "terminal:claude", "terminal:shell"]);
@@ -1266,7 +1329,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     pointerId: 0,
     pointerType: "touch",
   });
-  await expect(page.locator(".terminal-surface[data-kind='terminal:shell']")).toBeVisible();
+  await expect(editorSurface).toBeVisible();
   await expect(layout).not.toHaveCSS("transform", "none");
   const draggedLeft = (await layout.boundingBox())!.x;
   await bar.dispatchEvent("pointermove", {
@@ -1282,7 +1345,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     pointerId: 0,
     pointerType: "touch",
   });
-  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
   await expect(bar).toBeFocused();
 
   await page.getByRole("button", { name: "Sessions" }).click();

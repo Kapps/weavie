@@ -1,3 +1,4 @@
+import { EventType as GestureEvent } from "@codingame/monaco-vscode-api/vscode/vs/base/browser/touch";
 import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { monaco } from "../monaco-setup";
 import type { ReviewScroll } from "./review-scroll";
@@ -170,6 +171,15 @@ export function createReviewEditorViewport(
     }
   };
   mount.addEventListener("wheel", wheel, { capture: true, passive: false });
+  // The review's touch scroller drags it vertically; the editor keeps only its own horizontal pan.
+  const gesture = (event: Event): void => {
+    // Monaco's post-release fling carries no initialTarget, so key on the lines node it is dispatched to.
+    if (!(event.target instanceof Element) || !ownsTarget(event.target)) return;
+    event.stopPropagation();
+    const dx = (event as Event & { translationX: number }).translationX;
+    if (dx !== 0) editor.setScrollLeft(editor.getScrollLeft() - dx);
+  };
+  mount.addEventListener(GestureEvent.Change, gesture, { capture: true });
   sync();
   return {
     editor,
@@ -198,6 +208,7 @@ export function createReviewEditorViewport(
       unsubscribe();
       offMiddleClick();
       mount.removeEventListener("wheel", wheel, { capture: true });
+      mount.removeEventListener(GestureEvent.Change, gesture, { capture: true });
       scroll.dispose();
     },
   };

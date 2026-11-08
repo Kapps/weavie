@@ -985,7 +985,11 @@ export default function App(): JSX.Element {
     payload: object,
   ): void => {
     const activeAtRequest = activePathFor(session);
-    type Answer = { opened: boolean; replaces: string | null; label: string };
+    type Answer = {
+      outcome: "none" | "opened" | "resumed";
+      replaces: string | null;
+      label: string;
+    };
     const request = (replaces: string | null) =>
       session.feature("review").request<Answer, object>(kind, { ...payload, replaces });
     // Each refusal names the review open right now, so a confirm only ever closes the review it described.
@@ -1000,13 +1004,15 @@ export default function App(): JSX.Element {
     };
     void request(null)
       .then(settle)
-      .then(({ opened }) => {
+      .then(({ outcome }) => {
         if (
-          opened &&
-          activePathFor(session) === activeAtRequest &&
-          evaluateWhen("!omnibarOpen && !modalOpen")
+          outcome === "none" ||
+          activePathFor(session) !== activeAtRequest ||
+          !evaluateWhen("!omnibarOpen && !modalOpen")
         )
-          showOverview(session);
+          return;
+        if (outcome === "opened") showOverview(session);
+        else editor.openReview(session, undefined, undefined);
       })
       .catch((error: unknown) =>
         addToast("warn", error instanceof Error ? error.message : String(error)),

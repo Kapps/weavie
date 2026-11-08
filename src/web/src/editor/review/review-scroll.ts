@@ -10,6 +10,7 @@ import {
 } from "@codingame/monaco-vscode-api/vscode/vs/base/common/scrollable";
 import { registerMiddleClickScroll } from "../../chrome/middle-click-scroll-surface";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { registerTouchScroll } from "./review-touch-scroll";
 
 // Match Monaco's ViewLayout animation duration.
 const SMOOTH_SCROLL_MS = 125;
@@ -92,10 +93,20 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
   const setScrollTop = (scrollTop: number): void => {
     update(() => scrollable.setScrollPosition({ scrollTop }));
   };
-  const offMiddleClick = registerMiddleClickScroll(element, () => true, {
-    x: null,
-    y: (delta) => scrollable.setScrollPosition({ scrollTop: getScrollTop() + delta }),
-  });
+  const scrollBy = (delta: number): void =>
+    scrollable.setScrollPosition({ scrollTop: getScrollTop() + delta });
+  const offMiddleClick = registerMiddleClickScroll(element, () => true, { x: null, y: scrollBy });
+  // Nested Monaco scrollables (hovers, peeks) keep their own touch scrolling; root editors defer to the review.
+  const ownsTouch = (target: Element): boolean => {
+    const inner = target.closest(".monaco-scrollable-element");
+    if (inner === null || inner === node) return true;
+    const editor = inner.closest(".monaco-editor");
+    return (
+      editor?.querySelector(".monaco-scrollable-element") === inner &&
+      editor.parentElement?.closest(".monaco-scrollable-element") === node
+    );
+  };
+  const offTouch = registerTouchScroll(element, ownsTouch, scrollBy);
   const render = (): void => {
     const top = getScrollTop();
     content.style.transform = `translateY(${-top}px)`;
@@ -198,6 +209,7 @@ export function createReviewScroll(element: HTMLElement, content: HTMLElement): 
       scrollable.delegateScrollFromMouseWheelEvent(event as WheelEvent & IMouseWheelEvent),
     dispose: () => {
       offMiddleClick();
+      offTouch();
       offOptions();
       observer.disconnect();
       subscription.dispose();

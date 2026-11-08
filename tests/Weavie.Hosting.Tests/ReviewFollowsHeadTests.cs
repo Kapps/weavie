@@ -20,7 +20,7 @@ public sealed class ReviewFollowsHeadTests {
 		var session = host.SelectedSession;
 		var opened = await host.SessionRequestAsync<JsonElement>(
 			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
-		Assert.True(opened.GetProperty("opened").GetBoolean());
+		Assert.Equal("opened", opened.GetProperty("outcome").GetString());
 
 		TempGitRepo.Run(host.RepoRoot, "switch", "-q", "-c", "fresh", "main");
 
@@ -28,7 +28,7 @@ public sealed class ReviewFollowsHeadTests {
 			toast.GetProperty("message").GetString()!.Contains("now on 'fresh'", StringComparison.Ordinal)));
 		var reopened = await host.SessionRequestAsync<JsonElement>(
 			session, "review", "diffAgainst", new { reference = "main", replaces = (string?)null });
-		Assert.False(reopened.GetProperty("opened").GetBoolean());
+		Assert.Equal("none", reopened.GetProperty("outcome").GetString());
 		Assert.Contains(
 			host.Bridge.PostedEvents("notifications", "show"),
 			toast => toast.GetProperty("message").GetString() == "No changes against 'main'.");

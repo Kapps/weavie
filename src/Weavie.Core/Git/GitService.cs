@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
@@ -493,15 +494,48 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+	public async Task<IReadOnlyList<GitFileSnapshot>> ReadFilesAtRefsAsync(
+		string repositoryDirectory,
+		IReadOnlyList<(string Reference, string Path)> files,
+		CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
-		ArgumentException.ThrowIfNullOrEmpty(reference);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		// A non-zero exit means the file is absent at that ref (added in the PR), distinct from an existing empty file.
-		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
-		return result.ExitCode == 0
-			? new GitFileSnapshot(true, result.StdOut)
-			: new GitFileSnapshot(false, string.Empty);
+		ArgumentNullException.ThrowIfNull(files);
+		if (files.Count == 0) return [];
+		if (files.Any(file => file.Reference.Length == 0 || file.Path.Length == 0 || $"{file.Reference}{file.Path}".IndexOfAny(['\n', '\r']) >= 0))
+			throw new ArgumentException("Each file needs a reference and a path on one line.", nameof(files));
+		var result = await RunAsync(repositoryDirectory, ["cat-file", "--batch"],
+			string.Concat(files.Select(file => $"{file.Reference}:{file.Path}\n")), ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) throw new GitException($"git cat-file --batch failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+		return ParseCatFileBatch(result.StdOutBytes, files.Count);
+	}
+
+	// Per object, "<oid> <type> <size>" then its bytes, or "<name> missing". Anything but a blob (a missing path, a
+	// directory, a submodule) is absent.
+	private static IReadOnlyList<GitFileSnapshot> ParseCatFileBatch(byte[] output, int count) {
+		ArgumentNullException.ThrowIfNull(output);
+		var snapshots = new List<GitFileSnapshot>(count);
+		int position = 0;
+		while (snapshots.Count < count) {
+			int end = Array.IndexOf(output, (byte)'\n', position);
+			if (end < 0) throw new GitException("git cat-file --batch ended before answering every file.");
+			string line = Encoding.UTF8.GetString(output, position, end - position);
+			position = end + 1;
+			if (line.EndsWith(" missing", StringComparison.Ordinal)) {
+				snapshots.Add(new GitFileSnapshot(false, string.Empty));
+				continue;
+			}
+
+			string[] header = line.Split(' ');
+			if (header.Length != 3 || !int.TryParse(header[2], CultureInfo.InvariantCulture, out int size) || size > output.Length - position)
+				throw new GitException($"git cat-file --batch answered '{line}'.");
+
+			snapshots.Add(header[1] == "blob"
+				? new GitFileSnapshot(true, ProcessOutput.Decode(output, position, size))
+				: new GitFileSnapshot(false, string.Empty));
+			position += size + 1;
+		}
+
+		return snapshots;
 	}
 
 	/// <summary>

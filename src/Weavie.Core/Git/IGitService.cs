@@ -187,10 +187,13 @@ public interface IGitService {
 	Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default);
 
 	/// <summary>
-	/// The contents and existence of <paramref name="path"/> at <paramref name="reference"/>
-	/// (<c>git show ref:path</c>) — the diff baseline for a PR file.
+	/// The contents and existence of each repository-relative path at its reference, in order, read through one
+	/// <c>git cat-file --batch</c> — the diff baselines for a review.
 	/// </summary>
-	Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
+	Task<IReadOnlyList<GitFileSnapshot>> ReadFilesAtRefsAsync(
+		string repositoryDirectory,
+		IReadOnlyList<(string Reference, string Path)> files,
+		CancellationToken ct = default);
 
 	/// <summary>
 	/// Blames <paramref name="path"/> (worktree-relative) against the working tree, so lines edited but not yet

@@ -163,16 +163,14 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		bool resuming = session.Changes.Review is { } existing && existing.SameSource(review);
 
-		var git = new GitService();
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
 		try {
-			foreach (var change in changes) {
-				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, change.Path));
-				var baseline = await git
-					.ReadFileAtRefAsync(review.Worktree, review.MergeBase, change.Path, ct)
-					.ConfigureAwait(false);
-				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
-				seeds.Add((absolute, baseline, current));
+			var baselines = await new GitService()
+				.ReadFilesAtRefsAsync(review.Worktree, [.. changes.Select(change => (review.MergeBase, change.Path))], ct)
+				.ConfigureAwait(false);
+			for (int i = 0; i < changes.Count; i++) {
+				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, changes[i].Path));
+				seeds.Add((absolute, baselines[i], await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false)));
 			}
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Log($"[weavie] review '{review.Label}': diff failed: {ex.Message}");

@@ -43,17 +43,17 @@ answer escalation and a human answer continuing the run. Cover `if` and `then` a
 
 **Requirements:** 4, 5, 6. **Dependencies:** 1, 2.
 
-- [ ] Extract shared declared-reference lookup and worktree path resolution; retain initial `files`
+- [x] Extract shared declared-reference lookup and worktree path resolution; retain initial `files`
   validation and existing missing-value behavior.
-- [ ] Build plans from explicit `files` references only, including inputs and earlier outputs; normalize
+- [x] Build plans from explicit `files` references only, including inputs and earlier outputs; normalize
   and deduplicate paths while preserving the question, output values, summary, and feedback.
-- [ ] Add the engine file-reader contract and Core implementation over `IFileSystem.TryReadAllText`;
+- [x] Add the engine file-reader contract and Core implementation over `IFileSystem.TryReadAllText`;
   translate binary/missing/access failures into named unreadable results.
-- [ ] Extend the pending attempt to prepare all evidence before inference, outside the runner lock.
+- [x] Extend the pending attempt to prepare all evidence before inference, outside the runner lock.
   Extract its file, implement safe cancellation/disposal, and inject the reader through shared Hosting.
-- [ ] Pass complete prepared evidence to the utility adapter; keep bodies out of persistence and reread
+- [x] Pass complete prepared evidence to the utility adapter; keep bodies out of persistence and reread
   files/settings on new attempts after activation.
-- [ ] Add reader/selection/lifecycle tests and deterministic full-stack journeys for current contents,
+- [x] Add reader/selection/lifecycle tests and deterministic full-stack journeys for current contents,
   mixed unreadable evidence, no automatic reads, cancellation, and zero calls on failed preparation.
   Update file-evidence documentation and guidance.
 

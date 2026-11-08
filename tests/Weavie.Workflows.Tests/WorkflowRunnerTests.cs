@@ -37,7 +37,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words);
+			_store, _decider, new UnusedFileReader(), _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words);
 		runner.Activate();
 		return runner;
 	}
@@ -310,6 +310,10 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		public string? LoadFailure => null;
 
 		public void Save(WorkflowRun? run) => Text = WorkflowRunDocument.Write(run);
+	}
+
+	private sealed class UnusedFileReader : IWorkflowFileReader {
+		public WorkflowFileRead Read(string relativePath) => throw new InvalidOperationException("No file read expected.");
 	}
 
 	private sealed class Decider : IWorkflowDecider {

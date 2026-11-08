@@ -81,10 +81,7 @@ internal static class WorkflowSemantics {
 
 	private static void CheckReferences(WorkflowDefinition definition, WorkflowTemplate? template, string path, WorkflowCheck check) {
 		foreach (var reference in template?.References ?? []) {
-			bool declared = reference.IsInput
-				? definition.Inputs.Any(input => input.Name == reference.Name)
-				: definition.Stages.Any(stage => stage.Id == reference.Scope && stage.Run.Outputs.Any(output => output.Name == reference.Name));
-			if (!declared) {
+			if (WorkflowReferences.TypeOf(definition, reference) is null) {
 				check.Add(path, reference.IsInput
 					? $"{reference} names no declared input"
 					: $"{reference} names no output declared by a stage \"{reference.Scope}\"");

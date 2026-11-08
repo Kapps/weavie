@@ -229,9 +229,9 @@ Ask whether later steps — and the user — need *how* the step did its work, o
 A forked step runs as a background-work card, which the user can watch but not talk to, so a step that expects
 conversation is always `continue`.
 
-A model decision runs with no tools: it sees only its rendered `ask`, the stage's outputs, and the summary the agent
-gave at `completeStage` — never files or the transcript. The summary is the one uniform channel for "what the agent
-just did", for terminal Claude and ACP agents alike.
+A model decision runs with no tools. It sees its rendered `ask`, explicitly referenced file contents, the stage's
+output values, and the completion summary with user feedback. It receives no conversation transcript. The summary
+is the uniform channel for what the agent did, for terminal Claude and ACP agents alike.
 
 ### Agent options
 
@@ -330,6 +330,35 @@ then:
 Descriptions are optional plain text, recommended to distinguish answer criteria. The model receives labels and
 descriptions, never routing destinations. The current utility model returns strict JSON such as
 `{"choice":"approve","confidence":0.91}`; confidence is estimated from evidence, not assigned a constant.
+
+A model `ask` that references a `files` input or output receives each file's complete current text as separate,
+path-labelled evidence. Inputs, current-stage outputs, and earlier-stage outputs work alike. Paths resolve inside
+the session worktree and normalized duplicates appear once, in reference order. The question and output values
+keep their path labels. Initial `files` validation still requires existing, non-empty files; a later empty file
+contributes empty text. Text readability uses the shared content decoder, including BOM support, not extensions.
+
+```yaml
+run:
+  prompt: Write the review.
+  outputs: { review: files }
+then:
+  ask: "Does {{draft.review}} document every required check?"
+  choices: { approve: build, revise: draft }
+```
+
+If any referenced file is binary, missing, or unreadable, the whole question goes to the user with its path and
+reason; no partial evidence reaches a model. Absent optional inputs and empty file lists add no contents. Missing
+stage output values retain the existing pause behavior. Invalid file paths escalate instead of escaping the worktree.
+
+Only explicit references to `files` values trigger reads. Literal paths, paths composed from text references,
+unreferenced file outputs, URLs, and document links are not expanded. No workspace scan or linked-resource fetch
+occurs. User decisions do not prepare evidence.
+
+The engine prepares evidence and runs inference under one pending attempt, outside its state lock. Cancellation
+retires the attempt; late reads or model results cannot affect a newer one. File bodies are never persisted in run
+state. Resuming a saved model decision rereads current files and the live confidence setting. Reads are not an
+atomic snapshot across files, synchronous reads cannot be interrupted, and path containment is lexical rather than
+a symlink sandbox. Complete evidence is sent without a local prompt cap; provider rejection reaches the user.
 
 A `by: user` decision always goes to the user. The agent relays the user's answer with `weavie.workflow.answer`
 (run id, choice, and the user's own words as feedback) and never answers for them. Human answers bypass model

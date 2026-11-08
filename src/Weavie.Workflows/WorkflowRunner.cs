@@ -17,11 +17,12 @@ public interface IWorkflowRunPort {
 /// A decision in flight is an owned <see cref="PendingDecision"/>; its answer lands only while it is still current,
 /// so an answer arriving after a cancel, jump, or newer decision is dropped by construction.
 /// </summary>
-public sealed class WorkflowRunner : IDisposable {
+public sealed partial class WorkflowRunner : IDisposable {
 	private readonly Lock _gate = new();
 	private readonly WorkflowCatalog _catalog;
 	private readonly IWorkflowRunStore _store;
 	private readonly IWorkflowDecider _decider;
+	private readonly IWorkflowFileReader _files;
 	private readonly IWorkflowRunPort _port;
 	private readonly Func<int> _maxStageAttempts;
 	private readonly Func<bool> _openReviewItem;
@@ -35,11 +36,12 @@ public sealed class WorkflowRunner : IDisposable {
 
 	/// <summary>Creates the runner over the session's persisted run; call <see cref="Activate"/> once the port is live.</summary>
 	public WorkflowRunner(
-		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowRunPort port,
+		WorkflowCatalog catalog, IWorkflowRunStore store, IWorkflowDecider decider, IWorkflowFileReader files, IWorkflowRunPort port,
 		Func<int> maxStageAttempts, Func<bool> openReviewItem, Func<double> decisionConfidence, string worktree, WorkflowVocabulary words) {
 		_catalog = catalog;
 		_store = store;
 		_decider = decider;
+		_files = files;
 		_port = port;
 		_maxStageAttempts = maxStageAttempts;
 		_openReviewItem = openReviewItem;
@@ -207,7 +209,7 @@ public sealed class WorkflowRunner : IDisposable {
 			switch (effect) {
 				case WorkflowEffect.Kickoff kickoff: _port.Kickoff(kickoff.Turn); break;
 				case WorkflowEffect.Notify notify: _port.Notify(notify.Message); break;
-				case WorkflowEffect.Decide decide: _pending = new PendingDecision(this, decide.Plan); break;
+				case WorkflowEffect.Decide decide: _pending = new PendingDecision(decide.Plan, _files, _decider, Resolve); break;
 			}
 		}
 
@@ -224,43 +226,4 @@ public sealed class WorkflowRunner : IDisposable {
 		}
 	}
 
-	private sealed class PendingDecision : IDisposable {
-		private readonly CancellationTokenSource _cts = new();
-		private readonly Lock _lifetime = new();
-		private bool _finished;
-
-		public PendingDecision(WorkflowRunner owner, WorkflowDecisionPlan plan) {
-			MinimumConfidence = plan.MinimumConfidence;
-			var token = _cts.Token;
-			var request = new WorkflowDecisionRequest(plan.Question, plan.Choices, new WorkflowDecisionEvidence(plan.Outputs, plan.Summary, []));
-			_ = Task.Run(async () => {
-				try {
-					WorkflowDecisionResult result;
-					try {
-						token.ThrowIfCancellationRequested();
-						result = await owner._decider.DecideAsync(request, token).ConfigureAwait(false);
-					} catch (OperationCanceledException) when (token.IsCancellationRequested) {
-						return;
-					} catch (Exception ex) {
-						result = new WorkflowDecisionResult.Failed(ex.Message);
-					}
-
-					owner.Resolve(this, result);
-				} finally {
-					lock (_lifetime) {
-						_finished = true;
-						_cts.Dispose();
-					}
-				}
-			});
-		}
-
-		public double MinimumConfidence { get; }
-
-		public void Dispose() {
-			lock (_lifetime) {
-				if (!_finished) _cts.Cancel();
-			}
-		}
-	}
 }

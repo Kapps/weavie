@@ -75,9 +75,28 @@ internal sealed partial class WorkflowTransitions {
 			return false;
 		}
 
-		text = template.Render(r => r.IsInput
-			? run.Inputs.GetValueOrDefault(r.Name, WorkflowValue.Empty)
-			: run.Outputs[r.Scope][r.Name]);
+		text = template.Render(r => ResolveValue(run, r));
+		return true;
+	}
+
+	private static WorkflowValue ResolveValue(WorkflowRun run, WorkflowReference reference) => reference.IsInput
+		? run.Inputs.GetValueOrDefault(reference.Name, WorkflowValue.Empty)
+		: run.Outputs[reference.Scope][reference.Name];
+
+	private bool TrySelectFiles(WorkflowRun run, WorkflowTemplate template, out IReadOnlyList<string> paths, out string error) {
+		var selected = new List<string>();
+		var seen = new HashSet<string>(StringComparer.Ordinal);
+		paths = selected;
+		foreach (var reference in template.References.Where(r => WorkflowReferences.TypeOf(definition, r) == WorkflowValueType.Files)) {
+			foreach (string path in ResolveValue(run, reference).Items ?? []) {
+				if (!WorkflowFilePaths.TryResolve(worktree, path, out string relative, out _)) {
+					error = $"\"{path}\" isn't a file path inside the worktree";
+					return false;
+				}
+				if (seen.Add(relative)) selected.Add(relative);
+			}
+		}
+		error = "";
 		return true;
 	}
 

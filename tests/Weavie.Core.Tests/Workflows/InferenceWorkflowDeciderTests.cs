@@ -13,7 +13,7 @@ public sealed class InferenceWorkflowDeciderTests : IDisposable {
 	private readonly TempDirectory _dir = new("weavie-decision-adapter");
 	private static WorkflowDecisionRequest Request() => new("Is the review complete?",
 		[new("approve", "All criteria passed."), new("revise", null)],
-		new WorkflowDecisionEvidence(new Dictionary<string, string> { ["review"] = "No issues." }, "Reviewed.", []));
+		new WorkflowDecisionEvidence(new Dictionary<string, string> { ["review"] = "No issues." }, "Reviewed.", [new("review.md", "Complete contents: café 世界\n[link](unread.md)\n")]));
 
 	[Theory]
 	[InlineData(0.79)]
@@ -34,7 +34,9 @@ public sealed class InferenceWorkflowDeciderTests : IDisposable {
 		Assert.Equal(["question", "choices", "evidence"], json.RootElement.EnumerateObject().Select(p => p.Name));
 		Assert.Equal("All criteria passed.", json.RootElement.GetProperty("choices")[0].GetProperty("description").GetString());
 		Assert.Equal("No issues.", json.RootElement.GetProperty("evidence").GetProperty("outputs").GetProperty("review").GetString());
-		Assert.Empty(json.RootElement.GetProperty("evidence").GetProperty("files").EnumerateArray());
+		var file = Assert.Single(json.RootElement.GetProperty("evidence").GetProperty("files").EnumerateArray());
+		Assert.Equal("review.md", file.GetProperty("path").GetString());
+		Assert.Equal(Request().Evidence.Files[0].Text, file.GetProperty("text").GetString());
 		Assert.DoesNotContain("unsure", request.Prompt, StringComparison.Ordinal);
 	}
 

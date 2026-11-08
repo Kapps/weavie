@@ -1,11 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
-import { createAcpSession } from "../harness/acp-session";
+import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
-import { sessionWorktrees } from "../harness/git-workspace";
 import {
-  installWorkflowInference,
+  createWorkflowSession,
   workflowReceipt,
   workflowTool,
   writeWorkflow,
@@ -30,15 +28,6 @@ const STAGES = `  - id: review
 
 test.use({ inference: "workflow" });
 
-async function setup(page: Page, home: string, workspace: string, provider: string) {
-  if (provider === "workflow-acp") await installWorkflowInference(page, home);
-  const surface = await createAcpSession(page, "confidence-review");
-  const worktree = sessionWorktrees(workspace)[0]!;
-  await workflowTool(surface, "setSetting", { key: "inference.enabled", value: true });
-  await workflowTool(surface, "setSetting", { key: "inference.defaultProvider", value: provider });
-  return { surface, worktree, run: surface.locator(".pane-head .pane-run") };
-}
-
 async function reply(worktree: string, choice: string, confidence: number): Promise<void> {
   await writeFile(join(worktree, "inference-answer.json"), JSON.stringify({ choice, confidence }));
 }
@@ -61,7 +50,12 @@ test("confidence boundaries, live settings, described choices, and human feedbac
   page,
   weavie,
 }) => {
-  const { surface, worktree, run } = await setup(page, weavie.home, weavie.workspace, "claude");
+  const { surface, worktree, run } = await createWorkflowSession(
+    page,
+    weavie.home,
+    weavie.workspace,
+    "claude",
+  );
   await writeWorkflow(
     worktree,
     "confidence",
@@ -120,7 +114,7 @@ test("if and then confidence overrides take precedence over the live setting", a
   page,
   weavie,
 }) => {
-  const { surface, worktree, run } = await setup(
+  const { surface, worktree, run } = await createWorkflowSession(
     page,
     weavie.home,
     weavie.workspace,
@@ -180,7 +174,7 @@ for (const scenario of [
     page,
     weavie,
   }) => {
-    const { surface, worktree, run } = await setup(
+    const { surface, worktree, run } = await createWorkflowSession(
       page,
       weavie.home,
       weavie.workspace,

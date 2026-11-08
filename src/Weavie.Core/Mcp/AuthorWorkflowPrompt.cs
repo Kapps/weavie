@@ -35,10 +35,12 @@ public static class AuthorWorkflowPrompt {
 			   feedback). Put one wherever the user wants to sign off.
 			7. A decision answered by the model (`by: model`, the default) runs on a model with no tools — it
 			   may be a small decision model. It sees only its `ask` text with the `{{…}}` values filled in, the
-			   stage's outputs, and the summary the agent gives at `completeStage`. It cannot read files, run
-			   commands, or see the conversation. So anything a decision depends on must be a stage output:
-			   shape outputs for the decisions that read them (a `remaining: list` the decision checks, not
-			   "read tasks.md"). The model returns a choice with numeric confidence. Below `workflow.decisionConfidence`
+			   stage's outputs, and the summary the agent gives at `completeStage`, including user feedback. When
+			   `ask` references a `files` input or output, Weavie supplies its current text as separate evidence.
+			   Any unreadable file sends the whole question to the user without a model call. Literal paths, paths
+			   assembled from text, unreferenced files, URLs, and document links cause no reads. The model has no
+			   commands or conversation history. Shape outputs for the decisions that read them, and explicitly
+			   reference every needed file value. The model returns a choice with numeric confidence. Below `workflow.decisionConfidence`
 			   (default 0.8), refusal, failure, or an invalid answer asks the user. Model `if` and `then` may set
 			   `confidence:` to override the threshold; user decisions cannot. No implicit `unsure` answer exists.
 			   Choice values may be a destination or `{ then: stage, description: "plain-text criteria" }`;

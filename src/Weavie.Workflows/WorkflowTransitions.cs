@@ -208,17 +208,23 @@ internal sealed partial class WorkflowTransitions(
 			return Pause(run with { Decision = kind }, missing);
 		}
 
-		run = run with { Decision = kind };
+		run = run with {
+			Decision = kind,
+			Asked = new WorkflowAsked { Question = rendered, Choices = [.. choices.Select(c => c.Name)], Reason = "" },
+		};
 		if (question.By == WorkflowAnswerer.User) {
-			return AskUser(run with { Asked = new WorkflowAsked { Question = rendered, Choices = [.. choices.Select(c => c.Name)], Reason = "" } }, "");
+			return AskUser(run, "");
+		}
+		if (!TrySelectFiles(run, question.Ask, out var paths, out string error)) {
+			return AskUser(run, $"the decision failed ({error})");
 		}
 
 		return new WorkflowStep(
-			run with { Phase = WorkflowPhase.Deciding, Asked = new WorkflowAsked { Question = rendered, Choices = [.. choices.Select(c => c.Name)], Reason = "" } },
+			run with { Phase = WorkflowPhase.Deciding },
 			[new WorkflowEffect.Decide(new WorkflowDecisionPlan(
 				rendered, [.. choices], new Dictionary<string, string>(outputs),
 				run.Note.Length == 0 ? run.Summary : Join(run.Summary, $"User feedback: {run.Note}"),
-				[], question.Confidence ?? decisionConfidence))]);
+				paths, question.Confidence ?? decisionConfidence))]);
 	}
 
 	// Puts the run's current question to the user through the agent; a non-empty reason says why the model didn't answer it.

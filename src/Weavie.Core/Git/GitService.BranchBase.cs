@@ -90,7 +90,7 @@ public sealed partial class GitService {
 		}
 
 		// Both branches may have merged the default branch in, so any of their merge-bases off it marks the fork.
-		var bases = await RunAsync(directory, ["merge-base", "--all", parent, "HEAD"], ct).ConfigureAwait(false);
+		var bases = await ReadAsync(directory, ["merge-base", "--all", parent, "HEAD"], ct).ConfigureAwait(false);
 		// Exit 1: no common history.
 		if (bases.ExitCode is not (0 or 1)) {
 			throw new GitException($"git merge-base --all {parent} HEAD failed (exit {bases.ExitCode}): {bases.StdErr.Trim()}");
@@ -106,17 +106,17 @@ public sealed partial class GitService {
 	}
 
 	// Whether reference names a local or remote-tracking branch other than current or a remote copy of it.
-	private static async Task<bool> IsOtherBranchAsync(string directory, string current, string reference, CancellationToken ct) {
+	private async Task<bool> IsOtherBranchAsync(string directory, string current, string reference, CancellationToken ct) {
 		if (reference.StartsWith('-')) {
 			return false;
 		}
 
-		var full = await RunAsync(directory, ["rev-parse", "--verify", "--quiet", "--symbolic-full-name", reference], ct).ConfigureAwait(false);
+		var full = await ReadAsync(directory, ["rev-parse", "--verify", "--quiet", "--symbolic-full-name", reference], ct).ConfigureAwait(false);
 		return TryParseRef(full.StdOut.Trim(), out _, out string branch) && branch != current;
 	}
 
-	private static async Task<string?> ReadBranchConfigAsync(string directory, string branch, string key, CancellationToken ct) {
-		var result = await RunAsync(directory, ["config", "--get", BranchConfigKey(branch, key)], ct).ConfigureAwait(false);
+	private async Task<string?> ReadBranchConfigAsync(string directory, string branch, string key, CancellationToken ct) {
+		var result = await ReadAsync(directory, ["config", "--get", BranchConfigKey(branch, key)], ct).ConfigureAwait(false);
 		// Only exit 1 means the key is unset.
 		return result.ExitCode switch {
 			0 => result.StdOut.Trim() is { Length: > 0 } value ? value : null,
@@ -130,8 +130,8 @@ public sealed partial class GitService {
 
 	// The start point git recorded when the branch was created: its oldest reflog entry, or for a branch created from
 	// HEAD, the branch HEAD moved away from when it first arrived on this branch after that.
-	private static async Task<string?> ReadStartPointAsync(string directory, string branch, CancellationToken ct) {
-		var created = await RunCheckedAsync(
+	private async Task<string?> ReadStartPointAsync(string directory, string branch, CancellationToken ct) {
+		var created = await ReadCheckedAsync(
 			directory, ["reflog", "show", "--date=unix", ReflogFormat, HeadsPrefix + branch, "--"], ct).ConfigureAwait(false);
 		if (Lines(created.StdOut).Select(ParseReflogEntry).LastOrDefault() is not { } creation
 			|| !creation.Subject.StartsWith(CreatedFrom, StringComparison.Ordinal)) {
@@ -144,7 +144,7 @@ public sealed partial class GitService {
 		}
 
 		string arrival = " to " + branch;
-		var moves = await RunCheckedAsync(
+		var moves = await ReadCheckedAsync(
 			directory,
 			["log", "--walk-reflogs", "--date=unix", ReflogFormat, "--fixed-strings", $"--grep-reflog={arrival}", "HEAD", "--"],
 			ct).ConfigureAwait(false);
@@ -164,8 +164,8 @@ public sealed partial class GitService {
 			: null;
 	}
 
-	private static async Task<bool> IsAncestorAsync(string directory, string ancestor, string descendant, CancellationToken ct) {
-		var result = await RunAsync(directory, ["merge-base", "--is-ancestor", ancestor, descendant], ct).ConfigureAwait(false);
+	private async Task<bool> IsAncestorAsync(string directory, string ancestor, string descendant, CancellationToken ct) {
+		var result = await ReadAsync(directory, ["merge-base", "--is-ancestor", ancestor, descendant], ct).ConfigureAwait(false);
 		return result.ExitCode switch {
 			0 => true,
 			1 => false,

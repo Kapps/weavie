@@ -5,6 +5,7 @@ namespace Weavie.Core.Changes;
 
 public sealed partial class SessionChangeTracker {
 	private object? _reviewRequest;
+	private bool _replacingReview;
 
 	/// <summary>Raised under the tracker's lock when the review's source changes; handlers may only signal.</summary>
 	public event Action? ReviewChanged;
@@ -118,21 +119,27 @@ public sealed partial class SessionChangeTracker {
 	public bool ReplaceReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds, object request, string replaces) {
 		lock (_gate) {
 			if (!ReferenceEquals(_reviewRequest, request)) return false;
-			if (_review is { } existing && !existing.SameSource(review)) {
-				if (existing.Label != replaces) return false;
+			var before = _review;
+			if (before is not { } existing || existing.SameSource(review)) return ArmReview(review, seeds, request);
+			if (existing.Label != replaces) return false;
+			// One change from the old review to the new, so listeners refresh once rather than for each step.
+			_replacingReview = true;
+			try {
 				ReconcileReviewDisk();
 				CloseReviewLocked();
 				_reviewRequest = request;
+				return ArmReview(review, seeds, request);
+			} finally {
+				_replacingReview = false;
+				if (_review != before) ReviewChanged?.Invoke();
 			}
-
-			return ArmReview(review, seeds, request);
 		}
 	}
 
 	private void SetReview(ReviewContext? review) {
 		if (_review == review) return;
 		_review = review;
-		ReviewChanged?.Invoke();
+		if (!_replacingReview) ReviewChanged?.Invoke();
 	}
 
 	private PathState PrepareSeed(ReviewSeed seed, List<string> restarted) {

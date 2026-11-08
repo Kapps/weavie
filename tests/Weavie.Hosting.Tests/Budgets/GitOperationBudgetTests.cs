@@ -21,12 +21,12 @@ public sealed class GitOperationBudgetTests(ITestOutputHelper output) {
 	// PERFORMANCE CONTRACT: raising any budget below noticeably requires the user's explicit approval — never raise one
 	// just to make a failure pass. Measured 2026-11-08; lower a budget whenever a change makes the operation cheaper.
 	private const int OpenReviewGit = 17;
-	private const int ReopenReviewGit = 10;
-	private const int ChangeBaseGit = 26;
-	private const int PollGit = 13;
+	private const int ReopenReviewGit = 9;
+	private const int ChangeBaseGit = 19;
+	private const int PollGit = 12;
 	private const int ConnectGit = 4;
 	private const int FileEditGit = 0;
-	private const int CommitGit = 10;
+	private const int CommitGit = 9;
 	// The review's file list, history, and commits, plus one hash-only diff message per file.
 	private const int ReviewMessages = CommittedFiles + 4;
 	private const int PollMessages = 1;

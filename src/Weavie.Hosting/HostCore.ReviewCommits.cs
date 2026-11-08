@@ -28,10 +28,10 @@ public sealed partial class HostCore {
 	// base); the review spans the commits after its own base. Range logs over the branch only, never a history walk.
 	private static async Task<ReviewCommitsSnapshot> ResolveReviewCommitsAsync(HostSession session, ReviewContext? review, CancellationToken ct) {
 		string worktree = session.WorkspaceRoot;
-		var git = new GitService();
+		var git = GitService.ForOperation();
 		try {
 			bool pullRequest = review is { PrNumber: > 0 };
-			string? baseRef = pullRequest ? null : await BranchBaseRefAsync(session, ct).ConfigureAwait(false);
+			string? baseRef = pullRequest ? null : await BranchBaseRefAsync(session, git, ct).ConfigureAwait(false);
 			string? branchBase = baseRef is null ? review?.MergeBase
 				: await git.MergeBaseAsync(worktree, baseRef, "HEAD", ct).ConfigureAwait(false);
 			if (branchBase is null) {

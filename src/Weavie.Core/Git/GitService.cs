@@ -41,14 +41,14 @@ public sealed partial class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<string> GetHeadCommitAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var result = await RunCheckedAsync(directory, ["rev-parse", "HEAD"], ct).ConfigureAwait(false);
+		var result = await ReadCheckedAsync(directory, ["rev-parse", "HEAD"], ct).ConfigureAwait(false);
 		return result.StdOut.Trim();
 	}
 
 	/// <inheritdoc/>
 	public async Task<string?> GetCurrentBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var result = await RunCheckedAsync(directory, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
+		var result = await ReadCheckedAsync(directory, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
 		string branch = result.StdOut.Trim();
 		return branch is "HEAD" or "" ? null : branch;
 	}
@@ -57,7 +57,7 @@ public sealed partial class GitService : IGitService {
 	public async Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		ArgumentException.ThrowIfNullOrEmpty(branch);
-		var result = await RunAsync(directory, ["rev-parse", "--verify", "--quiet", HeadsPrefix + branch], ct).ConfigureAwait(false);
+		var result = await ReadAsync(directory, ["rev-parse", "--verify", "--quiet", HeadsPrefix + branch], ct).ConfigureAwait(false);
 		return result.ExitCode == 0;
 	}
 
@@ -216,7 +216,7 @@ public sealed partial class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var origin = await RunAsync(directory, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
+		var origin = await ReadAsync(directory, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
 		if (origin.ExitCode == 0) {
 			string head = origin.StdOut.Trim();
 			int slash = head.IndexOf('/');
@@ -398,7 +398,7 @@ public sealed partial class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(a);
 		ArgumentException.ThrowIfNullOrEmpty(b);
-		var result = await RunAsync(repositoryDirectory, ["merge-base", a, b], ct).ConfigureAwait(false);
+		var result = await ReadAsync(repositoryDirectory, ["merge-base", a, b], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			return null;
 		}
@@ -418,7 +418,7 @@ public sealed partial class GitService : IGitService {
 		}
 
 		// ^{commit} peels tags to commits, so any commit-ish resolves to what a diff can use.
-		var result = await RunAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
+		var result = await ReadAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			return null;
 		}
@@ -802,14 +802,13 @@ public sealed partial class GitService : IGitService {
 		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase);
 
 	private static async Task<ProcessCaptureResult> RunCheckedAsync(
-		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
-		var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
-		if (result.ExitCode != 0) {
-			throw new GitException($"git {string.Join(' ', args)} failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
-		}
+		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>
+		Checked(await RunAsync(workingDirectory, args, ct).ConfigureAwait(false), args);
 
-		return result;
-	}
+	private static ProcessCaptureResult Checked(ProcessCaptureResult result, IReadOnlyList<string> args) =>
+		result.ExitCode == 0
+			? result
+			: throw new GitException($"git {string.Join(' ', args)} failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 
 	private static Task<ProcessCaptureResult> RunAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>

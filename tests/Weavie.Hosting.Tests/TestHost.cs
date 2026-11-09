@@ -49,7 +49,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
 
-	private TestHost(TempDirectory temp, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler http, string credentialsDir) {
+	private TestHost(TempDirectory temp, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, RecordingHttpHandler http, string credentialsDir) {
 		_temp = temp;
 		RepoRoot = repoRoot;
 		_services = services;
@@ -68,7 +68,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	public ManualTimeProvider Time { get; }
 
 	/// <summary>The stub backing every connected service's HTTP calls (key validation + API); set its responder per test.</summary>
-	public StubHttpMessageHandler Http { get; }
+	public RecordingHttpHandler Http { get; }
 
 	/// <summary>The temp credential store dir — a saved key is <c>&lt;id&gt;.key</c> here.</summary>
 	public string CredentialsDir { get; }
@@ -301,7 +301,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		// Keep tests hermetic: never spawn the developer's real login shell or import its rc-file environment.
 		LoginShellEnvironment.MarkImported();
 
-		var http = new StubHttpMessageHandler();
+		var http = new RecordingHttpHandler();
 		string credentialsDir = temp.Combine("credentials");
 		var services = IsolatedServices(temp.Path, http, credentialsDir, pullRequests, inferenceFor, acpAgents);
 		var bridge = new FakeHostBridge();
@@ -590,7 +590,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>App-global stores isolated under <paramref name="tempRoot"/>, with first-run setup already finished.</summary>
 	internal static HostServices IsolatedServices(string tempRoot) => IsolatedServices(
 		tempRoot,
-		new StubHttpMessageHandler(),
+		new RecordingHttpHandler(),
 		Path.Combine(tempRoot, "sources"),
 		NoPullRequests(),
 		static settings => InferenceComposition.CreateDisabled(settings),
@@ -598,7 +598,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	private static HostServices IsolatedServices(
 		string tempRoot,
-		StubHttpMessageHandler http,
+		RecordingHttpHandler http,
 		string credentialsDir,
 		IPullRequestProvider pullRequests,
 		Func<SettingsStore, IInferenceService> inferenceFor,

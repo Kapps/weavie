@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Weavie.Core.Credentials;
 
 namespace Weavie.Core.Inference.Decisions;
 
@@ -29,7 +30,7 @@ public sealed partial class AgentDecisionProvider : IDecisionProvider {
 	public string Detail => "The configured inference agent";
 
 	/// <inheritdoc/>
-	public bool NeedsCredential => false;
+	public CredentialDefinition? Credential => null;
 
 	/// <inheritdoc/>
 	public async Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {

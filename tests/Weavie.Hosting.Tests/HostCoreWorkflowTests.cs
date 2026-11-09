@@ -41,10 +41,10 @@ public sealed class HostCoreWorkflowTests {
 		TempGitRepo.Run(repo, "commit", "-m", "flow");
 	}
 
-	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
+	internal static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	// Pane output publishes immediately: the host's clock is manual, so a coalescing delay would never elapse.
-	private static async Task<TestHost> StartAsync(DecisionStub decisions) {
+	internal static async Task<TestHost> StartAsync(DecisionStub decisions) {
 		var host = await TestHost.StartAsync(CommitFlow, _ => decisions);
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
 		host.Settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
@@ -223,7 +223,7 @@ public sealed class HostCoreWorkflowTests {
 			message.GetProperty("type").GetString() == "item-completed"
 			&& message.GetProperty("text").GetString()!.StartsWith($"echo: {prompt}", StringComparison.Ordinal)));
 
-	private static async Task WaitForRunLineAsync(TestHost host, HostSession session, Func<JsonElement?, bool> matches) =>
+	internal static async Task WaitForRunLineAsync(TestHost host, HostSession session, Func<JsonElement?, bool> matches) =>
 		await Eventually(() => host.Bridge.PostedEvents(session.Address, "status", "run") is { Count: > 0 } lines
 			&& matches(lines[^1].GetProperty("run") is { ValueKind: JsonValueKind.Object } run ? run : null));
 
@@ -238,7 +238,7 @@ public sealed class HostCoreWorkflowTests {
 	}
 
 	// Answers every workflow decision with Choice at the given probability, and every other label with 0.
-	private sealed class DecisionStub(string choice, double confidence) : IInferenceService {
+	internal sealed class DecisionStub(string choice, double confidence) : IInferenceService {
 		public string Choice { get; set; } = choice;
 
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(

@@ -1,3 +1,4 @@
+using Weavie.Core.Credentials;
 using Weavie.Core.Inference;
 using Weavie.Core.Inference.Decisions;
 
@@ -16,7 +17,7 @@ internal sealed class FakeDecisionProvider(
 
 	public string Detail => "fake";
 
-	public bool NeedsCredential => false;
+	public CredentialDefinition? Credential => null;
 
 	public int Calls { get; private set; }
 

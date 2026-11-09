@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Credentials;
 
 namespace Weavie.Core.Inference.Decisions;
 
@@ -13,8 +14,8 @@ public interface IDecisionProvider {
 	/// <summary>A one-line description for pickers.</summary>
 	string Detail { get; }
 
-	/// <summary>Whether the provider needs a connected credential.</summary>
-	bool NeedsCredential { get; }
+	/// <summary>The key the provider calls with, or null when it needs none.</summary>
+	CredentialDefinition? Credential { get; }
 
 	/// <summary>Runs one attempt; non-cancellation failures are returned.</summary>
 	Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct);

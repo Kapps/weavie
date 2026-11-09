@@ -111,10 +111,10 @@ public sealed class HostCoreCredentialsTests {
 		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.connect", new { })).Ok);
 
 		var picker = await Wait.ForAsync(() => Picker(host));
-		var option = Assert.Single(picker.GetProperty("options").EnumerateArray());
-		Assert.Equal("notion", option.GetProperty("id").GetString());
-		Assert.Equal("Notion", option.GetProperty("label").GetString());
-		Assert.Equal("Not connected", option.GetProperty("group").GetString());
+		var options = picker.GetProperty("options").EnumerateArray().ToList();
+		Assert.Equal(["Notion", "OpenAI", "TypeSafe"], options.Select(option => option.GetProperty("label").GetString()));
+		Assert.Equal(["notion", "openai", "typesafe"], options.Select(option => option.GetProperty("id").GetString()));
+		Assert.All(options, option => Assert.Equal("Not connected", option.GetProperty("group").GetString()));
 		Assert.Null(Prompt(host));
 
 		host.SessionEvent(host.SelectedSession, "picker", "pick", new { id = "notion" });

@@ -125,15 +125,23 @@ public interface ICredentialStore {
 	void Delete(string id);
 }
 
+[JsonConverter(typeof(RefusingConverter))]
 public sealed class CredentialSecret(string value) {
 	public string Reveal() => value;
 	public override string ToString() => "[redacted]";
 }
+// RefusingConverter throws NotSupportedException from both Read and Write.
 ```
 
 - **Secrets are held as `CredentialSecret`, never a bare string.**
   - Interpolation, logging and exception messages print `[redacted]`.
-  - The type has no source-generated JSON contract, so serializing one into a reply or wire message doesn't build.
+  - Serializing one throws. Its type-level `[JsonConverter]` throws from both `Write` and `Read`, and source-generated
+    contexts honor it, so it is Native AOT safe.
+  - Without the converter, the source generator would silently write an empty `{}` wherever a secret appeared, so a
+    leak would look harmless rather than fail.
+  - The model is Rust's `secrecy` crate: a redacting `Debug`, no serialization unless the type opts in, and an
+    explicit `expose_secret()`. Pydantic's `SecretStr` masks instead of refusing, which would turn a mistake into a
+    silently wrong payload.
   - `Reveal()` is called only where a request's authorization header is set, so every use is easy to find in
     review.
 - **`SecureString` is not used.** .NET discourages it for new code, it isn't encrypted outside Windows, and an HTTP
@@ -220,7 +228,7 @@ A user learns a decision model exists from their own workflow history, not from 
   - each HTTP failure;
   - a missing answer;
   - a missing key.
-- **`FileCredentialStore` tests** cover the round trip, `CredentialSecret`'s redacted `ToString`, owner-only permissions, absent versus unreadable, and
+- **`FileCredentialStore` tests** cover the round trip, `CredentialSecret`'s redacted `ToString` and refused serialization, owner-only permissions, absent versus unreadable, and
   Delete. Notion's connect tests move onto the store.
 - **A Hosting workflow test** routes a model decision through `typesafe` with the stubbed handler. It proves the
   live `inference.decisionProvider` switch and the low-probability escalation.

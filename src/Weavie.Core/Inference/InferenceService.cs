@@ -143,7 +143,7 @@ public sealed class InferenceService : IInferenceService {
 		try {
 			attempt = await InferencePolicy.AttemptAsync(
 				options.TimeBudget,
-				token => provider.QueryInferenceAsync(request, token),
+				token => QueryWithinBudgetAsync(provider, request, token),
 				ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException) {
 			ct.ThrowIfCancellationRequested();
@@ -189,6 +189,17 @@ public sealed class InferenceService : IInferenceService {
 		}
 
 		return new InferenceSuccess<TResponse> { Value = value, Receipt = receipt };
+	}
+
+	// Killing the process at the budget surfaces as a process or pipe error, which is still the budget's cancellation.
+	private static async Task<InferenceProviderResult> QueryWithinBudgetAsync(
+		IAgentInferenceProvider provider, InferenceProviderRequest request, CancellationToken budget) {
+		try {
+			return await provider.QueryInferenceAsync(request, budget).ConfigureAwait(false);
+		} catch (Exception ex) when (budget.IsCancellationRequested
+			&& ex is Win32Exception or IOException or UnauthorizedAccessException) {
+			throw new OperationCanceledException(budget);
+		}
 	}
 
 	private static InferenceFastMode ReadFastMode(string value) => value switch {

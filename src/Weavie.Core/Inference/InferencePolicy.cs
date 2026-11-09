@@ -20,8 +20,8 @@ internal static class InferencePolicy {
 	}
 
 	/// <summary>
-	/// Runs one attempt bounded by <paramref name="budget"/>. Exceeding it reports TimedOut; caller cancellation
-	/// propagates, and any other exception escapes to the caller.
+	/// Runs one attempt bounded by <paramref name="budget"/>. A cancellation the caller didn't request reports
+	/// TimedOut; caller cancellation propagates, and any other exception escapes to the caller.
 	/// </summary>
 	public static async Task<(T? Value, TimeSpan Elapsed, bool TimedOut)> AttemptAsync<T>(
 		TimeSpan budget,
@@ -33,9 +33,7 @@ internal static class InferencePolicy {
 		T value;
 		try {
 			value = await attempt(bounded.Token).ConfigureAwait(false);
-		} catch (Exception ex) when (!ct.IsCancellationRequested
-			&& (ex is OperationCanceledException || bounded.IsCancellationRequested)) {
-			// An attempt torn down at its budget may fail with whatever its transport throws, not only cancellation.
+		} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
 			return (default, stopwatch.Elapsed, true);
 		}
 		ct.ThrowIfCancellationRequested();

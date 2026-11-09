@@ -230,7 +230,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
-		// Workspace-level like the corrections ring; the decision-model card reads it, so changes re-evaluate.
+		// Workspace-level like the corrections ring, and like it re-evaluates suggestions when it changes.
 		_decisionHistory = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(Id));
 		_decisionHistory.Log += Log;
 		_decisionHistory.Changed += () => _suggestions?.Evaluate();

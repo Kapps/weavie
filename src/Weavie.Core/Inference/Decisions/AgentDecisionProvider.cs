@@ -49,7 +49,7 @@ public sealed partial class AgentDecisionProvider : IDecisionProvider {
 				Origin = request.Origin,
 				MaxImageCount = 0,
 				MaxImageBytes = 0,
-				MaxOutputBytes = 1024,
+				MaxOutputBytes = 1024 + request.Question.Choices.Sum(choice => Encoding.UTF8.GetByteCount(choice.Label) + 64),
 				TimeBudget = request.TimeBudget,
 			},
 			ct).ConfigureAwait(false);

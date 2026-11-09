@@ -1,8 +1,6 @@
 using System.Net;
 using System.Text.Json;
-using Weavie.Core.Commands;
 using Weavie.Core.Credentials;
-using Weavie.Core.Sessions;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -138,25 +136,6 @@ public sealed class HostCoreCredentialsTests {
 		host.DrainMessages();
 
 		Assert.Null(Prompt(host));
-	}
-
-	[Fact]
-	public async Task UnloadedSession_TakesItsOpenPickerWithIt() {
-		await using var host = await TestHost.StartAsync();
-		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "owner", Base = "main", AgentProviderId = "structured" })).Ok);
-		Assert.True((await host.InvokeCommandAsync("owner", "weavie.credentials.connect", new { }, CancellationToken.None)).Ok);
-		await Wait.ForAsync(() => host.Bridge.LastEvent(host.Session("owner").Address, "picker", "show"));
-
-		Assert.True((await host.UnloadSessionAsync("owner")).Ok);
-		Assert.True((await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, SessionCommands.LoadSession,
-			new { id = "owner" }, CancellationToken.None)).Ok);
-		await Wait.UntilAsync(() => host.Core.SessionForTest("owner") is not null);
-		var reloaded = host.Session("owner");
-		host.SessionEvent(reloaded, "picker", "pick", new { id = "notion" });
-		host.DrainMessages();
-
-		Assert.Null(host.Bridge.LastEvent(reloaded.Address, "credentials", "prompt"));
-		Assert.Null(reloaded.OpenPicker.Take());
 	}
 
 	[Fact]

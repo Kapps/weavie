@@ -120,11 +120,24 @@ through one Core interface:
 
 ```csharp
 public interface ICredentialStore {
-	string? Read(string id);              // null when absent; throws when present but unreadable
-	void Save(string id, string secret);
+	CredentialSecret? Read(string id);              // null when absent; throws when present but unreadable
+	void Save(string id, CredentialSecret secret);
 	void Delete(string id);
 }
+
+public sealed class CredentialSecret(string value) {
+	public string Reveal() => value;
+	public override string ToString() => "[redacted]";
+}
 ```
+
+- **Secrets are held as `CredentialSecret`, never a bare string.**
+  - Interpolation, logging and exception messages print `[redacted]`.
+  - The type has no source-generated JSON contract, so serializing one into a reply or wire message doesn't build.
+  - `Reveal()` is called only where a request's authorization header is set, so every use is easy to find in
+    review.
+- **`SecureString` is not used.** .NET discourages it for new code, it isn't encrypted outside Windows, and an HTTP
+  header needs a plain string on every request anyway.
 
 - **Ids** are stable service names: `notion`, `openai`, `typesafe`.
 - **The host platform supplies the implementation** through `IHostPlatform`, so each OS can use its native store.
@@ -207,7 +220,7 @@ A user learns a decision model exists from their own workflow history, not from 
   - each HTTP failure;
   - a missing answer;
   - a missing key.
-- **`FileCredentialStore` tests** cover the round trip, owner-only permissions, absent versus unreadable, and
+- **`FileCredentialStore` tests** cover the round trip, `CredentialSecret`'s redacted `ToString`, owner-only permissions, absent versus unreadable, and
   Delete. Notion's connect tests move onto the store.
 - **A Hosting workflow test** routes a model decision through `typesafe` with the stubbed handler. It proves the
   live `inference.decisionProvider` switch and the low-probability escalation.

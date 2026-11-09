@@ -115,15 +115,43 @@ Weavie never falls back to another provider.
 
 ## Credentials
 
-API keys are not settings, since settings are readable through `getSetting`. They use the owner-only token store
-and paste-dialog flow that Notion sources use ([notion-source-auth.md](notion-source-auth.md)): one command per
-vendor (**Connect OpenAI Decisions**, **Connect TypeSafe**) opens the vendor's key page and a paste dialog. The host
-validates the key with one cheap authenticated call before saving it owner-only under `~/.weavie/`. Keys never
-appear in receipts, logs, toasts, or MCP replies.
+API keys are not settings, since settings are readable through `getSetting`. Every Weavie-held secret goes
+through one Core interface:
 
-That store and dialog are generalized out of `SourceConnector` rather than copied. Choosing a provider whose key is
-missing is allowed; the next decision fails with "Connect OpenAI Decisions to use it" and goes to the user. On a
-remote runner the key lives on the worker, which makes the calls.
+```csharp
+public interface ICredentialStore {
+	string? Read(string id);              // null when absent; throws when present but unreadable
+	void Save(string id, string secret);
+	void Delete(string id);
+}
+```
+
+- **Ids** are stable service names: `notion`, `openai`, `typesafe`.
+- **The host platform supplies the implementation** through `IHostPlatform`, so each OS can use its native store.
+  - The only implementation now is `FileCredentialStore`, used by every host. It writes one owner-only file per id
+    under `~/.weavie/credentials/` with `SecureFile`.
+  - macOS Keychain and Windows Credential Manager implementations come later. Each plugs into its host with no
+    caller change.
+- **Notion moves onto the store.** `SourceConnector` takes an `ICredentialStore` instead of its private
+  `~/.weavie/sources/<id>.json` read/write. Existing Notion users reconnect once.
+- **`IGitHubTokenSource` stays separate.** It discovers credentials other tools own (`gh`, git's helper) and stores
+  nothing.
+
+The paste dialog is generalized out of the Notion flow rather than copied:
+- **One command per service** (**Connect Notion**, **Connect OpenAI Decisions**, **Connect TypeSafe**) opens the
+  vendor's key page and the dialog. The agent can run the command but never sees the key, and there is deliberately
+  no tool or setting that accepts a key.
+- **The host checks the key before saving it,** with one cheap authenticated call: Notion's `/v1/users/me`, each
+  vendor's model list. A rejected key is shown in the dialog and never saved.
+- **A matching Disconnect command** deletes the key.
+- **Keys never appear** in receipts, logs, toasts, transcripts, or MCP replies.
+
+`inference.decisionProvider` defaults to `agent`. Choosing a vendor whose key is missing or revoked is allowed:
+the next decision fails with "Connect OpenAI Decisions to use it" and goes to the user. Weavie never quietly
+answers with the agent instead.
+
+On a remote runner, the key is pasted in the client, sent once over the encrypted bridge, and stored on the worker
+that makes the calls.
 
 ## Testing
 
@@ -137,6 +165,8 @@ remote runner the key lives on the worker, which makes the calls.
   - each HTTP failure;
   - a missing answer;
   - a missing key.
+- **`FileCredentialStore` tests** cover the round trip, owner-only permissions, absent versus unreadable, and
+  Delete. Notion's connect tests move onto the store.
 - **A Hosting workflow test** routes a model decision through `typesafe` with the stubbed handler. It proves the
   live `inference.decisionProvider` switch and the low-probability escalation.
 - **No test calls a real vendor.** A live check against each vendor (the `temp/decision-bench` cases) is a

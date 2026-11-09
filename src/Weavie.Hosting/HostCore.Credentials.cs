@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Credentials;
@@ -9,10 +8,6 @@ namespace Weavie.Hosting;
 // Connect Service… / Disconnect Service… for every declared credential: open the vendor's key page, ask the page for the
 // pasted key, validate and save it, then run whatever the connect was for (e.g. open the Notion link that needed it).
 public sealed partial class HostCore {
-	private readonly ConcurrentDictionary<SessionAddress, PendingConnect> _pendingConnects = new();
-
-	private sealed record PendingConnect(string Id, Action<HostSession> Then);
-
 	private void RegisterCredentialHandlers(HostSession session) {
 		session.Commands.RegisterHandler(CoreCommands.ConnectService, (argsJson, _) =>
 			Task.FromResult(Guard(() => ConnectService(session, ServiceArg(argsJson)))));
@@ -24,7 +19,7 @@ public sealed partial class HostCore {
 			(message, ct) => SaveCredentialAsync(session, message.Id, message.Key, ct));
 		credentials.Handle("dismiss", MessageActivity.ActionFailed("Dismissing a credential prompt"), WireJson.Default.EmptyPayload, (_, _) => {
 			session.State.Remove("credentials", "prompt");
-			_pendingConnects.TryRemove(session.Address, out _);
+			session.ConnectPrompt.Take();
 			return Task.CompletedTask;
 		});
 		WirePicker(session);
@@ -70,7 +65,7 @@ public sealed partial class HostCore {
 	/// saved, <paramref name="then"/> runs on that same session.</summary>
 	private void PromptConnect(HostSession session, string id, Action<HostSession> then) {
 		var definition = _credentials.Require(id);
-		_pendingConnects[session.Address] = new PendingConnect(definition.Id, then);
+		session.ConnectPrompt.Set(new PendingConnect(definition.Id, then));
 		_ui.Post(() => _platform.OpenExternalUrl(definition.KeyPageUrl));
 		session.State.Set("credentials", "prompt", "prompt", WireJson.Default.CredentialPrompt, new(
 			definition.Id,
@@ -91,7 +86,7 @@ public sealed partial class HostCore {
 			string account = await _credentials.ConnectAsync(definition.Id, secret, ct).ConfigureAwait(false);
 			Notify(session, "info", $"Connected {definition.DisplayName}{(account.Length == 0 ? string.Empty : $" ({account})")}.");
 			session.State.Remove("credentials", "prompt");
-			if (_pendingConnects.TryRemove(session.Address, out var pending) && pending.Id == definition.Id) {
+			if (session.ConnectPrompt.Take() is { } pending && pending.Id == definition.Id) {
 				pending.Then(session);
 			}
 
@@ -118,6 +113,8 @@ public sealed partial class HostCore {
 		}
 	}
 }
+
+internal sealed record PendingConnect(string Id, Action<HostSession> Then);
 
 internal sealed record CredentialServiceArgs(string? Service);
 

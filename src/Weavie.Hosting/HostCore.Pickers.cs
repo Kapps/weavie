@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -6,12 +5,8 @@ namespace Weavie.Hosting;
 // A host-driven choice picker: a command asks its own session's page to pick one option, and the pick runs the
 // continuation on that same session, so the answer can never land on whichever session happens to be selected.
 public sealed partial class HostCore {
-	private readonly ConcurrentDictionary<SessionAddress, PendingPick> _pendingPicks = new();
-
-	private sealed record PendingPick(ChoicePicker Picker, Action<HostSession, string> OnPick);
-
 	private void ShowPicker(HostSession session, ChoicePicker picker, Action<HostSession, string> onPick) {
-		_pendingPicks[session.Address] = new PendingPick(picker, onPick);
+		session.OpenPicker.Set(new PendingPick(picker, onPick));
 		session.State.Set("picker", "current", "show", WireJson.Default.ChoicePicker, picker);
 	}
 
@@ -19,7 +14,7 @@ public sealed partial class HostCore {
 		var picker = session.Bus.Feature("picker");
 		picker.Handle("pick", MessageActivity.ActionFailed("Picking an option"), WireJson.Default.PickMessage, (message, _) => {
 			session.State.Remove("picker", "current");
-			if (!_pendingPicks.TryRemove(session.Address, out var pending)) {
+			if (session.OpenPicker.Take() is not { } pending) {
 				throw new InvalidOperationException("There's no open picker to answer.");
 			}
 
@@ -32,11 +27,13 @@ public sealed partial class HostCore {
 		});
 		picker.Handle("dismiss", MessageActivity.ActionFailed("Dismissing a picker"), WireJson.Default.EmptyPayload, (_, _) => {
 			session.State.Remove("picker", "current");
-			_pendingPicks.TryRemove(session.Address, out _);
+			session.OpenPicker.Take();
 			return Task.CompletedTask;
 		});
 	}
 }
+
+internal sealed record PendingPick(ChoicePicker Picker, Action<HostSession, string> OnPick);
 
 internal sealed record ChoiceOption(string Id, string Label, string? Description, string? Group);
 

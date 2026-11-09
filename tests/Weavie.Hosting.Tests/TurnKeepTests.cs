@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -77,8 +78,7 @@ public sealed class TurnKeepTests {
 
 		// User prepends an unrelated line and autosaves — the fs-write handler records the hand edit. "AGENT" is now
 		// live-model line 3; _current stays "hello\nAGENT\n" because the insertion isn't over an agent line.
-		File.WriteAllText(path, "MINE\nhello\nAGENT\n");
-		session.Changes.RecordHandEdit(path, "MINE\nhello\nAGENT\n");
+		await host.SessionRequestAsync<JsonElement>(session, "files", "write", new { path, content = "MINE\nhello\nAGENT\n" });
 
 		host.Bridge.Clear();
 		host.SessionEvent(

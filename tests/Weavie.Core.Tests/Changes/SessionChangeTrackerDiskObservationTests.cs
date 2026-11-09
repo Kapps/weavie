@@ -93,6 +93,24 @@ public sealed class SessionChangeTrackerDiskObservationTests {
 		Assert.Equal([path], tracker.ObserveDisk([path]));
 	}
 
+	[Fact]
+	public async Task AnObservationDuringAnEditorSaveWaitsForTheWholeSave() {
+		var (files, tracker, path) = AgentEditing();
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true)));
+		Task<IReadOnlyList<string>>? observed = null;
+
+		tracker.SaveHandEdit(path, "MINE\nagent wrote\n", () => {
+			files.WriteAllText(path, string.Empty);
+			observed = Task.Run(() => tracker.ObserveDisk([path]));
+			Thread.Sleep(100);
+			files.WriteAllText(path, "MINE\nagent wrote\n");
+			return true;
+		});
+
+		Assert.Empty(await observed!);
+		Assert.Equal("agent wrote\n", Assert.Single(tracker.TurnChanges()).CurrentText);
+	}
+
 	private static (CountingFileSystem Files, SessionChangeTracker Tracker, string Path) AgentEditing() {
 		var files = new CountingFileSystem();
 		string path = Path.Combine(Root, "agent.txt");

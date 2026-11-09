@@ -132,15 +132,16 @@ public sealed partial class SessionChangeTracker {
 			_dirtyHistory.Clear();
 			_dirtyHistoryPatches.Clear();
 			_dirtyPrompts.Clear();
-			ReconcileReviewDisk();
+			// Nothing watched these files while the session was unloaded.
+			ReconcileReviewDisk(_baseline.Keys);
 		} catch (Exception error) when (error is JsonException or ArgumentException or KeyNotFoundException) {
 			throw new IOException("The saved review could not be restored; its document was left untouched.", error);
 		} finally { _restoring = false; }
 	}
 
-	// Restore and history actions inspect only paths already owned by this review; never rewrite disk on load.
-	private void ReconcileReviewDisk() {
-		foreach (string path in _baseline.Keys.ToArray()) {
+	// Brings the given tracked paths up to their disk content; never rewrites disk. Untracked paths are ignored.
+	private void ReconcileReviewDisk(IEnumerable<string> paths) {
+		foreach (string path in paths.Where(_baseline.ContainsKey).ToArray()) {
 			bool exists = _fileSystem.FileExists(path);
 			if (!TryReadOrEmpty(path, out string actual)) {
 				SuspendReview(path);

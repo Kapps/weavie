@@ -155,7 +155,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// Scratch (untitled) buffers live in a per-workspace dir outside the workspace, so they never reach the
 		// file tree/index/git/agent. The file provider gets that dir as a second allowed root so the editor can
 		// read/write them as ordinary working copies.
-		Scratch = new ScratchStore(fileSystem, scratchDir);
+		Scratch = new ScratchStore(fileSystem, FileActivity, scratchDir);
 		// Images pasted into the agent land here (a scratch dir outside the workspace) and their path is injected into
 		// the prompt; wiped on unload so they never linger or reach the tree/git.
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);

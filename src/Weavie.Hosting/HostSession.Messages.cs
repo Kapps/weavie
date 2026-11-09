@@ -65,10 +65,10 @@ public sealed partial class HostSession {
 		files.HandleAfterResponse(
 			"write", MessageActivity.SessionCritical("Saving a file"), WireJson.Default.FileWriteMessage, WireJson.Default.FileWriteResult,
 			(message, _) => {
-				var result = FileProvider.Write(message.Path, message.Content);
-				var handEdit = result.Ok
-					? Changes.CaptureHandEdit(message.Path, message.Content)
-					: CapturedHandEdit.None;
+				FileWriteResult? written = null;
+				var handEdit = Changes.SaveHandEdit(message.Path, message.Content,
+					() => (written = FileProvider.Write(message.Path, message.Content)).Ok);
+				var result = written!;
 				return Task.FromResult(new ResponseWithCompletion<FileWriteResult>(result, _fileSaveCompletions.Reserve(_ => {
 					if (result.Ok) {
 						Exception? correctionError = null;

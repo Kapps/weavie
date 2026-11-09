@@ -30,7 +30,6 @@ public sealed partial class SessionChangeTracker {
 	public bool RetireReview(ReviewContext expected) {
 		lock (_gate) {
 			if (_review != expected) return false;
-			ReconcileReviewDisk();
 			CloseReviewLocked();
 			Checkpoint();
 			return true;
@@ -40,17 +39,20 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Finishes the review at its current contents, clearing its source and decision history.</summary>
 	public void CloseReview() {
 		lock (_gate) {
-			ReconcileReviewDisk();
 			CloseReviewLocked();
 			Checkpoint();
 		}
 	}
 
 	private bool CompleteAcceptanceLocked() {
-		if (_current.Any(file => !_nonText.ContainsKey(file.Key)
+		bool Pending() => _current.Any(file => !_nonText.ContainsKey(file.Key)
 			&& ((_reviewBaseline.GetValueOrDefault(file.Key, string.Empty) != file.Value
 					&& LineDiff.FirstChangedLine(_reviewBaseline.GetValueOrDefault(file.Key, string.Empty), file.Value) is not null)
-				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)))) return false;
+				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)));
+		if (Pending()) return false;
+		// The last keep closes the review, so an outside edit not yet observed is read now rather than accepted unseen.
+		ReconcileReviewDisk(_reviewBaseline.Keys);
+		if (Pending()) return false;
 		CloseReviewLocked();
 		return true;
 	}
@@ -106,7 +108,8 @@ public sealed partial class SessionChangeTracker {
 		foreach (var state in prepared) RestoreState(state);
 		SynchronizeHistory(external: rebase, except: null);
 		SetReview(review);
-		ReconcileReviewDisk();
+		// Opening re-diffs the review, so the files it already holds are read along with the new seeds.
+		ReconcileReviewDisk(prepared.Select(state => state.Path).Concat(TurnChangesLocked().Select(change => change.Path)));
 		Checkpoint();
 		if (restarted.Count > 0) ReviewFilesRestarted?.Invoke(restarted);
 	}
@@ -125,7 +128,6 @@ public sealed partial class SessionChangeTracker {
 			// One change from the old review to the new, so listeners refresh once rather than for each step.
 			_replacingReview = true;
 			try {
-				ReconcileReviewDisk();
 				CloseReviewLocked();
 				_reviewRequest = request;
 				return ArmReview(review, seeds, request);

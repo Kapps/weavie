@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -15,9 +16,7 @@ public sealed class TurnKeepTests {
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "hello\nworld\n");
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n");
 		Assert.Single(session.Changes.TurnChanges());
 		await session.FileActivity.DrainAsync(CancellationToken.None);
 
@@ -39,9 +38,7 @@ public sealed class TurnKeepTests {
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
-		File.WriteAllText(path, "hello\nworld\n"); // one added hunk: line 2
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n"); // baseline "hello\n", one added hunk: line 2
 		Assert.Single(session.Changes.TurnChanges());
 		await session.FileActivity.DrainAsync(CancellationToken.None);
 
@@ -77,14 +74,11 @@ public sealed class TurnKeepTests {
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
-		File.WriteAllText(path, "hello\nAGENT\n"); // agent adds line 2
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nAGENT\n"); // baseline "hello\n"; the agent adds line 2
 
 		// User prepends an unrelated line and autosaves — the fs-write handler records the hand edit. "AGENT" is now
 		// live-model line 3; _current stays "hello\nAGENT\n" because the insertion isn't over an agent line.
-		File.WriteAllText(path, "MINE\nhello\nAGENT\n");
-		session.Changes.RecordHandEdit(path, "MINE\nhello\nAGENT\n");
+		await host.SessionRequestAsync<JsonElement>(session, "files", "write", new { path, content = "MINE\nhello\nAGENT\n" });
 
 		host.Bridge.Clear();
 		host.SessionEvent(
@@ -114,9 +108,7 @@ public sealed class TurnKeepTests {
 		AddPendingFile(host);
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path); // accepted anchor = "hello\n"
-		File.WriteAllText(path, "hello\nworld\n"); // one added hunk: line 2
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n"); // accepted anchor "hello\n", one added hunk: line 2
 		var reviewed = session.Changes.GetTurn(path)!;
 		Assert.True(session.Changes.KeepHunk(
 			path,
@@ -162,9 +154,7 @@ public sealed class TurnKeepTests {
 		AddPendingFile(host);
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "hello\nworld\n");
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n");
 		await session.FileActivity.DrainAsync(CancellationToken.None);
 		host.SessionEvent(session, "review", "keepFile", new { path });
 		Assert.Equal(2, session.Changes.TurnChanges().Count);
@@ -190,9 +180,7 @@ public sealed class TurnKeepTests {
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		session.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "hello\nworld\n");
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n");
 
 		host.Bridge.Clear();
 		// guardText doesn't match the file's current line 2 — a stale request that must not advance the baseline.
@@ -214,8 +202,6 @@ public sealed class TurnKeepTests {
 	}
 	private static void AddPendingFile(TestHost host) {
 		string path = Path.Combine(host.RepoRoot, "pending.txt");
-		host.SelectedSession.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "pending\n");
-		host.SelectedSession.Changes.RecordChange(path);
+		TestHost.AgentEdit(host.SelectedSession, path, "pending\n");
 	}
 }

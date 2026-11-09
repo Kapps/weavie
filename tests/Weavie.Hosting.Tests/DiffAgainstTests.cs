@@ -49,6 +49,20 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task AnOutsideEditToAReviewedFile_UpdatesTheReviewThroughTheWatcher() {
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.WriteAllText(path, "hello\nworld\n");
+		var session = host.SelectedSession;
+		await host.SessionRequestAsync<JsonElement>(session, "review", "diffAgainst", new { reference = "HEAD", replaces = (string?)null });
+
+		File.WriteAllText(path, "hello\nedited outside\n");
+
+		await Wait.UntilAsync(() => host.Bridge.LastEvent(session.Address, "review", "diff")?.GetProperty("revision").GetString()
+			== TextRevision.Of("hello\nedited outside\n"), TimeSpan.FromSeconds(10));
+	}
+
+	[Fact]
 	public async Task AFailedReviewActionResendsTheReviewState() {
 		// The page fetches review texts by revision and waits on the next push for a superseded one, so an action
 		// that fails partway must push the review state again rather than leave a file calculating forever.

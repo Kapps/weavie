@@ -26,11 +26,12 @@ public sealed partial class HostCore {
 		var git = new GitService();
 		try {
 			string branch = await git.GetCurrentBranchAsync(review.Worktree, ct).ConfigureAwait(false) ?? string.Empty;
-			// Read after the branch: an operation that detaches HEAD records itself before it does.
+			// Read after the branch: an operation that detaches HEAD records itself before it does. One that finished
+			// between the two reads has re-attached HEAD, so the branch is read again before the review closes.
 			if (branch != review.Branch) {
-				return await git.IsRebasingOrBisectingAsync(review.Worktree, ct).ConfigureAwait(false)
-					? ReviewHeadSnapshot.Waiting
-					: new(review, branch, null);
+				if (await git.IsRebasingOrBisectingAsync(review.Worktree, ct).ConfigureAwait(false)) return ReviewHeadSnapshot.Waiting;
+				branch = await git.GetCurrentBranchAsync(review.Worktree, ct).ConfigureAwait(false) ?? string.Empty;
+				if (branch != review.Branch) return new(review, branch, null);
 			}
 
 			return new(review, branch, await git.MergeBaseAsync(review.Worktree, review.Target, "HEAD", ct).ConfigureAwait(false));

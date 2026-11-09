@@ -450,6 +450,17 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Writes <paramref name="content"/> as an agent tool's edit, through the start and completion events a provider
+	/// reports, so the live workspace watcher sees the write as the agent's own.
+	/// </summary>
+	public static void AgentEdit(HostSession session, string path, string content) {
+		var mutation = new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true);
+		session.Changes.Observe(new AgentToolStarting(mutation));
+		File.WriteAllText(path, content);
+		session.Changes.Observe(new AgentToolCompleted(mutation));
+	}
+
 	/// <summary>Publishes a session event from the test client.</summary>
 	public void SessionEvent(HostSession session, string feature, string name, object payload) {
 		var element = JsonSerializer.SerializeToElement(payload, JsonOptions);

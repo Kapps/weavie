@@ -837,9 +837,8 @@ public sealed class SessionChangeTrackerTests {
 
 	[Fact]
 	public void Observe_CreatedFileDeletedByBash_DropsFromReviewSet() {
-		// Claude creates a file this turn, then removes it with a Bash rm. The deleting tool's PostToolUse
-		// checks the tracked set against disk: the vanished file leaves the review walk (it can't be opened)
-		// and reports completed deletion activity.
+		// Claude creates a file this turn, then removes it with a Bash rm. The session's watcher reports the
+		// vanished path: it leaves the review walk (it can't be opened) but stays tracked.
 		var fileSystem = new InMemoryFileSystem();
 		var activity = new CapturingFileActivitySink();
 		var tracker = Tracker(fileSystem, activity);
@@ -850,11 +849,9 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Single(tracker.TurnChanges());
 		activity.Clear();
 
-		// Claude deletes it with a Bash rm; the rm's PostToolUse reconciles it off disk.
 		fileSystem.DeleteFile("/w/new.txt");
-		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/new.txt"));
+		Assert.Equal(["/w/new.txt"], tracker.ObserveDisk(["/w/new.txt"]));
 
-		Assert.Equal("/w/new.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
 		Assert.Empty(tracker.TurnChanges());         // gone from the review walk
 		Assert.Empty(tracker.Changes());             // and from the session diff
 		Assert.False(tracker.GetTurn("/w/new.txt")!.CurrentExists); // retained for future decisions and recreation
@@ -892,9 +889,8 @@ public sealed class SessionChangeTrackerTests {
 		activity.Clear();
 
 		fileSystem.DeleteFile("/w/a.txt");
-		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/a.txt"));
+		Assert.Equal(["/w/a.txt"], tracker.ObserveDisk(["/w/a.txt"]));
 
-		Assert.Equal("/w/a.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
 		var deletion = Assert.Single(tracker.TurnChanges());
 		Assert.False(deletion.CurrentExists);
 		Assert.Equal("a0\n", deletion.BaselineText);

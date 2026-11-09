@@ -35,7 +35,9 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private ReviewHistoryResult ApplyHistory(HistoryStack source, HistoryStack destination, ReviewActionKind? kind, bool undo) {
-		ReconcileReviewDisk();
+		// The files an applicable decision may write are checked against disk once, before any is validated.
+		ReconcileReviewDisk(source.AsEnumerable().Where(action => action.TouchesDisk && (kind is null || action.Kind == kind))
+			.SelectMany(action => action.Patches).Select(patch => patch.Path).Distinct(PathIdentity.Comparer));
 		bool found = false;
 		var live = new Dictionary<(string Path, ReviewPart Part), (bool Exists, List<string> Lines)>();
 		foreach (var action in source.AsEnumerable().Reverse().ToArray()) {
@@ -133,7 +135,7 @@ public sealed partial class SessionChangeTracker {
 		}
 		var patches = new List<ReviewPatch>();
 		foreach (var previous in before) {
-			var current = Capture(previous.Path, withDisk: true);
+			var current = Capture(previous.Path, withDisk: touchesDisk);
 			foreach (var part in new[] { ReviewPart.Review, ReviewPart.Current, ReviewPart.Disk }) {
 				if (part == ReviewPart.Disk && !touchesDisk) continue;
 				var from = Value(previous, part);

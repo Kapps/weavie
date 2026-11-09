@@ -67,9 +67,7 @@ public sealed class HostSessionFileActivityTests {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
-		session.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "agent\n");
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "agent\n");
 		await session.FileActivity.DrainAsync(CancellationToken.None);
 		session.Changes.Corrected += _ => throw new InvalidOperationException("correction failed");
 		int saves = 0;

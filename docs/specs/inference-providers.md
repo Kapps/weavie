@@ -159,6 +159,24 @@ answers with the agent instead.
 On a remote runner, the key is pasted in the client, sent once over the encrypted bridge, and stored on the worker
 that makes the calls.
 
+## Discovery
+
+A user learns a decision model exists from their own workflow history, not from setup:
+
+- **A suggestion card** ([suggestions.md](../concepts/suggestions.md)) appears when `inference.decisionProvider` is
+  `agent` and the workspace's run history holds at least five agent-answered decisions.
+  - It quotes the user's own numbers: "Your last 12 workflow decisions took ~1.3s each through the agent. A
+    decision model answers in ~0.2s with calibrated confidence." Run history records each decision's provider and
+    duration for this.
+  - **Choose a decision model…** runs Connect Service… with a picker limited to decision vendors. A successful
+    connect selects that vendor.
+  - It also offers Snooze and Don't ask again. It spends no tokens.
+  - A user without workflows never sees it.
+- **The agent finds it** through the setting's description and aliases ("decision model", "faster workflow
+  decisions", "gpt-6-luna", "Jev").
+- **Setup stays unchanged.** Getting started never asks about decision models.
+- **The question a decision hands to the user** carries no advertising.
+
 ## Testing
 
 - **Decision service tests** use a fake provider. They cover the policy gates, the timeout, picking the top label,

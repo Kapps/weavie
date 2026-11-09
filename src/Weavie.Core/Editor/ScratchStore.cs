@@ -1,3 +1,4 @@
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
@@ -9,13 +10,19 @@ namespace Weavie.Core.Editor;
 /// </summary>
 public sealed class ScratchStore {
 	private readonly IFileSystem _fileSystem;
+	private readonly IFileActivitySink _fileActivity;
 	private readonly Lock _gate = new();
 
-	/// <summary>Creates a store over <paramref name="directory"/> (the workspace's scratch folder).</summary>
-	public ScratchStore(IFileSystem fileSystem, string directory) {
+	/// <summary>
+	/// Creates a store over <paramref name="directory"/> (the workspace's scratch folder). Its deletions are reported
+	/// to <paramref name="fileActivity"/>, since no workspace watcher sees this directory.
+	/// </summary>
+	public ScratchStore(IFileSystem fileSystem, IFileActivitySink fileActivity, string directory) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentNullException.ThrowIfNull(fileActivity);
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		_fileSystem = fileSystem;
+		_fileActivity = fileActivity;
 		Directory = directory;
 	}
 
@@ -57,6 +64,7 @@ public sealed class ScratchStore {
 		}
 
 		_fileSystem.DeleteFile(path);
+		_fileActivity.ReportDeleted(path);
 		return true;
 	}
 
@@ -86,6 +94,7 @@ public sealed class ScratchStore {
 				string full = Path.GetFullPath(Path.Combine(Directory, entry.Name));
 				if (!keepSet.Contains(full)) {
 					_fileSystem.DeleteFile(full);
+					_fileActivity.ReportDeleted(full);
 					removed++;
 				}
 			}

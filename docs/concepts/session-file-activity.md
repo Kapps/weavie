@@ -22,8 +22,11 @@ flowchart LR
     W[Owned watcher] --> A
     A --> M[Monaco file projection]
     A --> L[LSP invalidation projection]
-    A --> R[Review presentation]
+    A --> R[Review presentation and change tracker]
 ```
+
+The change tracker both reports its own writes and consumes watcher invalidations: an outside edit to a file the
+review tracks updates that one file's review state, so review actions never re-read the whole review from disk.
 
 ## Ordering and failure
 

@@ -1,3 +1,4 @@
+using Weavie.Core.FileActivity;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Xunit;
@@ -17,7 +18,7 @@ public sealed class ScratchStoreTests {
 	public void CreateNew_AllocatesSequentialUntitledFiles() {
 		var fs = new InMemoryFileSystem();
 		string dir = TempDir("scratch");
-		var store = new ScratchStore(fs, dir);
+		var store = new ScratchStore(fs, NoopFileActivitySink.Instance, dir);
 
 		string first = store.CreateNew();
 		string second = store.CreateNew();
@@ -32,7 +33,7 @@ public sealed class ScratchStoreTests {
 	public void CreateNew_SkipsNumbersAlreadyOnDisk() {
 		var fs = new InMemoryFileSystem();
 		string dir = TempDir("scratch");
-		var store = new ScratchStore(fs, dir);
+		var store = new ScratchStore(fs, NoopFileActivitySink.Instance, dir);
 		fs.WriteAllText(Path.Combine(dir, "Untitled-1"), "taken");
 
 		Assert.Equal(Path.Combine(dir, "Untitled-2"), store.CreateNew());
@@ -42,7 +43,7 @@ public sealed class ScratchStoreTests {
 	public void Delete_RemovesOwnedFile_RefusesOutside() {
 		var fs = new InMemoryFileSystem();
 		string dir = TempDir("scratch");
-		var store = new ScratchStore(fs, dir);
+		var store = new ScratchStore(fs, NoopFileActivitySink.Instance, dir);
 		string scratch = store.CreateNew();
 		string outside = Path.Combine(TempDir("elsewhere"), "note.txt");
 		fs.WriteAllText(outside, "keep me");
@@ -55,10 +56,24 @@ public sealed class ScratchStoreTests {
 	}
 
 	[Fact]
+	public void Deletions_AreReportedAsFileActivity() {
+		var fs = new InMemoryFileSystem();
+		var activity = new CapturingFileActivitySink();
+		var store = new ScratchStore(fs, activity, TempDir("scratch"));
+		string deleted = store.CreateNew();
+		string collected = store.CreateNew();
+
+		store.Delete(deleted);
+		store.GarbageCollect([]);
+
+		Assert.Equal([deleted, collected], activity.Facts.Select(fact => Assert.IsType<FileDeleted>(fact).Path));
+	}
+
+	[Fact]
 	public void GarbageCollect_DeletesUnreferenced_KeepsReferenced() {
 		var fs = new InMemoryFileSystem();
 		string dir = TempDir("scratch");
-		var store = new ScratchStore(fs, dir);
+		var store = new ScratchStore(fs, NoopFileActivitySink.Instance, dir);
 		string keep = store.CreateNew();
 		string drop1 = store.CreateNew();
 		string drop2 = store.CreateNew();

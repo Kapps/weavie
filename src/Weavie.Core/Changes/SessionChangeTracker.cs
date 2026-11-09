@@ -118,13 +118,9 @@ public sealed partial class SessionChangeTracker {
 			return;
 		}
 
-		if (value is AgentTurnStopped) {
+		if (value is AgentTurnStopped stopped) {
+			if (!stopped.WillResume) EndAgentTurn(conversationId);
 			return;
-		}
-
-		// Workspace-wide tools can delete an already-tracked path without reporting it explicitly.
-		if (value is AgentToolCompleted) {
-			ReconcileDeletions();
 		}
 
 		var mutation = value switch {
@@ -140,10 +136,12 @@ public sealed partial class SessionChangeTracker {
 		if (value is AgentToolStarting) {
 			foreach (string path in paths) {
 				CaptureBaseline(path);
+				BeginAgentEdit(conversationId, path);
 			}
 		} else if (value is AgentToolCompleted) {
 			foreach (string path in paths) {
 				RecordChange(path, conversationId);
+				EndAgentEdit(conversationId, path);
 			}
 		}
 	}
@@ -268,39 +266,6 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Retains missing files as review data and reports each completed deletion.
-	/// </summary>
-	private void ReconcileDeletions() {
-		List<string>? removed = null;
-		lock (_gate) {
-			foreach (string path in new List<string>(_current.Keys)) {
-				if (!_missingCurrent.Contains(path) && !_fileSystem.FileExists(path)) {
-					_current[path] = string.Empty;
-					_missingCurrent.Add(path);
-					CommitReviewProvenance(path);
-					(removed ??= []).Add(path);
-				}
-			}
-
-			foreach (string path in new List<string>(_nonText.Keys)) {
-				if (!_fileSystem.FileExists(path)) {
-					_nonText.Remove(path);
-					(removed ??= []).Add(path);
-				}
-			}
-			if (removed is not null) Checkpoint();
-		}
-
-		if (removed is null) {
-			return;
-		}
-
-		foreach (string path in removed) {
-			_fileActivity.ReportDeleted(path);
-		}
-	}
-
-	/// <summary>
 	/// Reverts a single hunk on disk, sourcing replacement text from Core's review baseline (never from message
 	/// content — the hook-bridge security rule). <paramref name="guardText"/> is an optimistic-concurrency check:
 	/// a mismatch against the file's current lines aborts the write (<see cref="RevertHunkOutcome.GuardMismatch"/>).
@@ -325,7 +290,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			ReconcileReviewDisk();
+			ReconcileReviewDisk([path]);
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
 			if (!ReviewBaselineIs(path, baselineRevision)
 				|| !TryGetSlice(baselineLines, baselineRange, out var replacement)
@@ -372,7 +337,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			ReconcileReviewDisk();
+			ReconcileReviewDisk([path]);
 			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
@@ -395,7 +360,8 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		ReviewHistoryResult result;
 		lock (_gate) {
-			ReconcileReviewDisk();
+			// Every file this may write.
+			ReconcileReviewDisk(_reviewBaseline.Keys);
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
 				if (!_nonText.ContainsKey(path) && _current.TryGetValue(path, out string? current)
@@ -488,7 +454,7 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
-			ReconcileReviewDisk();
+			ReconcileReviewDisk([path]);
 			if (_nonText.ContainsKey(path) || !ReviewBaselineIs(path, baselineRevision)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
@@ -527,7 +493,6 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		lock (_gate) {
-			ReconcileReviewDisk();
 			if (_nonText.ContainsKey(path) || !_current.ContainsKey(path)) {
 				return;
 			}

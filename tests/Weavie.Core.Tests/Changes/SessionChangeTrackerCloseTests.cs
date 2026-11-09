@@ -122,6 +122,7 @@ public sealed class SessionChangeTrackerCloseTests {
 		tracker.KeepFile(File);
 		Assert.True(tracker.UndoLastKeep().Acted);
 		files.WriteAllText(other, "other old\n");
+		tracker.ObserveDisk([other]);
 
 		Assert.True(tracker.Redo().Acted);
 		Assert.Empty(tracker.TurnChanges());

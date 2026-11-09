@@ -150,10 +150,10 @@ Register `workflow.decisionConfidence` with default `0.8` and `ApplyMode.Live`. 
 `HostSession.CreateWorkflowRunner` supplies the reader and accessor for every host. New contracts and
 required dependencies change all call sites together; no legacy overloads, capability gates, or adapters.
 
-`InferenceWorkflowDecider` calls the existing `InferencePrompts.WithJsonInput` boundary using the prepared
-request. Its instructions ask for one supplied label and estimated numeric confidence from the evidence;
-they expose no threshold and request no tools or prose. Translate `InferenceFailureKind.Refused` into
-`Refused`; translate other failures into `Failed` with their safe detail. Successful values go to the
+`ModelWorkflowDecider` asks the decision service one choice question over the prepared request
+([inference-providers.md](../inference-providers.md)); the live decision provider returns a probability per label,
+and the top label's probability is the confidence. Nothing exposes the threshold or requests tools or prose. A
+refusal becomes `Refused`; other failures become `Failed` with their safe detail. Successful values go to the
 engine for membership/range checks. Source-generated JSON includes the described choices and file bodies.
 
 Remove `MaxPromptBytes` from `InferenceQueryOptions`, `InferenceService`, workflow/branch/revision callers,

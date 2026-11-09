@@ -33,7 +33,8 @@ the process start.
 - an `InferenceOwner`: the owning session's worktree root;
 - a caller-selected `InferenceModelCategory`;
 - one complete provider-agnostic text prompt plus exact decoded images;
-- strict `JsonTypeInfo<TResponse>` response metadata;
+- a strict `InferenceResponseType<TResponse>`: the `JsonTypeInfo<TResponse>` that decodes the reply and the JSON Schema
+  it is held to (`InferenceResponseType.Of` derives it from the type; a decision supplies one per question);
 - invocation origin, output byte bounds, image-count and aggregate-image byte bounds, and a one-attempt time
   budget.
 
@@ -161,7 +162,7 @@ An explicit action is `UserInitiated` even when implemented asynchronously. Debo
 and other event-triggered work are `Automatic`.
 
 Prompts, outputs, CLI stderr, credentials, and raw provider errors are never logged or persisted by Weavie.
-Receipts may contain provider/model ids, category, duration, upstream request id, and provider-reported usage.
+Receipts may contain provider/model ids, duration, upstream request id, and provider-reported usage.
 
 ## Flow
 

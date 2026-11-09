@@ -16,7 +16,8 @@ The query runs **in the owning worktree**, not a scratch directory. Inference is
 sees the repository it is reasoning over — including whatever conventions `AGENTS.md` already documents. Keeping the
 working directory stable across queries also keeps the provider's cached prompt prefix intact.
 
-Features call one internal generic API with complete text and image input, strict response `JsonTypeInfo<T>`,
+Features call one internal generic API with complete text and image input, a strict `InferenceResponseType<T>`
+(the response's `JsonTypeInfo<T>` and the JSON Schema it is held to, derived from the type or supplied per query),
 invocation origin, and image-count, aggregate-image, output, and time bounds. Images remain provider-native
 content rather than being serialized into the text prompt. A shared prompt builder serializes typed feature context
 behind the same untrusted-data framing.
@@ -80,6 +81,15 @@ That offer names the model and effort suggestions will run on, independent of th
 suggestions step, reopened by **Configure Suggestions…**, shows agent, model, effort, and Fast Mode pickers whose options the
 agent itself reports, each defaulting to what the agent resolves it to, so the token cost of opting in is visible
 and changeable up front. Changing the agent clears the profile it scoped.
+
+## Decisions
+
+Decisions are the second ad-hoc surface: one choice question over typed evidence, answered with a probability for
+every label. `IDecisionService` applies the same policy gates and single time-bounded attempt, resolves the live
+`inference.decisionProvider` on every call, and picks the top label, rejecting a tie, a missing or unknown label, or a
+value outside `[0, 1]` without repairing the distribution. The `agent` provider runs a typed query through the
+provider above under a per-label schema; `openai` and `typesafe` call a decision model directly with the user's
+connected key. Workflow decisions are the first consumer. See [decision providers](../specs/inference-providers.md).
 
 The complete contract and first proving flow are in
 [the ad-hoc inference specification](../specs/ad-hoc-inference.md).

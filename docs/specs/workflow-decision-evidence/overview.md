@@ -14,7 +14,7 @@ flowchart TD
   P --> R[Core file reader: current text from explicit paths]
   R -->|unreadable file| E[Engine: named failure]
   R -->|all evidence ready| D[IWorkflowDecider: prepared request]
-  D --> I[InferenceWorkflowDecider → existing typed inference]
+  D --> I[ModelWorkflowDecider → decision service]
   I --> V[Engine: validate answer and confidence; apply threshold and limit]
   V -->|usable answer| N[Route to next stage]
   V -->|refusal, error, low confidence, or limit| U
@@ -187,7 +187,7 @@ Paths grouped below share the stated directory prefix. New files are marked **ne
 | `src/Weavie.Workflows/WorkflowDecision.cs`, `WorkflowEffects.cs`; **new** `WorkflowDecisionEvidence.cs` | Plan/prepared request distinction, result variants, file-reader contract. |
 | `src/Weavie.Workflows/WorkflowTransitions.cs`, `WorkflowTransitions.Values.cs`, `WorkflowRunner.cs`, `WorkflowRun.cs`; **new** `WorkflowRunner.PendingDecision.cs` | Planning, captured thresholds, preparation lifecycle, routing and updated decision terminology. |
 | `src/Weavie.Workflows/WorkflowValues.cs`; **new** `WorkflowFilePaths.cs` | One shared path rule for validation, normalization, and evidence access. |
-| `src/Weavie.Core/Workflows/InferenceWorkflowDecider.cs`; **new** `WorkflowFileReader.cs` | Numeric utility response and prepared evidence serialization; shared filesystem adapter. |
+| `src/Weavie.Core/Workflows/ModelWorkflowDecider.cs`; **new** `WorkflowFileReader.cs` | Prepared evidence as a decision question ([inference-providers.md](../inference-providers.md)); shared filesystem adapter. |
 | `src/Weavie.Core/Configuration/SettingDefinition.cs`, `SettingsStore.cs`, `SettingsFileLayer.cs`, `WorkflowSettings.cs` | Numeric setting support, persistence and registry exposure. |
 | `src/Weavie.Hosting/HostSession.Workflow.cs` | Inject the reader and live confidence accessor. |
 | `src/Weavie.Core/Inference/InferenceQuery.cs`, `InferenceService.cs`, `InferenceResult.cs`, `BranchNameInference.cs`; `src/Weavie.Core/Revise/ReviseQuery.cs` | Remove prompt caps across consumers and update failure descriptions. |

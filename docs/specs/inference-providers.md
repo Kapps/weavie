@@ -1,6 +1,6 @@
 # Decision providers
 
-**Status:** design. Builds on the decision contract from `feature/workflow-decision-evidence`
+**Status:** implemented. Builds on the decision contract from `feature/workflow-decision-evidence`
 ([workflows.md](workflows.md)): a workflow decider receives a question, described choices, and prepared evidence,
 and returns a choice with a confidence the engine compares against `workflow.decisionConfidence`.
 
@@ -52,7 +52,8 @@ flowchart LR
     policy code as typed queries. It returns a receipt with the same shape.
   - It resolves the live `inference.decisionProvider` setting on every call.
 - **`IDecisionProvider`** makes one attempt for one question. It returns a probability for every choice, a refusal,
-  or a failure with an `InferenceFailureKind`.
+  or a failure with an `InferenceFailureKind`. It exposes the `CredentialDefinition` it calls with, or null when it
+  needs none (the agent).
 - **The service picks the answer.** The choice is the label with the highest probability, and a tie is an invalid
   response. The service validates that every label is present, each value is finite and within `[0, 1]`, and no
   unknown label appears. It never renormalizes or repairs a distribution.
@@ -60,10 +61,15 @@ flowchart LR
   query, and the answer into `WorkflowDecisionResult`:
   - an answer becomes `Answered(choice, its probability)`;
   - a refusal becomes `Refused`;
-  - every failure becomes `Failed` with its reason.
+  - every failure becomes `Failed` with its kind and reason.
+
+  Each answer is appended to the workspace's `WorkflowDecisionHistory`
+  (`~/.weavie/workspaces/<id>/decision-history.json`): the last 20 answered decisions, each with its provider id and
+  duration. A change re-evaluates the suggestion cards.
 - **The threshold stays feature policy.** The engine compares that probability with `workflow.decisionConfidence`.
   The decision layer knows no thresholds.
-- **`InferenceWorkflowDecider` is deleted.** Its job moves into `AgentDecisionProvider`.
+- **The receipt** has the typed-query shape: `ProviderId` is the decision provider id, `ModelId` the model the vendor
+  reports, and usage maps input, cached input, and output tokens.
 
 The question shape is a choice question: instructions plus labels, each with an optional description. Vendors also
 support yes/no and score questions and several questions over the same evidence. Those join the contract when a
@@ -75,10 +81,11 @@ feature needs them.
 |---|---|---|
 | `inference.decisionProvider` | `agent`, `openai`, `typesafe` | `agent` |
 
-- **`agent`** runs a typed query through the live inference provider and profile. The reply is one probability per
-  label, under a schema with one required number per choice. It replaces today's `{choice, confidence}` reply, which
-  let a model answer "revise at 0.3" between two options. A self-reported distribution still isn't calibrated, but
-  the service can check it and the chosen label always agrees with its number.
+- **`agent`** runs a `Utility` typed query through the live inference provider and profile. The reply is one
+  probability per label, under a schema with one required number in `[0, 1]` per choice and no other properties. The
+  typed query carries that schema in its `InferenceResponseType<T>`, beside the `JsonTypeInfo<T>` that decodes the
+  reply, because the labels change per decision. A self-reported distribution isn't calibrated, but the service can
+  check it and the chosen label always agrees with its number.
 - **`openai`** and **`typesafe`** call the vendor directly:
   - Choosing one is the opt-in to sending decision evidence, including complete referenced file contents, to that
     vendor. The setting's description names the vendor and links its data terms.
@@ -104,12 +111,19 @@ Evidence is sent as structured data, and the question is one `choice` named `dec
 
 A choice without a description is sent without one: OpenAI omits the field and TypeSafe sends `null`.
 
-Each HTTP failure maps to a failure kind with a reason naming the cause:
-- an authentication failure, naming the connect command;
-- rate limiting;
-- an oversized request, with the vendor's message;
-- an unreachable host;
-- a response missing the question's answer.
+Both adapters share one HTTP path (`VendorHttp`). It reads the key, sets the bearer header (the only vendor
+`Reveal()`), posts once, and maps each failure to a kind whose reason names the cause and never carries the body:
+
+| Cause | Kind | Reason |
+|---|---|---|
+| no key, or an unreadable one | `NotConfigured` | "Connect OpenAI to use it (run Connect Service…)." |
+| 401, 403 | `AuthenticationFailed` | names Connect Service… for the vendor |
+| 429 | `RateLimited` | |
+| 400, 413, 422 | `InputRejected` | with the vendor's own message: OpenAI's `error.message` or TypeSafe's string `detail` |
+| other status | `ProviderUnavailable` | the status code |
+| `HttpRequestException` | `ProviderUnavailable` | the host is unreachable |
+| malformed body, or no answer named `decision` | `InvalidResponse` | |
+| OpenAI `type: refusal` | `Refused` | |
 
 Weavie never falls back to another provider.
 
@@ -148,26 +162,39 @@ public sealed class CredentialSecret(string value) {
   header needs a plain string on every request anyway.
 
 - **Ids** are stable service names: `notion`, `openai`, `typesafe`.
-- **The host platform supplies the implementation** through `IHostPlatform`, so each OS can use its native store.
-  - The only implementation now is `FileCredentialStore`, used by every host. It writes one owner-only file per id
-    under `~/.weavie/credentials/` with `SecureFile`.
-  - macOS Keychain and Windows Credential Manager implementations come later. Each plugs into its host with no
-    caller change.
-- **Notion moves onto the store.** `SourceConnector` takes an `ICredentialStore` instead of its private
-  `~/.weavie/sources/<id>.json` read/write. Existing Notion users reconnect once.
+- **Each host supplies the implementation** at startup through `HostServices.CreateDefault(ICredentialStore)`. The
+  store is app-wide, so it lives on `HostServices` rather than the per-window `IHostPlatform`.
+  - The only implementation is `FileCredentialStore`, used by every host. It writes one owner-only plain-text file
+    per id, `~/.weavie/credentials/<id>.key`, with `SecureFile`.
+  - A macOS Keychain or Windows Credential Manager store plugs into its host with no caller change.
+- **Notion's token is in the store.** `SourceConnector` reads it through `CredentialService`.
 - **`IGitHubTokenSource` stays separate.** It discovers credentials other tools own (`gh`, git's helper) and stores
   nothing.
 
-Each service is declared once as a `CredentialDefinition`. The definition holds its id, its display name, the
-vendor page where the user creates a key, and the cheap authenticated call that checks a key: Notion's
-`/v1/users/me`, each vendor's model list. Two commands serve every definition:
+Each service is declared once as a `CredentialDefinition` by the code that calls it (`NotionSource` and each vendor
+adapter), and `ConnectedServicesComposition` collects them into one `CredentialService`. The definition holds its id,
+its display name, what the vendor calls the key, the vendor page where the user creates one, and the cheap
+authenticated call that checks it and returns the account it authorizes (possibly empty):
+
+| Id | Key page | Check |
+|---|---|---|
+| `notion` | https://app.notion.com/developers/tokens | `GET /v1/users/me` |
+| `openai` | https://platform.openai.com/api-keys | `GET https://api.openai.com/v1/models` |
+| `typesafe` | https://console.typesafe.ai/keys | `GET https://api.typesafe.ai/v1/models` |
+
+Two commands serve every definition:
 
 - **Connect Service…** (`weavie.credentials.connect`, taking the service id) opens the vendor's key page and the
-  shared paste dialog. From the palette it first offers a picker of the declared services.
-  - It replaces `weavie.source.connectNotion`.
+  shared paste dialog, which also links the page (a headless host opens no browser). From the palette it first offers
+  a picker of the declared services, connected ones first.
   - Opening a Notion link with no token runs it with `notion`.
   - A decision failure names it with the service: "Connect OpenAI to use it".
-- **Disconnect Service…** (`weavie.credentials.disconnect`, taking the service id) deletes the key.
+- **Disconnect Service…** (`weavie.credentials.disconnect`, taking the service id) deletes the key, even an unreadable
+  one. From the palette it offers a picker of the connected services.
+
+Each session holds at most one pending connect prompt and one open picker, and the answer runs its continuation on
+that session, never on whichever session is selected. The picker is a modal listbox: arrows move, Enter picks,
+Escape or a click outside dismisses, and a window blur does not.
 
 The agent can run either command but never sees the key. There is deliberately no tool or setting that accepts a
 key. The host checks a pasted key before saving it; a rejected key is shown in the dialog and never saved.
@@ -192,6 +219,8 @@ default explicitly:
   - Picking an unconnected vendor runs Connect Service… for it first. The setting changes only when that connect
     succeeds.
   - Picking **Agent** is the way back.
+  - With the `provider` argument it skips the picker. The result says when `inference.enabled` is off, which choosing
+    a vendor does not change.
 - **Disconnecting the current default** resets the setting to `agent`, so the default never names a disconnected
   service. Disconnecting any other service leaves the default alone.
 
@@ -199,18 +228,21 @@ default explicitly:
 
 A user learns a decision model exists from their own workflow history, not from setup:
 
-- **A suggestion card** ([suggestions.md](../concepts/suggestions.md)) appears when `inference.decisionProvider` is
-  `agent` and the workspace's run history holds at least five agent-answered decisions.
-  - It quotes the user's own numbers: "Your last 12 workflow decisions took ~1.3s each through the agent. A
-    decision model answers in ~0.2s with calibrated confidence." Run history records each decision's provider and
-    duration for this.
+- **A suggestion card** (`decisions.model`, [suggestions.md](../concepts/suggestions.md)) appears when
+  `inference.decisionProvider` is `agent` and the workspace's decision history holds at least five agent-answered
+  decisions.
+  - It quotes the user's own numbers, the count and their median duration so a cold start doesn't skew it: "Your
+    last 12 workflow decisions took ~1.3s each through the agent. A decision model answers in ~0.2s with calibrated
+    confidence." A card's body is rendered from the context that made it relevant, and the service reads the history
+    summary and correction count from one `SuggestionSignals` supplier.
   - Its button runs **Choose Decision Model…**.
   - It also offers Snooze and Don't ask again. It spends no tokens.
   - A user without workflows never sees it.
 - **A startup tip** joins the `StartupTips` catalog with `CommandId` set to Choose Decision Model…. Lead: "Give
   workflow decisions a decision model". Detail: "OpenAI or TypeSafe answer in ~0.2s with calibrated confidence."
-  - Every tip with a command gains a toast button that runs it, labelled with the command's title.
-  - The keybinding text is appended only when the command is bound, as today.
+  - Every tip with a command has a toast button that runs it, labelled with the command's catalog title. The tip
+    waits for the catalog that names the command, and stays a timed toast.
+  - The keybinding text is appended only when the command is bound.
 - **The agent finds it** through the setting's description and aliases ("decision model", "faster workflow
   decisions", "gpt-6-luna", "Jev").
 - **Setup stays unchanged.** Getting started never asks about decision models.
@@ -221,7 +253,8 @@ A user learns a decision model exists from their own workflow history, not from 
 - **Decision service tests** use a fake provider. They cover the policy gates, the timeout, picking the top label,
   rejecting a tie, missing or unknown labels, and out-of-range values.
 - **Agent provider tests** check the per-label schema and the translation of typed-query failures.
-- **Vendor adapter contract tests** run against a stubbed `HttpMessageHandler`. They cover:
+- **Vendor adapter contract tests** run against `RecordingHttpHandler` (`Weavie.TestSupport`, shared with the
+  Hosting tests). They cover:
   - request shape, including undescribed choices;
   - probability extraction;
   - refusal;
@@ -230,8 +263,9 @@ A user learns a decision model exists from their own workflow history, not from 
   - a missing key.
 - **`FileCredentialStore` tests** cover the round trip, `CredentialSecret`'s redacted `ToString` and refused serialization, owner-only permissions, absent versus unreadable, and
   Delete. Notion's connect tests move onto the store.
-- **A Hosting workflow test** routes a model decision through `typesafe` with the stubbed handler. It proves the
-  live `inference.decisionProvider` switch and the low-probability escalation.
+- **Hosting tests** route a model decision through `typesafe` with the stubbed handler, proving the low-probability
+  escalation and the live `inference.decisionProvider` switch; drive Choose Decision Model… through connect, a rejected
+  key, the agent, and the disconnect reset; and show the decision-model card after the fifth agent-answered decision.
 - **No test calls a real vendor.** A live check against each vendor (the `temp/decision-bench` cases) is a
   per-change manual step.
 

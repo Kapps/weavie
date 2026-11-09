@@ -137,17 +137,23 @@ public interface ICredentialStore {
 - **`IGitHubTokenSource` stays separate.** It discovers credentials other tools own (`gh`, git's helper) and stores
   nothing.
 
-The paste dialog is generalized out of the Notion flow rather than copied:
-- **One command per service** (**Connect Notion**, **Connect OpenAI Decisions**, **Connect TypeSafe**) opens the
-  vendor's key page and the dialog. The agent can run the command but never sees the key, and there is deliberately
-  no tool or setting that accepts a key.
-- **The host checks the key before saving it,** with one cheap authenticated call: Notion's `/v1/users/me`, each
-  vendor's model list. A rejected key is shown in the dialog and never saved.
-- **A matching Disconnect command** deletes the key.
+Each service is declared once as a `CredentialDefinition`. The definition holds its id, its display name, the
+vendor page where the user creates a key, and the cheap authenticated call that checks a key: Notion's
+`/v1/users/me`, each vendor's model list. Two commands serve every definition:
+
+- **Connect Service…** (`weavie.credentials.connect`, taking the service id) opens the vendor's key page and the
+  shared paste dialog. From the palette it first offers a picker of the declared services.
+  - It replaces `weavie.source.connectNotion`.
+  - Opening a Notion link with no token runs it with `notion`.
+  - A decision failure names it with the service: "Connect OpenAI to use it".
+- **Disconnect Service…** (`weavie.credentials.disconnect`, taking the service id) deletes the key.
+
+The agent can run either command but never sees the key. There is deliberately no tool or setting that accepts a
+key. The host checks a pasted key before saving it; a rejected key is shown in the dialog and never saved.
 - **Keys never appear** in receipts, logs, toasts, transcripts, or MCP replies.
 
 `inference.decisionProvider` defaults to `agent`. Choosing a vendor whose key is missing or revoked is allowed:
-the next decision fails with "Connect OpenAI Decisions to use it" and goes to the user. Weavie never quietly
+the next decision fails with "Connect OpenAI to use it" and goes to the user. Weavie never quietly
 answers with the agent instead.
 
 On a remote runner, the key is pasted in the client, sent once over the encrypted bridge, and stored on the worker

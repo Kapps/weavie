@@ -1,10 +1,11 @@
 using System.Text.Json;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference.Decisions;
 
 namespace Weavie.Core.Inference;
 
-/// <summary>Declares and handles the user opt-in for automatic ad-hoc inference.</summary>
+/// <summary>Declares the ad-hoc inference commands and handles the user opt-in for automatic inference.</summary>
 public static class InferenceCommands {
 	/// <summary>Registers the automatic-inference command definition.</summary>
 	public static void Register(CommandRegistry registry) {
@@ -29,6 +30,19 @@ public static class InferenceCommands {
 			Description = "Choose whether Weavie makes small suggestions, such as branch names, and which agent, model, "
 				+ "effort, and Fast Mode they use, independent of your chat's model.",
 			Aliases = ["suggestion model", "inference model", "suggestion settings", "smart suggestions", "inference effort"],
+		});
+		registry.Register(new CommandDefinition {
+			Id = CoreCommands.ChooseDecisionProvider,
+			Title = "Choose Decision Model…",
+			RunsIn = CommandLocation.Core,
+			OnTimeout = OperationSeverity.ActionFailed,
+			Category = "AI",
+			Description = "Choose who answers workflow decisions: the agent, or a decision model (OpenAI Decisions or "
+				+ "TypeSafe Jev) that answers in ~0.2s with calibrated probabilities. Picking an unconnected vendor "
+				+ "connects it first.",
+			Aliases = ["decision model", "faster workflow decisions", "workflow decision provider", "gpt-6-luna", "Jev"],
+			ArgsSchemaJson = """{"provider":{"type":"string","description":"One of """
+				+ string.Join(", ", DecisionProviderIds.All) + """; omit to pick"}}""",
 		});
 	}
 

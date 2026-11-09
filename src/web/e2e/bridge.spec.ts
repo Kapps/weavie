@@ -511,6 +511,8 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.locator('.session-chip[title^="feature —"]').click();
     await expect(picker).toBeVisible();
     await expect(picker.getByText("Not connected")).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(picker).toBeVisible();
 
     const checkpoint = host.checkpoint();
     await page.keyboard.press("ArrowDown");

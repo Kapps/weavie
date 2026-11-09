@@ -482,6 +482,9 @@ public static partial class CoreCommands {
 	/// <summary>Allows isolated automatic model queries for small product suggestions.</summary>
 	public const string EnableAutomaticInference = "weavie.inference.enableAutomatic";
 
+	/// <summary>Sets <c>inference.decisionProvider</c> (arg <c>provider</c>, or a picker), connecting a vendor first when needed; unbound.</summary>
+	public const string ChooseDecisionProvider = "weavie.inference.chooseDecisionProvider";
+
 	/// <summary>Opens the suggestion settings: whether suggestions run, and the agent, model, effort, and Fast Mode they use.</summary>
 	public const string ConfigureSuggestions = "weavie.inference.configure";
 

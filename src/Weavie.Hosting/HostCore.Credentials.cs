@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Credentials;
 using Weavie.Hosting.Messaging;
 
@@ -8,6 +9,8 @@ namespace Weavie.Hosting;
 // Connect Service… / Disconnect Service… for every declared credential: open the vendor's key page, ask the page for the
 // pasted key, validate and save it, then run whatever the connect was for (e.g. open the Notion link that needed it).
 public sealed partial class HostCore {
+	private const string NotConnected = "Not connected";
+
 	private void RegisterCredentialHandlers(HostSession session) {
 		session.Commands.RegisterHandler(CoreCommands.ConnectService, (argsJson, _) =>
 			Task.FromResult(Guard(() => ConnectService(session, ServiceArg(argsJson)))));
@@ -31,11 +34,8 @@ public sealed partial class HostCore {
 			return CommandResult.Success($"Opening your browser to connect {_credentials.Require(id).DisplayName}…");
 		}
 
-		var options = _credentials.Definitions
-			.Select(definition => (Definition: definition, Connected: _credentials.IsConnected(definition.Id)))
-			.OrderBy(entry => !entry.Connected)
-			.Select(entry => ServiceOption(entry.Definition, entry.Connected ? "Connected" : "Not connected"));
-		ShowPicker(session, new ChoicePicker("Connect Service", string.Empty, [.. options]), (owner, picked) =>
+		var options = _credentials.Definitions.Select(definition => ServiceOption(definition, ConnectionGroup(definition.Id)));
+		ShowPicker(session, new ChoicePicker("Connect Service", string.Empty, ConnectedFirst(options)), (owner, picked) =>
 			PromptConnect(owner, picked, static _ => { }));
 		return CommandResult.Success("Choose a service to connect.");
 	}
@@ -44,8 +44,7 @@ public sealed partial class HostCore {
 		if (id is not null) {
 			// Deletes even an unreadable key, which counts as not connected.
 			var definition = _credentials.Require(id);
-			_credentials.Disconnect(id);
-			return CommandResult.Success($"Disconnected {definition.DisplayName}.");
+			return CommandResult.Success($"Disconnected {definition.DisplayName}.{DisconnectAndReset(id)}");
 		}
 
 		var options = _credentials.Definitions.Where(definition => _credentials.IsConnected(definition.Id))
@@ -54,10 +53,8 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("No services are connected.");
 		}
 
-		ShowPicker(session, new ChoicePicker("Disconnect Service", string.Empty, options), (owner, picked) => {
-			_credentials.Disconnect(picked);
-			Notify(owner, "info", $"Disconnected {_credentials.Require(picked).DisplayName}.");
-		});
+		ShowPicker(session, new ChoicePicker("Disconnect Service", string.Empty, options), (owner, picked) =>
+			NotifyResult(owner, () => DisconnectService(owner, picked)));
 		return CommandResult.Success("Choose a service to disconnect.");
 	}
 
@@ -102,13 +99,26 @@ public sealed partial class HostCore {
 	private static ChoiceOption ServiceOption(CredentialDefinition definition, string? group) =>
 		new(definition.Id, definition.DisplayName, null, group);
 
+	private string ConnectionGroup(string id) => _credentials.IsConnected(id) ? "Connected" : NotConnected;
+
+	// Options needing no key keep their place ahead of the rest; connected services come before unconnected ones.
+	private static ChoiceOption[] ConnectedFirst(IEnumerable<ChoiceOption> options) =>
+		[.. options.OrderBy(option => option.Group == NotConnected)];
+
+	// A command finished from a picker or a connect prompt has no caller left to read its result, so it becomes a toast.
+	private static void NotifyResult(HostSession session, Func<CommandResult> run) {
+		var result = Guard(run);
+		Notify(session, result.Ok ? "info" : "warn", (result.Ok ? result.Message : result.Error) ?? string.Empty);
+	}
+
 	private static string? ServiceArg(string? argsJson) =>
 		JsonSerializer.Deserialize(argsJson ?? "{}", WireJson.Default.CredentialServiceArgs)?.Service;
 
 	private static CommandResult Guard(Func<CommandResult> run) {
 		try {
 			return run();
-		} catch (Exception ex) when (ex is InvalidOperationException or JsonException or IOException or UnauthorizedAccessException) {
+		} catch (Exception ex) when (ex is InvalidOperationException or JsonException or IOException or UnauthorizedAccessException
+			or SettingValidationException or SettingsFileMalformedException) {
 			return CommandResult.Failure(ex.Message);
 		}
 	}

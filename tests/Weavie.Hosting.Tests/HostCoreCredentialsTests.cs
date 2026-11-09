@@ -175,16 +175,18 @@ public sealed class HostCoreCredentialsTests {
 		await Wait.UntilAsync(() => !File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
 	}
 
-	internal static Task<JsonElement> SaveKey(TestHost host, string key) =>
-		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "credentials", "save", new { id = "notion", key });
+	internal static Task<JsonElement> SaveKey(TestHost host, string key) => SaveKey(host, "notion", key);
+
+	internal static Task<JsonElement> SaveKey(TestHost host, string id, string key) =>
+		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "credentials", "save", new { id, key });
 
 	private static void Connect(TestHost host) =>
 		new FileCredentialStore(host.CredentialsDir).Save("notion", new CredentialSecret("ntn_secret"));
 
-	private static JsonElement? Prompt(TestHost host) =>
+	internal static JsonElement? Prompt(TestHost host) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt");
 
-	private static JsonElement? Picker(TestHost host) =>
+	internal static JsonElement? Picker(TestHost host) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "picker", "show");
 
 	private static async Task<JsonElement?> PromptAfterSync(TestHost host) {

@@ -36,6 +36,7 @@ internal sealed record EmptyPayload {
 [JsonSerializable(typeof(SaveCredentialMessage))]
 [JsonSerializable(typeof(CredentialSaveResult))]
 [JsonSerializable(typeof(CredentialServiceArgs))]
+[JsonSerializable(typeof(DecisionProviderArgs))]
 [JsonSerializable(typeof(ChoicePicker))]
 [JsonSerializable(typeof(PickMessage))]
 [JsonSerializable(typeof(SourceLoading))]

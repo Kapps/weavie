@@ -111,8 +111,8 @@ Evidence is sent as structured data, and the question is one `choice` named `dec
 
 A choice without a description is sent without one: OpenAI omits the field and TypeSafe sends `null`.
 
-Both adapters share one HTTP path (`VendorHttp`). It reads the key, sets the bearer header (the only vendor
-`Reveal()`), posts once, and maps each failure to a kind whose reason names the cause and never carries the body:
+Both adapters derive from `VendorDecisionProvider`, one HTTP path. It reads the key, sets the bearer header (the only
+vendor `Reveal()`), posts once, and maps each failure to a kind whose reason names the cause and never carries the body:
 
 | Cause | Kind | Reason |
 |---|---|---|

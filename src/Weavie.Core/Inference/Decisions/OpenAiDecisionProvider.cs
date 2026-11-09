@@ -3,45 +3,27 @@ using Weavie.Core.Credentials;
 namespace Weavie.Core.Inference.Decisions;
 
 /// <summary>Answers a decision with OpenAI Decisions (<c>gpt-6-luna</c>), one attempt over the saved OpenAI key.</summary>
-public sealed class OpenAiDecisionProvider : IDecisionProvider {
+public sealed class OpenAiDecisionProvider : VendorDecisionProvider {
 	private const string Model = "gpt-6-luna";
-	private const string Question = "decision";
-
-	private readonly HttpClient _http;
-	private readonly ICredentialStore _store;
 
 	/// <summary>Creates the provider over <paramref name="http"/> and the key saved in <paramref name="store"/>.</summary>
-	public OpenAiDecisionProvider(HttpClient http, ICredentialStore store) {
-		ArgumentNullException.ThrowIfNull(http);
-		ArgumentNullException.ThrowIfNull(store);
-		_http = http;
-		_store = store;
-		Credential = VendorHttp.Credential(
-			http, DecisionProviderIds.OpenAi, "OpenAI", "https://platform.openai.com/api-keys", "https://api.openai.com/v1/models");
+	public OpenAiDecisionProvider(HttpClient http, ICredentialStore store)
+		: base(http, store, DecisionProviderIds.OpenAi, "OpenAI", "https://platform.openai.com/api-keys", "https://api.openai.com/v1/models") {
 	}
 
 	/// <inheritdoc/>
-	public string Id => DecisionProviderIds.OpenAi;
+	public override string Detail => "OpenAI Decisions (gpt-6-luna), calibrated probabilities in ~0.2s";
 
 	/// <inheritdoc/>
-	public string Label => Credential.DisplayName;
-
-	/// <inheritdoc/>
-	public string Detail => "OpenAI Decisions (gpt-6-luna), calibrated probabilities in ~0.2s";
-
-	/// <inheritdoc/>
-	public CredentialDefinition Credential { get; }
-
-	/// <inheritdoc/>
-	public Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {
+	public override Task<DecisionProviderResult> DecideAsync(DecisionProviderRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var body = new OpenAiDecisionRequest(
 			Model,
 			[new OpenAiInput("user", [new OpenAiInputJson("input_json", request.Evidence)])],
 			[new OpenAiQuestion("choice", Question, request.Question.Instructions,
 				[.. request.Question.Choices.Select(choice => new OpenAiChoice(choice.Label, choice.Description))])]);
-		return VendorHttp.DecideAsync(
-			_http, _store, Credential, "https://api.openai.com/v1/decisions", body,
+		return PostAsync(
+			"https://api.openai.com/v1/decisions", body,
 			DecisionJson.Default.OpenAiDecisionRequest, DecisionJson.Default.OpenAiDecisionResponse, Read, ct);
 	}
 
@@ -66,7 +48,7 @@ public sealed class OpenAiDecisionProvider : IDecisionProvider {
 		}
 		if (answer?.Probabilities is not { } probabilities
 			|| probabilities.DistinctBy(entry => entry.Value).Count() != probabilities.Count) {
-			return VendorHttp.Missing(Label, requestId) with { ModelId = model, Usage = usage };
+			return Missing(Label, requestId) with { ModelId = model, Usage = usage };
 		}
 		return new DecisionDistribution {
 			ModelId = model,

@@ -16,9 +16,7 @@ public sealed class TurnRevertTests {
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		// Seed a tracked change: baseline = current disk ("hello\n"), an edit lands, then current is recorded.
-		session.Changes.CaptureBaseline(path);
-		File.WriteAllText(path, "hello\nworld\n");
-		session.Changes.RecordChange(path);
+		TestHost.AgentEdit(session, path, "hello\nworld\n");
 		Assert.Single(session.Changes.TurnChanges());
 
 		host.Bridge.Clear();

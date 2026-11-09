@@ -34,7 +34,7 @@ public sealed class HostCoreWorkflowTests {
 		      choices: { yes: done, no: polish }
 		""";
 
-	private static void CommitFlow(string repo) {
+	internal static void CommitFlow(string repo) {
 		Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
 		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "flow.yaml"), Flow);
 		TempGitRepo.Run(repo, "add", ".");
@@ -44,8 +44,10 @@ public sealed class HostCoreWorkflowTests {
 	internal static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	// Pane output publishes immediately: the host's clock is manual, so a coalescing delay would never elapse.
-	internal static async Task<TestHost> StartAsync(DecisionStub decisions) {
-		var host = await TestHost.StartAsync(CommitFlow, _ => decisions);
+	internal static Task<TestHost> StartAsync(DecisionStub decisions) => StartAsync(decisions, CommitFlow);
+
+	internal static async Task<TestHost> StartAsync(DecisionStub decisions, Action<string> prepareRepo) {
+		var host = await TestHost.StartAsync(prepareRepo, _ => decisions);
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
 		host.Settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
 		return host;

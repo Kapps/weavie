@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference.Decisions;
 
 namespace Weavie.Core.Workflows;
 
@@ -8,6 +9,11 @@ namespace Weavie.Core.Workflows;
 /// <param name="Provider">The decision provider id.</param>
 /// <param name="DurationMs">The attempt's wall time in milliseconds.</param>
 public sealed record WorkflowDecisionRecord(string Provider, long DurationMs);
+
+/// <summary>The agent's share of a workspace's recent answered workflow decisions.</summary>
+/// <param name="AgentAnswered">How many the agent answered.</param>
+/// <param name="AgentMedian">Their median duration, or zero when none.</param>
+public sealed record DecisionHistorySummary(int AgentAnswered, TimeSpan AgentMedian);
 
 /// <summary>
 /// A workspace's most recent answered workflow decisions, oldest first, at
@@ -34,6 +40,17 @@ public sealed partial class WorkflowDecisionHistory : JsonDocumentStore {
 				return [.. _records];
 			}
 		}
+	}
+
+	/// <summary>How many kept decisions the agent answered, and their median time.</summary>
+	public DecisionHistorySummary Summary() {
+		long[] agent = [.. Recent.Where(record => record.Provider == DecisionProviderIds.Agent).Select(record => record.DurationMs).Order()];
+		if (agent.Length == 0) {
+			return new DecisionHistorySummary(0, TimeSpan.Zero);
+		}
+		int middle = agent.Length / 2;
+		double median = agent.Length % 2 == 1 ? agent[middle] : (agent[middle - 1] + agent[middle]) / 2.0;
+		return new DecisionHistorySummary(agent.Length, TimeSpan.FromMilliseconds(median));
 	}
 
 	/// <summary>Records one answered decision, dropping the oldest beyond <see cref="Capacity"/>.</summary>

@@ -426,7 +426,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			}
 
 			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
-				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold) {
+				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold or InferenceSettings.DecisionProvider) {
 				_suggestions?.Evaluate();
 			}
 

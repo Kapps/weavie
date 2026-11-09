@@ -1,6 +1,8 @@
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Suggestions;
+using Weavie.Core.Workflows;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -14,6 +16,8 @@ namespace Weavie.Core.Tests;
 public sealed class SuggestionServiceTests : IDisposable {
 	private const string SetupId = "workspace.setup";
 	private const string LearnId = "corrections.learn";
+	private const string DecisionModelId = "decisions.model";
+	private static readonly SuggestionSignals NoSignals = new(0, new DecisionHistorySummary(0, TimeSpan.Zero));
 	private static readonly Func<bool> ManifestPresent = () => true;
 	private static readonly Func<bool> NoManifest = () => false;
 
@@ -145,6 +149,35 @@ public sealed class SuggestionServiceTests : IDisposable {
 		Assert.Contains(LearnId, harness.ActiveIds());
 	}
 
+	[Theory]
+	[InlineData(5, "agent", true)]
+	[InlineData(4, "agent", false)]
+	[InlineData(12, "typesafe", false)]
+	public async Task DecisionModelCard_NeedsFiveAgentAnsweredDecisionsWhileTheAgentDecides(int answered, string provider, bool offered) {
+		var settings = SettingsWith($"inference.decisionProvider = \"{provider}\"");
+
+		var harness = await StartAsync(settings, NoManifest, () => Decisions(answered, 1340));
+
+		Assert.Equal(offered, harness.ActiveIds().Contains(DecisionModelId));
+	}
+
+	[Fact]
+	public async Task DecisionModelCard_QuotesTheCountAndMedianAndRunsChooseDecisionModel() {
+		var history = Decisions(12, 1340);
+		var harness = await StartAsync(EmptySettings(), NoManifest, () => history);
+		history = Decisions(13, 1260);
+		harness.Service.Evaluate();
+
+		var card = Assert.Single(harness.Active(), active => active.Definition.Id == DecisionModelId);
+		Assert.Equal(
+			"Your last 13 workflow decisions took ~1.3s each through the agent. A decision model answers in ~0.2s with calibrated confidence.",
+			card.Body);
+		Assert.Equal(CoreCommands.ChooseDecisionProvider, card.Definition.Actions[0].CommandId);
+	}
+
+	private static SuggestionSignals Decisions(int agentAnswered, int medianMs) =>
+		NoSignals with { WorkflowDecisions = new DecisionHistorySummary(agentAnswered, TimeSpan.FromMilliseconds(medianMs)) };
+
 	private SettingsStore EmptySettings() =>
 		new(CoreSettings.CreateRegistry(), _dir.Combine(Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => _dir.Combine("ws-settings.toml"));
 
@@ -161,23 +194,26 @@ public sealed class SuggestionServiceTests : IDisposable {
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"));
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals) =>
-		StartAsync(settings, probe, dismissals, FastProbe, static () => 0);
+		StartAsync(settings, probe, dismissals, FastProbe, static () => NoSignals);
 
 	private static Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout) =>
-		StartAsync(settings, probe, dismissals, probeTimeout, static () => 0);
+		StartAsync(settings, probe, dismissals, probeTimeout, static () => NoSignals);
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, Func<int> pendingCorrections) =>
+		StartAsync(settings, probe, () => NoSignals with { PendingCorrectionCount = pendingCorrections() });
+
+	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, Func<SuggestionSignals> signals) =>
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"),
-			FastProbe, pendingCorrections);
+			FastProbe, signals);
 
 	private static async Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout,
-		Func<int> pendingCorrections) {
-		var pushes = new List<IReadOnlyList<SuggestionDefinition>>();
+		Func<SuggestionSignals> signals) {
+		var pushes = new List<IReadOnlyList<ActiveSuggestion>>();
 		var first = new TaskCompletionSource();
 		var gate = new Lock();
-		void Push(IReadOnlyList<SuggestionDefinition> active) {
+		void Push(IReadOnlyList<ActiveSuggestion> active) {
 			lock (gate) {
 				pushes.Add(active);
 			}
@@ -187,16 +223,18 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var service = new SuggestionService(
 			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout,
-			Push, probe, pendingCorrections);
+			Push, probe, signals);
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
-		IReadOnlyList<string> ActiveIds() {
+		IReadOnlyList<ActiveSuggestion> Active() {
 			lock (gate) {
-				return [.. pushes[^1].Select(d => d.Id)];
+				return pushes[^1];
 			}
 		}
 
-		return new Harness(service, ActiveIds, dismissals);
+		return new Harness(service, Active, dismissals);
 	}
 
-	private sealed record Harness(SuggestionService Service, Func<IReadOnlyList<string>> ActiveIds, SuggestionDismissals Dismissals);
+	private sealed record Harness(SuggestionService Service, Func<IReadOnlyList<ActiveSuggestion>> Active, SuggestionDismissals Dismissals) {
+		public IReadOnlyList<string> ActiveIds() => [.. Active().Select(active => active.Definition.Id)];
+	}
 }

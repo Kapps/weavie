@@ -48,6 +48,28 @@ public sealed class HostCoreDecisionProviderTests {
 		Assert.Equal([DecisionProviderIds.TypeSafe, DecisionProviderIds.Agent], History(host).Select(record => record.Provider));
 	}
 
+	[Fact]
+	public async Task TheFifthAgentAnsweredDecision_OffersADecisionModelUntilAVendorIsChosen() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
+			CommitFlow(repo);
+			var history = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
+			for (int i = 0; i < 4; i++) history.Append(DecisionProviderIds.Agent, TimeSpan.FromMilliseconds(1300));
+		});
+		Assert.Null(DecisionModelCard(host));
+
+		var (session, _) = await ReachTheModelDecisionAsync(host);
+		await WaitForRunLineAsync(host, session, line => line is null);
+
+		var card = await Wait.ForAsync(() => DecisionModelCard(host));
+		Assert.StartsWith("Your last 5 workflow decisions took ~1.3s each through the agent.", card.GetProperty("body").GetString(), StringComparison.Ordinal);
+		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
+		await Wait.UntilAsync(() => DecisionModelCard(host) is null);
+	}
+
+	private static JsonElement? DecisionModelCard(TestHost host) =>
+		host.Bridge.LastEvent("suggestions", "changed")?.GetProperty("items").EnumerateArray()
+			.Cast<JsonElement?>().FirstOrDefault(item => item!.Value.GetProperty("id").GetString() == "decisions.model");
+
 	// The agent answers "yes" confidently; TypeSafe answers yes at the given probability.
 	private static async Task<TestHost> StartTypeSafeAsync(double yes) {
 		var host = await StartAsync(new DecisionStub("yes", 0.9));

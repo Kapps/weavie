@@ -1,5 +1,6 @@
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workflows;
 
 namespace Weavie.Core.Suggestions;
 
@@ -53,12 +54,19 @@ public sealed record SuggestionContext {
 	/// </summary>
 	public required bool HasBuildManifest { get; init; }
 
-	/// <summary>
-	/// How many corrections the workspace's ring holds right now. Unlike the one-shot manifest probe this
-	/// changes over time, so <see cref="SuggestionService"/> reads it fresh from a supplier each evaluation.
-	/// </summary>
-	public required int PendingCorrectionCount { get; init; }
+	/// <summary>The workspace history the cards key off, read fresh from a supplier each evaluation.</summary>
+	public required SuggestionSignals Signals { get; init; }
 }
+
+/// <summary>Workspace history that changes over time, unlike the one-shot manifest probe.</summary>
+/// <param name="PendingCorrectionCount">How many corrections the workspace's ring holds.</param>
+/// <param name="WorkflowDecisions">The workspace's recent answered workflow decisions.</param>
+public sealed record SuggestionSignals(int PendingCorrectionCount, DecisionHistorySummary WorkflowDecisions);
+
+/// <summary>An active card with its body rendered against the context that made it relevant.</summary>
+/// <param name="Definition">The relevant suggestion.</param>
+/// <param name="Body">Its rendered body.</param>
+public sealed record ActiveSuggestion(SuggestionDefinition Definition, string Body);
 
 /// <summary>
 /// A declared contextual suggestion: a dismissible nudge evaluated against the current workspace and rendered
@@ -71,8 +79,8 @@ public sealed record SuggestionDefinition {
 	/// <summary>The card headline.</summary>
 	public required string Title { get; init; }
 
-	/// <summary>A one-line explanation under the title.</summary>
-	public required string Body { get; init; }
+	/// <summary>A one-line explanation under the title, rendered from the context that made the card relevant.</summary>
+	public required Func<SuggestionContext, string> Body { get; init; }
 
 	/// <summary>Pure predicate over the context — whether the card should show right now. No side effects, no model calls.</summary>
 	public required Func<SuggestionContext, bool> IsRelevant { get; init; }

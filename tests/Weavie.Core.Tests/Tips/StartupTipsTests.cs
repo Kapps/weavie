@@ -10,7 +10,7 @@ public sealed class StartupTipsTests {
 		var tips = StartupTips.All;
 		var commands = CoreCommands.CreateRegistry();
 
-		Assert.Equal(9, tips.Count);
+		Assert.Equal(10, tips.Count);
 		Assert.Equal(tips.Count, tips.Select(tip => tip.Id).Distinct(StringComparer.Ordinal).Count());
 		Assert.All(tips, tip => {
 			Assert.False(string.IsNullOrWhiteSpace(tip.Id));
@@ -20,6 +20,13 @@ public sealed class StartupTipsTests {
 				Assert.True(commands.TryGet(commandId, out _), $"Tip '{tip.Id}' references unknown command '{commandId}'.");
 			}
 		});
+	}
+
+	[Fact]
+	public void DecisionModelTip_RunsChooseDecisionModel() {
+		var tip = Assert.Single(StartupTips.All, tip => tip.Id == "decision-model");
+
+		Assert.Equal(CoreCommands.ChooseDecisionProvider, tip.CommandId);
 	}
 
 	[Fact]

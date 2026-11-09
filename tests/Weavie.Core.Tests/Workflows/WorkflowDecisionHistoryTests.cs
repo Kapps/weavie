@@ -27,6 +27,21 @@ public sealed class WorkflowDecisionHistoryTests : IDisposable {
 	}
 
 	[Fact]
+	public void Summary_CountsAgentAnsweredDecisionsAtTheirMedian() {
+		var history = new WorkflowDecisionHistory(new LocalFileSystem(), FilePath);
+		Assert.Equal(new DecisionHistorySummary(0, TimeSpan.Zero), history.Summary());
+
+		foreach (int ms in new[] { 9000, 1200, 1400 }) {
+			history.Append("agent", TimeSpan.FromMilliseconds(ms));
+		}
+		history.Append("openai", TimeSpan.FromMilliseconds(200));
+		Assert.Equal(new DecisionHistorySummary(3, TimeSpan.FromMilliseconds(1400)), history.Summary());
+
+		history.Append("agent", TimeSpan.FromMilliseconds(1000));
+		Assert.Equal(new DecisionHistorySummary(4, TimeSpan.FromMilliseconds(1300)), history.Summary());
+	}
+
+	[Fact]
 	public void MalformedFileStartsEmpty() {
 		File.WriteAllText(FilePath, "{not json");
 

@@ -24,17 +24,17 @@ public sealed partial class HostCore {
 		_suggestions = new SuggestionService(
 			_suggestionRegistry, _settings, fileSystem, WorkspaceRoot, dismissals,
 			TimeSpan.FromMilliseconds(500), PushSuggestions, () => RunAutoConfigProbe(fileSystem),
-			() => _corrections.Count);
+			() => new SuggestionSignals(_corrections.Count, _decisionHistory.Summary()));
 	}
 
 	// Fan the active suggestion set out to every client, like the session list.
-	private void PushSuggestions(IReadOnlyList<SuggestionDefinition> active) =>
+	private void PushSuggestions(IReadOnlyList<ActiveSuggestion> active) =>
 		_messages.Host.Feature("suggestions").Publish("changed", WireJson.Default.SuggestionsChanged, new([
 			.. active.Select(s => new SuggestionWire(
-				s.Id,
-				s.Title,
+				s.Definition.Id,
+				s.Definition.Title,
 				s.Body,
-				[.. s.Actions.Select(a => new SuggestionActionWire(a.Label, a.Kind.ToString(), a.CommandId, a.ArgsJson))])),
+				[.. s.Definition.Actions.Select(a => new SuggestionActionWire(a.Label, a.Kind.ToString(), a.CommandId, a.ArgsJson))])),
 		]));
 
 	// Apply a web dismissal ("not now" → snooze for this run; "don't ask again" → forever); the service re-pushes.

@@ -147,7 +147,17 @@ public sealed class HostCoreCredentialsTests {
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
-		Assert.False((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Ok);
+	}
+
+	[Fact]
+	public async Task DisconnectWithAService_DeletesAnUnreadableKey() {
+		await using var host = await TestHost.StartAsync();
+		Directory.CreateDirectory(host.CredentialsDir);
+		File.WriteAllText(Path.Combine(host.CredentialsDir, "notion.key"), " ");
+
+		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Ok);
+
+		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
 	}
 
 	[Fact]

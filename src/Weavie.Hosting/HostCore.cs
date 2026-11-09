@@ -11,6 +11,7 @@ using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
+using Weavie.Core.Inference.Decisions;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
@@ -19,6 +20,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workflows;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
@@ -55,6 +57,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly AgentProviderRegistry _agentProviders;
 	private readonly IAcpAgentCatalog _acpAgents;
 	private readonly IInferenceService _inference;
+	private readonly IDecisionService _decisions;
 	private readonly AgentModelCatalog _agentModels;
 	private readonly AgentConsultation _agentConsultation;
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
@@ -87,6 +90,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
+	private readonly WorkflowDecisionHistory _decisionHistory;
 	private readonly WorkspaceFileRoutes _fileRoutes = new();
 	private readonly WorkspaceHttpServer _http;
 	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
@@ -192,6 +196,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_agentProviders = services.AgentProviders;
 		_acpAgents = services.AcpAgents;
 		_inference = services.Inference;
+		_decisions = services.Decisions;
 		_agentModels = services.AgentModels;
 		_agentConsultation = services.AgentConsultation;
 		_remoteAgents = services.RemoteAgents;
@@ -225,6 +230,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
+		// Workspace-level like the corrections ring; the decision-model card reads it, so changes re-evaluate.
+		_decisionHistory = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(Id));
+		_decisionHistory.Log += Log;
+		_decisionHistory.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _fileRoutes);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;

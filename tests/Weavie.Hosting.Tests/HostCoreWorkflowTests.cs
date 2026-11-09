@@ -1,10 +1,13 @@
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
+using Weavie.Core.Workspaces;
 using Weavie.TestSupport;
 using Weavie.Workflows;
 using Xunit;
@@ -44,6 +47,7 @@ public sealed class HostCoreWorkflowTests {
 	private static async Task<TestHost> StartAsync(DecisionStub decisions) {
 		var host = await TestHost.StartAsync(CommitFlow, _ => decisions);
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
+		host.Settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
 		return host;
 	}
 
@@ -82,6 +86,9 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
 		Assert.Equal("", turnContext.Compose());
+		var answered = Assert.Single(new WorkflowDecisionHistory(
+			new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(host.RepoRoot))).Recent);
+		Assert.Equal("agent", answered.Provider);
 	}
 
 	[Fact]
@@ -230,7 +237,7 @@ public sealed class HostCoreWorkflowTests {
 		Assert.True(condition());
 	}
 
-	// Answers every workflow decision with Choice.
+	// Answers every workflow decision with Choice at the given probability, and every other label with 0.
 	private sealed class DecisionStub(string choice, double confidence) : IInferenceService {
 		public string Choice { get; set; } = choice;
 
@@ -240,14 +247,19 @@ public sealed class HostCoreWorkflowTests {
 			InferenceInput input,
 			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
-			CancellationToken ct) =>
-			Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
-				Value = JsonSerializer.Deserialize(FormattableString.Invariant($$"""{"choice":"{{Choice}}","confidence":{{confidence}}}"""), responseType.TypeInfo)!,
+			CancellationToken ct) {
+			using var schema = JsonDocument.Parse(responseType.SchemaJson);
+			var labels = schema.RootElement.GetProperty("required").EnumerateArray().Select(label => label.GetString()!);
+			string reply = "{" + string.Join(",", labels.Select(label =>
+				FormattableString.Invariant($"\"{label}\":{(label == Choice ? confidence : 0)}"))) + "}";
+			return Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
+				Value = JsonSerializer.Deserialize(reply, responseType.TypeInfo)!,
 				Receipt = new InferenceReceipt {
 					ProviderId = "test",
 					ModelId = "utility-model",
 					Duration = TimeSpan.Zero,
 				},
 			});
+		}
 	}
 }

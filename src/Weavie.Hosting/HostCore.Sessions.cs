@@ -551,6 +551,7 @@ public sealed partial class HostCore {
 				_themeOverrides,
 				_corrections,
 				_inference,
+				new ModelWorkflowDecider(_decisions, cwd, _decisionHistory),
 				_agentConsultation,
 				new BoundSessionPeers(this, address),
 				_platform.PtyLauncher,

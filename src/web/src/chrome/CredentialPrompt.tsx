@@ -1,34 +1,27 @@
 import { createSignal, type JSX, Show } from "solid-js";
-import type { ClientSession } from "../bridge";
-import { submitSourceToken } from "../editor/source/source-store";
+import { type CredentialPrompt as Prompt, submitCredential } from "../credentials/credential-store";
+import { openUrlExternal } from "../terminal/terminal-links";
 import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
 
-// Paste-your-token dialog for connecting a source (e.g. Notion). The host has already opened the source's token
-// page in the browser; the user pastes the personal access token here and we hand it to the host to validate +
-// save. On success the dialog closes (the host toasts the workspace); a rejected token is shown inline so the
-// user can fix it without restarting. Enter submits, Esc / backdrop cancels. See docs/specs/notion-source-auth.md.
-export function SourceTokenPrompt(props: {
-  session: ClientSession;
-  sourceId: string;
-  label: string;
-  onClose: () => void;
-}): JSX.Element {
-  const [token, setToken] = createSignal("");
+// Paste-your-key dialog for any declared service. The host validates the key before saving it; a rejected key is
+// shown inline so the user can fix it. Enter submits, Esc / backdrop cancels.
+export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void }): JSX.Element {
+  const [key, setKey] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   const submit = async (): Promise<void> => {
-    const value = token().trim();
+    const value = key().trim();
     if (value === "" || submitting()) {
       return;
     }
     setSubmitting(true);
     setError(null);
-    const result = await submitSourceToken(props.session, props.sourceId, value);
+    const result = await submitCredential(props.prompt.session, props.prompt.id, value);
     if (result.ok) {
       props.onClose();
     } else {
-      setError(result.error || "That token wasn't accepted. Check it and try again.");
+      setError(result.error || "That key wasn't accepted. Check it and try again.");
       setSubmitting(false);
     }
   };
@@ -36,29 +29,38 @@ export function SourceTokenPrompt(props: {
   const onKeyDown = modalSubmitKeys(() => void submit(), props.onClose);
   return (
     <ModalShell
-      labelledBy="source-token-title"
+      labelledBy="credential-prompt-title"
       onDismiss={props.onClose}
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-title" id="source-token-title">
-        Connect {props.label}
+      <div class="confirm-title" id="credential-prompt-title">
+        Connect {props.prompt.displayName}
       </div>
       <div class="confirm-body">
-        We opened {props.label}'s token page in your browser. Create a personal access token there,
-        then paste it here to connect.
+        Create a {props.prompt.keyNoun} at{" "}
+        <a
+          href={props.prompt.keyPageUrl}
+          onClick={(event) => {
+            event.preventDefault();
+            openUrlExternal(props.prompt.keyPageUrl);
+          }}
+        >
+          {props.prompt.keyPageUrl}
+        </a>
+        , then paste it here.
       </div>
       <div class="session-prompt-field">
         <input
           class="session-prompt-input"
           type="password"
-          placeholder={`Paste your ${props.label} token`}
+          placeholder={`Paste your ${props.prompt.displayName} ${props.prompt.keyNoun}`}
           spellcheck={false}
           autocomplete="off"
           disabled={submitting()}
-          value={token()}
+          value={key()}
           onInput={(event) => {
-            setToken(event.currentTarget.value);
+            setKey(event.currentTarget.value);
             setError(null);
           }}
           ref={(el) => {
@@ -80,7 +82,7 @@ export function SourceTokenPrompt(props: {
           shortcut="Enter"
           title="Connect (Enter)"
           onClick={() => void submit()}
-          disabled={token().trim() === "" || submitting()}
+          disabled={key().trim() === "" || submitting()}
           primary
         />
       </PromptActions>

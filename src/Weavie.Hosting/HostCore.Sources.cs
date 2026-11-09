@@ -1,22 +1,12 @@
-using System.Collections.Concurrent;
-using System.Text.Json;
 using Weavie.Core.Sources;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// The source system's host wiring: connect a source (open its token page + ask the page for the user's pasted
-// token, then validate + save it) and fetch a target into a read-only editor tab. The token files + fetch live in
-// Core (SourceConnector); this only bridges them to the page. The full shadow-root SourceView, tab-kind routing,
-// and web tabs are later phases (see docs/specs/web-and-source-tabs.md).
+// The source system's host wiring: route an opened URL to its source (connecting it first when needed) and fetch a
+// target into a read-only editor tab. The fetch lives in Core (SourceConnector); this only bridges it to the page.
+// See docs/specs/web-and-source-tabs.md.
 public sealed partial class HostCore {
-	// A source URL the user opened before connecting (with its already-resolved source id): stashed when the open
-	// resolver routes to connect, then opened once SaveSourceTokenAsync validates the token — so connecting from a
-	// click lands on the page they asked for.
-	private readonly ConcurrentDictionary<Messaging.SessionAddress, PendingSource> _pendingSources = new();
-
-	private sealed record PendingSource(string Target, string SourceId);
-
 	/// <summary>
 	/// The open resolver: the page hands every opened URL here, and the host — which owns the sources and their
 	/// <see cref="ISource.LinkHosts"/> rule — decides. A claimed URL is fetched + rendered natively when its source is
@@ -32,69 +22,16 @@ public sealed partial class HostCore {
 		if (_sources.IdFor(url) is not { } sourceId) {
 			session.OpenEditorOverlay(url, "web");
 		} else if (_sources.IsConnected(url)) {
-			session.OpenEditorOverlay(url, "source");
-			_ = session.Background.Run(ct => FetchSourceForWebAsync(session, url, sourceId, ct));
+			OpenSourceTab(session, url, sourceId);
 		} else {
-			_pendingSources[session.Address] = new PendingSource(url, sourceId);
-			PromptConnectNotion(session);
+			PromptConnect(session, sourceId, owner => OpenSourceTab(owner, url, sourceId));
 		}
 	}
 
-	/// <summary>
-	/// Starts connecting Notion: opens Notion's token page in the browser and asks the page to show the token
-	/// input. The user pastes their personal access token there; <see cref="SaveSourceTokenAsync"/> (driven by the
-	/// <c>set-source-token</c> message) then validates and saves it. No file editing required.
-	/// </summary>
-	private void PromptConnectNotion(HostSession session) {
-		_ui.Post(() => _platform.OpenExternalUrl(_credentials.Require(NotionSource.SourceId).KeyPageUrl));
-		session.State.Set("sources", "tokenPrompt", "promptToken", WireJson.Default.SourceTokenPrompt, new(NotionSource.SourceId, "Notion"));
+	private void OpenSourceTab(HostSession session, string url, string sourceId) {
+		session.OpenEditorOverlay(url, "source");
+		_ = session.Background.Run(ct => FetchSourceForWebAsync(session, url, sourceId, ct));
 	}
-
-	/// <summary>
-	/// Validates and saves the access token the user pasted (the <c>set-source-token</c> message), toasts the
-	/// connected workspace, and returns the result to the requesting session. A rejected token is never saved.
-	/// </summary>
-	private async Task<SourceTokenResult> SaveSourceTokenAsync(
-		HostSession session,
-		string sourceId,
-		string token,
-		CancellationToken ct) {
-		if (string.IsNullOrWhiteSpace(sourceId) || string.IsNullOrWhiteSpace(token)) {
-			return new SourceTokenResult(false, "Enter a token to connect.");
-		}
-
-		try {
-			string workspace = await _credentials.ConnectAsync(sourceId, new(token.Trim()), ct).ConfigureAwait(false);
-			string where = string.IsNullOrWhiteSpace(workspace) ? "your Notion workspace" : $"Notion workspace “{workspace}”";
-			Notify(session, "info", $"Connected to {where}.");
-			_messages.Host.Feature("sources").Publish("linkHosts", WireJson.Default.SourceLinkHosts, new([.. _sources.ConnectedLinkHosts()]));
-			session.State.Remove("sources", "tokenPrompt");
-			// A URL opened before connecting (the resolver stashed it): now that we're connected, open it.
-			if (_pendingSources.TryRemove(session.Address, out var pending)) {
-				session.OpenEditorOverlay(pending.Target, "source");
-				_ = session.Background.Run(
-					stopping => FetchSourceForWebAsync(
-						session,
-						pending.Target,
-						pending.SourceId,
-						stopping));
-			}
-
-			return new SourceTokenResult(true, string.Empty);
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException) {
-			// Surface inline in the still-open dialog (not a toast), so the user can correct the token without
-			// restarting. TaskCanceledException covers HttpClient's own request timeout — without it a stalled Notion
-			// endpoint would leave this fire-and-forget task faulted, the result never sent, and the dialog stuck on "Connecting…".
-			return new SourceTokenResult(false, ex.Message);
-		}
-	}
-
-	private void DismissSourceTokenPrompt(HostSession session) {
-		session.State.Remove("sources", "tokenPrompt");
-		_pendingSources.TryRemove(session.Address, out _);
-	}
-
-	internal sealed record SourceTokenResult(bool Ok, string Error);
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
@@ -210,8 +147,6 @@ public sealed partial class HostCore {
 internal sealed record SourceEditError(string Target, string Message, string EditId, bool Stale);
 
 internal sealed record SourceLinkHosts(string[] Hosts);
-
-internal sealed record SourceTokenPrompt(string SourceId, string Label);
 
 internal sealed record SourceLoading(string Target, string Title, string SourceId);
 

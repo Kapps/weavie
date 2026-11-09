@@ -116,6 +116,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<bool>? _onSettingsMalformedChanged;
 	private Action? _onRemoteAgentsChanged;
+	private Action? _onCredentialsChanged;
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
 	private Action? _onReviewOverviewStateChanged;
@@ -446,6 +447,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
 		_remoteAgents.Changed += _onRemoteAgentsChanged;
 
+		// A connect or disconnect (in any window sharing the app-global credentials) re-pushes which links open in Weavie.
+		_onCredentialsChanged = PublishConnectedLinkHosts;
+		_credentials.Changed += _onCredentialsChanged;
+
 		// Session rail UI state (last-used backend, selection, panel layout): same re-push-on-change as remote agents.
 		_onRailStateChanged = PushRailStateToWeb;
 		_railState.Changed += _onRailStateChanged;
@@ -590,6 +595,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onRemoteAgentsChanged is not null) {
 			_remoteAgents.Changed -= _onRemoteAgentsChanged;
 			_onRemoteAgentsChanged = null;
+		}
+
+		if (_onCredentialsChanged is not null) {
+			_credentials.Changed -= _onCredentialsChanged;
+			_onCredentialsChanged = null;
 		}
 
 		if (_onRailStateChanged is not null) {

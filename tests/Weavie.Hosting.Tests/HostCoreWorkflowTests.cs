@@ -41,6 +41,9 @@ public sealed class HostCoreWorkflowTests {
 		TempGitRepo.Run(repo, "commit", "-m", "flow");
 	}
 
+	internal static WorkflowDecisionHistory DecisionHistory(string repo) =>
+		new(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
+
 	internal static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	// Pane output publishes immediately: the host's clock is manual, so a coalescing delay would never elapse.
@@ -88,8 +91,7 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
 		Assert.Equal("", turnContext.Compose());
-		var answered = Assert.Single(new WorkflowDecisionHistory(
-			new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(host.RepoRoot))).Recent);
+		var answered = Assert.Single(DecisionHistory(host.RepoRoot).Recent);
 		Assert.Equal("agent", answered.Provider);
 	}
 

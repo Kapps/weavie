@@ -1,14 +1,10 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
-using Weavie.Core;
 using Weavie.Core.Configuration;
-using Weavie.Core.Credentials;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Inference.Decisions;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
-using Weavie.Core.Workspaces;
 using Xunit;
 using static Weavie.Hosting.Tests.HostCoreWorkflowTests;
 
@@ -52,7 +48,7 @@ public sealed class HostCoreDecisionProviderTests {
 	public async Task TheFifthAgentAnsweredDecision_OffersADecisionModelUntilAVendorIsChosen() {
 		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
 			CommitFlow(repo);
-			var history = new WorkflowDecisionHistory(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
+			var history = DecisionHistory(repo);
 			for (int i = 0; i < 4; i++) history.Append(DecisionProviderIds.Agent, TimeSpan.FromMilliseconds(1300));
 		});
 		Assert.Null(DecisionModelCard(host));
@@ -74,7 +70,7 @@ public sealed class HostCoreDecisionProviderTests {
 	private static async Task<TestHost> StartTypeSafeAsync(double yes) {
 		var host = await StartAsync(new DecisionStub("yes", 0.9));
 		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
-		new FileCredentialStore(host.CredentialsDir).Save(DecisionProviderIds.TypeSafe, new CredentialSecret("ts-key"));
+		host.SaveCredential(DecisionProviderIds.TypeSafe, "ts-key");
 		string probabilities = string.Create(CultureInfo.InvariantCulture, $$"""{"yes":{{yes}},"no":{{1 - yes}}}""");
 		string reply = """{"model":"jev-1.14.0","answers":{"decision":{"type":"choice","probabilities":""" + probabilities + "}}}";
 		host.Http.Responder = request => request.RequestUri!.AbsoluteUri == SystemOne
@@ -93,6 +89,5 @@ public sealed class HostCoreDecisionProviderTests {
 		return (session, run.Id);
 	}
 
-	private static IReadOnlyList<WorkflowDecisionRecord> History(TestHost host) => new WorkflowDecisionHistory(
-		new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(host.RepoRoot))).Recent;
+	private static IReadOnlyList<WorkflowDecisionRecord> History(TestHost host) => DecisionHistory(host.RepoRoot).Recent;
 }

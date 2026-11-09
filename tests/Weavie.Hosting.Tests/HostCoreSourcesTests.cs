@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Weavie.Core.Credentials;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -28,7 +27,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_AfterConnect_ReturnsTheMarkdownDoc() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			// The markdown endpoint also lives under /pages/, so match it first.
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body **text**", "truncated": false, "unknown_block_ids": [] }"""),
@@ -51,7 +50,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task ReconnectReplaysTheSourceDocumentAndItsEditorTab() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body", "truncated": false, "unknown_block_ids": [] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }"""),
@@ -114,7 +113,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_Failure_PostsSourceErrorIntoTheTab() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
 		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
@@ -129,7 +128,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_NonJsonOkBody_PostsSourceError_NotAStuckSpinner() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		// A 200 carrying non-JSON (proxy / captive-portal / incident HTML) throws JsonException deep in the parse;
 		// the eager spinner is already up, so it must still resolve to an error rather than spin forever.
 		host.Http.Responder = _ => (HttpStatusCode.OK, "<html>not json</html>");
@@ -144,7 +143,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SourceFetch_TruncatedPage_FlagsTheDocAndKeepsTheMarkdownVerbatim() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = request => request.RequestUri!.AbsoluteUri switch {
 			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": ["a"] }"""),
 			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Big" } ] } } }"""),
@@ -164,7 +163,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_PatchesTheExactOpAndPushesTheRefreshedDoc() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		string? patchBody = null;
 		HttpRequestMessage? patch = null;
 		host.Http.Responder = request => {
@@ -202,7 +201,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_ValidationError_PostsAStaleEditError() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = _ =>
 			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "old_str did not match" }""");
 
@@ -222,7 +221,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_RequestValidationError_IsNotReportedAsStale() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		// A validation_error that isn't about the op's old_str (e.g. a malformed body) is a client bug, not a
 		// stale page — stale:true would offer a re-fetch that can never help. The API's reason must surface.
 		host.Http.Responder = _ =>
@@ -243,7 +242,7 @@ public sealed class HostCoreSourcesTests {
 	[Fact]
 	public async Task SaveSourceEdit_ServerFailure_StillResolvesTheSavingState() {
 		await using var host = await TestHost.StartAsync();
-		WriteToken(host, "ntn_secret");
+		host.SaveCredential("notion", "ntn_secret");
 		host.Http.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
 		SaveEdit(
@@ -258,9 +257,6 @@ public sealed class HostCoreSourcesTests {
 		Assert.NotEmpty(error.GetProperty("message").GetString()!);
 		Assert.Null(SourceEvent(host, "document"));
 	}
-
-	private static void WriteToken(TestHost host, string token) =>
-		new FileCredentialStore(host.CredentialsDir).Save("notion", new CredentialSecret(token));
 
 	private static void Open(TestHost host, string url) =>
 		host.SessionEvent(host.SelectedSession, "sources", "open", new { url });

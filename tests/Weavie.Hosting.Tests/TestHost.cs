@@ -73,6 +73,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The temp credential store dir — a saved key is <c>&lt;id&gt;.key</c> here.</summary>
 	public string CredentialsDir { get; }
 
+	/// <summary>Saves <paramref name="key"/> for service <paramref name="id"/>, as a completed connect would.</summary>
+	public void SaveCredential(string id, string key) => new FileCredentialStore(CredentialsDir).Save(id, new CredentialSecret(key));
+
 	/// <summary>The workspace checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
 

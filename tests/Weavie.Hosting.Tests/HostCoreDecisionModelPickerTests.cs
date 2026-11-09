@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json;
 using Weavie.Core.Configuration;
-using Weavie.Core.Credentials;
 using Xunit;
 using static Weavie.Hosting.Tests.HostCoreCredentialsTests;
 
@@ -16,7 +15,7 @@ public sealed class HostCoreDecisionModelPickerTests {
 	[Fact]
 	public async Task Picker_MarksTheCurrentChoiceAndListsConnectedVendorsBeforeUnconnectedOnes() {
 		await using var host = await TestHost.StartAsync();
-		Connect(host, "typesafe");
+		host.SaveCredential("typesafe", "key");
 
 		Assert.True((await host.InvokeClientCommandAsync(Choose, new { })).Ok);
 
@@ -53,7 +52,7 @@ public sealed class HostCoreDecisionModelPickerTests {
 	public async Task ChoosingAConnectedVendorOrTheAgent_SetsItAtOnce() {
 		await using var host = await TestHost.StartAsync();
 		host.Settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
-		Connect(host, "typesafe");
+		host.SaveCredential("typesafe", "key");
 
 		var vendor = await host.InvokeClientCommandAsync(Choose, new { provider = "typesafe" });
 		Assert.Equal((true, "Workflow decisions now use TypeSafe."), (vendor.Ok, vendor.Message));
@@ -69,8 +68,8 @@ public sealed class HostCoreDecisionModelPickerTests {
 	[Fact]
 	public async Task DisconnectingTheChosenVendor_HandsDecisionsBackToTheAgent() {
 		await using var host = await TestHost.StartAsync();
-		Connect(host, "openai");
-		Connect(host, "typesafe");
+		host.SaveCredential("openai", "key");
+		host.SaveCredential("typesafe", "key");
 		Assert.True((await host.InvokeClientCommandAsync(Choose, new { provider = "typesafe" })).Ok);
 
 		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "openai" })).Ok);
@@ -80,9 +79,6 @@ public sealed class HostCoreDecisionModelPickerTests {
 		Assert.Equal("agent", Current(host));
 		Assert.StartsWith("Disconnected TypeSafe. Workflow decisions will use Agent", result.Message, StringComparison.Ordinal);
 	}
-
-	private static void Connect(TestHost host, string id) =>
-		new FileCredentialStore(host.CredentialsDir).Save(id, new CredentialSecret("key"));
 
 	private static string Current(TestHost host) => host.Settings.RequireString(InferenceSettings.DecisionProvider);
 }

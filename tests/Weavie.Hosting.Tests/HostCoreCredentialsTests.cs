@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Weavie.Core.Credentials;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -141,7 +140,7 @@ public sealed class HostCoreCredentialsTests {
 	[Fact]
 	public async Task DisconnectWithAService_DeletesItsKey() {
 		await using var host = await TestHost.StartAsync();
-		Connect(host);
+		host.SaveCredential("notion", "ntn_secret");
 
 		var result = await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" });
 
@@ -167,7 +166,7 @@ public sealed class HostCoreCredentialsTests {
 		await using var host = await TestHost.StartAsync();
 		Assert.False((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { })).Ok);
 		Assert.Null(Picker(host));
-		Connect(host);
+		host.SaveCredential("notion", "ntn_secret");
 
 		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { })).Ok);
 
@@ -181,9 +180,6 @@ public sealed class HostCoreCredentialsTests {
 
 	internal static Task<JsonElement> SaveKey(TestHost host, string id, string key) =>
 		host.SessionRequestAsync<JsonElement>(host.SelectedSession, "credentials", "save", new { id, key });
-
-	private static void Connect(TestHost host) =>
-		new FileCredentialStore(host.CredentialsDir).Save("notion", new CredentialSecret("ntn_secret"));
 
 	internal static JsonElement? Prompt(TestHost host) =>
 		host.Bridge.LastEvent(host.SelectedSession.Address, "credentials", "prompt");

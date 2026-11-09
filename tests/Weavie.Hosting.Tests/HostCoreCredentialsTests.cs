@@ -18,7 +18,7 @@ public sealed class HostCoreCredentialsTests {
 
 		var result = await host.InvokeClientCommandAsync("weavie.credentials.connect", new { service = "notion" });
 
-		Assert.True(result.Ok, result.Error);
+		Assert.Equal((true, null), (result.Ok, result.Message));
 		var prompt = await Wait.ForAsync(() => Prompt(host));
 		Assert.Equal("notion", prompt.GetProperty("id").GetString());
 		Assert.Equal("Notion", prompt.GetProperty("displayName").GetString());
@@ -107,7 +107,9 @@ public sealed class HostCoreCredentialsTests {
 	public async Task ConnectWithoutAService_PicksOneThenPrompts() {
 		await using var host = await TestHost.StartAsync();
 
-		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.connect", new { })).Ok);
+		var result = await host.InvokeClientCommandAsync("weavie.credentials.connect", new { });
+
+		Assert.Equal((true, null), (result.Ok, result.Message));
 
 		var picker = await Wait.ForAsync(() => Picker(host));
 		var options = picker.GetProperty("options").EnumerateArray().ToList();
@@ -168,8 +170,9 @@ public sealed class HostCoreCredentialsTests {
 		Assert.Null(Picker(host));
 		host.SaveCredential("notion", "ntn_secret");
 
-		Assert.True((await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { })).Ok);
+		var result = await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { });
 
+		Assert.Equal((true, null), (result.Ok, result.Message));
 		var picker = await Wait.ForAsync(() => Picker(host));
 		Assert.Equal("notion", Assert.Single(picker.GetProperty("options").EnumerateArray()).GetProperty("id").GetString());
 		host.SessionEvent(host.SelectedSession, "picker", "pick", new { id = "notion" });

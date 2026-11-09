@@ -535,6 +535,9 @@ test.describe("session-addressed WebSocket transport", () => {
     });
     const prompt = page.getByRole("dialog", { name: "Connect Acme" });
     await expect(prompt.getByRole("link", { name: "https://acme.example/keys" })).toBeVisible();
+    await expect(prompt.locator(".confirm-body")).toHaveText(
+      "Create your API key at https://acme.example/keys, then paste it here.",
+    );
     await expect(prompt.locator(".session-prompt-input")).toBeFocused();
     await page.keyboard.type("acme-key");
     await page.keyboard.press("Enter");

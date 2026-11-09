@@ -150,13 +150,16 @@ public sealed class SuggestionServiceTests : IDisposable {
 	}
 
 	[Theory]
-	[InlineData(5, "agent", true)]
-	[InlineData(4, "agent", false)]
-	[InlineData(12, "typesafe", false)]
-	public async Task DecisionModelCard_NeedsFiveAgentAnsweredDecisionsWhileTheAgentDecides(int answered, string provider, bool offered) {
+	[InlineData(5, 1340, "agent", true)]
+	[InlineData(5, 1000, "agent", true)]
+	[InlineData(5, 999, "agent", false)]
+	[InlineData(4, 1340, "agent", false)]
+	[InlineData(12, 1340, "typesafe", false)]
+	public async Task DecisionModelCard_NeedsFiveSlowAgentAnsweredDecisionsWhileTheAgentDecides(
+		int answered, int medianMs, string provider, bool offered) {
 		var settings = SettingsWith($"inference.decisionProvider = \"{provider}\"");
 
-		var harness = await StartAsync(settings, NoManifest, () => Decisions(answered, 1340));
+		var harness = await StartAsync(settings, NoManifest, () => Decisions(answered, medianMs));
 
 		Assert.Equal(offered, harness.ActiveIds().Contains(DecisionModelId));
 	}

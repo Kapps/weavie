@@ -62,6 +62,21 @@ public sealed class HostCoreDecisionProviderTests {
 		await Wait.UntilAsync(() => DecisionModelCard(host) is null);
 	}
 
+	[Fact]
+	public async Task FiveFastAgentAnsweredDecisions_OfferNoDecisionModel() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
+			CommitFlow(repo);
+			var history = DecisionHistory(repo);
+			for (int i = 0; i < 4; i++) history.Append(DecisionProviderIds.Agent, TimeSpan.FromMilliseconds(50));
+		});
+
+		var (session, _) = await ReachTheModelDecisionAsync(host);
+		await WaitForRunLineAsync(host, session, line => line is null);
+
+		Assert.Equal(5, History(host).Count);
+		Assert.Null(DecisionModelCard(host));
+	}
+
 	private static JsonElement? DecisionModelCard(TestHost host) =>
 		host.Bridge.LastEvent("suggestions", "changed")?.GetProperty("items").EnumerateArray()
 			.Cast<JsonElement?>().FirstOrDefault(item => item!.Value.GetProperty("id").GetString() == "decisions.model");

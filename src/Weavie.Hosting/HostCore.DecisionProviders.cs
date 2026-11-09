@@ -23,7 +23,7 @@ public sealed partial class HostCore {
 		string current = _settings.RequireString(InferenceSettings.DecisionProvider);
 		ShowPicker(session, new ChoicePicker("Choose Decision Model", current, ConnectedFirst(options)),
 			(owner, picked) => NotifyResult(owner, () => UseDecisionProvider(owner, picked)));
-		return CommandResult.Success("Choose who answers workflow decisions.");
+		return CommandResult.Success();
 	}
 
 	private CommandResult UseDecisionProvider(HostSession session, string id) {
@@ -32,7 +32,7 @@ public sealed partial class HostCore {
 				$"No decision provider named '{id}' — use one of {string.Join(", ", _decisions.Providers.Select(p => p.Id))}.");
 		if (provider.Credential is { } credential && !_credentials.IsConnected(credential.Id)) {
 			PromptConnect(session, credential.Id, owner => NotifyResult(owner, () => SetDecisionProvider(provider)));
-			return CommandResult.Success($"Connect {credential.DisplayName} to use it for workflow decisions.");
+			return CommandResult.Success();
 		}
 
 		return SetDecisionProvider(provider);

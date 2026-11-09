@@ -27,11 +27,8 @@ const REVIEW = `  - id: review
 
 test.use({ inference: "workflow" });
 
-async function answer(worktree: string, choice: string): Promise<void> {
-  await writeFile(
-    join(worktree, "inference-answer.json"),
-    JSON.stringify({ choice, confidence: 1 }),
-  );
+async function answer(worktree: string, probabilities: Record<string, number>): Promise<void> {
+  await writeFile(join(worktree, "inference-answer.json"), JSON.stringify(probabilities));
 }
 
 async function start(surface: Locator, inputs: Record<string, unknown>): Promise<string> {
@@ -79,7 +76,7 @@ ${REVIEW.replace(
   "{{review.documents}} {{draft.documents}} {{inputs.source}} {{review.documents}}",
 )}`,
     );
-    await answer(worktree, "yes");
+    await answer(worktree, { yes: 1, no: 0 });
     await start(surface, { source: ["input.mp4", "./input.mp4"] });
     await expect(run).toHaveAttribute("title", /draft · waiting on you/);
     await complete(surface, { documents: ["earlier.md"] });
@@ -95,7 +92,7 @@ ${REVIEW.replace(
       ignored: ["ignored.mp4"],
       directory: ".",
     };
-    await answer(worktree, "revise");
+    await answer(worktree, { accept: 0, revise: 1 });
     await complete(surface, outputs);
     await expect(run).toHaveAttribute("title", /review · waiting on you/);
     await expect(surface.locator(".agent-entry-message.agent-tone-assistant").last()).toContainText(
@@ -122,7 +119,7 @@ ${REVIEW.replace(
     await typeInEditor(page, revised);
     await page.keyboard.press("ControlOrMeta+s");
     await expect.poll(() => readFile(join(worktree, "review.md"), "utf8")).toBe(revised);
-    await answer(worktree, "accept");
+    await answer(worktree, { accept: 1, revise: 0 });
     await complete(surface, outputs);
     await expect(run).toHaveText("file-evidence · accepted");
     const second = await workflowReceipt(worktree);

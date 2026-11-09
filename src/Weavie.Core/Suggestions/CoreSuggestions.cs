@@ -11,6 +11,9 @@ public static class CoreSuggestions {
 	/// <summary>How many agent-answered workflow decisions make the decision-model card relevant.</summary>
 	public const int DecisionModelThreshold = 5;
 
+	/// <summary>The agent's median decision time at or above which a decision model (~0.2s) is meaningfully faster.</summary>
+	public static readonly TimeSpan DecisionModelSlowAgentMedian = TimeSpan.FromSeconds(1);
+
 	/// <summary>Builds a registry pre-loaded with the built-in suggestions.</summary>
 	public static SuggestionRegistry CreateRegistry() {
 		var registry = new SuggestionRegistry();
@@ -66,14 +69,15 @@ public static class CoreSuggestions {
 		});
 
 		// Offer a decision model once the user's own runs show what the agent costs them: five or more workflow
-		// decisions answered by the agent. The body quotes their median, so a cold start doesn't skew it.
+		// decisions answered by the agent at a median of a second or more. The median keeps a cold start from skewing it.
 		registry.Register(new SuggestionDefinition {
 			Id = "decisions.model",
 			Title = "Faster workflow decisions?",
 			Body = ctx => FormattableString.Invariant(
 				$"Your last {ctx.Signals.WorkflowDecisions.AgentAnswered} workflow decisions took ~{ctx.Signals.WorkflowDecisions.AgentMedian.TotalSeconds:0.0}s each through the agent. A decision model answers in ~0.2s with calibrated confidence."),
 			IsRelevant = ctx => ctx.Settings.RequireString(InferenceSettings.DecisionProvider) == DecisionProviderIds.Agent
-				&& ctx.Signals.WorkflowDecisions.AgentAnswered >= DecisionModelThreshold,
+				&& ctx.Signals.WorkflowDecisions.AgentAnswered >= DecisionModelThreshold
+				&& ctx.Signals.WorkflowDecisions.AgentMedian >= DecisionModelSlowAgentMedian,
 			Actions = [
 				new SuggestionAction {
 					Label = "Choose a decision model",

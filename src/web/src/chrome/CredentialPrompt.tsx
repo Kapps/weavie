@@ -38,7 +38,7 @@ export function CredentialPrompt(props: { prompt: Prompt; onClose: () => void })
         Connect {props.prompt.displayName}
       </div>
       <div class="confirm-body">
-        Create a {props.prompt.keyNoun} at{" "}
+        Create your {props.prompt.keyNoun} at{" "}
         <a
           href={props.prompt.keyPageUrl}
           onClick={(event) => {

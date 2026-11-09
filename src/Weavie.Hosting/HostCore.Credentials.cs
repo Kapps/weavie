@@ -31,13 +31,13 @@ public sealed partial class HostCore {
 	private CommandResult ConnectService(HostSession session, string? id) {
 		if (id is not null) {
 			PromptConnect(session, id, static _ => { });
-			return CommandResult.Success($"Opening your browser to connect {_credentials.Require(id).DisplayName}…");
+			return CommandResult.Success();
 		}
 
 		var options = _credentials.Definitions.Select(definition => ServiceOption(definition, ConnectionGroup(definition.Id)));
 		ShowPicker(session, new ChoicePicker("Connect Service", string.Empty, ConnectedFirst(options)), (owner, picked) =>
 			PromptConnect(owner, picked, static _ => { }));
-		return CommandResult.Success("Choose a service to connect.");
+		return CommandResult.Success();
 	}
 
 	private CommandResult DisconnectService(HostSession session, string? id) {
@@ -56,7 +56,7 @@ public sealed partial class HostCore {
 
 		ShowPicker(session, new ChoicePicker("Disconnect Service", string.Empty, options), (owner, picked) =>
 			NotifyResult(owner, () => DisconnectService(owner, picked)));
-		return CommandResult.Success("Choose a service to disconnect.");
+		return CommandResult.Success();
 	}
 
 	/// <summary>Opens <paramref name="id"/>'s key page and asks <paramref name="session"/>'s page for the key; once it is
@@ -106,10 +106,13 @@ public sealed partial class HostCore {
 	private static ChoiceOption[] ConnectedFirst(IEnumerable<ChoiceOption> options) =>
 		[.. options.OrderBy(option => option.Group == NotConnected)];
 
-	// A command finished from a picker or a connect prompt has no caller left to read its result, so it becomes a toast.
+	// A command finished from a picker or a connect prompt has no caller left to read its result, so it becomes a toast;
+	// a result with no message (the command opened its own dialog) shows nothing.
 	private static void NotifyResult(HostSession session, Func<CommandResult> run) {
 		var result = Guard(run);
-		Notify(session, result.Ok ? "info" : "warn", (result.Ok ? result.Message : result.Error) ?? string.Empty);
+		if ((result.Ok ? result.Message : result.Error) is { } message) {
+			Notify(session, result.Ok ? "info" : "warn", message);
+		}
 	}
 
 	private static string? ServiceArg(string? argsJson) =>

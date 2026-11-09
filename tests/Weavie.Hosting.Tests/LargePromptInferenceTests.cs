@@ -33,7 +33,7 @@ public sealed class LargePromptInferenceTests : IDisposable {
 			Workspace = _dir.Path,
 			Prompt = prompt,
 			Images = [],
-			OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"choice\":{\"type\":\"string\"}}}",
+			OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"accept\":{\"type\":\"number\"},\"revise\":{\"type\":\"number\"}}}",
 			MaxOutputBytes = 1024,
 		};
 
@@ -53,7 +53,7 @@ public sealed class LargePromptInferenceTests : IDisposable {
 		} else {
 			var success = Assert.IsType<InferenceProviderSuccess>(result);
 			using var output = JsonDocument.Parse(success.OutputJson);
-			Assert.Equal("accept", output.RootElement.GetProperty("choice").GetString());
+			Assert.Equal(1, output.RootElement.GetProperty("accept").GetDouble());
 		}
 	}
 
@@ -78,7 +78,7 @@ public sealed class LargePromptInferenceTests : IDisposable {
 			for await (const chunk of process.stdin) prompt += chunk;
 			writeFileSync('inference-receipt.txt', prompt, 'utf8');
 			if (existsSync('inference-reject')) process.exitCode = 7;
-			else console.log(JSON.stringify({ is_error: false, structured_output: { choice: 'accept' } }));
+			else console.log(JSON.stringify({ is_error: false, structured_output: { accept: 1, revise: 0 } }));
 			""");
 		return new ClaudeCliInference(_settings, new ScriptRunner(script), _dir.Combine("images"));
 	}

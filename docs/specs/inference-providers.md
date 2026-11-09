@@ -231,7 +231,7 @@ A user learns a decision model exists from their own workflow history, not from 
 
 - **A suggestion card** (`decisions.model`, [suggestions.md](../concepts/suggestions.md)) appears when
   `inference.decisionProvider` is `agent` and the workspace's decision history holds at least five agent-answered
-  decisions.
+  decisions with a median of at least one second, so a decision model is meaningfully faster.
   - It quotes the user's own numbers, the count and their median duration so a cold start doesn't skew it: "Your
     last 12 workflow decisions took ~1.3s each through the agent. A decision model answers in ~0.2s with calibrated
     confidence." A card's body is rendered from the context that made it relevant, and the service reads the history

@@ -17,7 +17,9 @@ public sealed class HostCoreDecisionModelPickerTests {
 		await using var host = await TestHost.StartAsync();
 		host.SaveCredential("typesafe", "key");
 
-		Assert.True((await host.InvokeClientCommandAsync(Choose, new { })).Ok);
+		var result = await host.InvokeClientCommandAsync(Choose, new { });
+
+		Assert.Equal((true, null), (result.Ok, result.Message));
 
 		var picker = await Wait.ForAsync(() => Picker(host));
 		Assert.Equal("agent", picker.GetProperty("value").GetString());
@@ -39,6 +41,8 @@ public sealed class HostCoreDecisionModelPickerTests {
 		host.SessionEvent(host.SelectedSession, "picker", "pick", new { id = "openai" });
 
 		Assert.Equal("openai", (await Wait.ForAsync(() => Prompt(host))).GetProperty("id").GetString());
+		host.DrainMessages();
+		Assert.Empty(host.Bridge.PostedEvents(host.SelectedSession.Address, "notifications", "show"));
 		Assert.Equal("agent", Current(host));
 		Assert.False((await SaveKey(host, "openai", "sk-bad")).GetProperty("ok").GetBoolean());
 		Assert.Equal("agent", Current(host));

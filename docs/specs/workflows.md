@@ -333,8 +333,8 @@ then:
 ```
 
 Descriptions are optional plain text, recommended to distinguish answer criteria. The model receives labels and
-descriptions, never routing destinations. The current utility model returns strict JSON such as
-`{"choice":"approve","confidence":0.91}`; confidence is estimated from evidence, not assigned a constant.
+descriptions, never routing destinations. The agent provider returns strict JSON with one probability per label,
+such as `{"approve":0.91,"revise":0.09}`; probabilities are estimated from evidence, not assigned a constant.
 
 A model `ask` that references a `files` input or output receives each file's complete current text as separate,
 path-labelled evidence. Inputs, current-stage outputs, and earlier-stage outputs work alike. Paths resolve inside

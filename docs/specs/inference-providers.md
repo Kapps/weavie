@@ -159,6 +159,21 @@ answers with the agent instead.
 On a remote runner, the key is pasted in the client, sent once over the encrypted bridge, and stored on the worker
 that makes the calls.
 
+## Choosing the default
+
+Several services can be connected at once. Connecting never changes which one decides, and the user picks the
+default explicitly:
+
+- **Choose Decision Model…** (`weavie.inference.chooseDecisionProvider`) sets `inference.decisionProvider`.
+  - Its picker lists every decision provider with its state: **Agent** (always available), each connected vendor,
+    and each unconnected vendor.
+  - The current default is marked.
+  - Picking an unconnected vendor runs Connect Service… for it first. The setting changes only when that connect
+    succeeds.
+  - Picking **Agent** is the way back.
+- **Disconnecting the current default** resets the setting to `agent`, so the default never names a disconnected
+  service. Disconnecting any other service leaves the default alone.
+
 ## Discovery
 
 A user learns a decision model exists from their own workflow history, not from setup:
@@ -168,12 +183,13 @@ A user learns a decision model exists from their own workflow history, not from 
   - It quotes the user's own numbers: "Your last 12 workflow decisions took ~1.3s each through the agent. A
     decision model answers in ~0.2s with calibrated confidence." Run history records each decision's provider and
     duration for this.
-  - **Choose a decision model…** runs Connect Service… with a picker limited to decision vendors. A successful
-    connect selects that vendor.
+  - Its button runs **Choose Decision Model…**.
   - It also offers Snooze and Don't ask again. It spends no tokens.
   - A user without workflows never sees it.
-- **A startup concept tip** (no command) joins the `StartupTips` catalog. Lead: "Give workflow decisions a
-  decision model". Detail: "Connect OpenAI or TypeSafe, and decisions answer in ~0.2s with calibrated confidence."
+- **A startup tip** joins the `StartupTips` catalog with `CommandId` set to Choose Decision Model…. Lead: "Give
+  workflow decisions a decision model". Detail: "OpenAI or TypeSafe answer in ~0.2s with calibrated confidence."
+  - Every tip with a command gains a toast button that runs it, labelled with the command's title.
+  - The keybinding text is appended only when the command is bound, as today.
 - **The agent finds it** through the setting's description and aliases ("decision model", "faster workflow
   decisions", "gpt-6-luna", "Jev").
 - **Setup stays unchanged.** Getting started never asks about decision models.

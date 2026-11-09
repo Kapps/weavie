@@ -41,7 +41,10 @@ public sealed class VendorDecisionProviderTests : IDisposable {
 	public async Task UnreadableKey_IsNotConfigured(string vendor) {
 		File.WriteAllText(_dir.Combine($"{vendor}.key"), " ");
 
-		Assert.Equal(InferenceFailureKind.NotConfigured, Assert.IsType<DecisionProviderFailure>(await Decide(vendor)).Kind);
+		var failure = Assert.IsType<DecisionProviderFailure>(await Decide(vendor));
+
+		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
+		Assert.Contains("is empty", failure.Detail, StringComparison.Ordinal);
 		Assert.Empty(_http.Requests);
 	}
 

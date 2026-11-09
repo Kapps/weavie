@@ -52,9 +52,10 @@ public sealed class CredentialServiceTests : IDisposable {
 	public async Task DisconnectDeletesTheKey() {
 		await _service.ConnectAsync("acme", new CredentialSecret("good"), CancellationToken.None);
 
-		_service.Disconnect("acme");
+		Assert.True(_service.Disconnect("acme"));
 
 		Assert.False(_service.IsConnected("acme"));
+		Assert.False(_service.Disconnect("acme"));
 		Assert.Equal(2, _changes);
 	}
 

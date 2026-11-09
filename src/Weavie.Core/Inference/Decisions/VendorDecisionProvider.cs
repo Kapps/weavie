@@ -75,8 +75,8 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 		CredentialSecret? key;
 		try {
 			key = _store.Read(Id);
-		} catch (InvalidOperationException) {
-			key = null;
+		} catch (InvalidOperationException ex) {
+			return Failure(InferenceFailureKind.NotConfigured, $"{ex.Message} Connect {name} again to use it (run Connect Service…).", null);
 		}
 		if (key is null) {
 			return Failure(InferenceFailureKind.NotConfigured, $"Connect {name} to use it (run Connect Service…).", null);
@@ -84,16 +84,18 @@ public abstract class VendorDecisionProvider : IDecisionProvider {
 
 		using var request = Request(HttpMethod.Post, url, key);
 		request.Content = new StringContent(JsonSerializer.Serialize(body, requestType), Encoding.UTF8, "application/json");
-		HttpResponseMessage response;
+		HttpResponseMessage? response = null;
+		string payload;
 		try {
 			response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+			payload = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		} catch (HttpRequestException) {
+			response?.Dispose();
 			return Failure(InferenceFailureKind.ProviderUnavailable, $"Couldn't reach {name}.", null);
 		}
 
 		using (response) {
 			string? requestId = response.Headers.TryGetValues("x-request-id", out var ids) ? ids.FirstOrDefault() : null;
-			string payload = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 			if (!response.IsSuccessStatusCode) {
 				var (kind, detail) = Classify((int)response.StatusCode, name, ErrorMessage(payload));
 				return Failure(kind, detail, requestId);

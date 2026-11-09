@@ -38,11 +38,14 @@ public sealed class FileCredentialStore : ICredentialStore {
 	}
 
 	/// <inheritdoc/>
-	public void Delete(string id) {
+	public bool Delete(string id) {
 		string path = PathFor(id);
-		if (File.Exists(path)) {
-			File.Delete(path);
+		if (!File.Exists(path)) {
+			return false;
 		}
+
+		File.Delete(path);
+		return true;
 	}
 
 	private string PathFor(string id) {

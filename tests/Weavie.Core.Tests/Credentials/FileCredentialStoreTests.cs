@@ -55,10 +55,10 @@ public sealed class FileCredentialStoreTests : IDisposable {
 
 	[Fact]
 	public void DeleteRemovesTheSecretAndToleratesAbsence() {
-		_store.Delete("notion");
+		Assert.False(_store.Delete("notion"));
 		_store.Save("notion", new CredentialSecret("ntn_x"));
 
-		_store.Delete("notion");
+		Assert.True(_store.Delete("notion"));
 
 		Assert.Null(_store.Read("notion"));
 	}

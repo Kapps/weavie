@@ -42,9 +42,10 @@ public sealed partial class HostCore {
 
 	private CommandResult DisconnectService(HostSession session, string? id) {
 		if (id is not null) {
-			// Deletes even an unreadable key, which counts as not connected.
 			var definition = _credentials.Require(id);
-			return CommandResult.Success($"Disconnected {definition.DisplayName}.{DisconnectAndReset(id)}");
+			return DisconnectAndReset(id) is { } reset
+				? CommandResult.Success($"Disconnected {definition.DisplayName}.{reset}")
+				: CommandResult.Success($"{definition.DisplayName} isn't connected.");
 		}
 
 		var options = _credentials.Definitions.Where(definition => _credentials.IsConnected(definition.Id))

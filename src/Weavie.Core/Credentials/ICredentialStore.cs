@@ -9,6 +9,6 @@ public interface ICredentialStore {
 	/// <summary>Saves <paramref name="secret"/> for <paramref name="id"/>, replacing any previous one.</summary>
 	void Save(string id, CredentialSecret secret);
 
-	/// <summary>Deletes the secret saved for <paramref name="id"/>; a no-op when none is.</summary>
-	void Delete(string id);
+	/// <summary>Deletes the secret saved for <paramref name="id"/>, readable or not; false when none was saved.</summary>
+	bool Delete(string id);
 }

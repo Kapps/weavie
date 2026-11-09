@@ -47,9 +47,13 @@ public sealed class CredentialService {
 		return account;
 	}
 
-	/// <summary>Deletes the saved key for <paramref name="id"/>.</summary>
-	public void Disconnect(string id) {
-		_store.Delete(Require(id).Id);
+	/// <summary>Deletes the saved key for <paramref name="id"/>, even an unreadable one; false when none was saved.</summary>
+	public bool Disconnect(string id) {
+		if (!_store.Delete(Require(id).Id)) {
+			return false;
+		}
+
 		Changed?.Invoke();
+		return true;
 	}
 }

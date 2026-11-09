@@ -116,12 +116,13 @@ vendor `Reveal()`), posts once, and maps each failure to a kind whose reason nam
 
 | Cause | Kind | Reason |
 |---|---|---|
-| no key, or an unreadable one | `NotConfigured` | "Connect OpenAI to use it (run Connect Service…)." |
+| no key | `NotConfigured` | "Connect OpenAI to use it (run Connect Service…)." |
+| an unreadable key | `NotConfigured` | the store's reason, then "Connect OpenAI again…" |
 | 401, 403 | `AuthenticationFailed` | names Connect Service… for the vendor |
 | 429 | `RateLimited` | |
 | 400, 413, 422 | `InputRejected` | with the vendor's own message: OpenAI's `error.message` or TypeSafe's string `detail` |
 | other status | `ProviderUnavailable` | the status code |
-| `HttpRequestException` | `ProviderUnavailable` | the host is unreachable |
+| `HttpRequestException` sending or reading | `ProviderUnavailable` | the host is unreachable |
 | malformed body, or no answer named `decision` | `InvalidResponse` | |
 | OpenAI `type: refusal` | `Refused` | |
 
@@ -190,7 +191,7 @@ Two commands serve every definition:
   - Opening a Notion link with no token runs it with `notion`.
   - A decision failure names it with the service: "Connect OpenAI to use it".
 - **Disconnect Service…** (`weavie.credentials.disconnect`, taking the service id) deletes the key, even an unreadable
-  one. From the palette it offers a picker of the connected services.
+  one, and says so when none was saved. From the palette it offers a picker of the connected services.
 
 Each session holds at most one pending connect prompt and one open picker, and the answer runs its continuation on
 that session, never on whichever session is selected. The picker is a modal listbox: arrows move, Enter picks,

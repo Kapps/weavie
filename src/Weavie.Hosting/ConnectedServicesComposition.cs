@@ -25,6 +25,9 @@ public static class ConnectedServicesComposition {
 			new OpenAiDecisionProvider(http, store),
 			new TypeSafeDecisionProvider(http, store),
 		];
+		if (!providers.Select(provider => provider.Id).SequenceEqual(DecisionProviderIds.All)) {
+			throw new InvalidOperationException("The decision providers must match DecisionProviderIds.All, which the setting accepts.");
+		}
 		var credentials = new CredentialService(
 			[notion.Credential, .. providers.Select(provider => provider.Credential).OfType<CredentialDefinition>()], store);
 		var decisions = new DecisionService(settings, providers);

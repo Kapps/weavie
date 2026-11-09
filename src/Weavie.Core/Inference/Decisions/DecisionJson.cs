@@ -31,7 +31,7 @@ internal sealed record TypeSafeQuestion(string Type, string Instructions, IReadO
 
 internal sealed record TypeSafeDecisionResponse(string? Model, IReadOnlyDictionary<string, TypeSafeAnswer>? Answers, TypeSafeUsage? Usage);
 
-internal sealed record TypeSafeAnswer(string? Type, IReadOnlyDictionary<string, double>? Probabilities);
+internal sealed record TypeSafeAnswer(IReadOnlyDictionary<string, double>? Probabilities);
 
 internal sealed record TypeSafeUsage(long InputTokens, long OutputTokens);
 

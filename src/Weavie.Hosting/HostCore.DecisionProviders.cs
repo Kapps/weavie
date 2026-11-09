@@ -49,9 +49,13 @@ public sealed partial class HostCore {
 			: $"Workflow decisions will use {provider.Label}, but ad-hoc inference is off — turn on {InferenceSettings.Enabled} to run them.");
 	}
 
-	// Disconnecting the chosen vendor resets the choice, so the setting never names a disconnected service.
-	private string DisconnectAndReset(string id) {
-		_credentials.Disconnect(id);
+	// Disconnecting the chosen vendor resets the choice, so the setting never names a disconnected service. Null when
+	// no key was saved; otherwise what the reset changed, or empty.
+	private string? DisconnectAndReset(string id) {
+		if (!_credentials.Disconnect(id)) {
+			return null;
+		}
+
 		string current = _settings.RequireString(InferenceSettings.DecisionProvider);
 		if (!_decisions.Providers.Any(provider => provider.Id == current && provider.Credential?.Id == id)) {
 			return string.Empty;

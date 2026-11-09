@@ -145,8 +145,10 @@ public sealed class HostCoreCredentialsTests {
 
 		var result = await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" });
 
-		Assert.True(result.Ok, result.Error);
+		Assert.Equal((true, "Disconnected Notion."), (result.Ok, result.Message));
 		Assert.False(File.Exists(Path.Combine(host.CredentialsDir, "notion.key")));
+		Assert.Equal("Notion isn't connected.",
+			(await host.InvokeClientCommandAsync("weavie.credentials.disconnect", new { service = "notion" })).Message);
 	}
 
 	[Fact]

@@ -1,13 +1,13 @@
 # Decision providers
 
 **Status:** design. Builds on the decision contract from `feature/workflow-decision-evidence`
-([workflows.md](workflows.md)): a decider receives a question, described choices, and prepared evidence,
+([workflows.md](workflows.md)): a workflow decider receives a question, described choices, and prepared evidence,
 and returns a choice with a confidence the engine compares against `workflow.decisionConfidence`.
 
-Workflow decisions can be answered by a **decision model** — OpenAI Decisions (`gpt-6-luna`) or TypeSafe Jev —
-instead of an agent. Decision models never write text: they take shared evidence plus named questions and return a
+Ad-hoc inference gains a decision surface: one choice question over typed evidence, answered with a probability per
+choice by a pluggable **decision provider** — the configured agent, OpenAI Decisions (`gpt-6-luna`), or TypeSafe Jev. Decision models never write text: they take shared evidence plus named questions and return a
 probability for every choice. That is the exact shape of a workflow decision, and the probability is calibrated
-rather than the self-reported number a chat model invents.
+rather than the self-reported number a chat model invents. Workflow decisions are the first consumer.
 
 ## Why decision models, and not direct chat APIs
 
@@ -27,72 +27,90 @@ naming and rejected: a direct call is ~1.5s regardless of model or Fast Mode, ag
 second on a background suggestion does not justify a credential store and two HTTP clients. Typed inference stays
 agent-only ([ad-hoc-inference.md](ad-hoc-inference.md)).
 
-## Selection
+## Layers
 
-| Setting | Values | Default |
-|---|---|---|
-| `workflow.decisionProvider` | `agent`, `openai`, `typesafe` | `agent` |
-
-- `agent` is today's `InferenceWorkflowDecider`: the live typed-inference provider answers `{choice, confidence}`.
-- `openai` and `typesafe` call the vendor directly. Choosing one is the opt-in to sending decision evidence —
-  including complete referenced file contents — to that vendor; the setting's description names the vendor and links
-  its data terms.
-- The setting is live: each decision attempt reads it, like the confidence threshold.
-- External providers obey the same `inference.enabled` gate as agent deciding. Both paths share one policy check.
-
-Each adapter pins its vendor's model: `gpt-6-luna` (OpenAI's only decision model) and `jev-latest` (TypeSafe's
-maintained alias). No model setting exists until a vendor offers a real choice.
-
-## Confidence
-
-For a decision model, the confidence returned to the engine is **the chosen option's probability**. Both vendors
-also return a `confidence` field, but it is a rescaling of the top probability (TypeSafe documents
-`(p − 1/n) / (1 − 1/n)`; OpenAI's values match it), not the chance the answer is right. TypeSafe's docs recommend
-thresholding the probability of the option acted on. Weavie ignores the vendor `confidence` field.
-
-There is one threshold, `workflow.decisionConfidence`, and each decision's `confidence:` override still applies.
-A user changes provider rarely, and a decision model's probability and an agent's self-report both read as "how
-sure is the answer" near the default 0.8.
-
-## Adapters
-
-Both adapters implement `IWorkflowDecider` in Core beside `InferenceWorkflowDecider`, translating one prepared
-`WorkflowDecisionRequest` into one HTTP request. A `WorkflowDeciders` selector, created once per session in place of
-the direct `InferenceWorkflowDecider` construction, reads the setting and delegates. One attempt, no retry, the same
-60s budget, plain `HttpClient` with source-generated request/response contracts (Native AOT; no vendor SDK).
+Decisions are a second ad-hoc inference surface beside typed queries, owned by Core and usable by any feature.
+Workflows are the first consumer, not the owner.
 
 ```mermaid
 flowchart LR
-    E[Workflow engine] --> S[WorkflowDeciders]
-    S -->|agent| A[InferenceWorkflowDecider]
-    S -->|openai| O[OpenAiDecider]
-    S -->|typesafe| T[TypeSafeDecider]
+    E[Workflow engine] --> W[ModelWorkflowDecider]
+    W --> D[IDecisionService]
+    D -->|agent| A[AgentDecisionProvider]
+    D -->|openai| O[OpenAiDecisionProvider]
+    D -->|typesafe| T[TypeSafeDecisionProvider]
+    A --> I[IInferenceService]
     O --> OA[POST api.openai.com/v1/decisions]
     T --> TA[POST api.typesafe.ai/v1/systemone]
 ```
 
-The evidence object `{outputs, summary, files: [{path, text}]}` is sent as structured data, and the decision is one
-`choice` question named `decision` whose instructions are the question text.
+- **`IDecisionService`** (`Weavie.Core.Inference`) is the decision counterpart of `IInferenceService`:
+  - It takes an `InferenceOwner`, typed evidence (`TEvidence` + `JsonTypeInfo<TEvidence>`), one choice question, and
+    query options with an origin and a time budget.
+  - It enforces the `inference.enabled` / `inference.allowAutomatic` gates and the time budget through the same
+    policy code as typed queries. It returns a receipt with the same shape.
+  - It resolves the live `inference.decisionProvider` setting on every call.
+- **`IDecisionProvider`** makes one attempt for one question. It returns a probability for every choice, a refusal,
+  or a failure with an `InferenceFailureKind`.
+- **The service picks the answer.** The choice is the label with the highest probability, and a tie is an invalid
+  response. The service validates that every label is present, each value is finite and within `[0, 1]`, and no
+  unknown label appears. It never renormalizes or repairs a distribution.
+- **`ModelWorkflowDecider`** is the only workflow code. It translates a `WorkflowDecisionRequest` into a decision
+  query, and the answer into `WorkflowDecisionResult`:
+  - an answer becomes `Answered(choice, its probability)`;
+  - a refusal becomes `Refused`;
+  - every failure becomes `Failed` with its reason.
+- **The threshold stays feature policy.** The engine compares that probability with `workflow.decisionConfidence`.
+  The decision layer knows no thresholds.
+- **`InferenceWorkflowDecider` is deleted.** Its job moves into `AgentDecisionProvider`.
+
+The question shape is a choice question: instructions plus labels, each with an optional description. Vendors also
+support yes/no and score questions and several questions over the same evidence. Those join the contract when a
+feature needs them.
+
+## Providers
+
+| Setting | Values | Default |
+|---|---|---|
+| `inference.decisionProvider` | `agent`, `openai`, `typesafe` | `agent` |
+
+- **`agent`** runs a typed query through the live inference provider and profile. The reply is one probability per
+  label, under a schema with one required number per choice. It replaces today's `{choice, confidence}` reply, which
+  let a model answer "revise at 0.3" between two options. A self-reported distribution still isn't calibrated, but
+  the service can check it and the chosen label always agrees with its number.
+- **`openai`** and **`typesafe`** call the vendor directly:
+  - Choosing one is the opt-in to sending decision evidence, including complete referenced file contents, to that
+    vendor. The setting's description names the vendor and links its data terms.
+  - Each adapter pins its vendor's model: `gpt-6-luna` (OpenAI's only decision model) and `jev-latest` (TypeSafe's
+    maintained alias). There is no model setting until a vendor offers a real choice.
+  - Each makes one attempt with no retry, using plain `HttpClient` and source-generated contracts (Native AOT, no
+    vendor SDK).
+
+Both vendors also return a `confidence` field. It is a rescaling of the top probability, not the chance the answer
+is right: TypeSafe documents `(p − 1/n) / (1 − 1/n)`, and OpenAI's values match it. TypeSafe's docs recommend
+thresholding the probability of the option acted on. Weavie ignores the vendor `confidence` field. There is one
+threshold, and each decision's `confidence:` override still applies.
+
+Evidence is sent as structured data, and the question is one `choice` named `decision`:
 
 | | OpenAI | TypeSafe |
 |---|---|---|
 | Evidence | `input: [{role: user, content: [{type: input_json, data: <evidence>}]}]` | `state: <evidence>` |
 | Question | `questions: [{type: choice, name, instructions, choices: [{value, description}]}]` | `questions: {decision: {type: choice, instructions, criteria: {label: description \| null}}}` |
-| Answer | `answers[]` matched by `name` | `answers.decision` |
-| Probability | `probabilities[]` entry whose `value` is `choice` | `probabilities[choice]` |
-| Refusal | `type: refusal` → `Refused` | not part of the contract |
+| Distribution | `answers[]` matched by `name`, `probabilities[]` of `{value, probability}` | `answers.decision.probabilities` keyed by label |
+| Refusal | `type: refusal` | not part of the contract |
 | Limits | not published | 32k tokens per question, 64k per request |
 
-Choices without descriptions are sent without one (OpenAI omits the field; TypeSafe sends `null`).
+A choice without a description is sent without one: OpenAI omits the field and TypeSafe sends `null`.
 
-Results map to `WorkflowDecisionResult`:
-- `Answered(choice, probability)`; the engine still validates membership and range.
-- A refusal becomes `Refused`.
-- Every HTTP failure becomes `Failed` with a reason naming the cause: an authentication failure naming the connect
-  command, rate limiting, an oversized request with the vendor's message, an unreachable host, or a response
-  missing the question's answer.
+Each HTTP failure maps to a failure kind with a reason naming the cause:
+- an authentication failure, naming the connect command;
+- rate limiting;
+- an oversized request, with the vendor's message;
+- an unreachable host;
+- a response missing the question's answer.
 
-Every failure puts the question to the user, as today. Weavie never falls back to the agent.
+Weavie never falls back to another provider.
 
 ## Credentials
 
@@ -108,7 +126,10 @@ remote runner the key lives on the worker, which makes the calls.
 
 ## Testing
 
-- **Adapter contract tests** run against a stubbed `HttpMessageHandler`. They cover:
+- **Decision service tests** use a fake provider. They cover the policy gates, the timeout, picking the top label,
+  rejecting a tie, missing or unknown labels, and out-of-range values.
+- **Agent provider tests** check the per-label schema and the translation of typed-query failures.
+- **Vendor adapter contract tests** run against a stubbed `HttpMessageHandler`. They cover:
   - request shape, including undescribed choices;
   - probability extraction;
   - refusal;
@@ -116,7 +137,7 @@ remote runner the key lives on the worker, which makes the calls.
   - a missing answer;
   - a missing key.
 - **A Hosting workflow test** routes a model decision through `typesafe` with the stubbed handler. It proves the
-  live setting switch and the low-probability escalation.
+  live `inference.decisionProvider` switch and the low-probability escalation.
 - **No test calls a real vendor.** A live check against each vendor (the `temp/decision-bench` cases) is a
   per-change manual step.
 

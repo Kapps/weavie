@@ -5,8 +5,9 @@
 and returns a choice with a confidence the engine compares against `workflow.decisionConfidence`.
 
 Ad-hoc inference gains a decision surface: one choice question over typed evidence, answered with a probability per
-choice by a pluggable **decision provider** — the configured agent, OpenAI Decisions (`gpt-6-luna`), or TypeSafe Jev. Decision models never write text: they take shared evidence plus named questions and return a
-probability for every choice. That is the exact shape of a workflow decision, and the probability is calibrated
+choice by a pluggable **decision provider** — the configured agent, OpenAI Decisions (`gpt-6-luna`), or TypeSafe
+Jev. Decision models never write text: they take shared evidence plus named questions and return a probability for
+every choice. That is the exact shape of a workflow decision, and the probability is calibrated
 rather than the self-reported number a chat model invents. Workflow decisions are the first consumer.
 
 ## Why decision models, and not direct chat APIs

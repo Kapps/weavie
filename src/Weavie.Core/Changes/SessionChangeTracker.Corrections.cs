@@ -26,16 +26,29 @@ public sealed partial class SessionChangeTracker {
 	public void RecordHandEdit(string path, string content) => CaptureHandEdit(path, content).Complete();
 
 	/// <summary>
-	/// Saves an editor buffer through <paramref name="write"/> and captures it as <see cref="CaptureHandEdit"/> does,
-	/// both under the tracker's lock, so a disk observation can never read the file part-written. Nothing is
-	/// captured when <paramref name="write"/> reports failure.
+	/// Saves an editor buffer through <paramref name="write"/> and captures it as <see cref="CaptureHandEdit"/> does.
+	/// Disk observations leave the file alone while it is written, so none reads it part-written; the write itself
+	/// runs outside the tracker's lock, so a stalled one blocks nothing else. Nothing is captured when
+	/// <paramref name="write"/> reports failure.
 	/// </summary>
 	/// <param name="path">Absolute path of the saved file.</param>
 	/// <param name="content">The file's complete saved content.</param>
 	/// <param name="write">Writes the file, answering whether it succeeded.</param>
 	public CapturedHandEdit SaveHandEdit(string path, string content, Func<bool> write) {
 		ArgumentNullException.ThrowIfNull(write);
-		lock (_gate) return write() ? CaptureHandEdit(path, content) : CapturedHandEdit.None;
+		path = NormalizePath(path);
+		lock (_gate) _saving[path] = _saving.GetValueOrDefault(path) + 1;
+		bool written = false;
+		try {
+			written = write();
+		} finally {
+			lock (_gate) {
+				if (_saving[path] > 1) _saving[path]--;
+				else _saving.Remove(path);
+			}
+		}
+
+		return written ? CaptureHandEdit(path, content) : CapturedHandEdit.None;
 	}
 
 	/// <summary>

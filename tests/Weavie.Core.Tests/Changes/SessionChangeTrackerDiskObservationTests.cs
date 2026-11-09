@@ -106,7 +106,7 @@ public sealed class SessionChangeTrackerDiskObservationTests {
 	}
 
 	[Fact]
-	public async Task AnObservationDuringAnEditorSaveWaitsForTheWholeSave() {
+	public async Task AnObservationDuringAnEditorSaveLeavesTheFileToTheSave() {
 		var (files, tracker, path) = AgentEditing();
 		tracker.Observe(new AgentToolCompleted(new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true)));
 		Task<IReadOnlyList<string>>? observed = null;
@@ -121,6 +121,22 @@ public sealed class SessionChangeTrackerDiskObservationTests {
 
 		Assert.Empty(await observed!);
 		Assert.Equal("agent wrote\n", Assert.Single(tracker.TurnChanges()).CurrentText);
+	}
+
+	[Fact]
+	public void AStalledSaveBlocksNothingElse() {
+		var (files, tracker, paths) = ArmedReview(2);
+		files.WriteAllText(paths[1], "edited outside\n");
+		bool observedMeanwhile = false;
+
+		tracker.SaveHandEdit(paths[0], "saved\n", () => {
+			observedMeanwhile = Task.Run(() => tracker.ObserveDisk([paths[1]])).Wait(TimeSpan.FromSeconds(5));
+			files.WriteAllText(paths[0], "saved\n");
+			return true;
+		});
+
+		Assert.True(observedMeanwhile);
+		Assert.Equal("edited outside\n", tracker.GetTurn(paths[1])!.CurrentText);
 	}
 
 	private static (CountingFileSystem Files, SessionChangeTracker Tracker, string Path) AgentEditing() {

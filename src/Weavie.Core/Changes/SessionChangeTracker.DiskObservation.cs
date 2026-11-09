@@ -8,6 +8,8 @@ public sealed partial class SessionChangeTracker {
 	// Paths each conversation's agent tools are editing now, with how many tools: the tool's completion records the
 	// path, so a change seen meanwhile is its own.
 	private readonly Dictionary<string, Dictionary<string, int>> _agentEditing = new(StringComparer.Ordinal);
+	// Paths an editor save is writing now, with how many saves; the save captures the result itself.
+	private readonly Dictionary<string, int> _saving = new(PathIdentity.Comparer);
 
 	/// <summary>
 	/// Brings the tracked files among <paramref name="paths"/> up to their disk content, as an editor save or an
@@ -18,7 +20,7 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(paths);
 		lock (_gate) {
 			string[] observed = [.. paths.Select(NormalizePath).Distinct(PathIdentity.Comparer)
-				.Where(path => (_baseline.ContainsKey(path) || _nonText.ContainsKey(path)) && !AgentEditing(path))];
+				.Where(path => (_baseline.ContainsKey(path) || _nonText.ContainsKey(path)) && !AgentEditing(path) && !_saving.ContainsKey(path))];
 			if (observed.Length == 0) return [];
 			var before = observed.ToDictionary(path => path, DiskState, PathIdentity.Comparer);
 			foreach (string path in observed) {

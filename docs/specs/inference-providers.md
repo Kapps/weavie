@@ -172,6 +172,8 @@ A user learns a decision model exists from their own workflow history, not from 
     connect selects that vendor.
   - It also offers Snooze and Don't ask again. It spends no tokens.
   - A user without workflows never sees it.
+- **A startup tip** joins the `StartupTips` catalog: "Run Connect Service…" (`weavie.credentials.connect`) —
+  "Connect OpenAI or TypeSafe and workflow decisions answer in ~0.2s with calibrated confidence."
 - **The agent finds it** through the setting's description and aliases ("decision model", "faster workflow
   decisions", "gpt-6-luna", "Jev").
 - **Setup stays unchanged.** Getting started never asks about decision models.

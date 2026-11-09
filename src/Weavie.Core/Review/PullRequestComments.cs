@@ -109,8 +109,8 @@ public sealed class PullRequestComments : PullRequestOwner<PullRequestCommentsSn
 			throw new InvalidOperationException("Those pull request sources are no longer current.");
 		}
 
-		var head = await _git.ReadFileAtRefAsync(_worktree, headSha, path, ct).ConfigureAwait(false);
-		var mergeBase = await _git.ReadFileAtRefAsync(_worktree, diff.MergeBase, path, ct).ConfigureAwait(false);
+		var sources = await _git.ReadFilesAtRefsAsync(_worktree, [(headSha, path), (diff.MergeBase, path)], ct).ConfigureAwait(false);
+		var (head, mergeBase) = (sources[0], sources[1]);
 		return new PullRequestSources(head.Exists ? head.Content : null, mergeBase.Exists ? mergeBase.Content : null);
 	}
 

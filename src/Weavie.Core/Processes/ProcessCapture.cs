@@ -20,16 +20,29 @@ public static class ProcessCapture {
 	private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
 	/// <summary>
+	/// Traces each run as an activity named after its executable and tagged with its working directory and
+	/// arguments, so operation budgets can count the processes an operation starts.
+	/// </summary>
+	public static ActivitySource Activities { get; } = new("Weavie.Processes");
+
+	/// <summary>
 	/// Runs <paramref name="request"/> to completion. If <paramref name="ct"/> fires first the child's process tree
 	/// is killed and a <see cref="ProcessCanceledException"/> carries out what it had printed.
 	/// </summary>
 	public static async Task<ProcessCaptureResult> RunAsync(ProcessCaptureRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
+		// Tags go in at creation so a listener sees them when the run starts, not only when it stops.
+		using var activity = Activities.HasListeners()
+			? Activities.StartActivity(request.FileName, ActivityKind.Internal, default(ActivityContext), [
+				new("process.working_directory", request.WorkingDirectory),
+				new("process.arguments", string.Join(' ', request.Arguments)),
+			])
+			: null;
 		OwnedProcess process;
 		try {
 			process = OwnedProcess.Start(StartInfo(request));
 		} catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException) {
-			return new ProcessCaptureResult(-1, string.Empty, string.Empty, ex);
+			return new ProcessCaptureResult(-1, [], string.Empty, ex);
 		}
 
 		using (process) {
@@ -37,7 +50,7 @@ public static class ProcessCapture {
 			// is what closes them and ends the reads. Draining stdout and stderr together is the point of this type —
 			// reading one at a time, or only after the child exits, deadlocks as soon as the other's buffer fills.
 			var stdin = FeedAsync(process.StandardInput, request.StandardInput);
-			var stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+			var stdout = ReadBytesAsync(process.StandardOutput.BaseStream);
 			var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
 			try {
 				await process.WaitForExitAsync(ct).ConfigureAwait(false);
@@ -46,7 +59,7 @@ public static class ProcessCapture {
 				await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 				await stdin.ConfigureAwait(false);
 				throw new ProcessCanceledException(
-					await stdout.ConfigureAwait(false), await stderr.ConfigureAwait(false), ct);
+					ProcessOutput.Decode(await stdout.ConfigureAwait(false)), await stderr.ConfigureAwait(false), ct);
 			}
 
 			await stdin.ConfigureAwait(false);
@@ -70,7 +83,6 @@ public static class ProcessCapture {
 			CreateNoWindow = true,
 			// Every tool Weavie captures speaks UTF-8; the Windows console codepage would mangle it.
 			StandardInputEncoding = Utf8,
-			StandardOutputEncoding = Utf8,
 			StandardErrorEncoding = Utf8,
 		};
 		foreach (string argument in request.Arguments) {
@@ -92,6 +104,12 @@ public static class ProcessCapture {
 			stdin.Close();
 		} catch (IOException) {
 		}
+	}
+
+	private static async Task<byte[]> ReadBytesAsync(Stream stream) {
+		using var buffer = new MemoryStream();
+		await stream.CopyToAsync(buffer, CancellationToken.None).ConfigureAwait(false);
+		return buffer.ToArray();
 	}
 
 	// The child can exit between the check and the kill — that race produced the outcome we wanted anyway.

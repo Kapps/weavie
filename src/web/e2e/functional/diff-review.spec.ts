@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
+import { settle } from "../harness/render-budget";
 import { appliedEdit } from "../harness/review";
+import { decodeTestWebSocketMessage } from "../harness/websocket-codec";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
 // keyboard-fall-through regressions. Distinct from diff.spec.ts, which exercises the openDiff PROPOSAL seam.
@@ -1060,17 +1062,53 @@ test.describe("large review — every file remains reviewable", () => {
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 
-  test("a file opened while the review computes keeps the editor", async ({ page, weavie }) => {
-    for (let index = 0; index < 100; index++) {
-      writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
-    }
-    await runCommand(page, "Diff Against HEAD");
-    await openFile(page, "README.md");
+  // The review's answer is held until the user is choosing a file in the omnibar, so it lands mid-choice every run.
+  test.describe("while the omnibar is open", () => {
+    let release: PromiseWithResolvers<void>;
+    let delivered: PromiseWithResolvers<void>;
+    test.use({
+      preNavigate: {
+        async run(page) {
+          release = Promise.withResolvers<void>();
+          delivered = Promise.withResolvers<void>();
+          await page.routeWebSocket("**/*", (socket) => {
+            const server = socket.connectToServer();
+            server.onMessage(async (data) => {
+              const message = JSON.parse(decodeTestWebSocketMessage(data));
+              const answer =
+                message.feature === "review" &&
+                message.name === "diffAgainst" &&
+                message.kind === "response";
+              if (answer) await release.promise;
+              socket.send(data);
+              if (answer) delivered.resolve();
+            });
+          });
+        },
+      },
+    });
 
-    await expect
-      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
-      .toBe(100);
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
-    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]README\.md$/);
+    test("a file opened while the review computes keeps the editor", async ({ page, weavie }) => {
+      for (let index = 0; index < 100; index++) {
+        writeFileSync(join(weavie.workspace, `bulk-${index}.txt`), `change ${index}\n`);
+      }
+      await runCommand(page, "Diff Against HEAD");
+      await page.locator(".tb-omnibar-input").click();
+      await page.locator(".tb-omnibar-input").fill("README.md");
+      await expect(page.locator(".tb-omnibar-row", { hasText: "README.md" }).first()).toBeVisible();
+      release.resolve();
+      await delivered.promise;
+      await expect
+        .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
+        .toBe(100);
+      await settle(page);
+      await expect(page.locator(".editor-tab", { hasText: "Review Changes" })).toHaveCount(0);
+      await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+      await page.locator(".tb-omnibar-input").press("Enter");
+
+      await expect(page.locator(".editor-tab", { hasText: "README.md" })).toBeVisible();
+      await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
+      await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]README\.md$/);
+    });
   });
 });

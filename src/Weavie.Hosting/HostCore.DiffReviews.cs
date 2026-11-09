@@ -25,6 +25,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private async Task<ReviewOpened> DiffAgainstFromWebAsync(
 		HostSession session,
+		GitService git,
 		string reference,
 		string? replaces,
 		CancellationToken ct) {
@@ -35,7 +36,6 @@ public sealed partial class HostCore {
 
 		object request = session.Changes.BeginReviewRequest();
 		string worktree = session.WorkspaceRoot;
-		var git = new GitService();
 		ReviewContext review;
 		IReadOnlyList<DiffFileChange> changes;
 		try {
@@ -92,18 +92,19 @@ public sealed partial class HostCore {
 		string reference,
 		string? replaces,
 		CancellationToken ct) {
-		var result = await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
+		var git = GitService.ForOperation();
+		var result = await DiffAgainstFromWebAsync(session, git, reference, replaces, ct).ConfigureAwait(false);
 		if (result.Replaces is null && session.Changes.Review?.Label == result.Label) {
-			_ = session.Background.Run(stopping => ChooseBranchBaseAsync(session, reference.Trim(), stopping));
+			_ = session.Background.Run(stopping => ChooseBranchBaseAsync(session, git, reference.Trim(), stopping));
 		}
 
 		return result;
 	}
 
-	private async Task ChooseBranchBaseAsync(HostSession session, string chosen, CancellationToken ct) {
+	private async Task ChooseBranchBaseAsync(HostSession session, GitService git, string chosen, CancellationToken ct) {
 		try {
-			if (await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is { } preferred
-				&& await new GitService().ChooseBranchBaseAsync(
+			if (await DefaultBranchRefAsync(session.WorkspaceRoot, git, ct).ConfigureAwait(false) is { } preferred
+				&& await git.ChooseBranchBaseAsync(
 					session.WorkspaceRoot, chosen, preferred, PullRequestBase(session), ct).ConfigureAwait(false)) {
 				Notify(session, "info", $"Review Branch now compares with '{chosen}'.");
 			}
@@ -114,18 +115,19 @@ public sealed partial class HostCore {
 
 	/// <summary>Reviews the whole branch: a diff against <see cref="BranchBaseRefAsync"/> from their merge-base.</summary>
 	private async Task<ReviewOpened> DiffAgainstBaseFromWebAsync(HostSession session, string? replaces, CancellationToken ct) {
-		if (await BranchBaseRefAsync(session, ct).ConfigureAwait(false) is not { } reference) {
+		var git = GitService.ForOperation();
+		if (await BranchBaseRefAsync(session, git, ct).ConfigureAwait(false) is not { } reference) {
 			Notify(session, "warn", "This repository has no default branch (origin/HEAD, main, or master) to review against.");
 			return ReviewOpened.No;
 		}
 
-		return await DiffAgainstFromWebAsync(session, reference, replaces, ct).ConfigureAwait(false);
+		return await DiffAgainstFromWebAsync(session, git, reference, replaces, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>The ref a whole-branch review compares against (see <see cref="GitService.ResolveBranchBaseAsync"/>).</summary>
-	private static async Task<string?> BranchBaseRefAsync(HostSession session, CancellationToken ct) =>
-		await DefaultBranchRefAsync(session.WorkspaceRoot, ct).ConfigureAwait(false) is { } preferred
-			? await new GitService().ResolveBranchBaseAsync(
+	private static async Task<string?> BranchBaseRefAsync(HostSession session, GitService git, CancellationToken ct) =>
+		await DefaultBranchRefAsync(session.WorkspaceRoot, git, ct).ConfigureAwait(false) is { } preferred
+			? await git.ResolveBranchBaseAsync(
 				session.WorkspaceRoot, preferred, PullRequestBase(session), ct).ConfigureAwait(false)
 			: null;
 
@@ -133,8 +135,7 @@ public sealed partial class HostCore {
 	/// The remote's default branch, else the local one. The remote's copy wins because a local default branch is often
 	/// far behind and would fold others' merged work into the diff.
 	/// </summary>
-	private static async Task<string?> DefaultBranchRefAsync(string worktree, CancellationToken ct) {
-		var git = new GitService();
+	private static async Task<string?> DefaultBranchRefAsync(string worktree, GitService git, CancellationToken ct) {
 		if (await git.ResolveDefaultBranchAsync(worktree, ct).ConfigureAwait(false) is not { } branch) {
 			return null;
 		}
@@ -179,13 +180,12 @@ public sealed partial class HostCore {
 
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
 		try {
-			foreach (string path in paths) {
-				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, path));
-				var baseline = await git
-					.ReadFileAtRefAsync(review.Worktree, review.MergeBase, path, ct)
-					.ConfigureAwait(false);
-				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
-				seeds.Add((absolute, baseline, current));
+			var baselines = await git
+				.ReadFilesAtRefsAsync(review.Worktree, [.. paths.Select(path => (review.MergeBase, path))], ct)
+				.ConfigureAwait(false);
+			for (int i = 0; i < paths.Count; i++) {
+				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, paths[i]));
+				seeds.Add((absolute, baselines[i], await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false)));
 			}
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Log($"[weavie] review '{review.Label}': diff failed: {ex.Message}");

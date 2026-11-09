@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
@@ -40,14 +41,14 @@ public sealed partial class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<string> GetHeadCommitAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var result = await RunCheckedAsync(directory, ["rev-parse", "HEAD"], ct).ConfigureAwait(false);
+		var result = await ReadCheckedAsync(directory, ["rev-parse", "HEAD"], ct).ConfigureAwait(false);
 		return result.StdOut.Trim();
 	}
 
 	/// <inheritdoc/>
 	public async Task<string?> GetCurrentBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var result = await RunCheckedAsync(directory, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
+		var result = await ReadCheckedAsync(directory, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
 		string branch = result.StdOut.Trim();
 		return branch is "HEAD" or "" ? null : branch;
 	}
@@ -56,7 +57,7 @@ public sealed partial class GitService : IGitService {
 	public async Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		ArgumentException.ThrowIfNullOrEmpty(branch);
-		var result = await RunAsync(directory, ["rev-parse", "--verify", "--quiet", HeadsPrefix + branch], ct).ConfigureAwait(false);
+		var result = await ReadAsync(directory, ["rev-parse", "--verify", "--quiet", HeadsPrefix + branch], ct).ConfigureAwait(false);
 		return result.ExitCode == 0;
 	}
 
@@ -215,7 +216,7 @@ public sealed partial class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		var origin = await RunAsync(directory, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
+		var origin = await ReadAsync(directory, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
 		if (origin.ExitCode == 0) {
 			string head = origin.StdOut.Trim();
 			int slash = head.IndexOf('/');
@@ -397,7 +398,7 @@ public sealed partial class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(a);
 		ArgumentException.ThrowIfNullOrEmpty(b);
-		var result = await RunAsync(repositoryDirectory, ["merge-base", a, b], ct).ConfigureAwait(false);
+		var result = await ReadAsync(repositoryDirectory, ["merge-base", a, b], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			return null;
 		}
@@ -417,7 +418,7 @@ public sealed partial class GitService : IGitService {
 		}
 
 		// ^{commit} peels tags to commits, so any commit-ish resolves to what a diff can use.
-		var result = await RunAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
+		var result = await ReadAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			return null;
 		}
@@ -505,15 +506,48 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+	public async Task<IReadOnlyList<GitFileSnapshot>> ReadFilesAtRefsAsync(
+		string repositoryDirectory,
+		IReadOnlyList<(string Reference, string Path)> files,
+		CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
-		ArgumentException.ThrowIfNullOrEmpty(reference);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		// A non-zero exit means the file is absent at that ref (added in the PR), distinct from an existing empty file.
-		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
-		return result.ExitCode == 0
-			? new GitFileSnapshot(true, result.StdOut)
-			: new GitFileSnapshot(false, string.Empty);
+		ArgumentNullException.ThrowIfNull(files);
+		if (files.Count == 0) return [];
+		if (files.Any(file => file.Reference.Length == 0 || file.Path.Length == 0 || $"{file.Reference}{file.Path}".IndexOfAny(['\n', '\r']) >= 0))
+			throw new ArgumentException("Each file needs a reference and a path on one line.", nameof(files));
+		var result = await RunAsync(repositoryDirectory, ["cat-file", "--batch"],
+			string.Concat(files.Select(file => $"{file.Reference}:{file.Path}\n")), ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) throw new GitException($"git cat-file --batch failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+		return ParseCatFileBatch(result.StdOutBytes, files.Count);
+	}
+
+	// Per object, "<oid> <type> <size>" then its bytes, or "<name> missing". Anything but a blob (a missing path, a
+	// directory, a submodule) is absent.
+	private static IReadOnlyList<GitFileSnapshot> ParseCatFileBatch(byte[] output, int count) {
+		ArgumentNullException.ThrowIfNull(output);
+		var snapshots = new List<GitFileSnapshot>(count);
+		int position = 0;
+		while (snapshots.Count < count) {
+			int end = Array.IndexOf(output, (byte)'\n', position);
+			if (end < 0) throw new GitException("git cat-file --batch ended before answering every file.");
+			string line = Encoding.UTF8.GetString(output, position, end - position);
+			position = end + 1;
+			if (line.EndsWith(" missing", StringComparison.Ordinal)) {
+				snapshots.Add(new GitFileSnapshot(false, string.Empty));
+				continue;
+			}
+
+			string[] header = line.Split(' ');
+			if (header.Length != 3 || !int.TryParse(header[2], CultureInfo.InvariantCulture, out int size) || size > output.Length - position)
+				throw new GitException($"git cat-file --batch answered '{line}'.");
+
+			snapshots.Add(header[1] == "blob"
+				? new GitFileSnapshot(true, ProcessOutput.Decode(output, position, size))
+				: new GitFileSnapshot(false, string.Empty));
+			position += size + 1;
+		}
+
+		return snapshots;
 	}
 
 	/// <summary>
@@ -768,14 +802,13 @@ public sealed partial class GitService : IGitService {
 		result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase);
 
 	private static async Task<ProcessCaptureResult> RunCheckedAsync(
-		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
-		var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
-		if (result.ExitCode != 0) {
-			throw new GitException($"git {string.Join(' ', args)} failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
-		}
+		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>
+		Checked(await RunAsync(workingDirectory, args, ct).ConfigureAwait(false), args);
 
-		return result;
-	}
+	private static ProcessCaptureResult Checked(ProcessCaptureResult result, IReadOnlyList<string> args) =>
+		result.ExitCode == 0
+			? result
+			: throw new GitException($"git {string.Join(' ', args)} failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 
 	private static Task<ProcessCaptureResult> RunAsync(
 		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) =>

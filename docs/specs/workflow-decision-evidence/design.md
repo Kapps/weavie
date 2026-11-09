@@ -20,9 +20,9 @@ mutable run dictionaries. Public contracts have XML summaries and no optional co
 | Model → engine | `Answered(string Choice, double Confidence)`, `Refused(string Reason)`, or `Failed(string Reason)`. These are in-memory variants, not a new wire/persistence format. |
 | Settings → runner | Required `Func<double>` accessor, alongside existing attempt/open-review accessors; sampled when a model decision plan is created. |
 
-The utility model's strict response is `{"choice":"approve","confidence":0.91}`. Use required JSON
-members or a required positional constructor so missing confidence cannot deserialize as zero. Retain
-source-generated metadata, unknown-member rejection, and required-constructor enforcement. `unsure` is
+Decision providers return one probability per choice, such as `{"approve":0.91,"revise":0.09}`; the decision
+service rejects missing or unknown labels, non-finite or out-of-range values, and ties
+([inference-providers.md](../inference-providers.md)). `unsure` is
 not requested or reserved: an undeclared label is invalid; any explicitly declared label is ordinary routing.
 
 ## Definition parsing and warnings

@@ -105,8 +105,9 @@ The utility adapter serializes a prepared request behind the existing untrusted-
 }
 ```
 
-Successful utility output: `{"choice":"approve","confidence":0.91}`. Refusals and provider failures
-arrive through the existing inference result channel. JSON contracts remain source-generated and strict.
+A decision provider returns one probability per choice, such as `{"approve":0.91,"revise":0.09}`; the chosen
+label is the most probable ([inference-providers.md](../inference-providers.md)). Refusals and provider failures
+arrive through the decision result channel. JSON contracts remain source-generated and strict.
 There is no new web message or persisted evidence format.
 
 ## Component behavior

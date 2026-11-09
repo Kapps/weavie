@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Inference.Decisions;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -58,6 +59,18 @@ public sealed class InferenceSettingsTests : IDisposable {
 
 		Set(store, InferenceSettings.Model, "haiku");
 		Assert.Equal(string.Empty, store.RequireString(InferenceSettings.Effort));
+	}
+
+	[Fact]
+	public void DecisionProviderDefaultsToTheAgentAndAcceptsOnlyDeclaredProviders() {
+		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
+		Assert.Equal(DecisionProviderIds.Agent, store.RequireString(InferenceSettings.DecisionProvider));
+
+		foreach (string id in DecisionProviderIds.All) {
+			Set(store, InferenceSettings.DecisionProvider, id);
+			Assert.Equal(id, store.RequireString(InferenceSettings.DecisionProvider));
+		}
+		Assert.Throws<SettingValidationException>(() => Set(store, InferenceSettings.DecisionProvider, "gemini"));
 	}
 
 	private static void Set(SettingsStore store, string key, string value) =>

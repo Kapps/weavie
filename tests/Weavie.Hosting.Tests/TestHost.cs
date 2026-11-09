@@ -621,7 +621,9 @@ internal sealed class TestHost : IAsyncDisposable {
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
 		// Every connected service runs over the stub handler and a temp store, never the network or the real ~/.weavie.
-		var connected = ConnectedServicesComposition.Create(new HttpClient(http), new FileCredentialStore(credentialsDir));
+		var inference = inferenceFor(settings);
+		var connected = ConnectedServicesComposition.Create(
+			new HttpClient(http), new FileCredentialStore(credentialsDir), settings, inference);
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -633,7 +635,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = new AcpSessionStore(Path.Combine(tempRoot, "acp-conversations.db")),
-			Inference = inferenceFor(settings),
+			Inference = inference,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,
@@ -643,6 +645,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			PullRequestDiscussion = pullRequests as IPullRequestDiscussion ?? NoPullRequests(),
 			Sources = connected.Sources,
 			Credentials = connected.Credentials,
+			Decisions = connected.Decisions,
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
 			// Private to this host's tempRoot: concurrent TestHosts (and CrashReporterTests) never share a

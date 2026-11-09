@@ -7,6 +7,7 @@ using Weavie.Core.Credentials;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
+using Weavie.Core.Inference.Decisions;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
 using Weavie.Core.Search;
@@ -101,6 +102,9 @@ public sealed record HostServices : IDisposable {
 	/// <summary>Every declared service's key (Notion, …): connect validates before saving, disconnect deletes.</summary>
 	public required CredentialService Credentials { get; init; }
 
+	/// <summary>Answers decisions through the provider <c>inference.decisionProvider</c> names.</summary>
+	public required IDecisionService Decisions { get; init; }
+
 	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
 	public required LogBuffer LogBuffer { get; init; }
 
@@ -145,7 +149,8 @@ public sealed record HostServices : IDisposable {
 		var reviewOverviewState = new ReviewOverviewStateStore(new LocalFileSystem(), path: null);
 		reviewOverviewState.Log += Log;
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
-		var connected = ConnectedServicesComposition.Create(new HttpClient(), credentials);
+		var inference = InferenceComposition.CreateDefault(settings, agentProviders);
+		var connected = ConnectedServicesComposition.Create(new HttpClient(), credentials, settings, inference);
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -157,7 +162,7 @@ public sealed record HostServices : IDisposable {
 			AgentConsultation = new AgentConsultation(agentProviders, agentModels),
 			AcpAgents = acpAgents,
 			AcpSessions = acpSessions,
-			Inference = InferenceComposition.CreateDefault(settings, agentProviders),
+			Inference = inference,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,
@@ -167,6 +172,7 @@ public sealed record HostServices : IDisposable {
 			PullRequestDiscussion = github,
 			Sources = connected.Sources,
 			Credentials = connected.Credentials,
+			Decisions = connected.Decisions,
 			LogBuffer = logBuffer,
 			LastCrashFile = WeaviePaths.LastCrashFile,
 			PreviousCrashFile = WeaviePaths.PreviousCrashFile,

@@ -81,6 +81,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly Weavie.Core.Review.IPullRequestDiscussion _pullRequestDiscussion;
 	// The source system (Notion personal-access-token validate + fetch); see HostCore.Sources.cs.
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
+	private readonly Weavie.Core.Credentials.CredentialService _credentials;
 	private readonly LayoutStore _layout;
 	// Per-workspace session overlay, so reopen restores each slot's runtime and editor state.
 	private readonly SessionStore _sessionStore;
@@ -204,6 +205,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_reviewComments = services.ReviewComments;
 		_pullRequestDiscussion = services.PullRequestDiscussion;
 		_sources = services.Sources;
+		_credentials = services.Credentials;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 

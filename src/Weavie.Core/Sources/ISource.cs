@@ -1,3 +1,5 @@
+using Weavie.Core.Credentials;
+
 namespace Weavie.Core.Sources;
 
 /// <summary>
@@ -16,31 +18,20 @@ namespace Weavie.Core.Sources;
 public sealed record SourceDoc(string Title, string Markdown, string EditedTime, bool Truncated, int UnknownBlocks);
 
 /// <summary>
-/// A registered source plugin: it claims link hosts, validates the user's access token, and fetches a
-/// target into a <see cref="SourceDoc"/>. Auth is a user-supplied personal access token (the host stores it and
-/// hands it back); the source only knows how to validate one and fetch with it. The host owns presentation,
-/// routing, and the token file; a source is thin — match + validate + fetch + map. See
-/// <c>docs/specs/notion-source-auth.md</c>.
+/// A registered source plugin: it claims link hosts and fetches a target into a <see cref="SourceDoc"/>,
+/// authenticated by the key its <see cref="Credential"/> declares. The host owns presentation, routing, and the key;
+/// a source is thin — match + fetch + map. See <c>docs/specs/notion-source-auth.md</c>.
 /// </summary>
 public interface ISource {
-	/// <summary>The stable source id (e.g. <c>notion</c>) — the credential key and the routing tag.</summary>
-	string Id { get; }
-
-	/// <summary>Where the user creates an access token — opened in their browser when they connect.</summary>
-	string SetupUrl { get; }
+	/// <summary>The service whose key authenticates this source; its id is the source id and routing tag.</summary>
+	CredentialDefinition Credential { get; }
 
 	/// <summary>The hosts whose http(s) URLs this source opens — the routing rule, applied by <see cref="SourceLinks.Claims"/>.
 	/// An entry with a leading dot claims every subdomain of it.</summary>
 	IReadOnlyList<string> LinkHosts { get; }
 
-	/// <summary>
-	/// Validates <paramref name="accessToken"/> against the source's API and returns the authorized workspace's
-	/// display name (may be empty). Throws <see cref="InvalidOperationException"/> when the token is rejected.
-	/// </summary>
-	Task<string> ValidateAsync(string accessToken, CancellationToken ct = default);
-
 	/// <summary>Fetches <paramref name="target"/> into a <see cref="SourceDoc"/>, authenticated by <paramref name="accessToken"/>.</summary>
-	Task<SourceDoc> FetchAsync(string target, string accessToken, CancellationToken ct = default);
+	Task<SourceDoc> FetchAsync(string target, CredentialSecret accessToken, CancellationToken ct = default);
 
 	/// <summary>
 	/// Applies one exact-match content edit to <paramref name="target"/> — <paramref name="oldStr"/> (which must
@@ -48,5 +39,5 @@ public interface ISource {
 	/// fetched markdown — and returns the refreshed <see cref="SourceDoc"/> from the update's response. Throws
 	/// <see cref="SourceConflictException"/> when the document changed since it was fetched (the match failed).
 	/// </summary>
-	Task<SourceDoc> UpdateAsync(string target, string accessToken, string oldStr, string newStr, CancellationToken ct = default);
+	Task<SourceDoc> UpdateAsync(string target, CredentialSecret accessToken, string oldStr, string newStr, CancellationToken ct = default);
 }

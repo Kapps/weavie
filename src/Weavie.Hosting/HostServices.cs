@@ -3,6 +3,7 @@ using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Credentials;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
@@ -97,6 +98,9 @@ public sealed record HostServices : IDisposable {
 	/// </summary>
 	public required ISourceConnector Sources { get; init; }
 
+	/// <summary>Every declared service's key (Notion, …): connect validates before saving, disconnect deletes.</summary>
+	public required CredentialService Credentials { get; init; }
+
 	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
 	public required LogBuffer LogBuffer { get; init; }
 
@@ -111,9 +115,10 @@ public sealed record HostServices : IDisposable {
 
 	/// <summary>
 	/// Builds the standard app-global store set — settings + keybindings watched live, console logging wired —
-	/// that every host shares across its windows and its welcome screen.
+	/// that every host shares across its windows and its welcome screen, holding secrets in <paramref name="credentials"/>.
 	/// </summary>
-	public static HostServices CreateDefault() {
+	public static HostServices CreateDefault(ICredentialStore credentials) {
+		ArgumentNullException.ThrowIfNull(credentials);
 		// Install the console tee first so every store's construction log below lands in the in-app log viewer too.
 		var logBuffer = LogBuffer.InstallConsoleCapture(WeaviePaths.HostLogFile);
 		var settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
@@ -140,6 +145,7 @@ public sealed record HostServices : IDisposable {
 		var reviewOverviewState = new ReviewOverviewStateStore(new LocalFileSystem(), path: null);
 		reviewOverviewState.Log += Log;
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
+		var connected = ConnectedServicesComposition.Create(new HttpClient(), credentials);
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -159,7 +165,8 @@ public sealed record HostServices : IDisposable {
 			PullRequests = github,
 			ReviewComments = github,
 			PullRequestDiscussion = github,
-			Sources = SourceConnector.CreateDefault(),
+			Sources = connected.Sources,
+			Credentials = connected.Credentials,
 			LogBuffer = logBuffer,
 			LastCrashFile = WeaviePaths.LastCrashFile,
 			PreviousCrashFile = WeaviePaths.PreviousCrashFile,

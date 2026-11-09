@@ -3,6 +3,7 @@ using Weavie.AcpDistribution;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Credentials;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
@@ -48,7 +49,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
 
-	private TestHost(TempDirectory temp, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler sourceHttp, string sourcesDir) {
+	private TestHost(TempDirectory temp, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler http, string credentialsDir) {
 		_temp = temp;
 		RepoRoot = repoRoot;
 		_services = services;
@@ -56,8 +57,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		Platform = platform;
 		Core = core;
 		Time = time;
-		SourceHttp = sourceHttp;
-		SourcesDir = sourcesDir;
+		Http = http;
+		CredentialsDir = credentialsDir;
 		bridge.RequestResponder = RespondToViewRequest;
 	}
 
@@ -66,11 +67,11 @@ internal sealed class TestHost : IAsyncDisposable {
 	public HostCore Core { get; private set; }
 	public ManualTimeProvider Time { get; }
 
-	/// <summary>The stub backing the source system's HTTP calls (the Notion token validate + API); set its responder per test.</summary>
-	public StubHttpMessageHandler SourceHttp { get; }
+	/// <summary>The stub backing every connected service's HTTP calls (key validation + API); set its responder per test.</summary>
+	public StubHttpMessageHandler Http { get; }
 
-	/// <summary>The temp <c>sources</c> dir — write a <c>notion.json</c> credentials file here to exercise the connect flow.</summary>
-	public string SourcesDir { get; }
+	/// <summary>The temp credential store dir — a saved key is <c>&lt;id&gt;.key</c> here.</summary>
+	public string CredentialsDir { get; }
 
 	/// <summary>The workspace checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
@@ -300,9 +301,9 @@ internal sealed class TestHost : IAsyncDisposable {
 		// Keep tests hermetic: never spawn the developer's real login shell or import its rc-file environment.
 		LoginShellEnvironment.MarkImported();
 
-		var sourceHttp = new StubHttpMessageHandler();
-		string sourcesDir = temp.Combine("sources");
-		var services = IsolatedServices(temp.Path, sourceHttp, sourcesDir, pullRequests, inferenceFor, acpAgents);
+		var http = new StubHttpMessageHandler();
+		string credentialsDir = temp.Combine("credentials");
+		var services = IsolatedServices(temp.Path, http, credentialsDir, pullRequests, inferenceFor, acpAgents);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
 		configurePlatform(platform);
@@ -314,7 +315,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			WorkspaceHttpServerOptions.Native(temp.Combine("wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance,
 			time);
-		return new TestHost(temp, repo, services, bridge, platform, core, time, sourceHttp, sourcesDir);
+		return new TestHost(temp, repo, services, bridge, platform, core, time, http, credentialsDir);
 	}
 
 	/// <summary>The workspace-checkout session's incarnation, used by media URLs.</summary>
@@ -597,8 +598,8 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	private static HostServices IsolatedServices(
 		string tempRoot,
-		StubHttpMessageHandler sourceHttp,
-		string sourcesDir,
+		StubHttpMessageHandler http,
+		string credentialsDir,
 		IPullRequestProvider pullRequests,
 		Func<SettingsStore, IInferenceService> inferenceFor,
 		IAcpAgentCatalog acpAgents) {
@@ -619,6 +620,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
+		// Every connected service runs over the stub handler and a temp store, never the network or the real ~/.weavie.
+		var connected = ConnectedServicesComposition.Create(new HttpClient(http), new FileCredentialStore(credentialsDir));
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -638,7 +641,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			PullRequests = pullRequests,
 			ReviewComments = pullRequests as IReviewCommentStore ?? NoPullRequests(),
 			PullRequestDiscussion = pullRequests as IPullRequestDiscussion ?? NoPullRequests(),
-			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
+			Sources = connected.Sources,
+			Credentials = connected.Credentials,
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
 			// Private to this host's tempRoot: concurrent TestHosts (and CrashReporterTests) never share a
@@ -647,14 +651,6 @@ internal sealed class TestHost : IAsyncDisposable {
 			PreviousCrashFile = Path.Combine(tempRoot, "logs", "previous-crash.log"),
 			ExitJournalFile = Path.Combine(tempRoot, "logs", "last-exit.log"),
 		};
-	}
-
-	// A source connector wired to the stub HTTP handler + temp token paths, so connect/fetch journeys run
-	// deterministically and never touch the real ~/.weavie or the network.
-	private static Weavie.Core.Sources.SourceConnector BuildSourceConnector(StubHttpMessageHandler sourceHttp, string sourcesDir) {
-		var http = new HttpClient(sourceHttp);
-		return new Weavie.Core.Sources.SourceConnector(
-			[new Weavie.Core.Sources.NotionSource(http)], id => Path.Combine(sourcesDir, $"{id}.json"));
 	}
 
 	// IdeIntegration.WriteSettingsFile throws if the hook relay isn't co-located with the app; in a test run the

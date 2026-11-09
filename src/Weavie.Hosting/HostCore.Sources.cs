@@ -46,7 +46,7 @@ public sealed partial class HostCore {
 	/// <c>set-source-token</c> message) then validates and saves it. No file editing required.
 	/// </summary>
 	private void PromptConnectNotion(HostSession session) {
-		_ui.Post(() => _platform.OpenExternalUrl(_sources.SetupUrlFor(NotionSource.SourceId)));
+		_ui.Post(() => _platform.OpenExternalUrl(_credentials.Require(NotionSource.SourceId).KeyPageUrl));
 		session.State.Set("sources", "tokenPrompt", "promptToken", WireJson.Default.SourceTokenPrompt, new(NotionSource.SourceId, "Notion"));
 	}
 
@@ -64,7 +64,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			string workspace = await _sources.SaveTokenAsync(sourceId, token, ct).ConfigureAwait(false);
+			string workspace = await _credentials.ConnectAsync(sourceId, new(token.Trim()), ct).ConfigureAwait(false);
 			string where = string.IsNullOrWhiteSpace(workspace) ? "your Notion workspace" : $"Notion workspace “{workspace}”";
 			Notify(session, "info", $"Connected to {where}.");
 			_messages.Host.Feature("sources").Publish("linkHosts", WireJson.Default.SourceLinkHosts, new([.. _sources.ConnectedLinkHosts()]));

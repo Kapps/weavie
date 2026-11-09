@@ -1,143 +1,55 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Weavie.Core.FileSystem;
+using Weavie.Core.Credentials;
 
 namespace Weavie.Core.Sources;
 
 /// <summary>
-/// The host-facing entry point to the source system: owns the registered sources and persists each source's access
-/// token (a Notion personal access token) at <c>~/.weavie/sources/&lt;id&gt;.json</c> — <c>{ "token": "ntn_…" }</c>,
-/// owner-only — so <c>HostCore</c> drives connect/fetch through one injected dependency. Constructed by
-/// <c>HostServices</c>; the headless harness injects a stubbed <see cref="HttpClient"/> + token for deterministic
-/// tests. The token file is off the Claude-facing settings surface because it holds a secret.
+/// The host-facing entry point to the source system: owns the registered sources and fetches with each one's key
+/// from <see cref="CredentialService"/>, so <c>HostCore</c> drives fetch/update through one injected dependency.
 /// </summary>
-public sealed partial class SourceConnector : ISourceConnector {
+public sealed class SourceConnector : ISourceConnector {
 	private readonly IReadOnlyList<ISource> _sources;
-	private readonly Func<string, string> _credentialsPathFor;
+	private readonly CredentialService _credentials;
 
-	/// <summary>
-	/// Creates a connector over <paramref name="sources"/> (each with its own <see cref="HttpClient"/>) and
-	/// <paramref name="credentialsPathFor"/> (source id → its token file).
-	/// </summary>
-	public SourceConnector(IReadOnlyList<ISource> sources, Func<string, string> credentialsPathFor) {
+	/// <summary>Creates a connector over <paramref name="sources"/>, authenticated by keys from <paramref name="credentials"/>.</summary>
+	public SourceConnector(IReadOnlyList<ISource> sources, CredentialService credentials) {
 		ArgumentNullException.ThrowIfNull(sources);
-		ArgumentNullException.ThrowIfNull(credentialsPathFor);
+		ArgumentNullException.ThrowIfNull(credentials);
 		_sources = sources;
-		_credentialsPathFor = credentialsPathFor;
-	}
-
-	/// <summary>The real connector: one shared <see cref="HttpClient"/>, the Notion source, token files under <c>~/.weavie/sources</c>.</summary>
-	public static SourceConnector CreateDefault() {
-		var http = new HttpClient();
-		return new SourceConnector([new NotionSource(http)], WeaviePaths.SourceCredentialsFile);
+		_credentials = credentials;
 	}
 
 	/// <inheritdoc/>
-	public string? IdFor(string target) => Claiming(target)?.Id;
+	public string? IdFor(string target) => Claiming(target)?.Credential.Id;
 
 	/// <inheritdoc/>
-	public bool IsConnected(string target) => Claiming(target) is { } source && HasToken(source);
+	public bool IsConnected(string target) => Claiming(target) is { } source && _credentials.IsConnected(source.Credential.Id);
 
 	/// <inheritdoc/>
-	public IReadOnlyList<string> ConnectedLinkHosts() => [.. _sources.Where(HasToken).SelectMany(s => s.LinkHosts)];
-
-	/// <inheritdoc/>
-	public string SetupUrlFor(string sourceId) => Source(sourceId).SetupUrl;
+	public IReadOnlyList<string> ConnectedLinkHosts() =>
+		[.. _sources.Where(source => _credentials.IsConnected(source.Credential.Id)).SelectMany(source => source.LinkHosts)];
 
 	/// <summary>
-	/// Validates the token the user pasted for <paramref name="sourceId"/> and, on success, writes it (owner-only)
-	/// and returns the authorized workspace name. A rejected/empty token throws and is never saved.
-	/// </summary>
-	public async Task<string> SaveTokenAsync(string sourceId, string token, CancellationToken ct = default) {
-		ArgumentException.ThrowIfNullOrWhiteSpace(token);
-		var source = Source(sourceId);
-		string workspace = await source.ValidateAsync(token.Trim(), ct).ConfigureAwait(false);
-		Write(sourceId, token.Trim());
-		return workspace;
-	}
-
-	/// <summary>
-	/// Fetches <paramref name="target"/> via the source that matches it, using its saved token. Throws when no
+	/// Fetches <paramref name="target"/> via the source that matches it, using its saved key. Throws when no
 	/// source matches or the source isn't connected yet (the host turns that into a "connect first" prompt).
 	/// </summary>
 	public async Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) {
-		var (source, token) = ConnectedSource(target);
-		return await source.FetchAsync(target, token, ct).ConfigureAwait(false);
+		var (source, key) = ConnectedSource(target);
+		return await source.FetchAsync(target, key, ct).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc/>
 	public async Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default) {
-		var (source, token) = ConnectedSource(target);
-		return await source.UpdateAsync(target, token, oldStr, newStr, ct).ConfigureAwait(false);
+		var (source, key) = ConnectedSource(target);
+		return await source.UpdateAsync(target, key, oldStr, newStr, ct).ConfigureAwait(false);
 	}
 
-	// The source claiming `target` plus its saved token; throws when nothing matches or it isn't connected yet
-	// (the host turns that into a "connect first" prompt).
-	private (ISource Source, string Token) ConnectedSource(string target) {
+	private (ISource Source, CredentialSecret Key) ConnectedSource(string target) {
 		var source = Claiming(target)
 			?? throw new InvalidOperationException($"No connected source can open '{target}'.");
-		string? token = ReadToken(source.Id);
-		if (string.IsNullOrWhiteSpace(token)) {
-			throw new InvalidOperationException($"Connect {source.Id} first — there's no token for it.");
-		}
-
-		return (source, token);
+		var key = _credentials.Read(source.Credential.Id)
+			?? throw new InvalidOperationException($"Connect {source.Credential.DisplayName} first — there's no token for it.");
+		return (source, key);
 	}
 
 	private ISource? Claiming(string target) => _sources.FirstOrDefault(s => SourceLinks.Claims(s.LinkHosts, target));
-
-	private bool HasToken(ISource source) {
-		try {
-			return !string.IsNullOrWhiteSpace(ReadToken(source.Id));
-		} catch (InvalidOperationException) {
-			// A present-but-unreadable/malformed token file: report not-connected so the open resolver routes the user
-			// to (re)connect — which overwrites the bad file — rather than throwing out of the synchronous open path.
-			return false;
-		}
-	}
-
-	private ISource Source(string sourceId) =>
-		_sources.FirstOrDefault(s => s.Id == sourceId) ?? throw new InvalidOperationException($"No source registered with id '{sourceId}'.");
-
-	private void Write(string sourceId, string token) {
-		string path = _credentialsPathFor(sourceId);
-		string? directory = Path.GetDirectoryName(path);
-		if (!string.IsNullOrEmpty(directory)) {
-			SecureFile.CreateDirectory(directory);
-		}
-
-		SecureFile.WriteAllText(path, JsonSerializer.Serialize(new Credentials { Token = token }, SourceConnectorJson.Default.Credentials));
-	}
-
-	// The access token saved at ~/.weavie/sources/<id>.json, or null when the file is absent/empty.
-	private string? ReadToken(string sourceId) {
-		string path = _credentialsPathFor(sourceId);
-		if (!File.Exists(path)) {
-			return null;
-		}
-
-		string text;
-		try {
-			text = File.ReadAllText(path);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			throw new InvalidOperationException($"Couldn't read the {sourceId} token file {path}: {ex.Message}", ex);
-		}
-
-		Credentials? credentials;
-		try {
-			credentials = JsonSerializer.Deserialize(text, SourceConnectorJson.Default.Credentials);
-		} catch (JsonException ex) {
-			throw new InvalidOperationException($"The {sourceId} token file {path} is malformed: {ex.Message}", ex);
-		}
-
-		return credentials?.Token?.Trim();
-	}
-
-	private sealed class Credentials {
-		[JsonPropertyName("token")]
-		public string Token { get; set; } = string.Empty;
-	}
-
-	[JsonSerializable(typeof(Credentials))]
-	private sealed partial class SourceConnectorJson : JsonSerializerContext;
 }

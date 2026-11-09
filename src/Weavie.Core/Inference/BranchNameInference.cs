@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Editor;
 
 namespace Weavie.Core.Inference;
@@ -53,8 +52,8 @@ public static class BranchNameInference {
 	};
 
 	/// <summary>The strict branch-name response shape.</summary>
-	public static JsonTypeInfo<BranchNameInferenceOutput> ResponseType =>
-		BranchNameInferenceJsonContext.Default.BranchNameInferenceOutput;
+	public static readonly InferenceResponseType<BranchNameInferenceOutput> ResponseType =
+		InferenceResponseType.Of(BranchNameInferenceJsonContext.Default.BranchNameInferenceOutput);
 
 	/// <summary>Builds the complete provider-agnostic prompt for repository context.</summary>
 	public static string BuildPrompt(BranchNameInferenceInput input) =>

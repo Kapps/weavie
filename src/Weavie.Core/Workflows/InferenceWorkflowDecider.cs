@@ -19,6 +19,9 @@ public sealed partial class InferenceWorkflowDecider(IInferenceService inference
 		TimeBudget = TimeSpan.FromSeconds(60),
 	};
 
+	private static readonly InferenceResponseType<DecisionOutput> ResponseType =
+		InferenceResponseType.Of(DecisionJsonContext.Default.DecisionOutput);
+
 	private static string BuildPrompt(WorkflowDecisionRequest request) =>
 		InferencePrompts.WithJsonInput(
 			Instructions,
@@ -31,7 +34,7 @@ public sealed partial class InferenceWorkflowDecider(IInferenceService inference
 			new InferenceOwner { Workspace = worktree },
 			InferenceModelCategory.Utility,
 			new InferenceInput { Prompt = BuildPrompt(request), Images = [] },
-			DecisionJsonContext.Default.DecisionOutput,
+			ResponseType,
 			QueryOptions,
 			ct).ConfigureAwait(false);
 		return result switch {

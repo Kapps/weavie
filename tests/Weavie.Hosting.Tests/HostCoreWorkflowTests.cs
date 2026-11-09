@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -239,14 +238,13 @@ public sealed class HostCoreWorkflowTests {
 			InferenceOwner owner,
 			InferenceModelCategory category,
 			InferenceInput input,
-			JsonTypeInfo<TResponse> responseType,
+			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) =>
 			Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
-				Value = JsonSerializer.Deserialize(FormattableString.Invariant($$"""{"choice":"{{Choice}}","confidence":{{confidence}}}"""), responseType)!,
+				Value = JsonSerializer.Deserialize(FormattableString.Invariant($$"""{"choice":"{{Choice}}","confidence":{{confidence}}}"""), responseType.TypeInfo)!,
 				Receipt = new InferenceReceipt {
 					ProviderId = "test",
-					Category = category,
 					ModelId = "utility-model",
 					Duration = TimeSpan.Zero,
 				},

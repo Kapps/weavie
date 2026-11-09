@@ -53,9 +53,6 @@ public sealed record InferenceReceipt {
 	/// <summary>The selected provider id.</summary>
 	public required string ProviderId { get; init; }
 
-	/// <summary>The category requested by the feature.</summary>
-	public required InferenceModelCategory Category { get; init; }
-
 	/// <summary>The concrete model resolved privately by the provider.</summary>
 	public required string ModelId { get; init; }
 

@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Inference;
 
 namespace Weavie.Hosting.Tests;
@@ -14,7 +13,7 @@ internal sealed class UnusedInferenceService : IInferenceService {
 		InferenceOwner owner,
 		InferenceModelCategory category,
 		InferenceInput input,
-		JsonTypeInfo<TResponse> responseType,
+		InferenceResponseType<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct) =>
 		throw new NotSupportedException("This test's session does not exercise inference.");

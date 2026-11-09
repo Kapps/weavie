@@ -96,7 +96,7 @@ public sealed class InferenceServiceTests : IDisposable {
 			Owner(),
 			InferenceModelCategory.Utility,
 			Input("second"),
-			StrictType<CountOutput>(),
+			Response<CountOutput>(),
 			UserOptions(),
 			CancellationToken.None));
 
@@ -118,7 +118,7 @@ public sealed class InferenceServiceTests : IDisposable {
 				Prompt = string.Empty,
 				Images = [new InferenceInputImage { Mime = "image/png", Bytes = bytes }],
 			},
-			StrictType<TestOutput>(),
+			Response<TestOutput>(),
 			UserOptions(),
 			CancellationToken.None);
 
@@ -173,7 +173,7 @@ public sealed class InferenceServiceTests : IDisposable {
 					new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 2 } },
 				],
 			},
-			StrictType<TestOutput>(),
+			Response<TestOutput>(),
 			options,
 			CancellationToken.None);
 		var tooLarge = await service.QueryAsync(
@@ -183,7 +183,7 @@ public sealed class InferenceServiceTests : IDisposable {
 				Prompt = string.Empty,
 				Images = [new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 1, 2, 3, 4 } }],
 			},
-			StrictType<TestOutput>(),
+			Response<TestOutput>(),
 			options,
 			CancellationToken.None);
 
@@ -316,7 +316,7 @@ public sealed class InferenceServiceTests : IDisposable {
 			Owner(),
 			InferenceModelCategory.Reasoning,
 			Input("task"),
-			StrictType<TestOutput>(),
+			Response<TestOutput>(),
 			UserOptions(),
 			CancellationToken.None);
 
@@ -325,20 +325,31 @@ public sealed class InferenceServiceTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task NonStrictResponseMetadata_IsAProgrammerError() {
-		var provider = new FakeProvider(Success("{\"value\":\"unused\"}"));
+	public void NonStrictResponseMetadata_IsAProgrammerError() {
 		var loose = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
 			TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
 		};
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() => Service(provider).QueryAsync(
+		Assert.Throws<InvalidOperationException>(() =>
+			InferenceResponseType.Of((JsonTypeInfo<TestOutput>)loose.GetTypeInfo(typeof(TestOutput))));
+	}
+
+	[Fact]
+	public async Task ExplicitSchema_ReachesProviderVerbatim() {
+		Enable();
+		var provider = new FakeProvider(Success("{\"value\":\"ok\"}"));
+		const string schema = "{\"type\":\"object\",\"properties\":{\"value\":{\"enum\":[\"ok\"]}}}";
+
+		var result = await Service(provider).QueryAsync(
 			Owner(),
 			InferenceModelCategory.Utility,
 			Input("task"),
-			(JsonTypeInfo<TestOutput>)loose.GetTypeInfo(typeof(TestOutput)),
+			new InferenceResponseType<TestOutput>(StrictType<TestOutput>(), schema),
 			UserOptions(),
-			CancellationToken.None));
-		Assert.Equal(0, provider.Calls);
+			CancellationToken.None);
+
+		Assert.Equal("ok", Assert.IsType<InferenceSuccess<TestOutput>>(result).Value.Value);
+		Assert.Equal(schema, provider.LastRequest!.OutputSchemaJson);
 	}
 
 	private Task<InferenceResult<TestOutput>> Query(
@@ -349,7 +360,7 @@ public sealed class InferenceServiceTests : IDisposable {
 			Owner(),
 			InferenceModelCategory.Utility,
 			Input(prompt),
-			StrictType<TestOutput>(),
+			Response<TestOutput>(),
 			options,
 			ct);
 
@@ -378,6 +389,8 @@ public sealed class InferenceServiceTests : IDisposable {
 		MaxOutputBytes = 1024,
 		TimeBudget = timeBudget,
 	};
+
+	private static InferenceResponseType<T> Response<T>() => InferenceResponseType.Of(StrictType<T>());
 
 	private static JsonTypeInfo<T> StrictType<T>() {
 		var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) {

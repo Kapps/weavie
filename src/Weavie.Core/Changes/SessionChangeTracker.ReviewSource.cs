@@ -45,10 +45,14 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private bool CompleteAcceptanceLocked() {
-		if (_current.Any(file => !_nonText.ContainsKey(file.Key)
+		bool Pending() => _current.Any(file => !_nonText.ContainsKey(file.Key)
 			&& ((_reviewBaseline.GetValueOrDefault(file.Key, string.Empty) != file.Value
 					&& LineDiff.FirstChangedLine(_reviewBaseline.GetValueOrDefault(file.Key, string.Empty), file.Value) is not null)
-				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)))) return false;
+				|| _missingReviewBaseline.Contains(file.Key) != _missingCurrent.Contains(file.Key)));
+		if (Pending()) return false;
+		// The last keep closes the review, so an outside edit not yet observed is read now rather than accepted unseen.
+		ReconcileReviewDisk(_reviewBaseline.Keys);
+		if (Pending()) return false;
 		CloseReviewLocked();
 		return true;
 	}

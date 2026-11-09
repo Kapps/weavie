@@ -141,7 +141,6 @@ public sealed partial class SessionChangeTracker {
 		} else if (value is AgentToolCompleted) {
 			foreach (string path in paths) {
 				RecordChange(path, conversationId);
-				EndAgentEdit(conversationId, path);
 			}
 		}
 	}
@@ -195,6 +194,8 @@ public sealed partial class SessionChangeTracker {
 		bool nonTextChanged;
 		bool ignoredNonText;
 		lock (_gate) {
+			// Recorded and released together, so an outside write after this read is observed, not suppressed.
+			EndAgentEditLocked(conversationId, path);
 			if (!TryReadOrEmpty(path, out string content)) {
 				ignoredNonText = true;
 				reviewRemoved = _current.ContainsKey(path);

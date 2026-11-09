@@ -41,20 +41,21 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	private void EndAgentEdit(string conversationId, string path) {
-		lock (_gate) {
-			if (!_agentEditing.TryGetValue(conversationId, out var paths) || !paths.TryGetValue(path, out int count)) return;
-			if (count > 1) paths[path] = count - 1;
-			else paths.Remove(path);
-		}
+	private void EndAgentEditLocked(string conversationId, string path) {
+		if (!_agentEditing.TryGetValue(conversationId, out var paths) || !paths.TryGetValue(path, out int count)) return;
+		if (count > 1) paths[path] = count - 1;
+		else paths.Remove(path);
+		if (paths.Count == 0) _agentEditing.Remove(conversationId);
 	}
 
-	// A finished turn's tools that never completed (a denied or interrupted edit) record whatever they left behind.
+	// A finished turn's tools that never completed (a denied or interrupted edit) record whatever they left behind,
+	// each released only as it is recorded.
 	private void EndAgentTurn(string conversationId) {
 		string[] unfinished;
 		lock (_gate) {
-			if (!_agentEditing.Remove(conversationId, out var paths)) return;
-			unfinished = [.. paths.Keys.Where(path => !AgentEditing(path))];
+			if (!_agentEditing.TryGetValue(conversationId, out var paths)) return;
+			unfinished = [.. paths.Keys];
+			foreach (string path in unfinished) paths[path] = 1;
 		}
 
 		foreach (string path in unfinished) RecordChange(path, conversationId);

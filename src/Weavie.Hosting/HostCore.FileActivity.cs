@@ -44,10 +44,10 @@ public sealed partial class HostCore {
 		session.FileActivity.Subscribe(
 			"review presentation",
 			fact => fact switch {
-				// Saves and tracker writes are already known to the tracker; a deletion may be an unwatched scratch file.
-				BufferSaved saved => RefreshReviewAsync(session, [saved.Path]),
-				FileChanged changed => RefreshReviewAsync(session, [changed.Path]),
-				FileDeleted deleted => RefreshReviewAsync(session, [deleted.Path, .. session.Changes.ObserveDisk([deleted.Path])]),
+				// A known change may still be an outside edit (an observed file beyond the workspace), so it is read too.
+				BufferSaved saved => ObserveAndRefreshReviewAsync(session, saved.Path),
+				FileChanged changed => ObserveAndRefreshReviewAsync(session, changed.Path),
+				FileDeleted deleted => ObserveAndRefreshReviewAsync(session, deleted.Path),
 				// Outside edits to tracked files reach the review here, one read per changed file.
 				FilesInvalidated invalidated => RefreshReviewAsync(
 					session, session.Changes.ObserveDisk([.. invalidated.Changes.Select(change => change.Path)])),
@@ -64,6 +64,12 @@ public sealed partial class HostCore {
 	// Built as it is published, on the dispatcher, so it can never land after a newer push a review action made there
 	// — the page fetches baselines by the revisions in the last diff it saw. History before diff/changes: see
 	// HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
+	// The refresh follows the change even when the tracker made it and finds nothing new.
+	private Task ObserveAndRefreshReviewAsync(HostSession session, string path) {
+		session.Changes.ObserveDisk([path]);
+		return RefreshReviewAsync(session, [path]);
+	}
+
 	private Task RefreshReviewAsync(HostSession session, IReadOnlyList<string> paths) =>
 		paths.Count == 0 ? Task.CompletedTask : InvokeForSessionAsync(() => {
 			PushReviewHistoryToWeb(session);

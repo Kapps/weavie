@@ -28,6 +28,18 @@ public sealed class SessionChangeTrackerDiskObservationTests {
 	}
 
 	[Fact]
+	public void KeepingTheLastFileReadsTheReviewBeforeClosingIt() {
+		var (files, tracker, paths) = ArmedReview(2);
+		tracker.KeepFile(paths[1]);
+		files.WriteAllText(paths[1], "edited outside, not yet observed\n");
+
+		tracker.KeepFile(paths[0]);
+
+		Assert.NotNull(tracker.Review);
+		Assert.Equal("edited outside, not yet observed\n", tracker.GetTurn(paths[1])!.CurrentText);
+	}
+
+	[Fact]
 	public void RevertingReadsOnlyTheFileItWrites() {
 		var (files, tracker, paths) = ArmedReview(50);
 

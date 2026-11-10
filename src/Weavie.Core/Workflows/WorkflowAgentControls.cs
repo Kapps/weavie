@@ -20,8 +20,8 @@ public static class WorkflowAgentControls {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(provider);
 		foreach (var stage in definition.Stages) {
-			if (stage.Run.Agent is not { } name) continue;
-			var agent = definition.Agents.First(a => a.Name == name);
+			if (definition.AgentOf(stage) is not { } agent) continue;
+			string name = agent.Name;
 			string? problem = !provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)
 				? $"Stage \"{stage.Id}\" runs on agent \"{name}\", but {provider.Name} runs in a terminal, where a stage can't "
 					+ "choose its model; run the workflow in a native agent session."

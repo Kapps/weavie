@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Sessions;
 using Weavie.TestSupport;
@@ -105,17 +106,24 @@ public sealed class HostCoreWorkflowAgentTests {
 	public async Task APickChangesTheHeldStageOnlyAndIsTheSessionsOwnOtherwise() {
 		var (host, session, provider) = await StartAsync();
 		await using var _ = host;
-		var run = session.Workflow.Start("agents", Json("{}"));
+		session.Workflow.Start("agents", Json("{}"));
 		await WaitForNoticeAsync(host, session, "Workflow: build runs on GPT Next");
 
 		await session.SetAgentControlAsync("model", "GPT Test");
 		Assert.Equal("GPT Test", session.Workflow.Current!.Hold!.Held["model"]);
 		Assert.Equal("apply model=GPT Test", provider.ControlChanges.Last());
 
-		session.Workflow.Cancel(run.Id);
-		await Eventually(() => session.Workflow.Current!.Hold is null);
+		session.Status.Observe(new AgentPromptSubmitted(null, "busy"));
+		session.Workflow.CompleteStage(Json("{}"), "built");
 		await session.SetAgentControlAsync("model", "GPT Next");
 		Assert.Equal("set model=GPT Next", provider.ControlChanges.Last());
+		Assert.Equal("GPT Next", session.Workflow.Current!.Hold!.Own["model"]);
+
+		session.Status.Observe(new AgentTurnStopped(false));
+		await WaitForEchoAsync(host, session, "ship it");
+		Assert.Equal(("GPT Next", null), (Model(session), session.Workflow.Current!.Hold));
+		await session.SetAgentControlAsync("model", "GPT Test");
+		Assert.Equal("set model=GPT Test", provider.ControlChanges.Last());
 	}
 
 	[Fact]

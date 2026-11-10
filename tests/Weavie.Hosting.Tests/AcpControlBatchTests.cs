@@ -83,6 +83,19 @@ public sealed class AcpControlBatchTests {
 	}
 
 	[Fact]
+	public async Task AHeldValueTheAgentNoLongerOffersIsReportedButNeverForgetsTheUsersDefault() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		fixture.ControlDefaults.Set("fake", "model", "gamma");
+		fixture.ControlHold.Held["model"] = "gamma";
+
+		await fixture.StartAsync();
+
+		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
+		Assert.Equal("Fake ACP no longer advertises 'gamma' for the 'model' control the workflow stage holds.", error.Text);
+		Assert.Equal("gamma", fixture.ControlDefaults.Resolve("fake")["model"]);
+	}
+
+	[Fact]
 	public async Task ANoticeJoinsTheSavedTranscript() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

@@ -75,7 +75,8 @@ it completes once the agent confirms each change, checks each against what the a
 (the options depend on the model), skips a value already in effect, and faults without failing the runtime when a
 value isn't offered or the agent refuses it. The batch is bound to the conversation's lifetime, so replacing the
 conversation faults it. A conversation opens on the user's defaults overlaid with the values the host holds
-(`IAgentControlHold`), model first, before it turns ready.
+(`IAgentControlHold`), model first, before it turns ready; a held value the agent no longer offers is reported, and
+never forgets the user's default.
 
 ## Locking
 

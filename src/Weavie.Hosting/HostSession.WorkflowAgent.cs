@@ -5,10 +5,8 @@ using Weavie.Workflows;
 
 namespace Weavie.Hosting;
 
-// Which model the session's conversation runs on during a workflow run. The run's persisted hold is the only state:
-// the session's own values, and the values the open stage holds over them. Opening a stage, releasing a finished run,
-// and a pick in the pane's controls take one gate, so each sees the hold the last one left. See
-// docs/specs/workflow-agent-selection.md.
+// The run's persisted hold decides the model; stage opens, releases, and picks take one gate.
+// See docs/specs/workflow-agent-selection.md.
 public sealed partial class HostSession {
 	private readonly SemaphoreSlim _controlGate = new(1, 1);
 	private readonly IdleTurnDelivery<WorkflowRun> _workflowRelease;
@@ -21,7 +19,7 @@ public sealed partial class HostSession {
 
 	// A conversation that reopened since the run ended already runs on the user's own values.
 	private void WireWorkflowHold() {
-		if (Workflow.Current is { IsFinished: true, Hold: not null }) Workflow.SetHold(null);
+		if (Workflow.Current is { IsFinished: true, Hold: not null } ended) Workflow.SetHold(ended.Id, null);
 		Workflow.Changed += () => {
 			if (Workflow.Current is { IsFinished: true, Hold: not null } run) _workflowRelease.Queue(run);
 		};
@@ -37,7 +35,7 @@ public sealed partial class HostSession {
 			if (Workflow.AgentOf(kickoff.Opens) is not { } agent) {
 				if (run.Hold is not { } own) return;
 				await HoldAsync(own, kickoff.Opens, null, subject).ConfigureAwait(false);
-				Workflow.SetHold(null);
+				Workflow.SetHold(run.Id, null);
 				return;
 			}
 
@@ -46,8 +44,7 @@ public sealed partial class HostSession {
 			if (WorkflowAgentControls.Model(kickoff.Opens, agent, axes) is { } model) held[model.Axis] = model.Value;
 			foreach (var (axis, value) in agent.Options) held[axis] = value;
 			var hold = new WorkflowHold { Agent = agent.Name, Own = run.Hold?.Own ?? WorkflowAgentControls.Own(axes), Held = held };
-			Workflow.SetHold(hold);
-			await HoldAsync(hold, kickoff.Opens, agent, subject).ConfigureAwait(false);
+			if (Workflow.SetHold(run.Id, hold)) await HoldAsync(hold, kickoff.Opens, agent, subject).ConfigureAwait(false);
 		} finally {
 			_controlGate.Release();
 		}
@@ -60,7 +57,7 @@ public sealed partial class HostSession {
 			try {
 				await HoldAsync(hold, run.Stage, null, $"{run.WorkflowId} ended, back").ConfigureAwait(false);
 			} finally {
-				Workflow.SetHold(null);
+				Workflow.SetHold(run.Id, null);
 			}
 		} finally {
 			_controlGate.Release();
@@ -86,7 +83,9 @@ public sealed partial class HostSession {
 	}
 
 	private IStructuredAgentControls StageControls =>
-		Agent.Controls ?? throw new AgentControlException("This session's agent has no controls a stage can set.");
+		Agent.Controls is not { } controls ? throw new AgentControlException("This session's agent has no controls a stage can set.")
+		: !controls.ControlState.Ready ? throw new AgentControlException("The agent's conversation isn't ready for a model change.")
+		: controls;
 
 	// A held value wins and was checked when the stage opened; an own value the agent doesn't advertise now doesn't apply.
 	private static IEnumerable<AgentControlValue> Targets(
@@ -97,8 +96,8 @@ public sealed partial class HostSession {
 			: []);
 
 	/// <summary>
-	/// A pick in the pane's controls: while a live run holds values it changes the open stage only; otherwise it is the
-	/// session's own value, remembered as the user's default.
+	/// A pick in the pane's controls: while a live run's open stage holds values it changes that stage only; otherwise
+	/// it is the session's own value, remembered as the user's default. A stage still opening counts as not open.
 	/// </summary>
 	internal async Task SetAgentControlAsync(string axis, string value) {
 		if (Agent.Controls is not { } controls) return;
@@ -106,18 +105,18 @@ public sealed partial class HostSession {
 		try {
 			if (Workflow.Current is { Hold: { } hold } run && controls.ControlState.Axes.FirstOrDefault(a => a.Id == axis) is { } picked
 				&& WorkflowAgentControls.Changeable(picked)) {
-				if (!run.IsFinished) {
-					Workflow.SetHold(hold with { Held = new(hold.Held, StringComparer.Ordinal) { [axis] = value } });
+				if (!run.IsFinished && run.Kickoff is not { Opens.Length: > 0 }) {
+					Workflow.SetHold(run.Id, hold with { Held = new(hold.Held, StringComparer.Ordinal) { [axis] = value } });
 					try {
 						await controls.ApplyControlsAsync([new(axis, value)]).ConfigureAwait(false);
 					} catch {
-						Workflow.SetHold(hold);
+						Workflow.SetHold(run.Id, hold);
 						throw;
 					}
 					return;
 				}
 
-				Workflow.SetHold(hold with { Own = new(hold.Own, StringComparer.Ordinal) { [axis] = value } });
+				Workflow.SetHold(run.Id, hold with { Own = new(hold.Own, StringComparer.Ordinal) { [axis] = value } });
 			}
 
 			controls.SetControl(axis, value);

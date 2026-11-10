@@ -150,14 +150,16 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.True(runner.Owes(kickoff));
 		Assert.False(runner.Owes(kickoff with { Opens = "" }));
 		var hold = new WorkflowHold { Agent = "builder", Own = new() { ["model"] = "alpha" }, Held = new() { ["model"] = "beta" } };
-		runner.SetHold(hold);
+		Assert.True(runner.SetHold(run.Id, hold));
+		Assert.False(runner.SetHold("r-000000000000", null));
 		var saved = WorkflowRunDocument.Read(_store.Text)!.Hold!;
 		Assert.Equal(("builder", "alpha", "beta"), (saved.Agent, saved.Own["model"], saved.Held["model"]));
 		Assert.True(runner.TryClaimKickoff(kickoff));
 		Assert.False(runner.Owes(kickoff));
 		runner.Cancel(run.Id);
-		runner.SetHold(hold);
+		Assert.True(runner.SetHold(run.Id, hold));
 		Assert.Same(hold, runner.Start("flow", Json("{}")).Hold);
+		Assert.False(runner.SetHold(run.Id, null));
 	}
 
 	[Fact]

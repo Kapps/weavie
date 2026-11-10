@@ -91,9 +91,9 @@ the agent advertises it, so a step never inherits the previous step's options.
   run stops holding any. When a run ends or is cancelled, it returns once the session is idle; a failed return is
   shown as an error and the hold is dropped. A run that ended without returning, because the host stopped first,
   holds nothing on reload: the reopened conversation is already on the user's defaults.
-- The picker still works during a run. Used while a live run holds values, it changes that step only; used
-  otherwise, it changes the session's own value, and updates the hold's own value when an ended run hasn't returned
-  yet. Options in the `mode` category always change the session's own value.
+- The picker still works during a run. Used while the open step of a live run holds values, it changes that step
+  only; used otherwise, including while the next step is still waiting to open, it changes the session's own value,
+  in the hold too. Options in the `mode` category always change the session's own value.
 
 ## Refusals
 

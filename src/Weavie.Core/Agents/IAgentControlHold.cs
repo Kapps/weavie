@@ -1,6 +1,6 @@
 namespace Weavie.Core.Agents;
 
-/// <summary>Control values the host holds over the user's defaults whenever the primary conversation opens.</summary>
+/// <summary>Control values the host holds over the user's defaults whenever one of its conversations opens.</summary>
 public interface IAgentControlHold {
 	/// <summary>The held values by axis id; empty when nothing is held.</summary>
 	IReadOnlyDictionary<string, string> Values();

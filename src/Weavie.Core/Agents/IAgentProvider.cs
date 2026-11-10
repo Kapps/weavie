@@ -83,7 +83,7 @@ public sealed record AgentSessionContext {
 	/// <summary>The context attached to every primary-conversation turn.</summary>
 	public required IAgentTurnContext TurnContext { get; init; }
 
-	/// <summary>The control values held over the user's defaults whenever the primary conversation opens.</summary>
+	/// <summary>The control values held over the user's defaults whenever one of its conversations opens.</summary>
 	public required IAgentControlHold ControlHold { get; init; }
 }
 

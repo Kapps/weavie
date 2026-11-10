@@ -694,7 +694,8 @@ public sealed partial class HostCore {
 				try {
 					var launch = PrepareWorkflow(source, workflow, request.Inputs ?? EmptyInputs);
 					// The session's controls don't exist yet, so only the provider can refuse before a worktree does.
-					if (_agentProviders.FindInfo(provider) is { } info && WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
+					var info = _agentProviders.FindInfo(provider) ?? throw new WorkflowException($"Agent provider '{provider}' is not registered.");
+					if (WorkflowAgentControls.Refusal(launch.Definition, info, null) is { } refusal) {
 						return CommandResult.Failure(refusal);
 					}
 					input = InitialSessionInput.ForWorkflow(launch);

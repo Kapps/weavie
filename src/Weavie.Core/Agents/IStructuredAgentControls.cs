@@ -18,7 +18,9 @@ public interface IStructuredAgentControls {
 	/// <summary>
 	/// Applies <paramref name="values"/> in order, after every change already queued, without remembering any of them as
 	/// the user's default. Completes once the agent confirms each one; faults with <see cref="AgentControlException"/>
-	/// when one isn't advertised at that moment, or when the conversation is replaced first.
+	/// when one isn't advertised at that moment, the agent refuses it, or the conversation is replaced first, and with
+	/// the transport's error when the agent can't be reached. Throws <see cref="InvalidOperationException"/> while the
+	/// conversation isn't ready.
 	/// </summary>
 	Task ApplyControlsAsync(IReadOnlyList<AgentControlValue> values);
 }

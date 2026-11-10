@@ -19,6 +19,12 @@ public sealed record WorkflowDefinition {
 
 	/// <summary>The exact file text this definition was read from.</summary>
 	public required string SourceText { get; init; }
+
+	/// <summary>The agent that runs <paramref name="stage"/>, or <see langword="null"/> for the session's own.</summary>
+	public WorkflowAgent? AgentOf(WorkflowStage stage) {
+		ArgumentNullException.ThrowIfNull(stage);
+		return stage.Run.Agent is { } name ? Agents.First(a => a.Name == name) : null;
+	}
 }
 
 /// <summary>A named agent: provider-native ids the host applies, opaque to the engine.</summary>

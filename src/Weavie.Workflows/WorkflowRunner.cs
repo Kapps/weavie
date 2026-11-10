@@ -166,7 +166,7 @@ public sealed partial class WorkflowRunner : IDisposable {
 	public WorkflowAgent? AgentOf(string stage) {
 		lock (_gate) {
 			var definition = _definition ?? throw new WorkflowException("This run's definition is unavailable; cancel it.");
-			return definition.Stages.First(s => s.Id == stage).Run.Agent is { } name ? definition.Agents.First(a => a.Name == name) : null;
+			return definition.AgentOf(definition.Stages.First(s => s.Id == stage));
 		}
 	}
 
@@ -177,14 +177,18 @@ public sealed partial class WorkflowRunner : IDisposable {
 		}
 	}
 
-	/// <summary>Records the control values the run holds, on a live or finished run.</summary>
-	public void SetHold(WorkflowHold? hold) {
+	/// <summary>
+	/// Records the control values run <paramref name="runId"/> holds, live or finished; false when it is no longer the
+	/// session's run, whose successor then owns the hold.
+	/// </summary>
+	public bool SetHold(string runId, WorkflowHold? hold) {
 		lock (_gate) {
-			if (_closed || _run is null) {
-				throw new WorkflowException("This session has no workflow run to hold its controls.");
+			if (_closed || _run?.Id != runId) {
+				return false;
 			}
 
 			Commit(_run with { Hold = hold }, []);
+			return true;
 		}
 	}
 

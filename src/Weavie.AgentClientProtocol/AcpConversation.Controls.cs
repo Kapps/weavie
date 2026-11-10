@@ -7,7 +7,9 @@ namespace Weavie.AgentClientProtocol;
 
 internal sealed partial class AcpConversation {
 	private async Task RestoreControlDefaultsAsync() {
+		var held = _port.HeldControls();
 		var pending = new Dictionary<string, string>(_port.ControlDefaults(), StringComparer.Ordinal);
+		foreach (var (axis, value) in held) pending[axis] = value;
 		while (pending.Count > 0) {
 			AcpControlMutation? mutation = null;
 			AcpControlMutation? stale = null;
@@ -21,6 +23,11 @@ internal sealed partial class AcpConversation {
 					else if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
 					break;
 				}
+			}
+			if (stale is not null && held.ContainsKey(stale.Axis)) {
+				EmitFailure(new AcpProtocolException(
+					$"{Definition.Name} no longer advertises '{stale.Value}' for the '{stale.Axis}' control the workflow stage holds."));
+				continue;
 			}
 			if (stale is not null) {
 				_port.ForgetControl(stale.Axis, stale.Value);

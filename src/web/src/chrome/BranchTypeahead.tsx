@@ -45,7 +45,7 @@ export function BranchTypeahead(props: {
   return (
     <>
       <input
-        class="session-prompt-input ui-field ui-field-mono"
+        class="session-prompt-input ui-field ui-field-content"
         type="text"
         placeholder={props.placeholder}
         role="combobox"

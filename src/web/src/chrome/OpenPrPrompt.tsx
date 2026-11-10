@@ -113,7 +113,7 @@ export function OpenPrPrompt(props: {
     >
       <div class="session-prompt-field">
         <input
-          class="session-prompt-input ui-field ui-field-mono"
+          class="session-prompt-input ui-field ui-field-content"
           type="text"
           placeholder="search, #number, or URL"
           spellcheck={false}

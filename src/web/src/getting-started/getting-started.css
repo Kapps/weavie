@@ -17,8 +17,7 @@
   outline: none;
 }
 
-.getting-started button:not(.ui-button),
-.getting-started select {
+.getting-started :where(button:not(.ui-button), select) {
   color: var(--fg);
   cursor: pointer;
 }

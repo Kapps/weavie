@@ -13,7 +13,7 @@
 }
 .session-panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 4px 8px 6px;
   color: var(--dim);
@@ -26,10 +26,6 @@
 .session-panel-pin {
   border-radius: 3px;
   color: var(--dim);
-}
-/* Icon-only, so no baseline: centred on the head's line instead. */
-.session-panel-head > .session-panel-pin {
-  align-self: center;
 }
 .session-panel-pin:hover,
 .session-panel-pin.on {

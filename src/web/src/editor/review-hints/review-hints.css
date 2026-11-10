@@ -109,7 +109,7 @@
 
 .weavie-hint-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   white-space: nowrap;
   color: var(--dim);

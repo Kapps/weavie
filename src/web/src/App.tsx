@@ -1303,11 +1303,14 @@ export default function App(): JSX.Element {
                 <Show when={editor.review.canClose()}>
                   <button
                     type="button"
-                    class="editor-review-action editor-review-close"
+                    class="editor-review-action editor-review-close ui-button"
                     title={`Accept remaining changes and close diff${keyHint(CommandIds.reviewClose)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
                   >
-                    <X size={14} /> Close Diff
+                    <span class="ui-icon">
+                      <X />
+                    </span>
+                    Close Diff
                   </button>
                 </Show>
                 {paneHeadEnd("editor")}

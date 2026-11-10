@@ -157,6 +157,7 @@
 /* A 24px control row centred above the 1px border: 3 + 24 + 4 + 1 = 32px, which SECTION_HEADER_HEIGHT
    (UnifiedReview.tsx) counts with the section's 2px border-block. */
 .unified-review-file-header {
+  font: var(--font-chrome-body);
   position: relative;
   top: 0;
   z-index: 2;
@@ -178,15 +179,15 @@
   pointer-events: none;
 }
 
-/* Control height, so its text shares the header's baseline with the 24px action buttons. */
+/* Control height and the action buttons' 4px text inset, so its text shares their baseline. */
 .unified-review-file-name {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   flex: 0 1 auto;
   min-width: 0;
   height: var(--control-height);
   margin-right: auto;
-  padding: 0 4px;
+  padding: 4px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -219,19 +220,22 @@
   color: var(--dim);
 }
 
-/* One text size, so its buttons centre on the count. */
+/* The count carries the header's baseline; the arrow buttons, having none, centre on it. */
 .unified-review-file-step {
   display: flex;
   flex: none;
-  align-items: center;
+  align-items: baseline;
   gap: 2px;
   color: var(--dim);
   font: var(--font-chrome-secondary);
   font-variant-numeric: tabular-nums;
 }
 
+/* Overhangs the count's 16px line by 1px each way, so the arrows centre on the count. */
 .unified-review-file-step button {
   display: inline-flex;
+  align-self: center;
+  margin-block: -1px;
   padding: 2px;
   border: 0;
   border-radius: 4px;

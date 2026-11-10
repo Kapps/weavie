@@ -83,12 +83,14 @@ export function BrowserFilter(props: {
         <button
           ref={button}
           type="button"
-          class="browser-filter-button"
+          class="browser-filter-button ui-button"
           aria-expanded={filtering()}
           title={`Filter files${liveKeyHint(CommandIds.filterFileBrowser)}`}
           onClick={() => void runCommandWithFeedback(CommandIds.filterFileBrowser)}
         >
-          <ListFilter size={14} />
+          <span class="ui-icon">
+            <ListFilter />
+          </span>
           Filter
         </button>
         <Show when={needle().length > 0}>
@@ -115,8 +117,8 @@ export function BrowserFilter(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={navigation.onKeyDown}
           />
-          <button type="button" title="Clear filter (Esc)" onClick={dismiss}>
-            <X size={14} />
+          <button type="button" class="ui-icon-button" title="Clear filter (Esc)" onClick={dismiss}>
+            <X />
           </button>
         </div>
       </Show>

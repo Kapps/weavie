@@ -14,7 +14,7 @@ title, padding and button style. Text in a row sits on one baseline. Visible dif
   stacked label-over-shortcut (45px) to one line (28px).
 - Folder and file rows in the file tree become the same height (24.5 / 26 → 26).
 - The agent pane's transcript, labels, composer and its buttons are unchanged in size: they stay tied to the
-  editor font.
+  editor font. Its approval and question cards stay 12px chrome.
 - The welcome window keeps its larger landing scale.
 
 **Main pieces.**
@@ -310,7 +310,7 @@ Existing class names stay on every element that survives; the primitive class is
 | Search panel | Group head `.ui-row`; result rows `.ui-row-content`; group name is chrome body + emphasis; line numbers content-secondary. |
 | Session panel / rail | Rows are stack rows; group heads `.ui-section-label`; key hints `.ui-kbd`. |
 | Theme picker, ACP registry | Header moves into the `ModalShell` title/`titleEnd`; lists use rows; buttons and inputs use primitives. |
-| Agent pane | Transcript, entry labels, status and composer stay content-relative. Composer and approval buttons are `.ui-button-content`. Choice cards, usage tooltip and model picker use chrome roles and rows. Slash menu rows are `.ui-row-content`. |
+| Agent pane | Transcript, entry labels, status and composer stay content-relative. Composer buttons are `.ui-button-content`; approval and question cards are chrome (`.ui-button`, `.ui-field`). Choice cards, usage tooltip and model picker use chrome roles and rows. Slash menu rows are `.ui-row-content`. |
 | Review / diff | Inline tags and toolbar take the chrome family through the shorthand (the two `ui-sans-serif` declarations go). File header is a fixed 32px. |
 | Onboarding | Getting Started `h2` and the editor empty-state wordmark are display; eyebrows are `.ui-section-label`; nav buttons `.ui-button-lg`. |
 | Welcome | Wordmark hero; tagline and row names lead; CTAs `.ui-button-xl`; recent label `.ui-section-label`. |
@@ -382,10 +382,9 @@ CssGenericProperty(name = $p, value = $v) as $d where {
 |---|---|
 | Rows are 26px (24px compact, 42px two-line) | 26 is already the palette, app-menu and file-row height, so the most-seen lists do not move. |
 | Pane header labels stay 12px semibold, not the 13px title role | They are the densest always-visible chrome; title is for dialogs, popovers and cards. |
-| Agent composer and approval buttons stay editor-font sized | They sit inside the transcript's mono, zoomable context; the user has rejected changes to the transcript's character. |
+| Agent composer buttons stay editor-font sized; approval and question cards stay 12px chrome | Both match today: the composer sits in the transcript's mono, zoomable context, and the cards are chrome. |
 | Welcome window keeps a landing scale (hero 36, lead 16, 40px CTA) | It is a near-empty first-impression window; 12px chrome there reads as broken. Costs two roles and one control height. |
 | Session inbox `h1`, Getting Started `h2`, empty-state wordmark share one 20px display role | Replaces 18/700, 20.4/650 and 20.4/650. |
-| Typed-answer inputs in agent question cards stay content-sized | They are prompts to the agent, same as the composer. |
 | Shared button/field radius is 4px | Most common value today; no radius scale is introduced. |
 | `.search-group-name` becomes fixed chrome | It is a file name heading a result group; today it renders at 13px above 12px chrome. |
 
@@ -526,8 +525,8 @@ Shared selectors to coordinate: `.tb-omnibar-row` and `.file-tree-*` (B, F); `.a
 - [x] Delete `--font-metadata-size`, `--font-hint-size`, `--ui-font`; grep returns zero.
 - [x] Enable the plugin; `biome check --write`; zero diagnostics, zero suppressions.
 - [x] Dedup pass over the whole diff (duplicate rules, leftover dead selectors such as `mobile.css:242-243`).
-- [ ] Update e2e; `vite build` + `dotnet build src/Weavie.Headless`; run headless, mobile and remote delta.
-- [ ] Census re-run with the extended surfaces; acceptance table met; before/after screenshots inspected.
-- [ ] `pnpm e2e:perf`.
+- [x] Update e2e; `vite build` + `dotnet build src/Weavie.Headless`; run headless, mobile and remote delta.
+- [x] Census re-run with the extended surfaces; acceptance table met; before/after screenshots inspected.
+- [x] `pnpm e2e:perf`.
 - [ ] `weavie-reviewer`, then `weavie-tester`; act on findings.
-- [ ] Open the PR.
+- [x] Open the PR.

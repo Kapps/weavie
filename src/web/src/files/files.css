@@ -38,24 +38,22 @@
 
 .browser-toolbar {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
 }
 
-.browser-filter-button,
-.browser-filter-box button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 3px 6px;
-  background: transparent;
+.browser-filter-button {
+  padding-inline: 6px;
+  border-color: transparent;
   color: var(--dim);
-  cursor: pointer;
+}
+
+.browser-filter-box button {
+  border-radius: 4px;
+  color: var(--dim);
 }
 
 .browser-filter-button:hover,
@@ -78,8 +76,9 @@
 .browser-filter-box {
   display: flex;
   align-items: center;
+  height: var(--control-height-lg);
   margin: 8px;
-  padding: 2px 4px;
+  padding: 0 4px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -92,7 +91,7 @@
 .browser-filter-input {
   flex: 1;
   min-width: 0;
-  padding: 4px;
+  padding: 0 4px;
   border: none;
   outline: none;
   background: transparent;

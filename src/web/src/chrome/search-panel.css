@@ -21,7 +21,11 @@
   color: var(--dim);
 }
 
-.search-input-icon svg,
+.search-input-icon svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
 .search-input {
   flex: 1 1 auto;
   min-width: 0;

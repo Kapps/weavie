@@ -62,7 +62,17 @@
     height: var(--row-line, var(--font-chrome-line));
   }
 
+  /* A zero-width line of text, so an icon-only button or row keeps the same baseline as a labelled one. */
+  .ui-icon::before {
+    content: "\200b";
+  }
+
   .ui-icon > svg,
+  .ui-icon-button > svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
+
   .ui-button {
     --control-h: var(--control-height);
     --control-line: var(--font-chrome-line);

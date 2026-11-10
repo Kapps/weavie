@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
@@ -344,7 +343,6 @@ public sealed class HostCoreBranchInferenceTests {
 
 	private static InferenceReceipt Receipt() => new() {
 		ProviderId = "test",
-		Category = InferenceModelCategory.Utility,
 		ModelId = "utility-model",
 		Duration = TimeSpan.Zero,
 	};
@@ -366,7 +364,7 @@ public sealed class HostCoreBranchInferenceTests {
 			InferenceOwner owner,
 			InferenceModelCategory category,
 			InferenceInput input,
-			JsonTypeInfo<TResponse> responseType,
+			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) {
 			ct.ThrowIfCancellationRequested();
@@ -392,7 +390,7 @@ public sealed class HostCoreBranchInferenceTests {
 			InferenceOwner owner,
 			InferenceModelCategory category,
 			InferenceInput input,
-			JsonTypeInfo<TResponse> responseType,
+			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) {
 			using var registration = ct.Register(Cancelled.SetResult);

@@ -15,6 +15,13 @@ test.beforeAll(() => {
   }
 });
 
+const NOTION_PROMPT = {
+  id: "notion",
+  displayName: "Notion",
+  keyNoun: "personal access token",
+  keyPageUrl: "https://app.notion.com/developers/tokens",
+};
+
 const BRANCH_INFERENCE_DRAFT =
   "branch inference fails for this desktop draft and the composer has to ask the user to name it";
 
@@ -170,10 +177,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".layout-root")).toBeVisible();
     await expect(activeChip).toHaveCount(1);
 
-    host.publishSession(session.address, "sources", "promptToken", {
-      sourceId: "notion",
-      label: "Notion",
-    });
+    host.publishSession(session.address, "credentials", "prompt", NOTION_PROMPT);
     const sourceModal = page.getByRole("dialog", { name: "Connect Notion" });
     await expect(sourceModal).toBeVisible();
     await add.evaluate((button) => button.click());
@@ -181,7 +185,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(modal).toHaveCount(0);
     expect(
       host.received.filter(
-        (message) => message.feature === "sources" && message.name === "dismissToken",
+        (message) => message.feature === "credentials" && message.name === "dismiss",
       ),
     ).toHaveLength(0);
     await page.keyboard.press("Escape");
@@ -189,7 +193,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(modal).toBeVisible();
     expect(
       host.received.filter(
-        (message) => message.feature === "sources" && message.name === "dismissToken",
+        (message) => message.feature === "credentials" && message.name === "dismiss",
       ),
     ).toHaveLength(1);
     await page.keyboard.press("Escape");
@@ -197,10 +201,7 @@ test.describe("session-addressed WebSocket transport", () => {
 
     await add.click();
     await expect(modal).toBeVisible();
-    host.publishSession(session.address, "sources", "promptToken", {
-      sourceId: "notion",
-      label: "Notion",
-    });
+    host.publishSession(session.address, "credentials", "prompt", NOTION_PROMPT);
     await expect(sourceModal).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(modal).toBeHidden();
@@ -409,10 +410,7 @@ test.describe("session-addressed WebSocket transport", () => {
       markdown: "Body with `code`.",
       editedTime: "",
     });
-    host.publishSession(session.address, "sources", "promptToken", {
-      sourceId: "notion",
-      label: "Notion",
-    });
+    host.publishSession(session.address, "credentials", "prompt", NOTION_PROMPT);
 
     const prose = page.locator(".editor-source .wv-source");
     const sourceCode = prose.locator("code");
@@ -486,6 +484,75 @@ test.describe("session-addressed WebSocket transport", () => {
         ),
     ).toEqual([]);
     await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^feature —/);
+  });
+
+  test("a host-driven picker answers its owning session from the keyboard, then connects", async ({
+    page,
+  }) => {
+    const main = mockSession("main", "main", "acp");
+    const feature = mockSession("feature", "feature", "acp");
+    host.setSessions([main, feature]);
+    host.onSession(feature.address, "request", "credentials", "save", (request) =>
+      host.respond(request, { ok: true, error: "" }),
+    );
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+
+    host.publishSession(feature.address, "picker", "show", {
+      title: "Connect Service",
+      value: "",
+      options: [
+        { id: "notion", label: "Notion", description: null, group: "Connected" },
+        { id: "acme", label: "Acme", description: null, group: "Not connected" },
+      ],
+    });
+    const picker = page.getByRole("dialog", { name: "Connect Service" });
+    await expect(picker).toHaveCount(0);
+    await page.locator('.session-chip[title^="feature —"]').click();
+    await expect(picker).toBeVisible();
+    await expect(picker.getByText("Not connected")).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(picker).toBeVisible();
+
+    const checkpoint = host.checkpoint();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    const pick = await host.waitForSession(feature.address, "event", "picker", "pick", checkpoint);
+    expect(pick.payload).toEqual({ id: "acme" });
+    await expect(picker).toHaveCount(0);
+    expect(
+      host.received
+        .filter((message) => message.feature === "picker")
+        .map((message) => [message.session, message.name]),
+    ).toEqual([[feature.address, "pick"]]);
+
+    host.publishSession(feature.address, "credentials", "prompt", {
+      id: "acme",
+      displayName: "Acme",
+      keyNoun: "API key",
+      keyPageUrl: "https://acme.example/keys",
+    });
+    const prompt = page.getByRole("dialog", { name: "Connect Acme" });
+    await expect(prompt.getByRole("link", { name: "https://acme.example/keys" })).toBeVisible();
+    await expect(prompt.locator(".confirm-body")).toHaveText(
+      "Create your API key at https://acme.example/keys, then paste it here.",
+    );
+    await expect(prompt.locator(".session-prompt-input")).toBeFocused();
+    await page.keyboard.type("acme-key");
+    await page.keyboard.press("Enter");
+    const save = await host.waitForSession(feature.address, "request", "credentials", "save");
+    expect(save.payload).toEqual({ id: "acme", key: "acme-key" });
+    await expect(prompt).toHaveCount(0);
+
+    host.publishSession(feature.address, "picker", "show", {
+      title: "Disconnect Service",
+      value: "",
+      options: [{ id: "notion", label: "Notion", description: null, group: null }],
+    });
+    await expect(page.getByRole("dialog", { name: "Disconnect Service" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await host.waitForSession(feature.address, "event", "picker", "dismiss");
+    await expect(page.getByRole("dialog", { name: "Disconnect Service" })).toHaveCount(0);
   });
 
   test("a background editor event updates its owner before that session is selected", async ({

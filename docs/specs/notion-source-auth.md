@@ -7,13 +7,14 @@ deferred to later slices.
 
 ## What ships
 
-1. **Connect** (`weavie.source.connectNotion`, or the `connect-notion` web message) opens Notion's token page
-   (`app.notion.com/developers/tokens`) in the browser **and** shows an in-app dialog to paste the **personal
-   access token** (`prompt-source-token` → the `SourceTokenPrompt` modal). The pasted token comes back as
-   `set-source-token`; the host validates it via `GET /v1/users/me`, and only on success writes it (owner-only)
-   and toasts the authorized workspace. The dialog shows a **Connecting…** pending state and gets a
-   `source-token-result` reply: success closes it, a rejected token is shown **inline** so the user can correct
-   it without restarting (never saved). **No file editing** — the user only pastes into the dialog.
+1. **Connect** (**Connect Service…**, `weavie.credentials.connect` with `service: notion`; opening a Notion link
+   with no token runs it too) opens Notion's token page (`app.notion.com/developers/tokens`) in the browser **and**
+   shows the shared credential dialog (`credentials` `prompt` → the `CredentialPrompt` modal, which also links the
+   page). The pasted token comes back as the `credentials` `save` request; the host validates it via
+   `GET /v1/users/me`, and only on success saves it to the credential store and toasts the authorized workspace.
+   The dialog shows a **Connecting…** pending state and gets a `{ ok, error }` reply: success closes it, a rejected
+   token is shown **inline** so the user can correct it without restarting (never saved). **No file editing** — the
+   user only pastes into the dialog. **Disconnect Service…** (`weavie.credentials.disconnect`) deletes it.
 2. **Fetch** (`source-fetch`) resolves a Notion URL to the source, reads the page + its blocks with the token,
    maps them to markdown, and opens the result as a scratch `.md` tab (the interim visible surface until
    `SourceView` consumes the `source-doc` message directly).
@@ -46,25 +47,25 @@ sequenceDiagram
     participant U as User
     participant W as Web (dialog)
     participant H as HostCore
-    participant C as SourceConnector
+    participant C as CredentialService / SourceConnector
     participant N as Notion
     participant B as Browser
 
-    U->>H: Connect Notion (command / message)
+    U->>H: Connect Service… (notion)
     H->>B: open app.notion.com/developers/tokens
-    H->>W: prompt-source-token → show paste dialog
+    H->>W: credentials prompt → show paste dialog
     U->>W: paste token, Connect (pending…)
-    W->>H: set-source-token { id, sourceId, token }
-    H->>C: SaveTokenAsync("notion", token)
+    W->>H: credentials save { id: notion, key }
+    H->>C: CredentialService.ConnectAsync("notion", token)
     C->>N: GET /v1/users/me (Bearer token)
     N-->>C: 200 { bot.workspace_name }  (or 401 → rejected)
     alt accepted
-        C->>C: write owner-only token file
+        C->>C: save to the credential store
         C-->>H: workspace name
-        H->>W: source-token-result { id, ok:true } → close
-        H->>U: toast "Connected to …"
+        H->>W: { ok: true } → close
+        H->>U: toast "Connected Notion (…)"
     else rejected
-        H->>W: source-token-result { id, ok:false, error } → show inline, stay open
+        H->>W: { ok: false, error } → show inline, stay open
     end
     U->>H: source-fetch(target)
     H->>C: FetchAsync(target)
@@ -76,24 +77,25 @@ sequenceDiagram
 
 ## Token storage
 
-The token lives in `~/.weavie/sources/notion.json` with owner-only POSIX permissions (`SecureFile`), off the
-Claude-facing settings surface because it holds a secret — the `remote-agents.json` precedent. The file **is**
-the credential; there's no separate validated-token store (a PAT isn't exchanged for anything). OS-keychain
-backends (DPAPI / Keychain / libsecret) are a deferred hardening follow-up, not shipped here because the per-OS
-native interop can't be built or tested on the CI host.
+The token is a `CredentialSecret` in the credential store under the id `notion`
+([inference-providers.md](inference-providers.md#credentials)): each host passes its `ICredentialStore` to
+`HostServices.CreateDefault`, and every host uses `FileCredentialStore`, which writes
+`~/.weavie/credentials/notion.key` owner-only with `SecureFile`. It stays off the Claude-facing settings surface
+because it holds a secret. The saved key **is** the credential; a PAT isn't exchanged for anything. OS-keychain
+stores plug in behind the same interface with no caller change.
 
 ## Deterministic testing
 
 Per [integration-testing-strategy.md](integration-testing-strategy.md), no test hits real Notion:
 
 - **Pure units** — `ParseMarkdown` (+ its truncation notice), `ExtractPageId`, `ParseTitle`, `ParseWorkspaceName`;
-  `SourceConnector`'s no-network paths (setup URL, empty/unknown token, unconnected/unmatched fetch).
-- **Full stack** (`HostCoreSourcesTests`) — `connect-notion` opens the token page and pushes `prompt-source-token`;
-  `set-source-token` validates against a stubbed `GET /v1/users/me`, saves on success (asserts the token file is
-  written + an ok `source-token-result`) and toasts the workspace; a 401 replies an inline-error `source-token-result`
-  and asserts the token is **not** saved;
-  `source-fetch` serves canned page + `/markdown` JSON and asserts the `source-doc` reply; opening an unconnected
-  source URL routes to the connect prompt (not a toast), and a fetch failure posts `source-error` into the tab.
+  `SourceConnector`'s no-network paths (unconnected/unmatched fetch).
+- **Full stack** (`HostCoreCredentialsTests`, `HostCoreSourcesTests`) — Connect Service… opens the token page and
+  pushes the credential prompt; `save` validates against a stubbed `GET /v1/users/me`, saves on success (asserts
+  `<credentials>/notion.key` + an ok reply) and toasts the workspace; a 401 replies an inline error and asserts the
+  token is **not** saved; `source-fetch` serves canned page + `/markdown` JSON and asserts the `source-doc` reply;
+  opening an unconnected source URL routes to the connect prompt (not a toast), and a fetch failure posts
+  `source-error` into the tab.
 - **Headless capture** — `FakeNotionSource` (wired by `WEAVIE_FAKE_NOTION`, the `WEAVIE_FAKE_PRS` analogue)
   "connects" without a real call and serves a canned doc, so a capture shows the connect → open-doc journey.
 

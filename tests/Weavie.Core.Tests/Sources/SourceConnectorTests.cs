@@ -1,45 +1,32 @@
+using Weavie.Core.Credentials;
 using Weavie.Core.Sources;
 using Xunit;
 
 namespace Weavie.Core.Tests.Sources;
 
 /// <summary>
-/// Tests <see cref="SourceConnector"/>'s no-network paths: the setup URL lookup, and the loud failures for an
-/// empty/unknown token target and an unconnected/unmatched fetch (validate + save + fetch happy paths run through
-/// the Hosting integration tests, which stub the Notion API). These are the paths the host turns into the connect
-/// prompt and the failure toasts.
+/// Tests <see cref="SourceConnector"/>'s no-network paths over a temp credential store: the loud failures for an
+/// unconnected/unmatched fetch and which link hosts count as connected (fetch happy paths run through the Hosting
+/// integration tests, which stub the Notion API).
 /// </summary>
 public sealed class SourceConnectorTests : IDisposable {
 	private readonly TempDirectory _dir = new("weavie-source-connector");
+	private readonly FileCredentialStore _store;
 	private readonly SourceConnector _connector;
 
 	public SourceConnectorTests() {
-		_connector = new SourceConnector([new NotionSource(new HttpClient())], id => _dir.Combine($"{id}.json"));
+		_store = new FileCredentialStore(_dir.Path);
+		var notion = new NotionSource(new HttpClient());
+		_connector = new SourceConnector([notion], new CredentialService([notion.Credential], _store));
 	}
 
 	public void Dispose() => _dir.Dispose();
 
 	[Fact]
-	public void SetupUrlFor_ReturnsTheSourcesTokenPage() =>
-		Assert.Equal("https://app.notion.com/developers/tokens", _connector.SetupUrlFor(NotionSource.SourceId));
-
-	[Fact]
-	public void SetupUrlFor_UnknownSource_Throws() =>
-		Assert.Throws<InvalidOperationException>(() => _connector.SetupUrlFor("dropbox"));
-
-	[Fact]
-	public async Task SaveTokenAsync_EmptyToken_Throws() =>
-		await Assert.ThrowsAsync<ArgumentException>(() => _connector.SaveTokenAsync(NotionSource.SourceId, "  "));
-
-	[Fact]
-	public async Task SaveTokenAsync_UnknownSource_Throws() =>
-		await Assert.ThrowsAsync<InvalidOperationException>(() => _connector.SaveTokenAsync("dropbox", "ntn_x"));
-
-	[Fact]
 	public async Task FetchAsync_NotConnected_ThrowsConnectFirst() {
 		var ex = await Assert.ThrowsAsync<InvalidOperationException>(
 			() => _connector.FetchAsync("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"));
-		Assert.Contains("Connect", ex.Message, StringComparison.OrdinalIgnoreCase);
+		Assert.Contains("Connect Notion", ex.Message, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -49,7 +36,8 @@ public sealed class SourceConnectorTests : IDisposable {
 	[Fact]
 	public void ConnectedLinkHosts_ListsOnlySourcesWithASavedToken() {
 		Assert.Empty(_connector.ConnectedLinkHosts());
-		File.WriteAllText(_dir.Combine($"{NotionSource.SourceId}.json"), """{ "token": "ntn_x" }""");
+		_store.Save(NotionSource.SourceId, new CredentialSecret("ntn_x"));
 		Assert.Equal(NotionSource.Hosts, _connector.ConnectedLinkHosts());
+		Assert.True(_connector.IsConnected("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"));
 	}
 }

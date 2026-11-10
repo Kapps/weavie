@@ -167,13 +167,6 @@ public sealed partial class HostCore {
 			OpenTargetForWeb(session, message.Url);
 			return Task.CompletedTask;
 		});
-		sources.Handle(
-			"saveToken", MessageActivity.ActionFailed("Saving a source token"), WireJson.Default.SaveSourceTokenMessage, WireJson.Default.SourceTokenResult,
-			(message, ct) => SaveSourceTokenAsync(session, message.SourceId, message.Token, ct));
-		sources.Handle("dismissToken", MessageActivity.ActionFailed("Dismissing a source token prompt"), WireJson.Default.EmptyPayload, (_, _) => {
-			DismissSourceTokenPrompt(session);
-			return Task.CompletedTask;
-		});
 		sources.HandleConcurrent(
 			"refresh", MessageActivity.Droppable("Refreshing sources"), WireJson.Default.OpenTargetMessage, WireJson.Default.SourceDoc,
 			(message, ct) => _sources.FetchAsync(message.Url, ct));
@@ -256,7 +249,6 @@ public sealed partial class HostCore {
 
 	internal sealed record OpenTargetMessage(string Url);
 
-	internal sealed record SaveSourceTokenMessage(string SourceId, string Token);
 
 	internal sealed record SourceEditMessage(string Target, string OldText, string NewText, string EditId);
 

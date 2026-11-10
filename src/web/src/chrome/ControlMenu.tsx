@@ -11,13 +11,14 @@ export const controlMenuOpen = (): boolean => openMenus() > 0;
 
 /**
  * One axis's options as a keyboard-driven listbox, mounted while open. Keys are read in the window's capture phase so
- * a pick beats the focused composer or dialog; a pointer-down outside `inside` (the menu plus its toggle) closes it.
+ * a pick beats the focused composer or dialog; a pointer-down outside `inside` (the menu plus its toggle) or the window
+ * losing focus closes it. A null `inside` leaves dismissal to the enclosing modal, which survives a window blur.
  */
 export function ControlMenu(props: {
   axis: AgentControlAxis;
   class: string;
   style?: JSX.CSSProperties;
-  inside: string;
+  inside: string | null;
   onPick: (optionId: string) => void;
   onClose: () => void;
 }): JSX.Element {
@@ -46,7 +47,9 @@ export function ControlMenu(props: {
     setOpenMenus((count) => count - 1);
     window.removeEventListener("keydown", nav.onKeyDown, { capture: true });
   });
-  dismissOnOutsideInteraction(props.inside, props.onClose);
+  if (props.inside !== null) {
+    dismissOnOutsideInteraction(props.inside, props.onClose);
+  }
 
   return (
     <div

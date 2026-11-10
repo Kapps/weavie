@@ -17,12 +17,6 @@ export interface SourceDocEntry {
   refreshError?: string | undefined;
 }
 
-export interface SourceTokenPrompt {
-  session: ClientSession;
-  sourceId: string;
-  label: string;
-}
-
 export interface SourceEditError {
   session: ClientSession;
   target: string;
@@ -41,7 +35,6 @@ interface SourceEditState {
 }
 
 const documents = createSessionOwnedState<Record<string, SourceDocEntry>>(() => ({}));
-const tokenPrompts = createSessionOwnedState<SourceTokenPrompt | null>(() => null);
 const edits = createSessionOwnedMap<string, SourceEditState>();
 const editErrorListeners = new Set<(error: SourceEditError) => void>();
 
@@ -133,15 +126,6 @@ export function sourceDoc(
   return documents.get(session)?.[target];
 }
 
-export function selectedSourceTokenPrompt(): SourceTokenPrompt | null {
-  return tokenPrompts.get(selectedSession()) ?? null;
-}
-
-export function dismissSourceTokenPrompt(session: ClientSession): void {
-  tokenPrompts.update(session, () => null);
-  session.feature("sources").publish("dismissToken", {});
-}
-
 export function onSourceEditError(listener: (error: SourceEditError) => void): () => void {
   editErrorListeners.add(listener);
   return () => editErrorListeners.delete(listener);
@@ -170,22 +154,8 @@ export function saveSourceEdit(
   }
 }
 
-export function submitSourceToken(
-  session: ClientSession,
-  sourceId: string,
-  token: string,
-): Promise<{ ok: boolean; error: string }> {
-  return session.feature("sources").request("saveToken", { sourceId, token });
-}
-
 registerSessionFeature((session) => {
   const source = session.feature("sources");
-  const offPrompt = source.on<{ sourceId: string; label: string }>(
-    "promptToken",
-    ({ sourceId, label }) => {
-      tokenPrompts.update(session, () => ({ session, sourceId, label }));
-    },
-  );
   const offLoading = source.on<{
     target: string;
     title: string;
@@ -260,7 +230,6 @@ registerSessionFeature((session) => {
     }
   });
   return () => {
-    offPrompt();
     offLoading();
     offDocument();
     offError();

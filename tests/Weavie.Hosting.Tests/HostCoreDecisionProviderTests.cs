@@ -1,0 +1,69 @@
+using System.Net;
+using System.Text.Json;
+using Weavie.Core.Configuration;
+using Weavie.Core.Inference.Decisions;
+using Weavie.Core.Sessions;
+using Xunit;
+using static Weavie.Hosting.Tests.HostCoreWorkflowTests;
+
+namespace Weavie.Hosting.Tests;
+
+// A workflow's model decision answered by a stubbed TypeSafe endpoint, and the card the agent's slow answers raise.
+public sealed class HostCoreDecisionProviderTests {
+	private const string SystemOne = "https://api.typesafe.ai/v1/systemone";
+
+	[Fact]
+	public async Task TypeSafeAnswersTheDecision_AndALowProbabilityAsksTheUser() {
+		// The agent would answer "yes" confidently; TypeSafe answers it at 0.6.
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9));
+		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
+		host.SaveCredential(DecisionProviderIds.TypeSafe, "ts-key");
+		host.Http.Responder = request => request.RequestUri!.AbsoluteUri == SystemOne
+			? (HttpStatusCode.OK, """{"model":"jev-1.14.0","answers":{"decision":{"type":"choice","probabilities":{"yes":0.6,"no":0.4}}}}""")
+			: (HttpStatusCode.NotFound, "{}");
+		var (session, run) = await ReachTheModelDecisionAsync(host);
+
+		await WaitForRunLineAsync(host, session, line => line?.GetProperty("state").GetString() == "needsAnswer"
+			&& line.Value.GetProperty("reason").GetString() == "Is v1 polished? (the decision confidence 0.6 is below the required 0.8)");
+
+		var body = JsonDocument.Parse(Assert.Single(host.Http.Bodies)).RootElement;
+		Assert.Equal(SystemOne, Assert.Single(host.Http.Requests).RequestUri!.AbsoluteUri);
+		Assert.Equal("Is v1 polished?", body.GetProperty("questions").GetProperty("decision").GetProperty("instructions").GetString());
+		Assert.Equal(("Bearer", "ts-key"), (host.Http.Requests[0].Headers.Authorization!.Scheme, host.Http.Requests[0].Headers.Authorization!.Parameter));
+		session.Workflow.Answer(run, "yes", "");
+		await WaitForRunLineAsync(host, session, line => line is null);
+		Assert.Equal(0, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
+	}
+
+	[Fact]
+	public async Task TheFifthAgentAnsweredDecision_OffersADecisionModelUntilAVendorIsChosen() {
+		await using var host = await StartAsync(new DecisionStub("yes", 0.9), repo => {
+			CommitFlow(repo);
+			var history = DecisionHistory(repo);
+			for (int i = 0; i < 4; i++) history.Append(TimeSpan.FromMilliseconds(1300));
+		});
+		Assert.Null(DecisionModelCard(host));
+
+		var (session, _) = await ReachTheModelDecisionAsync(host);
+		await WaitForRunLineAsync(host, session, line => line is null);
+
+		var card = await Wait.ForAsync(() => DecisionModelCard(host));
+		Assert.StartsWith("Your last 5 workflow decisions took ~1.3s each through the agent.", card.GetProperty("body").GetString(), StringComparison.Ordinal);
+		host.Settings.Set(InferenceSettings.DecisionProvider, JsonSerializer.SerializeToElement(DecisionProviderIds.TypeSafe));
+		await Wait.UntilAsync(() => DecisionModelCard(host) is null);
+	}
+
+	private static JsonElement? DecisionModelCard(TestHost host) =>
+		host.Bridge.LastEvent("suggestions", "changed")?.GetProperty("items").EnumerateArray()
+			.Cast<JsonElement?>().FirstOrDefault(item => item!.Value.GetProperty("id").GetString() == "decisions.model");
+
+	private static async Task<(HostSession Session, string Run)> ReachTheModelDecisionAsync(TestHost host) {
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest { Branch = "wf", Base = "main", AgentProviderId = "structured" })).Ok);
+		var session = host.Session("wf");
+		var run = session.Workflow.Start("flow", Json("{}"));
+		session.Workflow.CompleteStage(Json("""{"note":"v1"}"""), "s");
+		session.Workflow.Answer(run.Id, "approve", "");
+		session.Workflow.CompleteStage(Json("{}"), "s");
+		return (session, run.Id);
+	}
+}

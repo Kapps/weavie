@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Weavie.Core;
+using Weavie.Core.Credentials;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Sessions;
@@ -53,7 +55,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		ShowWindow();
 
 		// App-global Core stores + the recents that drive reopen-last and the welcome screen's list.
-		_services = HostServices.CreateDefault();
+		_services = HostServices.CreateDefault(new FileCredentialStore(WeaviePaths.CredentialsDir));
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 		_notifications = new LinuxNotificationService(Log);
 

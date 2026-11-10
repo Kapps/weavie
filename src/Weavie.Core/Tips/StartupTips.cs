@@ -2,7 +2,7 @@ using Weavie.Core.Commands;
 
 namespace Weavie.Core.Tips;
 
-/// <summary>One startup teaching moment, with an optional command whose live shortcut the client appends.</summary>
+/// <summary>One startup teaching moment, with an optional command the client offers as a button with its live shortcut.</summary>
 public sealed record StartupTip {
 	/// <summary>The stable identity used by tests and future catalog maintenance.</summary>
 	public required string Id { get; init; }
@@ -10,7 +10,7 @@ public sealed record StartupTip {
 	/// <summary>The opening instruction, ending before the optional shortcut.</summary>
 	public required string Lead { get; init; }
 
-	/// <summary>The command that supplies the tip's live shortcut, or <see langword="null"/> for a concept tip.</summary>
+	/// <summary>The command the tip's button runs and whose live shortcut it shows, or <see langword="null"/> for a concept tip.</summary>
 	public string? CommandId { get; init; }
 
 	/// <summary>The short explanation following the opening instruction.</summary>
@@ -72,6 +72,12 @@ public static class StartupTips {
 			Lead = "Paste a screenshot straight into an agent prompt",
 			CommandId = CoreCommands.AgentPaste,
 			Detail = "Weavie transfers the image to the owning session even when its agent runs remotely.",
+		},
+		new() {
+			Id = "decision-model",
+			Lead = "Give workflow decisions a decision model",
+			CommandId = CoreCommands.ChooseDecisionProvider,
+			Detail = "OpenAI or TypeSafe answer in ~0.2s with calibrated confidence.",
 		},
 	];
 

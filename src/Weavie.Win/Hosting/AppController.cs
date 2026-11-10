@@ -1,3 +1,5 @@
+using Weavie.Core;
+using Weavie.Core.Credentials;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -24,7 +26,7 @@ internal sealed class AppController : ApplicationContext {
 
 	public AppController() {
 		// App-global Core stores shared by every window (and the welcome window); installs the console tee first.
-		Services = HostServices.CreateDefault();
+		Services = HostServices.CreateDefault(new FileCredentialStore(WeaviePaths.CredentialsDir));
 		Notifications = new WindowsNotificationService();
 
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;

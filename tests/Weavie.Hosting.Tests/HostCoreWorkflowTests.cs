@@ -1,11 +1,13 @@
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
+using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workflows;
+using Weavie.Core.Workspaces;
 using Weavie.TestSupport;
 using Weavie.Workflows;
 using Xunit;
@@ -32,19 +34,25 @@ public sealed class HostCoreWorkflowTests {
 		      choices: { yes: done, no: polish }
 		""";
 
-	private static void CommitFlow(string repo) {
+	internal static void CommitFlow(string repo) {
 		Directory.CreateDirectory(Path.Combine(repo, ".weavie", "workflows"));
 		File.WriteAllText(Path.Combine(repo, ".weavie", "workflows", "flow.yaml"), Flow);
 		TempGitRepo.Run(repo, "add", ".");
 		TempGitRepo.Run(repo, "commit", "-m", "flow");
 	}
 
-	private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
+	internal static WorkflowDecisionHistory DecisionHistory(string repo) =>
+		new(new LocalFileSystem(), WeaviePaths.WorkspaceDecisionHistoryFile(WorkspaceId.ForPath(repo)));
+
+	internal static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;
 
 	// Pane output publishes immediately: the host's clock is manual, so a coalescing delay would never elapse.
-	private static async Task<TestHost> StartAsync(DecisionStub decisions) {
-		var host = await TestHost.StartAsync(CommitFlow, _ => decisions);
+	internal static Task<TestHost> StartAsync(DecisionStub decisions) => StartAsync(decisions, CommitFlow);
+
+	internal static async Task<TestHost> StartAsync(DecisionStub decisions, Action<string> prepareRepo) {
+		var host = await TestHost.StartAsync(prepareRepo, _ => decisions);
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
+		host.Settings.Set(InferenceSettings.Enabled, JsonSerializer.SerializeToElement(true));
 		return host;
 	}
 
@@ -83,6 +91,7 @@ public sealed class HostCoreWorkflowTests {
 		await WaitForRunLineAsync(host, session, line => line is null);
 		Assert.Equal(WorkflowPhase.Done, session.Workflow.Current!.Phase);
 		Assert.Equal("", turnContext.Compose());
+		Assert.Equal(1, DecisionHistory(host.RepoRoot).Summary().AgentAnswered);
 	}
 
 	[Fact]
@@ -217,7 +226,7 @@ public sealed class HostCoreWorkflowTests {
 			message.GetProperty("type").GetString() == "item-completed"
 			&& message.GetProperty("text").GetString()!.StartsWith($"echo: {prompt}", StringComparison.Ordinal)));
 
-	private static async Task WaitForRunLineAsync(TestHost host, HostSession session, Func<JsonElement?, bool> matches) =>
+	internal static async Task WaitForRunLineAsync(TestHost host, HostSession session, Func<JsonElement?, bool> matches) =>
 		await Eventually(() => host.Bridge.PostedEvents(session.Address, "status", "run") is { Count: > 0 } lines
 			&& matches(lines[^1].GetProperty("run") is { ValueKind: JsonValueKind.Object } run ? run : null));
 
@@ -231,25 +240,29 @@ public sealed class HostCoreWorkflowTests {
 		Assert.True(condition());
 	}
 
-	// Answers every workflow decision with Choice.
-	private sealed class DecisionStub(string choice, double confidence) : IInferenceService {
+	// Answers every workflow decision with Choice at the given probability, and every other label with 0.
+	internal sealed class DecisionStub(string choice, double confidence) : IInferenceService {
 		public string Choice { get; set; } = choice;
 
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			InferenceOwner owner,
 			InferenceModelCategory category,
 			InferenceInput input,
-			JsonTypeInfo<TResponse> responseType,
+			InferenceResponseType<TResponse> responseType,
 			InferenceQueryOptions options,
-			CancellationToken ct) =>
-			Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
-				Value = JsonSerializer.Deserialize(FormattableString.Invariant($$"""{"choice":"{{Choice}}","confidence":{{confidence}}}"""), responseType)!,
+			CancellationToken ct) {
+			using var schema = JsonDocument.Parse(responseType.SchemaJson);
+			var labels = schema.RootElement.GetProperty("required").EnumerateArray().Select(label => label.GetString()!);
+			string reply = "{" + string.Join(",", labels.Select(label =>
+				FormattableString.Invariant($"\"{label}\":{(label == Choice ? confidence : 0)}"))) + "}";
+			return Task.FromResult<InferenceResult<TResponse>>(new InferenceSuccess<TResponse> {
+				Value = JsonSerializer.Deserialize(reply, responseType.TypeInfo)!,
 				Receipt = new InferenceReceipt {
 					ProviderId = "test",
-					Category = category,
 					ModelId = "utility-model",
 					Duration = TimeSpan.Zero,
 				},
 			});
+		}
 	}
 }

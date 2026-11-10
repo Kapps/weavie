@@ -45,11 +45,20 @@ import {
   waitForClientSession,
 } from "./bridge";
 import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
+import { ChoicePicker } from "./chrome/ChoicePicker";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
+import { CredentialPrompt } from "./chrome/CredentialPrompt";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
+import {
+  dismissChoicePicker,
+  dismissCredentialPrompt,
+  pickChoice,
+  selectedChoicePicker,
+  selectedCredentialPrompt,
+} from "./chrome/host-asks";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -76,7 +85,6 @@ import {
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionPanel } from "./chrome/SessionPanel";
 import { SessionReloadBar } from "./chrome/SessionReloadBar";
-import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import {
   seedSearch,
   setSearchOpener,
@@ -162,12 +170,7 @@ import {
   openTabs,
 } from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
-import {
-  dismissSourceTokenPrompt,
-  onSourceEditError,
-  openSelectedSourceTarget,
-  selectedSourceTokenPrompt,
-} from "./editor/source/source-store";
+import { onSourceEditError, openSelectedSourceTarget } from "./editor/source/source-store";
 import TabContent from "./editor/TabContent";
 import { TabStrip } from "./editor/TabStrip";
 import { tabCommandBindings } from "./editor/tab-command-bindings";
@@ -574,7 +577,6 @@ export default function App(): JSX.Element {
   const [sessionsModalOpen, setSessionsModalOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOwner, setDiffAgainstOwner] = createSignal<ClientSession | null>(null);
-  const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
   const visibleBuildMismatch = createMemo(() =>
     buildMismatchDismissed() || activeBackendOffline() ? null : activeBackendBuildMismatch(),
@@ -2152,13 +2154,20 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={sourceTokenPrompt()}>
+      <Show when={selectedCredentialPrompt()}>
         {(prompt) => (
-          <SourceTokenPrompt
-            session={prompt().session}
-            sourceId={prompt().sourceId}
-            label={prompt().label}
-            onClose={() => dismissSourceTokenPrompt(prompt().session)}
+          <CredentialPrompt
+            prompt={prompt()}
+            onClose={() => dismissCredentialPrompt(prompt().session)}
+          />
+        )}
+      </Show>
+      <Show when={selectedChoicePicker()}>
+        {(picker) => (
+          <ChoicePicker
+            picker={picker()}
+            onPick={(id) => pickChoice(picker().session, id)}
+            onClose={() => dismissChoicePicker(picker().session)}
           />
         )}
       </Show>

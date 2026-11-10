@@ -1,3 +1,5 @@
+using Weavie.Core.Inference.Decisions;
+
 namespace Weavie.Core.Configuration;
 
 /// <summary>Settings that gate and configure stateless ad-hoc model queries.</summary>
@@ -19,6 +21,9 @@ public static class InferenceSettings {
 
 	/// <summary>Whether inference inherits, enables, or disables the provider's Fast Mode setting.</summary>
 	public const string FastMode = "inference.fastMode";
+
+	/// <summary>Who answers workflow decisions: the inference agent or a decision-model vendor.</summary>
+	public const string DecisionProvider = "inference.decisionProvider";
 
 	/// <summary>Registers the complete ad-hoc inference policy and provider profile.</summary>
 	public static void Register(SettingsRegistry registry) {
@@ -84,6 +89,19 @@ public static class InferenceSettings {
 			AllowedValues = ["inherit", "on", "off"],
 			Apply = ApplyMode.Live,
 			Default = "inherit",
+		});
+		registry.Register(new SettingDefinition {
+			Key = DecisionProvider,
+			Kind = SettingKind.String,
+			Description = "Who answers workflow decisions: 'agent' runs a typed query through the inference provider; "
+				+ "'openai' calls OpenAI Decisions (gpt-6-luna, data terms https://openai.com/policies/); 'typesafe' "
+				+ "calls TypeSafe Jev (data terms https://docs.typesafe.ai/legal.md). Choosing a vendor sends it the "
+				+ "decision evidence, including full referenced file contents, and needs its key connected with Connect "
+				+ "Service…. Set it when the user asks for faster workflow decisions. Takes effect on the next decision.",
+			Aliases = ["decision model", "faster workflow decisions", "gpt-6-luna", "Jev"],
+			AllowedValues = DecisionProviderIds.All,
+			Apply = ApplyMode.Live,
+			Default = DecisionProviderIds.Agent,
 		});
 	}
 }

@@ -16,7 +16,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   with `workflow` + `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
   agent, which runs `weavie.workflow.answer`.
-- **Decisions** — answered by the utility model (`by: model`) or the user (`by: user`); a model decision sees its
+- **Decisions** — answered by the decision provider (`by: model`) or the user (`by: user`); a model decision sees its
   question, the stage's outputs, and the agent's summary. A low-confidence, refused, failed, or invalid model answer, or a
   `limit` reached, puts the same question to the user. The agent puts every question to the user, opening the main
   item it is about unless `workflow.openReviewItem` is off.
@@ -69,7 +69,7 @@ flowchart LR
   end
   subgraph Core["Weavie.Core adapters"]
     Store[WorkflowRunStore<br/>JsonDocumentStore] --> Seams
-    Decider[InferenceWorkflowDecider<br/>typed inference] --> Seams
+    Decider[ModelWorkflowDecider<br/>decision service] --> Seams
     Registry[SessionWorkflowRegistry + MCP tools]
     Summary[WorkflowRunSummary<br/>phase × session status]
     Turns[WorkflowKickoffTurns<br/>kickoff ↔ agent turn]
@@ -206,7 +206,7 @@ Templates reference `{{inputs.<name>}}`, `{{<stage>.<output>}}`, and `{{item}}`.
 | --- | --- | --- |
 | `run` | the session's agent | `continue` |
 | `check` | the session's agent | `fork` |
-| model decisions | the utility inference model (the one branch naming uses) | — |
+| model decisions | the `inference.decisionProvider` decision provider: the agent (the one branch naming uses) or a decision model ([inference-providers.md](inference-providers.md)) | — |
 | any other agent step | as written | `fork` |
 
 Nothing defaults to `fresh`: a step missing context it needed fails invisibly, while a fork's cost shows in run
@@ -307,8 +307,10 @@ flowchart LR
 
 ### Decisions
 
-A decider returns an allowed choice and finite numeric confidence in `[0, 1]`, or refusal/failure. The engine
-validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
+`ModelWorkflowDecider` asks the decision service one choice question over the prepared evidence and returns the
+top label at its probability ([inference-providers.md](inference-providers.md)); it records how long each
+agent-answered decision took in the workspace's decision history. A decider returns an allowed choice and finite
+numeric confidence in `[0, 1]`, or refusal/failure. The engine validates the answer and compares confidence with the live `workflow.decisionConfidence` setting (default `0.8`),
 or the decision's optional `confidence:` override. Both model `if` and `then` support overrides; `by: user` rejects
 them. Each attempt captures its threshold before inference; changes affect subsequent attempts. Equality routes.
 The threshold is never included in the model prompt.
@@ -330,8 +332,8 @@ then:
 ```
 
 Descriptions are optional plain text, recommended to distinguish answer criteria. The model receives labels and
-descriptions, never routing destinations. The current utility model returns strict JSON such as
-`{"choice":"approve","confidence":0.91}`; confidence is estimated from evidence, not assigned a constant.
+descriptions, never routing destinations. The agent provider returns strict JSON with one probability per label,
+such as `{"approve":0.91,"revise":0.09}`; probabilities are estimated from evidence, not assigned a constant.
 
 A model `ask` that references a `files` input or output receives each file's complete current text as separate,
 path-labelled evidence. Inputs, current-stage outputs, and earlier-stage outputs work alike. Paths resolve inside

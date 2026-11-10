@@ -16,10 +16,6 @@
 }
 .remote-panel-head {
   padding: 2px 4px 8px;
-  color: var(--dim);
-  font: 600 var(--font-hint-size) var(--font-chrome-family);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 .remote-agent {
   margin-bottom: 7px;
@@ -33,7 +29,7 @@
 }
 .remote-agent-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 7px;
 }
 .remote-agent-ava {
@@ -46,7 +42,7 @@
   border-radius: 5px;
   background: hsl(var(--chip-hue, 210) 45% 38%);
   color: #fff;
-  font: 600 8px var(--ui-font);
+  font: var(--font-chrome-badge);
 }
 .remote-agent-name {
   flex: 1;
@@ -54,26 +50,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg);
-  font: 600 12px var(--ui-font);
+  font: var(--font-chrome-body);
+  font-weight: var(--font-weight-emphasis);
 }
 .remote-agent-state {
   color: var(--dim);
-  font-size: 10px;
+  font: var(--font-chrome-secondary);
 }
 .remote-agent-x {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
+  align-self: center;
   color: var(--bad);
   opacity: 0.6;
-  cursor: pointer;
-}
-.remote-agent-x svg {
-  width: 13px;
-  height: 13px;
 }
 .remote-agent-x:hover {
   opacity: 1;
@@ -85,14 +73,6 @@
 }
 .remote-panel-add {
   width: 100%;
-  padding: 5px 4px 2px;
-  border: 0;
-  background: transparent;
+  justify-content: flex-start;
   color: var(--accent);
-  font: 600 11.5px var(--ui-font);
-  text-align: left;
-  cursor: pointer;
-}
-.remote-panel-add:hover {
-  text-decoration: underline;
 }

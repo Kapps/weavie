@@ -30,7 +30,7 @@ export function TitleBar(props: {
     <div class="titlebar" classList={{ blurred: !props.focused }}>
       <div class="tb-left">
         <span class="tb-icon" aria-hidden="true">
-          <WeavieIcon />
+          <WeavieIcon size={18} />
         </span>
         <Menu />
       </div>

@@ -98,7 +98,7 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
           )}
         </For>
       </div>
-      <p class="gs-eyebrow">
+      <p class="gs-eyebrow ui-section-label">
         Setup · Step {index() + 1} of {STEPS.length}
       </p>
       <h2 id="getting-started-title">{step().title}</h2>
@@ -108,18 +108,26 @@ export function GettingStarted(props: { onDone: () => void; escapeSkips: boolean
       </div>
       <Show when={error()}>{(message) => <p class="gs-error">{message()}</p>}</Show>
       <div class="gs-nav">
-        <button type="button" class="gs-skip" onClick={finish}>
+        <button type="button" class="gs-skip ui-button ui-button-lg" onClick={finish}>
           Skip setup
           <Show when={props.escapeSkips}>
             <Keycaps label="Esc" />
           </Show>
         </button>
         <Show when={index() > 0}>
-          <button type="button" class="gs-secondary" onClick={() => setIndex(index() - 1)}>
+          <button
+            type="button"
+            class="gs-secondary ui-button ui-button-lg"
+            onClick={() => setIndex(index() - 1)}
+          >
             Back
           </button>
         </Show>
-        <button type="button" class="gs-primary" onClick={next}>
+        <button
+          type="button"
+          class="gs-primary ui-button ui-button-lg ui-button-primary"
+          onClick={next}
+        >
           {last() ? "Start using Weavie" : "Next"}
           <Keycaps label="↵" />
         </button>

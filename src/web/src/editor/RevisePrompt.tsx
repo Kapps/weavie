@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js";
-import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "../chrome/ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "../chrome/ModalShell";
 
 /**
  * Collects the instruction for a revision of the selected lines. The model does the rewriting; deciding what to
@@ -19,16 +19,34 @@ export function RevisePrompt(props: {
   };
   const onKeyDown = modalSubmitKeys(submit, props.onCancel);
   return (
-    <ModalShell labelledBy="revise-title" onDismiss={props.onCancel} onKeyDown={onKeyDown}>
-      <div class="confirm-title" id="revise-title">
-        Revise selection
-      </div>
+    <ModalShell
+      title="Revise selection"
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onCancel}
+          />
+          <PromptButton
+            label="Revise"
+            shortcut="Enter"
+            title="Revise (Enter)"
+            onClick={submit}
+            primary
+          />
+        </>
+      }
+      onDismiss={props.onCancel}
+      onKeyDown={onKeyDown}
+    >
       <div class="confirm-body">
         What should happen to{" "}
         {props.lineCount === 1 ? "this line" : `these ${props.lineCount} lines`}?
       </div>
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-content"
         type="text"
         spellcheck={false}
         autocomplete="off"
@@ -38,16 +56,6 @@ export function RevisePrompt(props: {
           queueMicrotask(() => el.focus());
         }}
       />
-      <PromptActions>
-        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
-        <PromptButton
-          label="Revise"
-          shortcut="Enter"
-          title="Revise (Enter)"
-          onClick={submit}
-          primary
-        />
-      </PromptActions>
     </ModalShell>
   );
 }

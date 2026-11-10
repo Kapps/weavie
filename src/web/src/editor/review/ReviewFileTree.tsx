@@ -91,7 +91,7 @@ export function ReviewFileTree(props: {
             <button
               type="button"
               role="treeitem"
-              class="unified-review-tree-row file-tree-row"
+              class="unified-review-tree-row file-tree-row ui-row ui-row-compact"
               classList={{ dir: directory(), current: current(), reviewed: reviewed() }}
               style={`--depth:${row().depth}`}
               title={node().key}

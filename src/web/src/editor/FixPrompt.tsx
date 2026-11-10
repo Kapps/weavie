@@ -1,6 +1,6 @@
 import { createSignal, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "../chrome/ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "../chrome/ModalShell";
 import { captureCommandRunnerFor } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { basename } from "./fs-path";
@@ -45,18 +45,27 @@ export function FixPrompt(): JSX.Element {
         };
         return (
           <ModalShell
-            labelledBy="fix-title"
+            title="Fix with…"
+            actions={
+              <>
+                <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={cancel} />
+                <PromptButton
+                  label="Fix"
+                  shortcut="Enter"
+                  title="Fix (Enter)"
+                  onClick={submit}
+                  primary
+                />
+              </>
+            }
             onDismiss={cancel}
             onKeyDown={modalSubmitKeys(submit, cancel)}
           >
-            <div class="confirm-title" id="fix-title">
-              Fix with…
-            </div>
             <div class="confirm-body">
               How should the agent fix {basename(current.item.path)}:{current.item.line}?
             </div>
             <input
-              class="session-prompt-input"
+              class="session-prompt-input ui-field ui-field-content"
               type="text"
               spellcheck={false}
               autocomplete="off"
@@ -66,16 +75,6 @@ export function FixPrompt(): JSX.Element {
                 queueMicrotask(() => el.focus());
               }}
             />
-            <PromptActions>
-              <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={cancel} />
-              <PromptButton
-                label="Fix"
-                shortcut="Enter"
-                title="Fix (Enter)"
-                onClick={submit}
-                primary
-              />
-            </PromptActions>
           </ModalShell>
         );
       }}

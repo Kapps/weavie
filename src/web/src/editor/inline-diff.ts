@@ -749,13 +749,13 @@ export function createInlineDiff(
 
   const navButtons = (): HTMLElement[] => [
     makeButton(
-      "weavie-inline-nav",
+      "weavie-inline-nav ui-button",
       "↑",
       withShortcut("Previous change", CommandIds.prevChange),
       prevChange,
     ),
     makeButton(
-      "weavie-inline-nav",
+      "weavie-inline-nav ui-button",
       "↓",
       withShortcut("Next change", CommandIds.nextChange),
       nextChange,
@@ -774,7 +774,7 @@ export function createInlineDiff(
     menu.style.display = scopeMenuOpen ? "flex" : "none";
     scopeMenuNode = menu;
     const toggle = makeButton(
-      "weavie-inline-scope-btn",
+      "weavie-inline-scope-btn ui-button",
       `Scope: ${scopeName(scope)} ▾`,
       "Choose what Keep / Revert act on",
       () => {
@@ -783,12 +783,12 @@ export function createInlineDiff(
       },
     );
     const head = document.createElement("div");
-    head.className = "weavie-inline-scope-head";
+    head.className = "weavie-inline-scope-head ui-section-label";
     head.textContent = "Keep / Revert…";
     menu.appendChild(head);
     const addItem = (value: ReviewScope, label: string, count: number | undefined): void => {
       const item = makeButton(
-        `weavie-inline-scope-item${value === scope ? " active" : ""}`,
+        `weavie-inline-scope-item ui-row${value === scope ? " active" : ""}`,
         label,
         label,
         () => {
@@ -832,7 +832,7 @@ export function createInlineDiff(
     if (multiFile) {
       bar.appendChild(
         makeButton(
-          "weavie-inline-file",
+          "weavie-inline-file ui-button",
           "←",
           withShortcut("Previous file", CommandIds.reviewPrevFile),
           prevFile,
@@ -851,7 +851,7 @@ export function createInlineDiff(
     if (multiFile) {
       bar.appendChild(
         makeButton(
-          "weavie-inline-file",
+          "weavie-inline-file ui-button",
           "→",
           withShortcut("Next file", CommandIds.reviewNextFile),
           nextFile,
@@ -884,13 +884,13 @@ export function createInlineDiff(
           ? "Revert this file"
           : `Revert ${allTarget}`;
     const keep = makeButton(
-      "weavie-inline-accept",
+      "weavie-inline-accept ui-button",
       "Keep",
       withShortcut(keepTip, CommandIds.acceptChange),
       accept,
     );
     const revert = makeButton(
-      "weavie-inline-reject",
+      "weavie-inline-reject ui-button",
       "Revert",
       withShortcut(revertTip, CommandIds.rejectChange),
       reject,
@@ -907,13 +907,13 @@ export function createInlineDiff(
     histDivider.className = "weavie-inline-divider";
     bar.appendChild(histDivider);
     undoButton = makeButton(
-      "weavie-inline-hist",
+      "weavie-inline-hist ui-button",
       "↶",
       `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
       undoLast,
     );
     redoButton = makeButton(
-      "weavie-inline-hist",
+      "weavie-inline-hist ui-button",
       "↷",
       withShortcut("Redo review action", CommandIds.redoReview),
       redoReview,
@@ -938,7 +938,7 @@ export function createInlineDiff(
       if (options.onAccept !== undefined) {
         bar.appendChild(
           makeButton(
-            "weavie-inline-accept",
+            "weavie-inline-accept ui-button",
             "Keep",
             withShortcut("Keep this change", CommandIds.acceptChange),
             accept,
@@ -948,7 +948,7 @@ export function createInlineDiff(
       if (options.onReject !== undefined) {
         bar.appendChild(
           makeButton(
-            "weavie-inline-reject",
+            "weavie-inline-reject ui-button",
             "Reject",
             withShortcut("Reject this change", CommandIds.rejectChange),
             reject,
@@ -983,7 +983,7 @@ export function createInlineDiff(
       if (multiFile) {
         bar.appendChild(
           makeButton(
-            "weavie-inline-file",
+            "weavie-inline-file ui-button",
             "←",
             withShortcut("Previous file", CommandIds.reviewPrevFile),
             prevFile,
@@ -997,7 +997,7 @@ export function createInlineDiff(
       if (multiFile) {
         bar.appendChild(
           makeButton(
-            "weavie-inline-file",
+            "weavie-inline-file ui-button",
             "→",
             withShortcut("Next file", CommandIds.reviewNextFile),
             nextFile,
@@ -1008,13 +1008,13 @@ export function createInlineDiff(
         // No hunk geometry to act on, so only the whole-file actions are offered.
         bar.append(
           makeButton(
-            "weavie-inline-accept",
+            "weavie-inline-accept ui-button",
             "Keep file",
             withShortcut("Keep this file", CommandIds.acceptChange),
             () => runAction(options.onKeepFile),
           ),
           makeButton(
-            "weavie-inline-reject",
+            "weavie-inline-reject ui-button",
             "Revert file",
             withShortcut("Revert this file", CommandIds.rejectChange),
             () => runAction(options.onRevertFile),
@@ -1023,13 +1023,13 @@ export function createInlineDiff(
       } else if (options.mode === "review") {
         bar.append(
           makeButton(
-            "weavie-inline-accept",
+            "weavie-inline-accept ui-button",
             "Keep",
             withShortcut("Keep this change", CommandIds.acceptChange),
             () => runAction(options.onAccept),
           ),
           makeButton(
-            "weavie-inline-reject",
+            "weavie-inline-reject ui-button",
             "Reject",
             withShortcut("Reject this change", CommandIds.rejectChange),
             () => runAction(options.onReject),

@@ -72,6 +72,17 @@ Then Weavie's hard rules (these override generic "best practice"):
   for frequent, core actions — flag a default shortcut on a niche or occasional action.
   Flag a click target whose keybinding isn't advertised, or a hardcoded shortcut label (read from
   `CommandInfo.keys` + `formatKey`).
+- **Design system** ([docs/concepts/design-system.md](../../docs/concepts/design-system.md)). `biome check`
+  rejects raw typography in `.css`; flag what it cannot see. Chrome that bypasses the primitives: a
+  hand-styled button, row, field, uppercase label or key hint instead of `.ui-button`/`.ui-row`/`.ui-field`/
+  `.ui-section-label`/`.ui-kbd`; a dialog title or action row not rendered by `ModalShell`; a font set on a
+  control. `align-items: center` on a row mixing text sizes; an icon beside text without a line-tall box
+  (`.ui-icon`); a height from `em` padding or a literal instead of the row/control tokens. Typography outside
+  the lint: CSS-in-TS (`SOURCE_STYLES` and the like), inline `style`, a raw `font-family`, `font-size` used to
+  size an icon, and non-prose rules placed in a `*.prose.css` file to dodge the lint. UI text beyond a title
+  and control labels with no reason (warning, input format, limitation, keyboard hint): a description on
+  options the author wrote, a heading restating its container, a tooltip that is not "command name
+  (shortcut)", "you can"/"please", a trailing period on a label.
 - **Long-lived child processes go through `ProcessSupervisor`** with an explicit `RestartPolicy` —
   flag hand-rolled `Process.Start` / PTY lifecycle. Transient one-shots are exempt.
 - **No buried debug flags.** Tracing/diagnostics toggles are settings (off by default), never env vars.

@@ -122,7 +122,7 @@ export function CommentItem(props: {
             <Show when={props.comment.mine && !editing()}>
               <button
                 type="button"
-                class="weavie-pr-icon-button"
+                class="weavie-pr-icon-button ui-icon-button"
                 title="Edit comment"
                 aria-label="Edit comment"
                 onClick={() => setEditing(true)}
@@ -133,7 +133,7 @@ export function CommentItem(props: {
             <Show when={props.comment.pending && props.comment.mine && !editing()}>
               <button
                 type="button"
-                class="weavie-pr-icon-button"
+                class="weavie-pr-icon-button ui-icon-button"
                 title="Discard pending comment"
                 aria-label="Discard pending comment"
                 onClick={() => void discard()}
@@ -144,7 +144,7 @@ export function CommentItem(props: {
             <Show when={props.comment.url !== ""}>
               <button
                 type="button"
-                class="weavie-pr-icon-button"
+                class="weavie-pr-icon-button ui-icon-button"
                 title="Open on the forge"
                 aria-label="Open on the forge"
                 onClick={() => openUrlExternal(props.comment.url)}

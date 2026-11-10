@@ -16,11 +16,10 @@
 
 .weavie-revising-pill {
   margin-left: 0.75rem;
-  padding: 0 0.5em;
-  border-radius: 0.75em;
+  padding: 0 6px;
+  border-radius: 8px;
   white-space: nowrap;
-  font-family: var(--font-chrome-family);
-  font-size: var(--font-metadata-size);
+  font: var(--font-chrome-secondary);
   color: var(--dim);
   background: color-mix(in srgb, var(--accent) 18%, var(--bg));
 }

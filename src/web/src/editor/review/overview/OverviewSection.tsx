@@ -19,8 +19,8 @@ export function OverviewSection(props: {
         aria-expanded={!props.collapsed}
         onClick={() => props.onToggle(!props.collapsed)}
       >
-        <ChevronRight size="1em" class="session-overview-chevron" />
-        <span class="session-overview-title">{props.title}</span>
+        <ChevronRight class="session-overview-chevron" />
+        <span class="session-overview-title ui-section-label">{props.title}</span>
         <span class="session-overview-meta">{props.meta}</span>
       </button>
       <Show when={!props.collapsed}>

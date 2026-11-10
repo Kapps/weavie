@@ -42,7 +42,7 @@ export function createParkedToolbar(
   if (multiFile) {
     bar.appendChild(
       makeButton(
-        "weavie-inline-file",
+        "weavie-inline-file ui-button",
         "←",
         withShortcut("Previous file", CommandIds.reviewPrevFile),
         actions.prevFile,
@@ -63,7 +63,7 @@ export function createParkedToolbar(
   if (multiFile) {
     bar.appendChild(
       makeButton(
-        "weavie-inline-file",
+        "weavie-inline-file ui-button",
         "→",
         withShortcut("Next file", CommandIds.reviewNextFile),
         actions.nextFile,
@@ -72,13 +72,13 @@ export function createParkedToolbar(
   }
   bar.append(
     makeButton(
-      "weavie-inline-nav",
+      "weavie-inline-nav ui-button",
       "↑",
       withShortcut("Review changes", CommandIds.prevChange),
       actions.stepIn,
     ),
     makeButton(
-      "weavie-inline-nav",
+      "weavie-inline-nav ui-button",
       "↓",
       withShortcut("Review changes", CommandIds.nextChange),
       actions.stepIn,
@@ -89,13 +89,13 @@ export function createParkedToolbar(
   bar.appendChild(divider);
   // Inert until a change is in view, but shown so the bar reads as the same toolbar at "change 0".
   const keep = makeButton(
-    "weavie-inline-accept",
+    "weavie-inline-accept ui-button",
     "Keep",
     withShortcut("Step into a change first", CommandIds.nextChange),
     () => {},
   );
   const revert = makeButton(
-    "weavie-inline-reject",
+    "weavie-inline-reject ui-button",
     "Revert",
     withShortcut("Step into a change first", CommandIds.nextChange),
     () => {},
@@ -107,13 +107,13 @@ export function createParkedToolbar(
   histDivider.className = "weavie-inline-divider";
   bar.appendChild(histDivider);
   const undoButton = makeButton(
-    "weavie-inline-hist",
+    "weavie-inline-hist ui-button",
     "↶",
     `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
     actions.undo,
   );
   const redoButton = makeButton(
-    "weavie-inline-hist",
+    "weavie-inline-hist ui-button",
     "↷",
     withShortcut("Redo review action", CommandIds.redoReview),
     actions.redo,

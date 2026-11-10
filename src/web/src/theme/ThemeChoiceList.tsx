@@ -17,6 +17,7 @@ export function ThemeChoiceList(props: {
         {(choice, index) => (
           <button
             type="button"
+            class="ui-row"
             role="option"
             id={`${props.id}-${index()}`}
             aria-selected={props.selected === index()}
@@ -34,7 +35,7 @@ export function ThemeChoiceList(props: {
               {choice.label}
               {choice.id === props.savedId ? " ✓" : ""}
             </span>
-            <small>
+            <small class="ui-row-end">
               {choice.type} · {choice.namespace ?? "Built-in"}
             </small>
           </button>

@@ -232,7 +232,7 @@ function MenuPanel(props: {
           ) : entry.kind === "submenu" ? (
             <button
               type="button"
-              class="context-menu-item context-menu-submenu"
+              class="context-menu-item context-menu-submenu ui-row"
               role="menuitem"
               data-entry-index={index()}
               disabled={entry.disabled}
@@ -251,12 +251,14 @@ function MenuPanel(props: {
               }}
             >
               <span>{entry.label}</span>
-              <ChevronRight size={14} class="context-menu-chevron" />
+              <span class="ui-icon ui-row-end">
+                <ChevronRight class="context-menu-chevron" />
+              </span>
             </button>
           ) : (
             <button
               type="button"
-              class={`context-menu-item${entry.danger ? " danger" : ""}`}
+              class={`context-menu-item ui-row${entry.danger ? " danger" : ""}`}
               role="menuitem"
               data-entry-index={index()}
               title={entry.title}
@@ -271,7 +273,9 @@ function MenuPanel(props: {
             >
               <span>{labelOf(entry)}</span>
               <Show when={keysOf(entry)}>
-                {(keys) => <span class="context-menu-keys">{keys()}</span>}
+                {(keys) => (
+                  <span class="context-menu-keys ui-kbd ui-kbd-plain ui-row-end">{keys()}</span>
+                )}
               </Show>
             </button>
           )
@@ -283,8 +287,8 @@ function MenuPanel(props: {
             <MenuPanel
               runCommand={props.runCommand}
               entries={flyout().entries}
-              x={flyout().rect.right - 3}
-              y={flyout().rect.top - 4}
+              x={flyout().rect.right - 4}
+              y={flyout().rect.top - 5}
               anchorRect={flyout().rect}
               autoFocus={autoFocusChild()}
               closeAll={props.closeAll}

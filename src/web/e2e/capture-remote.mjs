@@ -69,7 +69,7 @@ async function tour(page, localWorkspace, runnerUrl) {
   await inputs.nth(1).fill(runnerUrl);
   await inputs.nth(2).fill(RUNNER_TOKEN);
   await settle(1200);
-  await page.locator(".session-prompt-btn-primary").click();
+  await page.locator(".ui-button-primary").click();
 
   // 4. Pick the now-available remote location.
   await page.locator(".session-prompt-select").waitFor({ timeout: 15_000 });
@@ -78,7 +78,7 @@ async function tour(page, localWorkspace, runnerUrl) {
   await settle(800);
   await page.locator(".session-prompt-input").fill("remote-feature");
   await settle(800);
-  await page.locator(".session-prompt-btn-primary").click();
+  await page.locator(".ui-button-primary").click();
 
   // 5. The remote-badged chip joins the rail; the worktree was created on the runner.
   await page.locator(".session-chip.remote").first().waitFor({ timeout: 30_000 });

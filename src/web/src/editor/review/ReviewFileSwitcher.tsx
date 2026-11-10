@@ -134,14 +134,14 @@ export function ReviewFileSwitcher(props: {
                     {...nav.row(index())}
                     type="button"
                     role="treeitem"
-                    class="tb-omnibar-row tb-tree-row file-tree-row"
+                    class="tb-omnibar-row tb-tree-row file-tree-row ui-row"
                     classList={{
                       dir: row.node.kind === "directory",
                       selected: index() === nav.index(),
                       current: entry() !== undefined && entry()!.index === props.current(),
                       reviewed: entry() !== undefined && isReviewed(entry()!.file),
                     }}
-                    style={`padding-left:${10 + row.depth * 14}px`}
+                    style={`padding-left:${8 + row.depth * 14}px`}
                     aria-selected={index() === nav.index()}
                     title={row.node.key}
                     // mousedown keeps the focus (and the keyboard) in the filter box.

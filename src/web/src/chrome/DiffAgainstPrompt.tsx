@@ -1,7 +1,7 @@
-import { createSignal, type JSX } from "solid-js";
+import { createSignal, type JSX, Show } from "solid-js";
 import { type ClientSession, requestDiffRefs } from "../bridge";
 import { BranchTypeahead } from "./BranchTypeahead";
-import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
+import { ModalShell, PromptButton } from "./ModalShell";
 
 // Prompt for "Diff Against…": name the ref to review the working tree against — a typeahead over the active
 // session's local and remote-tracking branches (main, origin/main), or any typed commit-ish (a tag, a SHA,
@@ -31,14 +31,30 @@ export function DiffAgainstPrompt(props: {
   };
 
   return (
-    <ModalShell labelledBy="diff-against-title" onDismiss={props.onCancel} class="session-prompt">
-      <div class="confirm-title" id="diff-against-title">
-        Diff against
-      </div>
-      <div class="confirm-body">
-        Review the working tree's changes against a branch, tag, or commit (from its merge-base with
-        HEAD).
-      </div>
+    <ModalShell
+      title="Diff against"
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onCancel}
+          />
+          <PromptButton
+            label="Diff"
+            shortcut="Enter"
+            title={`Diff against ${ref().trim() || defaultRef() || "the typed ref"} (Enter)`}
+            onClick={() => pick(ref().trim())}
+            disabled={!ref().trim() && defaultRef() === null}
+            primary
+          />
+        </>
+      }
+      onDismiss={props.onCancel}
+      class="session-prompt"
+    >
+      <div class="confirm-body">Changes since the merge-base with HEAD</div>
       <div class="session-prompt-field">
         <BranchTypeahead
           idPrefix="diff-against"
@@ -51,18 +67,11 @@ export function DiffAgainstPrompt(props: {
           onCancel={() => props.onCancel()}
         />
       </div>
-      <div role="alert">{error()}</div>
-      <PromptActions>
-        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
-        <PromptButton
-          label="Diff"
-          shortcut="Enter"
-          title={`Diff against ${ref().trim() || defaultRef() || "the typed ref"} (Enter)`}
-          onClick={() => pick(ref().trim())}
-          disabled={!ref().trim() && defaultRef() === null}
-          primary
-        />
-      </PromptActions>
+      <Show when={error()}>
+        <div class="session-prompt-error" role="alert">
+          {error()}
+        </div>
+      </Show>
     </ModalShell>
   );
 }

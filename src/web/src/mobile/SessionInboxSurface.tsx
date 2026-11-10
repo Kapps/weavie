@@ -142,12 +142,12 @@ export function SessionInboxSurface(props: {
       <div class="session-inbox-dialog" ref={dialog}>
         <button
           type="button"
-          class="session-inbox-close"
+          class="session-inbox-close ui-icon-button"
           aria-label="Close Sessions"
           title="Close Sessions (Esc)"
           onClick={() => props.onDismiss()}
         >
-          <X size={16} aria-hidden="true" />
+          <X aria-hidden="true" />
         </button>
         {props.children}
       </div>

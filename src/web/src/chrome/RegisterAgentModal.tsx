@@ -1,6 +1,6 @@
 import { createSignal, type JSX } from "solid-js";
 import { log } from "../bridge";
-import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
+import { ModalShell, modalSubmitKeys, PromptButton } from "./ModalShell";
 import { addAgent, type RemoteAgent } from "./remote-agents";
 
 // Register a remote agent (name + runner control-plane URL/token). On save we persist and connect, so it
@@ -47,20 +47,32 @@ export function RegisterAgentModal(props: {
   const onKeyDown = modalSubmitKeys(() => void save(), props.onClose);
   return (
     <ModalShell
-      labelledBy="register-agent-title"
+      title="Add remote agent"
+      actions={
+        <>
+          <PromptButton
+            label="Cancel"
+            shortcut="Esc"
+            title="Cancel (Esc)"
+            onClick={props.onClose}
+          />
+          <PromptButton
+            label={busy() ? "Connecting…" : "Add"}
+            shortcut="Enter"
+            title="Save + connect (Enter)"
+            onClick={() => void save()}
+            disabled={!canSave()}
+            primary
+          />
+        </>
+      }
       onDismiss={props.onClose}
       onKeyDown={onKeyDown}
       class="session-prompt"
     >
-      <div class="confirm-title" id="register-agent-title">
-        Add remote agent
-      </div>
-      <div class="confirm-body">
-        Point Weavie at a remote runner. URL + token are printed in the runner's console at startup
-        (reachable over Tailscale, e.g. http://your-host:8800).
-      </div>
+      <div class="confirm-body">The runner prints its URL and token at startup</div>
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="name (e.g. devbox)"
         spellcheck={false}
@@ -70,7 +82,7 @@ export function RegisterAgentModal(props: {
         ref={(el) => queueMicrotask(() => el.focus())}
       />
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="runner URL (http://host:8800)"
         spellcheck={false}
@@ -79,7 +91,7 @@ export function RegisterAgentModal(props: {
         onInput={(e) => setUrl(e.currentTarget.value)}
       />
       <input
-        class="session-prompt-input"
+        class="session-prompt-input ui-field ui-field-mono"
         type="text"
         placeholder="runner token"
         spellcheck={false}
@@ -88,17 +100,6 @@ export function RegisterAgentModal(props: {
         onInput={(e) => setToken(e.currentTarget.value)}
       />
       {error() !== null ? <div class="session-prompt-error">{error()}</div> : null}
-      <PromptActions>
-        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onClose} />
-        <PromptButton
-          label={busy() ? "Connecting…" : "Add"}
-          shortcut="Enter"
-          title="Save + connect (Enter)"
-          onClick={() => void save()}
-          disabled={!canSave()}
-          primary
-        />
-      </PromptActions>
     </ModalShell>
   );
 }

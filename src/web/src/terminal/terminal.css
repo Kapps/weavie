@@ -26,9 +26,6 @@
 }
 
 .shell-tab-close {
-  flex: 0 0 auto;
-  margin-right: 0.35em;
-  padding: 0.1em;
   color: var(--dim);
 }
 
@@ -37,7 +34,9 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
+  padding: 0 8px;
   border: none;
+  border-right: 1px solid var(--border);
   background: transparent;
   color: var(--dim);
   cursor: pointer;
@@ -52,11 +51,6 @@
 .shell-tab-close:hover,
 .shell-tab-new:hover {
   color: var(--fg);
-}
-
-.shell-tab-new {
-  padding: 0 0.65em;
-  border-right: 1px solid var(--border);
 }
 
 .shell-tabs .pane-shortcut {

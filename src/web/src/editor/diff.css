@@ -1,75 +1,4 @@
-/* Diff surfaces: the standalone Monaco diff overlay and the inline in-editor diff (inline-diff.ts). */
-
-.diff-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  z-index: 20;
-}
-
-.diff-bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
-}
-
-.diff-title {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.diff-path {
-  color: var(--dim);
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.diff-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.diff-actions button {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 12px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.diff-actions .diff-mode {
-  background: var(--bar);
-  color: var(--fg);
-}
-
-.diff-actions .diff-mode:hover {
-  border-color: var(--accent);
-}
-
-.diff-actions .keep {
-  background: color-mix(in srgb, var(--diff-added) 28%, var(--bg));
-  border-color: var(--diff-added);
-  color: var(--fg);
-}
-
-.diff-actions .reject {
-  background: color-mix(in srgb, var(--diff-removed) 28%, var(--bg));
-  border-color: var(--diff-removed);
-  color: var(--fg);
-}
-
-.diff-editor {
-  flex: 1 1 auto;
-  min-height: 0;
-}
+/* The inline in-editor diff (inline-diff.ts) and its review widgets. */
 
 /* Inline diff rendered inside the live editor (no standalone diff viewer): green added lines, red removed
    "ghost" view-zones in place, char-level highlights, and a floating Accept/Reject(/Undo) toolbar. All
@@ -93,12 +22,13 @@
 }
 
 /* A wholly-new file: the whole file is added, so per-line green (wash + char overlay) would slab the editor. It
-   gets only the continuous gutter edge above plus this header band — the file's single green signal, named once. */
+   gets only the continuous gutter edge above plus this header band — the file's single green signal, named once.
+   The 20px tag (16px line + padding + border) is centred in the 24px zone (NEW_FILE_BADGE_HEIGHT). */
 .weavie-inline-newfile {
   display: flex;
   align-items: center;
   padding-left: 12px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font: var(--font-chrome-secondary);
 }
 
 .weavie-inline-newfile-tag {
@@ -107,8 +37,7 @@
   border-radius: 5px;
   background: color-mix(in srgb, var(--diff-added) 20%, transparent);
   color: var(--diff-added);
-  font-size: var(--font-hint-size);
-  font-weight: 600;
+  font-weight: var(--font-weight-emphasis);
 }
 
 /* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
@@ -166,17 +95,15 @@
 }
 
 /* The inline per-hunk tags hugging a hunk's first line (Monaco content widgets): "✓ accepted · ↶ undo" on a
-   faded hunk, "✓ keep · ✕ revert" on a bright pending one. Sans-serif so they read as chrome, not code;
+   faded hunk, "✓ keep · ✕ revert" on a bright pending one. The chrome face so they read as chrome, not code;
    pointer-events on so the buttons are clickable over the editor. */
 .weavie-inline-accepted-tag,
 .weavie-inline-pending-tag {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-left: 12px;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: var(--font-hint-size);
-  line-height: 1.4;
+  font: var(--font-chrome-secondary);
   white-space: nowrap;
   pointer-events: auto;
 }
@@ -189,7 +116,6 @@
 .weavie-inline-accepted-undo,
 .weavie-inline-pending-keep,
 .weavie-inline-pending-revert {
-  font: inherit;
   padding: 1px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -235,35 +161,15 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font: var(--font-chrome-body);
 }
 
-.weavie-inline-toolbar button {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 12px;
-  font: inherit;
-  white-space: nowrap;
-  cursor: pointer;
+.weavie-inline-toolbar :is(.weavie-inline-nav, .weavie-inline-file, .weavie-inline-hist) {
+  padding-inline: 8px;
 }
 
-.weavie-inline-toolbar .weavie-inline-nav {
-  padding: 3px 8px;
-  background: transparent;
-  color: var(--fg);
-}
-
-.weavie-inline-toolbar .weavie-inline-nav:hover {
-  border-color: var(--accent);
-}
-
-/* Post-turn review (applied mode): the FILE axis — ← / → step the review set. */
-.weavie-inline-toolbar .weavie-inline-file {
-  padding: 3px 8px;
-  background: transparent;
-  color: var(--fg);
-}
-
-.weavie-inline-toolbar .weavie-inline-file:hover {
+.weavie-inline-toolbar
+  :is(.weavie-inline-nav, .weavie-inline-file, .weavie-inline-hist):hover:not(:disabled) {
   border-color: var(--accent);
 }
 
@@ -273,18 +179,16 @@
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  line-height: 1.18;
   padding: 0 6px;
 }
 
 .weavie-inline-toolbar .weavie-inline-stack-name {
   color: var(--fg);
-  font-size: 12px;
 }
 
 .weavie-inline-toolbar .weavie-inline-stack-sub {
   color: var(--dim);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
   white-space: nowrap;
 }
 
@@ -322,29 +226,11 @@
 .weavie-inline-toolbar .weavie-inline-accept {
   background: color-mix(in srgb, var(--diff-added) 28%, var(--bg));
   border-color: var(--diff-added);
-  color: var(--fg);
 }
 
 .weavie-inline-toolbar .weavie-inline-reject {
   background: color-mix(in srgb, var(--diff-removed) 28%, var(--bg));
   border-color: var(--diff-removed);
-  color: var(--fg);
-}
-
-/* Undo / redo of review actions: ghost buttons like the nav arrows, dimmed when there's nothing to do. */
-.weavie-inline-toolbar .weavie-inline-hist {
-  padding: 3px 8px;
-  background: transparent;
-  color: var(--fg);
-}
-
-.weavie-inline-toolbar .weavie-inline-hist:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.weavie-inline-toolbar button:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* Scope picker: a `Scope: <X> ▾` toggle over a Keep/Revert dropdown. The accent border marks it as the
@@ -355,9 +241,7 @@
 }
 
 .weavie-inline-toolbar .weavie-inline-scope-btn {
-  background: transparent;
   border-color: var(--accent);
-  color: var(--fg);
 }
 
 .weavie-inline-scope-menu {
@@ -378,24 +262,16 @@
 
 .weavie-inline-scope-head {
   padding: 3px 8px 4px;
-  color: var(--dim);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
+/* The hover border sits inside the row's 26px height. */
 .weavie-inline-scope-menu .weavie-inline-scope-item {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  width: 100%;
-  padding: 6px 10px;
-  border-color: transparent;
-  background: transparent;
+  padding-block: calc(var(--row-pad-y) - 1px);
+  border: 1px solid transparent;
+  border-radius: 4px;
   color: var(--fg);
-  text-align: left;
 }
 
 .weavie-inline-scope-menu .weavie-inline-scope-item:hover {
@@ -408,5 +284,5 @@
 
 .weavie-inline-scope-count {
   color: var(--dim);
-  font-size: var(--font-hint-size);
+  font: var(--font-chrome-secondary);
 }

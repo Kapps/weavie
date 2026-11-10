@@ -87,6 +87,7 @@ export function TranscriptEntry(props: {
             {(message) => (
               <div class="agent-choice-dismiss">
                 <DismissButtons
+                  buttonClass=""
                   session={props.session}
                   message={message()}
                   answersToKeys={props.entry.id === props.keyboardRequestKey}

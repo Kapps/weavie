@@ -154,7 +154,7 @@ function RecentFilesMenu(props: {
     <Portal>
       <div class="recent-menu" ref={panelEl}>
         <input
-          class="recent-search"
+          class="recent-search ui-field"
           ref={inputEl}
           type="text"
           placeholder="Search recent files…"
@@ -177,14 +177,14 @@ function RecentFilesMenu(props: {
                 <button
                   {...nav.row(index())}
                   type="button"
-                  class="recent-row"
+                  class="recent-row ui-row"
                   classList={{ selected: index() === nav.index() }}
                   title={row.abs}
                   onClick={() => props.onChoose(row.abs)}
                 >
                   <span class="recent-name">{row.leaf}</span>
                   <Show when={row.dir.length > 0}>
-                    <span class="recent-dir">{row.dir}</span>
+                    <span class="recent-dir ui-row-desc">{row.dir}</span>
                   </Show>
                 </button>
               )}

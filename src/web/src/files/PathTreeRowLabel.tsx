@@ -10,21 +10,26 @@ export function PathTreeRowLabel<T>(props: {
 }): JSX.Element {
   return (
     <>
-      <span class="tb-tree-twisty" aria-hidden="true">
+      <span class="tb-tree-twisty ui-icon" aria-hidden="true">
         <Show when={props.node.kind === "directory"}>
           <Show when={props.expanded} fallback={<ChevronRight />}>
             <ChevronDown />
           </Show>
         </Show>
       </span>
-      <span class="tb-tree-icon file-tree-icon" aria-hidden="true">
+      <span class="tb-tree-icon file-tree-icon ui-icon" aria-hidden="true">
         <Show when={props.node.kind === "directory"} fallback={<FileIcon />}>
           <Show when={props.expanded} fallback={<Folder />}>
             <FolderOpen />
           </Show>
         </Show>
       </span>
-      <span class="tb-row-leaf file-tree-name">{props.children}</span>
+      <span
+        class="tb-row-leaf file-tree-name"
+        classList={{ "ui-section-label": props.node.kind === "directory" }}
+      >
+        {props.children}
+      </span>
     </>
   );
 }

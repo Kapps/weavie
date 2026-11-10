@@ -77,13 +77,14 @@ export function ApprovalActions(props: {
     return (
       <button
         type="button"
+        class="ui-button"
         classList={{ default: bound().get(value) === CommandIds.agentApprove }}
         title={key() === "" ? label : `${label} (${key()})`}
         onClick={() => choose(value)}
       >
         {label}
         <Show when={key() !== ""}>
-          <kbd class="agent-key-chip">{key()}</kbd>
+          <kbd class="agent-key-chip ui-kbd">{key()}</kbd>
         </Show>
       </button>
     );
@@ -123,6 +124,7 @@ export function AuthenticationActions(props: {
         {(action) => (
           <button
             type="button"
+            class="ui-button"
             title={
               props.answersToKeys &&
               action.id === firstId() &&

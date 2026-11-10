@@ -41,8 +41,7 @@ public sealed partial class HostSession {
 				return;
 			}
 
-			var controls = Agent.Controls ?? throw new AgentControlException("This session's agent has no controls a stage can set.");
-			var axes = controls.ControlState.Axes;
+			var axes = StageControls.ControlState.Axes;
 			var held = new Dictionary<string, string>(StringComparer.Ordinal);
 			if (WorkflowAgentControls.Model(kickoff.Opens, agent, axes) is { } model) held[model.Axis] = model.Value;
 			foreach (var (axis, value) in agent.Options) held[axis] = value;
@@ -71,22 +70,25 @@ public sealed partial class HostSession {
 	// Model first, because the options an agent advertises depend on it. Every axis the stage doesn't set returns to
 	// the session's own value where the agent advertises it; without an agent, every axis does.
 	private async Task HoldAsync(WorkflowHold hold, string stage, WorkflowAgent? agent, string subject) {
-		var controls = Agent.Controls ?? throw new AgentControlException("This session's agent has no controls a stage can set.");
+		var controls = StageControls;
 		var before = controls.ControlState.Axes;
 		var held = agent is null ? [] : hold.Held;
 		var model = WorkflowAgentControls.ModelAxis(before);
 		await controls.ApplyControlsAsync([.. Targets(hold.Own, held, before.Where(a => a == model))]).ConfigureAwait(false);
 		var axes = controls.ControlState.Axes;
-		var options = agent is null ? [] : WorkflowAgentControls.Options(stage, agent, axes);
-		var picks = Targets(hold.Own, held, axes.Where(a => a != WorkflowAgentControls.ModelAxis(axes) && options.All(o => o.Axis != a.Id)));
-		await controls.ApplyControlsAsync([.. options, .. picks]).ConfigureAwait(false);
+		if (agent is not null) WorkflowAgentControls.CheckOptions(stage, agent, axes);
+		model = WorkflowAgentControls.ModelAxis(axes);
+		await controls.ApplyControlsAsync([.. Targets(hold.Own, held, axes.Where(a => a != model))]).ConfigureAwait(false);
 		var after = controls.ControlState.Axes;
 		if (!after.Select(a => a.Value).SequenceEqual(before.Select(a => a.Value))) {
 			Agent.Structured?.Notice(WorkflowAgentControls.Line(subject, after, held.Keys));
 		}
 	}
 
-	// A held value is the stage's to have refused; an own value the agent no longer advertises simply doesn't apply.
+	private IStructuredAgentControls StageControls =>
+		Agent.Controls ?? throw new AgentControlException("This session's agent has no controls a stage can set.");
+
+	// A held value wins and was checked when the stage opened; an own value the agent doesn't advertise now doesn't apply.
 	private static IEnumerable<AgentControlValue> Targets(
 		Dictionary<string, string> own, IReadOnlyDictionary<string, string> held, IEnumerable<AgentControlAxis> axes) =>
 		axes.Where(WorkflowAgentControls.Changeable).SelectMany<AgentControlAxis, AgentControlValue>(axis =>

@@ -67,9 +67,21 @@ The owner keeps only process-level state: the connection, `initialize` and the a
 traffic), the journal, and the conversation set. Launch failures are the owner's, because an unattached
 primary has no endpoint to receive them.
 
+## Controls
+
+A conversation's control changes reach the agent one request at a time, in the order they were asked for. A pick
+from the pane is remembered as the user's default for the provider. An awaited batch (`ApplyControlsAsync`) is not:
+it completes once the agent confirms each change, checks each against what the agent advertises when it is reached
+(the options depend on the model), skips a value already in effect, and faults without failing the runtime when a
+value isn't offered or the agent refuses it. The batch is bound to the conversation's lifetime, so replacing the
+conversation faults it. A conversation opens on the user's defaults overlaid with the values the host holds
+(`IAgentControlHold`), model first, before it turns ready.
+
 ## Locking
 
-The order is transition gate → owner gate → conversation gate. Never take an outer lock while holding an
+The order is transition gate → owner gate → conversation gate, and the transition gate comes before a workflow
+runner's lock, which the held control values and the stage block read; the host never calls into a session while
+holding the runner's lock. Never take an outer lock while holding an
 inner one, and never hold any of them across an await. The transition gate is one reentrant lock per
 process owner, shared into every conversation; it serialises transitions, port detachment, and every port
 call, so port calls happen with no inner lock held. A request's own state lock is a leaf: a request card

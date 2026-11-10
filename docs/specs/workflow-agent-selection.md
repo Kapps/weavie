@@ -1,6 +1,8 @@
 # Workflow agent selection
 
-Status: design — not built. Extends [workflows.md](workflows.md).
+Status: partially built. `agents`, a `run` step's `agent`, and `continue` on the session's own provider run end to end
+in native ACP sessions; `context` (`fork`, `fresh`), another provider's steps, `check`, and run history are not built.
+Extends [workflows.md](workflows.md).
 
 ## Purpose
 
@@ -21,7 +23,7 @@ agents:
     options: { reasoning_effort: high }   # optional; the provider's config option ids and values
 ```
 
-A step's `agent` (on `run` or `check`) is one of those names; a step can't define an agent inline. A step with no
+A step's `agent` (on `run`; `check` takes one too once it exists) is one of those names; a step can't define an agent inline. A step with no
 `agent` runs on the **session's own model**: the one the session had outside the run. A workflow whose `continue` or
 `fork` step uses an agent runs only in that agent's provider's sessions, and says so when refused.
 
@@ -74,15 +76,24 @@ session is never recreated.
   generated handoff summary.
 
 Model is applied first and each option after it, validated against what the agent advertises at that moment, because
-the available options depend on the model.
+the available options depend on the model. Every axis the step doesn't set returns to the session's own value where
+the agent advertises it, so a step never inherits the previous step's options.
 
 ## The session's own model
 
 - A workflow change is never remembered as the user's default for that provider. Only the picker remembers.
-- When a run ends or is cancelled, or a `continue` step names nothing, the conversation returns to the session's own
-  values for every axis the run changed. The run persists those values, so a restart mid-run restores them too.
-- The picker still works during a run. Used while a step's `agent` is in effect, it changes that step only; used
-  otherwise, it changes the session's own model.
+- The run persists one **hold**: the session's own value of every axis outside the `mode` category, recorded when a
+  step first takes an agent, and the values the open step holds over them (its agent's model and options, plus any
+  picks made during it). The hold is recorded before the change is applied. Every conversation that opens while the
+  run is live (a restart, `/clear`, Rewind, a reload after a host restart) opens on the user's defaults overlaid with
+  the held values, model first.
+- When a `continue` step names nothing, the conversation returns to the session's own values before its turn and the
+  run stops holding any. When a run ends or is cancelled, it returns once the session is idle; a failed return is
+  shown as an error and the hold is dropped. A run that ended without returning, because the host stopped first,
+  holds nothing on reload: the reopened conversation is already on the user's defaults.
+- The picker still works during a run. Used while a live run holds values, it changes that step only; used
+  otherwise, it changes the session's own value, and updates the hold's own value when an ended run hasn't returned
+  yet. Options in the `mode` category always change the session's own value.
 
 ## Refusals
 
@@ -91,10 +102,15 @@ Nothing is substituted. Each refusal names the step, what it asked for, and what
 | When | Refused |
 | --- | --- |
 | Load (`validateWorkflow`) | an `agents` entry that isn't `provider`, `model`, `options`, or that omits `provider`; a step `agent` that names no entry |
-| Run start | any step with an `agent` on a terminal Claude session (use the Claude ACP agent); `continue`, `fork`, or an unwritten `context` on a step whose agent's provider differs from the session's; an unknown or unavailable provider; a model or option the session's provider doesn't advertise |
-| Step open | a model, option, or value the conversation no longer advertises; an option in the provider's `mode` category |
+| Run start | any step with an `agent` on a terminal Claude session (use the Claude ACP agent); a step whose agent's provider differs from the session's, which covers an unknown or unavailable provider; a model the session's provider doesn't advertise; an option in the `mode` category; an unknown option or value on a step whose model is the one in effect |
+| Step open | a model, option, or value the conversation doesn't advertise at that moment |
 
 A refusal at run start leaves no run. A refusal at step open pauses the run with the reason.
+
+The options an agent advertises depend on its model, so a step that switches the model has its options checked when it
+opens, after the switch. A run started by `weavie.session.new` starts before the new session's agent advertises
+anything: only a terminal session or a provider mismatch is refused up front, before a worktree exists, and every
+other problem pauses the run when its first stage opens.
 
 Options in the `mode` category (permission and sandbox modes) are refused because a repository's workflow file must
 not raise what the agent may do without asking.
@@ -105,8 +121,10 @@ which is the authoritative list.
 ## Visibility
 
 - The pane's model control shows the running model with no new UI: the switch goes through the same control state.
-- Each switch on the session's conversation adds one transcript line: `Workflow: implement runs on Opus 5.5`.
-- The header's run tooltip adds the step's agent when it differs from the session's own.
+- Each change on the session's conversation adds one transcript line naming the model and every option the step sets:
+  `Workflow: implement runs on Opus 5.5, Effort High`, and at the end `Workflow: spec-then-build ended, back on Fable 5.1`.
+- The header's run tooltip adds the step's agent when it holds values over the session's own:
+  `spec-then-build · build on builder · working`.
 - Background steps show their provider and model on their background-work card.
 - The session list is unchanged.
 
@@ -118,15 +136,25 @@ currency, and Weavie keeps no price table.
 
 ## Architecture
 
-The engine stays provider-free. A step's resolved agent travels on the `WorkflowKickoff` the runner hands to
-`IWorkflowRunPort`; the session applies it before sending the turn and fails the stage through the existing
-turn-failure path. `IStructuredAgentControls` gains an awaited, unremembered way to apply a set of control values,
-beside the picker's `SetControl`. Background steps apply the same values when their `AcpConversation` opens.
+The engine stays provider-free: it reads `agents` as opaque provider ids, persists the hold it is handed, and asks its
+port to refuse a definition before a run exists (`IWorkflowRunPort.Refusal`, called outside the runner's lock). Each
+`WorkflowKickoff` names the stage it opens (`Opens`, empty for a question or a turn within the stage); the session
+looks up that stage's agent with `WorkflowRunner.AgentOf`. `WorkflowAgentControls` in Core is the one place that
+checks agents against the advertised axes and words refusals.
+
+`HostSession` opens a stage, returns an ended run, and handles a pick behind one gate, never while holding the
+runner's lock. The stage's turn is delivered only while the session is idle; before sending it the session records the
+hold and calls `IStructuredAgentControls.ApplyControlsAsync`, an awaited, unremembered batch beside the picker's
+`SetControl` on the same ordered queue. It completes once the agent confirms each change, faults with the advertised
+values when one isn't offered at that moment, and faults when the conversation is replaced first. A fault fails the
+stage through the existing turn-failure path. The conversation reads the held values from `IAgentControlHold` when it
+opens, as it reads the stage block from `IAgentTurnContext`. Background steps will apply the same values when their
+`AcpConversation` opens.
 
 ```mermaid
 flowchart LR
   Stage[Stage opens] --> Where{context}
-  Where -- continue --> Live[Set model, then options<br/>on the session's conversation]
+  Where -- continue --> Live[Record the hold, then set model,<br/>then options on the session's conversation]
   Where -- fork / fresh --> Own[Open the step's own conversation<br/>and set model, then options]
   Live --> Ok{confirmed?}
   Own --> Ok

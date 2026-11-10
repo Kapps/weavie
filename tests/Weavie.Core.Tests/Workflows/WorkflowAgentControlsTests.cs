@@ -7,7 +7,10 @@ namespace Weavie.Core.Tests.Workflows;
 
 public sealed class WorkflowAgentControlsTests {
 	private static readonly AgentProviderInfo Acp = new() {
-		Id = "fake-acp", Name = "Fake ACP", Capabilities = AgentProviderCapabilities.StructuredPane, Available = true,
+		Id = "fake-acp",
+		Name = "Fake ACP",
+		Capabilities = AgentProviderCapabilities.StructuredPane,
+		Available = true,
 	};
 
 	private static readonly IReadOnlyList<AgentControlAxis> Axes = [
@@ -17,17 +20,28 @@ public sealed class WorkflowAgentControlsTests {
 	];
 
 	private static AgentControlAxis Axis(string id, string? category, string value, params string[] options) => new() {
-		Id = id, Label = char.ToUpperInvariant(id[0]) + id[1..], Category = category, Kind = "select", Value = value,
+		Id = id,
+		Label = char.ToUpperInvariant(id[0]) + id[1..],
+		Category = category,
+		Kind = "select",
+		Value = value,
 		ValueLabel = char.ToUpperInvariant(value[0]) + value[1..],
 		Options = [.. options.Select(o => new AgentControlOption { Id = o, Label = char.ToUpperInvariant(o[0]) + o[1..] })],
 	};
 
 	private static WorkflowAgent Agent(string? model, params (string Id, string Value)[] options) => new() {
-		Name = "builder", Provider = "fake-acp", Model = model, Options = options.ToDictionary(o => o.Id, o => o.Value),
+		Name = "builder",
+		Provider = "fake-acp",
+		Model = model,
+		Options = options.ToDictionary(o => o.Id, o => o.Value),
 	};
 
 	private static WorkflowDefinition Definition(WorkflowAgent agent) => new() {
-		Id = "flow", Description = "d", Inputs = [], Agents = [agent], SourceText = "",
+		Id = "flow",
+		Description = "d",
+		Inputs = [],
+		Agents = [agent],
+		SourceText = "",
 		Stages = [
 			new WorkflowStage {
 				Id = "build", If = null, Then = new WorkflowThen.Sequential(),
@@ -52,7 +66,7 @@ public sealed class WorkflowAgentControlsTests {
 	public void OptionsOfAnotherModelWaitForTheStageToOpen() {
 		var agent = Agent("beta", ("effort", "high"));
 		Assert.Null(WorkflowAgentControls.Refusal(Definition(agent), Acp, Axes));
-		var error = Assert.Throws<AgentControlException>(() => WorkflowAgentControls.Options("build", agent, Axes));
+		var error = Assert.Throws<AgentControlException>(() => WorkflowAgentControls.CheckOptions("build", agent, Axes));
 		Assert.Contains("\"effort\", which the agent doesn't advertise", error.Message, StringComparison.Ordinal);
 	}
 
@@ -71,11 +85,11 @@ public sealed class WorkflowAgentControlsTests {
 	}
 
 	[Fact]
-	public void TheModelComesFromTheModelCategoryAndOptionsKeepTheirOrder() {
+	public void TheModelComesFromTheModelCategory() {
 		var agent = Agent("beta", ("fast", "true"));
 		Assert.Equal(new AgentControlValue("model", "beta"), WorkflowAgentControls.Model("build", agent, Axes));
 		Assert.Null(WorkflowAgentControls.Model("build", Agent(null), Axes));
-		Assert.Equal([new AgentControlValue("fast", "true")], WorkflowAgentControls.Options("build", agent, Axes));
+		WorkflowAgentControls.CheckOptions("build", agent, Axes);
 		Assert.Throws<AgentControlException>(() => WorkflowAgentControls.Model("build", agent, [Axes[2]]));
 	}
 

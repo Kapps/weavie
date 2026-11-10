@@ -29,9 +29,8 @@ public static class WorkflowAgentControls {
 					? $"Stage \"{stage.Id}\" runs on agent \"{name}\" of provider {agent.Provider}, so workflow {definition.Id} runs "
 						+ $"only in {agent.Provider} sessions; this session runs {provider.Id}."
 					: axes is null ? null
-					: ModelProblem(stage.Id, agent, axes) ?? agent.Options
-						.Select(o => OptionProblem(stage.Id, o.Key, o.Value, axes, agent.Model is null || agent.Model == ModelAxis(axes)?.Value))
-						.FirstOrDefault(p => p is not null);
+					: ModelProblem(stage.Id, agent, axes)
+						?? OptionsProblem(stage.Id, agent, axes, agent.Model is null || agent.Model == ModelAxis(axes)?.Value);
 			if (problem is not null) return problem;
 		}
 
@@ -45,14 +44,12 @@ public static class WorkflowAgentControls {
 		return agent.Model is null ? null : new AgentControlValue(ModelAxis(axes)!.Id, agent.Model);
 	}
 
-	/// <summary>The options <paramref name="agent"/> sets for stage <paramref name="stage"/>, checked against <paramref name="axes"/>.</summary>
-	public static IReadOnlyList<AgentControlValue> Options(string stage, WorkflowAgent agent, IReadOnlyList<AgentControlAxis> axes) {
+	/// <summary>Throws <see cref="AgentControlException"/> when <paramref name="axes"/> don't offer an option <paramref name="agent"/> sets.</summary>
+	public static void CheckOptions(string stage, WorkflowAgent agent, IReadOnlyList<AgentControlAxis> axes) {
 		ArgumentNullException.ThrowIfNull(agent);
-		if (agent.Options.Select(o => OptionProblem(stage, o.Key, o.Value, axes, true)).FirstOrDefault(p => p is not null) is { } problem) {
+		if (OptionsProblem(stage, agent, axes, true) is { } problem) {
 			throw new AgentControlException(problem);
 		}
-
-		return [.. agent.Options.Select(o => new AgentControlValue(o.Key, o.Value))];
 	}
 
 	/// <summary>The model axis, or <see langword="null"/> when the agent advertises none.</summary>
@@ -83,6 +80,9 @@ public static class WorkflowAgentControls {
 		: ModelAxis(axes) is not { } axis ? $"Stage \"{stage}\" asks for model \"{model}\", but the agent advertises no model option."
 		: axis.Options.Any(o => o.Id == model) ? null
 		: $"Stage \"{stage}\" asks for model \"{model}\"; the agent advertises {Ids(axis.Options.Select(o => o.Id))}.";
+
+	private static string? OptionsProblem(string stage, WorkflowAgent agent, IReadOnlyList<AgentControlAxis> axes, bool current) =>
+		agent.Options.Select(o => OptionProblem(stage, o.Key, o.Value, axes, current)).FirstOrDefault(p => p is not null);
 
 	// Without the stage's model in effect only the categories are known, so an unknown option or value can't be judged yet.
 	private static string? OptionProblem(string stage, string id, string value, IReadOnlyList<AgentControlAxis> axes, bool current) =>

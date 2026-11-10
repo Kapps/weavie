@@ -10,10 +10,11 @@ internal sealed partial class AcpConversation {
 	internal void SetControl(string axis, string value) {
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
+		var mutation = new AcpControlMutation(axis, value);
 		string? unadvertised;
 		lock (_gate) {
-			unadvertised = UnadvertisedLocked(new AcpControlMutation(axis, value));
-			if (unadvertised is null) Enqueue(new AcpControlRequest([new AcpControlMutation(axis, value)], null));
+			unadvertised = UnadvertisedLocked(mutation);
+			if (unadvertised is null) Enqueue(new AcpControlRequest([mutation], null));
 		}
 		if (unadvertised is not null) EmitFailure(new AcpProtocolException(unadvertised));
 		else DispatchControlMutation();
@@ -101,11 +102,8 @@ internal sealed partial class AcpConversation {
 		bool mode;
 		lock (_gate) {
 			if (_sessionId is null) return;
-			if (!_controls.TryGetValue(mutation.Axis, out control!)
-				|| control.Options.All(option => option.Id != mutation.Value)) {
-				throw new AcpProtocolException(
-					$"ACP no longer advertises '{mutation.Value}' for the '{mutation.Axis}' control.");
-			}
+			if (UnadvertisedLocked(mutation) is { } unadvertised) throw new AcpProtocolException(unadvertised);
+			control = _controls[mutation.Axis];
 			mode = mutation.Axis == "mode" && !_configOwnsMode;
 		}
 

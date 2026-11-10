@@ -126,7 +126,10 @@ public sealed class HostCoreWorkflowAgentTests {
 		var foreign = await host.InvokeCommandAsync("wf", CoreCommands.WorkflowRun, new { workflow = "foreign" }, CancellationToken.None);
 		var terminal = await host.InvokeCommandAsync(host.WorkspaceSession.SlotId, CoreCommands.WorkflowRun, new { workflow = "agents" }, CancellationToken.None);
 		var created = await host.CreateSessionAsync(new NewSessionRequest {
-			Branch = "foreign", Base = "main", AgentProviderId = "structured", Workflow = "foreign",
+			Branch = "foreign",
+			Base = "main",
+			AgentProviderId = "structured",
+			Workflow = "foreign",
 		});
 
 		Assert.Contains("runs only in other-acp sessions; this session runs structured", foreign.Error, StringComparison.Ordinal);

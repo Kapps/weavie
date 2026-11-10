@@ -10,8 +10,12 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
   that drives both the JSON Schema and positioned diagnostics, `listWorkflows` / `getWorkflowSchema` /
   `validateWorkflow` / `forkWorkflow`, and the `author-workflow` prompt. Built-ins: `quick-fix`, `spec-driven`. A workflow's `id`
   equals its file name.
-- **Fields** — `inputs`, and stages with `if`, `run` (`prompt` or `skill`, `args`, `outputs`), and `then` (stage id,
-  `done`, or a decision with `ask`, `choices`, `limit`, `by`, `confidence`). Every other field is rejected as an unknown key.
+- **Fields** — `inputs`, `agents` (`provider`, `model`, `options`), and stages with `if`, `run` (`prompt` or `skill`,
+  `args`, `outputs`, `agent`), and `then` (stage id, `done`, or a decision with `ask`, `choices`, `limit`, `by`,
+  `confidence`). Every other field is rejected as an unknown key.
+- **Agents** — a `run` step's `agent` switches the session's conversation to that agent's model and options before the
+  stage's turn, in native ACP sessions of the agent's provider; a stage naming none and the run's end return it to the
+  session's own values. See [workflow-agent-selection.md](workflow-agent-selection.md).
 - **Runs** — a session-owned run persisted per worktree; started by `weavie.workflow.run` or `weavie.session.new`
   with `workflow` + `inputs`; the stage block on every turn; `completeStage` (outputs + summary) / `failStage`;
   Answer, Resume, Jump to Stage, and Cancel as commands taking the run id. The user answers a question by telling the
@@ -23,7 +27,7 @@ The first slice runs a workflow end to end in one session, for terminal Claude a
 - **UI** — the session list's status line shows `<stage> · <activity or run state>`; a run waiting on the user's
   answer or paused sits under *Needs you*. The agent pane header shows `● <workflow> · <stage>`.
 
-Not built yet: `check`, `context` (`fork` / `fresh`), `agent` overrides, child runs (`workflow`, `foreach`, `in`,
+Not built yet: `check`, `context` (`fork` / `fresh`), another provider's steps, child runs (`workflow`, `foreach`, `in`,
 `wait`, milestones), the new-session workflow picker, run history, suggestions, and model
 overrides on decisions.
 

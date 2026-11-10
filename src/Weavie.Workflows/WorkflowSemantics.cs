@@ -9,6 +9,9 @@ internal static class WorkflowSemantics {
 
 		var stageIds = new HashSet<string>(StringComparer.Ordinal);
 		for (int i = 0; i < definition.Stages.Count; i++) {
+			if (definition.Stages[i].Id == "run") {
+				check.Add($"stages[{i}].id", "stage id \"run\" is reserved for run references");
+			}
 			if (!stageIds.Add(definition.Stages[i].Id)) {
 				check.Add($"stages[{i}].id", $"stage id \"{definition.Stages[i].Id}\" is used twice");
 			}

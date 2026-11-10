@@ -35,7 +35,7 @@ public sealed partial class WorkflowRunner {
 			var files = new List<WorkflowFileEvidence>();
 			foreach (string path in plan.FilePaths) {
 				token.ThrowIfCancellationRequested();
-				var read = reader.Read(path);
+				var read = reader.Read(path, plan.DocumentsDirectory);
 				token.ThrowIfCancellationRequested();
 				if (read is WorkflowFileRead.Unreadable unreadable) {
 					return new WorkflowDecisionResult.Failed($"\"{path}\": {unreadable.Reason}");

@@ -37,7 +37,7 @@ public sealed class WorkflowRunnerTests : IDisposable {
 	private WorkflowRunner Runner() {
 		var runner = new WorkflowRunner(
 			TestWorkflows.Catalog(_dir.Combine("worktree"), _dir.Combine("personal")),
-			_store, _decider, new UnusedFileReader(), _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words);
+			_store, _decider, new UnusedFileReader(), _port, () => 3, () => _openReviewItem, () => _confidence, _dir.Combine("worktree"), TestWorkflows.Words, id => _dir.Combine("documents", id));
 		runner.Activate();
 		return runner;
 	}
@@ -334,6 +334,29 @@ public sealed class WorkflowRunnerTests : IDisposable {
 		Assert.Contains("provider stopped", runner.Current!.Asked!.Reason);
 	}
 
+	[Fact]
+	public async Task FailedDecisionSavePausesVisiblyAndCanResumeAfterStorageRecovers() {
+		using var runner = Runner();
+		var run = runner.Start("flow", Json("{}"));
+		runner.CompleteStage(Json("{\"note\":\"n\"}"), "s");
+		runner.Answer(run.Id, "approve", "");
+		runner.CompleteStage(Json("{}"), "s");
+		await _decider.Started.Reader.ReadAsync();
+		_store.FailWrites = true;
+		var paused = NextPhase(runner, WorkflowPhase.Paused);
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("no", 0.9));
+		await paused;
+		Assert.Contains("storage unavailable", Assert.Single(_port.Notices));
+		Assert.Equal(WorkflowPhase.Deciding, _store.Run!.Phase);
+		_store.FailWrites = false;
+		_decider.Next = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		runner.Resume(run.Id);
+		await _decider.Started.Reader.ReadAsync();
+		var done = NextPhase(runner, WorkflowPhase.Done);
+		_decider.Next.SetResult(new WorkflowDecisionResult.Answered("no", 0.9));
+		await done;
+	}
+
 	private static Task NextPhase(WorkflowRunner runner, WorkflowPhase phase) {
 		var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		void OnChanged() {
@@ -371,11 +394,16 @@ public sealed class WorkflowRunnerTests : IDisposable {
 
 		public string? LoadFailure => null;
 
-		public void Save(WorkflowRun? run) => Text = WorkflowRunDocument.Write(run);
+		public bool FailWrites { get; set; }
+
+		public void Save(WorkflowRun? run) {
+			if (FailWrites) throw new WorkflowException("storage unavailable");
+			Text = WorkflowRunDocument.Write(run);
+		}
 	}
 
 	private sealed class UnusedFileReader : IWorkflowFileReader {
-		public WorkflowFileRead Read(string relativePath) => throw new InvalidOperationException("No file read expected.");
+		public WorkflowFileRead Read(string relativePath, string documentsDirectory) => throw new InvalidOperationException("No file read expected.");
 	}
 
 	private sealed class Decider : IWorkflowDecider {

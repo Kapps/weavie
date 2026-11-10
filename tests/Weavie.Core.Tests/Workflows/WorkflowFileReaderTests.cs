@@ -14,13 +14,13 @@ public sealed class WorkflowFileReaderTests {
 		string text = new('x', 300_000);
 		text += "\nRésumé 世界 🚀 END\n";
 		File.WriteAllText(dir.Combine("document.mp4"), text, Encoding.Unicode);
-		Assert.Equal(new WorkflowFileRead.Text(text), reader.Read("./document.mp4"));
+		Assert.Equal(new WorkflowFileRead.Text(text), reader.Read("./document.mp4", Path.Combine(Path.GetTempPath(), "documents")));
 		File.WriteAllText(dir.Combine("document.mp4"), "edited", new UTF8Encoding(true));
-		Assert.Equal(new WorkflowFileRead.Text("edited"), reader.Read("document.mp4"));
+		Assert.Equal(new WorkflowFileRead.Text("edited"), reader.Read("document.mp4", Path.Combine(Path.GetTempPath(), "documents")));
 		File.WriteAllText(dir.Combine("document.mp4"), "");
-		Assert.Equal(new WorkflowFileRead.Text(""), reader.Read("document.mp4"));
+		Assert.Equal(new WorkflowFileRead.Text(""), reader.Read("document.mp4", Path.Combine(Path.GetTempPath(), "documents")));
 		File.Delete(dir.Combine("document.mp4"));
-		Assert.Equal(new WorkflowFileRead.Unreadable("file no longer exists"), reader.Read("document.mp4"));
+		Assert.Equal(new WorkflowFileRead.Unreadable("file no longer exists"), reader.Read("document.mp4", Path.Combine(Path.GetTempPath(), "documents")));
 	}
 
 	[Theory]
@@ -31,7 +31,7 @@ public sealed class WorkflowFileReaderTests {
 		var fileSystem = new InMemoryFileSystem();
 		string root = Path.GetTempPath();
 		fileSystem.WriteAllBytes(Path.Combine(root, "document.txt"), bytes);
-		Assert.Equal(new WorkflowFileRead.Unreadable("not readable text"), new WorkflowFileReader(fileSystem, root).Read("document.txt"));
+		Assert.Equal(new WorkflowFileRead.Unreadable("not readable text"), new WorkflowFileReader(fileSystem, root).Read("document.txt", Path.Combine(Path.GetTempPath(), "documents")));
 	}
 
 	[Theory]
@@ -41,15 +41,15 @@ public sealed class WorkflowFileReaderTests {
 	[InlineData("io", "file could not be read")]
 	public void ExpectedFailuresReturnSafeReasons(string failure, string expected) {
 		var reader = new WorkflowFileReader(new FailingFileSystem(failure), Path.GetTempPath());
-		Assert.Equal(new WorkflowFileRead.Unreadable(expected), reader.Read("document.txt"));
+		Assert.Equal(new WorkflowFileRead.Unreadable(expected), reader.Read("document.txt", Path.Combine(Path.GetTempPath(), "documents")));
 	}
 
 	[Theory]
 	[InlineData("../outside.txt")]
 	[InlineData("\u0000")]
 	public void InvalidPathsDoNotReachTheFilesystem(string path) =>
-		Assert.Equal(new WorkflowFileRead.Unreadable("not a file path inside the worktree"),
-			new WorkflowFileReader(new FailingFileSystem("unexpected"), Path.GetTempPath()).Read(path));
+		Assert.Equal(new WorkflowFileRead.Unreadable("not a file path inside the worktree or run documents directory"),
+			new WorkflowFileReader(new FailingFileSystem("unexpected"), Path.GetTempPath()).Read(path, Path.Combine(Path.GetTempPath(), "documents")));
 
 	private sealed class FailingFileSystem(string failure) : IFileSystem {
 		public bool TryReadAllText(string path, out string contents) => throw failure switch {

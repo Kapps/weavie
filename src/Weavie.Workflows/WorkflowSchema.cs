@@ -28,10 +28,10 @@ public static partial class WorkflowSchema {
 		const string nameHint = "a letter followed by letters or digits";
 		string[] inputTypes = [.. ValueTypes, .. ValueTypes.Select(t => t + "?")];
 		var outputs = new MapShape(
-			"Typed values the step must report when it completes, by name.",
+			"Typed values the step must report when it completes, by name. Files must be worktree-relative or absolute within {{run.documents}}.",
 			NamePattern(), nameHint, new EnumShape("The value's type.", ValueTypes));
 		var work = new ObjectShape("The work step: a prompt, or a skill run as its real slash command.", [
-			new("prompt", new TextShape("Instruction text sent as the stage's turn; may use {{…}} references."), false),
+			new("prompt", new TextShape("Instruction text sent as the stage's turn; references: {{inputs.name}}, {{stage.output}}, {{run.documents}} (shared documents directory)."), false),
 			new("skill", new TextShape(
 				"A skill or slash command the agent already has, without the leading slash.",
 				NativeIdPattern(), "a skill name without the leading slash"), false),
@@ -77,7 +77,7 @@ public static partial class WorkflowSchema {
 			confidence,
 		]);
 		var stage = new ObjectShape("One stage of the run.", [
-			new("id", new TextShape("Unique within the workflow.", IdPattern(), idHint), true),
+			new("id", new TextShape("Unique within the workflow; run is reserved for built-in references.", IdPattern(), idHint), true),
 			new("if", condition, false),
 			new("run", work, true),
 			new("then", new TextOrObjectShape(

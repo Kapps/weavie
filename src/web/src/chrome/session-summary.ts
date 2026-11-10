@@ -22,10 +22,7 @@ export function sessionGroup(session: RailSession): SessionGroup {
   if (!session.loaded) {
     return "parked";
   }
-  if (
-    session.reloadRequired !== null ||
-    (session.run !== null && RUN_NEEDS_USER.has(session.run.state))
-  ) {
+  if (session.reloadRequired !== null) {
     return "needs";
   }
   switch (loadedState(session)) {
@@ -48,9 +45,6 @@ export function panelOrder(sessions: RailSession[]): RailSession[] {
   return [...sessions].sort((a, b) => rank(a) - rank(b));
 }
 
-// A run waiting on the user's answer or paused for them needs them; an idle agent asking a question doesn't move.
-const RUN_NEEDS_USER: ReadonlySet<SessionRunState> = new Set(["needsAnswer", "paused"]);
-
 const RUN_PHRASE: Record<SessionRunState, string> = {
   working: "working",
   waitingOnYou: "waiting on you",
@@ -61,19 +55,19 @@ const RUN_PHRASE: Record<SessionRunState, string> = {
   stalled: "stalled",
 };
 
-const RUN_DOT_COLOR: Record<SessionRunState, string> = {
-  working: "var(--busy)",
-  waitingOnYou: "var(--ok)",
-  needsAnswer: "var(--warn)",
-  watching: "var(--busy)",
-  deciding: "var(--busy)",
-  paused: "var(--warn)",
-  stalled: "var(--bad)",
+const RUN_STATUS: Record<SessionRunState, SessionStatusName> = {
+  working: "working",
+  waitingOnYou: "needsInput",
+  needsAnswer: "needsInput",
+  watching: "waiting",
+  deciding: "working",
+  paused: "needsInput",
+  stalled: "error",
 };
 
-/** The CSS color of a run's header dot. */
-export function runDotColor(state: SessionRunState): string {
-  return RUN_DOT_COLOR[state];
+/** A workflow's status, shared by the session indicators and its pane header. */
+export function runStatus(state: SessionRunState): SessionStatusName {
+  return RUN_STATUS[state];
 }
 
 /** A run's header tooltip: workflow, stage and state, then its reason on a second line when it has one. */
@@ -83,8 +77,14 @@ export function runTooltip(run: SessionRun): string {
   return run.reason === "" ? summary : `${summary}\n${run.reason}`;
 }
 
-/** A loaded session's state: its status, with an unseen finished turn told apart from plain idle. */
+/** A loaded session's state, including workflow attention and unseen completed turns. */
 function loadedState(session: RailSession): SessionStatusName | "finished" {
+  if (session.status === "error" || session.status === "needsInput") {
+    return session.status;
+  }
+  if (session.run !== null) {
+    return runStatus(session.run.state);
+  }
   return session.status === "idle" && session.unseen ? "finished" : session.status;
 }
 

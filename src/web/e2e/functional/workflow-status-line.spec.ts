@@ -135,10 +135,12 @@ test("the pane header shows the session's own run until it ends", async ({ page,
   const { surface, worktree } = await startTwoStep(page, weavie.workspace, branch, "two-step");
   const run = surface.locator(".pane-head .pane-run");
   const dot = run.locator(".session-status");
+  const sessionDot = page.locator(".session-chip.active .session-status");
 
   await expect(run).toHaveText("two-step · implement");
   await expect(run).toHaveAttribute("title", "two-step · implement · working");
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--busy"));
+  await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--busy"));
   await expect(dot).toHaveCSS("animation-name", "none");
   await expect(surface).toHaveClass(/\bactive\b/);
   const label = surface.locator(".pane-head .pane-label");
@@ -154,7 +156,8 @@ test("the pane header shows the session's own run until it ends", async ({ page,
 
   await writeFile(join(worktree, "release-hold"), "");
   await expect(run).toHaveAttribute("title", "two-step · implement · waiting on you");
-  await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--ok"));
+  await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
 
   await submitAcpDraft(
     surface,
@@ -169,6 +172,7 @@ test("the pane header shows the session's own run until it ends", async ({ page,
     `two-step · implement · needs your answer\n${question}`,
   );
   await expect(dot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
+  await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--warn"));
   await expect(dot).toHaveCSS("box-shadow", "none");
 
   await createAcpSession(page, "workflow-header-other");
@@ -191,6 +195,7 @@ test("the pane header shows the session's own run until it ends", async ({ page,
 
   await submitAcpDraft(surface, tool("completeStage", { outputs: {}, summary: "shipped" }));
   await expect(run).toHaveCount(0);
+  await expect(sessionDot).toHaveCSS("background-color", await tokenColor(page, "--dim"));
 });
 
 // Whether `locator`'s text is cut off, which its ellipsis then marks.

@@ -3,11 +3,12 @@ import type { SessionRun } from "../bridge";
 import type { RailSession } from "./session-store";
 import {
   panelOrder,
-  runDotColor,
+  runStatus,
   runTooltip,
   sessionDetail,
   sessionGroup,
   sessionSubtitle,
+  statusDot,
 } from "./session-summary";
 
 vi.mock("../commands/registry", () => ({ getKeybindings: () => [], onCommandsChanged: () => {} }));
@@ -51,7 +52,7 @@ describe("sessionGroup", () => {
     expect(sessionGroup(session({ loaded: false, status: "needsInput" }))).toBe("parked");
   });
 
-  it("puts a run awaiting an answer or paused under Needs you, but not an agent waiting for a reply", () => {
+  it("groups workflow attention consistently with its status icon", () => {
     const run = (state: SessionRun["state"]): SessionRun => ({
       id: "r",
       workflow: "quick-fix",
@@ -62,7 +63,18 @@ describe("sessionGroup", () => {
     });
     expect(sessionGroup(session({ run: run("needsAnswer") }))).toBe("needs");
     expect(sessionGroup(session({ run: run("paused") }))).toBe("needs");
-    expect(sessionGroup(session({ run: run("waitingOnYou") }))).toBe("idle");
+    expect(sessionGroup(session({ run: run("waitingOnYou") }))).toBe("needs");
+    expect(sessionGroup(session({ run: run("stalled") }))).toBe("needs");
+    for (const state of ["needsAnswer", "paused", "waitingOnYou"] as const) {
+      expect(statusDot(session({ run: run(state), unseen: true }))).toBe("needsInput");
+    }
+    expect(statusDot(session({ run: run("watching") }))).toBe("waiting");
+    expect(statusDot(session({ run: run("deciding") }))).toBe("working");
+    expect(statusDot(session({ status: "error", run: run("working") }))).toBe("error");
+    expect(statusDot(session({ status: "needsInput", run: run("working") }))).toBe("needsInput");
+    expect(statusDot(session({ reloadRequired: "Reload", run: run("working") }))).toBe("error");
+    expect(statusDot(session({ loaded: false, run: run("needsAnswer") }))).toBe("unloaded");
+    expect(statusDot(session({ offline: true, run: run("needsAnswer") }))).toBe("offline");
     expect(sessionGroup(session({ status: "working", run: run("working") }))).toBe("working");
     expect(sessionGroup(session({ loaded: false, run: run("needsAnswer") }))).toBe("parked");
   });
@@ -153,12 +165,14 @@ describe("sessionSubtitle", () => {
 });
 
 describe("run header", () => {
-  it("colors the dot by whether the run needs the user", () => {
-    const colors = (states: SessionRun["state"][]): string[] => states.map(runDotColor);
-    expect(colors(["working", "deciding", "watching"])).toEqual(Array(3).fill("var(--busy)"));
-    expect(runDotColor("waitingOnYou")).toBe("var(--ok)");
-    expect(colors(["needsAnswer", "paused"])).toEqual(Array(2).fill("var(--warn)"));
-    expect(runDotColor("stalled")).toBe("var(--bad)");
+  it("maps workflow progress and user attention to shared session statuses", () => {
+    expect(runStatus("working")).toBe("working");
+    expect(runStatus("deciding")).toBe("working");
+    expect(runStatus("watching")).toBe("waiting");
+    for (const state of ["waitingOnYou", "needsAnswer", "paused"] as const) {
+      expect(runStatus(state)).toBe("needsInput");
+    }
+    expect(runStatus("stalled")).toBe("error");
   });
 
   it("spells out the run with its stage's own agent, adding its reason on a second line", () => {

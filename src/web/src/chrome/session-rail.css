@@ -166,7 +166,7 @@
   background: var(--list-hover-bg);
 }
 /* A session's status dot, shared by the rail, the session panel, the title bar, and the pane footer
-   (idle = calm green, finished = haloed green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
+   (idle = neutral, finished = haloed green, working = pulsing busy, needsInput = amber, error = red, unloaded = hollow ring). */
 .session-status {
   --status-color: var(--dim);
   width: 8px;
@@ -175,9 +175,6 @@
   box-sizing: border-box;
   border-radius: 50%;
   background: var(--status-color);
-}
-.session-status.status-idle {
-  --status-color: var(--ok);
 }
 .session-status.status-finished {
   --status-color: var(--ok);
@@ -201,6 +198,10 @@
 .session-status.status-starting {
   --status-color: var(--busy);
   opacity: 0.6;
+}
+.pane-run .session-status {
+  animation: none;
+  box-shadow: none;
 }
 .session-status.status-unloaded {
   background: transparent;

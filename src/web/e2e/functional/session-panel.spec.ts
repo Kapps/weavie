@@ -122,6 +122,7 @@ test("hover and Ctrl+E expand the rail; arrows switch; pinning docks the panel a
   await page.reload();
   await expect(pinned).toBeVisible();
   expect((await pinned.boundingBox())?.width ?? 0).toBeCloseTo(resized, 0);
+  await page.keyboard.press("Escape");
   // Pinned, Escape hands focus back instead of closing anything.
   await page.locator(".xterm:visible").first().click();
   await page.keyboard.press("ControlOrMeta+e");

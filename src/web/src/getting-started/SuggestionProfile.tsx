@@ -34,11 +34,11 @@ export function SuggestionProfile(props: {
     });
   };
   return (
-    <section class="gs-profile" classList={{ "gs-disabled": props.disabled }}>
-      <p class="gs-profile-head">
-        <strong>Runs on</strong>
-        <small>Separate from your chat, so it never changes the model you chat with.</small>
-      </p>
+    <section class="gs-row gs-profile" classList={{ "gs-disabled": props.disabled }}>
+      <div class="gs-text">
+        <strong>Suggestion model</strong>
+        <small>Choose the agent and model for suggestions.</small>
+      </div>
       <fieldset class="gs-bar" aria-label="Suggestion agent and model" disabled={props.disabled}>
         <For each={choices()?.axes}>
           {(axis) => (

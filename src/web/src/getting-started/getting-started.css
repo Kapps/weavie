@@ -69,14 +69,19 @@
   color: var(--dim);
 }
 
-/* Body: a fixed height so the dialog never jumps between steps; long content scrolls inside it. */
+/* Catalog steps scroll; settings keep their controls visible in full. */
 
 .gs-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 17rem;
+  height: 272px;
   overflow-y: auto;
+}
+
+.gs-body:has(.gs-row) {
+  height: auto;
+  min-height: 272px;
 }
 
 .gs-text {
@@ -301,7 +306,7 @@ fieldset.gs-choices {
   transition: opacity 0.15s ease;
 }
 
-.gs-row .gs-text {
+.gs-row label.gs-text {
   cursor: pointer;
 }
 
@@ -489,20 +494,9 @@ fieldset.gs-choices {
 /* Smart suggestions: what they run on, one bar of pickers echoing the agent status line. */
 
 .gs-profile {
-  display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding: 10px 14px;
-  background: var(--gs-surface);
-  border-radius: 10px;
-}
-
-.gs-profile-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 8px;
-  margin: 0;
 }
 
 .gs-bar {

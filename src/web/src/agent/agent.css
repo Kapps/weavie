@@ -138,13 +138,7 @@
   overflow-anchor: none;
   overscroll-behavior-x: none;
   padding: 0;
-  background:
-    radial-gradient(
-      90% 70% at 0% 0%,
-      color-mix(in srgb, var(--accent) 7%, transparent),
-      transparent 58%
-    ),
-    var(--bg);
+  background: var(--bg);
   color: var(--fg);
 }
 

@@ -3,6 +3,7 @@ import { expect, test } from "../harness/fixtures";
 test.use({ automaticInference: true, dismissStartupTip: false });
 
 test("startup shows one timed tip in the top-center toast surface @cross", async ({ page }) => {
+  await page.keyboard.press("Escape");
   const tip = page.locator(".toast", { hasText: "Tip:" });
   await tip.hover();
   await expect(tip).toHaveCount(1);

@@ -170,6 +170,7 @@ export async function runCommand(page: Page, title: string): Promise<void> {
 export async function dismissAutomaticInferenceOffer(page: Page): Promise<void> {
   const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
   await expect(offer).toBeVisible();
+  await page.keyboard.press("Escape");
   await offer.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(offer).toHaveCount(0);
 }

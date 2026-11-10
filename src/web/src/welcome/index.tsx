@@ -8,7 +8,6 @@ import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "../styles.css";
 import "../primitives.css";
-import "../editor/confirm-dialog.css";
 import "../chrome/session-prompt.css";
 import "./welcome.css";
 

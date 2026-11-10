@@ -59,6 +59,7 @@ import {
   selectedChoicePicker,
   selectedCredentialPrompt,
 } from "./chrome/host-asks";
+import { createInitialFileSearch } from "./chrome/initial-file-search";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { installNativeApplicationMenu } from "./chrome/native-application-menu";
@@ -281,6 +282,7 @@ export default function App(): JSX.Element {
   onCleanup(() => deferredFocus.dispose());
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
+  createInitialFileSearch(compact);
   const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
   const mobileHistory = createMobileHistory(compact);
   const mobileSurface = mobileHistory.surface;

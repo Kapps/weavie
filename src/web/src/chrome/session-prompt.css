@@ -1,4 +1,4 @@
-/* Shared prompt fields and typeaheads. Loads after editor/confirm-dialog.css. */
+/* Shared prompt fields and typeaheads inside ModalShell. */
 .session-prompt {
   width: min(496px, 92vw);
 }

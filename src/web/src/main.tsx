@@ -43,7 +43,6 @@ import "./chrome/resize-frame.css";
 import "./chrome/middle-click-autoscroll.css";
 import "./notify/notify.css";
 import "./notify/suggestions.css";
-import "./editor/confirm-dialog.css";
 import "./chrome/session-prompt.css";
 import "./mobile/mobile.css";
 import "./mobile/session-inbox.css";

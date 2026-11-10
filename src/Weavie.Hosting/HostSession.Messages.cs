@@ -153,10 +153,8 @@ public sealed partial class HostSession {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;
 		});
-		messages.Handle("setControl", MessageActivity.ActionFailed("Changing an agent setting"), WireJson.Default.AgentControlMessage, (message, _) => {
-			Agent.Controls?.SetControl(message.Axis, message.Value);
-			return Task.CompletedTask;
-		});
+		messages.Handle("setControl", MessageActivity.ActionFailed("Changing an agent setting"), WireJson.Default.AgentControlMessage,
+			(message, _) => SetAgentControlAsync(message.Axis, message.Value));
 		messages.Handle("permission", MessageActivity.ActionFailed("Answering a permission request"), WireJson.Default.AgentDecisionMessage, (message, _) => {
 			Agent.Structured?.ResolvePermission(message.RequestId, message.OptionId);
 			return Task.CompletedTask;

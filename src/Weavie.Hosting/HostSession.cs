@@ -229,6 +229,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		WorkflowCatalog = WeavieWorkflows.Catalog(workspaceRoot);
 		_workflowTurns = CreateWorkflowTurns();
+		_workflowRelease = CreateWorkflowRelease();
 		Workflow = CreateWorkflowRunner(fileSystem, settings, decider, workspaceRoot);
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
@@ -296,6 +297,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer => _ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		WireMessages(inputFrozen, acceptTerminalInput);
+		WireWorkflowHold();
 		Workflow.Activate();
 	}
 

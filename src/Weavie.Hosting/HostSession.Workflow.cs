@@ -54,12 +54,11 @@ public sealed partial class HostSession {
 		_workflowTurns.Queue(kickoff);
 	}
 
-	private Task SendWorkflowTurn(WorkflowKickoff kickoff) {
+	private async Task SendWorkflowTurn(WorkflowKickoff kickoff) {
+		if (kickoff.Opens.Length > 0) await OpenStageAsync(kickoff).ConfigureAwait(false);
 		if (Workflow.TryClaimKickoff(kickoff)) {
 			SendAgentInput(kickoff.Submission());
 		}
-
-		return Task.CompletedTask;
 	}
 
 	private void FailWorkflowTurn(Exception ex) {
@@ -73,10 +72,11 @@ public sealed partial class HostSession {
 
 	private void MarkRuntimeActivated() => Volatile.Write(ref _runtimeActivated, 1);
 
-	// The runner closes first, so nothing queues a turn after the delivery is gone.
+	// The runner closes first, so nothing queues a turn or a release after the deliveries are gone.
 	private void DisposeWorkflow() {
 		Workflow.Dispose();
 		_workflowTurns.Dispose();
+		_workflowRelease.Dispose();
 	}
 
 	private sealed class WorkflowPort(HostSession session) : IWorkflowRunPort {
@@ -84,16 +84,11 @@ public sealed partial class HostSession {
 
 		public void Notify(string message) => session.Notify("warn", message);
 
-		public string? Refusal(WorkflowDefinition definition) => null;
+		public string? Refusal(WorkflowDefinition definition) => WorkflowAgentControls.Refusal(
+			definition, session.Agent.Provider, session.Agent.Controls?.ControlState is { Ready: true } state ? state.Axes : null);
 	}
 
 	private sealed class WorkflowTurnContext(HostSession session) : IAgentTurnContext {
 		public string Compose() => session.Workflow.StageBlock();
-	}
-
-	// A finished run's hold is inert: whatever reopens the conversation then is already on the user's own values.
-	private sealed class WorkflowControlHold(HostSession session) : IAgentControlHold {
-		public IReadOnlyDictionary<string, string> Values() =>
-			session.Workflow.Current is { IsFinished: false, Hold: { } hold } ? hold.Held : [];
 	}
 }

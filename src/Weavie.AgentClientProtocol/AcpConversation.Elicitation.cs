@@ -9,6 +9,10 @@ internal sealed partial class AcpConversation {
 	private static readonly JsonElement EmptyArray = JsonDocument.Parse("[]").RootElement;
 
 	private JsonObject RequestInput(AcpClientRequest request, AcpClientRequestState state) {
+		lock (_turnTransitionGate) return RequestInputSerialized(request, state);
+	}
+
+	private JsonObject RequestInputSerialized(AcpClientRequest request, AcpClientRequestState state) {
 		string mode = RequiredString(request.Parameters, "mode", "elicitation request");
 		if (mode == "url") {
 			string elicitationId = RequiredString(request.Parameters, "elicitationId", "URL elicitation");
